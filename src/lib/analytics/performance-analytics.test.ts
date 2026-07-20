@@ -1,3 +1,5 @@
+import { PerformanceTimings } from 'lib/miden/analytics-types';
+
 import {
   PERFORMANCE_STORAGE_KEY,
   MIN_RECORDS_FOR_PERFORMANCE_ANALYTICS,
@@ -5,7 +7,6 @@ import {
   getLastPerformanceSent,
   sendScanPerformanceEvent
 } from './performance-analytics';
-import { PerformanceTimings } from 'lib/miden/analytics-types';
 
 const SEVEN_DAYS_MS = 1000 * 60 * 60 * 24 * 7;
 const timings: PerformanceTimings = { scan: 42 };
@@ -36,11 +37,9 @@ describe('performance-analytics', () => {
     });
 
     it('swallows errors thrown by localStorage.setItem', () => {
-      const setItemSpy = jest
-        .spyOn(Storage.prototype, 'setItem')
-        .mockImplementation(() => {
-          throw new Error('quota exceeded');
-        });
+      const setItemSpy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('quota exceeded');
+      });
 
       // Should not throw despite setItem blowing up.
       expect(() => setLastPerformanceSent(999)).not.toThrow();
@@ -80,10 +79,7 @@ describe('performance-analytics', () => {
     });
 
     it('does nothing when analytics is present but disabled', async () => {
-      localStorage.setItem(
-        'analytics',
-        JSON.stringify({ userId: 'u1', enabled: false })
-      );
+      localStorage.setItem('analytics', JSON.stringify({ userId: 'u1', enabled: false }));
 
       await sendScanPerformanceEvent('scan', timings);
 
@@ -94,10 +90,7 @@ describe('performance-analytics', () => {
       const now = 1_000_000_000_000;
       jest.spyOn(Date, 'now').mockReturnValue(now);
 
-      localStorage.setItem(
-        'analytics',
-        JSON.stringify({ userId: 'u1', enabled: true })
-      );
+      localStorage.setItem('analytics', JSON.stringify({ userId: 'u1', enabled: true }));
       // Sent one second ago -> well within the 7-day window.
       const recent = now - 1000;
       localStorage.setItem(PERFORMANCE_STORAGE_KEY, JSON.stringify(recent));
@@ -111,10 +104,7 @@ describe('performance-analytics', () => {
       const now = 2_000_000_000_000;
       jest.spyOn(Date, 'now').mockReturnValue(now);
 
-      localStorage.setItem(
-        'analytics',
-        JSON.stringify({ userId: 'u1', enabled: true })
-      );
+      localStorage.setItem('analytics', JSON.stringify({ userId: 'u1', enabled: true }));
       // Sent more than 7 days ago.
       const old = now - SEVEN_DAYS_MS - 1;
       localStorage.setItem(PERFORMANCE_STORAGE_KEY, JSON.stringify(old));
@@ -128,10 +118,7 @@ describe('performance-analytics', () => {
       const now = 3_000_000_000_000;
       jest.spyOn(Date, 'now').mockReturnValue(now);
 
-      localStorage.setItem(
-        'analytics',
-        JSON.stringify({ userId: 'u1', enabled: true })
-      );
+      localStorage.setItem('analytics', JSON.stringify({ userId: 'u1', enabled: true }));
 
       await sendScanPerformanceEvent('scan', timings);
 
@@ -150,10 +137,7 @@ describe('performance-analytics', () => {
           throw new Error('clock failure');
         });
 
-      localStorage.setItem(
-        'analytics',
-        JSON.stringify({ userId: 'u1', enabled: true })
-      );
+      localStorage.setItem('analytics', JSON.stringify({ userId: 'u1', enabled: true }));
 
       await sendScanPerformanceEvent('scan', timings);
 

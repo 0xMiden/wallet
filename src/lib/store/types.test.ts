@@ -22,6 +22,10 @@
 //     import below is type-only and erased.
 import './types';
 
+import type { TokenPrices } from 'lib/prices/binance';
+import { WalletStatus } from 'lib/shared/types';
+import { WalletType } from 'screens/onboarding/types';
+
 import type {
   WalletSlice,
   BalancesSlice,
@@ -42,10 +46,6 @@ import type {
   ExtensionSyncActions,
   WalletStore
 } from './types';
-import type { TokenPrices } from 'lib/prices/binance';
-
-import { WalletStatus } from 'lib/shared/types';
-import { WalletType } from 'screens/onboarding/types';
 
 /** Assert every named key on `obj` is a callable function and nothing else. */
 function expectAllFunctions(obj: Record<string, unknown>, keys: string[]) {
@@ -316,10 +316,11 @@ describe('lib/store/types', () => {
         fetchBalances: jest.fn(),
         setBalancesLoading: jest.fn()
       } as unknown as BalanceActions;
-      expectAllFunctions(actions as unknown as Record<string, unknown>, [
-        'fetchBalances',
-        'setBalancesLoading'
-      ]);
+      expectAllFunctions(actions as unknown as Record<string, unknown>, ['fetchBalances', 'setBalancesLoading']);
+
+      // Exercise a representative signature so the contract is not merely structural.
+      actions.setBalancesLoading('addr', true);
+      expect(actions.setBalancesLoading).toHaveBeenCalledWith('addr', true);
     });
 
     it('AssetActions declares metadata setters/fetchers', () => {
@@ -327,10 +328,11 @@ describe('lib/store/types', () => {
         setAssetsMetadata: jest.fn(),
         fetchAssetMetadata: jest.fn()
       } as unknown as AssetActions;
-      expectAllFunctions(actions as unknown as Record<string, unknown>, [
-        'setAssetsMetadata',
-        'fetchAssetMetadata'
-      ]);
+      expectAllFunctions(actions as unknown as Record<string, unknown>, ['setAssetsMetadata', 'fetchAssetMetadata']);
+
+      // Exercise a representative signature so the contract is not merely structural.
+      actions.setAssetsMetadata({});
+      expect(actions.setAssetsMetadata).toHaveBeenCalledWith({});
     });
 
     it('FiatCurrencyActions declares fiat setters/fetchers', () => {
@@ -346,11 +348,19 @@ describe('lib/store/types', () => {
         'fetchFiatRates',
         'setTokenPrices'
       ]);
+
+      // Exercise a representative signature so the contract is not merely structural.
+      actions.setFiatRates(null);
+      expect(actions.setFiatRates).toHaveBeenCalledWith(null);
     });
 
     it('SyncActions declares the sync-status setter', () => {
       const actions = { setSyncStatus: jest.fn() } as unknown as SyncActions;
       expectAllFunctions(actions as unknown as Record<string, unknown>, ['setSyncStatus']);
+
+      // Exercise a representative signature so the contract is not merely structural.
+      actions.setSyncStatus(true);
+      expect(actions.setSyncStatus).toHaveBeenCalledWith(true);
     });
 
     it('TransactionModalActions declares modal + dApp-session controls', () => {
@@ -392,6 +402,10 @@ describe('lib/store/types', () => {
         'removeExtensionClaimingNoteIds',
         'clearExtensionClaimingNoteIds'
       ]);
+
+      // Exercise a representative signature so the contract is not merely structural.
+      actions.addExtensionClaimingNoteId('n1');
+      expect(actions.addExtensionClaimingNoteId).toHaveBeenCalledWith('n1');
     });
 
     it('NoteToastActions declares toast controls', () => {
@@ -405,6 +419,10 @@ describe('lib/store/types', () => {
         'dismissNoteToast',
         'resetSeenNotes'
       ]);
+
+      // Exercise a representative signature so the contract is not merely structural.
+      actions.checkForNewNotes(['n1']);
+      expect(actions.checkForNewNotes).toHaveBeenCalledWith(['n1']);
     });
   });
 

@@ -2,6 +2,12 @@ import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
+import { IconName } from 'app/icons/v2';
+import { goBack } from 'lib/woozie';
+
+import { EarnFlowHeader, MetricCard, EarnSummaryPanel, ProviderLogo, PositionLogo } from './components';
+import { EarnSummary, EarnVault } from './types';
+
 // `components.tsx` imports the Aave logo as `...aave.svg?url`. The `?url` query
 // suffix means it does NOT match the `\.svg$` asset mapper (which anchors on a
 // trailing `.svg`), and the `^app/` path mapper would point at a non-existent
@@ -50,12 +56,6 @@ jest.mock('components/TokenLogo', () => ({
     <div data-testid="token-logo" data-symbol={symbol} data-size={size} className={className} />
   )
 }));
-
-import { IconName } from 'app/icons/v2';
-import { goBack } from 'lib/woozie';
-
-import { EarnFlowHeader, MetricCard, EarnSummaryPanel, ProviderLogo, PositionLogo } from './components';
-import { EarnSummary, EarnVault } from './types';
 
 const mockGoBack = goBack as jest.Mock;
 
@@ -163,9 +163,7 @@ describe('EarnSummaryPanel', () => {
   });
 
   it('links the section to the heading via titleId and applies className', () => {
-    const { container } = render(
-      <EarnSummaryPanel summary={SUMMARY} titleId="my-title-id" className="panel-class" />
-    );
+    const { container } = render(<EarnSummaryPanel summary={SUMMARY} titleId="my-title-id" className="panel-class" />);
 
     const section = container.querySelector('section') as HTMLElement;
     expect(section).toHaveAttribute('aria-labelledby', 'my-title-id');

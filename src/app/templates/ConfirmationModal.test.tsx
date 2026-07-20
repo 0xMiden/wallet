@@ -22,7 +22,11 @@ jest.mock('app/templates/ModalWithTitle', () => ({
     const { children, ...rest } = props;
     modalProps = rest;
     return (
-      <div data-testid="modal-with-title" data-title={String(rest.title ?? '')} data-is-open={String(rest.isOpen ?? '')}>
+      <div
+        data-testid="modal-with-title"
+        data-title={String(rest.title ?? '')}
+        data-is-open={String(rest.isOpen ?? '')}
+      >
         {children}
       </div>
     );
@@ -53,15 +57,7 @@ jest.mock('app/atoms/FormSecondaryButton', () => ({
 
 jest.mock('app/atoms/FormSubmitButton', () => ({
   __esModule: true,
-  default: ({
-    onClick,
-    children,
-    type
-  }: {
-    onClick?: () => void;
-    children?: React.ReactNode;
-    type?: string;
-  }) => (
+  default: ({ onClick, children, type }: { onClick?: () => void; children?: React.ReactNode; type?: string }) => (
     <button data-testid="ok-button" data-type={type} onClick={onClick}>
       {children}
     </button>

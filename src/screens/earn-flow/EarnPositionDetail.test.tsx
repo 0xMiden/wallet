@@ -2,6 +2,10 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { goBack } from 'lib/woozie';
+
+import EarnPositionDetail from './EarnPositionDetail';
+
 // `EarnPositionDetail` renders a recharts `<AreaChart>` inside `ChartContainer`.
 // Under jsdom the real `ResponsiveContainer` measures a zero-size box and
 // renders nothing, and the chart's render-prop callbacks (the `<Tooltip>`
@@ -159,10 +163,6 @@ jest.mock('./data', () => ({
     vaults: []
   }
 }));
-
-import { goBack } from 'lib/woozie';
-
-import EarnPositionDetail from './EarnPositionDetail';
 
 const mockGoBack = goBack as jest.Mock;
 

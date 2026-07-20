@@ -2,8 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { BottomNav, BottomNavItem } from './BottomNav';
-import BottomNavDefault from './BottomNav';
+import BottomNavDefault, { BottomNav, BottomNavItem } from './BottomNav';
 
 const items: BottomNavItem[] = [
   { id: 'home', label: 'Home', icon: <svg data-testid="icon-home" /> },

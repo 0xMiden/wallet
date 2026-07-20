@@ -2,8 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
-import { navigate } from 'lib/woozie';
 import { hapticSelection } from 'lib/mobile/haptics';
+import { navigate } from 'lib/woozie';
 
 import TabLayout from './TabLayout';
 
@@ -83,13 +83,11 @@ jest.mock('app/layouts/HomeSwipeContainer', () => ({
 // `initial` prop (false = slide-in skipped, object = slide-in) for assertions.
 jest.mock('framer-motion', () => ({
   motion: {
-    div: React.forwardRef(
-      ({ children, initial, animate, transition, ...props }: any, ref: any) => (
-        <div ref={ref} data-testid="motion-div" data-initial={JSON.stringify(initial)} {...props}>
-          {children}
-        </div>
-      )
-    )
+    div: React.forwardRef(({ children, initial, animate, transition, ...props }: any, ref: any) => (
+      <div ref={ref} data-testid="motion-div" data-initial={JSON.stringify(initial)} {...props}>
+        {children}
+      </div>
+    ))
   }
 }));
 

@@ -1,8 +1,6 @@
 /* eslint-disable import/first */
 import { act, renderHook } from '@testing-library/react';
 
-import type { ConnectivityStateSnapshot } from './connectivity-state';
-
 // ---------------------------------------------------------------------------
 // Storage module mock.
 //
@@ -28,6 +26,7 @@ import {
   CONNECTIVITY_CATEGORIES,
   CONNECTIVITY_STATE_KEY,
   ConnectivityCategory,
+  ConnectivityStateSnapshot,
   getConnectivityState,
   markConnectivityIssue,
   resetConnectivityState

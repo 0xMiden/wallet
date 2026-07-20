@@ -2,6 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import TokenDetail from './TokenDetail';
+
 // ---------------------------------------------------------------------------
 // Mocks
 //
@@ -66,9 +68,7 @@ jest.mock('lib/swr', () => ({
 // Collapse the chart container to a passthrough so recharts' ResponsiveContainer
 // (which needs real layout) never mounts.
 jest.mock('lib/ui/charts', () => ({
-  ChartContainer: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="chart-container">{children}</div>
-  )
+  ChartContainer: ({ children }: { children: React.ReactNode }) => <div data-testid="chart-container">{children}</div>
 }));
 
 const mockGoBack = jest.fn();
@@ -131,7 +131,10 @@ jest.mock('recharts', () => ({
   Tooltip: ({
     content
   }: {
-    content: (arg: { active?: boolean; payload?: Array<{ payload: { value: number; time?: number } }> }) => React.ReactNode;
+    content: (arg: {
+      active?: boolean;
+      payload?: Array<{ payload: { value: number; time?: number } }>;
+    }) => React.ReactNode;
   }) => (
     <div data-testid="tooltip">
       <div data-testid="tt-active-time">
@@ -162,8 +165,6 @@ jest.mock('framer-motion', () => {
   return { __esModule: true, motion: new Proxy({}, { get: () => passthrough }) };
 });
 
-import TokenDetail from './TokenDetail';
-
 const TOKEN_ID = '0xabcdef1234567890';
 
 const mockWriteText = jest.fn();
@@ -187,10 +188,7 @@ function configure(o: Overrides = {}) {
   mockIsMobile.mockReturnValue(o.isMobile ?? false);
   mockUseAccount.mockReturnValue({ publicKey: 'pk-123' });
   mockUseAllBalances.mockReturnValue({
-    data:
-      o.balances === undefined
-        ? [{ tokenId: TOKEN_ID, balance: 12.5, metadata: { symbol: 'ETH' } }]
-        : o.balances
+    data: o.balances === undefined ? [{ tokenId: TOKEN_ID, balance: 12.5, metadata: { symbol: 'ETH' } }] : o.balances
   });
   mockUseAllTokensBaseMetadata.mockReturnValue(o.metadata ?? {});
   mockUseNetwork.mockReturnValue(o.network ?? { name: 'Testnet' });
@@ -375,12 +373,20 @@ describe('TokenDetail', () => {
       // 1H -> covers the `tf === '1H'` branch of formatTooltipTime on re-render.
       fireEvent.click(screen.getByRole('button', { name: '1H' }));
       expect(mockHapticSelection).toHaveBeenCalledTimes(1);
-      expect(mockUseRetryableSWR).toHaveBeenLastCalledWith(['kline', 'ETH', '1H'], expect.any(Function), expect.anything());
+      expect(mockUseRetryableSWR).toHaveBeenLastCalledWith(
+        ['kline', 'ETH', '1H'],
+        expect.any(Function),
+        expect.anything()
+      );
 
       // 1W -> covers the else branch of formatTooltipTime (dd MMM).
       fireEvent.click(screen.getByRole('button', { name: '1W' }));
       expect(mockHapticSelection).toHaveBeenCalledTimes(2);
-      expect(mockUseRetryableSWR).toHaveBeenLastCalledWith(['kline', 'ETH', '1W'], expect.any(Function), expect.anything());
+      expect(mockUseRetryableSWR).toHaveBeenLastCalledWith(
+        ['kline', 'ETH', '1W'],
+        expect.any(Function),
+        expect.anything()
+      );
 
       // Every timeframe chip is present.
       for (const tf of ['1H', '1D', '1W', '1M', 'YTD']) {

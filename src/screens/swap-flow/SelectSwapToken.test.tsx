@@ -71,9 +71,7 @@ const setTokens = (tokens: SwapToken[]) => {
 const renderDrawer = (overrides: Partial<React.ComponentProps<typeof SelectSwapTokenDrawer>> = {}) => {
   const onOpenChange = jest.fn();
   const onSelect = jest.fn();
-  const utils = render(
-    <SelectSwapTokenDrawer open onOpenChange={onOpenChange} onSelect={onSelect} {...overrides} />
-  );
+  const utils = render(<SelectSwapTokenDrawer open onOpenChange={onOpenChange} onSelect={onSelect} {...overrides} />);
   return { onOpenChange, onSelect, ...utils };
 };
 

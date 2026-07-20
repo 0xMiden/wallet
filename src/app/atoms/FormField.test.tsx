@@ -98,9 +98,7 @@ describe('FormField', () => {
   });
 
   it('applies container className / style to the root element', () => {
-    const { container } = render(
-      <FormField containerClassName="my-container" containerStyle={{ marginTop: 8 }} />
-    );
+    const { container } = render(<FormField containerClassName="my-container" containerStyle={{ marginTop: 8 }} />);
 
     const root = container.firstChild as HTMLElement;
     expect(root).toHaveClass('my-container');
@@ -388,9 +386,7 @@ describe('FormField', () => {
     });
 
     it('renders the inner component directly when useDefaultInnerWrapper is false', () => {
-      render(
-        <FormField useDefaultInnerWrapper={false} extraInner={<span data-testid="inner-bare">bare</span>} />
-      );
+      render(<FormField useDefaultInnerWrapper={false} extraInner={<span data-testid="inner-bare">bare</span>} />);
 
       const inner = screen.getByTestId('inner-bare');
       expect(inner).toBeInTheDocument();

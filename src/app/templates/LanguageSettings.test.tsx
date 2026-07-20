@@ -146,11 +146,9 @@ describe('LanguageSettings', () => {
 
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
     expect(trackEvent).toHaveBeenCalledTimes(1);
-    expect(trackEvent).toHaveBeenCalledWith(
-      AnalyticsEventEnum.LanguageChanged,
-      AnalyticsEventCategory.ButtonPress,
-      { code: 'de' }
-    );
+    expect(trackEvent).toHaveBeenCalledWith(AnalyticsEventEnum.LanguageChanged, AnalyticsEventCategory.ButtonPress, {
+      code: 'de'
+    });
     expect(mockUpdateLocale).toHaveBeenCalledWith('de');
     expect(onClose).toHaveBeenCalledTimes(1);
 
@@ -165,11 +163,9 @@ describe('LanguageSettings', () => {
 
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
     expect(mockUpdateLocale).toHaveBeenCalledWith('ja');
-    expect(trackEvent).toHaveBeenCalledWith(
-      AnalyticsEventEnum.LanguageChanged,
-      AnalyticsEventCategory.ButtonPress,
-      { code: 'ja' }
-    );
+    expect(trackEvent).toHaveBeenCalledWith(AnalyticsEventEnum.LanguageChanged, AnalyticsEventCategory.ButtonPress, {
+      code: 'ja'
+    });
   });
 
   it('re-selecting the already-active language still persists and closes', () => {

@@ -12,8 +12,7 @@ import { ReviewAmount, ReviewAmountProps } from './ReviewAmount';
 // ≈USD line's `t('approxFiatValue', { value })` is observable in the DOM.
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, opts?: { value?: string }) =>
-      opts && opts.value !== undefined ? `${key}|${opts.value}` : key
+    t: (key: string, opts?: { value?: string }) => (opts && opts.value !== undefined ? `${key}|${opts.value}` : key)
   })
 }));
 

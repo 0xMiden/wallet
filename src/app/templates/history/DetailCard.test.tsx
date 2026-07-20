@@ -2,7 +2,11 @@ import React from 'react';
 
 import { render, screen } from '@testing-library/react';
 
+import { ITransactionStatus } from 'lib/miden/db/types';
+
 import { ExternalLinkValue, StatusPill, DetailCard, DetailRow } from './DetailCard';
+
+// Pull the mocked enum back in with the same shape the component sees.
 
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
 // `t(key)` echoes `t:<key>` back and we can assert which label branch rendered.
@@ -49,9 +53,6 @@ jest.mock('lib/ui/DetailCard', () => ({
   }
 }));
 
-// Pull the mocked enum back in with the same shape the component sees.
-import { ITransactionStatus } from 'lib/miden/db/types';
-
 describe('DetailCard module re-exports', () => {
   it('re-exports DetailCard and DetailRow from lib/ui/DetailCard', () => {
     // The `export { DetailCard, DetailRow } from 'lib/ui/DetailCard'` line must
@@ -69,7 +70,10 @@ describe('DetailCard module re-exports', () => {
 describe('ExternalLinkValue', () => {
   it('renders the display value alongside an external anchor and forwarded Icon props', () => {
     const { container } = render(
-      <ExternalLinkValue displayValue={<span data-testid="disp">0xabc…def</span>} href="https://explorer.example/tx/1" />
+      <ExternalLinkValue
+        displayValue={<span data-testid="disp">0xabc…def</span>}
+        href="https://explorer.example/tx/1"
+      />
     );
 
     // Wrapper carries the layout/typography classes.

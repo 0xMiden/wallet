@@ -39,15 +39,7 @@ jest.mock('components/Chip', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({
-    title,
-    onClick,
-    disabled
-  }: {
-    title: string;
-    onClick?: () => void;
-    disabled?: boolean;
-  }) => (
+  Button: ({ title, onClick, disabled }: { title: string; onClick?: () => void; disabled?: boolean }) => (
     <button data-testid="continue" disabled={disabled} onClick={onClick}>
       {title}
     </button>
@@ -71,8 +63,7 @@ const clickWord = (index: number) => {
   fireEvent.click(chip.closest('button') as HTMLButtonElement);
 };
 
-const wordButtonSelected = (index: number) =>
-  screen.getByText(`w${index}`).getAttribute('data-selected');
+const wordButtonSelected = (index: number) => screen.getByText(`w${index}`).getAttribute('data-selected');
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -256,11 +247,7 @@ describe('VerifySeedPhraseScreen', () => {
     it('renders the biometric section and defaults the toggle to on', () => {
       const onBiometricChange = jest.fn();
       render(
-        <VerifySeedPhraseScreen
-          seedPhrase={SEED}
-          isHardwareSecurityAvailable
-          onBiometricChange={onBiometricChange}
-        />
+        <VerifySeedPhraseScreen seedPhrase={SEED} isHardwareSecurityAvailable onBiometricChange={onBiometricChange} />
       );
 
       expect(screen.getByText('unlockWallet')).toBeInTheDocument();
@@ -276,9 +263,7 @@ describe('VerifySeedPhraseScreen', () => {
     });
 
     it('reflects an explicit useBiometric=false value on the toggle', () => {
-      render(
-        <VerifySeedPhraseScreen seedPhrase={SEED} isHardwareSecurityAvailable useBiometric={false} />
-      );
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} isHardwareSecurityAvailable useBiometric={false} />);
 
       expect(screen.getByTestId('toggle')).toHaveAttribute('data-value', 'false');
     });

@@ -49,10 +49,10 @@ const Harness = ({ popup = defaultPopup, children = defaultTrigger, ...rest }: H
 );
 
 /**
- * `@floating-ui/react-dom` recomputes position asynchronously (a flushSync
- * dispatched off a microtask after mount / prop change). Flushing pending
- * microtasks inside `act` settles that update so React doesn't warn about a
- * state change outside `act`.
+ * The `floating-ui/react-dom` package recomputes position asynchronously (a
+ * flushSync dispatched off a microtask after mount / prop change). Flushing
+ * pending microtasks inside `act` settles that update so React doesn't warn
+ * about a state change outside `act`.
  */
 const flushFloating = async () => {
   await act(async () => {

@@ -1,9 +1,4 @@
-import {
-  POPUP_MODE_STORAGE_KEY,
-  DEFAULT_POPUP_MODE,
-  setPopupMode,
-  isPopupModeEnabled
-} from './index';
+import { POPUP_MODE_STORAGE_KEY, DEFAULT_POPUP_MODE, setPopupMode, isPopupModeEnabled } from './index';
 
 describe('popup-mode storage helpers', () => {
   beforeEach(() => {
@@ -30,17 +25,12 @@ describe('popup-mode storage helpers', () => {
     });
 
     it('swallows errors thrown by localStorage.setItem', () => {
-      const setItemSpy = jest
-        .spyOn(Storage.prototype, 'setItem')
-        .mockImplementation(() => {
-          throw new Error('quota exceeded');
-        });
+      const setItemSpy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('quota exceeded');
+      });
 
       expect(() => setPopupMode(true)).not.toThrow();
-      expect(setItemSpy).toHaveBeenCalledWith(
-        POPUP_MODE_STORAGE_KEY,
-        JSON.stringify(true)
-      );
+      expect(setItemSpy).toHaveBeenCalledWith(POPUP_MODE_STORAGE_KEY, JSON.stringify(true));
     });
   });
 

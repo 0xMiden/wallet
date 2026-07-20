@@ -2,6 +2,9 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
+// Imported after the mocks so the module graph is wired to the stubs.
+import { HistoryDetails } from './HistoryDetails';
+
 // ---------------------------------------------------------------------------
 // Mutable state the mocks read at call time (must be `mock`-prefixed for jest).
 // ---------------------------------------------------------------------------
@@ -127,9 +130,6 @@ jest.mock('./transactionUtils', () => ({
   formatDate: (timestamp: number | string) => `formatted:${timestamp}`
 }));
 
-// Imported after the mocks so the module graph is wired to the stubs.
-import { HistoryDetails } from './HistoryDetails';
-
 // ITransactionStatus.Completed === 2 (see lib/miden/db/types).
 const STATUS_COMPLETED = 2;
 
@@ -169,7 +169,9 @@ const renderAndLoad = async (props: { transactionId?: string } = {}) => {
 };
 
 const rowByLabel = (label: string) =>
-  Array.from(document.querySelectorAll('[data-testid="detail-row"]')).find(el => el.getAttribute('data-label') === label);
+  Array.from(document.querySelectorAll('[data-testid="detail-row"]')).find(
+    el => el.getAttribute('data-label') === label
+  );
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -301,7 +303,10 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       // 'Received': from = secondaryAccountId (acct-B), to = accountId (acct-A).
-      expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-B');
+      expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute(
+        'data-address',
+        'acct-B'
+      );
       expect(rowByLabel('to')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-A');
 
       // No external tx id row.
@@ -349,10 +354,7 @@ describe('HistoryDetails', () => {
         'you (Other)'
       );
       // 'acct-A' now matches no account → shown raw.
-      expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute(
-        'data-displayname',
-        ''
-      );
+      expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-displayname', '');
     });
   });
 

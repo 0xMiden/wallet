@@ -1,5 +1,3 @@
-import type { EarnPosition, EarnVault, EarnChartPoint } from './types';
-
 // `data.ts` has a single runtime export: the `EARN_DATA` constant. It is a
 // pure, static data module with no functions, hooks, or branches — importing
 // it evaluates every line. These tests lock the shape and the concrete values
@@ -7,18 +5,17 @@ import type { EarnPosition, EarnVault, EarnChartPoint } from './types';
 // malformed chart series) fail loudly, and they double as living
 // documentation of the earn-flow demo dataset.
 import { EARN_DATA } from './data';
-
 // Grab the whole namespace to assert the module's runtime export set is
 // exactly the one constant (no accidental runtime leakage).
 import * as earnData from './data';
+import type { EarnPosition, EarnVault, EarnChartPoint } from './types';
 
-const isNonEmptyString = (value: unknown): boolean =>
-  typeof value === 'string' && value.length > 0;
+const isNonEmptyString = (value: unknown): boolean => typeof value === 'string' && value.length > 0;
 
 const assertChartSeries = (chartData: EarnChartPoint[]): void => {
   expect(Array.isArray(chartData)).toBe(true);
   expect(chartData.length).toBeGreaterThan(0);
-  chartData.forEach((point) => {
+  chartData.forEach(point => {
     expect(Object.keys(point).sort()).toEqual(['label', 'value']);
     expect(isNonEmptyString(point.label)).toBe(true);
     expect(typeof point.value).toBe('number');
@@ -55,7 +52,7 @@ describe('earn-flow/data', () => {
         'totalDeposited',
         'totalRewards'
       ]);
-      Object.values(EARN_DATA.summary).forEach((value) => {
+      Object.values(EARN_DATA.summary).forEach(value => {
         expect(isNonEmptyString(value)).toBe(true);
       });
     });
@@ -65,7 +62,7 @@ describe('earn-flow/data', () => {
     it('contains exactly two positions with unique ids', () => {
       expect(Array.isArray(EARN_DATA.positions)).toBe(true);
       expect(EARN_DATA.positions).toHaveLength(2);
-      const ids = EARN_DATA.positions.map((p) => p.id);
+      const ids = EARN_DATA.positions.map(p => p.id);
       expect(ids).toEqual(['aave-usdc-1', 'aave-usdc-2']);
       expect(new Set(ids).size).toBe(ids.length);
     });
@@ -95,17 +92,17 @@ describe('earn-flow/data', () => {
     });
 
     it('every string field on each position is a non-empty string', () => {
-      EARN_DATA.positions.forEach((position) => {
+      EARN_DATA.positions.forEach(position => {
         const { chartData, ...stringFields } = position;
         void chartData;
-        Object.values(stringFields).forEach((value) => {
+        Object.values(stringFields).forEach(value => {
           expect(isNonEmptyString(value)).toBe(true);
         });
       });
     });
 
     it('every position carries a well-formed chart series', () => {
-      EARN_DATA.positions.forEach((position) => {
+      EARN_DATA.positions.forEach(position => {
         assertChartSeries(position.chartData);
         // The demo series all span the same 18-point Mar→Jun window.
         expect(position.chartData).toHaveLength(18);
@@ -146,7 +143,7 @@ describe('earn-flow/data', () => {
     it('contains exactly four vaults with unique ids', () => {
       expect(Array.isArray(EARN_DATA.vaults)).toBe(true);
       expect(EARN_DATA.vaults).toHaveLength(4);
-      const ids = EARN_DATA.vaults.map((v) => v.id);
+      const ids = EARN_DATA.vaults.map(v => v.id);
       expect(ids).toEqual([
         'aave-usdc-ethereum-1',
         'aave-usdc-ethereum-2',
@@ -176,26 +173,26 @@ describe('earn-flow/data', () => {
     });
 
     it('every vault string field is non-empty and audited is a boolean', () => {
-      EARN_DATA.vaults.forEach((vault) => {
+      EARN_DATA.vaults.forEach(vault => {
         const { chartData, audited, ...stringFields } = vault;
         void chartData;
         expect(typeof audited).toBe('boolean');
         expect(audited).toBe(true);
-        Object.values(stringFields).forEach((value) => {
+        Object.values(stringFields).forEach(value => {
           expect(isNonEmptyString(value)).toBe(true);
         });
       });
     });
 
     it('every vault carries a well-formed APY chart series', () => {
-      EARN_DATA.vaults.forEach((vault) => {
+      EARN_DATA.vaults.forEach(vault => {
         assertChartSeries(vault.chartData);
         expect(vault.chartData).toHaveLength(18);
         expect(vault.chartData[0].label).toBe('Mar 18');
         expect(vault.chartData.at(-1)?.label).toBe('Jun 28');
         // APY series are single-digit percentages, unlike the position
         // balance series which are in the thousands.
-        vault.chartData.forEach((point) => {
+        vault.chartData.forEach(point => {
           expect(point.value).toBeGreaterThan(0);
           expect(point.value).toBeLessThan(10);
         });
@@ -203,7 +200,7 @@ describe('earn-flow/data', () => {
     });
 
     it('shares the common Aave/USDC descriptive fields across every vault', () => {
-      EARN_DATA.vaults.forEach((vault) => {
+      EARN_DATA.vaults.forEach(vault => {
         expect(vault).toMatchObject({
           protocol: 'Aave',
           asset: 'USDC',
@@ -213,34 +210,30 @@ describe('earn-flow/data', () => {
           tvl: '$1.2B',
           risk: 'Low',
           audited: true,
-          about:
-            'Aave is a decentralized lending protocol with battle-tested smart contracts and over $12B TVL.'
+          about: 'Aave is a decentralized lending protocol with battle-tested smart contracts and over $12B TVL.'
         });
       });
     });
 
     it('gives each vault a distinct chart series', () => {
-      const series = EARN_DATA.vaults.map((v) => JSON.stringify(v.chartData));
+      const series = EARN_DATA.vaults.map(v => JSON.stringify(v.chartData));
       expect(new Set(series).size).toBe(series.length);
     });
   });
 
   describe('cross-section invariants', () => {
     it('positions and vaults share the same 18-point chart window labels', () => {
-      const positionLabels = EARN_DATA.positions[0].chartData.map((p) => p.label);
-      EARN_DATA.positions.forEach((position) => {
-        expect(position.chartData.map((p) => p.label)).toEqual(positionLabels);
+      const positionLabels = EARN_DATA.positions[0].chartData.map(p => p.label);
+      EARN_DATA.positions.forEach(position => {
+        expect(position.chartData.map(p => p.label)).toEqual(positionLabels);
       });
-      EARN_DATA.vaults.forEach((vault) => {
-        expect(vault.chartData.map((p) => p.label)).toEqual(positionLabels);
+      EARN_DATA.vaults.forEach(vault => {
+        expect(vault.chartData.map(p => p.label)).toEqual(positionLabels);
       });
     });
 
     it('every id across positions and vaults is globally unique', () => {
-      const allIds = [
-        ...EARN_DATA.positions.map((p) => p.id),
-        ...EARN_DATA.vaults.map((v) => v.id)
-      ];
+      const allIds = [...EARN_DATA.positions.map(p => p.id), ...EARN_DATA.vaults.map(v => v.id)];
       expect(new Set(allIds).size).toBe(allIds.length);
     });
   });

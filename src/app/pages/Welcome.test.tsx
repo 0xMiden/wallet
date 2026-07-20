@@ -2,7 +2,9 @@ import React from 'react';
 
 import { render, act } from '@testing-library/react';
 
-import { ImportType, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
+import { OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
+
+import Welcome from './Welcome';
 
 // ---------------------------------------------------------------------------
 // Welcome.tsx is the onboarding state machine: it owns every piece of in-memory
@@ -133,8 +135,6 @@ jest.mock('lib/settings/constants', () => ({
 jest.mock('lib/shared/types', () => ({
   WalletStatus: { Idle: 0, Locked: 1, Ready: 2 }
 }));
-
-import Welcome from './Welcome';
 
 const READY = 2;
 const IDLE = 0;
@@ -593,12 +593,7 @@ describe('Welcome — confirmation / register', () => {
     mockNavigate.mockClear();
     await dispatch({ id: 'confirmation' });
 
-    expect(mockRegisterWallet).toHaveBeenCalledWith(
-      WalletType.Guardian,
-      '123456',
-      expect.any(String),
-      false
-    );
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, '123456', expect.any(String), false);
     // Create flow triggers the verify-seed prompt.
     expect(mockSeedWalletPrompt).toHaveBeenCalledWith('verify-seed-phrase');
     expect(mockSyncFromBackend).toHaveBeenCalled();
@@ -639,12 +634,7 @@ describe('Welcome — confirmation / register', () => {
     await dispatch({ id: 'choose-guardian-submit', payload: { guardianEndpoint: 'https://g' } });
     mockNavigate.mockClear();
     await dispatch({ id: 'confirmation' });
-    expect(mockRegisterWallet).toHaveBeenCalledWith(
-      WalletType.Guardian,
-      undefined,
-      expect.any(String),
-      false
-    );
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, undefined, expect.any(String), false);
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
@@ -716,9 +706,7 @@ describe('Welcome — waitForReadyState resilience', () => {
   it('retries after a failed state fetch before Ready arrives', async () => {
     jest.useFakeTimers();
     try {
-      mockFetchState
-        .mockRejectedValueOnce(new Error('offline'))
-        .mockResolvedValue({ status: READY, accounts: [{}] });
+      mockFetchState.mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ status: READY, accounts: [{}] });
       await renderWelcome();
       await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
       mockNavigate.mockClear();

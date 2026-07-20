@@ -1,5 +1,10 @@
 import { format } from 'date-fns';
 
+import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { formatAmount } from 'lib/shared/format';
+
 import {
   fontColorForType,
   formatDate,
@@ -39,11 +44,6 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 jest.mock('lib/shared/format', () => ({
   formatAmount: jest.fn((amount: bigint, decimals: number | undefined) => `fmt(${amount},${decimals})`)
 }));
-
-import { getTokenMetadata } from 'lib/miden/metadata/utils';
-import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
-import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
-import { formatAmount } from 'lib/shared/format';
 
 const mockGetTokenMetadata = getTokenMetadata as jest.MockedFunction<typeof getTokenMetadata>;
 const mockGetSwapTokenByFaucetId = getSwapTokenByFaucetId as jest.MockedFunction<typeof getSwapTokenByFaucetId>;

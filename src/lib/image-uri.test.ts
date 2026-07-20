@@ -4,21 +4,15 @@ const MEDIA_HOST = 'https://static.tcinfra.net';
 
 describe('formatAssetUri', () => {
   it('rewrites ipfs:// URIs to the media host, stripping the scheme', () => {
-    expect(formatAssetUri('ipfs://QmHash/image.png')).toBe(
-      `${MEDIA_HOST}/media/small/ipfs/QmHash/image.png`
-    );
+    expect(formatAssetUri('ipfs://QmHash/image.png')).toBe(`${MEDIA_HOST}/media/small/ipfs/QmHash/image.png`);
   });
 
   it('rewrites http:// URLs to the web media path without the scheme', () => {
-    expect(formatAssetUri('http://example.com/a.png')).toBe(
-      `${MEDIA_HOST}/media/small/web/example.com/a.png`
-    );
+    expect(formatAssetUri('http://example.com/a.png')).toBe(`${MEDIA_HOST}/media/small/web/example.com/a.png`);
   });
 
   it('rewrites https:// URLs to the web media path without the scheme', () => {
-    expect(formatAssetUri('https://example.com/a.png')).toBe(
-      `${MEDIA_HOST}/media/small/web/example.com/a.png`
-    );
+    expect(formatAssetUri('https://example.com/a.png')).toBe(`${MEDIA_HOST}/media/small/web/example.com/a.png`);
   });
 
   it('returns chrome-extension URLs unchanged', () => {
@@ -51,9 +45,7 @@ describe('formatAssetUri', () => {
 
 describe('formatObjktSmallAssetUri', () => {
   it('builds the objkt thumb288 URL from an address_id slug', () => {
-    expect(formatObjktSmallAssetUri('KT1abc_42')).toBe(
-      'https://assets.objkt.media/file/assets-003/KT1abc/42/thumb288'
-    );
+    expect(formatObjktSmallAssetUri('KT1abc_42')).toBe('https://assets.objkt.media/file/assets-003/KT1abc/42/thumb288');
   });
 
   it('leaves the id segment undefined when the slug has no underscore', () => {

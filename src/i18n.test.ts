@@ -30,21 +30,7 @@ const loadI18n = (locale?: string): I18nInstance => {
 };
 
 // Every locale bundle wired into the `resources` map in i18n.ts.
-const EXPECTED_LANGUAGES = [
-  'de',
-  'en',
-  'es',
-  'fr',
-  'ja',
-  'ko',
-  'pl',
-  'pt',
-  'ru',
-  'tr',
-  'uk',
-  'zh-CN',
-  'zh-TW'
-];
+const EXPECTED_LANGUAGES = ['de', 'en', 'es', 'fr', 'ja', 'ko', 'pl', 'pt', 'ru', 'tr', 'uk', 'zh-CN', 'zh-TW'];
 
 describe('i18n', () => {
   afterEach(() => {

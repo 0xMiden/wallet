@@ -143,9 +143,7 @@ describe('SelectTransactionTypeScreen', () => {
   });
 
   it('forwards className and extra props onto the root element', () => {
-    const { container } = render(
-      <SelectTransactionTypeScreen className="my-custom-class" data-testid="root-node" />
-    );
+    const { container } = render(<SelectTransactionTypeScreen className="my-custom-class" data-testid="root-node" />);
 
     const root = container.firstChild as HTMLElement;
     expect(root).toHaveClass('my-custom-class');

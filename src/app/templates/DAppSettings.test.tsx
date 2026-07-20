@@ -158,9 +158,7 @@ describe('DAppSettings', () => {
     const links = screen.getAllByRole('link');
     expect(links).toHaveLength(2);
     // `mtst1account_ABCD`.split('_')[0] === 'mtst1account' (truthy branch).
-    links.forEach(link =>
-      expect(link).toHaveAttribute('href', 'https://testnet.midenscan.com/account/mtst1account')
-    );
+    links.forEach(link => expect(link).toHaveAttribute('href', 'https://testnet.midenscan.com/account/mtst1account'));
   });
 
   it('removes the session and revalidates when the confirm dialog is accepted', async () => {

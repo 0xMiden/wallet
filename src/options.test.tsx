@@ -105,9 +105,7 @@ describe('src/options.tsx', () => {
       fireEvent.click(getResetButton());
     });
 
-    expect(mockConfirm).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'actionConfirmation' })
-    );
+    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'actionConfirmation' }));
     // Give any (non-)scheduled follow-up work a chance to run.
     await Promise.resolve();
     expect(mockResetStorage).not.toHaveBeenCalled();

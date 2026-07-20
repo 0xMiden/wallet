@@ -103,9 +103,7 @@ describe('FormCheckbox', () => {
   });
 
   it('applies containerClassName and labelClassName', () => {
-    const { container } = render(
-      <FormCheckbox containerClassName="my-container" labelClassName="my-label" />
-    );
+    const { container } = render(<FormCheckbox containerClassName="my-container" labelClassName="my-label" />);
 
     expect(getRoot(container)).toHaveClass('flex', 'flex-col', 'my-container');
     expect(getLabel(container)).toHaveClass('p-4', 'my-label');

@@ -57,11 +57,6 @@ jest.mock('lib/props-with-children', () => ({}));
 // Structural wrappers — render their children straight through so the inner
 // tree is preserved and assertable.
 // ---------------------------------------------------------------------------
-const passthrough =
-  (testid?: string) =>
-  ({ children }: { children?: React.ReactNode }) =>
-    testid ? <div data-testid={testid}>{children}</div> : <>{children}</>;
-
 jest.mock('app/ErrorBoundary', () => ({
   __esModule: true,
   default: ({ children }: { children?: React.ReactNode }) => <>{children}</>

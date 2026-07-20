@@ -6,8 +6,7 @@ import type { TokenBalanceData } from 'lib/miden/front';
 import { getTokenPrice, useTokenSparkline } from 'lib/prices';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 
-import { AssetRow } from './AssetRow';
-import AssetRowDefault from './AssetRow';
+import AssetRowDefault, { AssetRow } from './AssetRow';
 
 // --- Mock the leaf UI dependencies so we can assert the exact props AssetRow
 // wires through to them, keeping the test focused on AssetRow's own logic.
@@ -17,16 +16,7 @@ jest.mock('components/TokenLogo', () => ({
 }));
 
 jest.mock('components/ui', () => ({
-  AssetListItem: ({
-    icon,
-    name,
-    amount,
-    chart,
-    price,
-    delta,
-    onClick,
-    'data-testid': dataTestId
-  }: any) => (
+  AssetListItem: ({ icon, name, amount, chart, price, delta, onClick, 'data-testid': dataTestId }: any) => (
     <div
       data-testid={dataTestId ?? 'asset-list-item'}
       data-name={name}

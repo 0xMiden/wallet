@@ -7,8 +7,7 @@ import { setCardColor, useCardColor } from 'lib/settings/card-color';
 import { CARD_COLORS } from 'lib/settings/constants';
 import { navigate } from 'lib/woozie';
 
-import { AccountsDrawer } from './AccountsDrawer';
-import AccountsDrawerDefault from './AccountsDrawer';
+import AccountsDrawerDefault, { AccountsDrawer } from './AccountsDrawer';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({

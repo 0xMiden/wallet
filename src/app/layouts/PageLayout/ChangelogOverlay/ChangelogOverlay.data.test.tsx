@@ -57,9 +57,9 @@ describe('ChangelogOverlay.data', () => {
     // entry must carry a string `version`, and any `data` present must be an array.
     for (const entry of changelogData) {
       expect(typeof entry.version).toBe('string');
-      if (entry.data !== undefined) {
-        expect(Array.isArray(entry.data)).toBe(true);
-      }
+      // `data` is optional, but when present it must be an array. Kept as a single
+      // unconditional assertion so it holds for every entry (present or absent).
+      expect(entry.data === undefined || Array.isArray(entry.data)).toBe(true);
     }
     // With no entries today the loop body never runs; assert the precondition so
     // the test still makes a positive claim about the shipped data.

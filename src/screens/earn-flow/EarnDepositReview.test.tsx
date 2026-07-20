@@ -29,9 +29,7 @@ jest.mock('lib/mobile/haptics', () => ({
 
 // --- Chart wrapper: render children directly so the projection JSX still runs.
 jest.mock('lib/ui/charts', () => ({
-  ChartContainer: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="chart-container">{children}</div>
-  )
+  ChartContainer: ({ children }: { children: React.ReactNode }) => <div data-testid="chart-container">{children}</div>
 }));
 
 // --- recharts primitives: light stand-ins (jsdom can't lay out SVG charts).

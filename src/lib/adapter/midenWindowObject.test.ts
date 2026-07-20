@@ -1,4 +1,7 @@
+import * as client from 'lib/adapter/client';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
+
+import { MidenWindowObject } from './midenWindowObject';
 
 // The source `extends EventEmitter` (a *value*) from the wallet-adapter-base
 // package. The repo's automatic manual mock for that package only exports the
@@ -36,10 +39,6 @@ jest.mock('lib/adapter/client', () => ({
   requestDisconnect: jest.fn(),
   onPermissionChange: jest.fn()
 }));
-
-import * as client from 'lib/adapter/client';
-
-import { MidenWindowObject } from './midenWindowObject';
 
 const mockClient = client as jest.Mocked<typeof client>;
 

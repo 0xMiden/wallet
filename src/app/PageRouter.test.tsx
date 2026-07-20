@@ -96,7 +96,10 @@ jest.mock('app/layouts/TabLayout', () => ({
 
 // Leaf screens — identifiable stubs, echoing any route params they receive.
 jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div data-testid="explore" /> }));
-jest.mock('app/pages/OpenSidePanel', () => ({ __esModule: true, default: () => <div data-testid="open-side-panel" /> }));
+jest.mock('app/pages/OpenSidePanel', () => ({
+  __esModule: true,
+  default: () => <div data-testid="open-side-panel" />
+}));
 jest.mock('app/pages/Pending', () => ({ Pending: () => <div data-testid="pending" /> }));
 jest.mock('app/pages/Receive', () => ({ Receive: () => <div data-testid="receive" /> }));
 jest.mock('app/pages/Settings', () => ({
@@ -137,7 +140,9 @@ jest.mock('screens/send-flow/ReviewTransaction', () => ({
   ReviewTransaction: () => <div data-testid="review-transaction" />
 }));
 jest.mock('screens/send-flow/SendManager', () => ({
-  SendFlow: ({ isLoading }: { isLoading?: boolean }) => <div data-testid="send-flow" data-is-loading={String(!!isLoading)} />
+  SendFlow: ({ isLoading }: { isLoading?: boolean }) => (
+    <div data-testid="send-flow" data-is-loading={String(!!isLoading)} />
+  )
 }));
 jest.mock('screens/swap-flow/SwapManager', () => ({ SwapFlow: () => <div data-testid="swap-flow" /> }));
 

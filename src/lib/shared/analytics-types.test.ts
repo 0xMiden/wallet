@@ -38,9 +38,7 @@ describe('analytics-types', () => {
         'PageClosed'
       ]);
       // String enums are not reverse-mapped, so values equal the key set here.
-      expect(Object.values(AnalyticsEventCategory)).toEqual(
-        Object.keys(AnalyticsEventCategory)
-      );
+      expect(Object.values(AnalyticsEventCategory)).toEqual(Object.keys(AnalyticsEventCategory));
       Object.values(AnalyticsEventCategory).forEach(value => {
         expect(typeof value).toBe('string');
       });
@@ -139,9 +137,7 @@ describe('analytics-types', () => {
       const response: SendPerformanceEventResponse = {
         type: WalletMessageType.SendPerformanceEventResponse
       };
-      expect(response.type).toBe(
-        WalletMessageType.SendPerformanceEventResponse
-      );
+      expect(response.type).toBe(WalletMessageType.SendPerformanceEventResponse);
     });
   });
 });

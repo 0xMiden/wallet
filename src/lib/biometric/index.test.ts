@@ -574,7 +574,6 @@ describe('hardware security service', () => {
       await expect(mod.decryptWithHardwareKey('x')).rejects.toThrow('Hardware security not available');
       await expect(mod.deleteHardwareKey()).resolves.toBeUndefined();
     });
-
   });
 
   describe('isHardwareSecurityAvailable', () => {

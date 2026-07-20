@@ -50,11 +50,7 @@ jest.mock('app/icons/v2', () => ({
 // The AmountInput mock forwards every prop we care about and exposes buttons
 // that invoke `onValueChange` with the different value/values shapes the source
 // coalesces over (`values?.formatted || value || ''`).
-type OnValueChange = (
-  value: string | undefined,
-  name?: string,
-  values?: { formatted?: string }
-) => void;
+type OnValueChange = (value: string | undefined, name?: string, values?: { formatted?: string }) => void;
 
 jest.mock('components/AmountInput', () => ({
   AmountInput: ({

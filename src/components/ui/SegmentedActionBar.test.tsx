@@ -4,8 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticSelection } from 'lib/mobile/haptics';
 
-import { SegmentedActionBar, SegmentedActionBarItem } from './SegmentedActionBar';
-import SegmentedActionBarDefault from './SegmentedActionBar';
+import SegmentedActionBarDefault, { SegmentedActionBar, SegmentedActionBarItem } from './SegmentedActionBar';
 
 // framer-motion: the two `motion.span`s are (1) the sliding active pill —
 // surface its `layoutId` — and (2) the fading label. Both just render plain

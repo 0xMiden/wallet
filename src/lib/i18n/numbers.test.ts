@@ -1,6 +1,18 @@
 import BigNumber from 'bignumber.js';
 import i18n from 'i18next';
 
+import {
+  toLocalFormat,
+  getPluralKey,
+  formatBigInt,
+  stringToBigInt,
+  stringToAleoMicrocredits,
+  ALEO_MICROCREDITS_TO_CREDITS,
+  toLocalFixed,
+  toShortened,
+  toFixedRoundedDown
+} from './numbers';
+
 // `toShortened` delegates the thousand/million/billion labelling to i18next's
 // `t()`. In the unit environment i18next is never `init()`-ed, so we mock the
 // singleton with a deterministic `t` that echoes its key + interpolation
@@ -16,18 +28,6 @@ jest.mock('i18next', () => ({
     language: undefined
   }
 }));
-
-import {
-  toLocalFormat,
-  getPluralKey,
-  formatBigInt,
-  stringToBigInt,
-  stringToAleoMicrocredits,
-  ALEO_MICROCREDITS_TO_CREDITS,
-  toLocalFixed,
-  toShortened,
-  toFixedRoundedDown
-} from './numbers';
 
 const mockT = i18n.t as jest.MockedFunction<typeof i18n.t>;
 
@@ -62,9 +62,9 @@ describe('toLocalFormat', () => {
 
     it('returns the raw (un-localized) result when a custom format is supplied with dp + rounding', () => {
       const format: BigNumber.Format = { decimalSeparator: ',', groupSeparator: '.', groupSize: 3 };
-      expect(
-        toLocalFormat(1234567.891, { decimalPlaces: 2, roundingMode: BigNumber.ROUND_DOWN, format })
-      ).toBe('1.234.567,89');
+      expect(toLocalFormat(1234567.891, { decimalPlaces: 2, roundingMode: BigNumber.ROUND_DOWN, format })).toBe(
+        '1.234.567,89'
+      );
     });
 
     it('uses toFormat(decimalPlaces, format) when dp + format are set (no rounding)', () => {

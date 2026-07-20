@@ -3,6 +3,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { SendFormSelectors } from '../SendForm.selectors';
+import ContactsDropdownItem from './ContactsDropdownItem';
 
 // `useTranslation` is the only impure hook the component uses; stub it so
 // `t('ownAccount')` deterministically renders its key (mirrors the sibling
@@ -53,8 +54,6 @@ jest.mock('app/atoms/Name', () => ({
     </div>
   )
 }));
-
-import ContactsDropdownItem from './ContactsDropdownItem';
 
 // jsdom does not implement scrollIntoView; install a spy on the prototype (the
 // mocked Button forwards the ref to a real jsdom <button>, so this is what the

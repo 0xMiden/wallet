@@ -145,7 +145,7 @@ describe('GuardianInfoDrawer', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('propagates the drawer\'s own onOpenChange requests', () => {
+  it("propagates the drawer's own onOpenChange requests", () => {
     const onOpenChange = jest.fn();
     renderDrawer(makeProps({ onOpenChange }));
 

@@ -2,8 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { navigate } from 'lib/woozie';
 import { WalletPromptType } from 'lib/wallet-prompts';
+import { navigate } from 'lib/woozie';
 
 import { HomePrompts } from './HomePrompts';
 
@@ -31,9 +31,7 @@ jest.mock('app/templates/ActivateHotKeyBanner', () => ({
 // relies on (title/body/variant/onClick/onDismiss and the children list) so the
 // test stays hermetic while still exercising every handler HomePrompts wires.
 jest.mock('components/ui', () => ({
-  PromptCarousel: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="prompt-carousel">{children}</div>
-  ),
+  PromptCarousel: ({ children }: { children: React.ReactNode }) => <div data-testid="prompt-carousel">{children}</div>,
   PromptCard: ({
     title,
     body,
@@ -80,7 +78,7 @@ const mockNavigate = navigate as jest.MockedFunction<typeof navigate>;
 
 // Minimal cast — HomePrompts only reads `requiresHotKeyRotation`.
 const makeAccount = (requiresHotKeyRotation?: boolean) =>
-  ({ requiresHotKeyRotation } as Parameters<typeof HomePrompts>[0]['account']);
+  ({ requiresHotKeyRotation }) as Parameters<typeof HomePrompts>[0]['account'];
 
 beforeEach(() => {
   jest.clearAllMocks();

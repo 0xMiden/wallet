@@ -96,11 +96,7 @@ function respond(
 
 // Kick off a wallet call, then immediately resolve its pending request
 // with `payload`. Returns the awaited result.
-async function callAndResolve<T>(
-  win: FakeWindow,
-  invoke: () => Promise<T>,
-  payload: unknown
-): Promise<T> {
+async function callAndResolve<T>(win: FakeWindow, invoke: () => Promise<T>, payload: unknown): Promise<T> {
   const promise = invoke();
   const { reqId } = lastMessage(win);
   respond(win, reqId, { type: 'MIDEN_PAGE_RESPONSE', payload });
@@ -352,9 +348,10 @@ describe('request timeout', () => {
     const win = makeWindow();
     inject(win);
     const promise = win.midenWallet.requestAssets();
-    const assertion = expect(promise).rejects.toThrow('Request timeout');
+    // Fire the 5-minute timeout, then assert the request rejected. Advancing
+    // first lets the assertion be awaited directly (unconditionally).
     jest.advanceTimersByTime(300000);
-    await assertion;
+    await expect(promise).rejects.toThrow('Request timeout');
   });
 
   it('does not double-settle: the timeout is a no-op once a response arrived', async () => {
@@ -672,7 +669,11 @@ describe('transaction methods', () => {
     const win = await connectedWallet();
     const promise = win.midenWallet.requestConsume({ noteId: 'n1' });
     const msg = lastMessage(win);
-    expect(msg.payload).toMatchObject({ type: 'CONSUME_REQUEST', sourcePublicKey: '0xabc', transaction: { noteId: 'n1' } });
+    expect(msg.payload).toMatchObject({
+      type: 'CONSUME_REQUEST',
+      sourcePublicKey: '0xabc',
+      transaction: { noteId: 'n1' }
+    });
     respond(win, msg.reqId, { type: 'MIDEN_PAGE_RESPONSE', payload: { transactionId: 'tx-consume' } });
     await expect(promise).resolves.toEqual({ transactionId: 'tx-consume' });
   });

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -64,9 +64,7 @@ jest.mock('components/Input', () => ({
     value?: string;
     placeholder?: string;
     onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  }) => (
-    <input data-testid="custom-input" id={id} value={value} placeholder={placeholder} onChange={onChange} />
-  )
+  }) => <input data-testid="custom-input" id={id} value={value} placeholder={placeholder} onChange={onChange} />
 }));
 
 // `GuardianInfoDrawer` — surface the open flag and a close hook so the
@@ -159,9 +157,7 @@ describe('ChooseGuardianScreen', () => {
   });
 
   it('honours custom title / description / submitLabel props', () => {
-    render(
-      <ChooseGuardianScreen title="Pick one" description="Choose wisely" submitLabel="Go" />
-    );
+    render(<ChooseGuardianScreen title="Pick one" description="Choose wisely" submitLabel="Go" />);
     expect(screen.getByRole('heading', { name: 'Pick one' })).toBeInTheDocument();
     expect(screen.getByText('Choose wisely')).toBeInTheDocument();
     expect(screen.getByTestId('continue-button')).toHaveTextContent('Go');

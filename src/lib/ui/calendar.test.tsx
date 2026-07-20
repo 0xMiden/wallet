@@ -124,7 +124,9 @@ describe('Calendar', () => {
   });
 
   it('renders selected day buttons through the DayButton -> CalendarDayButton wrapper', () => {
-    const { container } = render(<Calendar mode="single" selected={new Date(2024, 0, 15)} defaultMonth={new Date(2024, 0, 1)} />);
+    const { container } = render(
+      <Calendar mode="single" selected={new Date(2024, 0, 15)} defaultMonth={new Date(2024, 0, 1)} />
+    );
 
     // Day buttons carry the data-day attribute set by CalendarDayButton.
     const dayButtons = container.querySelectorAll('button[data-day]');
@@ -156,14 +158,13 @@ describe('CalendarDayButton', () => {
     const date = new Date(2024, 0, 15);
     render(<CalendarDayButton day={makeDay(date)} modifiers={{} as never} locale={{ code: 'en-GB' }} aria-label="d" />);
 
-    expect(screen.getByRole('button', { name: 'd' })).toHaveAttribute(
-      'data-day',
-      date.toLocaleDateString('en-GB')
-    );
+    expect(screen.getByRole('button', { name: 'd' })).toHaveAttribute('data-day', date.toLocaleDateString('en-GB'));
   });
 
   it('marks a plain selected day as data-selected-single=true', () => {
-    render(<CalendarDayButton day={makeDay(new Date(2024, 0, 15))} modifiers={{ selected: true } as never} aria-label="d" />);
+    render(
+      <CalendarDayButton day={makeDay(new Date(2024, 0, 15))} modifiers={{ selected: true } as never} aria-label="d" />
+    );
 
     expect(screen.getByRole('button', { name: 'd' })).toHaveAttribute('data-selected-single', 'true');
   });
@@ -172,19 +173,14 @@ describe('CalendarDayButton', () => {
     ['range_start', { selected: true, range_start: true }],
     ['range_end', { selected: true, range_end: true }],
     ['range_middle', { selected: true, range_middle: true }]
-  ] as const)(
-    'treats a %s day as NOT single-selected and reflects the range modifier',
-    (modKey, modifiers) => {
-      render(
-        <CalendarDayButton day={makeDay(new Date(2024, 0, 15))} modifiers={modifiers as never} aria-label="d" />
-      );
+  ] as const)('treats a %s day as NOT single-selected and reflects the range modifier', (modKey, modifiers) => {
+    render(<CalendarDayButton day={makeDay(new Date(2024, 0, 15))} modifiers={modifiers as never} aria-label="d" />);
 
-      const btn = screen.getByRole('button', { name: 'd' });
-      // Any range membership excludes the single-selected styling.
-      expect(btn).toHaveAttribute('data-selected-single', 'false');
-      expect(btn).toHaveAttribute(`data-${modKey.replace('_', '-')}`, 'true');
-    }
-  );
+    const btn = screen.getByRole('button', { name: 'd' });
+    // Any range membership excludes the single-selected styling.
+    expect(btn).toHaveAttribute('data-selected-single', 'false');
+    expect(btn).toHaveAttribute(`data-${modKey.replace('_', '-')}`, 'true');
+  });
 
   it('runs the focus effect when modifiers.focused is true without crashing', () => {
     // Button is a plain function component (no forwardRef in React 18), so the

@@ -15,9 +15,7 @@ const bgImage = (el: HTMLElement) => el.style.backgroundImage;
 
 describe('Identicon', () => {
   it('renders a jdenticon avatar with the default size/style and passes rest props', () => {
-    const { container } = render(
-      <Identicon type="jdenticon" publicKey="alice" data-testid="ident" title="hello" />
-    );
+    const { container } = render(<Identicon type="jdenticon" publicKey="alice" data-testid="ident" title="hello" />);
     const root = container.firstChild as HTMLElement;
 
     // rest props flow through
@@ -84,12 +82,7 @@ describe('Identicon', () => {
 
   it('merges a custom className and inline style overrides', () => {
     const { container } = render(
-      <Identicon
-        type="jdenticon"
-        publicKey="dave"
-        className="my-custom-class"
-        style={{ opacity: '0.5' }}
-      />
+      <Identicon type="jdenticon" publicKey="dave" className="my-custom-class" style={{ opacity: '0.5' }} />
     );
     const root = container.firstChild as HTMLElement;
 
@@ -100,9 +93,7 @@ describe('Identicon', () => {
   });
 
   it('falls back to the default type (jdenticon) when type is undefined', () => {
-    const { container } = render(
-      <Identicon type={undefined as unknown as 'jdenticon'} publicKey="erin" />
-    );
+    const { container } = render(<Identicon type={undefined as unknown as 'jdenticon'} publicKey="erin" />);
     const root = container.firstChild as HTMLElement;
 
     // default type is not initials → gray background

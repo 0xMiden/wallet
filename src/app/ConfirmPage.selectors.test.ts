@@ -64,12 +64,8 @@ describe('ConfirmPageSelectors', () => {
     );
     expect(ConfirmPageSelectors.DeployAction_RejectButton).toBe('ConfirmPage/DeployAction/RejectButton');
     expect(ConfirmPageSelectors.DeployAction_AcceptButton).toBe('ConfirmPage/DeployAction/AcceptButton');
-    expect(ConfirmPageSelectors.RequestPrivateNotes_RejectButton).toBe(
-      'ConfirmPage/RequestPrivateNotes/RejectButton'
-    );
-    expect(ConfirmPageSelectors.RequestPrivateNotes_AcceptButton).toBe(
-      'ConfirmPage/RequestPrivateNotes/AcceptButton'
-    );
+    expect(ConfirmPageSelectors.RequestPrivateNotes_RejectButton).toBe('ConfirmPage/RequestPrivateNotes/RejectButton');
+    expect(ConfirmPageSelectors.RequestPrivateNotes_AcceptButton).toBe('ConfirmPage/RequestPrivateNotes/AcceptButton');
     expect(ConfirmPageSelectors.SignData_RejectButton).toBe('ConfirmPage/SignData/RejectButton');
     expect(ConfirmPageSelectors.SignData_AcceptButton).toBe('ConfirmPage/SignData/AcceptButton');
     expect(ConfirmPageSelectors.RequestAssets_RejectButton).toBe('ConfirmPage/RequestAssets/RejectButton');
@@ -130,8 +126,7 @@ describe('ConfirmPageSelectors', () => {
     const rejectValues = [...values].filter(value => value.endsWith('/RejectButton'));
     for (const rejectValue of rejectValues) {
       const prefix = rejectValue.slice(0, -'RejectButton'.length);
-      const hasApprove =
-        values.has(`${prefix}AcceptButton`) || values.has(`${prefix}SignButton`);
+      const hasApprove = values.has(`${prefix}AcceptButton`) || values.has(`${prefix}SignButton`);
       expect(hasApprove).toBe(true);
     }
   });

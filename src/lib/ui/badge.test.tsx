@@ -42,8 +42,9 @@ describe('Badge', () => {
     expect(el).toHaveAttribute('data-variant', variant);
     // The base classes are always present regardless of variant.
     expect(el).toHaveClass(...BASE_CLASSES);
-    if (expectedClasses.length > 0) {
-      expect(el).toHaveClass(...expectedClasses);
+    // Each variant-specific class must be present (ghost contributes none).
+    for (const expectedClass of expectedClasses) {
+      expect(el).toHaveClass(expectedClass);
     }
   });
 

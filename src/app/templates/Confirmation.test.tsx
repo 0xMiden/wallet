@@ -57,12 +57,7 @@ jest.mock('components/Button', () => ({
     onClick?: () => void;
     'data-testid'?: string;
   }) => (
-    <button
-      onClick={onClick}
-      className={className}
-      data-variant={variant}
-      data-testid={rest['data-testid']}
-    >
+    <button onClick={onClick} className={className} data-variant={variant} data-testid={rest['data-testid']}>
       {children}
     </button>
   ),
@@ -73,7 +68,7 @@ jest.mock('components/Button', () => ({
 jest.mock('lib/woozie/Link', () => ({
   __esModule: true,
   default: ({ to, children }: { to: string; children?: React.ReactNode }) => (
-    <a data-testid="home-link" data-to={to}>
+    <a href={to} data-testid="home-link" data-to={to}>
       {children}
     </a>
   )

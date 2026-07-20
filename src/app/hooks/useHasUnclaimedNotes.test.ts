@@ -1,5 +1,7 @@
 import { renderHook } from '@testing-library/react';
 
+import { useHasUnclaimedNotes } from './useHasUnclaimedNotes';
+
 // --- Mocked dependencies -------------------------------------------------
 // `useHasUnclaimedNotes` composes two collaborators. We mock each so we can
 // drive every branch without pulling in the SDK or the claimable-notes query
@@ -14,8 +16,6 @@ const mockUseClaimableNotes = jest.fn();
 jest.mock('lib/miden/front/claimable-notes', () => ({
   useClaimableNotes: (publicKey: string) => mockUseClaimableNotes(publicKey)
 }));
-
-import { useHasUnclaimedNotes } from './useHasUnclaimedNotes';
 
 describe('useHasUnclaimedNotes', () => {
   beforeEach(() => {

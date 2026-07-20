@@ -34,7 +34,7 @@ jest.mock('lib/woozie', () => ({
     testID?: string;
     children?: React.ReactNode;
   }) => (
-    <a data-testid={testID ?? 'woozie-link'} data-to={to} onClick={onClick}>
+    <a href={to} data-testid={testID ?? 'woozie-link'} data-to={to} onClick={onClick}>
       {children}
     </a>
   )

@@ -5,8 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { hapticLight } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 
-import { TabHeader } from './TabHeader';
-import TabHeaderDefault from './TabHeader';
+import TabHeaderDefault, { TabHeader } from './TabHeader';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({

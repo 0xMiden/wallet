@@ -1,8 +1,8 @@
 import React from 'react';
 
 import { act, render, screen } from '@testing-library/react';
-
 import { validateMnemonic } from 'bip39';
+
 import { clearClipboard } from 'lib/ui/util';
 
 import { SeedPhraseInput } from './SeedPhraseInput';

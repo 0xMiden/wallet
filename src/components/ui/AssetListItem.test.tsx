@@ -4,8 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
-import { AssetListItem } from './AssetListItem';
-import AssetListItemDefault from './AssetListItem';
+import AssetListItemDefault, { AssetListItem } from './AssetListItem';
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()

@@ -60,7 +60,7 @@ describe('crypto utils', () => {
       const expectedSize = Math.floor(0.001 * ONE_MB_IN_BYTES);
       expect(expectedSize).toBeGreaterThan(0); // guard: default cap is being applied
       expect(result.length).toBe(expectedSize);
-      expect(result.every((b) => b === 0)).toBe(true);
+      expect(result.every(b => b === 0)).toBe(true);
     });
 
     it('respects an explicit smaller max size argument', () => {

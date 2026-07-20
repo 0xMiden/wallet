@@ -1,6 +1,8 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
+
+import ContactsDropdown from './ContactsDropdown';
 
 // `useTranslation` is the only impure hook the component uses; stub it so
 // `t('noContactsFound')` deterministically returns its key (mirrors the sibling
@@ -20,8 +22,6 @@ jest.mock('./ContactsDropdownItem', () => ({
   default: () => null
 }));
 
-import ContactsDropdown from './ContactsDropdown';
-
 // The component renders an outer scroll <div> whose only child (in the reachable
 // state) is the "no contacts found" empty-state block.
 const outer = (container: HTMLElement) => container.firstChild as HTMLElement;
@@ -32,9 +32,7 @@ const keyup = (key: string) => window.dispatchEvent(new KeyboardEvent('keyup', {
 
 describe('ContactsDropdown', () => {
   it('renders the "no contacts found" empty state (filteredContacts is always empty)', () => {
-    const { container } = render(
-      <ContactsDropdown onSelect={jest.fn()} searchTerm="" fullPage={false} />
-    );
+    const { container } = render(<ContactsDropdown onSelect={jest.fn()} searchTerm="" fullPage={false} />);
 
     // The empty-state branch of the `length > 0 ? … : …` ternary: the contact
     // book icon (svgMock renders <svg>) plus the translated label.
@@ -46,9 +44,7 @@ describe('ContactsDropdown', () => {
   });
 
   it('uses the compact 5rem height when fullPage is false', () => {
-    const { container } = render(
-      <ContactsDropdown onSelect={jest.fn()} searchTerm="" fullPage={false} />
-    );
+    const { container } = render(<ContactsDropdown onSelect={jest.fn()} searchTerm="" fullPage={false} />);
 
     // `height: fullPage ? '9rem' : '5rem'` → false branch.
     expect(outer(container).style.height).toBe('5rem');
@@ -56,9 +52,7 @@ describe('ContactsDropdown', () => {
   });
 
   it('uses the tall 9rem height when fullPage is true', () => {
-    const { container } = render(
-      <ContactsDropdown onSelect={jest.fn()} searchTerm="" fullPage />
-    );
+    const { container } = render(<ContactsDropdown onSelect={jest.fn()} searchTerm="" fullPage />);
 
     // `height: fullPage ? '9rem' : '5rem'` → true branch.
     expect(outer(container).style.height).toBe('9rem');
@@ -91,9 +85,7 @@ describe('ContactsDropdown', () => {
   });
 
   it('re-runs the search-term effect when searchTerm changes', () => {
-    const { rerender } = render(
-      <ContactsDropdown onSelect={jest.fn()} searchTerm="" fullPage={false} />
-    );
+    const { rerender } = render(<ContactsDropdown onSelect={jest.fn()} searchTerm="" fullPage={false} />);
 
     // Falsy → truthy transition re-fires the searchTerm effect.
     rerender(<ContactsDropdown onSelect={jest.fn()} searchTerm="bob" fullPage={false} />);
@@ -151,9 +143,7 @@ describe('ContactsDropdown', () => {
     const removeSpy = jest.spyOn(window, 'removeEventListener');
     const onSelect = jest.fn();
 
-    const { unmount } = render(
-      <ContactsDropdown onSelect={onSelect} searchTerm="" fullPage={false} />
-    );
+    const { unmount } = render(<ContactsDropdown onSelect={onSelect} searchTerm="" fullPage={false} />);
 
     unmount();
 
@@ -171,9 +161,7 @@ describe('ContactsDropdown', () => {
     // ContactsDropdown is wrapped in React.memo — a re-render with identical
     // props keeps the same empty state without throwing.
     const onSelect = jest.fn();
-    const { rerender } = render(
-      <ContactsDropdown onSelect={onSelect} searchTerm="" fullPage={false} />
-    );
+    const { rerender } = render(<ContactsDropdown onSelect={onSelect} searchTerm="" fullPage={false} />);
     rerender(<ContactsDropdown onSelect={onSelect} searchTerm="" fullPage={false} />);
 
     expect(screen.getByText('noContactsFound')).toBeInTheDocument();

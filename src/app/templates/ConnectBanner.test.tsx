@@ -4,6 +4,8 @@ import { render, screen } from '@testing-library/react';
 
 import { DappMetadata } from 'lib/miden/types';
 
+import ConnectBanner from './ConnectBanner';
+
 // `Logo` pulls in png / `svg?url` asset imports (and react-i18next); stub it to
 // a marker element that echoes the forwarded `style`/`className` so ConnectBanner's
 // own JSX is what's under test. Mirrors the pattern in About.test.tsx.
@@ -23,8 +25,6 @@ jest.mock('app/icons/v2', () => ({
   ),
   IconName: { Globe: 'Globe' }
 }));
-
-import ConnectBanner from './ConnectBanner';
 
 // `appMeta` is declared on the props but never read by the component; a minimal
 // cast keeps the test hermetic without pulling in the full DappMetadata shape.

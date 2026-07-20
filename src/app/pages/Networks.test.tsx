@@ -96,10 +96,7 @@ describe('NetworksSettings', () => {
     render(<NetworksSettings />);
 
     // Active branch of the ternary: network.id === item.id.
-    expect(screen.getByTestId('network-Testnet')).toHaveAttribute(
-      'data-icon-right',
-      'checkbox-circle-fill'
-    );
+    expect(screen.getByTestId('network-Testnet')).toHaveAttribute('data-icon-right', 'checkbox-circle-fill');
     // Inactive branch: falls through to null -> our stub renders 'none'.
     expect(screen.getByTestId('network-Devnet')).toHaveAttribute('data-icon-right', 'none');
     expect(screen.getByTestId('network-Localnet')).toHaveAttribute('data-icon-right', 'none');
@@ -126,19 +123,13 @@ describe('NetworksSettings', () => {
 
   it('moves the checkmark to whichever network is currently active', () => {
     const { rerender } = render(<NetworksSettings />);
-    expect(screen.getByTestId('network-Testnet')).toHaveAttribute(
-      'data-icon-right',
-      'checkbox-circle-fill'
-    );
+    expect(screen.getByTestId('network-Testnet')).toHaveAttribute('data-icon-right', 'checkbox-circle-fill');
 
     // Flip the active network and re-render; the checkmark should follow.
     mockNetwork = { id: 'localnet', name: 'Localnet' };
     rerender(<NetworksSettings />);
 
     expect(screen.getByTestId('network-Testnet')).toHaveAttribute('data-icon-right', 'none');
-    expect(screen.getByTestId('network-Localnet')).toHaveAttribute(
-      'data-icon-right',
-      'checkbox-circle-fill'
-    );
+    expect(screen.getByTestId('network-Localnet')).toHaveAttribute('data-icon-right', 'checkbox-circle-fill');
   });
 });

@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render } from '@testing-library/react';
 
+import { TokenLogo } from './TokenLogo';
+
 // TokenLogo has two branches:
 //   1. Known symbol (MIDEN / ETH / USDC / BTC) → a coloured, rounded <div>
 //      wrapping the corresponding logo <svg>.
@@ -26,8 +28,6 @@ jest.mock('react-i18next', () => ({
     t: (key: string) => key
   })
 }));
-
-import { TokenLogo } from './TokenLogo';
 
 const getRoot = (container: HTMLElement) => container.firstChild as HTMLElement;
 const getSvg = (container: HTMLElement) => container.querySelector('svg') as SVGSVGElement;

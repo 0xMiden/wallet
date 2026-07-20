@@ -6,8 +6,8 @@
  * `@miden-sdk/miden-sdk/lazy`, which jest's moduleNameMapper redirects to the
  * repo's wasm mock — so no additional mocking is required here.
  */
-import { getFaucetUrl } from './faucet';
 import { DEFAULT_NETWORK, MIDEN_FAUCET_ENDPOINTS, MIDEN_NETWORK_NAME } from './constants';
+import { getFaucetUrl } from './faucet';
 
 describe('miden-chain/faucet', () => {
   it('exports getFaucetUrl as a function', () => {
@@ -17,9 +17,7 @@ describe('miden-chain/faucet', () => {
   describe('getFaucetUrl — known networks (map hit branch)', () => {
     it('returns the testnet faucet endpoint', () => {
       expect(getFaucetUrl(MIDEN_NETWORK_NAME.TESTNET)).toBe('https://faucet.testnet.miden.io');
-      expect(getFaucetUrl(MIDEN_NETWORK_NAME.TESTNET)).toBe(
-        MIDEN_FAUCET_ENDPOINTS.get(MIDEN_NETWORK_NAME.TESTNET)
-      );
+      expect(getFaucetUrl(MIDEN_NETWORK_NAME.TESTNET)).toBe(MIDEN_FAUCET_ENDPOINTS.get(MIDEN_NETWORK_NAME.TESTNET));
     });
 
     it('returns the devnet faucet endpoint', () => {

@@ -55,9 +55,7 @@ describe('AdvancedSettings', () => {
     // First item: static title + subtitle.
     expect(screen.getByText('Auto Close Generating Transaction Page')).toBeInTheDocument();
     expect(
-      screen.getByText(
-        'Configure auto close of the generating transaction page after the transaction is generated'
-      )
+      screen.getByText('Configure auto close of the generating transaction page after the transaction is generated')
     ).toBeInTheDocument();
 
     // Second item: subtitle is static; its title carries the shortened address.

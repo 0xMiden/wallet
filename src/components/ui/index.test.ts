@@ -6,13 +6,13 @@
  * every leaf module it forwards. We assert that each named component is a
  * live React component and that the barrel does not leak anything unexpected.
  */
-import * as UI from './index';
 
 import { AccountsDrawer } from './AccountsDrawer';
 import { ActivityRow } from './ActivityRow';
 import { AssetListItem } from './AssetListItem';
 import { BalanceCard } from './BalanceCard';
 import { BottomNav } from './BottomNav';
+import * as UI from './index';
 import { PromptCard } from './PromptCard';
 import { PromptCarousel } from './PromptCarousel';
 import { SearchInput } from './SearchInput';

@@ -98,12 +98,9 @@ describe('buildQuery', () => {
   it('combines a path function with a key-array selector', async () => {
     const { api, request } = makeApi({ id: 'z' });
 
-    const query = buildQuery<{ id: string; verbose: boolean }>(
-      api,
-      'GET',
-      params => `/items/${params.id}`,
-      ['verbose']
-    );
+    const query = buildQuery<{ id: string; verbose: boolean }>(api, 'GET', params => `/items/${params.id}`, [
+      'verbose'
+    ]);
     const data = await query({ id: 'z', verbose: true });
 
     expect(data).toEqual({ id: 'z' });

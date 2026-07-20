@@ -81,15 +81,7 @@ jest.mock('app/atoms/FormField', () =>
 // flag so the in-flight state is assertable.
 jest.mock('app/atoms/FormSubmitButton', () => ({
   __esModule: true,
-  default: ({
-    children,
-    loading,
-    disabled
-  }: {
-    children?: React.ReactNode;
-    loading?: boolean;
-    disabled?: boolean;
-  }) => (
+  default: ({ children, loading, disabled }: { children?: React.ReactNode; loading?: boolean; disabled?: boolean }) => (
     <button type="submit" disabled={disabled} data-loading={String(!!loading)} data-testid="submit-btn">
       {children}
     </button>

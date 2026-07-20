@@ -16,9 +16,8 @@ import { goBack, navigate } from 'lib/woozie';
 import { isValidMidenAddress } from 'utils/miden';
 
 import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
-import { clearSendDraft } from './send-draft';
-
 import { ReviewTransaction } from './ReviewTransaction';
+import { clearSendDraft } from './send-draft';
 
 // ---------------------------------------------------------------------------
 // Mutable per-test state read by the hook mocks. All prefixed with `mock` so
@@ -187,8 +186,7 @@ const goBackMock = goBack as jest.Mock;
 const navigateMock = navigate as jest.Mock;
 const clearSendDraftMock = clearSendDraft as jest.Mock;
 const dateTimeToRecallBlocksMock = dateTimeToRecallBlocks as jest.Mock;
-const getBlockHeaderMock = (jest.requireMock('@miden-sdk/miden-sdk/lazy') as any)
-  .__getBlockHeaderByNumber as jest.Mock;
+const getBlockHeaderMock = (jest.requireMock('@miden-sdk/miden-sdk/lazy') as any).__getBlockHeaderByNumber as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -453,15 +451,7 @@ describe('ReviewTransaction — onSubmit', () => {
 
     expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
     expect(mockWalletStoreState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
-    expect(initiateMock).toHaveBeenCalledWith(
-      'pubkey-1',
-      '0xrecipient',
-      'tok1',
-      'private',
-      12345n,
-      999,
-      false
-    );
+    expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 999, false);
     expect(requestSWMock).not.toHaveBeenCalled();
     expect(clearSendDraftMock).toHaveBeenCalledTimes(1);
     expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-abc', 'replacestate');
@@ -489,15 +479,7 @@ describe('ReviewTransaction — onSubmit', () => {
 
     await clickSubmit();
 
-    expect(initiateMock).toHaveBeenCalledWith(
-      'pubkey-1',
-      '0xrecipient',
-      'tok1',
-      'private',
-      12345n,
-      undefined,
-      false
-    );
+    expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, undefined, false);
   });
 
   it('forwards the delegate-proof flag from settings', async () => {
@@ -618,15 +600,7 @@ describe('ReviewTransaction — E2E share-privately hook', () => {
     });
     await flush();
 
-    expect(initiateMock).toHaveBeenCalledWith(
-      'pubkey-1',
-      '0xrecipient',
-      'tok1',
-      'public',
-      12345n,
-      999,
-      false
-    );
+    expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'public', 12345n, 999, false);
 
     unmount();
     expect((globalThis as any).__TEST_SET_SHARE_PRIVATELY__).toBeUndefined();

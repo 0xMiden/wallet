@@ -3,7 +3,6 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { WalletType } from '../types';
-
 import { RecoveryOption, SelectRecoveryMethodScreen } from './SelectRecoveryMethod';
 
 // ---------------------------------------------------------------------------

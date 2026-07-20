@@ -184,11 +184,7 @@ describe('desktop-app entry point', () => {
       // Early return: no render, and (no throw →) the outer .catch stays quiet.
       expect(mockCreateRoot).not.toHaveBeenCalled();
       expect(mockRender).not.toHaveBeenCalled();
-      expect(errorSpy).not.toHaveBeenCalledWith(
-        'Desktop app error:',
-        'Failed to initialize',
-        expect.anything()
-      );
+      expect(errorSpy).not.toHaveBeenCalledWith('Desktop app error:', 'Failed to initialize', expect.anything());
       expect(errorSpy).not.toHaveBeenCalledWith(
         'Desktop app error:',
         'Unhandled initialization error',

@@ -2,6 +2,15 @@ import React from 'react';
 
 import { render, screen } from '@testing-library/react';
 
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartStyle,
+  ChartTooltip,
+  ChartTooltipContent
+} from './charts';
+
 // Recharts pulls in ResizeObserver-based `ResponsiveContainer` (which renders
 // nothing under jsdom's zero-size layout) plus heavy SVG chart primitives. We
 // replace the module boundary with light stand-ins so that:
@@ -17,15 +26,6 @@ jest.mock('recharts', () => ({
   Tooltip: () => null,
   Legend: () => null
 }));
-
-import {
-  ChartContainer,
-  ChartLegend,
-  ChartLegendContent,
-  ChartStyle,
-  ChartTooltip,
-  ChartTooltipContent
-} from './charts';
 
 // Render a tooltip/legend inside a real `ChartContainer` so it receives the
 // `ChartContext` the way the app wires it up.
@@ -78,9 +78,7 @@ describe('ChartStyle', () => {
   });
 
   it('emits per-key CSS variables for a flat color config', () => {
-    const { container } = render(
-      <ChartStyle id="c-color" config={{ sales: { label: 'Sales', color: '#ff0000' } }} />
-    );
+    const { container } = render(<ChartStyle id="c-color" config={{ sales: { label: 'Sales', color: '#ff0000' } }} />);
 
     const style = container.querySelector('style');
     expect(style).toBeTruthy();
@@ -114,15 +112,18 @@ describe('ChartStyle', () => {
 describe('ChartTooltipContent', () => {
   it('throws when used outside of a ChartContainer', () => {
     const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    expect(() =>
-      render(<ChartTooltipContent active payload={[{ dataKey: 'x', value: 1, payload: {} }]} />)
-    ).toThrow('useChart must be used within a <ChartContainer />');
+    expect(() => render(<ChartTooltipContent active payload={[{ dataKey: 'x', value: 1, payload: {} }]} />)).toThrow(
+      'useChart must be used within a <ChartContainer />'
+    );
     spy.mockRestore();
   });
 
   it('renders nothing when inactive', () => {
     const { container } = renderInChart(
-      <ChartTooltipContent active={false} payload={[{ dataKey: 'a', name: 'a', value: 1, color: '#abc', payload: {} }]} />,
+      <ChartTooltipContent
+        active={false}
+        payload={[{ dataKey: 'a', name: 'a', value: 1, color: '#abc', payload: {} }]}
+      />,
       { a: { label: 'A', color: '#abc' } }
     );
     expect(container.querySelector('.min-w-32')).toBeNull();

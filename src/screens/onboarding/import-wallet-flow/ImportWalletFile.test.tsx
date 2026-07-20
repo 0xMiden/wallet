@@ -74,12 +74,10 @@ jest.mock('react-hook-form', () => ({
   useForm: () => ({
     watch: (name: string) => (name === 'password' ? mockWatchPassword : undefined),
     register: (name: string, opts?: unknown) => mockRegister(name, opts),
-    handleSubmit:
-      (onSubmit: () => unknown) =>
-      (e?: { preventDefault?: () => void }) => {
-        e?.preventDefault?.();
-        return onSubmit();
-      },
+    handleSubmit: (onSubmit: () => unknown) => (e?: { preventDefault?: () => void }) => {
+      e?.preventDefault?.();
+      return onSubmit();
+    },
     formState: mockFormState
   })
 }));
@@ -120,17 +118,12 @@ jest.mock('app/atoms/FormField', () => {
     __esModule: true,
     PASSWORD_ERROR_CAPTION: 'PASSWORD_ERROR_CAPTION',
     default: ReactLib.forwardRef(
-      (
-        { label, errorCaption }: { label?: React.ReactNode; errorCaption?: React.ReactNode },
-        _ref: unknown
-      ) =>
+      ({ label, errorCaption }: { label?: React.ReactNode; errorCaption?: React.ReactNode }, _ref: unknown) =>
         ReactLib.createElement(
           'div',
           { 'data-testid': 'form-field' },
           ReactLib.createElement('span', { 'data-testid': 'ff-label' }, label),
-          errorCaption
-            ? ReactLib.createElement('div', { 'data-testid': 'ff-error' }, errorCaption)
-            : null
+          errorCaption ? ReactLib.createElement('div', { 'data-testid': 'ff-error' }, errorCaption) : null
         )
     )
   };
@@ -140,15 +133,7 @@ jest.mock('app/atoms/FormSubmitButton', () => {
   const ReactLib = require('react');
   return {
     __esModule: true,
-    default: ({
-      children,
-      disabled,
-      loading
-    }: {
-      children: React.ReactNode;
-      disabled?: boolean;
-      loading?: boolean;
-    }) =>
+    default: ({ children, disabled, loading }: { children: React.ReactNode; disabled?: boolean; loading?: boolean }) =>
       ReactLib.createElement(
         'button',
         {
@@ -200,8 +185,7 @@ const renderScreen = (props: Partial<React.ComponentProps<typeof ImportWalletFil
 
 const getForm = (container: HTMLElement) => container.querySelector('form') as HTMLFormElement;
 const getDropzone = (container: HTMLElement) => container.querySelector('.border-dashed') as HTMLElement;
-const getFileInput = (container: HTMLElement) =>
-  container.querySelector('input[type="file"]') as HTMLInputElement;
+const getFileInput = (container: HTMLElement) => container.querySelector('input[type="file"]') as HTMLInputElement;
 
 // Upload via the hidden <input>'s change event (exercises `onUploadFile`).
 const uploadViaInput = (container: HTMLElement, fileName: string, job?: ReaderJob) => {
@@ -569,9 +553,7 @@ describe('omitted-accounts two-step confirmation', () => {
     await submit(container);
 
     await waitFor(() =>
-      expect(
-        screen.getByText('encryptedFileImportedAccountsOmittedRestoreNotice:3')
-      ).toBeInTheDocument()
+      expect(screen.getByText('encryptedFileImportedAccountsOmittedRestoreNotice:3')).toBeInTheDocument()
     );
     expect(onSubmit).not.toHaveBeenCalled();
 

@@ -1,12 +1,10 @@
 import type { SwapSide } from './types';
-
 // The runtime surface of this module is a single enum, `SwapFlowStep`;
 // `SwapSide` is a compile-time-only string-literal union that erases to
 // nothing at runtime. Import the runtime member explicitly, and exercise the
 // type-only shape structurally so this file doubles as living documentation of
 // the swap-flow contracts.
 import { SwapFlowStep } from './types';
-
 // Also grab the whole namespace so we can assert the module's runtime export
 // set is exactly the enum (no accidental runtime leakage).
 import * as swapFlowTypes from './types';
@@ -54,7 +52,7 @@ describe('swap-flow/types', () => {
       const sides: SwapSide[] = [offer, request];
 
       // Narrow each variant to prove the union is exhaustive.
-      const labels = sides.map((side) => {
+      const labels = sides.map(side => {
         switch (side) {
           case 'offer':
             return side;

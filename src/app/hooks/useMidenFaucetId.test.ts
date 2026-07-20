@@ -21,7 +21,7 @@ const mockOnNativeAssetChanged = onNativeAssetChanged as jest.MockedFunction<typ
 /** Creates a promise whose resolution is controlled by the returned `resolve`. */
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
+  const promise = new Promise<T>(res => {
     resolve = res;
   });
   return { promise, resolve };
@@ -73,7 +73,7 @@ describe('useMidenFaucetId', () => {
     mockGetFaucetIdSetting.mockResolvedValue('initial-faucet-id');
 
     let changeListener!: (id: string) => void | Promise<void>;
-    mockOnNativeAssetChanged.mockImplementation((fn) => {
+    mockOnNativeAssetChanged.mockImplementation(fn => {
       changeListener = fn;
       return jest.fn();
     });
@@ -127,7 +127,7 @@ describe('useMidenFaucetId', () => {
     mockGetFaucetIdSetting.mockResolvedValue('initial-faucet-id');
 
     let changeListener!: (id: string) => void | Promise<void>;
-    mockOnNativeAssetChanged.mockImplementation((fn) => {
+    mockOnNativeAssetChanged.mockImplementation(fn => {
       changeListener = fn;
       return jest.fn();
     });

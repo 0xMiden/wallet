@@ -293,29 +293,25 @@ describe('RecallCalendarDrawer', () => {
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it.each([
-    ['30mins'],
-    ['1hour'],
-    ['5hours'],
-    ['tomorrow'],
-    ['inAWeek'],
-    ['in2Weeks']
-  ])('preset "%s" applies a computed date/time and closes the drawer', async label => {
-    const props = makeProps();
-    render(<RecallCalendarDrawer {...props} />);
-    await waitFor(() => expect(getBlockHeaderByNumber).toHaveBeenCalled());
+  it.each([['30mins'], ['1hour'], ['5hours'], ['tomorrow'], ['inAWeek'], ['in2Weeks']])(
+    'preset "%s" applies a computed date/time and closes the drawer',
+    async label => {
+      const props = makeProps();
+      render(<RecallCalendarDrawer {...props} />);
+      await waitFor(() => expect(getBlockHeaderByNumber).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByText(label));
+      fireEvent.click(screen.getByText(label));
 
-    // The preset produces a Date and an 'HH:mm' string.
-    expect(props.onRecallDateChange).toHaveBeenCalledTimes(1);
-    const [dateArg] = (props.onRecallDateChange as jest.Mock).mock.calls[0];
-    expect(dateArg).toBeInstanceOf(Date);
-    const [timeArg] = (props.onRecallTimeChange as jest.Mock).mock.calls[0];
-    expect(timeArg).toMatch(/^\d{2}:\d{2}$/);
-    expect(props.onRecallBlocksChange).toHaveBeenCalledTimes(1);
-    expect(props.onOpenChange).toHaveBeenCalledWith(false);
-  });
+      // The preset produces a Date and an 'HH:mm' string.
+      expect(props.onRecallDateChange).toHaveBeenCalledTimes(1);
+      const [dateArg] = (props.onRecallDateChange as jest.Mock).mock.calls[0];
+      expect(dateArg).toBeInstanceOf(Date);
+      const [timeArg] = (props.onRecallTimeChange as jest.Mock).mock.calls[0];
+      expect(timeArg).toMatch(/^\d{2}:\d{2}$/);
+      expect(props.onRecallBlocksChange).toHaveBeenCalledTimes(1);
+      expect(props.onOpenChange).toHaveBeenCalledWith(false);
+    }
+  );
 
   it('closes the drawer when the drawer requests onOpenChange', async () => {
     const props = makeProps();

@@ -106,9 +106,7 @@ describe('HashShortView', () => {
   it('honors custom firstCharsCount and lastCharsCount', () => {
     // Overriding both counts changes how many chars survive on each side.
     const hash = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'; // length 36 > 20
-    const { container } = render(
-      <HashShortView hash={hash} firstCharsCount={3} lastCharsCount={2} />
-    );
+    const { container } = render(<HashShortView hash={hash} firstCharsCount={3} lastCharsCount={2} />);
 
     const first = hash.slice(0, 3); // '012'
     const last = hash.slice(hash.length - 2); // 'YZ'

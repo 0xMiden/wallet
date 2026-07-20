@@ -91,9 +91,7 @@ jest.mock('components/Input', () => ({
 }));
 
 jest.mock('components/Checkbox', () => ({
-  Checkbox: ({ value }: { value: boolean }) => (
-    <span data-testid="checkbox" data-checked={String(!!value)} />
-  )
+  Checkbox: ({ value }: { value: boolean }) => <span data-testid="checkbox" data-checked={String(!!value)} />
 }));
 
 jest.mock('components/Button', () => ({
@@ -108,12 +106,7 @@ jest.mock('components/Button', () => ({
     disabled?: boolean;
     isLoading?: boolean;
   }) => (
-    <button
-      data-testid="action-button"
-      onClick={onClick}
-      disabled={disabled}
-      data-loading={String(!!isLoading)}
-    >
+    <button data-testid="action-button" onClick={onClick} disabled={disabled} data-loading={String(!!isLoading)}>
       {title}
     </button>
   ),
@@ -134,11 +127,7 @@ jest.mock('components/PasscodeEntry', () => ({
     disabled?: boolean;
     isSubmitting?: boolean;
   }) => (
-    <div
-      data-testid="passcode-entry"
-      data-disabled={String(!!disabled)}
-      data-submitting={String(!!isSubmitting)}
-    >
+    <div data-testid="passcode-entry" data-disabled={String(!!disabled)} data-submitting={String(!!isSubmitting)}>
       <span data-testid="passcode-error">{error ?? ''}</span>
       <button data-testid="passcode-change" onClick={() => onChange?.('12')}>
         change

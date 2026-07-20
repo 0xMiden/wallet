@@ -2,6 +2,10 @@ import React from 'react';
 
 import { render, screen, act, waitFor, cleanup } from '@testing-library/react';
 
+// Imported AFTER the mocks are registered.
+import History from './History';
+import { HistoryEntryType } from './IHistoryEntry';
+
 // ---------------------------------------------------------------------------
 // Mock-prefixed collaborators (so the hoisted jest.mock factories may close
 // over them). History.tsx is a memo component whose only exported symbol is the
@@ -112,10 +116,6 @@ jest.mock('./HistoryView', () => ({
 
 // Enum values must match the mocked `lib/miden/db/types` above.
 const STATUS = { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3 };
-
-// Imported AFTER the mocks are registered.
-import History from './History';
-import { HistoryEntryType } from './IHistoryEntry';
 
 // ---------------------------------------------------------------------------
 // Fixtures — one dataset that touches every branch of both fetch helpers.

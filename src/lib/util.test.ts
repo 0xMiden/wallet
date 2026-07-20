@@ -44,10 +44,7 @@ describe('parseStringToBigIntArray', () => {
   });
 
   it('extracts multiple u128 values in order, ignoring surrounding text', () => {
-    expect(parseStringToBigIntArray('foo 12u128 bar 34u128 baz 5')).toEqual([
-      BigInt(12),
-      BigInt(34)
-    ]);
+    expect(parseStringToBigIntArray('foo 12u128 bar 34u128 baz 5')).toEqual([BigInt(12), BigInt(34)]);
   });
 
   it('handles very large u128 values without precision loss', () => {

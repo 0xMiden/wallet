@@ -4,8 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
-import { PromptCard } from './PromptCard';
-import PromptCardDefault from './PromptCard';
+import PromptCardDefault, { PromptCard } from './PromptCard';
 
 // Surface each icon's `name` so the two Trail branches (Close vs ChevronRight)
 // are distinguishable from the DOM. All other icon props are ignored.

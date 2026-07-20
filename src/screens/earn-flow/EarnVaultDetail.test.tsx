@@ -5,6 +5,9 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
+// Imported after the mocks above are registered (jest hoists jest.mock).
+import EarnVaultDetail from './EarnVaultDetail';
+
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
@@ -28,12 +31,7 @@ jest.mock('./components', () => ({
     valueClassName?: string;
     className?: string;
   }) => (
-    <div
-      data-testid="metric-card"
-      data-label={label}
-      data-value-class={valueClassName ?? ''}
-      className={className}
-    >
+    <div data-testid="metric-card" data-label={label} data-value-class={valueClassName ?? ''} className={className}>
       {value}
     </div>
   )
@@ -82,18 +80,14 @@ jest.mock('recharts', () => {
       return ReactLib.createElement(
         'div',
         { 'data-testid': 'tooltip' },
-        rendered.map((node: React.ReactNode, i: number) =>
-          ReactLib.createElement(ReactLib.Fragment, { key: i }, node)
-        )
+        rendered.map((node: React.ReactNode, i: number) => ReactLib.createElement(ReactLib.Fragment, { key: i }, node))
       );
     },
     Area: ({ dot }: { dot?: (props: any) => React.ReactNode }) => {
       const dots: React.ReactNode[] = [];
       if (typeof dot === 'function') {
         for (let i = 0; i < 20; i++) {
-          dots.push(
-            ReactLib.createElement(ReactLib.Fragment, { key: i }, dot({ index: i, cx: i, cy: i }))
-          );
+          dots.push(ReactLib.createElement(ReactLib.Fragment, { key: i }, dot({ index: i, cx: i, cy: i })));
         }
       }
       return ReactLib.createElement('svg', { 'data-testid': 'area' }, dots);
@@ -152,9 +146,6 @@ jest.mock('./data', () => ({
     ]
   }
 }));
-
-// Imported after the mocks above are registered (jest hoists jest.mock).
-import EarnVaultDetail from './EarnVaultDetail';
 
 const metricValue = (label: string) => {
   const cards = screen.getAllByTestId('metric-card');

@@ -7,6 +7,8 @@ import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
 import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../constants';
+// Import the component under test AFTER the mocks are declared.
+import Settings from './Settings';
 
 // ---------------------------------------------------------------------------
 // Mutable state used by the store / platform / motion mocks. Names are
@@ -91,16 +93,8 @@ jest.mock('lib/ui/drawer', () => ({
     children: React.ReactNode;
   }) => (
     <div data-testid="drawer" data-open={String(!!open)}>
-      <button
-        type="button"
-        data-testid="drawer-openchange-false"
-        onClick={() => onOpenChange && onOpenChange(false)}
-      />
-      <button
-        type="button"
-        data-testid="drawer-openchange-true"
-        onClick={() => onOpenChange && onOpenChange(true)}
-      />
+      <button type="button" data-testid="drawer-openchange-false" onClick={() => onOpenChange && onOpenChange(false)} />
+      <button type="button" data-testid="drawer-openchange-true" onClick={() => onOpenChange && onOpenChange(true)} />
       {children}
     </div>
   ),
@@ -222,9 +216,6 @@ jest.mock('./Networks', () => ({
   default: () => <div data-testid="networks-settings" />
 }));
 
-// Import the component under test AFTER the mocks are declared.
-import Settings from './Settings';
-
 const mockNavigate = navigate as jest.Mock;
 const mockGoBack = goBack as jest.Mock;
 const mockHapticLight = hapticLight as jest.Mock;
@@ -288,10 +279,7 @@ describe('Settings page — root menu (non-guardian)', () => {
   it('passes the per-item testID through to drawer menu items', () => {
     render(<Settings tabSlug={null} />);
 
-    expect(screen.getByTestId('menuitem-generalSettings')).toHaveAttribute(
-      'data-selector',
-      'Settings/GeneralButton'
-    );
+    expect(screen.getByTestId('menuitem-generalSettings')).toHaveAttribute('data-selector', 'Settings/GeneralButton');
   });
 
   it('renders the about group as external links with the canonical URLs and no testID', () => {

@@ -1,5 +1,7 @@
 import { renderHook } from '@testing-library/react';
 
+import { useHistoryBadge } from './useHistoryBadge';
+
 // --- Mocked dependencies -------------------------------------------------
 // `useHistoryBadge` composes four collaborators. We mock each so we can drive
 // every branch of the `useMemo` from the test without pulling in the SDK,
@@ -25,8 +27,6 @@ const mockIsAutoConsumeEnabled = jest.fn();
 jest.mock('lib/settings/helpers', () => ({
   isAutoConsumeEnabled: () => mockIsAutoConsumeEnabled()
 }));
-
-import { useHistoryBadge } from './useHistoryBadge';
 
 const MIDEN_FAUCET = 'miden-faucet-id';
 const OTHER_FAUCET = 'other-faucet-id';

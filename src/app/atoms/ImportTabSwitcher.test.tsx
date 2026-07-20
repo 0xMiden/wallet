@@ -14,16 +14,8 @@ jest.mock('react-i18next', () => ({
 // stack. Replace it with a plain anchor that forwards the props the component
 // sets so we can assert `to`, `replace` and inspect the child markup/classes.
 jest.mock('lib/woozie', () => ({
-  Link: ({
-    to,
-    replace,
-    children
-  }: {
-    to: string;
-    replace?: boolean;
-    children?: React.ReactNode;
-  }) => (
-    <a data-testid="tab-link" data-to={to} data-replace={String(replace)}>
+  Link: ({ to, replace, children }: { to: string; replace?: boolean; children?: React.ReactNode }) => (
+    <a href={to} data-testid="tab-link" data-to={to} data-replace={String(replace)}>
       {children}
     </a>
   )

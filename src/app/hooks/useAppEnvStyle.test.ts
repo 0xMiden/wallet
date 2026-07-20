@@ -1,5 +1,7 @@
 import { renderHook } from '@testing-library/react';
 
+import { useAppEnvStyle } from './useAppEnvStyle';
+
 // --- Mocked dependencies -------------------------------------------------
 // `useAppEnvStyle` reads a single field (`compact`) from `useAppEnv`. We mock
 // the whole `../env` module so the test drives the `compact` branch directly
@@ -9,8 +11,6 @@ const mockUseAppEnv = jest.fn();
 jest.mock('../env', () => ({
   useAppEnv: () => mockUseAppEnv()
 }));
-
-import { useAppEnvStyle } from './useAppEnvStyle';
 
 describe('useAppEnvStyle', () => {
   beforeEach(() => {

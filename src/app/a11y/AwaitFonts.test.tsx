@@ -1,7 +1,6 @@
 import React, { Suspense } from 'react';
 
 import { render, screen, waitFor } from '@testing-library/react';
-
 import { SWRConfig } from 'swr';
 
 import AwaitFonts from './AwaitFonts';
@@ -31,12 +30,7 @@ function clearDocumentFonts() {
   delete (document as unknown as { fonts?: unknown }).fonts;
 }
 
-function renderAwaitFonts(props: {
-  name: string;
-  weights: number[];
-  className?: string;
-  childTestId?: string;
-}) {
+function renderAwaitFonts(props: { name: string; weights: number[]; className?: string; childTestId?: string }) {
   const childTestId = props.childTestId ?? 'child';
   return render(
     <SWRConfig value={{ provider: () => new Map() }}>

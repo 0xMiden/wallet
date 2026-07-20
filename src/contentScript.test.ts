@@ -95,9 +95,11 @@ function handler(): (evt: any) => void {
 }
 
 /** Build a well-formed page-request envelope with `source === window`. */
-function requestEvent(
-  overrides: { payload?: any; reqId?: any; origin?: string } = {}
-): { source: Window; data: any; origin: string } {
+function requestEvent(overrides: { payload?: any; reqId?: any; origin?: string } = {}): {
+  source: Window;
+  data: any;
+  origin: string;
+} {
   const { payload = { a: 1 }, reqId = 'req-1', origin = 'https://dapp.example' } = overrides;
   return { source: window, data: { type: MidenPageMessageType.Request, payload, reqId }, origin };
 }
@@ -152,9 +154,7 @@ describe('addToWindow.js injection', () => {
     load();
 
     expect(mockGetURL).toHaveBeenCalledWith('addToWindow.js');
-    const injected = [...document.head.querySelectorAll('script')].filter(s =>
-      s.src.includes('addToWindow.js')
-    );
+    const injected = [...document.head.querySelectorAll('script')].filter(s => s.src.includes('addToWindow.js'));
     expect(injected.length).toBeGreaterThan(0);
     expect(injected[injected.length - 1].src).toContain('chrome-extension://test/addToWindow.js');
   });

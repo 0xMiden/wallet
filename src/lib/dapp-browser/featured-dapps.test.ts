@@ -51,10 +51,9 @@ describe('FEATURED_DAPPS', () => {
   });
 
   it('uses a valid badge when one is present', () => {
-    for (const d of FEATURED_DAPPS) {
-      if (d.badge !== undefined) {
-        expect(VALID_BADGES).toContain(d.badge);
-      }
+    const badges = FEATURED_DAPPS.map(d => d.badge).filter((badge): badge is FeaturedDappBadge => badge !== undefined);
+    for (const badge of badges) {
+      expect(VALID_BADGES).toContain(badge);
     }
     // Sanity: at least one entry omits the optional badge (branch coverage of
     // the optional field), and at least one supplies it.
@@ -77,11 +76,10 @@ describe('FEATURED_DAPPS', () => {
   });
 
   it('only sets the optional genre to a non-empty string when present', () => {
-    for (const d of FEATURED_DAPPS) {
-      if (d.genre !== undefined) {
-        expect(typeof d.genre).toBe('string');
-        expect(d.genre.length).toBeGreaterThan(0);
-      }
+    const genres = FEATURED_DAPPS.map(d => d.genre).filter((genre): genre is string => genre !== undefined);
+    for (const genre of genres) {
+      expect(typeof genre).toBe('string');
+      expect(genre.length).toBeGreaterThan(0);
     }
     // Both the "has genre" and "no genre" branches exist in the data.
     expect(FEATURED_DAPPS.some(d => d.genre !== undefined)).toBe(true);
@@ -89,10 +87,9 @@ describe('FEATURED_DAPPS', () => {
   });
 
   it('only sets the optional featured flag to true when present', () => {
-    for (const d of FEATURED_DAPPS) {
-      if (d.featured !== undefined) {
-        expect(d.featured).toBe(true);
-      }
+    const featuredFlags = FEATURED_DAPPS.map(d => d.featured).filter((flag): flag is boolean => flag !== undefined);
+    for (const flag of featuredFlags) {
+      expect(flag).toBe(true);
     }
     // Both featured and non-featured entries exist.
     expect(FEATURED_DAPPS.some(d => d.featured === true)).toBe(true);

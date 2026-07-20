@@ -85,9 +85,9 @@ describe('SearchAssetField', () => {
 
     // `className` itself must NOT leak through `...rest` onto SearchField as a
     // duplicate — the merged value is the single source of truth.
-    expect(
-      mockSearchFieldProps.mock.calls[0][0].className.indexOf('custom-cls')
-    ).toBeGreaterThan(DEFAULT_CLASSES.length - 1);
+    expect(mockSearchFieldProps.mock.calls[0][0].className.indexOf('custom-cls')).toBeGreaterThan(
+      DEFAULT_CLASSES.length - 1
+    );
   });
 
   it('spreads arbitrary input attributes and handlers through `...rest`', () => {

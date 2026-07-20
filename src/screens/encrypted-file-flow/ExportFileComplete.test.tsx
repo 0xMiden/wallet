@@ -148,11 +148,9 @@ describe('ExportFileComplete', () => {
     // Anchor.click() would try to navigate in jsdom; capture the anchor and
     // suppress the navigation instead.
     clickedAnchor = null;
-    clickSpy = jest
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(function (this: HTMLAnchorElement) {
-        clickedAnchor = this;
-      });
+    clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      clickedAnchor = this;
+    });
   });
 
   afterEach(() => {
@@ -333,9 +331,7 @@ describe('ExportFileComplete', () => {
 
     renderComponent();
 
-    await waitFor(() =>
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to export file on mobile:', error)
-    );
+    await waitFor(() => expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to export file on mobile:', error));
 
     // Share is never reached when the write throws.
     expect(mockShare).not.toHaveBeenCalled();

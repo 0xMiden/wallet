@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import GuardianSettings from './GuardianSettings';
 
@@ -95,10 +95,9 @@ const mockState: any = {
   openTransactionModal: jest.fn()
 };
 jest.mock('lib/store', () => ({
-  useWalletStore: Object.assign(
-    (selector?: (s: any) => unknown) => (selector ? selector(mockState) : mockState),
-    { getState: () => mockState }
-  )
+  useWalletStore: Object.assign((selector?: (s: any) => unknown) => (selector ? selector(mockState) : mockState), {
+    getState: () => mockState
+  })
 }));
 
 // ---------------------------------------------------------------------------

@@ -2,7 +2,10 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { navigate } from 'lib/woozie';
+
 import { EARN_DATA } from './data';
+import EarnDepositAmount from './EarnDepositAmount';
 
 // `lib/woozie` reaches for browser history state on import; stub `navigate`
 // so we can assert the deposit-review push without running the real router.
@@ -65,10 +68,6 @@ jest.mock('screens/send-flow/SelectAmount', () => ({
     </div>
   )
 }));
-
-import { navigate } from 'lib/woozie';
-
-import EarnDepositAmount from './EarnDepositAmount';
 
 const mockNavigate = navigate as jest.Mock;
 

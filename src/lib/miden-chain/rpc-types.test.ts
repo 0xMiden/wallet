@@ -1,12 +1,6 @@
-import type {
-  IEncryptedRecord,
-  IPublicNFTData,
-  IRecordMetadata,
-  ISerialNumberMetadata
-} from './rpc-types';
-
 // rpc-types.ts is a type-only module (interface declarations). Import it for
 // coverage bookkeeping and exercise the shapes structurally.
+import type { IEncryptedRecord, IPublicNFTData, IRecordMetadata, ISerialNumberMetadata } from './rpc-types';
 import * as rpcTypes from './rpc-types';
 
 describe('rpc-types module', () => {

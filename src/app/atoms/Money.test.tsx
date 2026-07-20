@@ -1,7 +1,7 @@
 import React from 'react';
 
-import BigNumber from 'bignumber.js';
 import { render, screen, fireEvent } from '@testing-library/react';
+import BigNumber from 'bignumber.js';
 
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import useTippy from 'lib/ui/useTippy';

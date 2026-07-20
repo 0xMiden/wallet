@@ -16,13 +16,7 @@ jest.mock('app/icons/v2', () => ({
 // without exercising its internals (covered by its own suite).
 jest.mock('./CircleButton', () => ({
   CircleButton: ({ icon, onClick, className, size }: any) => (
-    <button
-      data-testid="circle-button"
-      data-icon={icon}
-      data-size={size}
-      className={className}
-      onClick={onClick}
-    />
+    <button data-testid="circle-button" data-icon={icon} data-size={size} className={className} onClick={onClick} />
   )
 }));
 

@@ -16,9 +16,8 @@ import React from 'react';
 
 import { act, render, renderHook } from '@testing-library/react';
 
-import { useDesktopDappHandler, DesktopDappHandler } from './DesktopDappHandler';
-import DefaultExport from './DesktopDappHandler';
 import type { DappWalletRequest } from './dapp-browser';
+import DefaultExport, { useDesktopDappHandler, DesktopDappHandler } from './DesktopDappHandler';
 
 // --- Mocks -----------------------------------------------------------------
 

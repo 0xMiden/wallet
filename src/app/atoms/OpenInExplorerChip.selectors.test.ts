@@ -9,16 +9,12 @@ import { OpenInExplorerChipSelectors } from './OpenInExplorerChip.selectors';
 
 describe('OpenInExplorerChipSelectors', () => {
   it('maps ViewOnBlockExplorerLink to its stable selector string', () => {
-    expect(OpenInExplorerChipSelectors.ViewOnBlockExplorerLink).toBe(
-      'OpenInExplorerChip/ViewOnBlockExplorerLink'
-    );
+    expect(OpenInExplorerChipSelectors.ViewOnBlockExplorerLink).toBe('OpenInExplorerChip/ViewOnBlockExplorerLink');
   });
 
   it('exposes exactly one member', () => {
     expect(Object.keys(OpenInExplorerChipSelectors)).toEqual(['ViewOnBlockExplorerLink']);
-    expect(Object.values(OpenInExplorerChipSelectors)).toEqual([
-      'OpenInExplorerChip/ViewOnBlockExplorerLink'
-    ]);
+    expect(Object.values(OpenInExplorerChipSelectors)).toEqual(['OpenInExplorerChip/ViewOnBlockExplorerLink']);
   });
 
   it('is a string enum without a numeric reverse mapping', () => {
@@ -27,9 +23,7 @@ describe('OpenInExplorerChipSelectors', () => {
     const keys = Object.keys(OpenInExplorerChipSelectors);
     expect(keys.every(key => Number.isNaN(Number(key)))).toBe(true);
     expect(
-      (OpenInExplorerChipSelectors as Record<string, string>)[
-        'OpenInExplorerChip/ViewOnBlockExplorerLink'
-      ]
+      (OpenInExplorerChipSelectors as Record<string, string>)['OpenInExplorerChip/ViewOnBlockExplorerLink']
     ).toBeUndefined();
   });
 

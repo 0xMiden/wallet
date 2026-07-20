@@ -113,13 +113,7 @@ describe('FormSubmitButton', () => {
 
   it('honours an explicit `type`, forwards `className`, `style` and remaining props', () => {
     render(
-      <FormSubmitButton
-        type="button"
-        className="custom-class"
-        style={{ marginTop: 4 }}
-        id="my-btn"
-        name="submitter"
-      >
+      <FormSubmitButton type="button" className="custom-class" style={{ marginTop: 4 }} id="my-btn" name="submitter">
         Go
       </FormSubmitButton>
     );
@@ -136,12 +130,7 @@ describe('FormSubmitButton', () => {
     const onClick = jest.fn();
     const testIDProperties = { surface: 'send' };
     render(
-      <FormSubmitButton
-        type="button"
-        testID="confirm-send"
-        testIDProperties={testIDProperties}
-        onClick={onClick}
-      >
+      <FormSubmitButton type="button" testID="confirm-send" testIDProperties={testIDProperties} onClick={onClick}>
         Send
       </FormSubmitButton>
     );
@@ -149,11 +138,7 @@ describe('FormSubmitButton', () => {
     fireEvent.click(getButton());
 
     expect(trackEvent).toHaveBeenCalledTimes(1);
-    expect(trackEvent).toHaveBeenCalledWith(
-      'confirm-send',
-      AnalyticsEventCategory.ButtonPress,
-      testIDProperties
-    );
+    expect(trackEvent).toHaveBeenCalledWith('confirm-send', AnalyticsEventCategory.ButtonPress, testIDProperties);
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
@@ -174,17 +159,11 @@ describe('FormSubmitButton', () => {
 
     fireEvent.click(getButton());
 
-    expect(trackEvent).toHaveBeenCalledWith(
-      'lone-track',
-      AnalyticsEventCategory.ButtonPress,
-      undefined
-    );
+    expect(trackEvent).toHaveBeenCalledWith('lone-track', AnalyticsEventCategory.ButtonPress, undefined);
   });
 
   it('passes tooltip content to useTippy and wraps the button in a ref span when a tooltip is set', () => {
-    const { container } = render(
-      <FormSubmitButton tooltip="Helpful hint">Hover me</FormSubmitButton>
-    );
+    const { container } = render(<FormSubmitButton tooltip="Helpful hint">Hover me</FormSubmitButton>);
 
     // Tippy receives the merged mock props plus the tooltip content.
     expect(mockUseTippy).toHaveBeenCalledWith({

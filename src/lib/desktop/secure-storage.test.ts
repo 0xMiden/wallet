@@ -109,9 +109,7 @@ describe('secure-storage', () => {
     it('rejects when called outside of the desktop app', async () => {
       const { mod } = loadModule({ desktop: false });
 
-      await expect(mod.hasHardwareKey()).rejects.toThrow(
-        'Secure storage operations are only available in desktop app'
-      );
+      await expect(mod.hasHardwareKey()).rejects.toThrow('Secure storage operations are only available in desktop app');
     });
   });
 

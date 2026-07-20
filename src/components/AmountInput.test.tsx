@@ -123,11 +123,7 @@ describe('AmountInput', () => {
 
     it('prefers the error row over the helper when both are provided', () => {
       render(
-        <AmountInput
-          error="Bad"
-          helper={<span data-testid="helper">Should not show</span>}
-          data-testid={TESTID}
-        />
+        <AmountInput error="Bad" helper={<span data-testid="helper">Should not show</span>} data-testid={TESTID} />
       );
 
       expect(screen.getByText('Bad')).toBeInTheDocument();

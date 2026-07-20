@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render } from '@testing-library/react';
 
+import ColorIdenticon from './ColorIdenticon';
+
 // ColorIdenticon renders the real `Avatar` (components/Avatar), whose only
 // impure dependency is `useTranslation` from react-i18next. Mirroring sibling
 // atom tests (Alert/Logo/CopyButton), we stub the translator so `t('avatar')`
@@ -21,8 +23,6 @@ jest.mock('react-i18next', () => ({
     t: (key: string) => key
   })
 }));
-
-import ColorIdenticon from './ColorIdenticon';
 
 const getRoot = (container: HTMLElement) => container.firstChild as HTMLElement;
 const getImg = (container: HTMLElement) => container.querySelector('img') as HTMLImageElement;

@@ -2,6 +2,11 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+// utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
+// used for real so the redirect branch reflects production behaviour.
+
+import Explore from './Explore';
+
 // ---------------------------------------------------------------------------
 // Explore is the wallet "home" page. It composes a lot of leaf UI (Balance,
 // BalanceCard, AccountsDrawer, SearchInput, AssetRow, HomePrompts) and wires up
@@ -171,11 +176,6 @@ jest.mock('lib/woozie', () => ({
 jest.mock('utils/string', () => ({
   truncateAddress: (addr: string) => (addr ? addr.slice(0, 8) : '')
 }));
-
-// utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
-// used for real so the redirect branch reflects production behaviour.
-
-import Explore from './Explore';
 
 const makeToken = (tokenId: string, symbol: string, name?: string) => ({
   tokenId,
@@ -434,10 +434,7 @@ describe('Explore', () => {
 
     it('skips dispatch when every matching note is already being claimed', async () => {
       mockAutoConsume = true;
-      mockClaimableNotes = [
-        makeNote('n1', 'faucet-native', true),
-        makeNote('n2', 'faucet-native', true)
-      ];
+      mockClaimableNotes = [makeNote('n1', 'faucet-native', true), makeNote('n2', 'faucet-native', true)];
 
       await renderExplore();
 
@@ -451,10 +448,7 @@ describe('Explore', () => {
 
     it('consumes multiple matching notes in one pass', async () => {
       mockAutoConsume = true;
-      mockClaimableNotes = [
-        makeNote('n1', 'faucet-native', false),
-        makeNote('n2', 'faucet-native', false)
-      ];
+      mockClaimableNotes = [makeNote('n1', 'faucet-native', false), makeNote('n2', 'faucet-native', false)];
 
       await renderExplore();
 

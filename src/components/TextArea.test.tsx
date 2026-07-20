@@ -8,10 +8,7 @@ import { TextArea } from './TextArea';
 // override the getter. We install a configurable getter on the prototype so
 // the auto-resize effect (which reads scrollHeight) has a deterministic value
 // to work with, then restore it after each test.
-const originalScrollHeight = Object.getOwnPropertyDescriptor(
-  HTMLElement.prototype,
-  'scrollHeight'
-);
+const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight');
 
 const setScrollHeight = (value: number) => {
   Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {

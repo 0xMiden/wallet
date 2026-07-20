@@ -240,15 +240,7 @@ describe('SeedWordInput', () => {
         <SeedWordInput id={0} submitted={false} showSeed value="apple" setShowSeed={setShowSeed} />
       );
 
-      rerender(
-        <SeedWordInput
-          id={0}
-          submitted={false}
-          showSeed={false}
-          value="apple"
-          setShowSeed={setShowSeed}
-        />
-      );
+      rerender(<SeedWordInput id={0} submitted={false} showSeed={false} value="apple" setShowSeed={setShowSeed} />);
 
       setShowSeed.mockClear();
       window.dispatchEvent(new Event('blur'));

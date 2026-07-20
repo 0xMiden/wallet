@@ -57,9 +57,7 @@ describe('lib/miden/back/analytics', () => {
     it('throws when ALEO_WALLET_SEGMENT_WRITE_KEY is not set', () => {
       delete process.env.ALEO_WALLET_SEGMENT_WRITE_KEY;
 
-      expect(() => loadAnalytics()).toThrow(
-        "Require a 'ALEO_WALLET_SEGMENT_WRITE_KEY' environment variable to be set"
-      );
+      expect(() => loadAnalytics()).toThrow("Require a 'ALEO_WALLET_SEGMENT_WRITE_KEY' environment variable to be set");
       expect(mockAnalyticsCtor).not.toHaveBeenCalled();
     });
 

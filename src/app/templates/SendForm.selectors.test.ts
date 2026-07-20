@@ -80,9 +80,7 @@ describe('SendFormSelectors', () => {
     // These two members intentionally share one value; the enum object still
     // carries both as distinct keys.
     expect(SendFormSelectors.AssetDropDown).toBe(SendFormSelectors.AssetName);
-    expect(Object.keys(SendFormSelectors)).toEqual(
-      expect.arrayContaining(['AssetDropDown', 'AssetName'])
-    );
+    expect(Object.keys(SendFormSelectors)).toEqual(expect.arrayContaining(['AssetDropDown', 'AssetName']));
   });
 
   it('has exactly one intentional duplicate among its selector values', () => {

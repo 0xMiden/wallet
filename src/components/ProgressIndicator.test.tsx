@@ -63,7 +63,7 @@ describe('ProgressIndicator', () => {
     it('gives each bar the base bar classes', () => {
       render(<ProgressIndicator steps={2} currentStep={1} />);
 
-      getBars().forEach((bar) => {
+      getBars().forEach(bar => {
         expect(bar).toHaveClass('h-1.5', 'rounded-full');
       });
     });
@@ -84,7 +84,7 @@ describe('ProgressIndicator', () => {
     it('leaves every bar empty when currentStep is 0', () => {
       render(<ProgressIndicator steps={3} currentStep={0} />);
 
-      getBars().forEach((bar) => {
+      getBars().forEach(bar => {
         expect(animateOf(bar)).toEqual({ width: INACTIVE_WIDTH, backgroundColor: EMPTY_COLOR });
       });
     });
@@ -92,7 +92,7 @@ describe('ProgressIndicator', () => {
     it('fills every bar when currentStep equals steps', () => {
       render(<ProgressIndicator steps={3} currentStep={3} />);
 
-      getBars().forEach((bar) => {
+      getBars().forEach(bar => {
         expect(animateOf(bar)).toEqual({ width: ACTIVE_WIDTH, backgroundColor: FILLED_COLOR });
       });
     });
@@ -100,7 +100,7 @@ describe('ProgressIndicator', () => {
     it('fills every bar when currentStep exceeds steps', () => {
       render(<ProgressIndicator steps={2} currentStep={5} />);
 
-      getBars().forEach((bar) => {
+      getBars().forEach(bar => {
         expect(animateOf(bar)).toEqual({ width: ACTIVE_WIDTH, backgroundColor: FILLED_COLOR });
       });
     });

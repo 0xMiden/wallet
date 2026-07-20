@@ -22,9 +22,7 @@ describe('PageLayoutSelectors', () => {
     // entries, so no numeric keys and no lookup by value should exist.
     const keys = Object.keys(PageLayoutSelectors);
     expect(keys.every(key => Number.isNaN(Number(key)))).toBe(true);
-    expect(
-      (PageLayoutSelectors as Record<string, string>)['PageLayout/BackButton']
-    ).toBeUndefined();
+    expect((PageLayoutSelectors as Record<string, string>)['PageLayout/BackButton']).toBeUndefined();
   });
 
   it('has a namespaced selector value prefixed with the component name', () => {

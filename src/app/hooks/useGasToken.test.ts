@@ -1,5 +1,9 @@
 import { renderHook } from '@testing-library/react';
 
+import { MIDEN_METADATA } from 'lib/miden/front';
+
+import { useGasToken } from './useGasToken';
+
 // --- Mocked dependencies -------------------------------------------------
 // `useGasToken` pulls a single constant (`MIDEN_METADATA`) out of the
 // `lib/miden/front` barrel. That barrel transitively re-exports the whole
@@ -16,10 +20,6 @@ jest.mock('lib/miden/front', () => ({
     thumbnailUri: ''
   }
 }));
-
-import { MIDEN_METADATA } from 'lib/miden/front';
-
-import { useGasToken } from './useGasToken';
 
 describe('useGasToken', () => {
   it('returns the fixed gas-token descriptor with every expected field', () => {

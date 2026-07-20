@@ -10,9 +10,7 @@ import initialsSprites from './index';
 // exact `fill` colour without depending on the PRNG.
 
 /** All level-600 colours (the default level) across the whole collection. */
-const allLevel600 = Object.keys(Color.collection).map(
-  (name) => (Color.collection as any)[name][600] as string
-);
+const allLevel600 = Object.keys(Color.collection).map(name => (Color.collection as any)[name][600] as string);
 
 /** Extract the `fill` value of the background `<rect>` from a generated SVG. */
 function rectFill(svg: string): string {
@@ -76,7 +74,7 @@ describe('initialsSprites', () => {
   describe('backgroundColors filter + backgroundColorLevel', () => {
     it('restricts to a single named colour at the default level (600)', () => {
       const svg = initialsSprites(new Random('AB'), {
-        backgroundColors: ['amber'],
+        backgroundColors: ['amber']
       });
       // Single-element pool -> pickone is forced to return amber[600].
       expect(rectFill(svg)).toBe((Color.collection as any).amber[600]);
@@ -85,20 +83,20 @@ describe('initialsSprites', () => {
     it('honours an explicit backgroundColorLevel', () => {
       const svg = initialsSprites(new Random('AB'), {
         backgroundColors: ['blue'],
-        backgroundColorLevel: 300,
+        backgroundColorLevel: 300
       });
       expect(rectFill(svg)).toBe((Color.collection as any).blue[300]);
     });
 
     it('excludes colours not present in the filter list', () => {
       const svg = initialsSprites(new Random('AB'), {
-        backgroundColors: ['amber'],
+        backgroundColors: ['amber']
       });
       const fill = rectFill(svg);
       // Every non-amber level-600 colour must be excluded.
       const otherColours = Object.keys(Color.collection)
-        .filter((name) => name !== 'amber')
-        .map((name) => (Color.collection as any)[name][600]);
+        .filter(name => name !== 'amber')
+        .map(name => (Color.collection as any)[name][600]);
       expect(otherColours).not.toContain(fill);
     });
   });
@@ -129,7 +127,7 @@ describe('initialsSprites', () => {
     it('adds font-weight when bold is true', () => {
       const svg = initialsSprites(new Random('AB'), {
         bold: true,
-        background: '#000000',
+        background: '#000000'
       });
       expect(svg).toContain('font-weight: bold;');
     });
@@ -137,7 +135,7 @@ describe('initialsSprites', () => {
     it('omits font-weight when bold is false', () => {
       const svg = initialsSprites(new Random('AB'), {
         bold: false,
-        background: '#000000',
+        background: '#000000'
       });
       expect(svg).not.toContain('font-weight: bold;');
     });
@@ -147,7 +145,7 @@ describe('initialsSprites', () => {
     it('divides the explicit font size by 100', () => {
       const svg = initialsSprites(new Random('AB'), {
         fontSize: 25,
-        background: '#000000',
+        background: '#000000'
       });
       expect(svg).toContain('font-size: 0.25px');
     });
@@ -162,14 +160,14 @@ describe('initialsSprites', () => {
     it('honours an explicit chars count', () => {
       const svg = initialsSprites(new Random('ABCDEF'), {
         chars: 3,
-        background: '#000000',
+        background: '#000000'
       });
       expect(textContent(svg)).toBe('ABC');
     });
 
     it('trims leading/trailing whitespace before slicing', () => {
       const svg = initialsSprites(new Random('   XY   '), {
-        background: '#000000',
+        background: '#000000'
       });
       expect(textContent(svg)).toBe('XY');
     });
@@ -177,7 +175,7 @@ describe('initialsSprites', () => {
     it('strips angle brackets from the initials to avoid markup injection', () => {
       const svg = initialsSprites(new Random('  <a>  '), {
         chars: 5,
-        background: '#000000',
+        background: '#000000'
       });
       // trim -> '<a>' ; slice(0,5) -> '<a>' ; strip < and > -> 'a'
       expect(textContent(svg)).toBe('a');

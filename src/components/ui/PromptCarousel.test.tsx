@@ -28,17 +28,8 @@ let mockLastDragConstraints: unknown = null;
 jest.mock('framer-motion', () => {
   const ReactActual = jest.requireActual('react');
   const passthrough = ReactActual.forwardRef((props: any, ref: React.Ref<HTMLDivElement>) => {
-    const {
-      children,
-      onDragEnd,
-      dragConstraints,
-      drag,
-      dragDirectionLock,
-      dragElastic,
-      dragMomentum,
-      style,
-      ...rest
-    } = props;
+    const { children, onDragEnd, dragConstraints, drag, dragDirectionLock, dragElastic, dragMomentum, style, ...rest } =
+      props;
     if (onDragEnd) mockLastDragEnd = onDragEnd;
     if (dragConstraints !== undefined) mockLastDragConstraints = dragConstraints;
     return ReactActual.createElement('div', { ref, ...rest }, children);

@@ -253,12 +253,7 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw2' } });
     await dispatch({ id: 'confirmation' });
 
-    expect(mockRegisterWallet).toHaveBeenCalledWith(
-      WalletType.Guardian,
-      'pw2',
-      'fmt:seed words here',
-      true
-    );
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, 'pw2', 'fmt:seed words here', true);
   });
 
   it('confirmation (Create flow) swallows a registerWallet rejection', async () => {
@@ -394,9 +389,10 @@ describe('ForgotPassword', () => {
     // step=Confirmation render while we probe the back handler.
     let release!: () => void;
     mockRegisterWallet.mockImplementationOnce(
-      () => new Promise<void>(res => {
-        release = res;
-      })
+      () =>
+        new Promise<void>(res => {
+          release = res;
+        })
     );
 
     const { container } = renderPage();

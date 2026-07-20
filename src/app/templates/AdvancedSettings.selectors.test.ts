@@ -22,9 +22,7 @@ describe('AdvancedSettingsSelectors', () => {
     // entries, so no numeric keys and no lookup by value should exist.
     const keys = Object.keys(AdvancedSettingsSelectors);
     expect(keys.every(key => Number.isNaN(Number(key)))).toBe(true);
-    expect(
-      (AdvancedSettingsSelectors as Record<string, string>)['Advanced Settings/Resync Button']
-    ).toBeUndefined();
+    expect((AdvancedSettingsSelectors as Record<string, string>)['Advanced Settings/Resync Button']).toBeUndefined();
   });
 
   it('has a namespaced selector value prefixed with the "Advanced Settings/" namespace', () => {

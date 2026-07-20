@@ -1,8 +1,11 @@
 import React from 'react';
 
+import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 import { render, screen } from '@testing-library/react';
 
 import PrivateDataPermissionBanner from './PrivateDataPermissionBanner';
+
+// Re-import the mocked enums for use in the test cases.
 
 // The wallet-adapter package ships as ESM and is not transformed by jest, so we
 // provide only the two enums the banner reads. `PrivateDataPermission` values
@@ -34,9 +37,6 @@ jest.mock('app/icons/v2', () => ({
 jest.mock('utils/brand-colors', () => ({
   PRIMARY_HEX: '#E77537'
 }));
-
-// Re-import the mocked enums for use in the test cases.
-import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 
 describe('PrivateDataPermissionBanner', () => {
   describe('public account', () => {

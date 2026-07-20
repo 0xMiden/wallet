@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render } from '@testing-library/react';
 
+import Logo from './Logo';
+
 // Mock react-i18next so `t('appName')` deterministically returns the key,
 // matching the pattern used by sibling atom tests (e.g. Alert.test.tsx).
 jest.mock('react-i18next', () => ({
@@ -20,8 +22,6 @@ jest.mock('react-i18next', () => ({
 // `logo.svg?url` file. A virtual mock short-circuits resolution and gives the
 // import a distinct, assertable value so we can tell the two branches apart.
 jest.mock('app/misc/logo.svg?url', () => 'plain-logo-url-stub', { virtual: true });
-
-import Logo from './Logo';
 
 const getImg = (container: HTMLElement) => container.querySelector('img') as HTMLImageElement;
 
@@ -82,9 +82,7 @@ describe('Logo', () => {
   });
 
   it('spreads additional HTML attributes onto the img via {...rest}', () => {
-    const { container } = render(
-      <Logo data-testid="brand-logo" className="extra-class" id="the-logo" />
-    );
+    const { container } = render(<Logo data-testid="brand-logo" className="extra-class" id="the-logo" />);
     const img = getImg(container);
 
     expect(img).toHaveAttribute('data-testid', 'brand-logo');

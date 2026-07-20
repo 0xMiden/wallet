@@ -68,9 +68,9 @@ jest.mock('components/Button', () => ({
 // non-explorer navigation branch is assertable.
 jest.mock('lib/woozie', () => ({
   Link: ({ to, children }: { to: string; children?: React.ReactNode }) => (
-    <a data-testid="woozie-link" data-to={to}>
+    <span data-testid="woozie-link" data-to={to}>
       {children}
-    </a>
+    </span>
   )
 }));
 

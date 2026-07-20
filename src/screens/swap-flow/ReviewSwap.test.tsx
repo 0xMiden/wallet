@@ -2,6 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { ReviewSwap, ReviewSwapProps } from './ReviewSwap';
+
 // react-i18next: echo the key back, and fold interpolation options into the
 // returned string so we can assert that `swapSolverFeeNote`'s `{percent}` was
 // computed from SOLVER_MARGIN (mirrors sibling atom/screen tests that mock
@@ -51,18 +53,12 @@ jest.mock('components/review', () => {
         },
         R.createElement('div', { 'data-testid': 'hero' }, hero),
         R.createElement('div', { 'data-testid': 'rows' }, children),
-        R.createElement(
-          'button',
-          { 'data-testid': primary['data-testid'], onClick: primary.onPress },
-          primary.label
-        ),
+        R.createElement('button', { 'data-testid': primary['data-testid'], onClick: primary.onPress }, primary.label),
         secondary &&
           R.createElement('button', { 'data-testid': 'secondary', onClick: secondary.onPress }, secondary.label)
       )
   };
 });
-
-import { ReviewSwap, ReviewSwapProps } from './ReviewSwap';
 
 const OFFER_TOKEN = { symbol: 'IMIDEN', faucetId: 'f-offer', decimals: 8, logoSymbol: 'MIDEN' };
 const REQUEST_TOKEN = { symbol: 'IETH', faucetId: 'f-request', decimals: 8, logoSymbol: 'ETH' };

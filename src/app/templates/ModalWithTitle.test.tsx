@@ -68,9 +68,7 @@ describe('ModalWithTitle', () => {
   });
 
   it('renders a ReactNode title (not just a string)', () => {
-    render(
-      <ModalWithTitle title={<em data-testid="rich-title">rich</em>}>content</ModalWithTitle>
-    );
+    render(<ModalWithTitle title={<em data-testid="rich-title">rich</em>}>content</ModalWithTitle>);
 
     const heading = screen.getByRole('heading', { level: 1 });
     expect(heading).toContainElement(screen.getByTestId('rich-title'));

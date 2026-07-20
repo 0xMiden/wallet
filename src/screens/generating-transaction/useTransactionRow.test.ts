@@ -13,6 +13,10 @@
  */
 
 import { act, renderHook } from '@testing-library/react';
+import { liveQuery } from 'dexie'; // eslint-disable-line import/order
+import * as Repo from 'lib/miden/repo'; // eslint-disable-line import/order
+
+import { useTransactionRow } from './useTransactionRow';
 
 // Shared mock state lives on globalThis so the hoisted `jest.mock` factories
 // (which cannot close over ordinary module-scope variables) can reach it at
@@ -45,12 +49,7 @@ jest.mock('lib/miden/repo', () => ({
       first: jest.fn(async () => (globalThis as any).__txRowTest.rowById?.[query.id])
     }))
   }
-}));
-
-import { liveQuery } from 'dexie'; // eslint-disable-line import/order
-import * as Repo from 'lib/miden/repo'; // eslint-disable-line import/order
-
-import { useTransactionRow } from './useTransactionRow'; // eslint-disable-line import/order
+})); // eslint-disable-line import/order
 
 const state = _g.__txRowTest as {
   observers: Array<{ next: (v: unknown) => void; error: (e: unknown) => void }>;

@@ -38,6 +38,7 @@ jest.mock('lib/woozie', () => ({
     children?: React.ReactNode;
   }) => (
     <a
+      href={to}
       data-testid="tab-link"
       data-to={to}
       data-replace={String(replace)}

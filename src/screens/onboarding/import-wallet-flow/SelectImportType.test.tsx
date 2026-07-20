@@ -3,7 +3,6 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 import { ImportType } from '../types';
-
 import { SelectImportTypeScreen } from './SelectImportType';
 
 // ---------------------------------------------------------------------------

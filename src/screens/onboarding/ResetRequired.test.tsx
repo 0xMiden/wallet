@@ -43,12 +43,7 @@ jest.mock('components/Message', () => ({
     iconClassName?: string;
     className?: string;
   }) => (
-    <div
-      data-testid="message"
-      data-icon={icon}
-      data-icon-classname={iconClassName}
-      data-classname={className}
-    >
+    <div data-testid="message" data-icon={icon} data-icon-classname={iconClassName} data-classname={className}>
       <span data-testid="message-title">{title}</span>
       <span data-testid="message-description">{description}</span>
       <span data-testid="message-second-description">{secondDescription}</span>

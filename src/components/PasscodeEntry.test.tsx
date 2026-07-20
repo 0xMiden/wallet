@@ -19,7 +19,15 @@ jest.mock('react-i18next', () => ({
 // haptics) with a lightweight keypad exposing a button per digit plus a delete
 // button, forwarding `onDigit` / `onDelete` so passcode entry can be driven.
 jest.mock('components/Numpad', () => ({
-  Numpad: ({ onDigit, onDelete, className }: { onDigit: (d: string) => void; onDelete: () => void; className?: string }) => (
+  Numpad: ({
+    onDigit,
+    onDelete,
+    className
+  }: {
+    onDigit: (d: string) => void;
+    onDelete: () => void;
+    className?: string;
+  }) => (
     <div data-testid="numpad" className={className}>
       {['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => (
         <button key={d} data-testid={`numpad-${d}`} onClick={() => onDigit(d)}>

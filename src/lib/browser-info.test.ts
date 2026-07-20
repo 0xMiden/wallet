@@ -110,9 +110,7 @@ describe('isSafeBrowserVersion', () => {
     it('is unsafe when the UA matches no known engine (appName/appVersion fallback)', () => {
       // No engine match -> falls back to navigator.appName ("Netscape"), which
       // is absent from the secure-version table -> minVersion undefined -> false.
-      expect(
-        loadWith({ userAgent: UNKNOWN_UA, appName: 'Netscape', appVersion: '5.0 (Windows)' })
-      ).toBe(false);
+      expect(loadWith({ userAgent: UNKNOWN_UA, appName: 'Netscape', appVersion: '5.0 (Windows)' })).toBe(false);
     });
   });
 });

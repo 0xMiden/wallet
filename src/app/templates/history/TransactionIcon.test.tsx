@@ -139,7 +139,15 @@ describe('TransactionIcon', () => {
 
       const wrapper = root(container);
       // Swap uses a rounded square with the tx-swap background, not an inline color.
-      expect(wrapper).toHaveClass('w-8.5', 'h-8.5', 'rounded-10', 'flex', 'items-center', 'justify-center', 'bg-tx-swap');
+      expect(wrapper).toHaveClass(
+        'w-8.5',
+        'h-8.5',
+        'rounded-10',
+        'flex',
+        'items-center',
+        'justify-center',
+        'bg-tx-swap'
+      );
       expect(wrapper).not.toHaveAttribute('style');
 
       const icon = getByTestId('v2-icon');

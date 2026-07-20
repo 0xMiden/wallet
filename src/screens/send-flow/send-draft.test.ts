@@ -1,10 +1,4 @@
-import {
-  type SendDraft,
-  setSendDraft,
-  consumeSendDraft,
-  hasSendDraft,
-  clearSendDraft
-} from './send-draft';
+import { type SendDraft, setSendDraft, consumeSendDraft, hasSendDraft, clearSendDraft } from './send-draft';
 
 const makeDraft = (over: Partial<SendDraft> = {}): SendDraft => ({
   amount: '12.5',

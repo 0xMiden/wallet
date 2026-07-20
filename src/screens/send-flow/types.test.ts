@@ -13,20 +13,12 @@ import type {
   UIRecords,
   UIFees
 } from './types';
-
 // The runtime surface of this module is the four enums plus the
 // `TransactionTypeNameMapping` const; everything else is compile-time-only
 // type declaration that erases to nothing. Import the runtime members
 // explicitly, and exercise the type-only shapes structurally so this file
 // doubles as living documentation of the send-flow contracts.
-import {
-  SendFlowStep,
-  SendFlowActionId,
-  UIFeeType,
-  UITransactionType,
-  TransactionTypeNameMapping
-} from './types';
-
+import { SendFlowStep, SendFlowActionId, UIFeeType, UITransactionType, TransactionTypeNameMapping } from './types';
 // Also grab the whole namespace so we can assert the module's runtime export
 // set is exactly the enums + mapping (no accidental runtime leakage).
 import * as sendFlowTypes from './types';
@@ -35,13 +27,7 @@ describe('send-flow/types', () => {
   describe('module runtime surface', () => {
     it('exposes exactly the enums and the mapping at runtime', () => {
       expect(Object.keys(sendFlowTypes).sort()).toEqual(
-        [
-          'SendFlowActionId',
-          'SendFlowStep',
-          'TransactionTypeNameMapping',
-          'UIFeeType',
-          'UITransactionType'
-        ].sort()
+        ['SendFlowActionId', 'SendFlowStep', 'TransactionTypeNameMapping', 'UIFeeType', 'UITransactionType'].sort()
       );
     });
   });
@@ -54,16 +40,8 @@ describe('send-flow/types', () => {
     });
 
     it('contains exactly three steps', () => {
-      expect(Object.keys(SendFlowStep)).toEqual([
-        'SelectRecipient',
-        'SelectAmount',
-        'TransactionInitiated'
-      ]);
-      expect(Object.values(SendFlowStep)).toEqual([
-        'SelectRecipient',
-        'SelectAmount',
-        'TransactionInitiated'
-      ]);
+      expect(Object.keys(SendFlowStep)).toEqual(['SelectRecipient', 'SelectAmount', 'TransactionInitiated']);
+      expect(Object.values(SendFlowStep)).toEqual(['SelectRecipient', 'SelectAmount', 'TransactionInitiated']);
     });
   });
 
@@ -76,12 +54,7 @@ describe('send-flow/types', () => {
     });
 
     it('contains exactly the four known action ids', () => {
-      expect(Object.values(SendFlowActionId)).toEqual([
-        'go-back',
-        'navigate',
-        'set-form-values',
-        'finish'
-      ]);
+      expect(Object.values(SendFlowActionId)).toEqual(['go-back', 'navigate', 'set-form-values', 'finish']);
     });
   });
 
@@ -169,16 +142,10 @@ describe('send-flow/types', () => {
       };
       const finish: Finish = { id: SendFlowActionId.Finish };
 
-      const actions: SendFlowAction[] = [
-        navigate,
-        goBack,
-        setValues,
-        setValuesNoValidation,
-        finish
-      ];
+      const actions: SendFlowAction[] = [navigate, goBack, setValues, setValuesNoValidation, finish];
 
       // Narrow each variant by its discriminant to prove the union is exhaustive.
-      const ids = actions.map((action) => {
+      const ids = actions.map(action => {
         switch (action.id) {
           case SendFlowActionId.Navigate:
             return action.step;
@@ -222,7 +189,7 @@ describe('send-flow/types', () => {
         contactType: 'external'
       };
 
-      const types = [publicContact, privateContact, externalContact].map((c) => c.contactType);
+      const types = [publicContact, privateContact, externalContact].map(c => c.contactType);
       expect(types).toEqual(['public', 'private', 'external']);
       expect(privateContact.isGuardian).toBe(true);
       expect(publicContact.isGuardian).toBeUndefined();

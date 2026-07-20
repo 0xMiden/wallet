@@ -2,8 +2,13 @@ import React from 'react';
 
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
-import EarnPositions from './EarnPositions';
+import { hapticLight } from 'lib/mobile/haptics';
+import { goBack, navigate } from 'lib/woozie';
+
 import { EARN_DATA } from './data';
+import EarnPositions from './EarnPositions';
+
+// Pull the mocked router/haptics fns back out for assertions.
 
 // `lib/woozie` is the SPA router; stub `goBack`/`navigate` so we can assert the
 // header back button and each position-card tap fire the right navigation.
@@ -57,10 +62,6 @@ jest.mock('./components', () => ({
     <span data-testid="provider-logo" data-protocol={protocol} className={className} />
   )
 }));
-
-// Pull the mocked router/haptics fns back out for assertions.
-import { goBack, navigate } from 'lib/woozie';
-import { hapticLight } from 'lib/mobile/haptics';
 
 const mockGoBack = goBack as jest.Mock;
 const mockNavigate = navigate as jest.Mock;

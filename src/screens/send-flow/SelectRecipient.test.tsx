@@ -2,6 +2,8 @@ import React, { ChangeEvent } from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
+import { SelectRecipient, SelectRecipientProps } from './SelectRecipient';
+
 // react-i18next: return the key verbatim so we can assert on translation keys
 // (mirrors sibling atom tests such as ColorIdenticon/SeedWordInput).
 jest.mock('react-i18next', () => ({
@@ -22,8 +24,6 @@ jest.mock('components/Button', () => {
       ReactMock.createElement('button', { type: 'button', ...rest }, iconLeft, children ?? title)
   };
 });
-
-import { SelectRecipient, SelectRecipientProps } from './SelectRecipient';
 
 // jsdom does not lay out elements, so `scrollHeight` is 0 by default. Pin it to
 // a deterministic value so we can assert that the auto-grow effect ran and set

@@ -68,12 +68,7 @@ jest.mock('components/ui', () => ({
     placeholder?: string;
     'data-testid'?: string;
   }) => (
-    <input
-      data-testid={dataTestId}
-      aria-label={placeholder}
-      value={value}
-      onChange={e => onChange(e.target.value)}
-    />
+    <input data-testid={dataTestId} aria-label={placeholder} value={value} onChange={e => onChange(e.target.value)} />
   )
 }));
 
@@ -130,9 +125,7 @@ const setBalances = (balances: Balance[]) => {
 const renderDrawer = (overrides: Partial<React.ComponentProps<typeof SelectTokenDrawer>> = {}) => {
   const onOpenChange = jest.fn();
   const onSelect = jest.fn();
-  const utils = render(
-    <SelectTokenDrawer open onOpenChange={onOpenChange} onSelect={onSelect} {...overrides} />
-  );
+  const utils = render(<SelectTokenDrawer open onOpenChange={onOpenChange} onSelect={onSelect} {...overrides} />);
   return { onOpenChange, onSelect, ...utils };
 };
 

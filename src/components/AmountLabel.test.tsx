@@ -69,9 +69,7 @@ describe('AmountLabel', () => {
   });
 
   it('forwards additional HTML attributes to the wrapper element', () => {
-    const { container } = render(
-      <AmountLabel amount="1.00" id="amount-id" data-testid="amount-el" title="tooltip" />
-    );
+    const { container } = render(<AmountLabel amount="1.00" id="amount-id" data-testid="amount-el" title="tooltip" />);
     const wrapper = container.firstChild as HTMLElement;
 
     expect(wrapper).toHaveAttribute('id', 'amount-id');

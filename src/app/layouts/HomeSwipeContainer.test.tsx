@@ -81,9 +81,7 @@ jest.mock('app/pages/Receive', () => ({
 }));
 jest.mock('screens/send-flow/SendManager', () => ({
   __esModule: true,
-  SendFlow: ({ isLoading }: { isLoading?: boolean }) => (
-    <div data-testid="page-send" data-loading={String(isLoading)} />
-  )
+  SendFlow: ({ isLoading }: { isLoading?: boolean }) => <div data-testid="page-send" data-loading={String(isLoading)} />
 }));
 jest.mock('screens/swap-flow/SwapManager', () => ({
   __esModule: true,

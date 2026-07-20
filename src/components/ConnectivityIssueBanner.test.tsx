@@ -2,6 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
+import { useConnectivityState } from 'lib/miden/activity/use-connectivity-state';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 
@@ -70,8 +71,6 @@ jest.mock('app/icons/v2', () => ({
 jest.mock('lib/miden/activity/use-connectivity-state', () => ({
   useConnectivityState: jest.fn()
 }));
-
-import { useConnectivityState } from 'lib/miden/activity/use-connectivity-state';
 
 const mockUseConnectivityState = useConnectivityState as jest.MockedFunction<typeof useConnectivityState>;
 const mockIsExtension = isExtension as jest.MockedFunction<typeof isExtension>;

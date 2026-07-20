@@ -53,14 +53,7 @@ describe('EmptyState', () => {
     const { container } = render(<EmptyState icon={IconName.Home} title="Title" description="Desc" />);
 
     const root = container.firstChild as HTMLElement;
-    expect(root).toHaveClass(
-      'flex',
-      'flex-col',
-      'items-center',
-      'justify-center',
-      'gap-y-1',
-      'text-heading-gray'
-    );
+    expect(root).toHaveClass('flex', 'flex-col', 'items-center', 'justify-center', 'gap-y-1', 'text-heading-gray');
   });
 
   it('merges a custom className with the base classes', () => {
@@ -79,9 +72,7 @@ describe('EmptyState', () => {
 
     const root = container.firstChild as HTMLElement;
     // clsx drops the falsy value; only base classes remain.
-    expect(root.className).toBe(
-      'flex flex-col items-center justify-center gap-y-1 text-heading-gray'
-    );
+    expect(root.className).toBe('flex flex-col items-center justify-center gap-y-1 text-heading-gray');
   });
 
   it('spreads extra props onto the root container', () => {

@@ -1,5 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 
+import { useOnboardingProgress } from './useOnboardingProgress';
+
 // --- Mocked dependencies -------------------------------------------------
 // `useOnboardingProgress` composes two storage collaborators from the
 // `lib/miden/front` barrel: `useLocalStorage` (synchronous localStorage-backed
@@ -16,8 +18,6 @@ jest.mock('lib/miden/front', () => ({
   useLocalStorage: (key: string, initialValue: unknown) => mockUseLocalStorage(key, initialValue),
   useStorage: (key: string, fallback: unknown) => mockUseStorage(key, fallback)
 }));
-
-import { useOnboardingProgress } from './useOnboardingProgress';
 
 describe('useOnboardingProgress', () => {
   beforeEach(() => {

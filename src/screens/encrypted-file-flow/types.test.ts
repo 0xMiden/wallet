@@ -1,13 +1,4 @@
-import type {
-  EncryptedFileForm,
-  Navigate,
-  GoBack,
-  SetFormValues,
-  Finish,
-  EncryptedFileAction,
-  UIForm
-} from './types';
-
+import type { EncryptedFileForm, Navigate, GoBack, SetFormValues, Finish, EncryptedFileAction, UIForm } from './types';
 // The runtime surface of this module is exactly two enums — `EncryptedFileStep`
 // and `EncryptedFileActionId`. Everything else (`EncryptedFileForm`, the four
 // action variants, the `EncryptedFileAction` union, and `UIForm`) is a
@@ -16,7 +7,6 @@ import type {
 // structurally so this file doubles as living documentation of the
 // encrypted-file-flow contracts.
 import { EncryptedFileStep, EncryptedFileActionId } from './types';
-
 // Also grab the whole namespace so we can assert the module's runtime export
 // set is exactly the two enums (no accidental runtime leakage).
 import * as encryptedFileTypes from './types';
@@ -24,9 +14,7 @@ import * as encryptedFileTypes from './types';
 describe('encrypted-file-flow/types', () => {
   describe('module runtime surface', () => {
     it('exposes exactly the two enums at runtime', () => {
-      expect(Object.keys(encryptedFileTypes).sort()).toEqual(
-        ['EncryptedFileActionId', 'EncryptedFileStep'].sort()
-      );
+      expect(Object.keys(encryptedFileTypes).sort()).toEqual(['EncryptedFileActionId', 'EncryptedFileStep'].sort());
     });
 
     it('does not leak any of the type-only aliases at runtime', () => {
@@ -82,18 +70,8 @@ describe('encrypted-file-flow/types', () => {
     });
 
     it('contains exactly the four known action ids', () => {
-      expect(Object.keys(EncryptedFileActionId)).toEqual([
-        'GoBack',
-        'Navigate',
-        'SetFormValues',
-        'Finish'
-      ]);
-      expect(Object.values(EncryptedFileActionId)).toEqual([
-        'go-back',
-        'navigate',
-        'set-form-values',
-        'finish'
-      ]);
+      expect(Object.keys(EncryptedFileActionId)).toEqual(['GoBack', 'Navigate', 'SetFormValues', 'Finish']);
+      expect(Object.values(EncryptedFileActionId)).toEqual(['go-back', 'navigate', 'set-form-values', 'finish']);
     });
   });
 
@@ -114,7 +92,7 @@ describe('encrypted-file-flow/types', () => {
         filePassword: 'file-secret'
       });
       expect(Object.keys(form).sort()).toEqual(['fileName', 'filePassword', 'walletPassword']);
-      Object.values(form).forEach((v) => expect(typeof v).toBe('string'));
+      Object.values(form).forEach(v => expect(typeof v).toBe('string'));
     });
 
     it('UIForm accepts the full field set with optionals present and absent', () => {
@@ -152,16 +130,10 @@ describe('encrypted-file-flow/types', () => {
       };
       const finish: Finish = { id: EncryptedFileActionId.Finish };
 
-      const actions: EncryptedFileAction[] = [
-        navigate,
-        goBack,
-        setValues,
-        setValuesNoValidation,
-        finish
-      ];
+      const actions: EncryptedFileAction[] = [navigate, goBack, setValues, setValuesNoValidation, finish];
 
       // Narrow each variant by its discriminant to prove the union is exhaustive.
-      const results = actions.map((action) => {
+      const results = actions.map(action => {
         switch (action.id) {
           case EncryptedFileActionId.Navigate:
             return action.step;

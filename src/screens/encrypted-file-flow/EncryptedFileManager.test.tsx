@@ -68,9 +68,7 @@ jest.mock('components/Navigator', () => ({
     cardStack: mockCardStack,
     activeRoute: mockActiveRoute
   }),
-  NavigatorProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="nav-provider">{children}</div>
-  ),
+  NavigatorProvider: ({ children }: { children: React.ReactNode }) => <div data-testid="nav-provider">{children}</div>,
   Navigator: ({ renderRoute }: { renderRoute: (route: unknown, index: number) => React.ReactNode }) => (
     <div data-testid="navigator">{renderRoute(mockRenderRoute, 0)}</div>
   )

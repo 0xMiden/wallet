@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import Unlock from './Unlock';
+
 // ---------------------------------------------------------------------------
 // Mutable platform / env state (mock-prefixed so jest's hoisted factories may
 // reference them). Arrow getters below read these lazily at call time, so each
@@ -163,14 +165,7 @@ jest.mock('components/Input', () => ({
   }) => (
     <div>
       <label htmlFor={id}>{label}</label>
-      <input
-        id={id}
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        disabled={disabled}
-        onChange={onChange}
-      />
+      <input id={id} type={type} value={value} placeholder={placeholder} disabled={disabled} onChange={onChange} />
       <span data-testid="input-icon">{icon}</span>
     </div>
   )
@@ -191,12 +186,9 @@ jest.mock('components/Numpad', () => ({
   )
 }));
 
-import Unlock from './Unlock';
-
 const BASE = new Date('2026-06-01T00:00:00.000Z').getTime();
 
 let logSpy: jest.SpyInstance;
-let closeSpy: jest.SpyInstance;
 
 async function flushMicro() {
   await act(async () => {
@@ -242,8 +234,9 @@ beforeEach(() => {
   logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
   jest.spyOn(console, 'error').mockImplementation(() => undefined);
   // jsdom's window.location is a non-configurable getter, so reload() can't be
-  // spied — it's a harmless no-op here. window.close is a plain method we can spy.
-  closeSpy = jest.spyOn(window, 'close').mockImplementation(() => undefined);
+  // spied — it's a harmless no-op here. window.close is a plain method we can spy;
+  // tests assert against `window.close` directly, so no local handle is kept.
+  jest.spyOn(window, 'close').mockImplementation(() => undefined);
 });
 
 afterEach(() => {
@@ -400,7 +393,7 @@ describe('Unlock — mobile passcode numpad', () => {
   };
 
   it('renders the numpad after the hardware check finds no key', async () => {
-    const { container } = await renderUnlock();
+    await renderUnlock();
 
     expect(screen.getByTestId('unlock-passcode')).toBeInTheDocument();
     expect(screen.getByText('enterYour6DigitCode')).toBeInTheDocument();

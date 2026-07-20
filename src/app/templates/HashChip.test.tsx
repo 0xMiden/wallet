@@ -33,12 +33,7 @@ jest.mock('app/atoms/HashShortView', () => ({
 jest.mock('app/icons/v2', () => ({
   IconName: { Copy: 'copy' },
   Icon: (props: { name: string; size?: string; fill?: string; className?: string }) => (
-    <span
-      data-testid="copy-icon"
-      data-name={props.name}
-      data-size={props.size}
-      data-fill={props.fill}
-    />
+    <span data-testid="copy-icon" data-name={props.name} data-size={props.size} data-fill={props.fill} />
   )
 }));
 

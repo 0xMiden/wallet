@@ -2,6 +2,10 @@ import React from 'react';
 
 import { render, screen } from '@testing-library/react';
 
+// Imported after the mock is registered (jest hoists `jest.mock`, so the
+// component picks up the mocked `isMobile`).
+import FullScreenPage from './FullScreenPage';
+
 // `lib/platform` gates the whole animation branch of FullScreenPage:
 //   - `isMobile()` false  -> the effect bails before touching the DOM.
 //   - `isMobile()` true   -> the container gets the `mobile-page-enter` class,
@@ -14,10 +18,6 @@ jest.mock('lib/platform', () => ({
 const platform = require('lib/platform') as {
   isMobile: jest.Mock;
 };
-
-// Imported after the mock is registered (jest hoists `jest.mock`, so the
-// component picks up the mocked `isMobile`).
-import FullScreenPage from './FullScreenPage';
 
 /** The single wrapper `<div>` FullScreenPage renders. */
 function getContainerDiv(container: HTMLElement): HTMLElement {

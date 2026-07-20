@@ -1,6 +1,9 @@
 import React from 'react';
 
-import { render, screen, fireEvent, act, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
+
+// Import after the mocks are registered.
+import { SwapFlow } from './SwapManager';
 
 // ---------------------------------------------------------------------------
 // Fixture tokens. Prefixed `mock` so the hoisted jest.mock factories may close
@@ -185,9 +188,6 @@ jest.mock('lib/woozie', () => ({
   navigate: (...args: unknown[]) => mockNavigate(...args),
   HistoryAction: { Push: 'push', Replace: 'replace' }
 }));
-
-// Import after the mocks are registered.
-import { SwapFlow } from './SwapManager';
 
 const renderFlow = () => render(<SwapFlow />);
 

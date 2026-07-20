@@ -113,10 +113,7 @@ describe('PasswordStrengthIndicator', () => {
 
   it('renders "low" with red bars when exactly two checks pass', () => {
     const { container } = render(
-      <PasswordStrengthIndicator
-        password="whatever"
-        validation={buildValidation({ minChar: true, cases: true })}
-      />
+      <PasswordStrengthIndicator password="whatever" validation={buildValidation({ minChar: true, cases: true })} />
     );
     expect(screen.getByText('low')).toBeInTheDocument();
     const bars = container.querySelectorAll('div.h-1.w-10');

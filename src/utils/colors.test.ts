@@ -127,9 +127,7 @@ describe('getRandomColor', () => {
 
 describe('default export', () => {
   it('exposes the full color palette', () => {
-    expect(Object.keys(colorsDefault).sort()).toEqual(
-      ['blue', 'green', 'grey', 'primary', 'red', 'yellow'].sort()
-    );
+    expect(Object.keys(colorsDefault).sort()).toEqual(['blue', 'green', 'grey', 'primary', 'red', 'yellow'].sort());
     expect(colorsDefault.primary['500']).toBe('#E77537');
   });
 });

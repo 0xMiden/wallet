@@ -49,9 +49,7 @@ function loadDialogWithoutRoot(): DialogModule {
 }
 
 function renderDialogs(mod: DialogModule) {
-  const wrapper = ({ children }: PropsWithChildren) => (
-    <mod.DialogsProvider>{children}</mod.DialogsProvider>
-  );
+  const wrapper = ({ children }: PropsWithChildren) => <mod.DialogsProvider>{children}</mod.DialogsProvider>;
 
   return renderHook(
     () => ({

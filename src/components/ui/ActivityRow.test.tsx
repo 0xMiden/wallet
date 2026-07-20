@@ -4,8 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
-import { ActivityRow } from './ActivityRow';
-import ActivityRowDefault from './ActivityRow';
+import ActivityRowDefault, { ActivityRow } from './ActivityRow';
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
@@ -14,14 +13,7 @@ jest.mock('lib/mobile/haptics', () => ({
 const baseStatus = { label: 'Confirmed', tone: 'confirmed' as const };
 
 const renderRow = (props: Partial<React.ComponentProps<typeof ActivityRow>> = {}) =>
-  render(
-    <ActivityRow
-      icon={<svg data-testid="glyph" />}
-      title="Sent MIDEN"
-      status={baseStatus}
-      {...props}
-    />
-  );
+  render(<ActivityRow icon={<svg data-testid="glyph" />} title="Sent MIDEN" status={baseStatus} {...props} />);
 
 describe('ActivityRow', () => {
   beforeEach(() => {

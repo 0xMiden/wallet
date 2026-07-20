@@ -1,5 +1,3 @@
-import colorsData from '../utils/tailwind-colors';
-
 // `src/types/colors.ts` is a compile-time-only module: the exported
 // `Colors` interface and `ColorCode` template-literal type both erase to
 // nothing, and the module-local `_colors` const is never re-exported. Its
@@ -10,6 +8,7 @@ import colorsData from '../utils/tailwind-colors';
 // living documentation of the color contracts.
 import type { Colors, ColorCode } from './colors';
 import * as colorsModule from './colors';
+import colorsData from '../utils/tailwind-colors';
 
 describe('types/colors', () => {
   describe('module runtime surface', () => {
@@ -17,7 +16,7 @@ describe('types/colors', () => {
       // The interface, the type alias, and the local `_colors` const all
       // erase or stay module-private — nothing leaks to the runtime export
       // object beyond the (possible) esModule marker.
-      const runtimeKeys = Object.keys(colorsModule).filter((k) => k !== '__esModule');
+      const runtimeKeys = Object.keys(colorsModule).filter(k => k !== '__esModule');
       expect(runtimeKeys).toEqual([]);
     });
 
@@ -55,9 +54,7 @@ describe('types/colors', () => {
     });
 
     it('exposes the expected color families', () => {
-      expect(Object.keys(colorsData).sort()).toEqual(
-        ['blue', 'green', 'grey', 'primary', 'red', 'yellow'].sort()
-      );
+      expect(Object.keys(colorsData).sort()).toEqual(['blue', 'green', 'grey', 'primary', 'red', 'yellow'].sort());
     });
 
     it('holds hex-formatted shade values', () => {
@@ -71,7 +68,7 @@ describe('types/colors', () => {
   });
 
   describe('ColorCode template-literal type', () => {
-    it('accepts `${colorName}-${shade}` combinations that exist in the data', () => {
+    it('accepts `<colorName>-<shade>` combinations that exist in the data', () => {
       // Compile-time assertions: these only type-check because the values are
       // valid members of the `ColorCode` union. They also run at runtime as
       // trivial string equalities, keeping the type wired to real data.

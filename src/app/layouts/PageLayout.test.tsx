@@ -2,8 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
-import { PageLayoutSelectors } from './PageLayout.selectors';
 import PageLayout from './PageLayout';
+import { PageLayoutSelectors } from './PageLayout.selectors';
 
 // ---------------------------------------------------------------------------
 // Mutable mock state (all `mock`-prefixed so jest's factory hoisting allows the
@@ -132,8 +132,7 @@ class MockIntersectionObserver {
   }
 }
 
-const getContainerEl = (container: HTMLElement): HTMLElement =>
-  container.querySelector('div.m-auto') as HTMLElement;
+const getContainerEl = (container: HTMLElement): HTMLElement => container.querySelector('div.m-auto') as HTMLElement;
 
 describe('PageLayout', () => {
   let consoleErrorSpy: jest.SpyInstance;
@@ -205,9 +204,7 @@ describe('PageLayout', () => {
   });
 
   it('applies the provided contentContainerStyle', () => {
-    const { container } = render(
-      <PageLayout contentContainerStyle={{ background: 'red' }}>content</PageLayout>
-    );
+    const { container } = render(<PageLayout contentContainerStyle={{ background: 'red' }}>content</PageLayout>);
     const styled = container.querySelector('div[style*="background"]') as HTMLElement;
     expect(styled).toBeTruthy();
     expect(styled.style.background).toBe('red');
@@ -411,9 +408,7 @@ describe('PageLayout', () => {
   });
 
   it('applies a custom titleContainerClassName', () => {
-    const { container } = render(
-      <PageLayout titleContainerClassName="custom-title-class">content</PageLayout>
-    );
+    const { container } = render(<PageLayout titleContainerClassName="custom-title-class">content</PageLayout>);
     expect(container.querySelector('.custom-title-class')).toBeTruthy();
   });
 

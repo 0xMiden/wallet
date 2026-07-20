@@ -90,7 +90,9 @@ jest.mock('components/ProgressIndicator', () => ({
 // Child-screen mocks — one per import, capturing props for callback assertions.
 // ---------------------------------------------------------------------------
 jest.mock('./common/Welcome', () => ({ WelcomeScreen: (p: any) => mockScreen('welcome')(p) }));
-jest.mock('./common/ChooseProtection', () => ({ ChooseProtectionScreen: (p: any) => mockScreen('choose-protection')(p) }));
+jest.mock('./common/ChooseProtection', () => ({
+  ChooseProtectionScreen: (p: any) => mockScreen('choose-protection')(p)
+}));
 jest.mock('./common/Confirmation', () => ({ ConfirmationScreen: (p: any) => mockScreen('confirmation')(p) }));
 jest.mock('./common/CreatePassword', () => ({ CreatePasswordScreen: (p: any) => mockScreen('create-password')(p) }));
 jest.mock('./common/SetupBiometric', () => ({ SetupBiometricScreen: (p: any) => mockScreen('setup-biometric')(p) }));
@@ -131,8 +133,7 @@ const baseProps = {
   step: OnboardingStep.Welcome
 };
 
-const renderFlow = (overrides: Record<string, any> = {}) =>
-  render(<OnboardingFlow {...baseProps} {...overrides} />);
+const renderFlow = (overrides: Record<string, any> = {}) => render(<OnboardingFlow {...baseProps} {...overrides} />);
 
 const progress = () => screen.queryByTestId('progress');
 
@@ -488,7 +489,9 @@ describe('OnboardingFlow — progress computation', () => {
 describe('OnboardingFlow — motion variants (reduced motion & direction)', () => {
   it('renders with reduced motion enabled', () => {
     mockReduceMotion = true;
-    expect(() => renderFlow({ step: OnboardingStep.ImportFromSeed, onboardingType: OnboardingType.Import })).not.toThrow();
+    expect(() =>
+      renderFlow({ step: OnboardingStep.ImportFromSeed, onboardingType: OnboardingType.Import })
+    ).not.toThrow();
     expect(screen.getByTestId('screen-import-seed')).toBeInTheDocument();
   });
 

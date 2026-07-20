@@ -2,6 +2,12 @@ import React from 'react';
 
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
+import { hapticLight } from 'lib/mobile/haptics';
+import { navigate } from 'lib/woozie';
+import { EARN_DATA } from 'screens/earn-flow/data';
+
+import Earn from './Earn';
+
 // Stub the two child widgets pulled in from `screens/earn-flow/components`.
 // The real `EarnSummaryPanel` / `ProviderLogo` drag in the Aave `?url` SVG
 // import plus `components/CircleButton` / `components/TokenLogo` chrome that is
@@ -40,24 +46,10 @@ jest.mock('app/icons/v2', () => ({
   IconName: { ChevronRightLucide: 'ChevronRightLucide' }
 }));
 
-import { hapticLight } from 'lib/mobile/haptics';
-import { navigate } from 'lib/woozie';
-
-import { EARN_DATA } from 'screens/earn-flow/data';
-
-import Earn from './Earn';
-
 const mockHaptic = hapticLight as jest.Mock;
 const mockNavigate = navigate as jest.Mock;
 
 const { summary, positions, vaults } = EARN_DATA;
-
-// Sanity guard: these assertions rely on the fixture actually having data to
-// map over, otherwise the "renders one card per item" checks pass vacuously.
-beforeAll(() => {
-  expect(positions.length).toBeGreaterThan(0);
-  expect(vaults.length).toBeGreaterThan(0);
-});
 
 beforeEach(() => {
   mockHaptic.mockReset();
@@ -68,6 +60,13 @@ const positionsSection = () => screen.getByRole('region', { name: 'Current Posit
 const vaultsSection = () => screen.getByRole('region', { name: 'Featured Vaults' });
 
 describe('Earn page', () => {
+  // Sanity guard: the "renders one card per item" checks below rely on the
+  // fixture actually having data to map over, otherwise they pass vacuously.
+  it('has fixture positions and vaults to exercise', () => {
+    expect(positions.length).toBeGreaterThan(0);
+    expect(vaults.length).toBeGreaterThan(0);
+  });
+
   it('renders the page shell and forwards the summary to EarnSummaryPanel', () => {
     render(<Earn />);
 

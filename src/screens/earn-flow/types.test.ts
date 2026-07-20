@@ -44,12 +44,7 @@ describe('earn-flow/types', () => {
       totalDeposited: '$18,900.00',
       estimatedRewards: '$1,320.00'
     });
-    expect(Object.keys(summary).sort()).toEqual([
-      'blendedApy',
-      'estimatedRewards',
-      'totalDeposited',
-      'totalRewards'
-    ]);
+    expect(Object.keys(summary).sort()).toEqual(['blendedApy', 'estimatedRewards', 'totalDeposited', 'totalRewards']);
     // Every headline metric is a string.
     Object.values(summary).forEach(v => expect(typeof v).toBe('string'));
   });
@@ -154,9 +149,9 @@ describe('earn-flow/types', () => {
     // `audited` is the only boolean member; everything else here is a string.
     expect(typeof vault.audited).toBe('boolean');
     expect(vault.audited).toBe(true);
-    (
-      ['id', 'protocol', 'asset', 'network', 'apy', 'apyChange24h', 'tvl', 'risk', 'about'] as const
-    ).forEach(key => expect(typeof vault[key]).toBe('string'));
+    (['id', 'protocol', 'asset', 'network', 'apy', 'apyChange24h', 'tvl', 'risk', 'about'] as const).forEach(key =>
+      expect(typeof vault[key]).toBe('string')
+    );
 
     expect(vault.chartData).toBe(chartData);
     expect(vault.chartData[0]).toEqual({ label: 'D1', value: 0 });

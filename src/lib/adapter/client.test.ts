@@ -12,8 +12,6 @@
  * `'id'`, so every request's `reqId` is the constant `'id'`.
  */
 
-import { MidenDAppErrorType, MidenDAppMessageType, MidenPageMessageType } from './types';
-
 import {
   assertResponse,
   getCurrentPermission,
@@ -36,6 +34,7 @@ import {
   signBytes,
   waitForTransaction
 } from './client';
+import { MidenDAppErrorType, MidenDAppMessageType, MidenPageMessageType } from './types';
 
 // ── Captured window `message` listeners ────────────────────────────
 let messageListeners: Array<(evt: any) => void> = [];
@@ -300,7 +299,10 @@ describe('request() message filtering', () => {
     const p = requestDisconnect();
 
     // source !== window -> ignored
-    deliverRaw({ type: MidenPageMessageType.Response, reqId: 'id', payload: { type: MidenDAppMessageType.DisconnectResponse } }, {});
+    deliverRaw(
+      { type: MidenPageMessageType.Response, reqId: 'id', payload: { type: MidenDAppMessageType.DisconnectResponse } },
+      {}
+    );
     // reqId mismatch -> ignored
     deliverRaw({ type: MidenPageMessageType.Response, reqId: 'other', payload: {} });
     // data is null -> res?.reqId is undefined !== 'id' -> ignored
@@ -394,10 +396,7 @@ describe('error mapping', () => {
 describe('isAvailable', () => {
   it('resolves true when a PONG response arrives', async () => {
     const p = isAvailable();
-    expect(postSpy).toHaveBeenCalledWith(
-      { type: MidenPageMessageType.Request, payload: 'PING' },
-      ORIGIN
-    );
+    expect(postSpy).toHaveBeenCalledWith({ type: MidenPageMessageType.Request, payload: 'PING' }, ORIGIN);
     deliverPong();
     await expect(p).resolves.toBe(true);
     // Listener + timeout cleaned up.

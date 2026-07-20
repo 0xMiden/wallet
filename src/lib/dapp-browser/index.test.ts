@@ -56,11 +56,11 @@ jest.mock('@capacitor/filesystem', () => ({
   }
 }));
 
-import * as barrel from './index';
 import * as categoryData from './category-data';
 import * as dappSession from './dapp-session';
 import * as faviconCache from './favicon-cache';
 import * as featuredDapps from './featured-dapps';
+import * as barrel from './index';
 import * as injectionScript from './injection-script';
 import * as messageHandler from './message-handler';
 import * as recentDapps from './recent-dapps';
@@ -68,6 +68,13 @@ import * as sessionPersistence from './session-persistence';
 import * as snapshotPersistence from './snapshot-persistence';
 import * as useDappConfirmationMod from './use-dapp-confirmation';
 import * as webviewRect from './webview-rect';
+
+// A string-indexable view of the barrel namespace. The `import/namespace`
+// rule forbids computed member access (`barrel[key]`) straight off a
+// `* as` import, so we alias it once here. This is a plain non-computed
+// reference to the import, and the identity-by-reference checks below are
+// unaffected — they still compare the real exported bindings.
+const barrelExports = barrel as Record<string, unknown>;
 
 describe('dapp-browser barrel — re-export identity', () => {
   // Each tuple: [name on the barrel, the source module's namespace, name
@@ -120,8 +127,8 @@ describe('dapp-browser barrel — re-export identity', () => {
   ];
 
   it.each(cases)('re-exports %s from its source module by identity', (barrelName, sourceMod, sourceName) => {
-    expect(barrel[barrelName]).toBeDefined();
-    expect(barrel[barrelName]).toBe(sourceMod[sourceName]);
+    expect(barrelExports[barrelName]).toBeDefined();
+    expect(barrelExports[barrelName]).toBe(sourceMod[sourceName]);
   });
 
   it('exposes exactly the expected set of value exports (no extras, no gaps)', () => {
@@ -164,7 +171,7 @@ describe('dapp-browser barrel — live wiring smoke checks', () => {
       'clearAllSnapshotsFromDisk'
     ];
     for (const name of fns) {
-      expect(typeof barrel[name]).toBe('function');
+      expect(typeof barrelExports[name]).toBe('function');
     }
   });
 

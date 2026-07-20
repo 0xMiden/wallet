@@ -1,5 +1,6 @@
 import type { ITransaction, ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 
+import { TRANSACTION_STEPS } from './constants';
 import type {
   GeneratingTransactionPageProps,
   GeneratingTransactionProps,
@@ -10,7 +11,6 @@ import type {
   StatusIndicatorProps,
   TransactionStepRowProps
 } from './types';
-
 // The runtime surface of this module is empty: every export is either an
 // `interface` or a `type` alias, all of which erase to nothing at runtime.
 // Import the whole namespace as a *value* (not `import type`) so the compiled
@@ -20,8 +20,6 @@ import type {
 // contracts and locks them against accidental field renames/removals via the
 // TS compiler at test-build time.
 import * as generatingTransactionTypes from './types';
-
-import { TRANSACTION_STEPS } from './constants';
 
 describe('generating-transaction/types', () => {
   describe('module runtime surface', () => {
@@ -143,7 +141,7 @@ describe('generating-transaction/types', () => {
 
       const states: TransactionStepState[] = [complete, active, pending, failed];
 
-      const labels = states.map((state) => {
+      const labels = states.map(state => {
         switch (state) {
           case 'complete':
             return state;
@@ -173,7 +171,7 @@ describe('generating-transaction/types', () => {
 
       const states: TransactionHeroState[] = [processing, success, failed];
 
-      const labels = states.map((state) => {
+      const labels = states.map(state => {
         switch (state) {
           case 'processing':
             return state;
@@ -196,9 +194,9 @@ describe('generating-transaction/types', () => {
     it('accepts each entry of the const TRANSACTION_STEPS tuple', () => {
       // `TransactionStep` is `(typeof TRANSACTION_STEPS)[number]`, so each
       // runtime entry of the const tuple must satisfy the alias.
-      const steps: TransactionStep[] = TRANSACTION_STEPS.map((step) => step);
+      const steps: TransactionStep[] = TRANSACTION_STEPS.map(step => step);
       expect(steps).toHaveLength(TRANSACTION_STEPS.length);
-      expect(steps.map((s) => s.id)).toEqual([
+      expect(steps.map(s => s.id)).toEqual([
         'guardian-approving',
         'generating-proof',
         'submitting',

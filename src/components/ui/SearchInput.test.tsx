@@ -2,8 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { SearchInput } from './SearchInput';
-import SearchInputDefault from './SearchInput';
+import SearchInputDefault, { SearchInput } from './SearchInput';
 
 // The component depends only on React + clsx, so no module mocks are needed.
 

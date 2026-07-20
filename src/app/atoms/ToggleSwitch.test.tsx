@@ -85,19 +85,13 @@ describe('ToggleSwitch', () => {
 
   it('tracks a Toggle analytics event with properties when a testID is provided', () => {
     const testIDProperties = { surface: 'settings' };
-    const { container } = render(
-      <ToggleSwitch testID="haptics-toggle" testIDProperties={testIDProperties} />
-    );
+    const { container } = render(<ToggleSwitch testID="haptics-toggle" testIDProperties={testIDProperties} />);
     const { input } = getParts(container);
 
     fireEvent.click(input);
 
     expect(trackEvent).toHaveBeenCalledTimes(1);
-    expect(trackEvent).toHaveBeenCalledWith(
-      'haptics-toggle',
-      AnalyticsEventCategory.Toggle,
-      testIDProperties
-    );
+    expect(trackEvent).toHaveBeenCalledWith('haptics-toggle', AnalyticsEventCategory.Toggle, testIDProperties);
   });
 
   it('works without an `onChange` handler (uncontrolled toggle)', () => {

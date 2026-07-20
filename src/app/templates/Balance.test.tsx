@@ -1,7 +1,7 @@
 import React, { ReactElement } from 'react';
 
-import BigNumber from 'bignumber.js';
 import { render, screen } from '@testing-library/react';
+import BigNumber from 'bignumber.js';
 
 import Balance from './Balance';
 
@@ -64,12 +64,11 @@ const balancesReturn = (data?: unknown[]) => ({ data });
 // a className so the merge branch runs.
 const renderChild =
   (className?: string) =>
-  (b: BigNumber): ReactElement =>
-    (
-      <span data-testid="total" className={className}>
-        {b.toString()}
-      </span>
-    );
+  (b: BigNumber): ReactElement => (
+    <span data-testid="total" className={className}>
+      {b.toString()}
+    </span>
+  );
 
 const total = () => screen.getByTestId('total');
 

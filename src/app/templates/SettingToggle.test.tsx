@@ -22,15 +22,7 @@ jest.mock('app/atoms/ToggleSwitch', () => ({
     onChange: (evt: React.ChangeEvent<HTMLInputElement>) => void;
     name: string;
     testID: string;
-  }) => (
-    <input
-      type="checkbox"
-      data-testid={testID}
-      data-name={name}
-      checked={checked}
-      onChange={onChange}
-    />
-  )
+  }) => <input type="checkbox" data-testid={testID} data-name={name} checked={checked} onChange={onChange} />
 }));
 
 const baseProps = {

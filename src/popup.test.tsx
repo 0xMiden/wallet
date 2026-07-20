@@ -140,9 +140,7 @@ describe('src/popup.tsx', () => {
     // Real createRoot rendered the mocked App into #root.
     expect(document.querySelector('[data-testid="popup-app"]')).not.toBeNull();
     expect(mockAppRender).toHaveBeenCalledTimes(1);
-    expect(mockAppRender).toHaveBeenCalledWith(
-      expect.objectContaining({ env: { windowType: POPUP_WINDOW_TYPE } })
-    );
+    expect(mockAppRender).toHaveBeenCalledWith(expect.objectContaining({ env: { windowType: POPUP_WINDOW_TYPE } }));
     // getViews consulted with the popup filter.
     expect(mockGetViews).toHaveBeenCalledWith({ type: 'popup' });
   });

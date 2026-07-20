@@ -5,7 +5,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import IconifiedSelect, { IconifiedSelectOptionRenderProps } from './IconifiedSelect';
 
 // `lib/ui/Popper` is a sibling dependency that wires the trigger + popup to
-// `@floating-ui/react` (`useFloating` / `autoUpdate`), which needs a real
+// `floating-ui/react` (`useFloating` / `autoUpdate`), which needs a real
 // `ResizeObserver` + layout — neither of which jsdom provides. We stub it with
 // a faithful, deterministic re-implementation of its render contract: it owns
 // the `opened` state and hands `{ opened, setOpened, toggleOpened, ref }` to
@@ -17,19 +17,20 @@ import IconifiedSelect, { IconifiedSelectOptionRenderProps } from './IconifiedSe
 // the SelectButton toggling — fully exercised end to end.
 jest.mock('lib/ui/Popper', () => {
   const ReactLib = require('react');
+  const MockPopper = ({ popup, children }: any) => {
+    const [opened, setOpened] = ReactLib.useState(false);
+    const toggleOpened = ReactLib.useCallback(() => setOpened((o: boolean) => !o), []);
+    const renderProps = { opened, setOpened, toggleOpened };
+    return ReactLib.createElement(
+      ReactLib.Fragment,
+      null,
+      children({ ...renderProps, ref: () => {} }),
+      popup(renderProps)
+    );
+  };
   return {
     __esModule: true,
-    default: ({ popup, children }: any) => {
-      const [opened, setOpened] = ReactLib.useState(false);
-      const toggleOpened = ReactLib.useCallback(() => setOpened((o: boolean) => !o), []);
-      const renderProps = { opened, setOpened, toggleOpened };
-      return ReactLib.createElement(
-        ReactLib.Fragment,
-        null,
-        children({ ...renderProps, ref: () => {} }),
-        popup(renderProps)
-      );
-    }
+    default: MockPopper
   };
 });
 
@@ -52,9 +53,7 @@ const Icon = ({ option }: IconifiedSelectOptionRenderProps<Fruit>) => (
 const OptionSelectedIcon = ({ option }: IconifiedSelectOptionRenderProps<Fruit>) => (
   <span data-testid="selected-icon">selicon:{option.id}</span>
 );
-const OptionInMenuContent = ({ option }: IconifiedSelectOptionRenderProps<Fruit>) => (
-  <span>menu-{option.label}</span>
-);
+const OptionInMenuContent = ({ option }: IconifiedSelectOptionRenderProps<Fruit>) => <span>menu-{option.label}</span>;
 const OptionSelectedContent = ({ option }: IconifiedSelectOptionRenderProps<Fruit>) => (
   <span>selected-{option.label}</span>
 );

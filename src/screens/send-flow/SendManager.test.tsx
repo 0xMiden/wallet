@@ -2,8 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
-import { SendFlow } from './SendManager';
 import { clearSendDraft, hasSendDraft, setSendDraft } from './send-draft';
+import { SendFlow } from './SendManager';
 import { SendFlowStep } from './types';
 import { WalletType } from '../onboarding/types';
 
@@ -573,9 +573,7 @@ describe('confirming the amount', () => {
 // Token preselection effect + NavigatorWrapper wiring.
 // ---------------------------------------------------------------------------
 describe('token preselection', () => {
-  const balanceData = [
-    { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 3 }
-  ];
+  const balanceData = [{ tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 3 }];
 
   it('preselects the token from the tokenId search param when a balance matches', () => {
     mockSearch = '?tokenId=T1';

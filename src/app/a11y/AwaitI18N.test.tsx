@@ -3,8 +3,9 @@ import React, { Suspense } from 'react';
 import { render, screen, waitForElementToBeRemoved } from '@testing-library/react';
 import { SWRConfig } from 'swr';
 
-import AwaitI18N from './AwaitI18N';
 import { onInited } from 'lib/i18n';
+
+import AwaitI18N from './AwaitI18N';
 
 // `lib/i18n` pulls in i18next + webextension-polyfill at import time. The
 // component only touches `onInited`, so we replace the whole barrel with a

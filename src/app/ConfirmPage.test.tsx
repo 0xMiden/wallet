@@ -1,9 +1,9 @@
 /* eslint-disable no-restricted-globals */
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-
 import { Address, SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+
 import { useMidenContext, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getNetworkId } from 'lib/miden-chain/constants';
@@ -12,9 +12,8 @@ import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { useLocation } from 'lib/woozie';
 
-import { ConfirmPageSelectors } from './ConfirmPage.selectors';
-
 import ConfirmPage from './ConfirmPage';
+import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -330,9 +329,7 @@ describe('connect payload', () => {
     setPayload(connectPayload({ existingPermission: true }));
     render(<ConfirmPage />);
 
-    expect(ctx.confirmDAppPermission).toHaveBeenCalledWith('req-1', true, ACCOUNT.publicKey, UPON_REQUEST, [
-      'balance'
-    ]);
+    expect(ctx.confirmDAppPermission).toHaveBeenCalledWith('req-1', true, ACCOUNT.publicKey, UPON_REQUEST, ['balance']);
   });
 
   it('shows the private-data checkbox when permission is Auto and account is non-public', () => {
@@ -353,13 +350,9 @@ describe('connect payload', () => {
     });
 
     await waitFor(() =>
-      expect(ctx.confirmDAppPermission).toHaveBeenLastCalledWith(
-        'req-1',
-        true,
-        ACCOUNT.publicKey,
-        UPON_REQUEST,
-        ['balance']
-      )
+      expect(ctx.confirmDAppPermission).toHaveBeenLastCalledWith('req-1', true, ACCOUNT.publicKey, UPON_REQUEST, [
+        'balance'
+      ])
     );
   });
 
@@ -411,9 +404,7 @@ describe('connect payload', () => {
   it('declines the connection and ignores concurrent clicks while a confirm is pending', async () => {
     // Deferred confirm keeps `confirming` true so the guard branches fire.
     let resolveConfirm: () => void = () => {};
-    ctx.confirmDAppPermission.mockImplementation(
-      () => new Promise<void>(res => (resolveConfirm = res))
-    );
+    ctx.confirmDAppPermission.mockImplementation(() => new Promise<void>(res => (resolveConfirm = res)));
     setPayload(connectPayload());
     render(<ConfirmPage />);
 
@@ -448,13 +439,9 @@ describe('connect payload', () => {
     });
 
     await waitFor(() =>
-      expect(ctx.confirmDAppPermission).toHaveBeenCalledWith(
-        'req-1',
-        false,
-        ACCOUNT.publicKey,
-        UPON_REQUEST,
-        ['balance']
-      )
+      expect(ctx.confirmDAppPermission).toHaveBeenCalledWith('req-1', false, ACCOUNT.publicKey, UPON_REQUEST, [
+        'balance'
+      ])
     );
   });
 
@@ -751,9 +738,7 @@ describe('sign payload — signingInputs', () => {
   it('renders a TransactionSummary with an empty vault and empty storage', async () => {
     mockAddress.fromAccountId.mockReturnValue({ toBech32: () => 'mtst1accbech_wxyz' });
     setPayload(siPayload());
-    mockSigningInputs.deserialize.mockReturnValue(
-      transactionSummary({ vaultEmpty: true, storageEmpty: true })
-    );
+    mockSigningInputs.deserialize.mockReturnValue(transactionSummary({ vaultEmpty: true, storageEmpty: true }));
     render(<ConfirmPage />);
 
     // Storage unchanged => "no"; no asset-changes section.
@@ -764,9 +749,7 @@ describe('sign payload — signingInputs', () => {
   it('downloads the full summary binary when the download button is clicked', async () => {
     mockAddress.fromAccountId.mockReturnValue({ toBech32: () => 'mtst1accbech_wxyz' });
     setPayload(siPayload());
-    mockSigningInputs.deserialize.mockReturnValue(
-      transactionSummary({ vaultEmpty: true, storageEmpty: true })
-    );
+    mockSigningInputs.deserialize.mockReturnValue(transactionSummary({ vaultEmpty: true, storageEmpty: true }));
     render(<ConfirmPage />);
 
     await waitFor(() => expect(screen.getByText('downloadFullSummary')).toBeInTheDocument());

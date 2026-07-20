@@ -51,14 +51,23 @@ jest.mock('lib/miden/back/actions', () => ({
   processDApp: jest.fn(async () => ({ ok: true }))
 }));
 
-import { render } from '@testing-library/react';
 import React from 'react';
 
-import * as barrel from './index';
+import { render } from '@testing-library/react';
+
 import * as dappBrowser from './dapp-browser';
 import * as confirmationModal from './DesktopDappConfirmationModal';
 import * as handler from './DesktopDappHandler';
+import * as barrel from './index';
 import * as secureStorage from './secure-storage';
+
+// `import * as barrel` yields a namespace binding that ESLint's
+// import/namespace rule refuses to index by a computed key (it can't
+// statically prove a dynamic key exists on the namespace). This alias is
+// the SAME object — every property is the identical reference — so the
+// identity assertions below are unchanged; it only lets us look export
+// names up dynamically without tripping the rule.
+const barrelByName = barrel as unknown as Record<string, unknown>;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -93,8 +102,8 @@ describe('desktop barrel — re-export identity', () => {
   ];
 
   it.each(cases)('re-exports %s from its source module by identity', (barrelName, sourceMod, sourceName) => {
-    expect(barrel[barrelName]).toBeDefined();
-    expect(barrel[barrelName]).toBe(sourceMod[sourceName]);
+    expect(barrelByName[barrelName]).toBeDefined();
+    expect(barrelByName[barrelName]).toBe(sourceMod[sourceName]);
   });
 
   it('exposes exactly the expected set of value exports (no extras, no gaps)', () => {
@@ -131,7 +140,7 @@ describe('desktop barrel — export shapes', () => {
       'useDesktopDappHandler'
     ];
     for (const name of fns) {
-      expect(typeof barrel[name]).toBe('function');
+      expect(typeof barrelByName[name]).toBe('function');
     }
   });
 

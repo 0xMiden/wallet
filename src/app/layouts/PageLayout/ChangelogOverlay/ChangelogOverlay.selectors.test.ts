@@ -18,10 +18,7 @@ describe('ChangelogOverlaySelectors', () => {
 
   it('exposes exactly the two named members', () => {
     expect(Object.keys(ChangelogOverlaySelectors)).toEqual(['Continue', 'Skip']);
-    expect(Object.values(ChangelogOverlaySelectors)).toEqual([
-      'ChangelogOverlay/Continue',
-      'ChangelogOverlay/Skip'
-    ]);
+    expect(Object.values(ChangelogOverlaySelectors)).toEqual(['ChangelogOverlay/Continue', 'ChangelogOverlay/Skip']);
   });
 
   it('is a string enum without a numeric reverse mapping', () => {
@@ -29,12 +26,8 @@ describe('ChangelogOverlaySelectors', () => {
     // entries, so no numeric keys and no lookup by value should exist.
     const keys = Object.keys(ChangelogOverlaySelectors);
     expect(keys.every(key => Number.isNaN(Number(key)))).toBe(true);
-    expect(
-      (ChangelogOverlaySelectors as Record<string, string>)['ChangelogOverlay/Continue']
-    ).toBeUndefined();
-    expect(
-      (ChangelogOverlaySelectors as Record<string, string>)['ChangelogOverlay/Skip']
-    ).toBeUndefined();
+    expect((ChangelogOverlaySelectors as Record<string, string>)['ChangelogOverlay/Continue']).toBeUndefined();
+    expect((ChangelogOverlaySelectors as Record<string, string>)['ChangelogOverlay/Skip']).toBeUndefined();
   });
 
   it('has namespaced selector values prefixed with the component name', () => {

@@ -24,10 +24,7 @@ import React from 'react';
 import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 import { act, render } from '@testing-library/react';
 
-import {
-  dappConfirmationStore,
-  DAppConfirmationRequest
-} from 'lib/dapp-browser/confirmation-store';
+import { dappConfirmationStore, DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
 
 import DesktopDappConfirmationModal, {
   DesktopDappConfirmationModal as NamedDesktopDappConfirmationModal
@@ -38,17 +35,14 @@ const mockGenerateOverlay: jest.Mock = jest.fn(() => 'OVERLAY_SCRIPT');
 const mockShowOverlay: jest.Mock = jest.fn(() => Promise.resolve());
 const mockUnsub: jest.Mock = jest.fn();
 let capturedResponseCb: ((response: { requestId: string; confirmed: boolean }) => void) | null = null;
-const mockOnResponse: jest.Mock = jest.fn(
-  (cb: (response: { requestId: string; confirmed: boolean }) => void) => {
-    capturedResponseCb = cb;
-    return Promise.resolve(mockUnsub);
-  }
-);
+const mockOnResponse: jest.Mock = jest.fn((cb: (response: { requestId: string; confirmed: boolean }) => void) => {
+  capturedResponseCb = cb;
+  return Promise.resolve(mockUnsub);
+});
 
 jest.mock('./dapp-browser', () => ({
   generateDesktopConfirmationOverlay: (...args: unknown[]) => mockGenerateOverlay(...args),
-  onDappConfirmationResponse: (cb: (response: { requestId: string; confirmed: boolean }) => void) =>
-    mockOnResponse(cb),
+  onDappConfirmationResponse: (cb: (response: { requestId: string; confirmed: boolean }) => void) => mockOnResponse(cb),
   showDappConfirmationOverlay: (...args: unknown[]) => mockShowOverlay(...args)
 }));
 

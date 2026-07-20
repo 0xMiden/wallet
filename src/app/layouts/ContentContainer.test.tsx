@@ -67,9 +67,7 @@ describe('ContentContainer', () => {
   });
 
   it('forwards arbitrary HTML attributes (rest props) onto the div', () => {
-    render(
-      <ContentContainer id="my-container" role="region" aria-label="content" data-testid="cc" title="hello" />
-    );
+    render(<ContentContainer id="my-container" role="region" aria-label="content" data-testid="cc" title="hello" />);
 
     const div = screen.getByTestId('cc');
     expect(div).toHaveAttribute('id', 'my-container');

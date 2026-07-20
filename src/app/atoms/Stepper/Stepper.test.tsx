@@ -16,6 +16,8 @@ import React from 'react';
 
 import { render } from '@testing-library/react';
 
+import Stepper from './Stepper';
+
 // Mock the co-located CSS module: each key maps to its own name so we can assert
 // on the resulting class strings, and jest never evaluates the raw CSS as JS.
 jest.mock('./Stepper.module.css', () => ({
@@ -31,11 +33,8 @@ jest.mock('./Stepper.module.css', () => ({
   }
 }));
 
-import Stepper from './Stepper';
-
 const getWrapper = (container: HTMLElement) => container.firstChild as HTMLElement;
-const getStepBlocks = (container: HTMLElement) =>
-  Array.from(container.querySelectorAll('.stepBlock')) as HTMLElement[];
+const getStepBlocks = (container: HTMLElement) => Array.from(container.querySelectorAll('.stepBlock')) as HTMLElement[];
 const getCircle = (block: HTMLElement) => block.querySelector('.circle') as HTMLElement;
 const getLine = (block: HTMLElement) => block.querySelector('.line') as HTMLElement | null;
 const getCheck = (block: HTMLElement) => block.querySelector('svg') as SVGElement | null;

@@ -13,14 +13,14 @@ import React from 'react';
 
 import { render } from '@testing-library/react';
 
+import DisableOutlinesForClick from './DisableOutlinesForClick';
+
 // Mock the co-located CSS module so `styles['focus-disabled']` is a known
 // value and jest never tries to evaluate the raw CSS as JavaScript.
 jest.mock('./DisableOutlinesForClick.module.css', () => ({
   __esModule: true,
   default: { 'focus-disabled': 'focus-disabled' }
 }));
-
-import DisableOutlinesForClick from './DisableOutlinesForClick';
 
 const FOCUS_DISABLED = 'focus-disabled';
 const html = () => document.documentElement;

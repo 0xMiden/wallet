@@ -14,8 +14,7 @@ import { ConfirmationScreen } from './Confirmation';
 // "attempts remaining" value can be asserted. `Trans` renders its `i18nKey`.
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, opts?: { count?: number }) =>
-      opts && opts.count !== undefined ? `${key}:${opts.count}` : key
+    t: (key: string, opts?: { count?: number }) => (opts && opts.count !== undefined ? `${key}:${opts.count}` : key)
   }),
   Trans: ({ i18nKey }: { i18nKey: string }) => <>{i18nKey}</>
 }));

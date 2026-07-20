@@ -6,12 +6,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 // re-export lines are executed and counted. Type-only exports are erased by the
 // compiler, so exercising the runtime exports fully covers the barrel.
 import { ReviewAmount, ReviewLabel, ReviewLayout, ReviewRow } from './index';
-import type {
-  ReviewAction,
-  ReviewAmountProps,
-  ReviewLayoutProps,
-  ReviewRowProps
-} from './index';
+import type { ReviewAction, ReviewAmountProps, ReviewLayoutProps, ReviewRowProps } from './index';
 
 const h = React.createElement;
 
@@ -64,8 +59,7 @@ jest.mock('components/TokenLogo', () => {
 // ≈USD line's `t('approxFiatValue', { value })` is observable in the DOM.
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, opts?: { value?: string }) =>
-      opts && opts.value !== undefined ? `${key}|${opts.value}` : key
+    t: (key: string, opts?: { value?: string }) => (opts && opts.value !== undefined ? `${key}|${opts.value}` : key)
   })
 }));
 

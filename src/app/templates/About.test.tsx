@@ -43,6 +43,7 @@ jest.mock('./MenuItem', () => ({
     linksOutsideOfWallet: boolean;
   }) => (
     <a
+      href={slug}
       data-testid={`menu-item-${titleI18nKey}`}
       data-slug={slug}
       data-title-key={titleI18nKey}
