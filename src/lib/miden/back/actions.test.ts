@@ -13,6 +13,8 @@ import {
   updateSettings,
   signTransaction,
   getAuthSecretKey,
+  setGuardianOperatorCommitment,
+  setGuardianSyncStatus,
   getAllDAppSessions,
   getCurrentAccount,
   createHDAccount,
@@ -44,7 +46,9 @@ const mockVault = {
   updateSettings: jest.fn(),
   signTransaction: jest.fn(),
   getAuthSecretKey: jest.fn(),
-  importAccountFromPrivateKey: jest.fn()
+  importAccountFromPrivateKey: jest.fn(),
+  setGuardianOperatorCommitment: jest.fn(),
+  setGuardianSyncStatus: jest.fn()
 };
 
 // Mock store callbacks
@@ -386,6 +390,30 @@ describe('actions', () => {
 
       expect(mockVault.getAuthSecretKey).toHaveBeenCalledWith('key-id');
       expect(result).toBe('secret-key');
+    });
+  });
+
+  describe('setGuardianOperatorCommitment', () => {
+    it('updates the vault and fires accountsUpdated', async () => {
+      const updated = { accounts: [], currentAccount: undefined };
+      mockVault.setGuardianOperatorCommitment.mockResolvedValueOnce(updated);
+
+      await setGuardianOperatorCommitment('pk1', 'commitment-hex');
+
+      expect(mockVault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk1', 'commitment-hex');
+      expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
+    });
+  });
+
+  describe('setGuardianSyncStatus', () => {
+    it('updates the vault and fires accountsUpdated', async () => {
+      const updated = { accounts: [], currentAccount: undefined };
+      mockVault.setGuardianSyncStatus.mockResolvedValueOnce(updated);
+
+      await setGuardianSyncStatus('pk1', 'needs-user-input');
+
+      expect(mockVault.setGuardianSyncStatus).toHaveBeenCalledWith('pk1', 'needs-user-input');
+      expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
     });
   });
 

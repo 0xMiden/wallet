@@ -87,7 +87,9 @@ jest.mock('lib/miden/back/actions', () => ({
   getAllDAppSessions: jest.fn(),
   removeDAppSession: jest.fn(),
   isDAppEnabled: jest.fn(),
-  processDApp: jest.fn()
+  processDApp: jest.fn(),
+  setGuardianOperatorCommitment: jest.fn(),
+  setGuardianSyncStatus: jest.fn()
 }));
 const Actions: any = jest.requireMock('lib/miden/back/actions');
 
@@ -350,6 +352,26 @@ describe('processRequest', () => {
       key: 'pk'
     });
     expect(res.key).toBe('secret-key');
+  });
+
+  it('SetGuardianOperatorCommitmentRequest forwards to Actions', async () => {
+    const res = await dispatch({
+      type: WalletMessageType.SetGuardianOperatorCommitmentRequest,
+      accountPublicKey: 'pk',
+      guardianOperatorCommitment: 'commitment-hex'
+    });
+    expect(Actions.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk', 'commitment-hex');
+    expect(res.type).toBe(WalletMessageType.SetGuardianOperatorCommitmentResponse);
+  });
+
+  it('SetGuardianSyncStatusRequest forwards to Actions', async () => {
+    const res = await dispatch({
+      type: WalletMessageType.SetGuardianSyncStatusRequest,
+      accountPublicKey: 'pk',
+      guardianSyncStatus: 'needs-user-input'
+    });
+    expect(Actions.setGuardianSyncStatus).toHaveBeenCalledWith('pk', 'needs-user-input');
+    expect(res.type).toBe(WalletMessageType.SetGuardianSyncStatusResponse);
   });
 
   it('DAppGetAllSessionsRequest returns the sessions map', async () => {

@@ -111,6 +111,8 @@ const FullActionProbe: React.FC = () => {
     swallow(() => ctx.createAccount?.('on-chain', 'name'));
     swallow(() => ctx.updateCurrentAccount?.('pk'));
     swallow(() => ctx.editAccountName?.('pk', 'new-name'));
+    swallow(() => ctx.setGuardianOperatorCommitment?.('pk', 'commitment-hex'));
+    swallow(() => ctx.setGuardianSyncStatus?.('pk', 'needs-user-input'));
     swallow(() => ctx.revealMnemonic?.('pw'));
     swallow(() => ctx.updateSettings?.({ contacts: [] }));
     swallow(() => ctx.signData?.('pk', 'payload'));

@@ -477,6 +477,46 @@ describe('useWalletStore', () => {
       const { getPublicKeyForCommitment } = useWalletStore.getState();
       await expect(getPublicKeyForCommitment('x')).rejects.toThrow('Invalid response');
     });
+
+    it('setGuardianOperatorCommitment posts a SetGuardianOperatorCommitmentRequest', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SetGuardianOperatorCommitmentResponse });
+
+      const { setGuardianOperatorCommitment } = useWalletStore.getState();
+      await setGuardianOperatorCommitment('pub-key', 'commitment-hex');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.SetGuardianOperatorCommitmentRequest,
+        accountPublicKey: 'pub-key',
+        guardianOperatorCommitment: 'commitment-hex'
+      });
+    });
+
+    it('setGuardianOperatorCommitment throws on a type-mismatched response', async () => {
+      mockRequest.mockResolvedValueOnce({ type: 'WrongType' });
+
+      const { setGuardianOperatorCommitment } = useWalletStore.getState();
+      await expect(setGuardianOperatorCommitment('pk', 'commitment-hex')).rejects.toThrow('Invalid response');
+    });
+
+    it('setGuardianSyncStatus posts a SetGuardianSyncStatusRequest', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SetGuardianSyncStatusResponse });
+
+      const { setGuardianSyncStatus } = useWalletStore.getState();
+      await setGuardianSyncStatus('pub-key', 'needs-user-input');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.SetGuardianSyncStatusRequest,
+        accountPublicKey: 'pub-key',
+        guardianSyncStatus: 'needs-user-input'
+      });
+    });
+
+    it('setGuardianSyncStatus throws on a type-mismatched response', async () => {
+      mockRequest.mockResolvedValueOnce({ type: 'WrongType' });
+
+      const { setGuardianSyncStatus } = useWalletStore.getState();
+      await expect(setGuardianSyncStatus('pk', 'needs-user-input')).rejects.toThrow('Invalid response');
+    });
   });
 
   describe('Asset actions', () => {

@@ -187,6 +187,20 @@ export class MobileIntercomAdapter {
         };
       }
 
+      case WalletMessageType.SetGuardianOperatorCommitmentRequest: {
+        await Actions.setGuardianOperatorCommitment(req.accountPublicKey, req.guardianOperatorCommitment);
+        return {
+          type: WalletMessageType.SetGuardianOperatorCommitmentResponse
+        };
+      }
+
+      case WalletMessageType.SetGuardianSyncStatusRequest: {
+        await Actions.setGuardianSyncStatus(req.accountPublicKey, req.guardianSyncStatus);
+        return {
+          type: WalletMessageType.SetGuardianSyncStatusResponse
+        };
+      }
+
       case WalletMessageType.GetPublicKeyForCommitmentRequest: {
         const publicKey = await Actions.getPublicKeyForCommitment(req.commitment);
         return {

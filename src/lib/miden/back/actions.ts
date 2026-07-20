@@ -17,7 +17,7 @@ import {
 import { Vault } from 'lib/miden/back/vault';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
-import { WalletAccount, WalletSettings, WalletState } from 'lib/shared/types';
+import { GuardianSyncStatus, WalletAccount, WalletSettings, WalletState } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { MidenSharedStorageKey } from '../types';
@@ -335,6 +335,20 @@ export function setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: 
     // mapping fires StateUpdated. Without this the popup's Zustand snapshot keeps
     // the old endpoint, so the Guardian Settings display stays stale and the next
     // guardian sync rebuilds a service against the old operator.
+    accountsUpdated(updated);
+  });
+}
+
+export function setGuardianOperatorCommitment(accountPublicKey: string, guardianOperatorCommitment: string) {
+  return withUnlocked(async ({ vault }) => {
+    const updated = await vault.setGuardianOperatorCommitment(accountPublicKey, guardianOperatorCommitment);
+    accountsUpdated(updated);
+  });
+}
+
+export function setGuardianSyncStatus(accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) {
+  return withUnlocked(async ({ vault }) => {
+    const updated = await vault.setGuardianSyncStatus(accountPublicKey, guardianSyncStatus);
     accountsUpdated(updated);
   });
 }

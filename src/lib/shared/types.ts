@@ -69,6 +69,10 @@ export enum WalletMessageType {
   SwapHotKeyResponse = 'SWAP_HOT_KEY_RESPONSE',
   SetGuardianEndpointRequest = 'SET_GUARDIAN_ENDPOINT_REQUEST',
   SetGuardianEndpointResponse = 'SET_GUARDIAN_ENDPOINT_RESPONSE',
+  SetGuardianOperatorCommitmentRequest = 'SET_GUARDIAN_OPERATOR_COMMITMENT_REQUEST',
+  SetGuardianOperatorCommitmentResponse = 'SET_GUARDIAN_OPERATOR_COMMITMENT_RESPONSE',
+  SetGuardianSyncStatusRequest = 'SET_GUARDIAN_SYNC_STATUS_REQUEST',
+  SetGuardianSyncStatusResponse = 'SET_GUARDIAN_SYNC_STATUS_RESPONSE',
   GetPublicKeyForCommitmentRequest = 'GET_PUBLIC_KEY_FOR_COMMITMENT_REQUEST',
   GetPublicKeyForCommitmentResponse = 'GET_PUBLIC_KEY_FOR_COMMITMENT_RESPONSE',
   GetAuthSecretKeyRequest = 'GET_AUTH_SECRET_KEY_REQUEST',
@@ -671,6 +675,26 @@ export interface SetGuardianEndpointResponse extends WalletMessageBase {
   type: WalletMessageType.SetGuardianEndpointResponse;
 }
 
+export interface SetGuardianOperatorCommitmentRequest extends WalletMessageBase {
+  type: WalletMessageType.SetGuardianOperatorCommitmentRequest;
+  accountPublicKey: string;
+  guardianOperatorCommitment: string;
+}
+
+export interface SetGuardianOperatorCommitmentResponse extends WalletMessageBase {
+  type: WalletMessageType.SetGuardianOperatorCommitmentResponse;
+}
+
+export interface SetGuardianSyncStatusRequest extends WalletMessageBase {
+  type: WalletMessageType.SetGuardianSyncStatusRequest;
+  accountPublicKey: string;
+  guardianSyncStatus: GuardianSyncStatus;
+}
+
+export interface SetGuardianSyncStatusResponse extends WalletMessageBase {
+  type: WalletMessageType.SetGuardianSyncStatusResponse;
+}
+
 export interface GetPublicKeyForCommitmentRequest extends WalletMessageBase {
   type: WalletMessageType.GetPublicKeyForCommitmentRequest;
   commitment: string;
@@ -886,6 +910,8 @@ export type WalletRequest =
   | PersistNewHotKeyRequest
   | SwapHotKeyRequest
   | SetGuardianEndpointRequest
+  | SetGuardianOperatorCommitmentRequest
+  | SetGuardianSyncStatusRequest
   | GetPublicKeyForCommitmentRequest
   | GetAuthSecretKeyRequest
   | PageRequest
@@ -943,6 +969,8 @@ export type WalletResponse =
   | PersistNewHotKeyResponse
   | SwapHotKeyResponse
   | SetGuardianEndpointResponse
+  | SetGuardianOperatorCommitmentResponse
+  | SetGuardianSyncStatusResponse
   | GetPublicKeyForCommitmentResponse
   | GetAuthSecretKeyResponse
   | PageResponse

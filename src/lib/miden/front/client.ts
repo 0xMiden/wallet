@@ -4,7 +4,14 @@ import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wal
 import constate from 'constate';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
-import { WalletAccount, WalletRequest, WalletResponse, WalletSettings, WalletStatus } from 'lib/shared/types';
+import {
+  GuardianSyncStatus,
+  WalletAccount,
+  WalletRequest,
+  WalletResponse,
+  WalletSettings,
+  WalletStatus
+} from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -50,6 +57,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeRevealPrivateKey = useWalletStore(s => s.revealPrivateKey);
   const storeRevealHotKey = useWalletStore(s => s.revealHotKey);
   const storeRevealGuardianKeys = useWalletStore(s => s.revealGuardianKeys);
+  const storeSetGuardianOperatorCommitment = useWalletStore(s => s.setGuardianOperatorCommitment);
+  const storeSetGuardianSyncStatus = useWalletStore(s => s.setGuardianSyncStatus);
   const storeImportAccount = useWalletStore(s => s.importAccount);
   const storeUpdateSettings = useWalletStore(s => s.updateSettings);
   const storeSignData = useWalletStore(s => s.signData);
@@ -167,6 +176,20 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       return storeImportAccount(privateKey, name);
     },
     [storeImportAccount]
+  );
+
+  const setGuardianOperatorCommitment = useCallback(
+    async (accountPublicKey: string, guardianOperatorCommitment: string) => {
+      await storeSetGuardianOperatorCommitment(accountPublicKey, guardianOperatorCommitment);
+    },
+    [storeSetGuardianOperatorCommitment]
+  );
+
+  const setGuardianSyncStatus = useCallback(
+    async (accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) => {
+      await storeSetGuardianSyncStatus(accountPublicKey, guardianSyncStatus);
+    },
+    [storeSetGuardianSyncStatus]
   );
 
   const updateSettings = useCallback(
@@ -322,6 +345,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     revealPrivateKey,
     revealHotKey,
     revealGuardianKeys,
+    setGuardianOperatorCommitment,
+    setGuardianSyncStatus,
     revealMnemonic,
     removeAccount,
     editAccountName,

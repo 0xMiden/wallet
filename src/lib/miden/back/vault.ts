@@ -27,7 +27,7 @@ import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
-import { AuthScheme, WalletAccount, WalletSettings } from 'lib/shared/types';
+import { AuthScheme, GuardianSyncStatus, WalletAccount, WalletSettings } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { compareAccountIds } from '../activity/utils';
@@ -949,6 +949,48 @@ export class Vault {
       }
       const newAllAccounts = allAccounts.map(acc =>
         acc.publicKey === accountPublicKey ? { ...acc, guardianEndpoint } : acc
+      );
+      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
+      const currentAccount = await this.getCurrentAccount();
+      return { accounts: newAllAccounts, currentAccount };
+    });
+  }
+
+  /**
+   * Persist the operator-wide guardian key commitment baseline for an account,
+   * used by out-of-band-switch detection to know whether the on-chain guardian
+   * signer still matches the account's stored `guardianEndpoint`.
+   */
+  async setGuardianOperatorCommitment(accountPublicKey: string, guardianOperatorCommitment: string) {
+    return withError('Failed to set guardian operator commitment', async () => {
+      const allAccounts = await this.fetchAccounts();
+      const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
+      if (!account) {
+        throw new PublicError('Account not found');
+      }
+      const newAllAccounts = allAccounts.map(acc =>
+        acc.publicKey === accountPublicKey ? { ...acc, guardianOperatorCommitment } : acc
+      );
+      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
+      const currentAccount = await this.getCurrentAccount();
+      return { accounts: newAllAccounts, currentAccount };
+    });
+  }
+
+  /**
+   * Persist the local reconciliation state (`GuardianSyncStatus`) for an
+   * account — 'in-sync', 'resolving', or 'needs-user-input'. Updated as
+   * out-of-band guardian switches are detected and resolved.
+   */
+  async setGuardianSyncStatus(accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) {
+    return withError('Failed to set guardian sync status', async () => {
+      const allAccounts = await this.fetchAccounts();
+      const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
+      if (!account) {
+        throw new PublicError('Account not found');
+      }
+      const newAllAccounts = allAccounts.map(acc =>
+        acc.publicKey === accountPublicKey ? { ...acc, guardianSyncStatus } : acc
       );
       await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
       const currentAccount = await this.getCurrentAccount();

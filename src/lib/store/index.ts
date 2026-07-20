@@ -358,6 +358,24 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.SetGuardianEndpointResponse);
     },
 
+    setGuardianOperatorCommitment: async (accountPublicKey, guardianOperatorCommitment) => {
+      const res = await request({
+        type: WalletMessageType.SetGuardianOperatorCommitmentRequest,
+        accountPublicKey,
+        guardianOperatorCommitment
+      });
+      assertResponse(res.type === WalletMessageType.SetGuardianOperatorCommitmentResponse);
+    },
+
+    setGuardianSyncStatus: async (accountPublicKey, guardianSyncStatus) => {
+      const res = await request({
+        type: WalletMessageType.SetGuardianSyncStatusRequest,
+        accountPublicKey,
+        guardianSyncStatus
+      });
+      assertResponse(res.type === WalletMessageType.SetGuardianSyncStatusResponse);
+    },
+
     getPublicKeyForCommitment: async commitment => {
       const res = await request({
         type: WalletMessageType.GetPublicKeyForCommitmentRequest,
