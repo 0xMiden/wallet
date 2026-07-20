@@ -330,11 +330,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
             {/* Swap order tracking */}
             {entry.txType === 'swap' && orderId != null && (
-              <div className="mt-6">
+              <div className="mt-6" data-testid="swap-order-card">
                 <DetailCard title={t('orderTracking')}>
                   <DetailRow label={t('orderStatus')} isLast={!swapTracking}>
                     {swapTracking ? (
-                      <span className="text-sm text-heading-gray font-medium">
+                      <span data-testid="swap-order-status" className="text-sm text-heading-gray font-medium">
                         {orderStatusLabel(swapTracking.state)}
                       </span>
                     ) : (
@@ -345,12 +345,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   </DetailRow>
                   {swapTracking && (
                     <DetailRow label={t('fillRounds')} isLast={!requestedToken}>
-                      <span className="text-sm text-heading-gray font-medium">{swapTracking.currentDepth}</span>
+                      <span data-testid="swap-order-fill-rounds" className="text-sm text-heading-gray font-medium">
+                        {swapTracking.currentDepth}
+                      </span>
                     </DetailRow>
                   )}
                   {swapTracking && requestedToken && (
                     <DetailRow label={t('amountFilled')} isLast>
-                      <span className="text-sm text-heading-gray font-medium">
+                      <span data-testid="swap-order-amount-filled" className="text-sm text-heading-gray font-medium">
                         {formatAmount(filledRequested ?? 0n, requestedToken.decimals)} /{' '}
                         {formatAmount(requestedToken.amount, requestedToken.decimals)}
                         {requestedToken.symbol ? ` ${requestedToken.symbol}` : ''}
