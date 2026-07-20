@@ -1,6 +1,7 @@
 name: Swap E2E (Chrome)
 on:
   pull_request:
+  workflow_dispatch: {}
 concurrency:
   group: swap-e2e-${{ github.ref }}
   cancel-in-progress: true
@@ -43,7 +44,9 @@ jobs:
   swap-e2e:
     name: swap-e2e (chrome)
     needs: changes
-    if: needs.changes.outputs.swap == 'true'
+    # A manual dispatch always runs the full suite (bypasses the path filter);
+    # PRs run it only when a swap-relevant path changed.
+    if: needs.changes.outputs.swap == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m);
     # warm-cache runs are ~20m. 45m gives the cold run headroom to seed the cache.
