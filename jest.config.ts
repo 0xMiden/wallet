@@ -6,6 +6,20 @@
 // eslint-disable-next-line import/no-anonymous-default-export
 export default {
   coverageProvider: 'v8',
+  // Force EVERY source file into the coverage denominator. Without this, v8 only
+  // reports files a test actually imports, so an untested file silently vanishes
+  // from the metric (the 95% gate historically graded ~37% of src while real
+  // coverage was ~45%). With collectCoverageFrom, an untested file shows 0% and
+  // fails the gate — drift can no longer hide, and coveragePathIgnorePatterns
+  // below is the single, reviewable record of intentional exclusions.
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/**/*.d.ts',
+    '!src/**/*.test.{ts,tsx}',
+    '!src/**/*.spec.ts',
+    '!src/**/__mocks__/**',
+    '!src/**/__tests__/**'
+  ],
   // Narrow exclusions only for code that is fundamentally E2E/snapshot
   // territory and has no unit-testable surface:
   //
@@ -23,8 +37,13 @@ export default {
   // - `app/icons/v2/index.tsx` — barrel file of SVG re-exports.
   // - `lib/mobile/faucet-webview.ts` — Capacitor InAppBrowser wrapper.
   // - `packages/dapp-browser/` — external package build output.
+  // - `lib/lock-up/run-checks.ts` — extension popup bootstrap with module-scope
+  //   top-level `await`; @swc/jest emits bare TLA into a CommonJS wrapper that
+  //   won't load, so it has no clean unit surface without a source refactor
+  //   (extract the logic out of the bootstrap) or a brittle transformer hack.
   coveragePathIgnorePatterns: [
     '/node_modules/',
+    '/src/lib/lock-up/run-checks\\.ts$',
     '/src/app/pages/Browser/',
     '/src/app/pages/Pending\\.tsx$',
     '/src/app/pages/Receive\\.tsx$',
