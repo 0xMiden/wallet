@@ -81,49 +81,21 @@ export const generateTransaction = async (
   _useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
-  // DIAGNOSTIC tracing for the iOS send-tx pre-sync hang. Mirrors the
-  // recordProveTiming pattern in miden-client-interface.ts. Remove when
-  // the hang is understood and fixed.
-  const dtag = (msg: string) => {
-    const line = `[prove-timing] [generateTransaction:${transaction.type}:${transaction.id}] ${msg}`;
-    // eslint-disable-next-line no-console
-    console.log(line);
-    try {
-      const g = globalThis as unknown as { __PROVE_TIMINGS__?: string[] };
-      if (!g.__PROVE_TIMINGS__) g.__PROVE_TIMINGS__ = [];
-      g.__PROVE_TIMINGS__.push(`${Date.now()}|${line}`);
-    } catch {
-      // ignore
-    }
-  };
-  dtag('entered');
-
   // Sync state first to ensure we have latest account state
   // Separate lock acquisition to avoid holding lock during network call
   // If sync fails (e.g. network down), the error propagates to generateTransactionsLoop's
   // catch block which cancels the transaction — this is intentional fail-fast behavior,
   // since the transaction can't be submitted without network anyway
   await setTransactionStage(transaction.id, 'syncing');
-  dtag('about to acquire withWasmClientLock for syncState');
   await withWasmClientLock(async () => {
-    dtag('acquired lock for syncState; calling getMidenClient');
     const midenClient = await getMidenClient();
-    dtag('got midenClient; calling syncState');
-    const _t = performance.now();
     await midenClient.syncState();
-    dtag(`syncState returned in ${(performance.now() - _t).toFixed(0)}ms`);
   });
-  dtag('released syncState lock');
 
   // Mark transaction as in progress
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Math.floor(Date.now() / 1000), // seconds
     stage: 'sending'
-  });
-  console.log('Generating transaction', {
-    txId: transaction.id,
-    type: transaction.type,
-    accountId: transaction.accountId
   });
 
   // Route Guardian accounts through Guardian service
@@ -196,9 +168,7 @@ export const generateTransaction = async (
   };
 
   // MidenClient handles the full pipeline (execute → prove → submit → apply)
-  dtag('about to acquire withWasmClientLock for tx dispatch');
   const result = await withWasmClientLock(async () => {
-    dtag('acquired tx lock; calling midenClient dispatch');
     const midenClient = await getMidenClient(options);
     switch (transaction.type) {
       case 'send':
@@ -216,7 +186,6 @@ export const generateTransaction = async (
         );
     }
   });
-  dtag('tx dispatch completed');
 
   switch (transaction.type) {
     case 'send':
@@ -267,13 +236,11 @@ const generateGuardianTransaction = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   guardianProvider: GuardianAccountProvider
 ): Promise<void> => {
-  console.log('Generating Guardian transaction');
   // Set the stage eagerly — `getOrCreateMultisigService` and the subsequent
   // `createXxxProposal` call can both hit the guardian over the network,
   // so surfacing "Creating proposal" immediately is more honest than
   // leaving the label stuck on "Sending transaction".
   await setTransactionStage(transaction.id, 'creating-proposal');
-  console.log('setted the transaction stage to create-proposal');
   let proposalResult: Proposal;
   // The service that creates the proposal AND issues the final
   // signAndCreateTransactionRequest. Hot-bound for routine ops; cold-bound for
@@ -452,10 +419,8 @@ const generateGuardianTransaction = async (
   }
 
   const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
-  console.log('Created transaction request from proposal, submitting to Miden client');
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-      console.log('Signing transaction request with external callback');
       const keyString = Buffer.from(publicKey).toString('hex');
       const signingInputsString = Buffer.from(signingInputs).toString('hex');
       return await signCallback(keyString, signingInputsString);
@@ -517,23 +482,28 @@ const generateGuardianTransaction = async (
   }
 
   // Sync the cached hot service so the next consumer sees post-tx state.
-  // Skip for replace-hot-key: that path's service is a transient cold one,
-  // and the cached hot service was invalidated in completeReplaceHotKeyTransaction
-  // via clearGuardianServiceFor — next access re-inits with the new hot pubkey.
+  //
+  // Skipped for the structural ops (replace-hot-key / update-procedure-threshold
+  // / switch-guardian): each runs on a transient/cold service and invalidates
+  // the cached hot service in its completion handler (clearGuardianServiceFor),
+  // so there's nothing useful to sync here. For switch-guardian specifically a
+  // sync here would also be MIS-ORDERED: completeSwitchGuardianTransaction must
+  // run finalizeGuardianSwitch (register on the new guardian) "before anything
+  // else touches the local cache or storage", and this runs before the
+  // completion switch below.
   //
   // Post-completion bookkeeping only: the transaction is already marked Completed
   // and the on-chain submit succeeded, so a sync failure here must NOT propagate
   // (it would flip a genuinely-successful transaction to Failed). The next sync
   // tick reconciles.
-  // replace-hot-key and update-procedure-threshold both run on a transient cold
-  // service and invalidate the cached hot service in their completion handlers,
-  // so there's nothing useful to sync here.
-  if (transaction.type !== 'replace-hot-key' && transaction.type !== 'update-procedure-threshold') {
+  if (
+    transaction.type !== 'replace-hot-key' &&
+    transaction.type !== 'update-procedure-threshold' &&
+    transaction.type !== 'switch-guardian'
+  ) {
     try {
-      console.log('Transaction generation complete, syncing multisig service');
       await setTransactionStage(transaction.id, 'guardian-syncing');
       await service.sync();
-      console.log('synced');
       await setTransactionStage(transaction.id, 'guardian-synced');
     } catch (error) {
       console.warn('[Guardian] post-completion sync failed; will reconcile on next tick', error);
@@ -556,7 +526,6 @@ const generateGuardianTransaction = async (
       );
       break;
     case 'replace-hot-key':
-      console.log('Completing replace-hot-key transaction');
       await completeReplaceHotKeyTransaction(
         transaction as ReplaceHotKeyTransaction,
         transactionResult,
@@ -565,7 +534,6 @@ const generateGuardianTransaction = async (
       );
       break;
     case 'update-procedure-threshold':
-      console.log('Completing update-procedure-threshold transaction');
       await completeUpdateProcedureThresholdTransaction(
         transaction as UpdateProcedureThresholdTransaction,
         transactionResult,

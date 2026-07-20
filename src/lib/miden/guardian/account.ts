@@ -196,7 +196,6 @@ export async function createGuardianAccount(
       guardianEndpoint
     };
   } catch (e) {
-    console.log(e);
     console.error('Error creating Guardian account:', e);
     // Preserve the original cause so callers can distinguish guardian-unreachable
     // from node/registration/WASM failures.

@@ -139,7 +139,6 @@ const ECDSA_SIGNATURE_SCHEME_TAG = 0x01;
 const insertKeyCallbackWrapper = (passKey: CryptoKey) => {
   return async (key: Uint8Array, secretKey: Uint8Array) => {
     const pubKeyHex = Buffer.from(key).toString('hex');
-    console.log('Inserting key with pubKeyHex', pubKeyHex);
     const secretKeyHex = Buffer.from(secretKey).toString('hex');
     await encryptAndSaveMany(
       [
@@ -1141,7 +1140,6 @@ export class Vault {
   }
 
   async signTransaction(publicKey: string, signingInputs: string): Promise<string> {
-    console.log('signTransaction: publicKey', publicKey);
     const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
       accAuthSecretKeyStrgKey(publicKey),
       this.vaultKey
