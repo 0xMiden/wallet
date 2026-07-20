@@ -201,6 +201,14 @@ export class MobileIntercomAdapter {
         };
       }
 
+      case WalletMessageType.CheckGuardianDriftRequest: {
+        const guardianSyncStatus = await Actions.checkGuardianDrift(req.accountPublicKey);
+        return {
+          type: WalletMessageType.CheckGuardianDriftResponse,
+          guardianSyncStatus
+        };
+      }
+
       case WalletMessageType.GetPublicKeyForCommitmentRequest: {
         const publicKey = await Actions.getPublicKeyForCommitment(req.commitment);
         return {

@@ -1,3 +1,9 @@
+import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
+import { identifyGuardianOperator } from 'lib/miden/guardian/operator-map';
+
+import { resolveGuardianDrift } from './guardian-drift';
+import { getMidenClient } from '../sdk/miden-client';
+
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: jest.fn(),
   withWasmClientLock: (fn: () => unknown) => fn()
@@ -9,11 +15,6 @@ jest.mock('lib/miden/guardian/operator-map', () => ({
 jest.mock('lib/miden/guardian/account', () => ({
   getGuardianCommitmentFromAccount: jest.fn()
 }));
-
-import { resolveGuardianDrift } from './guardian-drift';
-import { getMidenClient } from '../sdk/miden-client';
-import { identifyGuardianOperator } from 'lib/miden/guardian/operator-map';
-import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
 
 const makeVault = (acc: Record<string, unknown> | undefined) => ({
   getAccount: jest.fn(async () => acc),

@@ -517,6 +517,29 @@ describe('useWalletStore', () => {
       const { setGuardianSyncStatus } = useWalletStore.getState();
       await expect(setGuardianSyncStatus('pk', 'needs-user-input')).rejects.toThrow('Invalid response');
     });
+
+    it('checkGuardianDrift posts a CheckGuardianDriftRequest and returns the resolved status', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.CheckGuardianDriftResponse,
+        guardianSyncStatus: 'needs-user-input'
+      });
+
+      const { checkGuardianDrift } = useWalletStore.getState();
+      const status = await checkGuardianDrift('pub-key');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.CheckGuardianDriftRequest,
+        accountPublicKey: 'pub-key'
+      });
+      expect(status).toBe('needs-user-input');
+    });
+
+    it('checkGuardianDrift throws on a type-mismatched response', async () => {
+      mockRequest.mockResolvedValueOnce({ type: 'WrongType' });
+
+      const { checkGuardianDrift } = useWalletStore.getState();
+      await expect(checkGuardianDrift('pk')).rejects.toThrow('Invalid response');
+    });
   });
 
   describe('Asset actions', () => {

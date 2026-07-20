@@ -1,7 +1,8 @@
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
 import { identifyGuardianOperator, verifyEndpointMatchesCommitment } from 'lib/miden/guardian/operator-map';
 import type { GuardianSyncStatus } from 'lib/shared/types';
+
+import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
 interface GuardianDriftVault {
   getAccount(pk: string): Promise<{ guardianOperatorCommitment?: string } | undefined>;

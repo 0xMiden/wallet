@@ -376,6 +376,15 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.SetGuardianSyncStatusResponse);
     },
 
+    checkGuardianDrift: async accountPublicKey => {
+      const res = await request({
+        type: WalletMessageType.CheckGuardianDriftRequest,
+        accountPublicKey
+      });
+      assertResponse(res.type === WalletMessageType.CheckGuardianDriftResponse);
+      return res.guardianSyncStatus;
+    },
+
     getPublicKeyForCommitment: async commitment => {
       const res = await request({
         type: WalletMessageType.GetPublicKeyForCommitmentRequest,

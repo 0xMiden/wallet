@@ -285,6 +285,12 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.SetGuardianSyncStatusResponse
       };
+    case WalletMessageType.CheckGuardianDriftRequest:
+      const driftStatus = await Actions.checkGuardianDrift(req.accountPublicKey);
+      return {
+        type: WalletMessageType.CheckGuardianDriftResponse,
+        guardianSyncStatus: driftStatus
+      };
     case WalletMessageType.GetPublicKeyForCommitmentRequest:
       const commitmentPublicKey = await Actions.getPublicKeyForCommitment(req.commitment);
       return {

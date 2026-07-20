@@ -89,7 +89,8 @@ jest.mock('lib/miden/back/actions', () => ({
   isDAppEnabled: jest.fn(),
   processDApp: jest.fn(),
   setGuardianOperatorCommitment: jest.fn(),
-  setGuardianSyncStatus: jest.fn()
+  setGuardianSyncStatus: jest.fn(),
+  checkGuardianDrift: jest.fn()
 }));
 const Actions: any = jest.requireMock('lib/miden/back/actions');
 
@@ -372,6 +373,17 @@ describe('processRequest', () => {
     });
     expect(Actions.setGuardianSyncStatus).toHaveBeenCalledWith('pk', 'needs-user-input');
     expect(res.type).toBe(WalletMessageType.SetGuardianSyncStatusResponse);
+  });
+
+  it('CheckGuardianDriftRequest forwards to Actions and returns the resolved status', async () => {
+    Actions.checkGuardianDrift.mockResolvedValueOnce('needs-user-input');
+    const res = await dispatch({
+      type: WalletMessageType.CheckGuardianDriftRequest,
+      accountPublicKey: 'pk'
+    });
+    expect(Actions.checkGuardianDrift).toHaveBeenCalledWith('pk');
+    expect(res.type).toBe(WalletMessageType.CheckGuardianDriftResponse);
+    expect(res.guardianSyncStatus).toBe('needs-user-input');
   });
 
   it('DAppGetAllSessionsRequest returns the sessions map', async () => {

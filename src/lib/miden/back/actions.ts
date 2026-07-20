@@ -2,6 +2,7 @@ import PQueue from 'p-queue';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
+import { resolveGuardianDrift } from 'lib/miden/back/guardian-drift';
 import {
   toFront,
   store,
@@ -350,6 +351,32 @@ export function setGuardianSyncStatus(accountPublicKey: string, guardianSyncStat
   return withUnlocked(async ({ vault }) => {
     const updated = await vault.setGuardianSyncStatus(accountPublicKey, guardianSyncStatus);
     accountsUpdated(updated);
+  });
+}
+
+/**
+ * Detect and, where possible, auto-resolve an out-of-band guardian switch for
+ * an account. `resolveGuardianDrift` writes through the vault's guardian
+ * setters directly (not through the `setGuardian*` actions above), so this
+ * wrapper re-reads the current account state afterward and broadcasts it —
+ * same reason `setGuardianEndpoint` broadcasts: without it the popup's
+ * Zustand snapshot keeps the stale endpoint/commitment/status.
+ */
+export function checkGuardianDrift(accountPublicKey: string) {
+  return withUnlocked(async ({ vault }) => {
+    const guardianSyncStatus = await resolveGuardianDrift(
+      {
+        getAccount: async pk => (await vault.fetchAccounts()).find(acc => acc.publicKey === pk),
+        setGuardianEndpoint: (pk, endpoint) => vault.setGuardianEndpoint(pk, endpoint),
+        setGuardianOperatorCommitment: (pk, commitment) => vault.setGuardianOperatorCommitment(pk, commitment),
+        setGuardianSyncStatus: (pk, status) => vault.setGuardianSyncStatus(pk, status)
+      },
+      accountPublicKey
+    );
+    const accounts = await vault.fetchAccounts();
+    const currentAccount = await vault.getCurrentAccount();
+    accountsUpdated({ accounts, currentAccount });
+    return guardianSyncStatus;
   });
 }
 
