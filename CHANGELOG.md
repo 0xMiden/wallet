@@ -6,6 +6,10 @@
 
 * [FIX][devnet] **Restored the devnet developer (wrench) badge on the icon.** The v0 UI revamp (#248) rebranded the devnet icon to the plain Bread "B" and dropped the wrench badge, so devnet builds again looked identical to production. `public/misc/logo-devnet*.png` (234/128/48/40/32/16) now re-add the Advanced Settings / Developer wrench glyph in a white circle with a thin `#7286A0` ring, overlapping the B's bottom-right, so a devnet build is distinguishable at a glance. Wiring is unchanged — `vite.extension.config.ts` already swaps `logo-white-bg*` → `logo-devnet*` for `MIDEN_NETWORK=devnet` (manifest icons, action icon, and tab favicon).
 
+### Docs
+
+* [DOCS][all] **Privacy policy: added a dedicated Face ID / biometric data section.** Clarifies that the app collects, stores, shares, and retains no face or fingerprint data — biometric matching happens entirely in the device's Secure Enclave / hardware keystore and the app only ever receives a pass/fail result. Added in response to an iOS App Review request; the hosted policy at https://0xmiden.github.io/wallet/privacy/ is the source the Resolution Center reply quotes.
+
 ## 1.15.6 (2026-07-09)
 
 ### Features
