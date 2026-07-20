@@ -9,6 +9,7 @@
 ### Docs
 
 * [DOCS][all] **Privacy policy: added a dedicated Face ID / biometric data section.** Clarifies that the app collects, stores, shares, and retains no face or fingerprint data — biometric matching happens entirely in the device's Secure Enclave / hardware keystore and the app only ever receives a pass/fail result. Added in response to an iOS App Review request; the hosted policy at https://0xmiden.github.io/wallet/privacy/ is the source the Resolution Center reply quotes.
+* [DOCS][all] **Added a Support page** at https://0xmiden.github.io/wallet/support/ (GitHub Pages, `docs/support/index.md`) with a contact email, GitHub issues link, feedback-form link, and a short FAQ. Satisfies the App Store Connect Support URL requirement (App Review Guideline 1.5) that was previously pointing at a page without support information.
 
 ## 1.15.6 (2026-07-09)
 
