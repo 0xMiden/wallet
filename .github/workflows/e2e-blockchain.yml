@@ -1,20 +1,24 @@
 name: E2E Blockchain
 
 # Runs the blockchain-backed E2E suites (Chrome extension + iOS simulator)
-# against public networks. Testnet runs on every push to main and gates the
-# result.
+# against public networks (devnet + testnet) on every push to main.
 #
-# Devnet is currently SKIPPED on push: devnet is on the 0.16 protocol line
-# while wallet@main is still on 0.15, so every devnet job fails on a protocol
-# mismatch and would (falsely) turn main red. The devnet jobs still run on
-# demand via `workflow_dispatch` (network = devnet | both). Re-enable them on
-# push by restoring each devnet job's `if:` to
-# `github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'`
-# once the wallet is on the same protocol line as devnet.
+# Devnet is currently on the 0.16 protocol line while wallet@main is on 0.15,
+# so the devnet suites are EXPECTED to fail on a protocol mismatch. We still run
+# them (for visibility, and so they go green automatically once the wallet
+# catches up), but each devnet job runs its test step with `continue-on-error`
+# so a devnet failure does NOT turn the overall workflow — or main — red. The
+# devnet job's true pass/fail is surfaced via `outputs.passed` (from the run
+# step's `outcome`) so the per-platform gate can still enforce its rule.
 #
-# The per-platform gate jobs pass as long as AT LEAST ONE network (devnet OR
-# testnet) succeeded for that platform, so a skipped devnet + green testnet
-# still passes the gate.
+# The per-platform gate jobs require AT LEAST ONE network (devnet OR testnet)
+# to have passed for that platform. Because devnet's real result reaches the
+# gate via `outputs.passed` (not the continue-on-error-masked job result), the
+# gate still fails — and reds main — if BOTH networks genuinely fail. Testnet
+# jobs stay hard-fail, so a testnet regression reds main on its own.
+#
+# Once the wallet is on devnet's protocol line, drop the `continue-on-error`
+# from the devnet run steps to make devnet failures fatal again.
 
 on:
   push:
@@ -44,7 +48,9 @@ jobs:
 
   chrome-devnet:
     name: Chrome E2E (devnet)
-    if: github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')
+    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
+    outputs:
+      passed: ${{ steps.e2e.outcome }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -111,6 +117,10 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run blockchain E2E (devnet)
+        id: e2e
+        # devnet is protocol-ahead (0.16 vs wallet 0.15) and expected to fail;
+        # keep it non-fatal. True result is exposed via outputs.passed for the gate.
+        continue-on-error: true
         run: xvfb-run -a yarn test:e2e:blockchain:devnet
 
       - name: Upload artifacts
@@ -203,7 +213,7 @@ jobs:
       - name: Require at least one network to pass
         shell: bash
         env:
-          DEVNET_RESULT: ${{ needs.chrome-devnet.result }}
+          DEVNET_RESULT: ${{ needs.chrome-devnet.outputs.passed }}
           TESTNET_RESULT: ${{ needs.chrome-testnet.result }}
         run: |
           echo "devnet=$DEVNET_RESULT  testnet=$TESTNET_RESULT"
@@ -225,7 +235,9 @@ jobs:
 
   chrome-guardian-devnet:
     name: Chrome Guardian E2E (devnet)
-    if: github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')
+    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
+    outputs:
+      passed: ${{ steps.e2e.outcome }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -281,6 +293,10 @@ jobs:
         run: yarn test:e2e:blockchain:build
 
       - name: Run Guardian E2E (devnet)
+        id: e2e
+        # devnet is protocol-ahead (0.16 vs wallet 0.15) and expected to fail;
+        # keep it non-fatal. True result is exposed via outputs.passed for the gate.
+        continue-on-error: true
         run: xvfb-run -a yarn test:e2e:guardian:run
 
       - name: Upload artifacts
@@ -370,7 +386,7 @@ jobs:
       - name: Require at least one network to pass
         shell: bash
         env:
-          DEVNET_RESULT: ${{ needs.chrome-guardian-devnet.result }}
+          DEVNET_RESULT: ${{ needs.chrome-guardian-devnet.outputs.passed }}
           TESTNET_RESULT: ${{ needs.chrome-guardian-testnet.result }}
         run: |
           echo "devnet=$DEVNET_RESULT  testnet=$TESTNET_RESULT"
@@ -385,7 +401,9 @@ jobs:
 
   mobile-devnet:
     name: Mobile E2E (devnet)
-    if: github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')
+    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
+    outputs:
+      passed: ${{ steps.e2e.outcome }}
     # macos-26 matches build-mobile.yml — required for iOS 26 SDK symbols
     # used by dapp-browser's WKWebViewController. The -xlarge size is the
     # DEDICATED Apple-Silicon larger runner (2x vCPU/RAM, no noisy-neighbour
@@ -547,6 +565,10 @@ jobs:
         run: yarn test:e2e:mobile:build
 
       - name: Run blockchain E2E (mobile, devnet)
+        id: e2e
+        # devnet is protocol-ahead (0.16 vs wallet 0.15) and expected to fail;
+        # keep it non-fatal. True result is exposed via outputs.passed for the gate.
+        continue-on-error: true
         # --retries=2 absorbs flaky CDP "no pages found" errors and degraded-
         # CoreSimulator sim-setup failures on macos-26 runners. Each fixture
         # retries install → launch → CDP connect from scratch (and restarts the
@@ -742,7 +764,7 @@ jobs:
       - name: Require at least one network to pass
         shell: bash
         env:
-          DEVNET_RESULT: ${{ needs.mobile-devnet.result }}
+          DEVNET_RESULT: ${{ needs.mobile-devnet.outputs.passed }}
           TESTNET_RESULT: ${{ needs.mobile-testnet.result }}
         run: |
           echo "devnet=$DEVNET_RESULT  testnet=$TESTNET_RESULT"
@@ -762,7 +784,9 @@ jobs:
   # gate) so a guardian outage never blocks the standard mobile gate.
   mobile-guardian-devnet:
     name: Mobile Guardian E2E (devnet)
-    if: github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')
+    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
+    outputs:
+      passed: ${{ steps.e2e.outcome }}
     # macos-26 matches build-mobile.yml — required for iOS 26 SDK symbols
     # used by dapp-browser's WKWebViewController. The -xlarge size is the
     # DEDICATED Apple-Silicon larger runner (2x vCPU/RAM, no noisy-neighbour
@@ -924,6 +948,10 @@ jobs:
         run: yarn test:e2e:mobile:build
 
       - name: Run Guardian E2E (mobile, devnet)
+        id: e2e
+        # devnet is protocol-ahead (0.16 vs wallet 0.15) and expected to fail;
+        # keep it non-fatal. True result is exposed via outputs.passed for the gate.
+        continue-on-error: true
         # --retries=2 absorbs the residual onboarding flake + flaky CDP on macos-26
         # runners. Each fixture retries install → launch → CDP connect from
         # scratch, so a transient webinspectord hiccup doesn't fail the run.
@@ -1115,7 +1143,7 @@ jobs:
       - name: Require at least one network to pass
         shell: bash
         env:
-          DEVNET_RESULT: ${{ needs.mobile-guardian-devnet.result }}
+          DEVNET_RESULT: ${{ needs.mobile-guardian-devnet.outputs.passed }}
           TESTNET_RESULT: ${{ needs.mobile-guardian-testnet.result }}
         run: |
           echo "devnet=$DEVNET_RESULT  testnet=$TESTNET_RESULT"
