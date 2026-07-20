@@ -1,7 +1,6 @@
 # R0 findings — PSWAP taker discovery + fill, validated against the live local stack
 
-Status: CREATE path + DISCOVERY validated end-to-end on the real chain; TAKER FILL
-blocked at the final vault-signing bridge (precisely isolated). 13 spike iterations.
+Status: FULL maker/taker flow VALIDATED end-to-end on the real chain (create -> discover -> fill, signed). 16 spike iterations. Spike is GREEN.
 
 ## Environment (what it takes to run swaps locally)
 - Base stack (validator/sequencer/ntx-builder/tx-prover, v0.15.0) via docker-compose. RPC :57291, prover :50052.
@@ -21,9 +20,8 @@ blocked at the final vault-signing bridge (precisely isolated). 13 spike iterati
 7. **Discover on the DEFAULT client** (`getMidenClient()`, the wallet's already-synced singleton). `getMidenClient(options)` disposes+recreates a FRESH, unsynced client that can't find the note in time.
 
 ## The remaining blocker (taker fill) — precisely isolated
-8. `pswapConsume` needs a VAULT signature (keys live in the SW vault, not the SDK keystore). Routing signing via `store.signTransaction` → SW `Actions.signTransaction` → `withUnlocked(vault.signTransaction(pk, inputs))` IS invoked (not locked — `withUnlocked` throws when locked; we got no throw), but **`vault.signTransaction` returns an EMPTY signature** for the taker's auth pubkey (`d5bc…`) → SDK "failed to deserialize Signature: unexpected end of file".
-   - ROOT CAUSE: the taker's auth pubkey (as the fresh consume client presents it) does NOT resolve to B's stored secret key — a **public-key-commitment / key-lookup mismatch**. This ties to the known `MidenWalletSigner` "invalid public key commitment" bug (Phase-0 fix on a branch; Phase-1 first-class web-SDK signer pending). NOTE: the taker's OWN signing is never exercised by the existing E2E suite (the maker always signs), so this path was untested.
-   - **This is a wallet-crypto issue, not a harness tweak.** Faithful "wallet B signs" requires either the wallet vault-signer/commitment fix, or wiring a wallet-native consume tx type through the wallet's own pipeline (which uses the correct `swSignCallback`). The already-rejected "standalone SDK filler with its own keystore" would sidestep vault signing entirely if the maker/taker fidelity can be relaxed.
+8. **RESOLVED — the taker fill must run in the SERVICE WORKER.** `pswapConsume` needs a vault signature; the wallet's keys are in the SW vault and are signed SW-DIRECT (the wallet's tx loop is SW-owned on the extension). Signing from the PAGE via `store.signTransaction` -> intercom yields an EMPTY signature (the page->intercom signing path is effectively unused on extension; a fresh page-side client also presents a pubkey the vault can't resolve). Confirmed by a control: wallet B's OWN send signs fine ("B SEND OK") through the wallet's normal SW path.
+   - FIX: install the discovery+fill hooks in the SW (`back/main.ts` `start()`, MIDEN_E2E_TEST-gated) with a signer that mirrors `swSignCallback` (`Actions.signTransaction(pkHex, inputsHex)` -> Uint8Array), and call `__TEST_PSWAP_CONSUME__`/`__TEST_PSWAP_ORDER_INFO__` via `page.context().serviceWorkers()` (SW `globalThis`), not `page.evaluate`. The page keeps only `__TEST_SET_SWAP_TOKENS__` (read by the create UI). With this, the fill signs and the spike is GREEN.
 
 ## Hook shape (src/lib/miden/swap/test-hooks.ts, all MIDEN_E2E_TEST-gated)
 - `__TEST_SET_SWAP_TOKENS__`, `__TEST_PSWAP_ORDER_INFO__` (maker's note id+tag), `__TEST_PSWAP_CONSUME__({accountId, orderId, tagU32, fillAmount, ...})`, `__TEST_PSWAP_CANCEL__`. Consume = discover-on-default-client-by-tag → fill-by-note-id-on-signing-client.

@@ -5,25 +5,31 @@ import { getMidenClient } from 'lib/miden/sdk/miden-client';
 import { _setSwapTokensForTest, type SwapToken } from './tokens';
 
 /**
- * E2E-only PSWAP hooks. Installed ONLY under the `MIDEN_E2E_TEST` guard (see
- * `lib/store/index.ts`), so this whole module is dead-stripped from production.
+ * E2E-only PSWAP hooks. Installed ONLY under the `MIDEN_E2E_TEST` guard, so this
+ * whole module is dead-stripped from production.
  *
- * The wallet UI can only CREATE swap orders; the counterparty fill is done here
- * via the SDK so an E2E test can drive "wallet B takes wallet A's order".
+ * Split by context:
+ *  - `installSwapTestHooks()` (PAGE, via lib/store) exposes the token-registry
+ *    override the swap-create UI reads.
+ *  - `installSwapConsumeHooks(signCallback)` (SERVICE WORKER, via back/main)
+ *    exposes the taker discovery + fill. It runs in the SW because the wallet's
+ *    keys live in the SW vault and are signed SW-direct (the wallet's own tx
+ *    loop is SW-owned on the extension); the page→intercom signing path yields
+ *    an empty signature. The caller injects the SW vault signer.
  *
- * Two SDK-client facts drive the shape below:
- *  - Discovery/reads use the DEFAULT client (`getMidenClient()`), the wallet's
- *    already-synced singleton. `getMidenClient(options)` disposes+recreates a
- *    FRESH, unsynced client, which can't find the note in time.
- *  - Signing uses the vault: the wallet's keys live in the SW vault, not the SDK
- *    keystore, so the fill tx is signed via a client built with a `signCallback`
- *    routed through the store's `signTransaction` (the wallet's own tx path).
- *  - A note is discovered by its swap TAG (lineage only tracks a client's OWN
- *    orders). buildSwapTag does NOT reproduce the tag pswapCreate stamps, so the
- *    test conveys the maker's real tag (as a solver reads it from the mempool).
+ * Discovery notes:
+ *  - Lineage only tracks a client's OWN orders, so the taker discovers the
+ *    maker's note by its swap TAG. `buildSwapTag` does NOT reproduce the tag
+ *    `pswapCreate` stamps, so the test conveys the maker's real tag (read via
+ *    `__TEST_PSWAP_ORDER_INFO__`) — as a solver reads it from the mempool.
+ *  - PSWAP notes surface in `notes.list()` (input notes), not
+ *    `getConsumableNotes()`.
+ *  - Discover on the DEFAULT client (synced singleton); `getMidenClient(opts)`
+ *    is a fresh, unsynced client — use it only for the signed fill (by note id,
+ *    resolved from the shared store).
  */
 
-interface PswapConsumeArgs {
+export interface PswapConsumeArgs {
   accountId: string;
   orderId: string;
   offerFaucetId: string;
@@ -36,54 +42,41 @@ interface PswapConsumeArgs {
   tagU32?: string;
 }
 
-const bytesToHex = (u: Uint8Array): string =>
-  Array.from(u)
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-
-/** A vault-routed client (signs via the store's signTransaction → SW vault). */
-async function getSigningClient() {
-  const store = (globalThis as any).__TEST_STORE__;
-  const signTransaction = store?.getState?.().signTransaction;
-  const options = signTransaction
-    ? {
-        signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) =>
-          signTransaction(bytesToHex(publicKey), bytesToHex(signingInputs))
-      }
-    : undefined;
-  return getMidenClient(options as any);
-}
+export type SwapSignCallback = (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;
 
 /** Pull the `serialNum().toFelts()[1]` order id off a note record, defensively. */
 function orderIdOf(record: any): string | undefined {
   try {
     const recipient = record?.details?.().recipient?.() ?? record?.recipient?.();
-    const felts = recipient?.serialNum?.().toFelts?.();
-    const asInt = felts?.[1]?.asInt?.();
+    const asInt = recipient?.serialNum?.().toFelts?.()?.[1]?.asInt?.();
     return asInt != null ? String(asInt) : undefined;
   } catch {
     return undefined;
   }
 }
 
+const safe = (fn: () => any) => {
+  try {
+    return String(fn() ?? '');
+  } catch {
+    return '?';
+  }
+};
+
+/** PAGE hooks: the token-registry override read by the swap-create UI. */
 export function installSwapTestHooks(): void {
   (globalThis as any).__TEST_SET_SWAP_TOKENS__ = (tokens: SwapToken[]) => _setSwapTokensForTest(tokens);
+}
 
-  // Report this client's sent (output) notes with their tags, so the test can
-  // read the maker's real note tag.
+/** SERVICE-WORKER hooks: taker discovery + fill, signed via the injected vault signer. */
+export function installSwapConsumeHooks(signCallback: SwapSignCallback): void {
+  // Report this client's sent (output) notes with their tags (maker reads its own note tag).
   (globalThis as any).__TEST_PSWAP_ORDER_INFO__ = async () => {
     try {
       const mc = await getMidenClient();
       const client = (mc as unknown as { client: any }).client;
       await mc.syncState();
       const sent: any[] = (await client.notes?.listSent?.().catch(() => [])) ?? [];
-      const safe = (fn: () => any) => {
-        try {
-          return String(fn() ?? '');
-        } catch {
-          return '?';
-        }
-      };
       return {
         ok: true,
         sent: sent.map((r: any) => ({
@@ -100,8 +93,7 @@ export function installSwapTestHooks(): void {
   (globalThis as any).__TEST_PSWAP_CONSUME__ = async (a: PswapConsumeArgs) => {
     try {
       // 1. Discover on the synced DEFAULT client: subscribe to the maker's tag,
-      //    sync, and locate the note by orderId (scan the input-note list — a
-      //    PSWAP note imports there but isn't flagged "consumable").
+      //    sync, and locate the note by orderId in the input-note list.
       const disc = await getMidenClient();
       const dclient = (disc as unknown as { client: any }).client;
       const tagU32 = a.tagU32
@@ -133,9 +125,8 @@ export function installSwapTestHooks(): void {
       }
       const noteId = String(note.id().toString());
 
-      // 2. Fill on the vault-signing client, by note id (resolved from the
-      //    shared IndexedDB store the default client just synced).
-      const signMc = await getSigningClient();
+      // 2. Fill on the vault-signing client, by note id (resolved from the shared store).
+      const signMc = await getMidenClient({ signCallback } as any);
       await signMc.syncState();
       const result = await (signMc as unknown as { client: any }).client.transactions.pswapConsume({
         account: a.accountId,
@@ -150,7 +141,7 @@ export function installSwapTestHooks(): void {
 
   (globalThis as any).__TEST_PSWAP_CANCEL__ = async (a: { orderId: string }) => {
     try {
-      const signMc = await getSigningClient();
+      const signMc = await getMidenClient({ signCallback } as any);
       await signMc.syncState();
       const result = await (signMc as unknown as { client: any }).client.pswap.cancelByOrder({ orderId: a.orderId });
       return { ok: true, txId: String(result?.id?.() ?? result ?? '') };
