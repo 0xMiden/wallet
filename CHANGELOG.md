@@ -2,6 +2,10 @@
 
 ## 1.15.7 (2026-07-20)
 
+### Changes
+
+* [CHANGE][extension] **Chrome extension renamed to the full product name "Bread Wallet by Miden".** The manifest `name` — shown in the Chrome Web Store listing and on `chrome://extensions` — changed from "Bread" to "Bread Wallet by Miden". Devnet builds keep their automatic "(Devnet)" suffix, so they read "Bread Wallet by Miden (Devnet)" (`vite.extension.config.ts` appends the suffix to whatever `name` is). `short_name` (constrained-UI slot), the toolbar tooltip (`default_title`), and in-app naming are unchanged.
+
 ### Fixes
 
 * [FIX][extension] **Onboarding "Your Wallet is ready!" no longer shows raw `<highlight>` tags.** The Chrome side-panel handoff completion screen (`OpenSidePanel`) rendered its title via plain `t('yourWalletIsReady')`, which returns the raw i18n string including the `<highlight>Wallet</highlight>` markup, so the tags appeared as literal text. It now renders through `<Trans>` (matching `Confirmation.tsx`), styling "Wallet" in the primary color; `Message.title` was widened to `ReactNode` to accept the styled node. Added a regression test that renders the screen with real i18n and asserts the tags are parsed.
