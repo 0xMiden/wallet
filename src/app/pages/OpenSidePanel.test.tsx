@@ -5,6 +5,9 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 import { I18nextProvider, initReactI18next } from 'react-i18next';
 
+import { closeOnboardingTab, openSidePanelToWallet } from 'lib/extension/side-panel-handoff';
+import { navigate } from 'lib/woozie';
+
 import OpenSidePanel from './OpenSidePanel';
 import en from '../../../public/_locales/en/en.json';
 
@@ -17,11 +20,15 @@ import en from '../../../public/_locales/en/en.json';
 //
 // The test deliberately uses the REAL react-i18next + Message components and
 // seeds a real i18n instance from the production en.json, so it exercises the
-// actual tag parsing rather than a stand-in.
+// actual tag parsing rather than a stand-in. It also covers the screen's
+// ready/not-ready branches and the "Open wallet" handoff outcomes.
+
+// `mock`-prefixed so jest's hoisted mock factory may reference it.
+let mockReady = true;
 
 jest.mock('app/atoms/Spinner/Spinner', () => ({
   __esModule: true,
-  default: () => null
+  default: () => <div data-testid="spinner" />
 }));
 
 jest.mock('app/icons/v2', () => ({
@@ -30,7 +37,11 @@ jest.mock('app/icons/v2', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: () => null
+  Button: ({ title, onClick }: { title: string; onClick?: () => void }) => (
+    <button type="button" onClick={onClick}>
+      {title}
+    </button>
+  )
 }));
 
 jest.mock('lib/extension/side-panel-handoff', () => ({
@@ -39,14 +50,18 @@ jest.mock('lib/extension/side-panel-handoff', () => ({
 }));
 
 jest.mock('lib/miden/front', () => ({
-  useMidenContext: () => ({ ready: true })
+  useMidenContext: () => ({ ready: mockReady })
 }));
 
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
 
-describe('OpenSidePanel - ready state', () => {
+const mockOpenSidePanel = openSidePanelToWallet as jest.Mock;
+const mockCloseTab = closeOnboardingTab as jest.Mock;
+const mockNavigate = navigate as jest.Mock;
+
+describe('OpenSidePanel', () => {
   let testRoot: ReturnType<typeof createRoot> | null = null;
   let testContainer: HTMLDivElement | null = null;
   let testI18n: typeof i18n;
@@ -60,6 +75,11 @@ describe('OpenSidePanel - ready state', () => {
   });
 
   beforeEach(async () => {
+    mockReady = true;
+    mockOpenSidePanel.mockReset();
+    mockCloseTab.mockReset();
+    mockNavigate.mockReset();
+
     testI18n = i18n.createInstance();
     await testI18n.use(initReactI18next).init({
       lng: 'en',
@@ -94,6 +114,17 @@ describe('OpenSidePanel - ready state', () => {
     });
   };
 
+  const clickOpenWallet = async () => {
+    const button = testContainer!.querySelector('button');
+    await act(async () => {
+      button!.click();
+      // Flush the handler's awaited promises (openSidePanelToWallet, then
+      // closeOnboardingTab) and any resulting state updates.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  };
+
   it('renders the ready title without leaking <highlight> markup', async () => {
     await render();
 
@@ -108,5 +139,49 @@ describe('OpenSidePanel - ready state', () => {
 
     const highlighted = testContainer!.querySelector('.text-primary-500');
     expect(highlighted?.textContent).toBe('Wallet');
+  });
+
+  it('shows a spinner while the wallet is still being created', async () => {
+    mockReady = false;
+    await render();
+
+    expect(testContainer!.querySelector('[data-testid="spinner"]')).not.toBeNull();
+    expect(testContainer!.querySelector('h1')).toBeNull();
+    expect(testContainer!.textContent).toContain('Creating your wallet');
+  });
+
+  it('opens the side panel and closes the onboarding tab on success', async () => {
+    mockOpenSidePanel.mockResolvedValue(true);
+    mockCloseTab.mockResolvedValue(true);
+    await render();
+
+    await clickOpenWallet();
+
+    expect(mockOpenSidePanel).toHaveBeenCalledTimes(1);
+    expect(mockCloseTab).toHaveBeenCalledTimes(1);
+    // Tab closed successfully — no fallback navigation.
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the wallet home when the side panel fails to open', async () => {
+    mockOpenSidePanel.mockResolvedValue(false);
+    await render();
+
+    await clickOpenWallet();
+
+    expect(mockOpenSidePanel).toHaveBeenCalledTimes(1);
+    expect(mockCloseTab).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('falls back to the wallet home when the onboarding tab cannot be closed', async () => {
+    mockOpenSidePanel.mockResolvedValue(true);
+    mockCloseTab.mockResolvedValue(false);
+    await render();
+
+    await clickOpenWallet();
+
+    expect(mockCloseTab).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 });
