@@ -14,12 +14,13 @@
 
 * [CHANGE][all] Animation polish pass: hover/press color feedback across buttons, list rows, chips, and inputs sped up from 300ms to a tokenized 150ms `ease` curve (`ease-hover`); dropdown close and react-modal transitions now use `ease-out` (modals settle from `scale(0.96)` instead of zooming from `0.75`); the toggle knob animates via `transform` instead of layout-thrashing `left`; and `prefers-reduced-motion` is honored by the page navigators, the Settings seed-phrase overlay, the mobile page slide-in, and the sync shimmer (movement dropped, fades kept). Audit plans live in `plans/`.
 
+* [CHANGE][extension] **Refreshed the network icons.** The default/testnet build's orange bread "B" is regenerated from a new transparent-background master (dropping the old opaque white card and padding so the B fills the frame), and the devnet icon is redesigned from the orange "B" with a blue corner wrench to a sage-green "B" with a centered developer wrench, so devnet is easy to tell apart from the default build at a glance. All sizes (16/32/40/48/128/234) were regenerated for both `logo-white-bg*` (default) and `logo-devnet*` (devnet) from 1536px masters with gamma-correct (linear-light) downscaling. Affects the Chrome extension (manifest icons + toolbar `action.default_icon`, notifications, and the full-page view) and the Tauri desktop window favicon; mobile is unaffected — it uses separate native app icons (`AppIcon`/`ic_launcher`) and `misc/brand/*` splash assets. Icon-swap wiring in `vite.extension.config.ts` is unchanged.
+
 ### Fixes
 
 * [FIX][all] The transaction progress view no longer shows a spinning loader while the title already reads "Transaction completed" — a successful transaction now settles onto a green check hero for the beat before the success receipt appears, instead of reusing the in-progress spinner.
 
 * [FIX][mobile] **iOS no longer prompts Face ID every few seconds while a Guardian account syncs.** Reverts the `.userPresence` gate (#299) on the Secure Enclave hot key: guardian sync signs with the hot key on the ~3s AutoSync tick, so the per-use presence flag turned into a continuous Face ID prompt loop. New hot keys are created with `.privateKeyUsage` only again (silent signing, key still SE-bound). Since hot signing is silent everywhere now, the `background` consume flag and its Guardian cold-key auto-consume detour (which existed only to dodge that prompt) are also removed — every consume takes the standard hot-bound path. Android gets the equivalent fix: the Keystore hot-key wrapper is no longer auth-bound (`setUserAuthenticationRequired`), so hot signing no longer pops a fingerprint `BiometricPrompt` per signature; legacy auth-bound keys keep working through a prompt fallback until the hot key is rotated.
-
 ## 1.15.7 (2026-07-20)
 
 ### Changes

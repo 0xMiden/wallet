@@ -90,7 +90,7 @@ function copyPublicAssets(outDir: string): Plugin {
       const manifestContent = JSON.parse(readFileSync(manifestSrc, 'utf8'));
       const transformed = transformManifestKeys(manifestContent, TARGET_BROWSER);
 
-      // Devnet builds get blue icons so the extension can be told apart from
+      // Devnet builds get green icons so the extension can be told apart from
       // a production wallet at a glance. Swap both the top-level `icons` (shown
       // on chrome://extensions/, app launcher, etc.) and `action.default_icon`
       // (shown in the browser toolbar pin/pop-out row). Swap is done at
@@ -283,7 +283,7 @@ export default defineConfig({
           .replace(/ crossorigin/g, '')
           // Inject process global via external script (inline scripts blocked by CSP)
           .replace('<script type="module"', '<script src="/globals.js"></script>\n    <script type="module"');
-        // Devnet builds: swap the tab favicon to the blue devnet icon, mirroring
+        // Devnet builds: swap the tab favicon to the green devnet icon, mirroring
         // the manifest icon swap above, so a wallet tab is recognizable as devnet
         // instead of showing the orange production logo.
         if (MIDEN_NETWORK === 'devnet') {

@@ -8,11 +8,20 @@
  * layout, page and env/miden hook the router pulls in is replaced with a tiny
  * identifiable stub, keeping this a pure routing unit test.
  *
- * Two branches are structurally unreachable and intentionally uncovered:
- *   - the `/` route's `: <Welcome/>` else-arm, and
+ * Top-level view selection now flows through `resolveRootView(ctx)` (locked →
+ * `unlock`, un-hydrated → `loading`, un-ready → `welcome`, else → `app`). The
+ * catch-all `*` route (registered BEFORE `/` and every ready-only route) is the
+ * one that renders Unlock / RootSuspenseFallback / Welcome and only SKIPs — so a
+ * specific route runs — when `resolveRootView` returns `app`. `root-view` is a
+ * partial mock: it delegates to the real helper for the ctx-driven tests, and a
+ * couple of tests override it with `mockReturnValueOnce` to reach branches that
+ * are otherwise structurally unreachable:
+ *   - the `/` route's `unlock` / `loading` / `: <Welcome/>` arms, and
  *   - `onlyReady`'s `SKIP` arm,
- * because the earlier `*` catch-all already returns Unlock/Welcome for every
- * `locked` / `!ready` context, so those factories only ever run with ready.
+ * because whenever `resolveRootView` is `app` (the only value that lets those
+ * factories run) `ctx.ready` is already true and `ctx` never resolves to
+ * anything but `app`. They exist as defense-in-depth; the overrides document and
+ * cover that defensive fallback behaviour.
  */
 
 import React from 'react';
@@ -22,6 +31,7 @@ import { render, screen } from '@testing-library/react';
 import * as Woozie from 'lib/woozie';
 
 import PageRouter from './PageRouter';
+import { resolveRootView } from './root-view';
 
 // ---------------------------------------------------------------------------
 // Mutable mock state (prefixed `mock*` so the jest hoister lets factories close
@@ -32,7 +42,7 @@ const mockLocation: { pathname: string; trigger: string | null } = {
   trigger: null
 };
 const mockEnv = { popup: false, fullPage: false };
-const mockMiden = { ready: false, locked: false };
+const mockMiden = { ready: false, locked: false, hydrated: false };
 
 // `lib/woozie` bundles the full history/location stack; keep the real Router so
 // createMap/resolve/SKIP behave exactly as in production, and stub the four
@@ -46,6 +56,18 @@ jest.mock('lib/woozie', () => ({
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect" data-to={to} />
 }));
 
+// root-view: partial mock. By default `resolveRootView` delegates to the real
+// helper so ctx-driven tests exercise production logic; a couple of tests
+// override it per-call to reach the structurally-defensive fallback branches.
+jest.mock('./root-view', () => {
+  const actual = jest.requireActual('./root-view');
+  return {
+    __esModule: true,
+    ...actual,
+    resolveRootView: jest.fn(actual.resolveRootView)
+  };
+});
+
 // env: `useAppEnv` reads shared state; `OpenInFullPage` is a stub screen.
 jest.mock('app/env', () => ({
   useAppEnv: () => mockEnv,
@@ -54,6 +76,12 @@ jest.mock('app/env', () => ({
 
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => mockMiden
+}));
+
+// The loading spinner shown during MV3 cold-start (before hydration).
+jest.mock('app/a11y/RootSuspenseFallback', () => ({
+  __esModule: true,
+  default: () => <div data-testid="root-suspense-fallback" />
 }));
 
 // Layouts render their children so the wrapped page stays assertable.
@@ -142,7 +170,7 @@ jest.mock('./templates/history/HistoryDetails', () => ({
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-type Ctx = { ready?: boolean; locked?: boolean; popup?: boolean; fullPage?: boolean };
+type Ctx = { ready?: boolean; locked?: boolean; hydrated?: boolean; popup?: boolean; fullPage?: boolean };
 
 function renderAt(pathname: string, ctx: Ctx = {}, trigger: string | null = null) {
   mockLocation.pathname = pathname;
@@ -151,14 +179,25 @@ function renderAt(pathname: string, ctx: Ctx = {}, trigger: string | null = null
   mockEnv.fullPage = ctx.fullPage ?? false;
   mockMiden.ready = ctx.ready ?? false;
   mockMiden.locked = ctx.locked ?? false;
+  mockMiden.hydrated = ctx.hydrated ?? false;
   return render(<PageRouter />);
 }
 
+// A fully booted wallet: unlocked, ready, and hydrated → resolveRootView `app`,
+// which is the only ctx that lets a specific `/`-or-deeper route resolve.
+const ready: Ctx = { ready: true, locked: false, hydrated: true };
+
 const resetHistoryPositionMock = Woozie.resetHistoryPosition as unknown as jest.Mock;
+const resolveRootViewMock = resolveRootView as unknown as jest.Mock;
+const realResolveRootView = jest.requireActual('./root-view').resolveRootView;
 const scrollToMock = jest.fn();
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // mockReset wipes both the call log and any leftover `*Once` queue, then we
+  // re-point the default implementation back at the real helper.
+  resolveRootViewMock.mockReset();
+  resolveRootViewMock.mockImplementation(realResolveRootView);
   window.scrollTo = scrollToMock as unknown as typeof window.scrollTo;
 });
 
@@ -205,41 +244,76 @@ describe('app/PageRouter — pre-ready / special routes', () => {
   });
 
   it('/forgot-password SKIPs when ready and falls through to the final Redirect', () => {
-    renderAt('/forgot-password', { ready: true, locked: false });
+    renderAt('/forgot-password', ready);
     const redirect = screen.getByTestId('redirect');
     expect(redirect).toBeInTheDocument();
     expect(redirect).toHaveAttribute('data-to', '/');
   });
 });
 
-describe('app/PageRouter — the `*` catch-all', () => {
-  it('renders Unlock when locked (highest priority)', () => {
-    renderAt('/some/locked/path', { locked: true, ready: true });
+describe('app/PageRouter — the `*` catch-all (resolveRootView)', () => {
+  it('renders Unlock when locked (resolveRootView → unlock)', () => {
+    renderAt('/some/locked/path', { locked: true, ready: true, hydrated: true });
     expect(screen.getByTestId('unlock')).toBeInTheDocument();
   });
 
-  it('renders Welcome when unlocked but not ready', () => {
-    renderAt('/some/not-ready/path', { locked: false, ready: false });
+  it('renders the loading spinner before hydration, even while status is Idle (resolveRootView → loading)', () => {
+    // MV3 service-worker cold-start: unlocked, not yet hydrated. Must show the
+    // spinner, NEVER onboarding.
+    renderAt('/some/cold-start/path', { locked: false, ready: false, hydrated: false });
+    expect(screen.getByTestId('root-suspense-fallback')).toBeInTheDocument();
+    expect(screen.queryByTestId('welcome')).not.toBeInTheDocument();
+  });
+
+  it('still shows the loading spinner for a returning (ready) user before hydration', () => {
+    renderAt('/some/cold-start/path', { locked: false, ready: true, hydrated: false });
+    expect(screen.getByTestId('root-suspense-fallback')).toBeInTheDocument();
+  });
+
+  it('renders Welcome once hydrated but not ready (resolveRootView → welcome)', () => {
+    renderAt('/some/not-ready/path', { locked: false, ready: false, hydrated: true });
     expect(screen.getByTestId('welcome')).toBeInTheDocument();
   });
 
-  it('SKIPs (ready + unlocked) so an unknown path reaches the final Redirect', () => {
-    renderAt('/totally-unknown-path', { ready: true, locked: false });
+  it('SKIPs (resolveRootView → app) so an unknown path reaches the final Redirect', () => {
+    renderAt('/totally-unknown-path', ready);
     const redirect = screen.getByTestId('redirect');
     expect(redirect).toBeInTheDocument();
     expect(redirect).toHaveAttribute('data-to', '/');
   });
 });
 
-describe('app/PageRouter — ready tab & full-screen routes', () => {
-  const ready: Ctx = { ready: true, locked: false };
-
-  it('/ renders Explore inside TabLayout and resets history position', () => {
+describe('app/PageRouter — the `/` root route', () => {
+  it('renders Explore inside TabLayout and resets history position (resolveRootView → app)', () => {
     renderAt('/', ready);
     expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('explore'));
     expect(resetHistoryPositionMock).toHaveBeenCalledTimes(1);
   });
 
+  // The remaining `/` arms are defense-in-depth: the earlier `*` catch-all
+  // already handles every non-`app` ctx, so the `/` factory only ever runs with
+  // `app` in production. We force the fallback by making `resolveRootView` return
+  // `app` for the `*` call (so it SKIPs) and a different value for the `/` call.
+  it('falls back to Unlock if resolveRootView unexpectedly reports unlock at the `/` factory', () => {
+    resolveRootViewMock.mockReturnValueOnce('app').mockReturnValueOnce('unlock');
+    renderAt('/', ready);
+    expect(screen.getByTestId('unlock')).toBeInTheDocument();
+  });
+
+  it('falls back to the loading spinner if resolveRootView reports loading at the `/` factory', () => {
+    resolveRootViewMock.mockReturnValueOnce('app').mockReturnValueOnce('loading');
+    renderAt('/', ready);
+    expect(screen.getByTestId('root-suspense-fallback')).toBeInTheDocument();
+  });
+
+  it('falls back to Welcome (default arm) for any other resolveRootView value at the `/` factory', () => {
+    resolveRootViewMock.mockReturnValueOnce('app').mockReturnValueOnce('welcome');
+    renderAt('/', ready);
+    expect(screen.getByTestId('welcome')).toBeInTheDocument();
+  });
+});
+
+describe('app/PageRouter — ready tab & full-screen routes', () => {
   it('/history/:programId passes the program id into AllHistory', () => {
     renderAt('/history/prog-1', ready);
     const el = screen.getByTestId('all-history');
@@ -356,26 +430,38 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(el).toHaveAttribute('data-tx-id', 'tx-b');
     expect(el).toHaveAttribute('data-keep-open', 'true');
   });
+
+  // Defense-in-depth: `onlyReady` guards every route above with `ctx.ready`, but
+  // a ready-only factory can only be reached once `resolveRootView` is `app`,
+  // which itself implies ready. Force `app` while ctx is NOT ready to exercise
+  // `onlyReady`'s SKIP arm — the route drops through to the final Redirect.
+  it('onlyReady SKIPs to the final Redirect when a route is reached without ctx.ready', () => {
+    resolveRootViewMock.mockReturnValueOnce('app');
+    renderAt('/send', { ready: false, locked: false, hydrated: true });
+    const redirect = screen.getByTestId('redirect');
+    expect(redirect).toBeInTheDocument();
+    expect(redirect).toHaveAttribute('data-to', '/');
+  });
 });
 
 describe('app/PageRouter — scroll & history side effects', () => {
   it('scrolls to top when the location trigger is a Push', () => {
-    renderAt('/send', { ready: true, locked: false }, Woozie.HistoryAction.Push);
+    renderAt('/send', ready, Woozie.HistoryAction.Push);
     expect(scrollToMock).toHaveBeenCalledWith(0, 0);
   });
 
   it('does not scroll when the trigger is not a Push', () => {
-    renderAt('/send', { ready: true, locked: false }, Woozie.HistoryAction.Pop);
+    renderAt('/send', ready, Woozie.HistoryAction.Pop);
     expect(scrollToMock).not.toHaveBeenCalled();
   });
 
   it('does not reset history position for a non-root pathname', () => {
-    renderAt('/send', { ready: true, locked: false });
+    renderAt('/send', ready);
     expect(resetHistoryPositionMock).not.toHaveBeenCalled();
   });
 
   it('both scrolls and resets history position on a Push to the root pathname', () => {
-    renderAt('/', { ready: true, locked: false }, Woozie.HistoryAction.Push);
+    renderAt('/', ready, Woozie.HistoryAction.Push);
     expect(scrollToMock).toHaveBeenCalledWith(0, 0);
     expect(resetHistoryPositionMock).toHaveBeenCalledTimes(1);
   });
