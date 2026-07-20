@@ -74,6 +74,8 @@ export interface FundSwapPairOptions {
   amount?: number;
   offerDecimals?: number;
   requestDecimals?: number;
+  /** per-side balance-wait/claim budget (default 150s; raise for guardian accounts). */
+  balanceTimeoutMs?: number;
 }
 
 /**
@@ -99,10 +101,11 @@ export async function fundSwapPair(
   await midenCli.mint(requestFaucetHex, takerAddr, amount, 'public');
   await midenCli.sync();
 
-  await maker.waitForBalanceAbove(0, 150_000, timeline);
-  await maker.claimAllNotes(150_000);
-  await taker.waitForBalanceAbove(0, 150_000, timeline);
-  await taker.claimAllNotes(150_000);
+  const balanceTimeout = opts.balanceTimeoutMs ?? 150_000;
+  await maker.waitForBalanceAbove(0, balanceTimeout, timeline);
+  await maker.claimAllNotes(balanceTimeout);
+  await taker.waitForBalanceAbove(0, balanceTimeout, timeline);
+  await taker.claimAllNotes(balanceTimeout);
 
   const offer: SwapTokenDescriptor = {
     symbol: opts.offerSymbol,
@@ -194,14 +197,27 @@ async function readSwapOrderIds(page: Page): Promise<string[]> {
   });
 }
 
-/** The maker's own note tag (the taker discovers by this; buildSwapTag can't reproduce it). */
-export async function readMakerTag(maker: Wallet): Promise<string | undefined> {
+/** Raw sent-note info for the maker (id + tag + noteType per output note). */
+async function readMakerSent(maker: Wallet): Promise<Array<{ id?: string; tag?: string; noteType?: string }>> {
   const info = (await swOf(maker).evaluate(() =>
     (globalThis as unknown as { __TEST_PSWAP_ORDER_INFO__: () => unknown }).__TEST_PSWAP_ORDER_INFO__()
-  )) as {
-    sent?: Array<{ tag?: string }>;
-  };
-  return info?.sent?.[0]?.tag;
+  )) as { sent?: Array<{ id?: string; tag?: string; noteType?: string }> };
+  return info?.sent ?? [];
+}
+
+/** The maker's own note tag (the taker discovers by this; buildSwapTag can't reproduce it). */
+export async function readMakerTag(maker: Wallet): Promise<string | undefined> {
+  return (await readMakerSent(maker))[0]?.tag;
+}
+
+/**
+ * ALL of the maker's sent-note tags. A standard maker has just the swap note, but
+ * a guardian maker can have several sent notes, so the taker must subscribe to
+ * every tag to be sure the swap note is among the synced notes.
+ */
+export async function readMakerTags(maker: Wallet): Promise<string[]> {
+  const tags = (await readMakerSent(maker)).map(s => s.tag).filter((t): t is string => !!t && t !== '?');
+  return [...new Set(tags)];
 }
 
 export interface FillSwapOptions {
@@ -217,6 +233,8 @@ export interface FillSwapOptions {
   fillAmount: string;
   /** the maker's real note tag (asU32 decimal); strongly preferred over buildSwapTag. */
   tagU32?: string;
+  /** all of the maker's sent-note tags — subscribe to each (guardian makers). */
+  tagsU32?: string[];
   noteType?: 'public' | 'private';
 }
 
@@ -243,7 +261,8 @@ export async function fillSwapOrder(o: FillSwapOptions): Promise<FillResult> {
       requestAmount: o.requestAmount,
       noteType: o.noteType ?? 'public',
       fillAmount: o.fillAmount,
-      tagU32: o.tagU32
+      tagU32: o.tagU32,
+      tagsU32: o.tagsU32
     }
   ) as Promise<FillResult>;
 }

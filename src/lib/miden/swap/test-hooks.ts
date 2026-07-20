@@ -43,6 +43,9 @@ export interface PswapConsumeArgs {
   fillAmount: string;
   /** The maker note's actual tag (asU32, decimal string). Preferred over buildSwapTag. */
   tagU32?: string;
+  /** All of the maker's sent-note tags — subscribe to each (a guardian maker may
+   *  have several sent notes, so a single tag can miss the swap note). */
+  tagsU32?: string[];
 }
 
 export type SwapSignCallback = (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;
@@ -99,18 +102,27 @@ export function installSwapConsumeHooks(signCallback: SwapSignCallback): void {
       //    sync, and locate the note by orderId in the input-note list.
       const disc = await getMidenClient();
       const dclient = (disc as unknown as { client: any }).client;
-      const tagU32 = a.tagU32
-        ? Number(a.tagU32)
-        : buildSwapTag({
-            type: a.noteType ?? 'public',
-            offer: { token: a.offerFaucetId, amount: BigInt(a.offerAmount) },
-            request: { token: a.requestFaucetId, amount: BigInt(a.requestAmount) }
-          }).asU32();
-      await dclient.tags.add(tagU32);
+      const tags: number[] = (
+        a.tagsU32?.length
+          ? a.tagsU32.map(Number)
+          : [
+              a.tagU32
+                ? Number(a.tagU32)
+                : buildSwapTag({
+                    type: a.noteType ?? 'public',
+                    offer: { token: a.offerFaucetId, amount: BigInt(a.offerAmount) },
+                    request: { token: a.requestFaucetId, amount: BigInt(a.requestAmount) }
+                  }).asU32()
+            ]
+      ).filter((n, i, arr) => Number.isFinite(n) && arr.indexOf(n) === i);
+      for (const t of tags) await dclient.tags.add(t);
 
       let note: any;
       let counts = '';
-      for (let i = 0; i < 12 && !note; i++) {
+      // ~120s window: standard-account notes appear in the first few rounds
+      // (early exit); a guardian maker's note commits later via guardian
+      // canonicalization, so the loop must outlast that latency.
+      for (let i = 0; i < 40 && !note; i++) {
         await disc.syncState();
         const list: any[] = (await dclient.notes?.list?.().catch(() => [])) ?? [];
         counts = `list=${list.length}`;
@@ -124,7 +136,10 @@ export function installSwapConsumeHooks(signCallback: SwapSignCallback): void {
         if (!note) await new Promise(r => setTimeout(r, 3000));
       }
       if (!note) {
-        return { ok: false, error: `PSWAP note not found for order ${a.orderId} (tag=${tagU32}, ${counts})` };
+        return {
+          ok: false,
+          error: `PSWAP note not found for order ${a.orderId} (tags=[${tags.join(',')}], ${counts})`
+        };
       }
       const noteId = String(note.id().toString());
 

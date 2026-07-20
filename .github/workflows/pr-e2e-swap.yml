@@ -108,9 +108,11 @@ jobs:
           echo "node RPC (57291) / prover (50052) not ready in time" >&2
           docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color | tail -120
           exit 1
-      - name: Bring up guardian (Tier-2)
-        working-directory: playwright/e2e/local-stack
-        run: docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian up -d guardian
+      # NOTE: no guardian bring-up. The only guardian-maker swap spec
+      # (swap-guardian.spec.ts) is test.fixme'd — a guardian maker's public PSWAP
+      # note isn't published to the node's tag index, so the order is un-fillable
+      # (see that spec + R0-findings.md). Re-add `--profile guardian up -d guardian`
+      # here when that gap is fixed and the spec is un-fixme'd.
       - name: Start note-transport
         run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Build extension (localnet)
@@ -124,7 +126,7 @@ jobs:
       - name: Dump stack logs on failure
         if: failure()
         working-directory: playwright/e2e/local-stack
-        run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml logs --no-color | tail -400
+        run: docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color | tail -400
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -133,7 +135,7 @@ jobs:
       - name: Tear down
         if: always()
         working-directory: playwright/e2e/local-stack
-        run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml down -v || true
+        run: docker compose --env-file versions.env -f docker-compose.local.yml down -v || true
 
   # Stable required-check name: passes if swap-e2e succeeded OR was skipped
   # (non-swap PR), fails only if swap-e2e actually failed/cancelled. This is

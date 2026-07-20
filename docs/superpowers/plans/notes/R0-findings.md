@@ -25,3 +25,31 @@ Status: FULL maker/taker flow VALIDATED end-to-end on the real chain (create -> 
 
 ## Hook shape (src/lib/miden/swap/test-hooks.ts, all MIDEN_E2E_TEST-gated)
 - `__TEST_SET_SWAP_TOKENS__`, `__TEST_PSWAP_ORDER_INFO__` (maker's note id+tag), `__TEST_PSWAP_CONSUME__({accountId, orderId, tagU32, fillAmount, ...})`, `__TEST_PSWAP_CANCEL__`. Consume = discover-on-default-client-by-tag → fill-by-note-id-on-signing-client.
+
+## Guardian-maker swap: KNOWN-FAILING (test.fixme in swap-guardian.spec.ts)
+A guardian (multisig) maker's PUBLIC PSWAP note is never discoverable by a taker,
+so a guardian-created swap order is un-fillable. Root-caused end-to-end on the
+local stack (3 full runs + guardian logs + sent-tags evidence):
+- Guardian account create, funding, and the guardian-cosigned `pswapCreate` all
+  SUCCEED. The guardian canonicalizes A's account DELTA on-chain — the offered
+  asset leaves A's vault (guardian log: `Canonicalizing delta (commitment matches
+  on-chain)` for the pswapCreate nonce).
+- But the taker never receives the note. B subscribes to the maker's real, SOLE
+  sent-note tag (`maker sent tags: ["<tag>"]`) and syncs 40× / 120s, yet
+  `notes.list()` stays at just B's own note (`list=1`).
+- Mechanism: the guardian submits account STATE DELTAS, not full transactions, so
+  the public output note is never registered in the node's tag-indexed note store.
+  (Refuted along the way: not a timing issue — 120s window; not a wrong-tag issue
+  — exactly one sent note with the correct tag; not a private/public config diff —
+  the wallet's `pswapCreate` uses the default visibility for both account types.)
+- Standard-account makers work (swap-full-fill*.spec.ts are green), so this is a
+  guardian/node/SDK-side gap, not a harness bug. Nothing the test can do fixes it.
+
+To enable when fixed: drop `.fixme` in swap-guardian.spec.ts and re-add the
+guardian bring-up (`--profile guardian up -d guardian`) to pr-e2e-swap.yml.
+
+macOS-local note: the guardian runs `network_mode: host`, which Docker Desktop on
+macOS does NOT forward to `localhost`. To reach it from the macOS-side Chromium,
+bridge a published port to the guardian and point the spec at it:
+`docker run -d --name gbridge -p 3001:3001 alpine/socat TCP-LISTEN:3001,fork,reuseaddr TCP:172.17.0.1:3000`
+then `GUARDIAN_URL=http://localhost:3001`. CI (Linux) reaches `:3000` directly — no bridge.
