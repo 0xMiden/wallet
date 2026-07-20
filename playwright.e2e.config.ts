@@ -4,8 +4,10 @@ export default defineConfig({
   testDir: './playwright/e2e/tests',
   // Guardian specs need a locally-spawned guardian backend that only the
   // dedicated guardian job stands up, so exclude them from the general
-  // blockchain runs (they're run via playwright.guardian.config.ts).
-  testIgnore: '**/guardian-*.spec.ts',
+  // blockchain runs (they're run via playwright.guardian.config.ts). Swap
+  // specs are gated on swap-related path changes, so exclude them too
+  // (they're run via playwright.swap.config.ts by the dedicated swap job).
+  testIgnore: ['**/guardian-*.spec.ts', '**/swap/**'],
   timeout: 300_000, // 5 min per test (blockchain ops are slow)
   expect: {
     timeout: 60_000
