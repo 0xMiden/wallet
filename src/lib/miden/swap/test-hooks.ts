@@ -1,5 +1,6 @@
 import { buildSwapTag } from '@miden-sdk/miden-sdk/lazy';
 
+import { NoteExportType } from 'lib/miden/sdk/constants';
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { getMidenClient } from 'lib/miden/sdk/miden-client';
 
@@ -46,6 +47,9 @@ export interface PswapConsumeArgs {
   /** All of the maker's sent-note tags — subscribe to each (a guardian maker may
    *  have several sent notes, so a single tag can miss the swap note). */
   tagsU32?: string[];
+  /** Preferred: the maker's exported note (Full NoteFile, hex). Deterministic
+   *  handoff that avoids the reactive tag-subscription race. */
+  noteFileHex?: string;
 }
 
 export type SwapSignCallback = (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;
@@ -87,6 +91,7 @@ export function installSwapConsumeHooks(signCallback: SwapSignCallback): void {
         ok: true,
         sent: sent.map((r: any) => ({
           id: safe(() => r.id().toString()).slice(0, 14),
+          fullId: safe(() => r.id().toString()),
           tag: safe(() => r.metadata().tag().asU32()),
           noteType: safe(() => r.metadata().noteType())
         }))
@@ -96,8 +101,39 @@ export function installSwapConsumeHooks(signCallback: SwapSignCallback): void {
     }
   };
 
+  // Maker-side: export an output note as a Full NoteFile (hex) for a deterministic
+  // handoff to the taker (bypasses reactive tag discovery).
+  (globalThis as any).__TEST_EXPORT_NOTE__ = async (noteId: string) => {
+    try {
+      const mc = await getMidenClient();
+      await mc.syncState();
+      const bytes = await mc.exportNote(noteId, NoteExportType.FULL);
+      return { ok: true, hex: Buffer.from(bytes).toString('hex') };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  };
+
   (globalThis as any).__TEST_PSWAP_CONSUME__ = async (a: PswapConsumeArgs) => {
     try {
+      // Preferred path: deterministic maker->taker handoff. Import the maker's
+      // exported note, then consume by its id. This avoids the tag race — the
+      // wallet SDK does NOT back-fill a public note already committed in a past
+      // block when a tag is subscribed after the fact (a reactive taker misses
+      // notes that commit before it subscribes; a live solver subscribes ahead).
+      if (a.noteFileHex) {
+        const signMc = await getMidenClient({ signCallback } as any);
+        await signMc.syncState();
+        const importedId = await signMc.importNoteBytes(Buffer.from(a.noteFileHex, 'hex'));
+        await signMc.syncState();
+        const result = await (signMc as unknown as { client: any }).client.transactions.pswapConsume({
+          account: a.accountId,
+          note: importedId,
+          fillAmount: BigInt(a.fillAmount)
+        });
+        return { ok: true, txId: String(result?.id?.() ?? result ?? ''), noteId: importedId };
+      }
+
       // 1. Discover on the synced DEFAULT client: subscribe to the maker's tag,
       //    sync, and locate the note by orderId in the input-note list.
       const disc = await getMidenClient();

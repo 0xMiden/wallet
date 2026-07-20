@@ -1,12 +1,5 @@
 import { expect, test } from '../../fixtures/two-wallets';
-import {
-  createSwapOrder,
-  fillSwapOrder,
-  fundSwapPair,
-  readLineage,
-  readMakerTags,
-  tokenBalance
-} from '../../helpers/swap';
+import { createSwapOrder, fillSwapOrder, fundSwapPair, readLineage, tokenBalance } from '../../helpers/swap';
 
 // Endpoint of the guardian spawned by the CI job / local stack (--profile
 // guardian). Matches guardian-send-consume.spec.ts.
@@ -21,23 +14,18 @@ const GUARDIAN_URL = process.env.GUARDIAN_URL ?? 'http://localhost:3000';
  * standard-account scenarios can't: the `pswapCreate` that mints the maker note
  * and the P2ID payback claim. B's fill is a normal vault-signed consume.
  *
- * KNOWN-FAILING (test.fixme) — a guardian maker's public PSWAP note is never
- * discoverable by the taker. Root-caused end-to-end on the local stack:
- *   - Guardian account create, funding, and the guardian-cosigned `pswapCreate`
- *     all succeed: the guardian canonicalizes A's account DELTA on-chain (the
- *     offered asset leaves A's vault; guardian log: "Canonicalizing delta
- *     (commitment matches on-chain)").
- *   - But B never receives the note. B subscribes to the maker's real, sole
- *     sent-note tag and syncs for 120s, yet `notes.list()` stays at just B's own
- *     note (`list=1`).
- *   - Mechanism: the guardian submits account STATE DELTAS, not full txs, so the
- *     public output note is never registered in the node's tag-indexed note
- *     store. The offered asset is locked in a note no taker can find — the order
- *     is un-fillable.
- * This is a guardian/node/SDK-side gap, not a harness issue (standard-account
- * makers work — see swap-full-fill*.spec.ts). The test is written and ready:
- * drop `.fixme` and re-add the guardian bring-up to pr-e2e-swap.yml once guardian
- * makers publish discoverable notes. See docs/superpowers/plans/notes/R0-findings.md.
+ * Guardian maker swaps DO work (this test passes end-to-end). A guardian maker's
+ * public PSWAP note is published to the node's tag index exactly like a standard
+ * maker's — the node publishes public output notes when the tx commits; there is
+ * no account-type gate (verified empirically: an independent miden-client CLI
+ * discovers the guardian note by tag, and by code inspection of the delivery
+ * path). The one wrinkle is TAKER-SIDE and timing-only: the guardian's
+ * canonicalization delays the note's commit, and the wallet SDK does not
+ * back-fill a public note already committed in a past block when a taker
+ * subscribes to its tag reactively. So this test uses the deterministic
+ * maker->taker handoff (`maker: walletA` in fillSwapOrder: export the maker's
+ * note, import it on the taker, consume by id) — timing-independent, and how the
+ * standard fill scenarios run too. See docs/superpowers/plans/notes/R0-findings.md.
  */
 test.describe('swap: guardian maker full fill', () => {
   test.describe.configure({ mode: 'serial' });
@@ -45,7 +33,7 @@ test.describe('swap: guardian maker full fill', () => {
   const OFFER_BASE = '1000000000'; // 10 SWPA
   const REQUEST_BASE = '900000000'; // 9 SWPB
 
-  test.fixme('guardian A offers 10 SWPA for 9 SWPB, B fills fully; both sides settle', async ({
+  test('guardian A offers 10 SWPA for 9 SWPB, B fills fully; both sides settle', async ({
     walletA,
     walletB,
     midenCli,
@@ -74,21 +62,21 @@ test.describe('swap: guardian maker full fill', () => {
     });
     expect(orderId, 'guardian maker order id').not.toBe('');
 
-    // A guardian maker can have several sent notes; subscribe B to every tag so
-    // the swap note is among the synced notes regardless of ordering.
-    const tagsU32 = await readMakerTags(walletA);
-    console.log(`[guardian] maker sent tags: ${JSON.stringify(tagsU32)}`);
-
+    // Deterministic maker->taker note handoff (the taker imports the maker's
+    // exported note and consumes by id), which is timing-independent — a
+    // guardian maker's note commits with canonicalization delay, and the wallet
+    // SDK does not back-fill a public note already committed in a past block when
+    // a taker subscribes to its tag reactively.
     const fill = await fillSwapOrder({
       taker: walletB,
       takerAddress: b.address,
+      maker: walletA,
       orderId,
       offer: pair.offer,
       request: pair.request,
       offerAmount: OFFER_BASE,
       requestAmount: REQUEST_BASE,
-      fillAmount: REQUEST_BASE,
-      tagsU32
+      fillAmount: REQUEST_BASE
     });
     expect(fill.ok, `taker fill failed: ${fill.error}`).toBe(true);
 

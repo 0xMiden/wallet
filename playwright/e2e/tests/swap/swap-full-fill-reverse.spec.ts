@@ -1,12 +1,5 @@
 import { expect, test } from '../../fixtures/two-wallets';
-import {
-  createSwapOrder,
-  fillSwapOrder,
-  fundSwapPair,
-  readLineage,
-  readMakerTag,
-  tokenBalance
-} from '../../helpers/swap';
+import { createSwapOrder, fillSwapOrder, fundSwapPair, readLineage, tokenBalance } from '../../helpers/swap';
 
 /**
  * Scenario 3.2 — full fill, maker B → taker A (the reverse direction of 3.1).
@@ -47,18 +40,16 @@ test.describe('swap: full fill B→A', () => {
     });
     expect(orderId, 'maker order id').not.toBe('');
 
-    const tagU32 = await readMakerTag(walletB);
-
     const fill = await fillSwapOrder({
       taker: walletA,
       takerAddress: a.address,
+      maker: walletB,
       orderId,
       offer: pair.offer,
       request: pair.request,
       offerAmount: OFFER_BASE,
       requestAmount: REQUEST_BASE,
-      fillAmount: REQUEST_BASE,
-      tagU32
+      fillAmount: REQUEST_BASE
     });
     expect(fill.ok, `taker fill failed: ${fill.error}`).toBe(true);
 

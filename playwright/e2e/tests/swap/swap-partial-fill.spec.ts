@@ -1,12 +1,5 @@
 import { expect, test } from '../../fixtures/two-wallets';
-import {
-  createSwapOrder,
-  fillSwapOrder,
-  fundSwapPair,
-  readLineage,
-  readMakerTag,
-  tokenBalance
-} from '../../helpers/swap';
+import { createSwapOrder, fillSwapOrder, fundSwapPair, readLineage, tokenBalance } from '../../helpers/swap';
 
 /**
  * Scenario 3.3 — partial fill + remainder.
@@ -50,18 +43,16 @@ test.describe('swap: partial fill + remainder', () => {
     });
     expect(orderId, 'maker order id').not.toBe('');
 
-    const tagU32 = await readMakerTag(walletA);
-
     const fill = await fillSwapOrder({
       taker: walletB,
       takerAddress: b.address,
+      maker: walletA,
       orderId,
       offer: pair.offer,
       request: pair.request,
       offerAmount: OFFER_BASE,
       requestAmount: REQUEST_BASE,
-      fillAmount: FILL_BASE,
-      tagU32
+      fillAmount: FILL_BASE
     });
     expect(fill.ok, `taker partial fill failed: ${fill.error}`).toBe(true);
 

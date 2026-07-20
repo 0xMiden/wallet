@@ -198,11 +198,47 @@ async function readSwapOrderIds(page: Page): Promise<string[]> {
 }
 
 /** Raw sent-note info for the maker (id + tag + noteType per output note). */
-async function readMakerSent(maker: Wallet): Promise<Array<{ id?: string; tag?: string; noteType?: string }>> {
+async function readMakerSent(
+  maker: Wallet
+): Promise<Array<{ id?: string; fullId?: string; tag?: string; noteType?: string }>> {
   const info = (await swOf(maker).evaluate(() =>
     (globalThis as unknown as { __TEST_PSWAP_ORDER_INFO__: () => unknown }).__TEST_PSWAP_ORDER_INFO__()
-  )) as { sent?: Array<{ id?: string; tag?: string; noteType?: string }> };
+  )) as { sent?: Array<{ id?: string; fullId?: string; tag?: string; noteType?: string }> };
   return info?.sent ?? [];
+}
+
+/** The maker's swap note id (full hex). Single-order specs have exactly one sent note. */
+export async function readMakerNoteId(maker: Wallet): Promise<string | undefined> {
+  const sent = await readMakerSent(maker);
+  return sent.find(s => s.fullId && s.fullId !== '?')?.fullId;
+}
+
+/**
+ * Export the maker's note as a Full NoteFile (hex) for a deterministic taker
+ * handoff. A Full NoteFile needs the note COMMITTED (with an inclusion proof);
+ * createSwapOrder returns once the order is recorded locally, which can precede
+ * the on-chain commit — so poll (the hook re-syncs each attempt) until it exports.
+ */
+export async function exportMakerNote(maker: Wallet, noteId: string, timeoutMs = 90_000): Promise<string> {
+  const start = Date.now();
+  let lastErr = '';
+  for (;;) {
+    const r = (await swOf(maker).evaluate(
+      (id: string) =>
+        (
+          globalThis as unknown as {
+            __TEST_EXPORT_NOTE__: (i: string) => Promise<{ ok: boolean; hex?: string; error?: string }>;
+          }
+        ).__TEST_EXPORT_NOTE__(id),
+      noteId
+    )) as { ok: boolean; hex?: string; error?: string };
+    if (r.ok && r.hex) return r.hex;
+    lastErr = r.error ?? 'unknown';
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`exportMakerNote: note ${noteId.slice(0, 12)} not exportable within ${timeoutMs}ms (${lastErr})`);
+    }
+    await new Promise(res => setTimeout(res, 3000));
+  }
 }
 
 /** The maker's own note tag (the taker discovers by this; buildSwapTag can't reproduce it). */
@@ -236,6 +272,14 @@ export interface FillSwapOptions {
   /** all of the maker's sent-note tags — subscribe to each (guardian makers). */
   tagsU32?: string[];
   noteType?: 'public' | 'private';
+  /**
+   * Preferred: the maker wallet. When set, fillSwapOrder exports the maker's swap
+   * note and hands it to the taker deterministically (import + consume by id),
+   * avoiding the reactive tag-subscription race. Falls back to tag discovery if
+   * absent. `noteFileHex` overrides (pre-exported note).
+   */
+  maker?: Wallet;
+  noteFileHex?: string;
 }
 
 export interface FillResult {
@@ -245,8 +289,18 @@ export interface FillResult {
   noteId?: string;
 }
 
-/** Discover the maker note by tag + fill it, signed by the taker's SW vault. */
+/**
+ * Fill a maker order, signed by the taker's SW vault. Preferred: pass `maker`
+ * (or a pre-exported `noteFileHex`) for a deterministic note handoff; otherwise
+ * falls back to reactive tag discovery.
+ */
 export async function fillSwapOrder(o: FillSwapOptions): Promise<FillResult> {
+  let noteFileHex = o.noteFileHex;
+  if (!noteFileHex && o.maker) {
+    const noteId = await readMakerNoteId(o.maker);
+    if (!noteId) throw new Error('fillSwapOrder: maker has no exportable swap note');
+    noteFileHex = await exportMakerNote(o.maker, noteId);
+  }
   return swOf(o.taker).evaluate(
     (args: unknown) =>
       (globalThis as unknown as { __TEST_PSWAP_CONSUME__: (a: unknown) => Promise<FillResult> }).__TEST_PSWAP_CONSUME__(
@@ -259,6 +313,7 @@ export async function fillSwapOrder(o: FillSwapOptions): Promise<FillResult> {
       requestFaucetId: o.request.faucetId,
       offerAmount: o.offerAmount,
       requestAmount: o.requestAmount,
+      noteFileHex,
       noteType: o.noteType ?? 'public',
       fillAmount: o.fillAmount,
       tagU32: o.tagU32,

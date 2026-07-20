@@ -26,27 +26,32 @@ Status: FULL maker/taker flow VALIDATED end-to-end on the real chain (create -> 
 ## Hook shape (src/lib/miden/swap/test-hooks.ts, all MIDEN_E2E_TEST-gated)
 - `__TEST_SET_SWAP_TOKENS__`, `__TEST_PSWAP_ORDER_INFO__` (maker's note id+tag), `__TEST_PSWAP_CONSUME__({accountId, orderId, tagU32, fillAmount, ...})`, `__TEST_PSWAP_CANCEL__`. Consume = discover-on-default-client-by-tag → fill-by-note-id-on-signing-client.
 
-## Guardian-maker swap: KNOWN-FAILING (test.fixme in swap-guardian.spec.ts)
-A guardian (multisig) maker's PUBLIC PSWAP note is never discoverable by a taker,
-so a guardian-created swap order is un-fillable. Root-caused end-to-end on the
-local stack (3 full runs + guardian logs + sent-tags evidence):
-- Guardian account create, funding, and the guardian-cosigned `pswapCreate` all
-  SUCCEED. The guardian canonicalizes A's account DELTA on-chain — the offered
-  asset leaves A's vault (guardian log: `Canonicalizing delta (commitment matches
-  on-chain)` for the pswapCreate nonce).
-- But the taker never receives the note. B subscribes to the maker's real, SOLE
-  sent-note tag (`maker sent tags: ["<tag>"]`) and syncs 40× / 120s, yet
-  `notes.list()` stays at just B's own note (`list=1`).
-- Mechanism: the guardian submits account STATE DELTAS, not full transactions, so
-  the public output note is never registered in the node's tag-indexed note store.
-  (Refuted along the way: not a timing issue — 120s window; not a wrong-tag issue
-  — exactly one sent note with the correct tag; not a private/public config diff —
-  the wallet's `pswapCreate` uses the default visibility for both account types.)
-- Standard-account makers work (swap-full-fill*.spec.ts are green), so this is a
-  guardian/node/SDK-side gap, not a harness bug. Nothing the test can do fixes it.
+## Guardian-maker swap: WORKS (swap-guardian.spec.ts is GREEN)
+Guardian (multisig) maker swaps work end-to-end. An earlier conclusion here —
+"the guardian maker's public note is never published / the order is un-fillable"
+— was WRONG; it was a harness taker-discovery artifact, not a product gap.
 
-To enable when fixed: drop `.fixme` in swap-guardian.spec.ts and re-add the
-guardian bring-up (`--profile guardian up -d guardian`) to pr-e2e-swap.yml.
+What's actually true (verified two independent ways):
+- The guardian maker's PSWAP note IS public and IS published to the node's tag
+  index, exactly like a standard maker's. Empirical proof: an independent
+  miden-client CLI (`tags --add <tag>` + `sync` + `notes --list`) discovers the
+  guardian note by its tag — `Committed at block N`, noteType Public (=1). Code
+  proof: the wallet's delivery path (transaction/complete.ts) gates note delivery
+  on note TYPE only (public notes are published by the NODE on commit; private
+  notes go via note-transport) — there is NO account-type / guardian / PSWAP
+  branch. A guardian public P2ID send (guardian-send-consume.spec.ts) and a
+  guardian public PSWAP note travel the identical path.
+- Why the taker initially missed it (harness bug): the wallet SDK does NOT
+  back-fill a public note already committed in a PAST block when a client
+  subscribes to its tag reactively. The guardian's canonicalization delays the
+  note's commit, so a taker that subscribes-then-syncs after the fact races the
+  commit and misses it (a fresh CLI syncing from genesis with the tag catches it;
+  a live solver subscribes ahead of orders, so it never hits this).
+- FIX (all fill scenarios): deterministic maker->taker handoff — the maker
+  exports its note (Full NoteFile) and the taker imports it and consumes by id
+  (`fillSwapOrder({ maker })` / `__TEST_EXPORT_NOTE__` + import). Timing-independent.
+  This replaced the reactive tag discovery (which was fragile for standard makers
+  too). swap-guardian.spec.ts passes; all standard fill specs use the same handoff.
 
 macOS-local note: the guardian runs `network_mode: host`, which Docker Desktop on
 macOS does NOT forward to `localhost`. To reach it from the macOS-side Chromium,
