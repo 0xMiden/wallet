@@ -8,45 +8,15 @@ concurrency:
 permissions:
   contents: read
 jobs:
-  changes:
-    name: changes
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      swap: ${{ steps.filter.outputs.swap }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            swap:
-              - 'src/lib/miden/swap/**'
-              - 'src/screens/swap-flow/**'
-              - 'src/lib/miden/transaction/index.ts'
-              - 'src/lib/miden/transaction/complete.ts'
-              - 'src/lib/miden/transaction/get.ts'
-              - 'src/lib/miden/db/types.ts'
-              - 'src/app/templates/history/**'
-              - 'playwright/e2e/tests/swap/**'
-              - 'playwright/e2e/helpers/wallet-page.ts'
-              - 'playwright/e2e/helpers/miden-cli.ts'
-              - 'playwright/e2e/helpers/swap.ts'
-              - 'playwright.swap.config.ts'
-              - '.github/workflows/pr-e2e-swap.yml'
-
-  # Swap coverage only stands up the (expensive) local stack when a
-  # swap-relevant path actually changed -- see `changes` above. This job is
-  # skipped entirely on non-swap PRs; swap-e2e-gate is the stable required
-  # check name so a skip still reports green.
+  # Runs on EVERY PR (no path filter, by choice) so a change that breaks swaps
+  # WITHOUT touching swap paths -- an @miden-sdk bump, a shared-file edit, a node
+  # image tag change -- is still caught. It runs in parallel with the other CI
+  # workflows on its own runner, so it doesn't lengthen the critical path; the
+  # cost is ~20-30m of runner time (mostly cold Rust compiles) per PR. Also
+  # runnable on demand via workflow_dispatch. swap-e2e-gate is the stable
+  # required-check name.
   swap-e2e:
     name: swap-e2e (chrome)
-    needs: changes
-    # A manual dispatch always runs the full suite (bypasses the path filter);
-    # PRs run it only when a swap-relevant path changed.
-    if: needs.changes.outputs.swap == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m);
     # warm-cache runs are ~20m. 45m gives the cold run headroom to seed the cache.
@@ -140,17 +110,16 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml down -v || true
 
-  # Stable required-check name: passes if swap-e2e succeeded OR was skipped
-  # (non-swap PR), fails only if swap-e2e actually failed/cancelled. This is
-  # the check to mark "required" in branch protection, NOT swap-e2e itself
-  # (whose status is literally "skipped" -- not "success" -- on non-swap PRs).
+  # Stable required-check name: passes iff swap-e2e succeeded, fails if it
+  # failed/cancelled. Mark THIS "required" in branch protection (not swap-e2e
+  # directly) so the required check name stays stable if the job is renamed.
   swap-e2e-gate:
     name: swap-e2e-gate
-    needs: [changes, swap-e2e]
+    needs: [swap-e2e]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - run: |
-          if [ "${{ needs.swap-e2e.result }}" = "failure" ] || [ "${{ needs.swap-e2e.result }}" = "cancelled" ]; then
-            echo "swap-e2e failed"; exit 1; fi
-          echo "swap-e2e ok or skipped"
+          if [ "${{ needs.swap-e2e.result }}" != "success" ]; then
+            echo "swap-e2e ${{ needs.swap-e2e.result }}"; exit 1; fi
+          echo "swap-e2e ok"
