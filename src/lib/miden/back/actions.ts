@@ -2,7 +2,10 @@ import PQueue from 'p-queue';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
-import { resolveGuardianDrift } from 'lib/miden/back/guardian-drift';
+import {
+  applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
+  resolveGuardianDrift
+} from 'lib/miden/back/guardian-drift';
 import {
   toFront,
   store,
@@ -377,6 +380,35 @@ export function checkGuardianDrift(accountPublicKey: string) {
     const currentAccount = await vault.getCurrentAccount();
     accountsUpdated({ accounts, currentAccount });
     return guardianSyncStatus;
+  });
+}
+
+/**
+ * Persist a user-supplied Guardian URL for an account flagged
+ * `needs-user-input`, verifying it against the on-chain guardian commitment
+ * first (see `applyVerifiedGuardianEndpoint` in `guardian-drift.ts`). Mirrors
+ * `checkGuardianDrift`: the verify+persist logic writes through the vault
+ * adapter directly, so this wrapper re-reads the account and broadcasts it
+ * only when the endpoint was actually applied.
+ */
+export function applyUserGuardianEndpoint(accountPublicKey: string, endpoint: string) {
+  return withUnlocked(async ({ vault }) => {
+    const applied = await applyVerifiedGuardianEndpoint(
+      {
+        getAccount: async pk => (await vault.fetchAccounts()).find(acc => acc.publicKey === pk),
+        setGuardianEndpoint: (pk, ep) => vault.setGuardianEndpoint(pk, ep),
+        setGuardianOperatorCommitment: (pk, commitment) => vault.setGuardianOperatorCommitment(pk, commitment),
+        setGuardianSyncStatus: (pk, status) => vault.setGuardianSyncStatus(pk, status)
+      },
+      accountPublicKey,
+      endpoint
+    );
+    if (applied) {
+      const accounts = await vault.fetchAccounts();
+      const currentAccount = await vault.getCurrentAccount();
+      accountsUpdated({ accounts, currentAccount });
+    }
+    return applied;
   });
 }
 

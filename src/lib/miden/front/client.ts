@@ -60,6 +60,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeSetGuardianOperatorCommitment = useWalletStore(s => s.setGuardianOperatorCommitment);
   const storeSetGuardianSyncStatus = useWalletStore(s => s.setGuardianSyncStatus);
   const storeCheckGuardianDrift = useWalletStore(s => s.checkGuardianDrift);
+  const storeApplyUserGuardianEndpoint = useWalletStore(s => s.applyUserGuardianEndpoint);
   const storeImportAccount = useWalletStore(s => s.importAccount);
   const storeUpdateSettings = useWalletStore(s => s.updateSettings);
   const storeSignData = useWalletStore(s => s.signData);
@@ -198,6 +199,13 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       return storeCheckGuardianDrift(accountPublicKey);
     },
     [storeCheckGuardianDrift]
+  );
+
+  const applyUserGuardianEndpoint = useCallback(
+    async (accountPublicKey: string, guardianEndpoint: string) => {
+      return storeApplyUserGuardianEndpoint(accountPublicKey, guardianEndpoint);
+    },
+    [storeApplyUserGuardianEndpoint]
   );
 
   const updateSettings = useCallback(
@@ -356,6 +364,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     setGuardianOperatorCommitment,
     setGuardianSyncStatus,
     checkGuardianDrift,
+    applyUserGuardianEndpoint,
     revealMnemonic,
     removeAccount,
     editAccountName,

@@ -54,6 +54,42 @@ export async function resolveGuardianDrift(
   return 'needs-user-input';
 }
 
+/**
+ * Persist a user-supplied Guardian URL, but only once it's verified against
+ * the on-chain guardian commitment. Used to resolve accounts flagged
+ * `needs-user-input` by `resolveGuardianDrift` (a custom operator that isn't
+ * one of the built-in providers): the user pastes the operator's URL, and
+ * this checks it before ever writing it to the vault.
+ *
+ * On a match, persists the endpoint + commitment + `'in-sync'` status
+ * together (never the commitment without the status, or a later
+ * `checkGuardianDrift` would report in-sync while the vault stays stuck at
+ * `needs-user-input`). On a mismatch, or when there's no on-chain guardian
+ * commitment to check against, persists nothing and returns `false`.
+ *
+ * The WASM account read is lock-guarded; the endpoint verification HTTP call
+ * runs outside the lock.
+ */
+export async function applyUserGuardianEndpoint(
+  vault: GuardianDriftVault,
+  accountPublicKey: string,
+  endpoint: string
+): Promise<boolean> {
+  const onChain = await withWasmClientLock(async () => {
+    const sdkAccount = await (await getMidenClient()).getAccount(accountPublicKey);
+    return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
+  });
+  if (!onChain) return false;
+
+  const matches = await verifyEndpointMatchesCommitment(endpoint, onChain);
+  if (!matches) return false;
+
+  await vault.setGuardianEndpoint(accountPublicKey, endpoint);
+  await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
+  await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
+  return true;
+}
+
 function normalizedEqual(a: string, b: string): boolean {
   const n = (h: string) => (h.startsWith('0x') ? h.slice(2) : h).toLowerCase();
   return n(a) === n(b);

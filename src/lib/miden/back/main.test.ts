@@ -90,7 +90,8 @@ jest.mock('lib/miden/back/actions', () => ({
   processDApp: jest.fn(),
   setGuardianOperatorCommitment: jest.fn(),
   setGuardianSyncStatus: jest.fn(),
-  checkGuardianDrift: jest.fn()
+  checkGuardianDrift: jest.fn(),
+  applyUserGuardianEndpoint: jest.fn()
 }));
 const Actions: any = jest.requireMock('lib/miden/back/actions');
 
@@ -384,6 +385,18 @@ describe('processRequest', () => {
     expect(Actions.checkGuardianDrift).toHaveBeenCalledWith('pk');
     expect(res.type).toBe(WalletMessageType.CheckGuardianDriftResponse);
     expect(res.guardianSyncStatus).toBe('needs-user-input');
+  });
+
+  it('ApplyUserGuardianEndpointRequest forwards to Actions and returns whether it applied', async () => {
+    Actions.applyUserGuardianEndpoint.mockResolvedValueOnce(true);
+    const res = await dispatch({
+      type: WalletMessageType.ApplyUserGuardianEndpointRequest,
+      accountPublicKey: 'pk',
+      guardianEndpoint: 'https://mine'
+    });
+    expect(Actions.applyUserGuardianEndpoint).toHaveBeenCalledWith('pk', 'https://mine');
+    expect(res.type).toBe(WalletMessageType.ApplyUserGuardianEndpointResponse);
+    expect(res.applied).toBe(true);
   });
 
   it('DAppGetAllSessionsRequest returns the sessions map', async () => {

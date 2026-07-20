@@ -385,6 +385,16 @@ export const useWalletStore = create<WalletStore>()(
       return res.guardianSyncStatus;
     },
 
+    applyUserGuardianEndpoint: async (accountPublicKey, guardianEndpoint) => {
+      const res = await request({
+        type: WalletMessageType.ApplyUserGuardianEndpointRequest,
+        accountPublicKey,
+        guardianEndpoint
+      });
+      assertResponse(res.type === WalletMessageType.ApplyUserGuardianEndpointResponse);
+      return res.applied;
+    },
+
     getPublicKeyForCommitment: async commitment => {
       const res = await request({
         type: WalletMessageType.GetPublicKeyForCommitmentRequest,

@@ -36,6 +36,7 @@ jest.mock('lib/miden/back/actions', () => ({
   setGuardianOperatorCommitment: jest.fn().mockResolvedValue(undefined),
   setGuardianSyncStatus: jest.fn().mockResolvedValue(undefined),
   checkGuardianDrift: jest.fn().mockResolvedValue('in-sync'),
+  applyUserGuardianEndpoint: jest.fn().mockResolvedValue(true),
   getPublicKeyForCommitment: jest.fn().mockResolvedValue('pub-key-commit'),
   getAllDAppSessions: jest.fn().mockResolvedValue([]),
   removeDAppSession: jest.fn().mockResolvedValue([]),
@@ -399,6 +400,21 @@ describe('MobileIntercomAdapter', () => {
       expect(response).toEqual({
         type: WalletMessageType.CheckGuardianDriftResponse,
         guardianSyncStatus: 'needs-user-input'
+      });
+    });
+
+    it('handles ApplyUserGuardianEndpointRequest', async () => {
+      (Actions.applyUserGuardianEndpoint as jest.Mock).mockResolvedValueOnce(true);
+      const response = await adapter.request({
+        type: WalletMessageType.ApplyUserGuardianEndpointRequest,
+        accountPublicKey: 'pub-key-123',
+        guardianEndpoint: 'https://mine'
+      } as any);
+
+      expect(Actions.applyUserGuardianEndpoint).toHaveBeenCalledWith('pub-key-123', 'https://mine');
+      expect(response).toEqual({
+        type: WalletMessageType.ApplyUserGuardianEndpointResponse,
+        applied: true
       });
     });
 

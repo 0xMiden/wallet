@@ -75,6 +75,8 @@ export enum WalletMessageType {
   SetGuardianSyncStatusResponse = 'SET_GUARDIAN_SYNC_STATUS_RESPONSE',
   CheckGuardianDriftRequest = 'CHECK_GUARDIAN_DRIFT_REQUEST',
   CheckGuardianDriftResponse = 'CHECK_GUARDIAN_DRIFT_RESPONSE',
+  ApplyUserGuardianEndpointRequest = 'APPLY_USER_GUARDIAN_ENDPOINT_REQUEST',
+  ApplyUserGuardianEndpointResponse = 'APPLY_USER_GUARDIAN_ENDPOINT_RESPONSE',
   GetPublicKeyForCommitmentRequest = 'GET_PUBLIC_KEY_FOR_COMMITMENT_REQUEST',
   GetPublicKeyForCommitmentResponse = 'GET_PUBLIC_KEY_FOR_COMMITMENT_RESPONSE',
   GetAuthSecretKeyRequest = 'GET_AUTH_SECRET_KEY_REQUEST',
@@ -707,6 +709,17 @@ export interface CheckGuardianDriftResponse extends WalletMessageBase {
   guardianSyncStatus: GuardianSyncStatus;
 }
 
+export interface ApplyUserGuardianEndpointRequest extends WalletMessageBase {
+  type: WalletMessageType.ApplyUserGuardianEndpointRequest;
+  accountPublicKey: string;
+  guardianEndpoint: string;
+}
+
+export interface ApplyUserGuardianEndpointResponse extends WalletMessageBase {
+  type: WalletMessageType.ApplyUserGuardianEndpointResponse;
+  applied: boolean;
+}
+
 export interface GetPublicKeyForCommitmentRequest extends WalletMessageBase {
   type: WalletMessageType.GetPublicKeyForCommitmentRequest;
   commitment: string;
@@ -925,6 +938,7 @@ export type WalletRequest =
   | SetGuardianOperatorCommitmentRequest
   | SetGuardianSyncStatusRequest
   | CheckGuardianDriftRequest
+  | ApplyUserGuardianEndpointRequest
   | GetPublicKeyForCommitmentRequest
   | GetAuthSecretKeyRequest
   | PageRequest
@@ -985,6 +999,7 @@ export type WalletResponse =
   | SetGuardianOperatorCommitmentResponse
   | SetGuardianSyncStatusResponse
   | CheckGuardianDriftResponse
+  | ApplyUserGuardianEndpointResponse
   | GetPublicKeyForCommitmentResponse
   | GetAuthSecretKeyResponse
   | PageResponse
