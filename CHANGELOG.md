@@ -1,10 +1,22 @@
 # Changelog
 
-## 1.15.7 (TBD)
+## 1.15.7 (2026-07-20)
+
+### Changes
+
+* [CHANGE][extension] **Chrome extension renamed to the full product name "Bread Wallet by Miden".** The manifest `name` — shown in the Chrome Web Store listing and on `chrome://extensions` — changed from "Bread" to "Bread Wallet by Miden". Devnet builds keep their automatic "(Devnet)" suffix, so they read "Bread Wallet by Miden (Devnet)" (`vite.extension.config.ts` appends the suffix to whatever `name` is). `short_name` (constrained-UI slot), the toolbar tooltip (`default_title`), and in-app naming are unchanged.
 
 ### Fixes
 
+* [FIX][extension] **Onboarding "Your Wallet is ready!" no longer shows raw `<highlight>` tags.** The Chrome side-panel handoff completion screen (`OpenSidePanel`) rendered its title via plain `t('yourWalletIsReady')`, which returns the raw i18n string including the `<highlight>Wallet</highlight>` markup, so the tags appeared as literal text. It now renders through `<Trans>` (matching `Confirmation.tsx`), styling "Wallet" in the primary color; `Message.title` was widened to `ReactNode` to accept the styled node. Added a regression test that renders the screen with real i18n and asserts the tags are parsed.
 * [FIX][devnet] **Restored the devnet developer (wrench) badge on the icon.** The v0 UI revamp (#248) rebranded the devnet icon to the plain Bread "B" and dropped the wrench badge, so devnet builds again looked identical to production. `public/misc/logo-devnet*.png` (234/128/48/40/32/16) now re-add the Advanced Settings / Developer wrench glyph in a white circle with a thin `#7286A0` ring, overlapping the B's bottom-right, so a devnet build is distinguishable at a glance. Wiring is unchanged — `vite.extension.config.ts` already swaps `logo-white-bg*` → `logo-devnet*` for `MIDEN_NETWORK=devnet` (manifest icons, action icon, and tab favicon).
+
+### Docs
+
+* [DOCS][all] **Privacy policy: added a dedicated Face ID / biometric data section.** Clarifies that the app collects, stores, shares, and retains no face or fingerprint data — biometric matching happens entirely in the device's Secure Enclave / hardware keystore and the app only ever receives a pass/fail result. Added in response to an iOS App Review request; the hosted policy at https://0xmiden.github.io/wallet/privacy/ is the source the Resolution Center reply quotes.
+* [DOCS][all] **Added a Support page** at https://0xmiden.github.io/wallet/support/ (GitHub Pages, `docs/support/index.md`) with a contact email, GitHub issues link, feedback-form link, and a short FAQ. Satisfies the App Store Connect Support URL requirement (App Review Guideline 1.5) that was previously pointing at a page without support information.
+* [DOCS][all] **Renamed the public docs product to "Bread Wallet by Miden"** (support + privacy policy titles/intros) to match the App Store listing name, so everything App Review sees is consistent. The privacy policy's biometric/Face ID wording is unchanged (it refers to "the App").
+* [DOCS][all] **Play Store assets rebranded to Bread.** Replaced the outdated Miden-branded feature graphic + 512 icon in `screenshots/playstore/` with Bread branding, and added nine framed 1080×1920 Android store screenshots (`01_home`…`09_faucet`) matching the iOS marketing set. Google Play accepts up to 8 phone screenshots, so pick 8 at upload time.
 
 ## 1.15.6 (2026-07-09)
 
