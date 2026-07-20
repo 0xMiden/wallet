@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.8 (TBD)
+
+### Changes
+
+* [CHANGE][all] **Refreshed the network icons.** The default/testnet build's orange bread "B" is regenerated from a new master, and the devnet icon is redesigned from the orange "B" with a blue corner wrench to a sage-green "B" with a centered developer wrench, so devnet is easy to tell apart from the default build at a glance. All sizes (16/32/40/48/128/234) were regenerated for both `logo-white-bg*` (default) and `logo-devnet*` (devnet) from 1536px masters with gamma-correct (linear-light) downscaling; the icons flow to the Chrome extension (manifest icons + toolbar `action.default_icon`), the mobile/desktop app favicons, and Chrome notification icons. Icon-swap wiring in `vite.extension.config.ts` is unchanged.
+
 ## 1.15.7 (2026-07-20)
 
 ### Changes
