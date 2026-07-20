@@ -39,6 +39,8 @@
 
 ### Fixes
 
+* [FIX][all] The transaction progress view now marks the step that actually failed with the error cross (steps before it stay complete, steps after stay pending) instead of always flagging the last step.
+
 * [FIX][mobile] **Mobile surfaces a report prompt on any hot-key signing failure, instead of hanging on the pending page.** When a native hot-key op rejects on iOS/Android, the secure-hot-key facade records the raw native error (prefixed with the plugin error code when present — e.g. the new `HARDWARE_UNAVAILABLE` code the plugins now raise for secure-hardware failures) and raises a home-screen prompt whose "Copy error" action copies it to the clipboard to report to us.
 
 * [FIX][mobile] **Android hot-key signing no longer fails with `INCOMPATIBLE_MGF_DIGEST` on TEE-only devices (e.g. tablets without biometric).** The Keystore RSA-OAEP wrapper key was authorized for the SHA-256 digest only; pre-Android-13 Keymaster reuses that same digest list to authorize the MGF1 function (default SHA-1) and refuses any OAEP-MGF1 op unless SHA-1 is present, so hardware decrypt threw while software public-key encrypt silently succeeded (generate looked fine, sign failed). The wrapper key now authorizes both SHA-256 and SHA-1 digests, and explicitly authorizes both MGF1 digests on Android 13+ (`setMgf1Digests`). Existing keys minted before this fix must be regenerated (rotate the hot key or re-add the account).

@@ -18,6 +18,7 @@ export interface PromptCarouselProps {
 
 const COMMIT_THRESHOLD = 0.3;
 const VELOCITY_PROJECTION_MS = 300;
+const SLIDE_GAP_PX = 12;
 
 /**
  * Horizontal carousel that wraps a list of prompts with optional drag-paging
@@ -83,14 +84,19 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
     []
   );
 
+  // Each slide occupies `width` px followed by a SLIDE_GAP_PX gutter, so
+  // paging steps by width + gap rather than width alone.
+  const step = width + SLIDE_GAP_PX;
+
   useEffect(() => {
     if (!width) {
-      x.set(-activeIndex * (container?.clientWidth ?? 0));
+      const fallbackWidth = container?.clientWidth ?? 0;
+      x.set(-activeIndex * (fallbackWidth ? fallbackWidth + SLIDE_GAP_PX : 0));
       return;
     }
-    const controls = animate(x, -activeIndex * width, springs.standard);
+    const controls = animate(x, -activeIndex * step, springs.standard);
     return () => controls.stop();
-  }, [activeIndex, container, width, x]);
+  }, [activeIndex, container, step, width, x]);
 
   const handleDragStart = () => {
     if (releaseClickTimerRef.current !== null) window.clearTimeout(releaseClickTimerRef.current);
@@ -107,7 +113,7 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
         hapticSelection();
         setIndex(nextIdx);
       } else {
-        animate(x, -activeIndex * width, springs.standard);
+        animate(x, -activeIndex * step, springs.standard);
       }
     }
 
@@ -134,14 +140,14 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
   if (slides.length === 0) return null;
   if (slides.length === 1) return <div className={className}>{slides[0]}</div>;
 
-  const dragMaxLeft = width ? -(slides.length - 1) * width : 0;
+  const dragMaxLeft = width ? -(slides.length - 1) * step : 0;
 
   return (
     <div className={classNames('flex flex-col gap-2', className)}>
       <div ref={setContainer} className="w-full overflow-hidden touch-pan-y">
         <motion.div
           className="flex items-start"
-          style={{ x, width: `${slides.length * 100}%` }}
+          style={{ x, gap: SLIDE_GAP_PX }}
           drag="x"
           dragDirectionLock
           dragConstraints={{ left: dragMaxLeft, right: 0 }}
@@ -152,7 +158,7 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
           onClickCapture={handleClickCapture}
         >
           {slides.map((slide, i) => (
-            <div key={i} className="shrink-0" style={{ width: `${100 / slides.length}%` }}>
+            <div key={i} className="shrink-0" style={{ width: width || '100%' }}>
               {slide}
             </div>
           ))}

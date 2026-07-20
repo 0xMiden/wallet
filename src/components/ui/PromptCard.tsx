@@ -92,11 +92,11 @@ export const PromptCard: FC<PromptCardProps> = ({
     <div
       role={onClick ? 'button' : undefined}
       onClick={onClick ? handleClick : undefined}
-      className={classNames('w-full bg-surface-input rounded-10', 'flex items-center gap-3 px-4 py-3', className)}
+      className={classNames('w-full h-[72px] bg-surface-input rounded-10', 'flex items-center gap-3 px-4', className)}
     >
       <div className="flex flex-col gap-1 min-w-0 flex-1 text-black">
         <div className={classNames('text-base font-bold font-heading leading-tight truncate')}>{title}</div>
-        {body && <div className="text-xs font-normal">{body}</div>}
+        {body && <div className="text-xs font-normal line-clamp-2">{body}</div>}
       </div>
       {StatusIndicator}
       {actionLabel && onAction && status !== 'loading' && status !== 'success' && (

@@ -514,18 +514,18 @@ const generateGuardianTransaction = async (
   };
 
   await setTransactionStage(transaction.id, 'sending');
-  const transactionResult = await withWasmClientLock(async () => {
+  const { id, result } = await withWasmClientLock(async () => {
     try {
       const midenClient = await getMidenClient(options);
       await setTransactionStage(transaction.id, 'executing');
       const executedTx = await midenClient.client.transactions.executeRequest(transaction.accountId, tr);
       await setTransactionStage(transaction.id, 'proving');
-      const provedTx = await midenClient.client.transactions.prove(executedTx, {
+      const provenTx = await executedTx.prove({
         prover: !transaction.delegateTransaction ? TransactionProver.newLocalProver() : undefined
       });
       await setTransactionStage(transaction.id, 'submitting');
-      const { blockNumber } = await midenClient.client.transactions.submitProven(provedTx, executedTx);
-      await midenClient.client.transactions.apply(executedTx, blockNumber);
+      const submittedTx = await provenTx.submit();
+      await submittedTx.apply();
       return executedTx;
     } catch (error) {
       console.error('Error during transaction submission or execution', { error });
@@ -552,7 +552,7 @@ const generateGuardianTransaction = async (
     await setTransactionStage(transaction.id, 'confirming');
     await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
-      await midenClient.waitForTransactionCommit(transactionResult.executedTransaction().id().toHex());
+      await midenClient.waitForTransactionCommit(id.toHex());
     });
   }
 
@@ -582,15 +582,15 @@ const generateGuardianTransaction = async (
 
   switch (transaction.type) {
     case 'send':
-      await completeSendTransaction(transaction as SendTransaction, transactionResult);
+      await completeSendTransaction(transaction as SendTransaction, result);
       break;
     case 'consume':
-      await completeConsumeTransaction(transaction.id, transactionResult);
+      await completeConsumeTransaction(transaction.id, result);
       break;
     case 'switch-guardian':
       await completeSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
-        transactionResult,
+        result,
         service,
         guardianProvider
       );
@@ -599,7 +599,7 @@ const generateGuardianTransaction = async (
       console.log('Completing replace-hot-key transaction');
       await completeReplaceHotKeyTransaction(
         transaction as ReplaceHotKeyTransaction,
-        transactionResult,
+        result,
         guardianProvider,
         service
       );
@@ -608,22 +608,22 @@ const generateGuardianTransaction = async (
       console.log('Completing update-procedure-threshold transaction');
       await completeUpdateProcedureThresholdTransaction(
         transaction as UpdateProcedureThresholdTransaction,
-        transactionResult,
+        result,
         service
       );
       break;
     case 'swap':
-      await completeSwapTransaction(transaction as SwapTransaction, transactionResult);
+      await completeSwapTransaction(transaction as SwapTransaction, result);
       break;
     case 'bridged-send':
-      await completeBridgedSendTransaction(transaction as BridgedSendTransaction, transactionResult);
+      await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
       break;
     case 'earn-deposit':
-      await completeEarnDepositTransaction(transaction as EarnDepositTransaction, transactionResult);
+      await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
       break;
     case 'execute':
     default:
-      await completeCustomTransaction(transaction, transactionResult);
+      await completeCustomTransaction(transaction, result);
       break;
   }
 

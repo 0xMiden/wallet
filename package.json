@@ -127,7 +127,7 @@
     "@epoch-protocol/epoch-intents-sdk": "^1.0.35",
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
-    "@miden-sdk/miden-sdk": "file:/Users/utkarshdagoat/dev/miden/web-sdk/crates/web-client",
+    "@miden-sdk/miden-sdk": "0.15.7",
     "@miden-sdk/react": "0.15.2",
     "@miden/dapp-browser": "link:./packages/dapp-browser",
     "@miden/native-prover": "link:./packages/native-prover",
@@ -326,7 +326,7 @@
     ]
   },
   "resolutions": {
-    "@miden-sdk/miden-sdk": "file:/Users/utkarshdagoat/dev/miden/web-sdk/crates/web-client",
+    "@miden-sdk/miden-sdk": "0.15.7",
     "@miden-sdk/react": "0.15.0",
     "strip-ansi": "6.0.1",
     "webpack": "^5",

@@ -122,7 +122,7 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
   {
     id: 'open-zeppelin',
     name: 'Open-Zeppelin',
-    operatedBy: 'Open-Zeppelin',
+    operatedBy: 'OpenZeppelin',
     location: 'US-EAST',
     endpoint: new Map<MIDEN_NETWORK_NAME, string>([
       [MIDEN_NETWORK_NAME.TESTNET, 'https://guardian.openzeppelin.com'],
@@ -143,8 +143,8 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
   {
     id: 'lambda-class',
     name: 'Lambda Class',
-    operatedBy: 'Lambda Class',
-    location: 'EU-WEST',
+    operatedBy: 'LambdaClass',
+    location: 'EU-CENTRAL',
     endpoint: new Map<MIDEN_NETWORK_NAME, string>([
       [MIDEN_NETWORK_NAME.TESTNET, 'https://miden-guardian.lambdaclass.com']
     ])
