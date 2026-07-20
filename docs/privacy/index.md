@@ -1,13 +1,13 @@
 ---
-title: Privacy Policy — Miden Wallet
+title: Privacy Policy — Bread Wallet by Miden
 permalink: /privacy/
 ---
 
-# Miden Wallet — Privacy Policy
+# Bread Wallet by Miden — Privacy Policy
 
 _Last updated: 2026-07-20_
 
-Miden Wallet ("the App") is a non-custodial cryptocurrency wallet for the Miden blockchain, published by Miden.
+Bread Wallet by Miden ("the App") is a non-custodial cryptocurrency wallet for the Miden blockchain, published by Miden.
 
 ## Data we collect
 
