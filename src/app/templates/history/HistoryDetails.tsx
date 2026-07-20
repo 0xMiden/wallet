@@ -169,31 +169,52 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     if (!entry && !loadError) loadTransaction();
   }, [loadTransaction, entry, loadError]);
 
-  // Poll the swap order lineage every 3s until it reaches a terminal state
-  // (filled or reclaimed). The orderId is persisted on the swap tx; the live
-  // lineage is fetched via `trackOrderId`.
+  // Poll the swap order lineage until it reaches a terminal state (filled or
+  // reclaimed). The orderId is persisted on the swap tx; the live lineage is
+  // fetched via `trackOrderId`. Each poll takes the WASM client lock, so a
+  // `null`/error result (not-yet-trackable or an order this client can't
+  // resolve) backs off exponentially and gives up after a cap, rather than
+  // hammering the lock every 3s forever. A genuinely `active` order resets the
+  // backoff and keeps a steady watch at the base interval.
   useEffect(() => {
     if (orderId == null) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const POLL_INTERVAL_MS = 3000;
+    const BASE_INTERVAL_MS = 3000;
+    const MAX_INTERVAL_MS = 30_000;
+    const MAX_UNRESOLVED_POLLS = 20;
+    let unresolved = 0;
 
-    const poll = async () => {
+    // Exponential backoff for unresolved polls, capped; give up after the cap.
+    const scheduleUnresolvedRetry = () => {
+      unresolved += 1;
+      if (!cancelled && unresolved < MAX_UNRESOLVED_POLLS) {
+        const delay = Math.min(BASE_INTERVAL_MS * 2 ** (unresolved - 1), MAX_INTERVAL_MS);
+        timer = setTimeout(poll, delay);
+      }
+    };
+
+    async function poll() {
       try {
         const result = await trackOrderId(orderId);
         if (cancelled) return;
         setSwapTracking(result);
-        // Keep polling while the order is still active (or not yet trackable).
-        if (result === null || result.state === 'active') {
-          timer = setTimeout(poll, POLL_INTERVAL_MS);
+        if (result === null) {
+          // Not yet trackable / not found — back off and eventually give up.
+          scheduleUnresolvedRetry();
+        } else if (result.state === 'active') {
+          // Live and resolving; steady watch until a terminal state.
+          unresolved = 0;
+          timer = setTimeout(poll, BASE_INTERVAL_MS);
         }
+        // filled / reclaimed → terminal, stop polling.
       } catch (error) {
         console.error('[HistoryDetails] Failed to track swap order:', error);
-        if (!cancelled) timer = setTimeout(poll, POLL_INTERVAL_MS);
+        if (!cancelled) scheduleUnresolvedRetry();
       } finally {
         if (!cancelled) setTrackingLoading(false);
       }
-    };
+    }
 
     setTrackingLoading(true);
     poll();

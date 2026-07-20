@@ -7,10 +7,16 @@ import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
  * human-readable amount and `stringToBigInt(amount, 8)` converts it to base
  * units for the tx.
  *
+ * INVARIANT: `SWAP_TOKEN_DECIMALS` must match each faucet's real on-chain
+ * decimals. Amounts are converted with this constant, so a mismatch would
+ * scale the offered/requested amount by `10^(diff)`. These are controlled
+ * devnet faucets minted at 8 decimals; revisit if the registry ever holds a
+ * token whose real decimals differ.
+ *
  * Shared between the swap flow (token picker + amount/quote logic) and the
  * Generating-transaction summary badge (resolving symbol/logo/decimals for a
  * persisted swap tx, whose `faucetId`/`extraInputs.requestedFaucetId` are the
- * `mdev1…` strings below).
+ * `mtst1…` strings below).
  */
 export interface SwapToken {
   symbol: string;
@@ -60,15 +66,42 @@ interface PriceResponse {
   price: number;
 }
 
+/**
+ * Base URL of the in-protocol DEX price feed.
+ *
+ * TODO: hardcoded devnet host — move to per-network config before any
+ * non-devnet use so quotes point at the correct feed for the active network.
+ */
+const PRICE_FEED_BASE_URL = 'https://35-175-40-181.sslip.io';
+
+/** Abort a price request that hasn't responded within this window. */
+const PRICE_FETCH_TIMEOUT_MS = 10_000;
+
 /** Fetch the USD price of 1 whole `token` from the in-protocol DEX price feed. */
 export async function getSwapTokenPrice(token: SwapToken): Promise<number> {
   const faucetHexId = accountIdStringToSdk(token.faucetId).toString();
-  const res = await fetch(`https://35-175-40-181.sslip.io/v1/price/${faucetHexId}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PRICE_FETCH_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${PRICE_FEED_BASE_URL}/v1/price/${faucetHexId}`, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+
   if (!res.ok) {
     throw new Error(`Price request failed for ${token.symbol}: ${res.status}`);
   }
-  const json: PriceResponse = await res.json();
-  return json.price;
+
+  const json = (await res.json()) as PriceResponse;
+  const price = Number(json?.price);
+  // Guard against a malformed feed response (missing / 0 / negative / NaN),
+  // which would otherwise flow into the quote math as a bogus rate.
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new Error(`Price feed returned an invalid price for ${token.symbol}: ${json?.price}`);
+  }
+  return price;
 }
 
 /**

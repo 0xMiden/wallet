@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as InfoIcon } from 'app/icons/information.svg';
 import { ButtonVariant } from 'components/Button';
-import { ReviewLabel } from 'components/review/ReviewRow';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
@@ -18,14 +17,14 @@ import {
 } from './TransactionSuccessLayout';
 
 /**
- * "Swap Order Created!" success view: the token→token summary pill, an
- * Expiration Date row with the "funds return if unclaimed" note, and a
- * "sourcing liquidity" footer over Done + "View in Activities".
+ * "Swap Order Created!" success view: the token→token summary pill, a
+ * truthful note that the offered funds stay reserved in the order until it's
+ * filled, and a "sourcing liquidity" footer over Done + "View in Activities".
  *
- * The expiration value is the same static placeholder the review screen shows
- * (`swapExpiresValue`) — `SwapTransaction` carries no expiry yet. The mock's
- * "| Edit" link is deliberately omitted: the order is already on-chain and
- * there's no expiry-edit flow to wire it to.
+ * No expiry / auto-return is shown: `SwapTransaction` carries no expiry and
+ * there is no reclaim mechanism wired, so promising a concrete return date or
+ * a "no funds are lost" guarantee would be fabricated. The order's live state
+ * (active / filled / reclaimed) is surfaced by the Activities detail card.
  */
 export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneClick }) => {
   const { t } = useTranslation();
@@ -60,21 +59,12 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
       {badgeContent && <SuccessSummaryPill lhs={badgeContent.lhs} rhs={badgeContent.rhs} />}
       <SuccessDivider />
 
-      <div className="w-full">
-        <div className="flex items-center justify-between gap-3 py-5">
-          <ReviewLabel>{t('expirationDate')}</ReviewLabel>
-          <span className="min-w-0 font-heading text-base font-bold leading-tight text-heading-gray">
-            {t('swapExpiresValue')}
-          </span>
+      {returnAmountText && (
+        <div className="flex w-full items-start gap-1.5 text-xs text-[#6B6862]">
+          <InfoIcon className="mt-0.5 h-4 w-4 shrink-0 fill-current" />
+          <span>{t('swapOrderReservedNote', { amount: returnAmountText })}</span>
         </div>
-
-        {returnAmountText && (
-          <div className="flex items-start gap-1.5 text-xs text-[#6B6862]">
-            <InfoIcon className="mt-0.5 h-4 w-4 shrink-0 fill-current" />
-            <span>{t('recallReturnsNote', { amount: returnAmountText })}</span>
-          </div>
-        )}
-      </div>
+      )}
     </TransactionSuccessLayout>
   );
 };

@@ -4,16 +4,18 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
+import { confirmSensitiveAction } from 'lib/biometric';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
+import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { deriveRequestAmount, getSwapTokenPrice, SwapToken, TOKEN_IETH, TOKEN_IMIDEN } from 'lib/miden/swap/tokens';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
-import { navigate } from 'lib/woozie';
+import { HistoryAction, navigate } from 'lib/woozie';
 
 import { ReviewSwap } from './ReviewSwap';
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
@@ -115,9 +117,24 @@ const SwapManager: React.FC = () => {
   }, [quote, requestEdited]);
 
   const sameToken = offerToken.faucetId === requestToken.faucetId;
+  // Balances are keyed by `getBech32AddressFromAccountId(faucet)` (BasicWallet
+  // interface + active-network HRP), while the swap registry stores
+  // hand-authored faucet strings that may use a different encoding. Normalize
+  // the offer faucet through the same helper before matching — a raw-string
+  // compare silently returns 0 and would block every swap. Fall back to the
+  // raw id if the SDK isn't ready yet (matched below as a second key).
+  const offerBalanceKey = useMemo(() => {
+    try {
+      return getBech32AddressFromAccountId(accountIdStringToSdk(offerToken.faucetId));
+    } catch {
+      return offerToken.faucetId;
+    }
+  }, [offerToken.faucetId]);
   const offerBalance = useMemo(
-    () => balanceData.find(balance => balance.tokenId === offerToken.faucetId)?.balance ?? 0,
-    [balanceData, offerToken.faucetId]
+    () =>
+      balanceData.find(balance => balance.tokenId === offerBalanceKey || balance.tokenId === offerToken.faucetId)
+        ?.balance ?? 0,
+    [balanceData, offerBalanceKey, offerToken.faucetId]
   );
   const offerAmountValue = Number(offerAmount);
   const hasOfferAmount = offerAmountValue > 0;
@@ -140,10 +157,12 @@ const SwapManager: React.FC = () => {
   const onSwapDirection = useCallback(() => {
     setOfferToken(requestToken);
     setRequestToken(offerToken);
+    // The receive field is re-derived by the quote effect (requestEdited=false),
+    // so only the pay side needs seeding here.
     setOfferAmount(requestAmount);
-    setRequestAmount(offerAmount);
     setRequestEdited(false);
-  }, [offerToken, requestToken, offerAmount, requestAmount]);
+    setSubmitError(null);
+  }, [offerToken, requestToken, requestAmount]);
 
   const onSelectOfferToken = useCallback(() => {
     setSelectingSide('offer');
@@ -173,7 +192,21 @@ const SwapManager: React.FC = () => {
 
   const onSubmit = useCallback(async () => {
     if (submitting || !publicKey) return;
+    // The review screen's Swap button is not gated by `canProceed`, and the
+    // live quote can empty the receive field between review and tap. Re-validate
+    // here so an invalid amount shows a clear message instead of a BigInt(NaN)
+    // throw from `stringToBigInt('')`.
+    if (sameToken || !(Number(offerAmount) > 0) || !(Number(requestAmount) > 0) || offerAmountExceedsBalance) {
+      setSubmitError(t('swapInvalidAmounts'));
+      return;
+    }
     setSubmitting(true);
+    // Re-confirm this user-initiated swap with biometrics when enabled (same
+    // app-layer gate as the send flow — see confirmSensitiveAction).
+    if (!(await confirmSensitiveAction('Confirm your swap'))) {
+      setSubmitting(false);
+      return;
+    }
     try {
       setSubmitError(null);
       useWalletStore.getState().setLastCompletedTxHash(null);
@@ -195,13 +228,24 @@ const SwapManager: React.FC = () => {
 
       // Hand off to the full-screen generating-transaction page, which renders
       // progress steps + the swap summary badge and observes the tx through to
-      // its success/failure receipt. Replaces the old headless-modal path.
-      navigate(`/generating-transaction/${encodeURIComponent(txId)}`);
+      // its success/failure receipt. `Replace` so hardware/gesture back from the
+      // progress page skips the now-stale review screen (mirrors the send flow).
+      navigate(`/generating-transaction/${encodeURIComponent(txId)}`, HistoryAction.Replace);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : String(e));
       setSubmitting(false);
     }
-  }, [submitting, publicKey, offerToken, requestToken, offerAmount, requestAmount]);
+  }, [
+    submitting,
+    publicKey,
+    sameToken,
+    offerAmountExceedsBalance,
+    offerToken,
+    requestToken,
+    offerAmount,
+    requestAmount,
+    t
+  ]);
 
   const statusMessage = useMemo(() => {
     if (sameToken) return { text: t('swapSameToken'), isError: true };

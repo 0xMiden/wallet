@@ -246,10 +246,10 @@ export class ConsumeTransaction implements ITransaction {
  * Swap one asset for another. The user offers `offeredAmount` of
  * `offeredFaucetId` and requests `requestedAmount` of `requestedFaucetId`.
  * The offered side maps onto the shared `faucetId`/`amount` fields; the
- * requested side lives in `extraInputs`.
- *
- * TODO: actual swap generation/completion is not wired up yet — see the
- * `case 'swap'` TODOs in the transaction dispatch (lib/miden/transaction).
+ * requested side lives in `extraInputs`. Generation and completion run through
+ * the `case 'swap'` branches in `lib/miden/transaction` (PSWAP-create via
+ * `MidenClientInterface.swapTransaction`, completion via
+ * `completeSwapTransaction`).
  */
 export class SwapTransaction implements ITransaction {
   id: string;
@@ -263,7 +263,9 @@ export class SwapTransaction implements ITransaction {
   completedAt?: number;
   displayMessage?: string;
   displayIcon: ITransactionIcon;
-  // `orderId` is actually output info but a little hack until I decide if I want to change the schema or not
+  // Requested side of the swap. `orderId` is strictly output info (the PSWAP
+  // lineage id resolved by `completeSwapTransaction`) rather than an input, but
+  // it rides here to avoid a Dexie schema change; it's absent until completion.
   extraInputs: { requestedFaucetId: string; requestedAmount: bigint; orderId?: bigint };
   delegateTransaction?: boolean;
   /**
