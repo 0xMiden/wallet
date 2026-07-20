@@ -40,6 +40,7 @@ import {
   requestAssets,
   requestImportPrivateNote,
   requestConsumableNotes,
+  requestGuardianInfo,
   waitForTransaction
 } from './dapp';
 
@@ -494,6 +495,9 @@ export async function processDApp(
 
     case MidenDAppMessageType.AssetsRequest:
       return withInited(() => getDappQueue().add(() => requestAssets(origin, req)));
+
+    case MidenDAppMessageType.GuardianInfoRequest:
+      return withInited(() => getDappQueue().add(() => requestGuardianInfo(origin, req)));
 
     case MidenDAppMessageType.ImportPrivateNoteRequest:
       return withInited(() => getDappQueue().add(() => requestImportPrivateNote(origin, req)));

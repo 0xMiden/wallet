@@ -121,6 +121,7 @@ jest.mock('./dapp', () => ({
   requestAssets: jest.fn(),
   requestImportPrivateNote: jest.fn(),
   requestConsumableNotes: jest.fn(),
+  requestGuardianInfo: jest.fn(),
   waitForTransaction: jest.fn()
 }));
 
@@ -723,6 +724,17 @@ describe('actions', () => {
 
       expect(requestAssets).toHaveBeenCalledWith('https://example.com', req);
       expect(result).toEqual({ assets: [] });
+    });
+
+    it('handles GuardianInfoRequest', async () => {
+      const { requestGuardianInfo } = jest.requireMock('./dapp');
+      requestGuardianInfo.mockResolvedValueOnce({ guardianInfo: {} });
+
+      const req = { type: MidenDAppMessageType.GuardianInfoRequest, sourcePublicKey: 'pk' };
+      const result = await processDApp('https://example.com', req as any);
+
+      expect(requestGuardianInfo).toHaveBeenCalledWith('https://example.com', req);
+      expect(result).toEqual({ guardianInfo: {} });
     });
 
     it('handles ImportPrivateNoteRequest', async () => {
