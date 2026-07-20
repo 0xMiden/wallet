@@ -1,11 +1,11 @@
 ---
-title: Support — Miden Wallet
+title: Support — Bread Wallet by Miden
 permalink: /support/
 ---
 
-# Miden Wallet — Support
+# Bread Wallet by Miden — Support
 
-Need help with Miden Wallet? We're here to help. Below are the ways to reach us and answers to common questions.
+Need help with Bread Wallet? We're here to help. Below are the ways to reach us and answers to common questions.
 
 ## Contact us
 
@@ -18,7 +18,7 @@ When you contact us, please include your device model, OS version, and app versi
 ## Frequently asked questions
 
 ### I'm locked out or lost my recovery phrase — can you recover my wallet?
-Miden Wallet is a **non-custodial** wallet: your recovery phrase and private keys are generated and stored **only on your device**, and we never have access to them. This means only you can restore your wallet, using your recovery phrase. We cannot reset it or recover funds on your behalf. Please keep your recovery phrase backed up somewhere safe and private.
+Bread Wallet is a **non-custodial** wallet: your recovery phrase and private keys are generated and stored **only on your device**, and we never have access to them. This means only you can restore your wallet, using your recovery phrase. We cannot reset it or recover funds on your behalf. Please keep your recovery phrase backed up somewhere safe and private.
 
 ### How do I unlock the app with Face ID or Touch ID?
 Enable biometric unlock in **Settings**. Face ID / Touch ID is handled entirely by your device's operating system — the app never receives your face or fingerprint data, only a success/failure result. See our [Privacy Policy](https://0xmiden.github.io/wallet/privacy/) for details.
