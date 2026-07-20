@@ -1,6 +1,6 @@
 import React, { FC, useEffect, useState } from 'react';
 
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 
 import Spinner from 'app/atoms/Spinner/Spinner';
 import { IconName } from 'app/icons/v2';
@@ -78,7 +78,12 @@ const OpenSidePanel: FC = () => {
                 icon={IconName.Success}
                 iconSize="3xl"
                 iconClassName="mb-8"
-                title={t('yourWalletIsReady')}
+                title={
+                  <Trans
+                    i18nKey="yourWalletIsReady"
+                    components={{ highlight: <span className="text-primary-500" /> }}
+                  />
+                }
                 description=""
               />
             </div>
