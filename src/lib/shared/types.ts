@@ -337,6 +337,26 @@ export interface ReadyWalletState extends WalletState {
  */
 export type AuthScheme = 'falcon' | 'ecdsa';
 
+/**
+ * Local reconciliation state of a Guardian account's endpoint vs its on-chain
+ * guardian key. 'in-sync': stored endpoint matches on-chain. 'resolving':
+ * an out-of-band switch was detected and auto-resolution is in progress.
+ * 'needs-user-input': the new operator could not be identified (custom URL) and
+ * the user must supply it. Absent on non-Guardian accounts and legacy records.
+ */
+export type GuardianSyncStatus = 'in-sync' | 'resolving' | 'needs-user-input';
+
+/** Built-in guardian provider identity, reverse-mapped from the endpoint. */
+export type GuardianProvider = 'open-zeppelin' | 'gateway' | 'lambda-class' | 'custom';
+
+/** dApp-facing guardian info for the connected account. */
+export interface GuardianInfo {
+  isGuardianAccount: boolean;
+  guardianEndpoint: string | null;
+  guardianProvider: GuardianProvider | null;
+  guardianSyncStatus: 'in-sync' | 'out-of-sync' | null;
+}
+
 export interface WalletAccount {
   publicKey: string;
   name: string;
@@ -362,6 +382,15 @@ export interface WalletAccount {
    * Non-Guardian accounts leave this undefined.
    */
   guardianEndpoint?: string;
+  /**
+   * The operator-wide guardian key commitment the current `guardianEndpoint`
+   * corresponds to (the value baked into the account's on-chain
+   * `openzeppelin::guardian::public_key` slot at create/switch time). Local
+   * baseline for out-of-band-switch detection. Absent on non-Guardian accounts.
+   */
+  guardianOperatorCommitment?: string;
+  /** Reconciliation state; see GuardianSyncStatus. Defaults to 'in-sync'. */
+  guardianSyncStatus?: GuardianSyncStatus;
   /**
    * Auth scheme this account was created with. See {@link AuthScheme} for
    * the missing-on-read → `"falcon"` legacy interpretation.
