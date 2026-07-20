@@ -2,9 +2,10 @@ import { Account, AuthSecretKey, MidenClient, Word } from '@miden-sdk/miden-sdk/
 import { EcdsaSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
+import { DEFAULT_GUARDIAN_ENDPOINT, GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
+import type { GuardianProvider } from 'lib/shared/types';
 import { WalletAccount } from 'lib/shared/types';
 
 import { registerGuardianOrigin } from './native-http';
@@ -29,6 +30,15 @@ export const MULTISIG_SLOT_NAMES = {
   SIGNER_PUBLIC_KEYS: 'openzeppelin::multisig::signer_public_keys',
   EXECUTED_TRANSACTIONS: 'openzeppelin::multisig::executed_transactions',
   PROCEDURE_THRESHOLDS: 'openzeppelin::multisig::procedure_thresholds'
+} as const;
+
+// GUARDIAN_SLOT_NAMES is module-private in @openzeppelin/miden-multisig-client
+// (not re-exported), so we re-declare the slot names locally — same pattern
+// as MULTISIG_SLOT_NAMES above.
+export const GUARDIAN_SLOT_NAMES = {
+  SELECTOR: 'openzeppelin::guardian::selector',
+  PUBLIC_KEY: 'openzeppelin::guardian::public_key',
+  SCHEME_ID: 'openzeppelin::guardian::scheme_id'
 } as const;
 
 /**
@@ -93,6 +103,42 @@ export async function getSignerDetailsFromAccount(account: Account, getCold = fa
   }
 
   return { commitment };
+}
+
+/**
+ * Read the on-chain guardian operator key commitment from the
+ * `openzeppelin::guardian::public_key` storage map (index 0) — a SEPARATE
+ * slot from the multisig signer slots read by `getSignerDetailsFromAccount`.
+ * Returns unprefixed hex, or undefined if absent / the empty (all-zero) word.
+ */
+export function getGuardianCommitmentFromAccount(account: Account): string | undefined {
+  const storage = account.storage();
+  const value = storage.getMapItem(GUARDIAN_SLOT_NAMES.PUBLIC_KEY, signerMapKey(0));
+  if (!value) return undefined;
+  const hex = value.toHex();
+  const unprefixed = hex.startsWith('0x') ? hex.slice(2) : hex;
+  return /^0*$/.test(unprefixed) ? undefined : unprefixed;
+}
+
+const PROVIDER_ID_MAP: Record<string, GuardianProvider> = {
+  'open-zeppelin': 'open-zeppelin',
+  gateway: 'gateway',
+  'lambda-class': 'lambda-class'
+};
+
+/**
+ * Reverse-map an endpoint URL to its built-in GUARDIAN_OPTIONS provider id;
+ * 'custom' if the endpoint doesn't match any known provider; null if the
+ * endpoint itself is null (account has no guardian).
+ */
+export function guardianProviderFromEndpoint(endpoint: string | null): GuardianProvider | null {
+  if (!endpoint) return null;
+  for (const option of GUARDIAN_OPTIONS) {
+    for (const url of option.endpoint.values()) {
+      if (url === endpoint) return PROVIDER_ID_MAP[option.id] ?? 'custom';
+    }
+  }
+  return 'custom';
 }
 
 /**
