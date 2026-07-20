@@ -1,11 +1,20 @@
 name: E2E Blockchain
 
 # Runs the blockchain-backed E2E suites (Chrome extension + iOS simulator)
-# against public networks on every push to main. The per-platform gate jobs
-# pass as long as AT LEAST ONE network (devnet OR testnet) succeeded for
-# that platform — this tolerates short windows where wallet@main and a
-# single network are protocol-mismatched (e.g. devnet ahead of the pinned
-# SDK version).
+# against public networks. Testnet runs on every push to main and gates the
+# result.
+#
+# Devnet is currently SKIPPED on push: devnet is on the 0.16 protocol line
+# while wallet@main is still on 0.15, so every devnet job fails on a protocol
+# mismatch and would (falsely) turn main red. The devnet jobs still run on
+# demand via `workflow_dispatch` (network = devnet | both). Re-enable them on
+# push by restoring each devnet job's `if:` to
+# `github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'`
+# once the wallet is on the same protocol line as devnet.
+#
+# The per-platform gate jobs pass as long as AT LEAST ONE network (devnet OR
+# testnet) succeeded for that platform, so a skipped devnet + green testnet
+# still passes the gate.
 
 on:
   push:
@@ -35,7 +44,7 @@ jobs:
 
   chrome-devnet:
     name: Chrome E2E (devnet)
-    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
+    if: github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -216,7 +225,7 @@ jobs:
 
   chrome-guardian-devnet:
     name: Chrome Guardian E2E (devnet)
-    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
+    if: github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -376,7 +385,7 @@ jobs:
 
   mobile-devnet:
     name: Mobile E2E (devnet)
-    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
+    if: github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')
     # macos-26 matches build-mobile.yml — required for iOS 26 SDK symbols
     # used by dapp-browser's WKWebViewController. The -xlarge size is the
     # DEDICATED Apple-Silicon larger runner (2x vCPU/RAM, no noisy-neighbour
@@ -753,7 +762,7 @@ jobs:
   # gate) so a guardian outage never blocks the standard mobile gate.
   mobile-guardian-devnet:
     name: Mobile Guardian E2E (devnet)
-    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
+    if: github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')
     # macos-26 matches build-mobile.yml — required for iOS 26 SDK symbols
     # used by dapp-browser's WKWebViewController. The -xlarge size is the
     # DEDICATED Apple-Silicon larger runner (2x vCPU/RAM, no noisy-neighbour
