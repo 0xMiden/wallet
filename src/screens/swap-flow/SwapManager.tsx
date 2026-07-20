@@ -9,7 +9,7 @@ import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
-import { deriveRequestAmount, getSwapTokenPrice, SwapToken, TOKEN_IETH, TOKEN_IMIDEN } from 'lib/miden/swap/tokens';
+import { deriveRequestAmount, getSwapTokenPrice, getSwapTokens, SwapToken } from 'lib/miden/swap/tokens';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -36,8 +36,8 @@ const SwapManager: React.FC = () => {
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
 
-  const [offerToken, setOfferToken] = useState<SwapToken>(TOKEN_IMIDEN);
-  const [requestToken, setRequestToken] = useState<SwapToken>(TOKEN_IETH);
+  const [offerToken, setOfferToken] = useState<SwapToken>(() => getSwapTokens()[0]!);
+  const [requestToken, setRequestToken] = useState<SwapToken>(() => getSwapTokens()[1]!);
   const [offerAmount, setOfferAmount] = useState('');
   const [requestAmount, setRequestAmount] = useState('');
   // True once the user manually edits the receive amount, which pauses the

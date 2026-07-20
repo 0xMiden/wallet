@@ -55,11 +55,21 @@ export const TOKEN_IUSDT: SwapToken = {
 
 export const SWAP_TOKENS: SwapToken[] = [TOKEN_IMIDEN, TOKEN_IETH, TOKEN_IUSDT, TOKEN_IBTC];
 
+let _swapTokens: SwapToken[] = SWAP_TOKENS;
+
+/** Live registry read — all consumers use this so an E2E override takes effect. */
+export const getSwapTokens = (): SwapToken[] => _swapTokens;
+
+/** Test-only setter (also driven via the E2E window hook). Pass undefined to reset. */
+export const _setSwapTokensForTest = (tokens: SwapToken[] | undefined): void => {
+  _swapTokens = tokens ?? SWAP_TOKENS;
+};
+
 export const getSwapTokenByFaucetId = (faucetId?: string): SwapToken | undefined =>
-  faucetId ? SWAP_TOKENS.find(token => token.faucetId === faucetId) : undefined;
+  faucetId ? _swapTokens.find(token => token.faucetId === faucetId) : undefined;
 
 export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
-  SWAP_TOKENS.find(token => token.symbol === symbol);
+  _swapTokens.find(token => token.symbol === symbol);
 
 interface PriceResponse {
   /** USD price for 1 whole token (i.e. 1 * 10^decimals base units). */
