@@ -19,23 +19,25 @@ test.describe('Multi-Note Claiming', () => {
       addressA = a.address;
     });
 
+    let faucetId: string;
+
     await steps.step('deploy_faucet', async () => {
       await midenCli.init();
-      await midenCli.createFaucet();
+      faucetId = await midenCli.createFaucet();
     });
 
     await steps.step('mint_note_1', async () => {
-      await midenCli.mint(addressA!, 50_000_000_000, 'public');
+      await midenCli.mint(faucetId, addressA!, 50_000_000_000, 'public');
       await midenCli.sync();
     });
 
     await steps.step('mint_note_2', async () => {
-      await midenCli.mint(addressA!, 30_000_000_000, 'public');
+      await midenCli.mint(faucetId, addressA!, 30_000_000_000, 'public');
       await midenCli.sync();
     });
 
     await steps.step('mint_note_3', async () => {
-      await midenCli.mint(addressA!, 20_000_000_000, 'public');
+      await midenCli.mint(faucetId, addressA!, 20_000_000_000, 'public');
       await midenCli.sync();
     });
 

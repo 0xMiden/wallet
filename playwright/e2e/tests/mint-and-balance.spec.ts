@@ -24,8 +24,10 @@ test.describe('Faucet Minting and Balance', () => {
       await midenCli.init();
     });
 
+    let faucetId: string;
+
     await steps.step('deploy_faucet', async () => {
-      const faucetId = await midenCli.createFaucet();
+      faucetId = await midenCli.createFaucet();
       expect(faucetId).toBeTruthy();
       timeline.emit({
         category: 'blockchain_state',
@@ -36,7 +38,7 @@ test.describe('Faucet Minting and Balance', () => {
     });
 
     await steps.step('mint_tokens_to_wallet_a', async () => {
-      const { txId, noteId } = await midenCli.mint(addressA!, 100_000_000_000, 'public');
+      const { txId, noteId } = await midenCli.mint(faucetId, addressA!, 100_000_000_000, 'public');
       expect(txId).toBeTruthy();
       expect(noteId).toBeTruthy();
       await midenCli.sync();
@@ -50,7 +52,7 @@ test.describe('Faucet Minting and Balance', () => {
     });
 
     await steps.step('mint_tokens_to_wallet_b', async () => {
-      const { txId, noteId } = await midenCli.mint(addressB!, 100_000_000_000, 'public');
+      const { txId, noteId } = await midenCli.mint(faucetId, addressB!, 100_000_000_000, 'public');
       expect(txId).toBeTruthy();
       expect(noteId).toBeTruthy();
       await midenCli.sync();
