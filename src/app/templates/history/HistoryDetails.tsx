@@ -178,6 +178,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // backoff and keeps a steady watch at the base interval.
   useEffect(() => {
     if (orderId == null) return;
+    // Capture the non-null id in a const so the narrowing survives into the
+    // hoisted `poll` declaration below (a function declaration wouldn't inherit
+    // the `orderId != null` guard otherwise).
+    const trackedOrderId = orderId;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const BASE_INTERVAL_MS = 3000;
@@ -196,7 +200,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
     async function poll() {
       try {
-        const result = await trackOrderId(orderId);
+        const result = await trackOrderId(trackedOrderId);
         if (cancelled) return;
         setSwapTracking(result);
         if (result === null) {

@@ -694,7 +694,7 @@ describe('generateTransaction execute + consume default switch arms', () => {
     const guardianTxApi = {
       executeRequest: jest.fn(async () => fullResult),
       prove: jest.fn(async () => ({ proved: true })),
-      submitProven: jest.fn(async () => ({ blockNumber: 1 })),
+      submitProven: jest.fn(async (_proven?: unknown, _executed?: unknown) => ({ blockNumber: 1 })),
       apply: jest.fn(async () => {})
     };
     sdk.getMidenClient = async () => ({
