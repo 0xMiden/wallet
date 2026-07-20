@@ -1,8 +1,11 @@
 import { buildSwapTag } from '@miden-sdk/miden-sdk/lazy';
 
+import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { getMidenClient } from 'lib/miden/sdk/miden-client';
 
 import { _setSwapTokensForTest, type SwapToken } from './tokens';
+
+const LINEAGE_STATE = ['active', 'filled', 'reclaimed'] as const;
 
 /**
  * E2E-only PSWAP hooks. Installed ONLY under the `MIDEN_E2E_TEST` guard, so this
@@ -136,6 +139,50 @@ export function installSwapConsumeHooks(signCallback: SwapSignCallback): void {
       return { ok: true, txId: String(result?.id?.() ?? result ?? ''), noteId };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.stack || e.message : String(e) };
+    }
+  };
+
+  // Read the on-chain lineage of an order (settlement assertion). Sync first so
+  // the maker's client sees the fill.
+  (globalThis as any).__TEST_PSWAP_LINEAGE__ = async (orderId: string) => {
+    try {
+      const mc = await getMidenClient();
+      await mc.syncState();
+      const rec = await (mc as unknown as { client: any }).client.pswap.lineage(orderId);
+      if (!rec) return { ok: true, state: null };
+      return {
+        ok: true,
+        state: LINEAGE_STATE[rec.state()] ?? String(rec.state()),
+        remainingOffered: String(rec.remainingOffered()),
+        remainingRequested: String(rec.remainingRequested())
+      };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  };
+
+  // Read an account's on-chain balance for a faucet (base units, decimal string).
+  // Goes through the wallet wrapper's `getAccount` -> `vault()` (the same path
+  // sync-manager uses); the resource client has no flat getAccountVault.
+  (globalThis as any).__TEST_TOKEN_BALANCE__ = async (a: { accountId: string; faucetId: string }) => {
+    try {
+      const mc = await getMidenClient();
+      await mc.syncState();
+      const account = await mc.getAccount(a.accountId);
+      if (!account) return { ok: true, balance: '0' };
+      const vault = account.vault();
+      const faucet = accountIdStringToSdk(a.faucetId);
+      let bal: bigint;
+      try {
+        bal = vault.getBalance(faucet);
+      } catch {
+        const fid = faucet.toString();
+        const fa = vault.fungibleAssets().find((x: any) => safe(() => x.faucetId().toString()) === fid);
+        bal = fa ? fa.amount() : 0n;
+      }
+      return { ok: true, balance: String(bal) };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   };
 
