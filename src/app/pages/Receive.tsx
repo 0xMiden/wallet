@@ -29,7 +29,7 @@ const ROUTES: Route[] = [
 
 /**
  * Receive surface — shows the account address (QR + copy/share). Pending
- * (claimable) notes live on their own `/pending` screen, reached from the
+ * (claimable) notes live on their own `/pending-notes` screen, reached from the
  * Activity header.
  */
 const ReceiveManager: React.FC<ReceiveProps> = () => {

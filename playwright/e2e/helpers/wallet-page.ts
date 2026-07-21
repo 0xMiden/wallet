@@ -783,9 +783,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.waitForSelector('#root > *', { timeout: 15_000 }).catch(() => {});
     await this.page.waitForTimeout(3_000);
     await this.injectClaimableMetadata();
-    // Claimable notes live on their own /pending page now, which mounts the
+    // Claimable notes live on their own /pending-notes page, which mounts the
     // claim UI directly (no tab to switch to).
-    await this.navigateTo('/pending');
+    await this.navigateTo('/pending-notes');
     await this.page.waitForTimeout(3_000);
   }
 
@@ -905,7 +905,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     if (Date.now() >= deadline) {
       const remaining = await readPendingCount().catch(() => -1);
-      console.log(`[WalletPage.claimAllNotes] TIMEOUT after ${timeoutMs}ms, pending=${remaining} (iter=${iteration})`);
+      throw new Error(
+        `[WalletPage.claimAllNotes] timed out after ${timeoutMs}ms with ${remaining} pending note(s) ` +
+          `after ${iteration} iteration(s)`
+      );
     } else {
       console.log(`[WalletPage.claimAllNotes] drained in ${iteration} iteration(s)`);
     }
@@ -1014,7 +1017,15 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       await this.page.waitForTimeout(2_000);
     }
 
-    console.log(`[WalletPage.claimNotesByGroup] done after ${iteration} iteration(s)`);
+    if (Date.now() >= deadline) {
+      const remaining = await readPendingCount().catch(() => -1);
+      throw new Error(
+        `[WalletPage.claimNotesByGroup] timed out after ${timeoutMs}ms with ${remaining} pending note(s) ` +
+          `after ${iteration} iteration(s)`
+      );
+    }
+
+    console.log(`[WalletPage.claimNotesByGroup] drained after ${iteration} iteration(s)`);
     await this.navigateHome();
   }
 

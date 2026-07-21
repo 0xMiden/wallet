@@ -162,7 +162,7 @@ describe('AllHistory', () => {
     void rerender;
   });
 
-  it('navigates to /pending and fires light haptics from the header button', () => {
+  it('navigates to /pending-notes and fires light haptics from the header button', () => {
     render(<AllHistory />);
 
     fireEvent.click(screen.getByRole('button', { name: 'pendingNotes' }));

@@ -5,7 +5,7 @@ import { act } from 'react-dom/test-utils';
 
 import { Receive } from './Receive';
 
-// Pending (claimable) notes moved to their own `/pending` page — see
+// Pending (claimable) notes moved to their own `/pending-notes` page — see
 // Pending.test.tsx for the claim-flow coverage. Receive is now address-only.
 
 jest.mock('react-i18next', () => ({
