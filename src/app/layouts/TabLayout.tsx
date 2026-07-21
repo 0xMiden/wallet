@@ -121,7 +121,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     //   label: 'Earn',
     //   icon: <Icon name={IconName.Earn} className="w-5 h-5" />
     // },
-    // Swap is hidden on iOS (App Store Guideline 3.1.5(iii) — see isSwapEnabled).
+    // Swap is hidden in production iOS builds (App Store Guideline
+    // 3.1.5(iii)); internal test builds may opt in via isSwapEnabled().
     ...(isSwapEnabled()
       ? [
           {
