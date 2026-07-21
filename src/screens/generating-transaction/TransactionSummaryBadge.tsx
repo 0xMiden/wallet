@@ -2,7 +2,6 @@ import React, { FC, ReactNode, useMemo } from 'react';
 
 import classNames from 'clsx';
 
-import { formatEarnWithdrawAmount } from 'app/templates/history/transactionUtils';
 import { ITransaction } from 'lib/miden/db/types';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { AssetMetadata } from 'lib/miden/metadata/types';
@@ -155,7 +154,6 @@ const earnMarketLabel = (marketUid: string): string | undefined => {
  *   bridged-send  →  {amount} {symbol}        ->  {EVM recipient}
  *   swap          →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
  *   earn-deposit  →  {amount} {symbol}        ↑  {protocol}-USDC   (up-arrow separator)
- *   earn-withdraw →  {sourceAmount} {sourceSymbol}  ->  Miden
  *
  * Other transaction types (consume/claim, switch-guardian) render nothing for
  * now. See CLAUDE.md -> "Transaction summary badge" for how to add a variant
@@ -181,19 +179,6 @@ export const useTransactionSummaryBadgeContent = (
         lhs: `${amount} ${symbol}`,
         rhs,
         separator: <EarnDepositArrowGlyph />
-      };
-    }
-
-    // Smart Withdraw: the source side is the human-formatted USDC being
-    // redeemed on Epoch; the funds land back on Miden.
-    if (transaction?.type === 'earn-withdraw') {
-      const sourceAmount: unknown = transaction.extraInputs?.sourceAmount;
-      const sourceSymbol: unknown = transaction.extraInputs?.sourceSymbol;
-      if (typeof sourceAmount !== 'string' || typeof sourceSymbol !== 'string') return undefined;
-
-      return {
-        lhs: `${formatEarnWithdrawAmount(sourceAmount)} ${sourceSymbol}`,
-        rhs: <span className="min-w-0 truncate">Miden</span>
       };
     }
 

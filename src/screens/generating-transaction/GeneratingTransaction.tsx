@@ -9,7 +9,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { useAnalytics } from 'lib/analytics';
 import { safeGenerateTransactionsLoop as dbTransactionsLoop } from 'lib/miden/activity';
-import { IEarnWithdrawExtraInputs, ITransactionStatus } from 'lib/miden/db/types';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
@@ -124,21 +124,8 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }, [generateTransaction]);
 
   const status = active?.status;
-  // earn-withdraw rows are born status=Completed (tracking-only, no Miden
-  // prove/submit pipeline), so status can't drive this screen for them. The
-  // real lifecycle lives in extraInputs: in-flight until the Epoch intent is
-  // accepted (`withdrawIntentNonce` recorded), failed on phase 'failed'.
-  const isEarnWithdrawRow = active?.type === 'earn-withdraw';
-  const earnWithdrawInputs = isEarnWithdrawRow ? (active?.extraInputs as IEarnWithdrawExtraInputs) : undefined;
-  const earnWithdrawFailed = earnWithdrawInputs?.phase === 'failed';
-  const earnWithdrawSubmitted =
-    Boolean(earnWithdrawInputs?.withdrawIntentNonce) ||
-    earnWithdrawInputs?.phase === 'delivering' ||
-    earnWithdrawInputs?.phase === 'received';
-  const transactionComplete = isEarnWithdrawRow
-    ? earnWithdrawFailed || earnWithdrawSubmitted
-    : status === ITransactionStatus.Completed || status === ITransactionStatus.Failed;
-  const hasErrors = isEarnWithdrawRow ? earnWithdrawFailed : status === ITransactionStatus.Failed;
+  const transactionComplete = status === ITransactionStatus.Completed || status === ITransactionStatus.Failed;
+  const hasErrors = status === ITransactionStatus.Failed;
   const activeStage = active?.stage;
   const activeType = active?.type;
 
@@ -165,9 +152,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }, [transactionComplete, trackEvent, onClose]);
 
   const lastCompletedTxHash = useWalletStore(state => state.lastCompletedTxHash);
-  // earn-withdraw has no Miden-side tx hash; without this guard a hash from an
-  // EARLIER transaction (lastCompletedTxHash) would leak onto its receipt.
-  const receiptTxHash = isEarnWithdrawRow ? null : (lastCompletedTxHash ?? active?.transactionId ?? null);
+  const receiptTxHash = lastCompletedTxHash ?? active?.transactionId ?? null;
   const explorerUrl = receiptTxHash ? getExplorerTxUrl(receiptTxHash) : undefined;
   const onViewExplorer = useCallback(() => {
     if (!explorerUrl) return;

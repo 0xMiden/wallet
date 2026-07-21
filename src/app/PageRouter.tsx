@@ -19,6 +19,7 @@ import EarnPositionDetail from 'screens/earn-flow/EarnPositionDetail';
 import EarnPositions from 'screens/earn-flow/EarnPositions';
 import EarnVaultDetail from 'screens/earn-flow/EarnVaultDetail';
 import EarnWithdrawReview from 'screens/earn-flow/EarnWithdrawReview';
+import EarnWithdrawStatus from 'screens/earn-flow/EarnWithdrawStatus';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
 import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
@@ -262,6 +263,14 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(({ vaultId }) => (
       <FullScreenPage>
         <EarnVaultDetail vaultId={vaultId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/earn/withdraw-status/:txId',
+    onlyReady(({ txId }) => (
+      <FullScreenPage>
+        <EarnWithdrawStatus txId={txId!} />
       </FullScreenPage>
     ))
   ],

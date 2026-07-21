@@ -56,7 +56,10 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
         underlyingAddress: position.underlyingAddress,
         amount: position.withdrawable,
         underlyingDecimals: position.decimals,
-        onRowCreated: txId => navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`)
+        // No Miden-side transaction happens (gasless EVM intent sign), so the
+        // handoff goes to the bespoke withdraw status screen — not the
+        // prove/submit generating-transaction page.
+        onRowCreated: txId => navigate(`/earn/withdraw-status/${encodeURIComponent(txId)}`)
       });
     } catch (e) {
       // If the row was already created we have navigated away and the
