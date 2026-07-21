@@ -52,7 +52,7 @@ const mockDeleteHardwareKey = jest.fn(async () => {});
 jest.mock(
   'lib/biometric',
   () => ({
-    deleteHardwareKey: (...args: unknown[]) => mockDeleteHardwareKey(...args)
+    deleteHardwareKey: () => mockDeleteHardwareKey()
   }),
   { virtual: true }
 );
@@ -100,8 +100,8 @@ describe('clearStorage', () => {
     // key lives in the Keychain, not Preferences, so ordering doesn't affect
     // correctness here, but asserting it documents the intended sequence from
     // the clearPlatformKeyValueStorage implementation.
-    const prefClearOrder = _g.__resetTest.prefStub.clear.mock.invocationCallOrder[0];
-    const deleteKeyOrder = mockDeleteHardwareKey.mock.invocationCallOrder[0];
+    const prefClearOrder = _g.__resetTest.prefStub.clear.mock.invocationCallOrder[0]!;
+    const deleteKeyOrder = mockDeleteHardwareKey.mock.invocationCallOrder[0]!;
     expect(prefClearOrder).toBeLessThan(deleteKeyOrder);
   });
 
