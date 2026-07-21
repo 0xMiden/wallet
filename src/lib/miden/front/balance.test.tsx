@@ -42,6 +42,15 @@ jest.mock('lib/store/utils/fetchBalances', () => ({
   })
 }));
 
+// `balance.ts` skips its poll while the WASM client lock is held. Preserve the
+// real module (the store imports its lock helpers) and only stub the lock-state
+// probe so a test can drive the guard. Defaults to `false` (idle) so the other
+// tests keep polling normally.
+jest.mock('../sdk/miden-client', () => {
+  const actual = jest.requireActual('../sdk/miden-client');
+  return { ...actual, isWasmClientBusy: jest.fn(() => false) };
+});
+
 describe('useAllBalances infinite loop protection', () => {
   let consoleErrorSpy: jest.SpyInstance;
   let testRoot: ReturnType<typeof createRoot> | null = null;
@@ -244,6 +253,40 @@ describe('useAllBalances infinite loop protection', () => {
     // Should never have more than 1 concurrent call for the same address
     // This prevents "recursive use of an object" errors in WASM client
     expect(maxConcurrentCalls).toBeLessThanOrEqual(1);
+  });
+
+  it('skips the balance poll while the WASM client lock is held', async () => {
+    // While a transaction (or sync) holds `withWasmClientLock`, this poll must
+    // not touch the WASM client — during the SDK's `_withInnerWebClient` window
+    // an un-locked read runs inline and double-borrows the RefCell (crash).
+    const busy = jest.requireMock('../sdk/miden-client').isWasmClientBusy as jest.Mock;
+    const fetchBalancesMock = jest.requireMock('lib/store/utils/fetchBalances').fetchBalances as jest.Mock;
+    busy.mockReturnValue(true);
+    fetchBalancesMock.mockClear();
+
+    testContainer = document.createElement('div');
+    testRoot = createRoot(testContainer);
+
+    const BalanceConsumer = () => {
+      useAllBalances('locked-address', {});
+      return <div />;
+    };
+
+    try {
+      await act(async () => {
+        testRoot!.render(<BalanceConsumer />);
+      });
+      // Allow the initial fetch attempt + a poll tick to elapse.
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 60));
+      });
+
+      expect(fetchBalancesMock).not.toHaveBeenCalled();
+    } finally {
+      // Restore idle state so later tests poll normally (clearAllMocks does not
+      // reset a mockReturnValue).
+      busy.mockReturnValue(false);
+    }
   });
 });
 

@@ -1,4 +1,4 @@
-import { runWhenClientIdle, withWasmClientLock } from './miden-client';
+import { isWasmClientBusy, runWhenClientIdle, withWasmClientLock } from './miden-client';
 
 describe('withWasmClientLock', () => {
   it('executes a single operation and returns its result', async () => {
@@ -261,6 +261,47 @@ describe('AsyncMutex idle queue — high-priority interruption', () => {
     await new Promise(resolve => setTimeout(resolve, 10));
     // No crash — the queue processed cleanly
     expect(true).toBe(true);
+  });
+});
+
+describe('isWasmClientBusy', () => {
+  it('is false when the mutex is idle', () => {
+    expect(isWasmClientBusy()).toBe(false);
+  });
+
+  it('is true while a withWasmClientLock operation holds the lock, false after', async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+
+    // Lock is acquired synchronously when idle, so it reports busy immediately.
+    const op = withWasmClientLock(async () => {
+      await gate;
+    });
+    expect(isWasmClientBusy()).toBe(true);
+
+    release!();
+    await op;
+    expect(isWasmClientBusy()).toBe(false);
+  });
+
+  it('stays busy for a queued operation until the whole chain drains', async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+
+    const first = withWasmClientLock(async () => {
+      await gate;
+    });
+    // Second op queues behind the first; the mutex stays held throughout.
+    const second = withWasmClientLock(async () => {});
+    expect(isWasmClientBusy()).toBe(true);
+
+    release!();
+    await Promise.all([first, second]);
+    expect(isWasmClientBusy()).toBe(false);
   });
 });
 
