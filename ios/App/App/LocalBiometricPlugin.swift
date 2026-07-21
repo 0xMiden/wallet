@@ -262,9 +262,11 @@ public class LocalBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
         // no enrolled Touch ID / Face ID (e.g. an iPad running the iPhone app in the
         // review lab) could never satisfy it and got stuck on "Biometric Unlock
         // Required". `.userPresence` falls back to the device passcode, and — unlike
-        // `.biometryCurrentSet` — survives biometric re-enrollment. The single prompt
-        // is issued explicitly via `.deviceOwnerAuthentication` in decryptWithHardwareKey
-        // and the same LAContext is reused on the key op, so there is no double prompt.
+        // `.biometryCurrentSet` — survives biometric re-enrollment. The single unlock
+        // prompt is issued by the key op itself (SecKeyCopyKeyExchangeResult in
+        // decryptWithHardwareKey); we deliberately do NOT add an explicit
+        // evaluatePolicy gate there (see the note in decryptWithHardwareKey) — that
+        // would double-prompt and hard-fail with passcodeNotSet on passcode-less devices.
         var accessError: Unmanaged<CFError>?
         guard let accessControl = SecAccessControlCreateWithFlags(
             kCFAllocatorDefault,
