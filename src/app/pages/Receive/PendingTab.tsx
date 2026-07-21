@@ -227,6 +227,7 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
         {unclaimedNotesCount > 0 && !isMobile() && (
           <div className="flex justify-center mt-2 pb-2">
             <Button
+              data-testid="claim-all-button"
               className="w-30 h-10 text-md"
               variant={ButtonVariant.Primary}
               onClick={onClaimAll}
@@ -255,6 +256,7 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({ group, claimingNoteId
 
   return (
     <button
+      data-testid="pending-asset-row"
       type="button"
       onClick={onClick}
       className={classNames(
@@ -364,6 +366,7 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
         </div>
         {onClaimGroup && (
           <button
+            data-testid="claim-group-button"
             type="button"
             onClick={handleClaimGroup}
             disabled={!canClaimAllGroup}
@@ -476,6 +479,7 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
         </span>
         {!showSpinner ? (
           <Button
+            data-testid="claim-button"
             className="w-18 h-7.5 text-white font-semibold rounded-5 text-xs leading-none"
             variant={ButtonVariant.Primary}
             onClick={handleClaim}

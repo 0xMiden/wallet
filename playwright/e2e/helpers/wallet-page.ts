@@ -871,12 +871,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
                 // button may vanish mid-iteration as the list re-renders
               }
             }
-            // Return to the faucet summary list.
-            await this.page
-              .getByTestId('pending-detail-back')
-              .click({ timeout: 5_000 })
-              .catch(() => {});
-            await this.page.waitForTimeout(1_000);
+            // A successful claim can navigate to the transaction progress
+            // screen. Reloading the pending route also reliably returns from
+            // the in-page asset detail view, which has no desktop back button.
+            await this.reloadAndPreparePending();
           } catch {
             // Row vanished as the list re-rendered — try the next pass.
           }
@@ -1002,18 +1000,14 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       );
       await this.page.waitForTimeout(clicked ? 8_000 : 2_000);
 
-      // Back to the summary list for the next pass.
-      await this.page
-        .getByTestId('pending-detail-back')
-        .click({ timeout: 5_000 })
-        .catch(() => {});
+      // A successful group claim navigates to the transaction progress screen.
+      // Reload the pending route so the next iteration always resumes at the
+      // asset summary rather than depending on an in-page back control.
+      await this.reloadAndPreparePending();
 
       // If the count hasn't budged for a few passes, a prior claim may have left
       // notes gated by `isBeingClaimed`; a full reload clears the in-memory gate.
-      if (stuckSameCountIters >= 3) {
-        await this.reloadAndPreparePending();
-        stuckSameCountIters = 0;
-      }
+      if (stuckSameCountIters >= 3) stuckSameCountIters = 0;
       await this.page.waitForTimeout(2_000);
     }
 
