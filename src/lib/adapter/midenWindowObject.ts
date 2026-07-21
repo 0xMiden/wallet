@@ -20,6 +20,7 @@ import {
   requestConsumableNotes,
   requestConsume,
   requestDisconnect,
+  requestGuardianInfo,
   requestPermission,
   requestPrivateNotes,
   requestSend,
@@ -30,6 +31,7 @@ import {
 import { MidenDAppPermission } from 'lib/adapter/types';
 import { TransactionOutput } from 'lib/miden/db/types';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
+import { GuardianInfo } from 'lib/shared/types';
 
 export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implements MidenWallet {
   address?: string | undefined;
@@ -90,6 +92,11 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
   async requestAssets(): Promise<{ assets: any[] }> {
     const res = await requestAssets(this.address!);
     return { assets: res };
+  }
+
+  async requestGuardianInfo(): Promise<{ guardianInfo: GuardianInfo }> {
+    const res = await requestGuardianInfo(this.address!);
+    return { guardianInfo: res };
   }
 
   async requestConsumableNotes(): Promise<{ consumableNotes: InputNoteDetails[] }> {
