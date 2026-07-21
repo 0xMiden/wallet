@@ -6,7 +6,7 @@ import { fetchFromStorage } from 'lib/miden/front';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
-import { getMidenClient } from 'lib/miden/sdk/miden-client';
+import { getMidenClient, tryWithWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getTokenPrice, type TokenPrices } from 'lib/prices';
 
 import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, setTokensBaseMetadata } from '../../miden/front/assets';
@@ -64,20 +64,22 @@ async function captureGuardianAuthStructureForTest(address: string, account: Sdk
  * This is the single source of truth for balance fetching logic.
  * Used by both the useAllBalances hook and the Zustand store action.
  *
- * `getAccount` is an IndexedDB read on the SDK side; the SDK's internal
- * `_serializeWasmCall` chain already queues it against concurrent WASM ops,
- * so we deliberately do NOT wrap it in the wallet-side `withWasmClientLock`.
- * Stacking our mutex on top of the SDK's queue was causing the Send-flow
- * SelectToken tile to stall behind a long-running `syncState` on testnet,
- * blowing past Playwright's 10s click budget and producing `locator.click`
- * timeouts under stress. Metadata fetching uses RpcClient directly and
- * doesn't need serialization either.
+ * The `getAccount` WASM read runs under a NON-BLOCKING attempt on the wallet
+ * WASM mutex (`tryWithWasmClientLock`): it must not stall behind long writes
+ * like `syncState` (stacking a blocking mutex on top of the SDK's queue used to
+ * hang the Send-flow SelectToken tile past Playwright's 10s click budget), but
+ * it also must not run un-serialized while a transaction holds the lock — during
+ * a transaction's `_withInnerWebClient` window the SDK runs an un-locked read
+ * inline and double-borrows the WASM RefCell, trapping the client. If the lock
+ * is busy this returns `null` (skip this refresh; the caller keeps its prior
+ * balances and retries next cycle). Metadata fetching uses RpcClient directly
+ * and doesn't touch the WASM client, so it stays outside the lock.
  */
 export async function fetchBalances(
   address: string,
   tokenMetadatas: Record<string, AssetMetadata>,
   options: FetchBalancesOptions = {}
-): Promise<TokenBalanceData[]> {
+): Promise<TokenBalanceData[] | null> {
   const cachedMetadatas =
     (await fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || {};
   const { setAssetsMetadata, tokenPrices = {} } = options;
@@ -89,40 +91,38 @@ export async function fetchBalances(
   // Get midenFaucetId early so we can use it inside the lock
   const midenFaucetId = await getFaucetIdSetting();
 
-  // `getAccount` is serialized internally by the SDK (`_serializeWasmCall`).
-  // We intentionally skip `withWasmClientLock` here so balance reads aren't
-  // queued behind long-running writes like `syncState`.
-  //
-  // Callers MUST NOT invoke this while a `withWasmClientLock` op is in flight:
-  // during a transaction's `_withInnerWebClient` window the SDK runs this
-  // un-locked `getAccount` inline (not via its chain), double-borrowing the
-  // WASM RefCell and panicking the client. The 5s balance poll guards this via
-  // `isWasmClientBusy()` (see useAllBalances in lib/miden/front/balance.ts).
-  const midenClient = await getMidenClient();
-  const acc = await midenClient.getAccount(address);
+  // Read the account under a NON-BLOCKING attempt on the wallet WASM mutex.
+  // `getAccount` borrows the WebClient's single RefCell; while a transaction is
+  // mid-`_withInnerWebClient` (or a `syncState` runs) an un-locked read would
+  // run inline / double-borrow and trap the client. Acquiring the lock around
+  // the read closes that window; the non-blocking try means we skip (not queue)
+  // when the lock is busy, so we never stall behind long writes.
+  const read = await tryWithWasmClientLock(async () => {
+    const midenClient = await getMidenClient();
+    const acc = await midenClient.getAccount(address);
 
-  // E2E-only: capture a Guardian account's on-chain auth structure HERE, inside
-  // the wallet's own working balance poll (which reliably completes), so the
-  // `__TEST_GUARDIAN_AUTH__` test hook can read it as a plain value instead of
-  // doing its own blocking-eval WASM read — which on the single-threaded iOS
-  // WASM gets starved by other main-thread WASM activity and times out. The
-  // structure is immutable, so a slightly-old capture is correct. Best-effort,
-  // fire-and-forget; gated on MIDEN_E2E_TEST and tree-shaken from production.
-  if (process.env.MIDEN_E2E_TEST === 'true' && acc) {
-    // Awaited (not fire-and-forget): tie the capture to this balance fetch so it
-    // is stashed before `verify_balance` passes and the auth step reads it — a
-    // fire-and-forget capture loses the race against the test on the contended
-    // iOS main thread. The `@openzeppelin/...` import is already warm (the
-    // guardian flow loaded it), so this adds negligible latency.
-    await captureGuardianAuthStructureForTest(address, acc);
-  }
+    // E2E-only: capture a Guardian account's on-chain auth structure while we
+    // already hold the account, so `__TEST_GUARDIAN_AUTH__` can read it as a
+    // plain value instead of its own blocking-eval WASM read (which gets starved
+    // on the single-threaded iOS main thread). The structure is immutable, so a
+    // slightly-old capture is correct. Gated on MIDEN_E2E_TEST, tree-shaken from
+    // production.
+    if (process.env.MIDEN_E2E_TEST === 'true' && acc) {
+      await captureGuardianAuthStructureForTest(address, acc);
+    }
 
-  let account: typeof acc | null = null;
-  let assets: FungibleAsset[] = [];
-  if (acc) {
-    account = acc;
-    assets = acc.vault().fungibleAssets() as FungibleAsset[];
+    // `fungibleAssets()` is on the Account object (not the shared WebClient
+    // RefCell); extract it here so the rest of the fn works off plain values.
+    const acctAssets = acc ? (acc.vault().fungibleAssets() as FungibleAsset[]) : [];
+    return { account: (acc ?? null) as typeof acc | null, assets: acctAssets };
+  });
+
+  if (!read.ran) {
+    // A `withWasmClientLock` op (a transaction or sync) holds the client — skip
+    // this refresh so we neither stall behind it nor race its inner window.
+    return null;
   }
+  const { account, assets } = read.value;
 
   // Fetch missing metadata OUTSIDE the lock — RpcClient doesn't use the WASM client
   const fetchedMetadatas: Record<string, AssetMetadata> = { ...cachedMetadatas };

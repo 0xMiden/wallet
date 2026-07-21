@@ -288,6 +288,47 @@ describe('useAllBalances infinite loop protection', () => {
       busy.mockReturnValue(false);
     }
   });
+
+  it('keeps prior balances when fetchBalances returns null (WASM-busy skip)', async () => {
+    const fetchBalancesMock = jest.requireMock('lib/store/utils/fetchBalances').fetchBalances as jest.Mock;
+    fetchBalancesMock.mockClear();
+    // The read was skipped mid-fetch (lock became busy) — fetchBalances resolves null.
+    fetchBalancesMock.mockResolvedValueOnce(null);
+
+    // Seed a prior balance; it must survive the skipped refresh.
+    useWalletStore.setState({
+      balances: {
+        'null-skip-address': [
+          {
+            tokenId: 't',
+            tokenSlug: 'T',
+            metadata: { name: 'T', symbol: 'T', decimals: 8 },
+            balance: 7,
+            fiatPrice: 1,
+            change24h: 0
+          }
+        ]
+      }
+    });
+
+    testContainer = document.createElement('div');
+    testRoot = createRoot(testContainer);
+    const BalanceConsumer = () => {
+      const { data } = useAllBalances('null-skip-address', {});
+      return <div data-count={data.length} />;
+    };
+
+    await act(async () => {
+      testRoot!.render(<BalanceConsumer />);
+    });
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 60));
+    });
+
+    expect(fetchBalancesMock).toHaveBeenCalled();
+    // The null return short-circuits before setState, so the prior balance stays.
+    expect(useWalletStore.getState().balances['null-skip-address']).toHaveLength(1);
+  });
 });
 
 describe('instant balance loading', () => {

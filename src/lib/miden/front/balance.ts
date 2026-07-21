@@ -113,6 +113,10 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
         tokenPrices
       });
 
+      // `null` means the WASM client was busy (a tx/sync held the lock) and the
+      // read was skipped — keep the prior balances and let the next tick retry.
+      if (fetchedBalances === null) return;
+
       // Update store if still mounted
       if (mountedRef.current) {
         useWalletStore.setState(state => ({

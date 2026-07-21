@@ -42,6 +42,17 @@ class AsyncMutex {
   }
 
   /**
+   * Non-blocking acquire: takes the lock and returns `true` if it was free,
+   * otherwise returns `false` without waiting. The check-and-set is atomic in
+   * single-threaded JS (no `await` between the read and the write).
+   */
+  tryAcquire(): boolean {
+    if (this.locked) return false;
+    this.locked = true;
+    return true;
+  }
+
+  /**
    * Queue a low-priority task to run when the mutex is idle.
    * Idle tasks run after all high-priority (withWasmClientLock) operations complete.
    * Idle tasks do NOT hold the lock - they should use withWasmClientLock internally if needed.
@@ -133,6 +144,35 @@ export async function withWasmClientLock<T>(operation: () => Promise<T>): Promis
  */
 export function isWasmClientBusy(): boolean {
   return wasmClientMutex.isLocked;
+}
+
+/**
+ * Run `operation` under the WASM client lock ONLY if the lock can be taken
+ * without waiting; otherwise skip it and resolve to `{ ran: false }`.
+ *
+ * For background reads that intentionally bypass `withWasmClientLock` for
+ * responsiveness (the balance poll's `getAccount`) but must still be atomic
+ * against transactions: a plain un-locked read fired during a transaction's
+ * `_withInnerWebClient` window runs inline and double-borrows the WASM client's
+ * RefCell (crash). Acquiring the lock around the read closes that window, and
+ * using a NON-blocking try (skip, don't queue) preserves the reason the read
+ * bypassed the lock in the first place — it must not stall behind long writes
+ * like `syncState`. Callers treat `{ ran: false }` as "skip this refresh, keep
+ * prior data, retry next cycle."
+ *
+ * Unlike a plain `isWasmClientBusy()` check, this is atomic with the borrow:
+ * there is no check-then-act gap in which the lock could be taken by a
+ * transaction between the guard and the read.
+ */
+export async function tryWithWasmClientLock<T>(
+  operation: () => Promise<T>
+): Promise<{ ran: true; value: T } | { ran: false }> {
+  if (!wasmClientMutex.tryAcquire()) return { ran: false };
+  try {
+    return { ran: true, value: await operation() };
+  } finally {
+    wasmClientMutex.release();
+  }
 }
 
 /**
