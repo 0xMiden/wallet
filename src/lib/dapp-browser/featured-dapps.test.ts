@@ -2,10 +2,17 @@ import {
   FEATURED_DAPPS,
   CAROUSEL_DAPPS,
   EXPLORE_GRID_DAPPS,
+  getExploreGridDapps,
   type FeaturedDapp,
   type FeaturedDappBadge,
   type FeaturedDappCategory
 } from './featured-dapps';
+
+const mockSwapEnabled = { value: true };
+
+jest.mock('lib/feature-flags', () => ({
+  isSwapEnabled: () => mockSwapEnabled.value
+}));
 
 const VALID_CATEGORIES: FeaturedDappCategory[] = ['defi', 'nft', 'tools', 'social'];
 const VALID_BADGES: FeaturedDappBadge[] = ['featured', 'new', 'verified'];
@@ -95,6 +102,16 @@ describe('FEATURED_DAPPS', () => {
     expect(FEATURED_DAPPS.some(d => d.featured === true)).toBe(true);
     expect(FEATURED_DAPPS.some(d => d.featured === undefined)).toBe(true);
   });
+
+  it('flags isExchange only on DEX/exchange entries', () => {
+    // Both the exchange and non-exchange branches exist in the data.
+    expect(FEATURED_DAPPS.some(d => d.isExchange === true)).toBe(true);
+    expect(FEATURED_DAPPS.some(d => d.isExchange === undefined)).toBe(true);
+    // Every exchange-flagged entry is a DEX genre (the surface hidden on iOS).
+    for (const d of FEATURED_DAPPS.filter(d => d.isExchange)) {
+      expect(d.genre).toBe('DEX');
+    }
+  });
 });
 
 describe('CAROUSEL_DAPPS', () => {
@@ -143,5 +160,24 @@ describe('EXPLORE_GRID_DAPPS', () => {
     const gridIds = EXPLORE_GRID_DAPPS.map(d => d.id);
     expect(gridIds.indexOf('zoro')).toBeLessThan(gridIds.indexOf('faucet'));
     expect(gridIds.indexOf('qash')).toBeLessThan(gridIds.indexOf('faucet'));
+  });
+});
+
+describe('getExploreGridDapps', () => {
+  afterEach(() => {
+    mockSwapEnabled.value = true;
+  });
+
+  it('returns the full grid unchanged when swap is enabled (off-iOS)', () => {
+    mockSwapEnabled.value = true;
+    expect(getExploreGridDapps()).toEqual(EXPLORE_GRID_DAPPS);
+  });
+
+  it('drops swap/exchange (DEX) dApps when swap is disabled (iOS, App Store 3.1.5(iii))', () => {
+    mockSwapEnabled.value = false;
+    const grid = getExploreGridDapps();
+    // 'zoro' (a DEX) is filtered out; the remaining curated apps keep their order.
+    expect(grid.some(d => d.isExchange)).toBe(false);
+    expect(grid.map(d => d.id)).toEqual(['qash', 'faucet', 'miden-name']);
   });
 });

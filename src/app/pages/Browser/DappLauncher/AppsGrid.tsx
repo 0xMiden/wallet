@@ -18,7 +18,7 @@ import React, { type FC, useState } from 'react';
 import { motion } from 'framer-motion';
 
 import { useSprings } from 'lib/animation';
-import { EXPLORE_GRID_DAPPS, type FeaturedDapp } from 'lib/dapp-browser';
+import { getExploreGridDapps, type FeaturedDapp } from 'lib/dapp-browser';
 import { hapticLight } from 'lib/mobile/haptics';
 
 interface AppsGridProps {
@@ -91,7 +91,7 @@ const AppCard: FC<AppCardProps> = ({ dapp, onOpen }) => {
 
 export const AppsGrid: FC<AppsGridProps> = ({ onOpen }) => (
   <section className="grid grid-cols-2 gap-3 px-4">
-    {EXPLORE_GRID_DAPPS.map(dapp => (
+    {getExploreGridDapps().map(dapp => (
       <AppCard key={dapp.id} dapp={dapp} onOpen={onOpen} />
     ))}
   </section>

@@ -13,7 +13,7 @@ import TabLayout from './TabLayout';
 // (Prefixed `mock*` so the jest hoister lets the factories close over them.)
 // ---------------------------------------------------------------------------
 const mockLocation = { pathname: '/' };
-const mockPlatform = { isMobile: false, isDesktop: false, isExtension: false };
+const mockPlatform = { isMobile: false, isDesktop: false, isExtension: false, isIOS: false };
 const mockEnv = { fullPage: false, sidePanel: false };
 const mockReturning = { value: false };
 const mockHasUnclaimed = { value: false };
@@ -36,7 +36,8 @@ jest.mock('lib/mobile/haptics', () => ({
 jest.mock('lib/platform', () => ({
   isMobile: () => mockPlatform.isMobile,
   isDesktop: () => mockPlatform.isDesktop,
-  isExtension: () => mockPlatform.isExtension
+  isExtension: () => mockPlatform.isExtension,
+  isIOS: () => mockPlatform.isIOS
 }));
 
 jest.mock('lib/mobile/webview-state', () => ({
@@ -140,6 +141,7 @@ beforeEach(() => {
   mockPlatform.isMobile = false;
   mockPlatform.isDesktop = false;
   mockPlatform.isExtension = false;
+  mockPlatform.isIOS = false;
   mockEnv.fullPage = false;
   mockEnv.sidePanel = false;
   mockReturning.value = false;
@@ -263,6 +265,26 @@ describe('TabLayout — tabs list composition', () => {
     mockHasUnclaimed.value = false;
     renderLayout();
     expect(screen.getByTestId('nav-activity')).toHaveAttribute('data-dot', 'false');
+  });
+});
+
+describe('TabLayout — swap action availability (isSwapEnabled)', () => {
+  it('shows the Swap action segment off-iOS', () => {
+    mockPlatform.isIOS = false;
+    mockLocation.pathname = '/';
+    renderLayout();
+    expect(screen.getByTestId('action-swap')).toBeInTheDocument();
+  });
+
+  it('hides the Swap action segment on iOS (App Store 3.1.5(iii))', () => {
+    mockPlatform.isIOS = true;
+    mockLocation.pathname = '/';
+    renderLayout();
+    expect(screen.queryByTestId('action-swap')).toBeNull();
+    // The rest of the action bar is unaffected.
+    expect(screen.getByTestId('action-overview')).toBeInTheDocument();
+    expect(screen.getByTestId('action-send')).toBeInTheDocument();
+    expect(screen.getByTestId('action-receive')).toBeInTheDocument();
   });
 });
 

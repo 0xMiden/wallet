@@ -12,6 +12,7 @@ import HomeSwipeContainer from './HomeSwipeContainer';
 // ---------------------------------------------------------------------------
 const mockNavigate = jest.fn();
 let mockPathname = '/';
+const mockSwapEnabled = { value: true };
 
 const mockAnimateStop = jest.fn();
 const mockAnimate = jest.fn((..._args: unknown[]) => ({ stop: mockAnimateStop }));
@@ -88,6 +89,12 @@ jest.mock('screens/swap-flow/SwapManager', () => ({
   SwapFlow: () => <div data-testid="page-swap" />
 }));
 
+// Swap availability is gated by isSwapEnabled (false on iOS); toggle it to
+// assert the pane is added/removed and the track stays in sync.
+jest.mock('lib/feature-flags', () => ({
+  isSwapEnabled: () => mockSwapEnabled.value
+}));
+
 // ---------------------------------------------------------------------------
 // ResizeObserver is not implemented in jsdom. Provide a mock that captures the
 // observer callback so tests can drive width measurements deterministically.
@@ -121,6 +128,7 @@ beforeEach(() => {
   mockLastDragEnd = null;
   mockLastDragConstraints = null;
   mockRoCallback = null;
+  mockSwapEnabled.value = true;
 });
 
 // Drive the captured ResizeObserver callback to set a positive width.
@@ -155,6 +163,20 @@ describe('HomeSwipeContainer', () => {
   it('passes isLoading={false} to the SendFlow', () => {
     const { getByTestId } = render(<HomeSwipeContainer />);
     expect(getByTestId('page-send')).toHaveAttribute('data-loading', 'false');
+  });
+
+  it('drops the Swap pane when swap is disabled (iOS), keeping the other four', () => {
+    mockSwapEnabled.value = false;
+    const { getByTestId, queryByTestId } = render(<HomeSwipeContainer />);
+    expect(queryByTestId('page-swap')).toBeNull();
+    expect(getByTestId('page-explore')).toBeInTheDocument();
+    expect(getByTestId('page-send')).toBeInTheDocument();
+    expect(getByTestId('page-receive')).toBeInTheDocument();
+    expect(getByTestId('page-earn')).toBeInTheDocument();
+    // Track math must derive from the 4-page filtered array — not a hardcoded 5 —
+    // so the drag bounds shrink accordingly (a phantom 5th slot would fail here).
+    measure(300);
+    expect(mockLastDragConstraints).toEqual({ left: -900, right: 0 }); // -(4 - 1) * 300
   });
 
   it('on mount at width 0 sets the motion value directly instead of animating', () => {

@@ -2,6 +2,10 @@
 
 ## 1.15.9 (TBD)
 
+### Changes
+
+* [CHANGE][mobile] **The in-app swap is disabled on iOS.** Apple App Review classifies the In-Protocol DEX swap as a cryptocurrency exchange service under Guideline 3.1.5(iii), which requires per-storefront licensing the app does not yet hold, so the iOS build ships as a pure non-custodial wallet with no exchange surface. Swap availability is now gated by a single `isSwapEnabled()` flag (`!isIOS()`) applied to the Swap action-bar segment, the home swipe pane, and the `/swap` route (which redirects home on iOS); Android, the browser extension, and desktop are unaffected.
+
 ### Fixes
 
 * [FIX][mobile] **iOS now renders at the display's native refresh rate (up to 120Hz ProMotion) instead of being capped at 60fps.** Added `CADisableMinimumFrameDurationOnPhone` to `Info.plist`. Since iOS 15, iPhones cap every app — including its WKWebView — to 60fps unless the app opts in to high frame rates, so on ProMotion devices animations and scrolling felt stuck at 60Hz (the same as Low Power Mode). CSS/compositor animations and native scrolling now run at the full display rate.
