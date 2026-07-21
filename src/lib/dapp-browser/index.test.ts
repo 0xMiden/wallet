@@ -105,6 +105,7 @@ describe('dapp-browser barrel — re-export identity', () => {
     ['FEATURED_DAPPS', featuredDapps, 'FEATURED_DAPPS'],
     ['CAROUSEL_DAPPS', featuredDapps, 'CAROUSEL_DAPPS'],
     ['EXPLORE_GRID_DAPPS', featuredDapps, 'EXPLORE_GRID_DAPPS'],
+    ['getExploreGridDapps', featuredDapps, 'getExploreGridDapps'],
     // category-data
     ['CATEGORIES', categoryData, 'CATEGORIES'],
     // recent-dapps
@@ -155,6 +156,7 @@ describe('dapp-browser barrel — live wiring smoke checks', () => {
       'rectFromDOMRect',
       'rectsEqual',
       'useDappConfirmation',
+      'getExploreGridDapps',
       'getRecentDapps',
       'recordRecentDapp',
       'forgetRecentDapp',

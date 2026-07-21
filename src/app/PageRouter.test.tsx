@@ -43,6 +43,7 @@ const mockLocation: { pathname: string; trigger: string | null } = {
 };
 const mockEnv = { popup: false, fullPage: false };
 const mockMiden = { ready: false, locked: false, hydrated: false };
+const mockSwapEnabled = { value: true };
 
 // `lib/woozie` bundles the full history/location stack; keep the real Router so
 // createMap/resolve/SKIP behave exactly as in production, and stub the four
@@ -146,6 +147,11 @@ jest.mock('screens/send-flow/SendManager', () => ({
 }));
 jest.mock('screens/swap-flow/SwapManager', () => ({ SwapFlow: () => <div data-testid="swap-flow" /> }));
 
+// Swap is disabled on iOS; toggle the flag to assert `/swap` renders vs redirects.
+jest.mock('lib/feature-flags', () => ({
+  isSwapEnabled: () => mockSwapEnabled.value
+}));
+
 jest.mock('./pages/AllHistory', () => ({
   __esModule: true,
   default: ({ programId }: { programId?: string | null }) => (
@@ -204,6 +210,7 @@ beforeEach(() => {
   resolveRootViewMock.mockReset();
   resolveRootViewMock.mockImplementation(realResolveRootView);
   window.scrollTo = scrollToMock as unknown as typeof window.scrollTo;
+  mockSwapEnabled.value = true;
 });
 
 describe('app/PageRouter — pre-ready / special routes', () => {
@@ -384,9 +391,17 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(el).toHaveAttribute('data-is-loading', 'false');
   });
 
-  it('/swap renders SwapFlow inside TabLayout', () => {
+  it('/swap renders SwapFlow inside TabLayout when swap is enabled', () => {
     renderAt('/swap', ready);
     expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('swap-flow'));
+  });
+
+  it('/swap redirects home when swap is disabled (iOS, App Store 3.1.5(iii))', () => {
+    mockSwapEnabled.value = false;
+    renderAt('/swap', ready);
+    expect(screen.queryByTestId('swap-flow')).toBeNull();
+    const redirect = screen.getByTestId('redirect');
+    expect(redirect).toHaveAttribute('data-to', '/');
   });
 
   it('/earn/vaults/:vaultId/deposit/review passes the vault id into EarnDepositReview', () => {
