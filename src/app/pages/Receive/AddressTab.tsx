@@ -8,10 +8,9 @@ import CopyButton from 'app/atoms/CopyButton';
 import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
-import { ButtonVariant, Button } from 'components/Button';
 import { QRCode, type QRCodeHandle } from 'components/QRCode';
 import { hapticLight } from 'lib/mobile/haptics';
-import { isMobile } from 'lib/platform';
+import { isExtension, isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { truncateAddress } from 'utils/string';
@@ -139,19 +138,21 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               <Icon name={IconName.Add} size="lg" className="shrink-0 fill-current" />
               <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">Request</span>
             </div> */}
-            {/* <div className="flex items-center gap-4 text-accent-primary">
-              <Icon name={IconName.CrossChain} size="lg" className="shrink-0" />
-              <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">Cross-chain</span>
-            </div> */}
-          </div>
-          <div className="w-full border-t border-rule-strong pt-4">
-            <Button variant={ButtonVariant.Ghost} onClick={handleOpenEvm} className="w-full text-heading-gray">
-              {t('receiveFromEvm')}
-            </Button>
+            {/* WalletConnect is not supported on the extension: the Reown relay
+                rejects the extension bundle's auth JWT (WebSocket close 3000), so
+                the AppKit connect flow can never complete there. */}
+            {!isExtension() && (
+              <button type="button" onClick={handleOpenEvm} className="flex items-center gap-4 text-accent-primary">
+                <Icon name={IconName.CrossChain} size="lg" className="shrink-0" />
+                <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">
+                  {t('crossChain')}
+                </span>
+              </button>
+            )}
           </div>
         </div>
       </div>
-      <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />
+      {!isExtension() && <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />}
     </div>
   );
 };

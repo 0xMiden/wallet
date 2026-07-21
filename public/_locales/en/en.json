@@ -725,6 +725,7 @@
   "share": "Share",
   "copy": "Copy",
   "receiveFromEvm": "From another chain?",
+  "crossChain": "Cross-chain",
   "evmWalletConnected": "EVM wallet connected",
   "midenBridge": "Miden Bridge",
   "evmWalletConnectedDescription": "You can now bridge assets from the connected wallet.",
