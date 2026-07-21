@@ -5,7 +5,14 @@ import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
 import { type TokenPrices } from 'lib/prices/binance';
-import { SerializedConsumableNote, SignEvmOperation, WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
+import {
+  GuardianSyncStatus,
+  SerializedConsumableNote,
+  SignEvmOperation,
+  WalletAccount,
+  WalletSettings,
+  WalletStatus
+} from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 /**
@@ -154,6 +161,10 @@ export interface WalletActions {
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
   swapHotKey: (accountPublicKey: string, newHotPubKey: string) => Promise<void>;
   setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<void>;
+  setGuardianOperatorCommitment: (accountPublicKey: string, guardianOperatorCommitment: string) => Promise<void>;
+  setGuardianSyncStatus: (accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) => Promise<void>;
+  checkGuardianDrift: (accountPublicKey: string) => Promise<GuardianSyncStatus>;
+  applyUserGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<boolean>;
   getPublicKeyForCommitment: (commitment: string) => Promise<string>;
   getAuthSecretKey: (key: string) => Promise<string>;
 

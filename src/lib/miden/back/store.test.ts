@@ -3,6 +3,7 @@
  * Tests effector store event handlers and helper functions.
  */
 import { WalletStatus } from 'lib/shared/types';
+import { WalletType } from 'screens/onboarding/types';
 
 import {
   store,
@@ -45,6 +46,33 @@ describe('back/store', () => {
       expect(front).not.toHaveProperty('inited');
       expect(front.status).toBe(WalletStatus.Ready);
       expect(front.accounts).toHaveLength(1);
+    });
+
+    it('preserves guardianOperatorCommitment and guardianSyncStatus', () => {
+      const state: StoreState = {
+        inited: true,
+        vault: {} as any,
+        status: WalletStatus.Ready,
+        accounts: [
+          {
+            publicKey: 'pk',
+            name: 'A',
+            isPublic: true,
+            type: WalletType.Guardian,
+            hdIndex: 0,
+            guardianEndpoint: 'https://guardian.openzeppelin.com',
+            guardianOperatorCommitment: 'abc123',
+            guardianSyncStatus: 'in-sync'
+          }
+        ],
+        networks: [],
+        settings: null,
+        currentAccount: null,
+        ownMnemonic: true
+      };
+      const front = toFront(state);
+      expect(front.accounts[0]!.guardianOperatorCommitment).toBe('abc123');
+      expect(front.accounts[0]!.guardianSyncStatus).toBe('in-sync');
     });
   });
 

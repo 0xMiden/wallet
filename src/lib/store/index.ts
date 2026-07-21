@@ -369,6 +369,43 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.SetGuardianEndpointResponse);
     },
 
+    setGuardianOperatorCommitment: async (accountPublicKey, guardianOperatorCommitment) => {
+      const res = await request({
+        type: WalletMessageType.SetGuardianOperatorCommitmentRequest,
+        accountPublicKey,
+        guardianOperatorCommitment
+      });
+      assertResponse(res.type === WalletMessageType.SetGuardianOperatorCommitmentResponse);
+    },
+
+    setGuardianSyncStatus: async (accountPublicKey, guardianSyncStatus) => {
+      const res = await request({
+        type: WalletMessageType.SetGuardianSyncStatusRequest,
+        accountPublicKey,
+        guardianSyncStatus
+      });
+      assertResponse(res.type === WalletMessageType.SetGuardianSyncStatusResponse);
+    },
+
+    checkGuardianDrift: async accountPublicKey => {
+      const res = await request({
+        type: WalletMessageType.CheckGuardianDriftRequest,
+        accountPublicKey
+      });
+      assertResponse(res.type === WalletMessageType.CheckGuardianDriftResponse);
+      return res.guardianSyncStatus;
+    },
+
+    applyUserGuardianEndpoint: async (accountPublicKey, guardianEndpoint) => {
+      const res = await request({
+        type: WalletMessageType.ApplyUserGuardianEndpointRequest,
+        accountPublicKey,
+        guardianEndpoint
+      });
+      assertResponse(res.type === WalletMessageType.ApplyUserGuardianEndpointResponse);
+      return res.applied;
+    },
+
     getPublicKeyForCommitment: async commitment => {
       const res = await request({
         type: WalletMessageType.GetPublicKeyForCommitmentRequest,

@@ -2,7 +2,22 @@
 
 ## 1.15.9 (TBD)
 
+### Features
+
+* [FEATURE][all] **Receive-from-EVM bridge deposit flow.** The deposit amount screen gained a "wallet connected · Miden Bridge" header (via a new optional `title` slot on `SelectAmount`) and an ETH/USDC token picker (bottom-sheet drawer). Token choice constrains the route: USDC disables the native-only Slow (Agglayer) route, and ETH on the Fast (Epoch) route shows a "wraps to WETH" notice (that combo isn't submittable yet — the wrap is a follow-up). Choosing a route then opens a "Review Deposit Details" screen (built on the shared `ReviewLayout`/`ReviewRow`/`ReviewAmount`, same design as the Send review) with amount, source network, route, and the quoted amount received on Miden; its **Confirm Deposit** button runs the bridge submit (`executeEVMToMiden` for Fast/Epoch, the Agglayer `bridgeAsset` call for Slow), spins while signing, and blocks re-submits once in flight.
+
+* [FEATURE][all] **Guardian accounts now auto-detect and reconcile out-of-band guardian switches; dApps can read guardian info via `requestGuardianInfo()`.**
+### Changes
+
+* [CHANGE][mobile] **The in-app swap is disabled on iOS.** Apple App Review classifies the In-Protocol DEX swap as a cryptocurrency exchange service under Guideline 3.1.5(iii), which requires per-storefront licensing the app does not yet hold, so the iOS build ships as a pure non-custodial wallet with no exchange surface. Swap availability is now gated by a single `isSwapEnabled()` flag (`!isIOS()`) applied to the Swap action-bar segment, the home swipe pane, and the `/swap` route (which redirects home on iOS); Android, the browser extension, and desktop are unaffected.
+
+* [CHANGE][all] **Merged the in-protocol-DEX branch and re-homed the Ethereum bridge onto its send flow.** The swap flow, the split `lib/miden/transaction/` module and the redesigned transaction-progress view land alongside the bridge work. Cross-chain sends now follow the same shape as same-chain ones: the destination network moved onto the recipient step (Miden for a bech32 address, Sepolia for a `0x` one), a 0x recipient then picks Fast (Epoch) vs Slow (Agglayer) on a Route step, and the full-screen `/send/review` page owns the whole submit pipeline for both routes plus the live "you receive" USDC quote. `bridged-send` rows are carried into the new transaction module (initiate/complete/Guardian-proposal arms), and batch consume (`Claim All`) moves there too.
+
 ### Fixes
+
+* [FIX][extension] The Receive screen's EVM entry point is now a "Cross-chain" action (icon row next to Share, replacing the "From another chain?" bordered button) and is hidden on the browser extension, where WalletConnect cannot connect (the Reown relay rejects the extension bundle's auth JWT with WebSocket close 3000).
+
+* [FIX][mobile] **iOS now renders at the display's native refresh rate (up to 120Hz ProMotion) instead of being capped at 60fps.** Added `CADisableMinimumFrameDurationOnPhone` to `Info.plist`. Since iOS 15, iPhones cap every app — including its WKWebView — to 60fps unless the app opts in to high frame rates, so on ProMotion devices animations and scrolling felt stuck at 60Hz (the same as Low Power Mode). CSS/compositor animations and native scrolling now run at the full display rate.
 
 - [FIX][mobile] **Import/recover flow asks for a passcode, not a password.** Recovering a wallet on mobile (both onboarding and forgot-password) now routes to the 6-digit passcode setup screen when hardware security isn't available, matching the create flow, instead of the extension/desktop full-password screen.
 

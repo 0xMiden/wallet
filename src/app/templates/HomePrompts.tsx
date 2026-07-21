@@ -3,6 +3,7 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { useTranslation } from 'react-i18next';
 
 import { ActivateHotKeyBanner } from 'app/templates/ActivateHotKeyBanner';
+import { GuardianNeedsUrlBanner } from 'app/templates/GuardianNeedsUrlBanner';
 import { PromptCard, PromptCardStatus, PromptCarousel, PromptCardVariant } from 'components/ui';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { WalletAccount } from 'lib/shared/types';
@@ -241,6 +242,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({ account, balances, balancesL
         );
       })}
       {account.requiresHotKeyRotation && <ActivateHotKeyBanner />}
+      {account.guardianSyncStatus === 'needs-user-input' && <GuardianNeedsUrlBanner />}
     </PromptCarousel>
   );
 };

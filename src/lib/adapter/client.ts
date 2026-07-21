@@ -11,6 +11,7 @@ import { NoteFilterTypes } from '@miden-sdk/miden-sdk/lazy';
 import { nanoid } from 'nanoid';
 
 import { b64ToU8 } from 'lib/shared/helpers';
+import { GuardianInfo } from 'lib/shared/types';
 
 import {
   MidenDAppErrorType,
@@ -185,6 +186,15 @@ export async function requestAssets(sourcePublicKey: string) {
   });
   assertResponse(res.type === MidenDAppMessageType.AssetsResponse);
   return res.assets;
+}
+
+export async function requestGuardianInfo(sourcePublicKey: string): Promise<GuardianInfo> {
+  const res = await request({
+    type: MidenDAppMessageType.GuardianInfoRequest,
+    sourcePublicKey
+  });
+  assertResponse(res.type === MidenDAppMessageType.GuardianInfoResponse);
+  return res.guardianInfo;
 }
 
 export async function importPrivateNote(sourcePublicKey: string, note: string) {

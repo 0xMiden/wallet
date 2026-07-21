@@ -375,6 +375,10 @@
     "message": "ネットワーク トラフィックによっては、これには少し時間がかかる場合があります。これは閉じても構いません。完了したら通知されます。",
     "englishSource": "This may take a moment depending on network traffic. You can close this — we'll notify you when it's done."
   },
+  "transactionProcessingHeader": {
+    "message": "処理",
+    "englishSource": "Processing"
+  },
   "transactionTitleSend": {
     "message": "支払いの送信",
     "englishSource": "Sending Payment"
@@ -935,8 +939,8 @@
     "englishSource": "Choose recipient"
   },
   "enterMidenOrEthereumAddress": {
-    "message": "ミデンの住所を入力してください",
-    "englishSource": "Enter Miden Address"
+    "message": "Miden または Ethereum アドレスを入力してください",
+    "englishSource": "Enter Miden or Ethereum address"
   },
   "selectAmount": {
     "message": "金額を選択してください",
@@ -1823,6 +1827,18 @@
     "message": "この回復されたアカウントのデバイス キーを生成します。送信する前に必須です。",
     "englishSource": "Generate a device key for this recovered account. Required before sending."
   },
+  "guardianChangedTitle": {
+    "message": "保護者が変更されました",
+    "englishSource": "Guardian changed"
+  },
+  "guardianChangedBody": {
+    "message": "保護者が変更されましたが、新しいオペレーターを特定できませんでした。再接続するには、その URL を入力します。",
+    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlMismatch": {
+    "message": "そのオペレーターはあなたのアカウントのオンチェーンガーディアンと一致しません。",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "revealHotKey": {
     "message": "デバイスキーを明らかにする",
     "englishSource": "Reveal device key"
@@ -2294,6 +2310,78 @@
     "message": "リコールブロック",
     "englishSource": "Recall blocks"
   },
+  "delegateTransaction": {
+    "message": "トランザクションの委任",
+    "englishSource": "Delegate transaction"
+  },
+  "shareTransactionPrivately": {
+    "message": "トランザクションを非公開で共有する",
+    "englishSource": "Share transaction privately"
+  },
+  "privatePayment": {
+    "message": "プライベート支払い",
+    "englishSource": "Private Payment"
+  },
+  "privatePaymentDescription": {
+    "message": "取引の詳細を非公開にしておきます",
+    "englishSource": "Keep transaction details private"
+  },
+  "useDelegateProving": {
+    "message": "代理証明を使用する",
+    "englishSource": "Use Delegate Proving"
+  },
+  "delegateProving": {
+    "message": "代理人による証明",
+    "englishSource": "Delegate Proving"
+  },
+  "delegateProvingDescription": {
+    "message": "プルーフ生成のアウトソーシング",
+    "englishSource": "Outsource proof generation"
+  },
+  "selectToken": {
+    "message": "トークンの選択",
+    "englishSource": "Select Token"
+  },
+  "arrives": {
+    "message": "到着",
+    "englishSource": "Arrives"
+  },
+  "ethereum": {
+    "message": "イーサリアム",
+    "englishSource": "Ethereum"
+  },
+  "fast": {
+    "message": "速い",
+    "englishSource": "Fast"
+  },
+  "slow": {
+    "message": "遅い",
+    "englishSource": "Slow"
+  },
+  "seconds": {
+    "message": "秒",
+    "englishSource": "Seconds"
+  },
+  "minutes": {
+    "message": "分",
+    "englishSource": "Minutes"
+  },
+  "invalidEthereumAddress": {
+    "message": "無効なイーサリアムアドレス",
+    "englishSource": "Invalid Ethereum address"
+  },
+  "oneToManyPayment": {
+    "message": "1対多の支払い",
+    "englishSource": "One to Many Payment"
+  },
+  "oneToManyPaymentDescription": {
+    "message": "複数の受信者に送信する",
+    "englishSource": "Send to multiple recipients"
+  },
+  "recallTransaction": {
+    "message": "トランザクションの取り消し",
+    "englishSource": "Recall Transaction"
+  },
   "sendPayment": {
     "message": "支払いの送信",
     "englishSource": "Send Payment"
@@ -2355,6 +2443,10 @@
         "content": "$1"
       }
     }
+  },
+  "pendingNotes": {
+    "message": "保留中 notes",
+    "englishSource": "Pending notes"
   },
   "addTokens": {
     "message": "トークンの追加",
@@ -2777,6 +2869,23 @@
     "message": "活動",
     "englishSource": "Activity"
   },
+  "agglayerBridgeInProgressTitle": {
+    "message": "橋が進行中",
+    "englishSource": "Bridge in progress"
+  },
+  "agglayerBridgeInProgressSubtitle": {
+    "message": "ブリッジング $amount$ EVM から Agglayer 経由で。これには時間がかかる場合があります。",
+    "englishSource": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "agglayerBridgeInProgressSubtitleNoAmount": {
+    "message": "Agglayer を介した EVM からの受信ブリッジが安定しています。これには時間がかかる場合があります。",
+    "englishSource": "An incoming bridge from EVM via Agglayer is settling. This can take a while."
+  },
   "explore": {
     "message": "探検する",
     "englishSource": "Explore"
@@ -2804,6 +2913,22 @@
   "transferDetails": {
     "message": "転送の詳細",
     "englishSource": "Transfer Details"
+  },
+  "advancedDetails": {
+    "message": "高度な詳細",
+    "englishSource": "Advanced details"
+  },
+  "recallBy": {
+    "message": "呼び出し元",
+    "englishSource": "Recall by"
+  },
+  "options": {
+    "message": "オプション",
+    "englishSource": "Options"
+  },
+  "recallEnabled": {
+    "message": "リコール有効",
+    "englishSource": "Recall enabled"
   },
   "on": {
     "message": "の上",
@@ -2949,10 +3074,6 @@
     "message": "保留中",
     "englishSource": "Pending"
   },
-  "pendingNotes": {
-    "message": "保留中 notes",
-    "englishSource": "Pending notes"
-  },
   "faucetRequestTitle": {
     "message": "Faucet リクエスト",
     "englishSource": "Faucet Request"
@@ -2964,5 +3085,209 @@
   "copy": {
     "message": "コピー",
     "englishSource": "Copy"
+  },
+  "receiveFromEvm": {
+    "message": "他のチェーンからですか？",
+    "englishSource": "From another chain?"
+  },
+  "crossChain": {
+    "message": "クロスチェーン",
+    "englishSource": "Cross-chain"
+  },
+  "evmWalletConnected": {
+    "message": "EVMウォレットが接続されました",
+    "englishSource": "EVM wallet connected"
+  },
+  "midenBridge": {
+    "message": "ミデン橋",
+    "englishSource": "Miden Bridge"
+  },
+  "evmWalletConnectedDescription": {
+    "message": "接続されたウォレットから資産をブリッジできるようになりました。",
+    "englishSource": "You can now bridge assets from the connected wallet."
+  },
+  "connectEvmWallet": {
+    "message": "EVMウォレットを接続する",
+    "englishSource": "Connect an EVM wallet"
+  },
+  "connectEvmWalletDescription": {
+    "message": "ウォレットを接続して、Miden との間で資産をブリッジします。",
+    "englishSource": "Connect a wallet to bridge assets to and from Miden."
+  },
+  "onlyBridgeableTokenSupported": {
+    "message": "低速 (Agglayer) ルートはブリッジ可能トークンのみをサポートします。他のトークンを送信するには Fast を使用します。",
+    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
+  },
+  "connectEvmWalletFirst": {
+    "message": "EVM ウォレットを接続して高速ルートを使用します。",
+    "englishSource": "Connect an EVM wallet to use the Fast route."
+  },
+  "connectDestinationWalletToClaim": {
+    "message": "請求先のウォレットを接続します。",
+    "englishSource": "Connect the destination wallet to claim."
+  },
+  "bridgeDetails": {
+    "message": "橋の詳細",
+    "englishSource": "Bridge details"
+  },
+  "route": {
+    "message": "ルート",
+    "englishSource": "Route"
+  },
+  "selectNetwork": {
+    "message": "ネットワークの選択",
+    "englishSource": "Select network"
+  },
+  "receiveOnArrivesAs": {
+    "message": "受信 $network$ · として到着します $symbol$ ",
+    "englishSource": "Receive on $network$ · arrives as $symbol$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "noFee": {
+    "message": "無料",
+    "englishSource": "No fee"
+  },
+  "fastArrival": {
+    "message": "～30秒",
+    "englishSource": "~30 sec"
+  },
+  "slowArrival": {
+    "message": "～6時間",
+    "englishSource": "~6 hours"
+  },
+  "youAreDepositing": {
+    "message": "入金中です",
+    "englishSource": "You are depositing"
+  },
+  "confirmDeposit": {
+    "message": "入金の確認",
+    "englishSource": "Confirm Deposit"
+  },
+  "slowNeedsNativeEth": {
+    "message": "低速 (Agglayer) ルートは、テストネット上のネイティブ ETH のみをサポートします。 ETHを選択して使用します。",
+    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
+  },
+  "fastEthWrapNotice": {
+    "message": "高速ルートで ETH をブリッジすると、最初に ETH が WETH にラップされ、次に WETH がブリッジされます。このルートはまだ利用できません。",
+    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "destinationNetwork": {
+    "message": "宛先ネットワーク",
+    "englishSource": "Destination network"
+  },
+  "claimStatus": {
+    "message": "請求ステータス",
+    "englishSource": "Claim status"
+  },
+  "claimAsset": {
+    "message": "資産の請求",
+    "englishSource": "Claim Asset"
+  },
+  "claimAssetSubmitted": {
+    "message": "提出された請求 — 資金は接続された EVM ウォレットにあります。",
+    "englishSource": "Claim submitted — funds are on the connected EVM wallet."
+  },
+  "claimable": {
+    "message": "請求する準備ができています",
+    "englishSource": "Ready to claim"
+  },
+  "claiming": {
+    "message": "主張中…",
+    "englishSource": "Claiming…"
+  },
+  "claimed": {
+    "message": "主張した",
+    "englishSource": "Claimed"
+  },
+  "claimPending": {
+    "message": "ブリッジング — 請求の準備がまだできていません",
+    "englishSource": "Bridging — claim not ready yet"
+  },
+  "claimFailedStatus": {
+    "message": "請求が失敗しました",
+    "englishSource": "Claim failed"
+  },
+  "noManualClaimRequired": {
+    "message": "資金は自動的に到着します。請求の必要はありません。",
+    "englishSource": "Funds arrive automatically — no claim needed."
+  },
+  "fastRouteLabel": {
+    "message": "高速 (エポック)",
+    "englishSource": "Fast (Epoch)"
+  },
+  "slowRouteLabel": {
+    "message": "遅い (アグラー)",
+    "englishSource": "Slow (Agglayer)"
+  },
+  "bridgeRowTitle": {
+    "message": "橋 $from$  →  $to$ ",
+    "englishSource": "Bridge $from$ → $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "to": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeRowVia": {
+    "message": "経由 $provider$  →  $network$ ",
+    "englishSource": "Via $provider$ → $network$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeInProgress": {
+    "message": "進行中",
+    "englishSource": "In progress"
+  },
+  "bridgeFailed": {
+    "message": "失敗した",
+    "englishSource": "Failed"
+  },
+  "receivingTx": {
+    "message": "Txを受信中",
+    "englishSource": "Receiving Tx"
+  },
+  "openInYourWallet": {
+    "message": "財布の中で開く",
+    "englishSource": "Open in your wallet"
+  },
+  "openInYourWalletDescription": {
+    "message": "インストールされているウォレットを選択して接続を承認します。",
+    "englishSource": "Pick an installed wallet to approve the connection."
+  },
+  "scanWithYourWallet": {
+    "message": "財布でスキャン",
+    "englishSource": "Scan with your wallet"
+  },
+  "scanWithYourWalletDescription": {
+    "message": "任意のEVMウォレットでWalletConnectを開き、コードをスキャンします。",
+    "englishSource": "Open WalletConnect in any EVM wallet and scan the code."
+  },
+  "preparing": {
+    "message": "接続を準備しています…",
+    "englishSource": "Preparing connection…"
+  },
+  "copyConnectionLink": {
+    "message": "接続リンクをコピーする",
+    "englishSource": "Copy connection link"
+  },
+  "disconnect": {
+    "message": "切断する",
+    "englishSource": "Disconnect"
   }
 }

@@ -319,9 +319,9 @@ export class IosWalletPage implements WalletPage {
     // separate context. On mobile there's no SW; a reload would drop the
     // in-memory decryption key and kick the UI back to the password
     // screen, where no Claim button exists. Stay in-session instead.
-    // Claimable notes live on their own /pending page (mounts the claim UI
+    // Claimable notes live on their own /pending-notes page (mounts the claim UI
     // directly).
-    await this.navigateTo('/pending');
+    await this.navigateTo('/pending-notes');
     // The wallet's auto-sync runs every 3s (useSyncTrigger). On a freshly
     // installed app the first sync also pays a cold WASM init + IndexedDB
     // open + RPC cold-start cost. Give it ~10s to land at least one full

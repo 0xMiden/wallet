@@ -189,6 +189,7 @@ export default defineConfig({
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    'process.env.MIDEN_INCLUDE_SWAP_FOR_IOS': JSON.stringify(process.env.MIDEN_INCLUDE_SWAP_FOR_IOS ?? 'false'),
     'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
       process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
     ),

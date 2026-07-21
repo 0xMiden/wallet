@@ -375,6 +375,10 @@
     "message": "Это может занять некоторое время в зависимости от сетевого трафика. Вы можете закрыть это — мы сообщим вам, когда это будет сделано.",
     "englishSource": "This may take a moment depending on network traffic. You can close this — we'll notify you when it's done."
   },
+  "transactionProcessingHeader": {
+    "message": "Обработка",
+    "englishSource": "Processing"
+  },
   "transactionTitleSend": {
     "message": "Отправка платежа",
     "englishSource": "Sending Payment"
@@ -935,8 +939,8 @@
     "englishSource": "Choose recipient"
   },
   "enterMidenOrEthereumAddress": {
-    "message": "Введите адрес Мидена",
-    "englishSource": "Enter Miden Address"
+    "message": "Введите адрес Miden или Ethereum",
+    "englishSource": "Enter Miden or Ethereum address"
   },
   "selectAmount": {
     "message": "Выберите сумму",
@@ -1824,6 +1828,18 @@
     "message": "Создайте ключ устройства для этой восстановленной учетной записи. Обязательно перед отправкой.",
     "englishSource": "Generate a device key for this recovered account. Required before sending."
   },
+  "guardianChangedTitle": {
+    "message": "Хранитель изменен",
+    "englishSource": "Guardian changed"
+  },
+  "guardianChangedBody": {
+    "message": "Ваш опекун сменился, и мы не смогли определить нового оператора. Введите его URL-адрес для повторного подключения.",
+    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlMismatch": {
+    "message": "Этот оператор не соответствует опекуну вашей учетной записи в цепочке.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "revealHotKey": {
     "message": "Показать ключ устройства",
     "englishSource": "Reveal device key"
@@ -2295,6 +2311,78 @@
     "message": "Вызов блоков",
     "englishSource": "Recall blocks"
   },
+  "delegateTransaction": {
+    "message": "Делегировать транзакцию",
+    "englishSource": "Delegate transaction"
+  },
+  "shareTransactionPrivately": {
+    "message": "Поделитесь транзакцией конфиденциально",
+    "englishSource": "Share transaction privately"
+  },
+  "privatePayment": {
+    "message": "Частный платеж",
+    "englishSource": "Private Payment"
+  },
+  "privatePaymentDescription": {
+    "message": "Сохраняйте детали транзакции конфиденциальными",
+    "englishSource": "Keep transaction details private"
+  },
+  "useDelegateProving": {
+    "message": "Используйте делегированное доказательство",
+    "englishSource": "Use Delegate Proving"
+  },
+  "delegateProving": {
+    "message": "Делегат Доказывание",
+    "englishSource": "Delegate Proving"
+  },
+  "delegateProvingDescription": {
+    "message": "Генерация доказательств на аутсорсе",
+    "englishSource": "Outsource proof generation"
+  },
+  "selectToken": {
+    "message": "Выберите токен",
+    "englishSource": "Select Token"
+  },
+  "arrives": {
+    "message": "Прибывает",
+    "englishSource": "Arrives"
+  },
+  "ethereum": {
+    "message": "Эфириум",
+    "englishSource": "Ethereum"
+  },
+  "fast": {
+    "message": "Быстрый",
+    "englishSource": "Fast"
+  },
+  "slow": {
+    "message": "Медленный",
+    "englishSource": "Slow"
+  },
+  "seconds": {
+    "message": "Секунды",
+    "englishSource": "Seconds"
+  },
+  "minutes": {
+    "message": "Минуты",
+    "englishSource": "Minutes"
+  },
+  "invalidEthereumAddress": {
+    "message": "Неверный адрес Эфириума",
+    "englishSource": "Invalid Ethereum address"
+  },
+  "oneToManyPayment": {
+    "message": "Оплата «один ко многим»",
+    "englishSource": "One to Many Payment"
+  },
+  "oneToManyPaymentDescription": {
+    "message": "Отправить нескольким получателям",
+    "englishSource": "Send to multiple recipients"
+  },
+  "recallTransaction": {
+    "message": "Отозвать транзакцию",
+    "englishSource": "Recall Transaction"
+  },
   "sendPayment": {
     "message": "Отправить платеж",
     "englishSource": "Send Payment"
@@ -2356,6 +2444,10 @@
         "content": "$1"
       }
     }
+  },
+  "pendingNotes": {
+    "message": "Ожидание notes",
+    "englishSource": "Pending notes"
   },
   "addTokens": {
     "message": "Добавить токены",
@@ -2778,6 +2870,23 @@
     "message": "Активность",
     "englishSource": "Activity"
   },
+  "agglayerBridgeInProgressTitle": {
+    "message": "Мост в процессе",
+    "englishSource": "Bridge in progress"
+  },
+  "agglayerBridgeInProgressSubtitle": {
+    "message": "Преодоление $amount$ из EVM через Agglayer. Это может занять некоторое время.",
+    "englishSource": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "agglayerBridgeInProgressSubtitleNoAmount": {
+    "message": "Входящий мост от EVM через Agglayer устанавливается. Это может занять некоторое время.",
+    "englishSource": "An incoming bridge from EVM via Agglayer is settling. This can take a while."
+  },
   "explore": {
     "message": "Исследовать",
     "englishSource": "Explore"
@@ -2805,6 +2914,22 @@
   "transferDetails": {
     "message": "Детали трансфера",
     "englishSource": "Transfer Details"
+  },
+  "advancedDetails": {
+    "message": "Дополнительные сведения",
+    "englishSource": "Advanced details"
+  },
+  "recallBy": {
+    "message": "Отозвать по",
+    "englishSource": "Recall by"
+  },
+  "options": {
+    "message": "Параметры",
+    "englishSource": "Options"
+  },
+  "recallEnabled": {
+    "message": "Повторный вызов включен",
+    "englishSource": "Recall enabled"
   },
   "on": {
     "message": "На",
@@ -2950,10 +3075,6 @@
     "message": "В ожидании",
     "englishSource": "Pending"
   },
-  "pendingNotes": {
-    "message": "Ожидание notes",
-    "englishSource": "Pending notes"
-  },
   "faucetRequestTitle": {
     "message": "Faucet Запрос",
     "englishSource": "Faucet Request"
@@ -2965,5 +3086,209 @@
   "copy": {
     "message": "Копировать",
     "englishSource": "Copy"
+  },
+  "receiveFromEvm": {
+    "message": "Из другой сети?",
+    "englishSource": "From another chain?"
+  },
+  "crossChain": {
+    "message": "Кроссчейн",
+    "englishSource": "Cross-chain"
+  },
+  "evmWalletConnected": {
+    "message": "Кошелек EVM подключен",
+    "englishSource": "EVM wallet connected"
+  },
+  "midenBridge": {
+    "message": "Миденский мост",
+    "englishSource": "Miden Bridge"
+  },
+  "evmWalletConnectedDescription": {
+    "message": "Теперь вы можете переносить активы из подключенного кошелька.",
+    "englishSource": "You can now bridge assets from the connected wallet."
+  },
+  "connectEvmWallet": {
+    "message": "Подключите кошелек EVM",
+    "englishSource": "Connect an EVM wallet"
+  },
+  "connectEvmWalletDescription": {
+    "message": "Подключите кошелек для передачи активов в/из Miden.",
+    "englishSource": "Connect a wallet to bridge assets to and from Miden."
+  },
+  "onlyBridgeableTokenSupported": {
+    "message": "Маршрут Slow (Agglayer) поддерживает только мостовой токен. Используйте Fast для отправки других токенов.",
+    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
+  },
+  "connectEvmWalletFirst": {
+    "message": "Подключите кошелек EVM, чтобы использовать быстрый маршрут.",
+    "englishSource": "Connect an EVM wallet to use the Fast route."
+  },
+  "connectDestinationWalletToClaim": {
+    "message": "Подключите целевой кошелек для запроса.",
+    "englishSource": "Connect the destination wallet to claim."
+  },
+  "bridgeDetails": {
+    "message": "Детали моста",
+    "englishSource": "Bridge details"
+  },
+  "route": {
+    "message": "Маршрут",
+    "englishSource": "Route"
+  },
+  "selectNetwork": {
+    "message": "Выберите сеть",
+    "englishSource": "Select network"
+  },
+  "receiveOnArrivesAs": {
+    "message": "Получите на $network$ · прибывает как $symbol$ ",
+    "englishSource": "Receive on $network$ · arrives as $symbol$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "noFee": {
+    "message": "Без комиссии",
+    "englishSource": "No fee"
+  },
+  "fastArrival": {
+    "message": "~30 секунд",
+    "englishSource": "~30 sec"
+  },
+  "slowArrival": {
+    "message": "~6 часов",
+    "englishSource": "~6 hours"
+  },
+  "youAreDepositing": {
+    "message": "Вы вносите депозит",
+    "englishSource": "You are depositing"
+  },
+  "confirmDeposit": {
+    "message": "Подтвердить депозит",
+    "englishSource": "Confirm Deposit"
+  },
+  "slowNeedsNativeEth": {
+    "message": "Маршрут Slow (Agglayer) поддерживает только собственный ETH в тестовой сети. Выберите ETH, чтобы использовать его.",
+    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
+  },
+  "fastEthWrapNotice": {
+    "message": "Соединение ETH по быстрому маршруту сначала переносит его в WETH, а затем соединяет WETH. Этот маршрут пока недоступен.",
+    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "destinationNetwork": {
+    "message": "Сеть назначения",
+    "englishSource": "Destination network"
+  },
+  "claimStatus": {
+    "message": "Статус заявки",
+    "englishSource": "Claim status"
+  },
+  "claimAsset": {
+    "message": "Заявить права на актив",
+    "englishSource": "Claim Asset"
+  },
+  "claimAssetSubmitted": {
+    "message": "Претензия подана — средства находятся на подключенном кошельке EVM.",
+    "englishSource": "Claim submitted — funds are on the connected EVM wallet."
+  },
+  "claimable": {
+    "message": "Готов предъявить претензии",
+    "englishSource": "Ready to claim"
+  },
+  "claiming": {
+    "message": "Утверждение…",
+    "englishSource": "Claiming…"
+  },
+  "claimed": {
+    "message": "Заявлено",
+    "englishSource": "Claimed"
+  },
+  "claimPending": {
+    "message": "Преодоление — заявка еще не готова",
+    "englishSource": "Bridging — claim not ready yet"
+  },
+  "claimFailedStatus": {
+    "message": "Заявка отклонена",
+    "englishSource": "Claim failed"
+  },
+  "noManualClaimRequired": {
+    "message": "Средства поступают автоматически — претензий не требуется.",
+    "englishSource": "Funds arrive automatically — no claim needed."
+  },
+  "fastRouteLabel": {
+    "message": "Быстрый (Эпоха)",
+    "englishSource": "Fast (Epoch)"
+  },
+  "slowRouteLabel": {
+    "message": "Медленный (Агглер)",
+    "englishSource": "Slow (Agglayer)"
+  },
+  "bridgeRowTitle": {
+    "message": "Мост $from$  →  $to$ ",
+    "englishSource": "Bridge $from$ → $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "to": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeRowVia": {
+    "message": "С помощью $provider$  →  $network$ ",
+    "englishSource": "Via $provider$ → $network$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeInProgress": {
+    "message": "В ходе выполнения",
+    "englishSource": "In progress"
+  },
+  "bridgeFailed": {
+    "message": "Неуспешный",
+    "englishSource": "Failed"
+  },
+  "receivingTx": {
+    "message": "Получение передачи",
+    "englishSource": "Receiving Tx"
+  },
+  "openInYourWallet": {
+    "message": "Открыть в своем кошельке",
+    "englishSource": "Open in your wallet"
+  },
+  "openInYourWalletDescription": {
+    "message": "Выберите установленный кошелек, чтобы одобрить соединение.",
+    "englishSource": "Pick an installed wallet to approve the connection."
+  },
+  "scanWithYourWallet": {
+    "message": "Сканируйте с помощью кошелька",
+    "englishSource": "Scan with your wallet"
+  },
+  "scanWithYourWalletDescription": {
+    "message": "Откройте WalletConnect в любом кошельке EVM и отсканируйте код.",
+    "englishSource": "Open WalletConnect in any EVM wallet and scan the code."
+  },
+  "preparing": {
+    "message": "Подготовка подключения…",
+    "englishSource": "Preparing connection…"
+  },
+  "copyConnectionLink": {
+    "message": "Скопировать ссылку для подключения",
+    "englishSource": "Copy connection link"
+  },
+  "disconnect": {
+    "message": "Отключить",
+    "englishSource": "Disconnect"
   }
 }

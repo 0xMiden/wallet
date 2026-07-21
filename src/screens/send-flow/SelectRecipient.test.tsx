@@ -15,6 +15,27 @@ jest.mock('react-i18next', () => ({
 const ETH_ADDRESS = '0x71C7656EC7ab88b098defB751B7401B5f6d8976F';
 const MIDEN_ADDRESS = 'mtst1recipient';
 
+jest.mock('./bridge-networks', () => ({
+  BRIDGE_OUTPUT_TOKEN_SYMBOL: 'USDC',
+  getBridgeNetwork: (id: string | undefined) =>
+    id === 'sepolia' ? { id: 'sepolia', name: 'Sepolia', chainId: 11155111 } : undefined
+}));
+
+// `components/Button` pulls in framer-motion, Capacitor haptics and the icon
+// barrel transitively. We stub it with a plain <button> that still renders
+// `iconLeft` (so the internal AddressBookIcon SVG is exercised) and forwards
+// onClick/disabled/className/data-testid, keeping the test focused on
+// SelectRecipient's own branches.
+jest.mock('components/Button', () => {
+  const ReactMock = require('react');
+  return {
+    __esModule: true,
+    ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
+    Button: ({ variant: _variant, title, iconLeft, children, ...rest }: any) =>
+      ReactMock.createElement('button', { type: 'button', ...rest }, iconLeft, children ?? title)
+  };
+});
+
 function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
   const props: SelectRecipientProps = {
     address: '',

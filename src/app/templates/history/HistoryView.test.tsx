@@ -101,7 +101,10 @@ jest.mock('./HistoryItem', () => ({
 // isFaucetRequest: pure predicate driven off a test-only `__faucet` marker so
 // each entry can opt into the faucet branch independently.
 jest.mock('./transactionUtils', () => ({
-  isFaucetRequest: jest.fn((entry: { __faucet?: boolean }) => Boolean(entry.__faucet))
+  isFaucetRequest: jest.fn((entry: { __faucet?: boolean }) => Boolean(entry.__faucet)),
+  isBridgeInEntry: jest.fn(() => false),
+  bridgeInRowDisplay: jest.fn(),
+  bridgeRowDisplay: jest.fn()
 }));
 
 // InfiniteScroll: render children inline, invoke getScrollParent so the

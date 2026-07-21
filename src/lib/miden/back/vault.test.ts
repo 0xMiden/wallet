@@ -757,6 +757,71 @@ describe('Vault.revealGuardianKeys', () => {
   });
 });
 
+describe('Vault.setGuardianOperatorCommitment / setGuardianSyncStatus', () => {
+  async function seedGuardianPair(vault: Vault) {
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const accounts: WalletAccount[] = [
+      {
+        publicKey: 'pkA',
+        name: 'Guardian A',
+        isPublic: false,
+        type: WalletType.Guardian,
+        hdIndex: 0,
+        guardianSyncStatus: 'in-sync'
+      },
+      {
+        publicKey: 'pkB',
+        name: 'Guardian B',
+        isPublic: false,
+        type: WalletType.Guardian,
+        hdIndex: 1,
+        guardianSyncStatus: 'in-sync'
+      }
+    ];
+    await encryptAndSaveMany([[keys.accounts, accounts]], vaultKey);
+  }
+
+  describe('setGuardianOperatorCommitment', () => {
+    it('updates only the target account and persists', async () => {
+      const vault = await seedVault('pw');
+      await seedGuardianPair(vault);
+
+      await vault.setGuardianOperatorCommitment('pkA', 'commitment-hex');
+      const accounts = await vault.fetchAccounts();
+
+      expect(accounts.find(a => a.publicKey === 'pkA')?.guardianOperatorCommitment).toBe('commitment-hex');
+      expect(accounts.find(a => a.publicKey === 'pkB')?.guardianOperatorCommitment).toBeUndefined();
+    });
+
+    it('rejects with PublicError when the target public key is unknown', async () => {
+      const vault = await seedVault('pw');
+      await seedGuardianPair(vault);
+
+      await expect(vault.setGuardianOperatorCommitment('not-here', 'commitment-hex')).rejects.toThrow(PublicError);
+    });
+  });
+
+  describe('setGuardianSyncStatus', () => {
+    it('updates only the target account and persists', async () => {
+      const vault = await seedVault('pw');
+      await seedGuardianPair(vault);
+
+      await vault.setGuardianSyncStatus('pkA', 'needs-user-input');
+      const accounts = await vault.fetchAccounts();
+
+      expect(accounts.find(a => a.publicKey === 'pkA')?.guardianSyncStatus).toBe('needs-user-input');
+      expect(accounts.find(a => a.publicKey === 'pkB')?.guardianSyncStatus).toBe('in-sync');
+    });
+
+    it('rejects with PublicError when the target public key is unknown', async () => {
+      const vault = await seedVault('pw');
+      await seedGuardianPair(vault);
+
+      await expect(vault.setGuardianSyncStatus('not-here', 'needs-user-input')).rejects.toThrow(PublicError);
+    });
+  });
+});
+
 describe('Vault.createHDAccount', () => {
   it('appends a new on-chain account with a derived default name', async () => {
     const vault = await seedVault('pw');

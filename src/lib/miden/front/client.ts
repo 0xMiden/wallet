@@ -5,6 +5,7 @@ import constate from 'constate';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import {
+  GuardianSyncStatus,
   SignEvmOperation,
   WalletAccount,
   WalletRequest,
@@ -58,6 +59,10 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeRevealPrivateKey = useWalletStore(s => s.revealPrivateKey);
   const storeRevealHotKey = useWalletStore(s => s.revealHotKey);
   const storeRevealGuardianKeys = useWalletStore(s => s.revealGuardianKeys);
+  const storeSetGuardianOperatorCommitment = useWalletStore(s => s.setGuardianOperatorCommitment);
+  const storeSetGuardianSyncStatus = useWalletStore(s => s.setGuardianSyncStatus);
+  const storeCheckGuardianDrift = useWalletStore(s => s.checkGuardianDrift);
+  const storeApplyUserGuardianEndpoint = useWalletStore(s => s.applyUserGuardianEndpoint);
   const storeImportAccount = useWalletStore(s => s.importAccount);
   const storeUpdateSettings = useWalletStore(s => s.updateSettings);
   const storeSignData = useWalletStore(s => s.signData);
@@ -176,6 +181,34 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       return storeImportAccount(privateKey, name);
     },
     [storeImportAccount]
+  );
+
+  const setGuardianOperatorCommitment = useCallback(
+    async (accountPublicKey: string, guardianOperatorCommitment: string) => {
+      await storeSetGuardianOperatorCommitment(accountPublicKey, guardianOperatorCommitment);
+    },
+    [storeSetGuardianOperatorCommitment]
+  );
+
+  const setGuardianSyncStatus = useCallback(
+    async (accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) => {
+      await storeSetGuardianSyncStatus(accountPublicKey, guardianSyncStatus);
+    },
+    [storeSetGuardianSyncStatus]
+  );
+
+  const checkGuardianDrift = useCallback(
+    async (accountPublicKey: string) => {
+      return storeCheckGuardianDrift(accountPublicKey);
+    },
+    [storeCheckGuardianDrift]
+  );
+
+  const applyUserGuardianEndpoint = useCallback(
+    async (accountPublicKey: string, guardianEndpoint: string) => {
+      return storeApplyUserGuardianEndpoint(accountPublicKey, guardianEndpoint);
+    },
+    [storeApplyUserGuardianEndpoint]
   );
 
   const updateSettings = useCallback(
@@ -339,6 +372,10 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     revealPrivateKey,
     revealHotKey,
     revealGuardianKeys,
+    setGuardianOperatorCommitment,
+    setGuardianSyncStatus,
+    checkGuardianDrift,
+    applyUserGuardianEndpoint,
     revealMnemonic,
     removeAccount,
     editAccountName,

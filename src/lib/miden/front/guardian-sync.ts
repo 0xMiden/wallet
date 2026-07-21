@@ -62,6 +62,12 @@ export async function syncGuardianAccounts(): Promise<void> {
       const service = await getOrCreateMultisigService(account.publicKey, zustandProvider);
       await service.sync();
 
+      // Best-effort: a drift-check failure must never break the sync loop.
+      await useWalletStore
+        .getState()
+        .checkGuardianDrift(account.publicKey)
+        .catch(() => {});
+
       // Self-heal the update_guardian threshold-2 hardening: if a migrated
       // account's original hardening tx was dropped, it would otherwise sit at
       // threshold-1 indefinitely. Idempotent + best-effort; once per session.

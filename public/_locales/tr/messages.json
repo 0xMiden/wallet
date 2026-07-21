@@ -375,6 +375,10 @@
     "message": "Ağ trafiğine bağlı olarak bu işlem biraz zaman alabilir. Bunu kapatabilirsiniz; bittiğinde sizi bilgilendireceğiz.",
     "englishSource": "This may take a moment depending on network traffic. You can close this — we'll notify you when it's done."
   },
+  "transactionProcessingHeader": {
+    "message": "İşleme",
+    "englishSource": "Processing"
+  },
   "transactionTitleSend": {
     "message": "Ödeme Gönderiliyor",
     "englishSource": "Sending Payment"
@@ -935,8 +939,8 @@
     "englishSource": "Choose recipient"
   },
   "enterMidenOrEthereumAddress": {
-    "message": "Miden Adresini Girin",
-    "englishSource": "Enter Miden Address"
+    "message": "Miden veya Ethereum adresini girin",
+    "englishSource": "Enter Miden or Ethereum address"
   },
   "selectAmount": {
     "message": "Tutar Seçin",
@@ -1823,6 +1827,18 @@
     "message": "Kurtarılan bu hesap için bir cihaz anahtarı oluşturun. Göndermeden önce gereklidir.",
     "englishSource": "Generate a device key for this recovered account. Required before sending."
   },
+  "guardianChangedTitle": {
+    "message": "Gardiyan değişti",
+    "englishSource": "Guardian changed"
+  },
+  "guardianChangedBody": {
+    "message": "Vasiniz değiştirildi ve yeni operatörü belirleyemedik. Yeniden bağlanmak için URL'sini girin.",
+    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlMismatch": {
+    "message": "Bu operatör, hesabınızın zincirdeki koruyucusuyla eşleşmiyor.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "revealHotKey": {
     "message": "Cihaz anahtarını göster",
     "englishSource": "Reveal device key"
@@ -2294,6 +2310,78 @@
     "message": "Blokları geri çağırma",
     "englishSource": "Recall blocks"
   },
+  "delegateTransaction": {
+    "message": "Delege işlemi",
+    "englishSource": "Delegate transaction"
+  },
+  "shareTransactionPrivately": {
+    "message": "İşlemi özel olarak paylaş",
+    "englishSource": "Share transaction privately"
+  },
+  "privatePayment": {
+    "message": "Özel Ödeme",
+    "englishSource": "Private Payment"
+  },
+  "privatePaymentDescription": {
+    "message": "İşlem ayrıntılarını gizli tutun",
+    "englishSource": "Keep transaction details private"
+  },
+  "useDelegateProving": {
+    "message": "Temsilci Kanıtlamayı Kullan",
+    "englishSource": "Use Delegate Proving"
+  },
+  "delegateProving": {
+    "message": "Delege Kanıtlama",
+    "englishSource": "Delegate Proving"
+  },
+  "delegateProvingDescription": {
+    "message": "Dış kaynak kanıtı üretimi",
+    "englishSource": "Outsource proof generation"
+  },
+  "selectToken": {
+    "message": "Jeton Seç",
+    "englishSource": "Select Token"
+  },
+  "arrives": {
+    "message": "Vardı",
+    "englishSource": "Arrives"
+  },
+  "ethereum": {
+    "message": "Ethereum",
+    "englishSource": "Ethereum"
+  },
+  "fast": {
+    "message": "Hızlı",
+    "englishSource": "Fast"
+  },
+  "slow": {
+    "message": "Yavaş",
+    "englishSource": "Slow"
+  },
+  "seconds": {
+    "message": "Saniye",
+    "englishSource": "Seconds"
+  },
+  "minutes": {
+    "message": "dakika",
+    "englishSource": "Minutes"
+  },
+  "invalidEthereumAddress": {
+    "message": "Geçersiz Ethereum adresi",
+    "englishSource": "Invalid Ethereum address"
+  },
+  "oneToManyPayment": {
+    "message": "Bire Çok Ödeme",
+    "englishSource": "One to Many Payment"
+  },
+  "oneToManyPaymentDescription": {
+    "message": "Birden fazla alıcıya gönder",
+    "englishSource": "Send to multiple recipients"
+  },
+  "recallTransaction": {
+    "message": "İşlemi Geri Çağırma",
+    "englishSource": "Recall Transaction"
+  },
   "sendPayment": {
     "message": "Ödeme Gönder",
     "englishSource": "Send Payment"
@@ -2343,6 +2431,10 @@
         "content": "$1"
       }
     }
+  },
+  "pendingNotes": {
+    "message": "Beklemede notes",
+    "englishSource": "Pending notes"
   },
   "addTokens": {
     "message": "Jeton ekle",
@@ -2765,6 +2857,23 @@
     "message": "Etkinlik",
     "englishSource": "Activity"
   },
+  "agglayerBridgeInProgressTitle": {
+    "message": "Köprü yapılıyor",
+    "englishSource": "Bridge in progress"
+  },
+  "agglayerBridgeInProgressSubtitle": {
+    "message": "Köprüleme $amount$ Agglayer aracılığıyla EVM'den. Bu biraz zaman alabilir.",
+    "englishSource": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "agglayerBridgeInProgressSubtitleNoAmount": {
+    "message": "EVM'den Agglayer aracılığıyla gelen bir köprü yerleşiyor. Bu biraz zaman alabilir.",
+    "englishSource": "An incoming bridge from EVM via Agglayer is settling. This can take a while."
+  },
   "explore": {
     "message": "Keşfetmek",
     "englishSource": "Explore"
@@ -2792,6 +2901,22 @@
   "transferDetails": {
     "message": "Transfer Detayları",
     "englishSource": "Transfer Details"
+  },
+  "advancedDetails": {
+    "message": "Gelişmiş ayrıntılar",
+    "englishSource": "Advanced details"
+  },
+  "recallBy": {
+    "message": "Şuna göre hatırla:",
+    "englishSource": "Recall by"
+  },
+  "options": {
+    "message": "Seçenekler",
+    "englishSource": "Options"
+  },
+  "recallEnabled": {
+    "message": "Geri çağırma etkin",
+    "englishSource": "Recall enabled"
   },
   "on": {
     "message": "Açık",
@@ -2937,10 +3062,6 @@
     "message": "Askıda olması",
     "englishSource": "Pending"
   },
-  "pendingNotes": {
-    "message": "Beklemede notes",
-    "englishSource": "Pending notes"
-  },
   "faucetRequestTitle": {
     "message": "Faucet İstek",
     "englishSource": "Faucet Request"
@@ -2952,5 +3073,209 @@
   "copy": {
     "message": "Kopyala",
     "englishSource": "Copy"
+  },
+  "receiveFromEvm": {
+    "message": "Başka bir zincirden mi?",
+    "englishSource": "From another chain?"
+  },
+  "crossChain": {
+    "message": "Çapraz zincir",
+    "englishSource": "Cross-chain"
+  },
+  "evmWalletConnected": {
+    "message": "EVM cüzdanı bağlandı",
+    "englishSource": "EVM wallet connected"
+  },
+  "midenBridge": {
+    "message": "Miden Köprüsü",
+    "englishSource": "Miden Bridge"
+  },
+  "evmWalletConnectedDescription": {
+    "message": "Artık varlıkları bağlı cüzdandan köprüleyebilirsiniz.",
+    "englishSource": "You can now bridge assets from the connected wallet."
+  },
+  "connectEvmWallet": {
+    "message": "EVM cüzdanını bağlayın",
+    "englishSource": "Connect an EVM wallet"
+  },
+  "connectEvmWalletDescription": {
+    "message": "Varlıkları Miden ile Miden arasında köprülemek için bir cüzdan bağlayın.",
+    "englishSource": "Connect a wallet to bridge assets to and from Miden."
+  },
+  "onlyBridgeableTokenSupported": {
+    "message": "Yavaş (Agglayer) rotası yalnızca köprülenebilir jetonu destekler. Diğer belirteçleri göndermek için Hızlı'yı kullanın.",
+    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
+  },
+  "connectEvmWalletFirst": {
+    "message": "Hızlı rotayı kullanmak için bir EVM cüzdanı bağlayın.",
+    "englishSource": "Connect an EVM wallet to use the Fast route."
+  },
+  "connectDestinationWalletToClaim": {
+    "message": "Talep etmek için hedef cüzdanı bağlayın.",
+    "englishSource": "Connect the destination wallet to claim."
+  },
+  "bridgeDetails": {
+    "message": "Köprü ayrıntıları",
+    "englishSource": "Bridge details"
+  },
+  "route": {
+    "message": "Rota",
+    "englishSource": "Route"
+  },
+  "selectNetwork": {
+    "message": "Ağ seçin",
+    "englishSource": "Select network"
+  },
+  "receiveOnArrivesAs": {
+    "message": "Şu tarihte alın: $network$ · olarak gelir $symbol$ ",
+    "englishSource": "Receive on $network$ · arrives as $symbol$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "noFee": {
+    "message": "Ücret yok",
+    "englishSource": "No fee"
+  },
+  "fastArrival": {
+    "message": "~30 saniye",
+    "englishSource": "~30 sec"
+  },
+  "slowArrival": {
+    "message": "~6 saat",
+    "englishSource": "~6 hours"
+  },
+  "youAreDepositing": {
+    "message": "Para yatırıyorsun",
+    "englishSource": "You are depositing"
+  },
+  "confirmDeposit": {
+    "message": "Para Yatırma İşlemini Onayla",
+    "englishSource": "Confirm Deposit"
+  },
+  "slowNeedsNativeEth": {
+    "message": "Yavaş (Agglayer) rotası yalnızca test ağında yerel ETH'yi destekler. Kullanmak için ETH'yi seçin.",
+    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
+  },
+  "fastEthWrapNotice": {
+    "message": "ETH'yi Hızlı rotada köprülemek onu önce WETH'e sarar, ardından WETH'i köprüler. Bu rota henüz kullanılamıyor.",
+    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "destinationNetwork": {
+    "message": "Hedef ağı",
+    "englishSource": "Destination network"
+  },
+  "claimStatus": {
+    "message": "Talep durumu",
+    "englishSource": "Claim status"
+  },
+  "claimAsset": {
+    "message": "Varlık Talebi",
+    "englishSource": "Claim Asset"
+  },
+  "claimAssetSubmitted": {
+    "message": "Talep gönderildi — fonlar bağlı EVM cüzdanında.",
+    "englishSource": "Claim submitted — funds are on the connected EVM wallet."
+  },
+  "claimable": {
+    "message": "Hak talebinde bulunmaya hazır",
+    "englishSource": "Ready to claim"
+  },
+  "claiming": {
+    "message": "Hak talebinde bulunuluyor…",
+    "englishSource": "Claiming…"
+  },
+  "claimed": {
+    "message": "Hak talebinde bulunuldu",
+    "englishSource": "Claimed"
+  },
+  "claimPending": {
+    "message": "Köprüleme — talep henüz hazır değil",
+    "englishSource": "Bridging — claim not ready yet"
+  },
+  "claimFailedStatus": {
+    "message": "Hak talebi başarısız oldu",
+    "englishSource": "Claim failed"
+  },
+  "noManualClaimRequired": {
+    "message": "Fonlar otomatik olarak gelir; herhangi bir talepte bulunulmasına gerek yoktur.",
+    "englishSource": "Funds arrive automatically — no claim needed."
+  },
+  "fastRouteLabel": {
+    "message": "Hızlı (Dönem)",
+    "englishSource": "Fast (Epoch)"
+  },
+  "slowRouteLabel": {
+    "message": "Yavaş (Agglayer)",
+    "englishSource": "Slow (Agglayer)"
+  },
+  "bridgeRowTitle": {
+    "message": "Köprü $from$  →  $to$ ",
+    "englishSource": "Bridge $from$ → $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "to": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeRowVia": {
+    "message": "Aracılığıyla $provider$  →  $network$ ",
+    "englishSource": "Via $provider$ → $network$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeInProgress": {
+    "message": "Devam etmekte",
+    "englishSource": "In progress"
+  },
+  "bridgeFailed": {
+    "message": "Arızalı",
+    "englishSource": "Failed"
+  },
+  "receivingTx": {
+    "message": "Tx alma",
+    "englishSource": "Receiving Tx"
+  },
+  "openInYourWallet": {
+    "message": "Cüzdanınızda açın",
+    "englishSource": "Open in your wallet"
+  },
+  "openInYourWalletDescription": {
+    "message": "Bağlantıyı onaylamak için yüklü bir cüzdan seçin.",
+    "englishSource": "Pick an installed wallet to approve the connection."
+  },
+  "scanWithYourWallet": {
+    "message": "Cüzdanınızla tarayın",
+    "englishSource": "Scan with your wallet"
+  },
+  "scanWithYourWalletDescription": {
+    "message": "WalletConnect'i herhangi bir EVM cüzdanında açın ve kodu tarayın.",
+    "englishSource": "Open WalletConnect in any EVM wallet and scan the code."
+  },
+  "preparing": {
+    "message": "Bağlantı hazırlanıyor…",
+    "englishSource": "Preparing connection…"
+  },
+  "copyConnectionLink": {
+    "message": "Bağlantı bağlantısını kopyala",
+    "englishSource": "Copy connection link"
+  },
+  "disconnect": {
+    "message": "Bağlantıyı kes",
+    "englishSource": "Disconnect"
   }
 }

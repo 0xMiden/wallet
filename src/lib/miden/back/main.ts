@@ -290,6 +290,28 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.SetGuardianEndpointResponse
       };
+    case WalletMessageType.SetGuardianOperatorCommitmentRequest:
+      await Actions.setGuardianOperatorCommitment(req.accountPublicKey, req.guardianOperatorCommitment);
+      return {
+        type: WalletMessageType.SetGuardianOperatorCommitmentResponse
+      };
+    case WalletMessageType.SetGuardianSyncStatusRequest:
+      await Actions.setGuardianSyncStatus(req.accountPublicKey, req.guardianSyncStatus);
+      return {
+        type: WalletMessageType.SetGuardianSyncStatusResponse
+      };
+    case WalletMessageType.CheckGuardianDriftRequest:
+      const driftStatus = await Actions.checkGuardianDrift(req.accountPublicKey);
+      return {
+        type: WalletMessageType.CheckGuardianDriftResponse,
+        guardianSyncStatus: driftStatus
+      };
+    case WalletMessageType.ApplyUserGuardianEndpointRequest:
+      const applied = await Actions.applyUserGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
+      return {
+        type: WalletMessageType.ApplyUserGuardianEndpointResponse,
+        applied
+      };
     case WalletMessageType.GetPublicKeyForCommitmentRequest:
       const commitmentPublicKey = await Actions.getPublicKeyForCommitment(req.commitment);
       return {

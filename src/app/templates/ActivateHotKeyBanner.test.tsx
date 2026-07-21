@@ -73,13 +73,8 @@ jest.mock('lib/settings/helpers', () => ({
   isDelegateProofEnabled: () => mockIsDelegateProofEnabled()
 }));
 
-// Store exposes `.getState()` returning the object whose `openTransactionModal`
-// the success path fires.
-const mockOpenTransactionModal = jest.fn();
-const mockState: any = { openTransactionModal: mockOpenTransactionModal };
-jest.mock('lib/store', () => ({
-  useWalletStore: { getState: () => mockState }
-}));
+const mockNavigate = jest.fn();
+jest.mock('lib/woozie', () => ({ navigate: (...a: unknown[]) => mockNavigate(...a) }));
 
 // ---------------------------------------------------------------------------
 // Helpers.
@@ -105,7 +100,6 @@ const body = () => screen.getByTestId('pc-body').textContent;
 beforeEach(() => {
   jest.clearAllMocks();
   pcHolder.props = null;
-  mockState.openTransactionModal = mockOpenTransactionModal;
   mockUseAccount.mockReturnValue({ publicKey: 'pk_1' });
   mockIsExtension.mockReturnValue(false);
   mockIsDelegateProofEnabled.mockReturnValue(false);
@@ -145,7 +139,7 @@ describe('ActivateHotKeyBanner — rendering', () => {
 // Rotation flow — success, delegate flag, extension SW processing.
 // ---------------------------------------------------------------------------
 describe('ActivateHotKeyBanner — rotation success', () => {
-  it('fires haptics, initiates the rotation and opens the tx modal (non-extension build)', async () => {
+  it('fires haptics, initiates the rotation and navigates to progress (non-extension build)', async () => {
     render(<ActivateHotKeyBanner />);
 
     await click();
@@ -154,7 +148,7 @@ describe('ActivateHotKeyBanner — rotation success', () => {
     // Cold-signed rotation: publicKey, delegate flag (false), provider.
     expect(mockInitiate).toHaveBeenCalledTimes(1);
     expect(mockInitiate).toHaveBeenCalledWith('pk_1', false, { __provider: true });
-    expect(mockOpenTransactionModal).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/tx-1');
     // Non-extension build skips the service-worker processing nudge.
     expect(mockRequestSWProcessing).not.toHaveBeenCalled();
 
@@ -178,7 +172,7 @@ describe('ActivateHotKeyBanner — rotation success', () => {
     await click();
 
     expect(mockRequestSWProcessing).toHaveBeenCalledTimes(1);
-    expect(mockOpenTransactionModal).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/tx-1');
   });
 });
 
@@ -194,8 +188,8 @@ describe('ActivateHotKeyBanner — errors and guards', () => {
 
     // catch → setError(e.message); body renders the error instead of the copy.
     expect(body()).toBe('initiate exploded');
-    // Failure short-circuits before opening the modal / SW nudge.
-    expect(mockOpenTransactionModal).not.toHaveBeenCalled();
+    // Failure short-circuits before navigation / SW nudge.
+    expect(mockNavigate).not.toHaveBeenCalled();
     expect(mockRequestSWProcessing).not.toHaveBeenCalled();
   });
 
@@ -222,7 +216,7 @@ describe('ActivateHotKeyBanner — errors and guards', () => {
     await click();
 
     expect(mockInitiate).toHaveBeenCalledTimes(2);
-    expect(mockOpenTransactionModal).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
     expect(body()).toBe('activateHotKeyBannerBody');
   });
 
@@ -240,6 +234,6 @@ describe('ActivateHotKeyBanner — errors and guards', () => {
 
     expect(mockInitiate).toHaveBeenCalledTimes(1);
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
-    expect(mockOpenTransactionModal).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
   });
 });

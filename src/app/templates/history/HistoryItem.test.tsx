@@ -84,7 +84,8 @@ jest.mock('./TransactionIcon', () => ({
   )
 }));
 jest.mock('./transactionUtils', () => ({
-  isFaucetRequest: jest.fn(() => false)
+  isFaucetRequest: jest.fn(() => false),
+  isBridgeInEntry: jest.fn(() => false)
 }));
 
 const mockIsMobile = isMobile as jest.MockedFunction<typeof isMobile>;

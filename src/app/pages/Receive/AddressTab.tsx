@@ -10,7 +10,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
 import { QRCode, type QRCodeHandle } from 'components/QRCode';
 import { hapticLight } from 'lib/mobile/haptics';
-import { isMobile } from 'lib/platform';
+import { isExtension, isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { navigate } from 'lib/woozie';
@@ -134,14 +134,21 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
               <Icon name={IconName.Add} size="lg" className="shrink-0 fill-current" />
               <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">Request</span>
             </div> */}
-            <div className="flex items-center gap-4 text-accent-primary" onClick={handleOpenEvm}>
-              <Icon name={IconName.CrossChain} size="lg" className="shrink-0" />
-              <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">Cross-chain</span>
-            </div>
+            {/* WalletConnect is not supported on the extension: the Reown relay
+                rejects the extension bundle's auth JWT (WebSocket close 3000), so
+                the AppKit connect flow can never complete there. */}
+            {!isExtension() && (
+              <button type="button" onClick={handleOpenEvm} className="flex items-center gap-4 text-accent-primary">
+                <Icon name={IconName.CrossChain} size="lg" className="shrink-0" />
+                <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">
+                  {t('crossChain')}
+                </span>
+              </button>
+            )}
           </div>
         </div>
       </div>
-      <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />
+      {!isExtension() && <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />}
     </div>
   );
 };
