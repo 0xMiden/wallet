@@ -229,7 +229,14 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       >
         {/* Mobile: the body's safe-area padding (max(16px, env(...)) in
             mobile.html) already keeps the pill off the screen edge. */}
-        <div className={classNames('pointer-events-auto flex-1 px-4', !isMobile() && 'pb-2')}>
+        {/* `min-w-0` lets this flex child shrink to the footer width instead of
+            ballooning to the pill's min-content (the nav's wide `px-13.5` padding
+            makes its min-content ~367px, which otherwise pushed the flex item to
+            399px and overflowed the right edge by ~8px on a 375px-wide viewport).
+            `justify-center` then centers the pill within the row. */}
+        <div
+          className={classNames('pointer-events-auto flex-1 min-w-0 px-4 flex justify-center', !isMobile() && 'pb-2')}
+        >
           <BottomNav items={tabs} activeId={activeTab} onChange={handleTabChange} />
         </div>
       </div>

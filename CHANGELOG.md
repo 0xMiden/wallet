@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.9 (TBD)
+
+### Fixes
+
+* [FIX][mobile] **The bottom navigation pill no longer runs off the right screen edge.** The pill sits in a `flex-1` wrapper that was missing `min-w-0`, so the flex item couldn't shrink below the pill's min-content width (its wide internal padding makes that ~367px). On a 375px-wide viewport the wrapper ballooned to ~399px and the pill's right edge ran ~8px off-screen. Adding `min-w-0` lets the wrapper shrink to the row width so the centered pill fits within the viewport (verified via on-device WebView inspection: the pill's right edge moved from 383px → within the 375px viewport).
+
 ## 1.15.8 (2026-07-21)
 
 ### Features
