@@ -36,6 +36,11 @@ class AsyncMutex {
     }
   }
 
+  /** True while an operation currently holds the mutex. */
+  get isLocked(): boolean {
+    return this.locked;
+  }
+
   /**
    * Queue a low-priority task to run when the mutex is idle.
    * Idle tasks run after all high-priority (withWasmClientLock) operations complete.
@@ -107,6 +112,27 @@ export async function withWasmClientLock<T>(operation: () => Promise<T>): Promis
   } finally {
     wasmClientMutex.release();
   }
+}
+
+/**
+ * True while any `withWasmClientLock` operation is in progress.
+ *
+ * Background pollers that deliberately bypass `withWasmClientLock` (currently
+ * the balance poll, `fetchBalances` → `getAccount`) MUST check this and skip
+ * their WASM read while it is true.
+ *
+ * Rationale: a transaction holds this lock across the SDK's
+ * `_withInnerWebClient` window, and during that window the SDK runs any OTHER
+ * client call INLINE (skipping its own `_serializeWasmCall` chain), on the
+ * documented assumption that the caller holds an external mutex over every
+ * other WASM path. An un-locked read fired inside that window therefore runs
+ * inline too and double-borrows wasm-bindgen's RefCell — panicking the WASM
+ * client (`web-client/src/platform.rs` "RefCell already borrowed"), which on
+ * mobile hangs guardian consumes forever. Skipping a poll cycle costs one
+ * delayed balance refresh; racing the lock crashes the client.
+ */
+export function isWasmClientBusy(): boolean {
+  return wasmClientMutex.isLocked;
 }
 
 /**

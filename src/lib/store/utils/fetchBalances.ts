@@ -92,6 +92,12 @@ export async function fetchBalances(
   // `getAccount` is serialized internally by the SDK (`_serializeWasmCall`).
   // We intentionally skip `withWasmClientLock` here so balance reads aren't
   // queued behind long-running writes like `syncState`.
+  //
+  // Callers MUST NOT invoke this while a `withWasmClientLock` op is in flight:
+  // during a transaction's `_withInnerWebClient` window the SDK runs this
+  // un-locked `getAccount` inline (not via its chain), double-borrowing the
+  // WASM RefCell and panicking the client. The 5s balance poll guards this via
+  // `isWasmClientBusy()` (see useAllBalances in lib/miden/front/balance.ts).
   const midenClient = await getMidenClient();
   const acc = await midenClient.getAccount(address);
 
