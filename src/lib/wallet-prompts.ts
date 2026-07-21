@@ -1,9 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { findClaimableMidenToEvmDeposit } from 'lib/agglayer';
+import { compareAccountIds } from 'lib/miden/activity/utils';
+import {
+  IBridgedReceiveExtraInputs,
+  IBridgedSendExtraInputs,
+  ITransaction,
+  ITransactionStatus
+} from 'lib/miden/db/types';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import * as Repo from 'lib/miden/repo';
+import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
 import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 
 export enum WalletPromptType {
+  Bridge = 'bridge',
   Faucet = 'faucet',
   VerifySeedPhrase = 'verifySeedPhrase',
   // Mobile-only: the native hot-key plugin could not use the device's secure
@@ -32,6 +43,71 @@ export const EMPTY_WALLET_PROMPT_STORAGE: WalletPromptStorage = {
 
 const VALID_STATUSES = new Set<string>(Object.values(WalletPromptStatus));
 const VALID_TYPES = new Set<string>(Object.values(WalletPromptType));
+
+function isBridgePromptActive(tx: ITransaction): boolean {
+  if (tx.status === ITransactionStatus.Failed) return false;
+  if (tx.type === 'bridged-receive') {
+    const phase = (tx.extraInputs as IBridgedReceiveExtraInputs).phase;
+    return phase !== 'received' && phase !== 'failed';
+  }
+  if (tx.type !== 'bridged-send') return false;
+  if (tx.status !== ITransactionStatus.Completed) return true;
+
+  const inputs = tx.extraInputs as IBridgedSendExtraInputs;
+  return inputs.provider === 'epoch'
+    ? inputs.epochStatus !== 'confirmed' && inputs.epochStatus !== 'failed'
+    : inputs.claimStatus !== 'claimed' && inputs.claimStatus !== 'failed';
+}
+
+export async function fetchActiveBridgePrompts(accountId: string): Promise<ITransaction[]> {
+  const rows = await Repo.transactions
+    .filter(
+      tx => (tx.type === 'bridged-send' || tx.type === 'bridged-receive') && compareAccountIds(tx.accountId, accountId)
+    )
+    .toArray();
+  return rows.filter(isBridgePromptActive).sort((left, right) => right.initiatedAt - left.initiatedAt);
+}
+
+async function pollBridgedSend(tx: ITransaction): Promise<void> {
+  if (tx.type !== 'bridged-send' || tx.status !== ITransactionStatus.Completed) return;
+  const inputs = tx.extraInputs as IBridgedSendExtraInputs;
+
+  if (inputs.provider === 'agglayer') {
+    if (inputs.claimStatus !== 'pending' || !inputs.destinationAddress) return;
+    const deposit = await findClaimableMidenToEvmDeposit(inputs.destinationAddress);
+    if (deposit) await updateBridgeClaimStatus(tx.id, 'ready', { depositReady: true });
+    return;
+  }
+
+  if (
+    inputs.epochStatus === 'confirmed' ||
+    inputs.epochStatus === 'failed' ||
+    !inputs.intentNonce ||
+    !inputs.destinationAddress
+  ) {
+    return;
+  }
+
+  const { pollEpochIntentFill } = await import('lib/epoch');
+  const fill = await pollEpochIntentFill({
+    destinationAddress: inputs.destinationAddress,
+    intentNonce: inputs.intentNonce
+  });
+  if (!fill || (!fill.fillTxHash && fill.status === 'pending')) return;
+  await updateBridgeClaimStatus(tx.id, 'not-applicable', {
+    epochStatus: fill.status,
+    fillTxHash: fill.fillTxHash,
+    fillChainId: fill.fillChainId
+  });
+}
+
+export async function pollActiveBridgePrompts(transactions: ITransaction[]): Promise<void> {
+  const { reconcileBridgedReceives } = await import('lib/miden/activity/bridge-receive');
+  await Promise.all([
+    transactions.some(tx => tx.type === 'bridged-receive') ? reconcileBridgedReceives() : Promise.resolve(),
+    ...transactions.filter(tx => tx.type === 'bridged-send').map(pollBridgedSend)
+  ]);
+}
 
 export function normalizeWalletPromptStorage(value: unknown): WalletPromptStorage {
   if (!value || typeof value !== 'object') {

@@ -7,7 +7,8 @@ import {
   executeForSummary,
   type ProposalMetadata,
   type TransactionProposal,
-  type Proposal
+  type Proposal,
+  type Signer
 } from '@openzeppelin/miden-multisig-client';
 
 import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
@@ -35,6 +36,15 @@ const MAX_GUARDIAN_REGISTER_RETRIES = 5;
 const GUARDIAN_REGISTER_RETRY_DELAY_MS = 2000;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * The wallet and a linked multisig client can resolve separate copies of
+ * `@openzeppelin/guardian-client`. Their Signer APIs are identical at runtime,
+ * but TypeScript treats RequestAuthPayload as nominal because it has a private
+ * field. Keep that package-boundary assertion isolated here rather than leaking
+ * incompatible Guardian Client types through the service.
+ */
+const asMultisigSigner = (signer: WalletSigner): Signer => signer as unknown as Signer;
 
 /**
  * MultisigService wraps the MultisigClient and Multisig classes from
@@ -71,7 +81,7 @@ export class MultisigService {
     guardianEndpoint: string
   ): Promise<MultisigService> {
     try {
-      const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
+      const signer = asMultisigSigner(new WalletSigner(publicKey, signerCommitment, signWordFn));
 
       // Reuse the shared singleton client instead of spinning up a fresh
       // WebClient (each new WebClient spawns a ~6MB web-client-methods-worker
@@ -131,7 +141,7 @@ export class MultisigService {
   ) {
     const guardianEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
     const guardian = new GuardianHttpClient(guardianEndpoint);
-    const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
+    const signer = asMultisigSigner(new WalletSigner(publicKey, signerCommitment, signWordFn));
     guardian.setSigner(signer);
     try {
       const { stateJson } = await guardian.getState(accountId);

@@ -2568,65 +2568,11 @@
     semver "^7.5.4"
     uuid "^9.0.1"
 
-"@miden-sdk/miden-sdk@0.15.2":
-  version "0.15.2"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.15.2.tgz#c143231769513cc4493711aaa23ff48a7e8c56b9"
-  integrity sha512-0ww0aKrTZlLOpn9TbPnYg5erqE+j5QOqqGBn1ki/ku6iJRvkHyZquQPIz2CWi76AOAnUt+OZLKoMNEZ0X2RFww==
+"@miden-sdk/miden-sdk@file:../web-sdk/crates/web-client", "@miden-sdk/miden-sdk@file:/Users/utkarshdagoat/dev/miden/web-sdk/crates/web-client":
+  version "0.15.7"
   dependencies:
     dexie "^4.0.1"
     glob "^11.0.0"
-  optionalDependencies:
-    "@miden-sdk/node-darwin-arm64" "0.15.2"
-    "@miden-sdk/node-darwin-x64" "0.15.2"
-    "@miden-sdk/node-linux-x64-gnu" "0.15.2"
-
-"@miden-sdk/miden-sdk@^0.15.0", "@miden-sdk/miden-sdk@file:/Users/utkarshdagoat/dev/miden/web-sdk/crates/web-client":
-  version "0.15.6"
-  dependencies:
-    dexie "^4.0.1"
-    glob "^11.0.0"
-
-"@miden-sdk/miden-sdk@^0.15.6":
-  version "0.15.6"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.15.6.tgz#3983c2dfde23e65ef595ed16cc832feaa743ec65"
-  integrity sha512-+PP3b830lexNgZV6emQApto7SAcjSs+Ir47HfDSVmwT9rso35FCqYllI8GOslp1s4FsbUTZb1bytgkSq9FhylA==
-  dependencies:
-    dexie "^4.0.1"
-    glob "^11.0.0"
-  optionalDependencies:
-    "@miden-sdk/node-darwin-arm64" "0.15.6"
-    "@miden-sdk/node-darwin-x64" "0.15.6"
-    "@miden-sdk/node-linux-x64-gnu" "0.15.6"
-
-"@miden-sdk/node-darwin-arm64@0.15.2":
-  version "0.15.2"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-arm64/-/node-darwin-arm64-0.15.2.tgz#c1724dbb204db0e638ff0d74d9f7ccfa9b71bdb8"
-  integrity sha512-Y4cZjjSImHC1AwAlk+xWp661+3LIIzlHB/1saDCSr4pAvufoMCou2vRRP+l4vwAT+9iDvLwi1iSw2qfybCORiA==
-
-"@miden-sdk/node-darwin-arm64@0.15.6":
-  version "0.15.6"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-arm64/-/node-darwin-arm64-0.15.6.tgz#ae11441ec0e79dfd1f976b397b66f68becba8a29"
-  integrity sha512-W/oji0DTfNBf7S6rFx4cv9wMu5+ft24sc6xWd7dDAS0Pyat+kNj2jz4oHdY2i/SobBUfwGSFYQPRn7eWElf12Q==
-
-"@miden-sdk/node-darwin-x64@0.15.2":
-  version "0.15.2"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-x64/-/node-darwin-x64-0.15.2.tgz#176d6a47b854d227a5e4212b47d0f172e533ecca"
-  integrity sha512-pxUZpHWCNjClEcEVPDLF4HsFqAQMzoA2PjSjVHSUK8xdcD3F/fiRNIuW+3pYD9gDkvNPGRsJtPLO21R2Rmvskg==
-
-"@miden-sdk/node-darwin-x64@0.15.6":
-  version "0.15.6"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-x64/-/node-darwin-x64-0.15.6.tgz#d6dd6eecd20108d65a9b35b1f186b306659267c5"
-  integrity sha512-d9FxCBhv5BPpo0E6sedzE8hF2REuNn57PFSevwChwv6g70DIi9QyPbIelxxY1PwGQ6wdqnx9WQpEieECDtwnTw==
-
-"@miden-sdk/node-linux-x64-gnu@0.15.2":
-  version "0.15.2"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-linux-x64-gnu/-/node-linux-x64-gnu-0.15.2.tgz#b5a0e9ea7750e9aed42913430e23e8eaf4509eec"
-  integrity sha512-7ndNrEg+xSmcGb8lDcD/MAYKwXAzjlB6tfL/8fsUvZVgJ5h6ijDIhNCt4JMA40SS736mU7JHlzbTy8uPBwxqFA==
-
-"@miden-sdk/node-linux-x64-gnu@0.15.6":
-  version "0.15.6"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-linux-x64-gnu/-/node-linux-x64-gnu-0.15.6.tgz#bc953d325889298a2408d125711d2033f726fa85"
-  integrity sha512-goPE2bcwjPajJPyudETdSWbjfd+brSQTIe+gFiOF+XJSHnZZyyO7lhQfpP5egi6lVi53Pq/J3kwqtpn0VUgCVQ==
 
 "@miden-sdk/react@0.15.0":
   version "0.15.0"
@@ -2766,20 +2712,23 @@
   resolved "https://registry.yarnpkg.com/@nolyfill/is-core-module/-/is-core-module-1.0.39.tgz#3dc35ba0f1e66b403c00b39344f870298ebb1c8e"
   integrity sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==
 
-"@openzeppelin/guardian-client@0.15.0-rc.0", "@openzeppelin/guardian-client@^0.15.0-rc.0":
+"@openzeppelin/guardian-client@0.15.0-rc.0":
   version "0.15.0-rc.0"
   resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.15.0-rc.0.tgz#a5d5100d2565bb4fa0f3431591b3941b44a5551a"
   integrity sha512-WSq0mrDr2qRH+BX2X+wsHpF6x36xerT2r9vs1YnWlu3CMqft5240cnGMoLhR7scuJX/psuHSbg7GUCwZYNOavw==
 
-"@openzeppelin/miden-multisig-client@0.15.0-rc.0":
-  version "0.15.0-rc.0"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.15.0-rc.0.tgz#1cc4a411e62a6d9b973efa65b0c268533831cd1b"
-  integrity sha512-uYqiCDd9BpJIBIXCpsigKnwKNsHWj4pYlpGs0eKGRWveNx7gUN1cs3LQxtWH3pd31yPiW/lCaXJ3r8rcpjsNhw==
+"@openzeppelin/guardian-client@^0.15.0":
+  version "0.15.0"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.15.0.tgz#2b6a12ccff16a757355519b582b679444e93cb4b"
+  integrity sha512-fbqYORBQSu4uLol+2emvmtmG8Cx5MlYrLRLvCkUBlSGvVaNBKxOZUkW2XLNbNu+WblFKFTFwL+UKr8msMBcqFw==
+
+"@openzeppelin/miden-multisig-client@file:../private-state-manager/packages/miden-multisig-client":
+  version "0.15.1"
   dependencies:
-    "@miden-sdk/miden-sdk" "^0.15.0"
+    "@miden-sdk/miden-sdk" "file:../web-sdk/crates/web-client"
     "@noble/curves" "^1.9.7"
     "@noble/hashes" "^2.0.1"
-    "@openzeppelin/guardian-client" "^0.15.0-rc.0"
+    "@openzeppelin/guardian-client" "^0.15.0"
 
 "@oxc-project/types@=0.133.0":
   version "0.133.0"

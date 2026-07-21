@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.8 (TBD)
+
+### Fixes
+
+* [FIX][all] **Token metadata for standards-built faucets.** When a faucet's code isn't recognized as the SDK's basic fungible faucet component (standards-version skew, e.g. the Agglayer bridged-asset faucet), the wallet now falls back to reading the token config/name/logo directly from the account's `miden::standards::faucets::*` storage slots instead of showing "Unknown" with 6 decimals.
+
 ## 1.15.7 (TBD)
 
 ### Features

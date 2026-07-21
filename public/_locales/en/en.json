@@ -776,6 +776,8 @@
   "bridgeRowTitle": "Bridge $from$ → $to$",
   "bridgeRowVia": "Via $provider$ → $network$",
   "bridgeInProgress": "In progress",
+  "bridgePromptTitle": "Bridge in progress",
+  "bridgePromptBody": "We’ll keep tracking your bridge in the background.",
   "bridgeFailed": "Failed",
   "earnWithdrawRowTitle": "Withdraw from Earn",
   "earnWithdrawRowVia": "Via Epoch → Miden",

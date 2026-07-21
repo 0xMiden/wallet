@@ -298,17 +298,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     if (!entry && !loadError) loadTransaction();
   }, [loadTransaction, entry, loadError]);
 
-  // A detail page can be opened while proving/submission is still in progress.
-  // Keep reloading until the Miden transaction reaches a terminal state so a
-  // bridge failure replaces Pending without requiring the user to leave.
+  // A non-bridge detail page can be opened while proving/submission is still in
+  // progress. Bridge refresh/poll ownership belongs to its home PromptCard.
   useEffect(() => {
+    if (entry?.txType === 'bridged-send' || entry?.txType === 'bridged-receive') return;
     if (entry?.status !== ITransactionStatus.Queued && entry?.status !== ITransactionStatus.GeneratingTransaction) {
       return;
     }
 
     const timer = setInterval(() => void loadTransaction(), 3000);
     return () => clearInterval(timer);
-  }, [entry?.status, loadTransaction]);
+  }, [entry?.status, entry?.txType, loadTransaction]);
 
   const handleCancel = useCallback(async () => {
     setIsCancelling(true);

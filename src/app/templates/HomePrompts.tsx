@@ -7,8 +7,10 @@ import { PromptCard, PromptCardStatus, PromptCarousel, PromptCardVariant } from 
 import type { TokenBalanceData } from 'lib/miden/front';
 import { WalletAccount } from 'lib/shared/types';
 import {
+  fetchActiveBridgePrompts,
   faucet,
   fetchHotKeyHardwareError,
+  pollActiveBridgePrompts,
   useWalletPromptStorage,
   WalletPromptStatus,
   WalletPromptType
@@ -25,6 +27,11 @@ type WalletPromptDefinition = {
 };
 
 const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition> = {
+  [WalletPromptType.Bridge]: {
+    titleKey: 'bridgePromptTitle',
+    bodyKey: 'bridgePromptBody',
+    dismissible: true
+  },
   [WalletPromptType.Faucet]: {
     titleKey: 'faucetPromptTitle',
     bodyKey: 'faucetPromptBody',
@@ -48,6 +55,7 @@ const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition
 };
 
 const WALLET_PROMPT_ORDER = [
+  WalletPromptType.Bridge,
   WalletPromptType.HotKeyHardwareUnavailable,
   WalletPromptType.Faucet,
   WalletPromptType.VerifySeedPhrase
@@ -70,6 +78,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({ account, balances, balancesL
   const [hotKeyError, setHotKeyError] = useState<string | null>(null);
   const [copyStatusIndicator, setCopyStatusIndicator] = useState<PromptCardStatus>('idle');
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const [bridgeTransactions, setBridgeTransactions] = useState<string[]>([]);
+  const bridgePromptPending = isPromptPending(WalletPromptType.Bridge);
   const hotKeyPromptPending = isPromptPending(WalletPromptType.HotKeyHardwareUnavailable);
 
   const hasBalance = useMemo(() => balances.some(token => token.balance > 0), [balances]);
@@ -101,6 +111,47 @@ export const HomePrompts: FC<HomePromptsProps> = ({ account, balances, balancesL
       cancelled = true;
     };
   }, [hotKeyPromptPending]);
+
+  useEffect(() => {
+    if (!isLoaded || !bridgePromptPending) {
+      setBridgeTransactions([]);
+      return;
+    }
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      try {
+        const active = await fetchActiveBridgePrompts(account.publicKey);
+        if (cancelled) return;
+        if (active.length === 0) {
+          setBridgeTransactions([]);
+          completePrompt(WalletPromptType.Bridge);
+          return;
+        }
+
+        setBridgeTransactions(active.map(tx => tx.id));
+        await pollActiveBridgePrompts(active);
+        if (cancelled) return;
+        const refreshed = await fetchActiveBridgePrompts(account.publicKey);
+        if (cancelled) return;
+        setBridgeTransactions(refreshed.map(tx => tx.id));
+        if (refreshed.length === 0) {
+          completePrompt(WalletPromptType.Bridge);
+          return;
+        }
+      } catch (error) {
+        console.warn('[wallet-prompts] bridge poll failed:', error);
+      }
+      if (!cancelled) timer = setTimeout(tick, 8000);
+    };
+
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [account.publicKey, bridgePromptPending, completePrompt, isLoaded]);
 
   const copyHotKeyError = useCallback(() => {
     const text = hotKeyError ?? 'Hot-key secure hardware unavailable';
@@ -146,19 +197,34 @@ export const HomePrompts: FC<HomePromptsProps> = ({ account, balances, balancesL
   const pendingWalletPrompts = useMemo(() => {
     if (!isLoaded || balancesLoading) return [];
     return WALLET_PROMPT_ORDER.filter(type =>
-      type === WalletPromptType.Faucet ? showFaucetPrompt : isPromptPending(type)
+      type === WalletPromptType.Faucet
+        ? showFaucetPrompt
+        : type === WalletPromptType.Bridge
+          ? bridgePromptPending && bridgeTransactions.length > 0
+          : isPromptPending(type)
     ).map(type => [type, WALLET_PROMPT_DEFINITIONS[type]] as [WalletPromptType, WalletPromptDefinition]);
-  }, [balancesLoading, isLoaded, isPromptPending, showFaucetPrompt]);
+  }, [balancesLoading, bridgePromptPending, bridgeTransactions.length, isLoaded, isPromptPending, showFaucetPrompt]);
 
   return (
     <PromptCarousel>
       {pendingWalletPrompts.map(([type, definition]) => {
         const isFaucet = type === WalletPromptType.Faucet;
+        const isBridge = type === WalletPromptType.Bridge;
         const isHotKeyError = type === WalletPromptType.HotKeyHardwareUnavailable;
         const onAction = isFaucet ? fundWallet : isHotKeyError ? copyHotKeyError : undefined;
-        const status = isFaucet ? faucetStatusIndicator : isHotKeyError ? copyStatusIndicator : undefined;
+        const status = isBridge
+          ? 'loading'
+          : isFaucet
+            ? faucetStatusIndicator
+            : isHotKeyError
+              ? copyStatusIndicator
+              : undefined;
         const route = definition.route;
-        const onClick = isFaucet || isHotKeyError || !route ? undefined : () => navigate(route);
+        const onClick = isBridge
+          ? () => navigate(`/history-details/${bridgeTransactions[0]}`)
+          : isFaucet || isHotKeyError || !route
+            ? undefined
+            : () => navigate(route);
         return (
           <PromptCard
             key={type}

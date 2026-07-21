@@ -30,6 +30,15 @@ import { toNoteTypeString } from '../helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { ConsumableNote, NoteType as NoteTypeString } from '../types';
 
+async function enableBridgePrompt(): Promise<void> {
+  try {
+    const { setWalletPromptStatus, WalletPromptStatus, WalletPromptType } = await import('lib/wallet-prompts');
+    await setWalletPromptStatus(WalletPromptType.Bridge, WalletPromptStatus.Pending);
+  } catch (error) {
+    console.warn('[wallet-prompts] failed to enable bridge prompt:', error);
+  }
+}
+
 export const requestCustomTransaction = async (
   accountId: string,
   transactionRequestBytes: string,
@@ -320,6 +329,7 @@ export const initiateBridgedSendTransaction = async (
     sendParams
   );
   await Repo.transactions.add(dbTransaction);
+  await enableBridgePrompt();
 
   return dbTransaction.id;
 };
@@ -398,6 +408,7 @@ export const initiateBridgedReceiveTransaction = async (args: {
     args.outputSymbol
   );
   await Repo.transactions.add(dbTransaction);
+  await enableBridgePrompt();
   return dbTransaction.id;
 };
 

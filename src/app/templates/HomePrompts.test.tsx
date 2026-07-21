@@ -9,6 +9,8 @@ import { WalletPromptStatus, WalletPromptType } from 'lib/wallet-prompts';
 import { HomePrompts } from './HomePrompts';
 
 const mockFaucet = jest.fn();
+const mockFetchActiveBridgePrompts = jest.fn();
+const mockPollActiveBridgePrompts = jest.fn();
 const mockUseWalletPromptStorage = jest.fn();
 
 jest.mock('react-i18next', () => ({
@@ -61,6 +63,8 @@ jest.mock('lib/wallet-prompts', () => {
   return {
     ...actual,
     faucet: (address: string) => mockFaucet(address),
+    fetchActiveBridgePrompts: (address: string) => mockFetchActiveBridgePrompts(address),
+    pollActiveBridgePrompts: (transactions: unknown[]) => mockPollActiveBridgePrompts(transactions),
     useWalletPromptStorage: () => mockUseWalletPromptStorage()
   };
 });
@@ -91,6 +95,31 @@ describe('HomePrompts', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFaucet.mockResolvedValue(undefined);
+    mockFetchActiveBridgePrompts.mockResolvedValue([]);
+    mockPollActiveBridgePrompts.mockResolvedValue(undefined);
+  });
+
+  it('polls and dismisses a pending bridge through the wallet prompt type', async () => {
+    const dismissPrompt = jest.fn();
+    const bridgeTransaction = { id: 'bridge-1', type: 'bridged-send' };
+    mockFetchActiveBridgePrompts.mockResolvedValue([bridgeTransaction]);
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        dismissPrompt,
+        storage: { version: 1, prompts: { [WalletPromptType.Bridge]: WalletPromptStatus.Pending } },
+        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.Bridge
+      })
+    );
+
+    render(<HomePrompts account={account} balances={fundedBalance} balancesLoading={false} />);
+
+    const bridgeCard = await screen.findByText('bridgePromptTitle');
+    await waitFor(() => expect(mockPollActiveBridgePrompts).toHaveBeenCalledWith([bridgeTransaction]));
+    fireEvent.click(bridgeCard);
+    expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/history-details/bridge-1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'dismiss-bridgePromptTitle' }));
+    expect(dismissPrompt).toHaveBeenCalledWith(WalletPromptType.Bridge);
   });
 
   it('shows the faucet prompt before seed verification for a loaded empty account', () => {

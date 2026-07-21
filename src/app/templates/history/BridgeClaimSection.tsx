@@ -2,8 +2,7 @@ import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { AgglayerDeposit, claimAgglayerDeposit, findClaimableMidenToEvmDeposit, useBridgeTracker } from 'lib/agglayer';
-import { pollEpochIntentFill } from 'lib/epoch';
+import { AgglayerDeposit, claimAgglayerDeposit, findClaimableMidenToEvmDeposit } from 'lib/agglayer';
 import { updateBridgeClaimStatus } from 'lib/miden/activity';
 import { IBridgeClaimStatus, ITransactionStatus } from 'lib/miden/db/types';
 import { hapticMedium } from 'lib/mobile/haptics';
@@ -59,63 +58,27 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
   const [claimable, setClaimable] = useState<AgglayerDeposit | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Epoch (Fast) auto-settles on the destination chain — poll the allocator for
-  // the receiving-chain fill (status + tx hash) only while the detail is open.
-  const [epochStatus, setEpochStatus] = useState<BridgeStatus>(entry.bridgeEpochStatus ?? 'pending');
-  const [fillTxHash, setFillTxHash] = useState<string | undefined>(entry.bridgeFillTxHash);
+  const epochStatus: BridgeStatus = entry.bridgeEpochStatus ?? 'pending';
+  const fillTxHash = entry.bridgeFillTxHash;
 
   const connectedMatchesDestination = !!evmAddress && evmAddress.toLowerCase() === destination.toLowerCase();
   const transactionFailed = entry.status === ITransactionStatus.Failed;
 
-  // Poll the bridge indexer for a claimable deposit to the destination. Stateless
-  // / indexer-driven, so it surfaces deposits from a previous session too.
-  useBridgeTracker({
-    active: isAgglayer && !transactionFailed && status !== 'claimed' && !!destination,
-    intervalMs: 8000,
-    poll: async () => {
-      const deposit = await findClaimableMidenToEvmDeposit(destination);
-      if (!deposit) return false;
-      setClaimable(deposit);
-      if (status === 'pending' && entry.txId) {
-        setStatus('ready');
-        await updateBridgeClaimStatus(entry.txId, 'ready', { depositReady: true });
-        onUpdated();
-      }
-      return true;
-    }
-  });
-
-  // Epoch fill poll. Runs on mount + every 8s while still pending; persists the
-  // receiving tx hash / terminal status and reloads the row once it settles so
-  // the hero pill flips to Confirmed.
-  const intentNonce = entry.bridgeIntentNonce;
-  const txId = entry.txId;
+  // Settlement polling lives in the home PromptCard. Once it marks an Agglayer
+  // bridge ready, fetch the deposit payload once so this screen can submit the claim.
   useEffect(() => {
-    if (!isEpoch || epochStatus === 'confirmed' || epochStatus === 'failed') return;
-    if (!intentNonce || !destination || !txId) return;
+    if (!isAgglayer || transactionFailed || status !== 'ready' || !destination || claimable) return;
 
     let cancelled = false;
-    const tick = async () => {
-      const fill = await pollEpochIntentFill({ destinationAddress: destination, intentNonce });
-      if (cancelled || !fill) return;
-      if (fill.fillTxHash) setFillTxHash(fill.fillTxHash);
-      setEpochStatus(fill.status);
-      if (fill.fillTxHash || fill.status !== 'pending') {
-        await updateBridgeClaimStatus(txId, 'not-applicable', {
-          epochStatus: fill.status,
-          fillTxHash: fill.fillTxHash,
-          fillChainId: fill.fillChainId
-        });
-      }
-      if (fill.status === 'confirmed' || fill.status === 'failed') onUpdated();
-    };
-    tick();
-    const id = setInterval(tick, 8000);
+    findClaimableMidenToEvmDeposit(destination)
+      .then(deposit => {
+        if (!cancelled) setClaimable(deposit);
+      })
+      .catch(err => console.warn('[bridge-claim] failed to load claimable deposit', err));
     return () => {
       cancelled = true;
-      clearInterval(id);
     };
-  }, [isEpoch, epochStatus, intentNonce, destination, txId, onUpdated]);
+  }, [claimable, destination, isAgglayer, status, transactionFailed]);
 
   const handleClaim = useCallback(async () => {
     if (!claimable || !evmProvider || !entry.txId) return;
