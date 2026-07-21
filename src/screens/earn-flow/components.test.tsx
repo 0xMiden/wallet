@@ -136,7 +136,8 @@ describe('MetricCard', () => {
 
     const valueEl = screen.getByText('Value');
     // Base value classes are always present; no valueClassName was supplied.
-    expect(valueEl).toHaveClass('font-bold');
+    expect(valueEl).toHaveClass('font-bold', 'text-black');
+    expect(valueEl).not.toHaveClass('text-[#0B0B0C]');
   });
 
   it('merges valueClassName onto the value node and className onto the container', () => {

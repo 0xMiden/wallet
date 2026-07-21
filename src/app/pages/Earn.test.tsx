@@ -5,6 +5,7 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import { hapticLight } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 import { EARN_DATA } from 'screens/earn-flow/data';
+import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 
 import Earn from './Earn';
 
@@ -46,14 +47,20 @@ jest.mock('app/icons/v2', () => ({
   IconName: { ChevronRightLucide: 'ChevronRightLucide' }
 }));
 
+jest.mock('screens/earn-flow/useEarnPositions', () => ({
+  useEarnPositions: jest.fn()
+}));
+
 const mockHaptic = hapticLight as jest.Mock;
 const mockNavigate = navigate as jest.Mock;
+const mockUseEarnPositions = useEarnPositions as jest.Mock;
 
 const { summary, positions, vaults } = EARN_DATA;
 
 beforeEach(() => {
   mockHaptic.mockReset();
   mockNavigate.mockReset();
+  mockUseEarnPositions.mockReturnValue(EARN_DATA);
 });
 
 const positionsSection = () => screen.getByRole('region', { name: 'Current Positions' });
@@ -116,6 +123,21 @@ describe('Earn page', () => {
     // ProviderLogo probe receives the position's protocol.
     const logo = within(firstCard).getByTestId('provider-logo');
     expect(logo).toHaveAttribute('data-protocol', first.protocol);
+  });
+
+  it('uses theme-aware text colors for position and vault labels', () => {
+    render(<Earn />);
+
+    const positionCard = within(positionsSection())
+      .getAllByRole('button')
+      .find(button => button.textContent !== 'See All')!;
+    expect(within(positionCard).getByText(`${positions[0]!.protocol} • ${positions[0]!.asset}`)).toHaveClass(
+      'text-black'
+    );
+    expect(within(positionCard).getByText(positions[0]!.amount)).toHaveClass('text-black');
+
+    const vaultRow = within(vaultsSection()).getAllByRole('button')[0]!;
+    expect(within(vaultRow).getByText(vaults[0]!.protocol)).toHaveClass('text-black');
   });
 
   it('navigates to a position detail when its card is tapped', () => {
