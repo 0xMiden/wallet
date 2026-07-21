@@ -1532,8 +1532,11 @@ async function setupHardwareProtector(vaultKeyBytes: Uint8Array): Promise<boolea
       if (available) {
         const hasKey = await hs.hasHardwareKey();
         if (!hasKey) {
-          await hs.generateHardwareKey();
+          // Set the flag BEFORE generating so a throw *during* generateHardwareKey is
+          // also cleaned up. Only reachable when no pre-existing key exists, so this
+          // never marks a valid pre-existing key for deletion.
           generatedKeyThisCall = true;
+          await hs.generateHardwareKey();
         }
         const vaultKeyBase64 = Buffer.from(vaultKeyBytes).toString('base64');
         const hardwareProtectedVaultKey = await hs.encryptWithHardwareKey(vaultKeyBase64);
@@ -1543,12 +1546,14 @@ async function setupHardwareProtector(vaultKeyBytes: Uint8Array): Promise<boolea
         return false;
       }
     } catch (error) {
-      // Setup failed AFTER we generated the SE key — most often the user cancelled
-      // the auth prompt during encryptWithHardwareKey. The key is now persisted in
-      // the Keychain but no vault blob was saved: an orphaned, un-unlockable key
-      // that would strand the next unlock on "Hardware protector is not configured".
-      // Delete it so onboarding can be retried cleanly. Only remove a key WE created
-      // in this call — never a pre-existing valid one.
+      // Setup threw after we generated the SE key — typically the user cancelled the
+      // auth prompt during encryptWithHardwareKey — leaving an orphaned key with no
+      // vault blob that would strand the next unlock on "Hardware protector is not
+      // configured". Delete it so onboarding retries cleanly, but only a key WE created
+      // in this call, never a pre-existing valid one. (This catch does NOT cover an app
+      // kill between generate and encrypt; that case is caught by the vault never being
+      // marked created — checkStrgKey is written last — so the user re-onboards and the
+      // next clearStorage() deletes the orphan.)
       if (generatedKeyThisCall) {
         try {
           const hs = await import('lib/biometric');
