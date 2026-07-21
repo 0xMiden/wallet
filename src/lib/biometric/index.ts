@@ -163,6 +163,35 @@ export async function authenticate(reason: string): Promise<boolean> {
 }
 
 /**
+ * Gate a sensitive, user-initiated action (a send / swap) behind a biometric
+ * check — WHEN the device has biometrics and the user enabled biometric unlock.
+ *
+ * This is the app-layer replacement for the per-signature Secure-Enclave
+ * `.userPresence` gate that was removed to stop the guardian AutoSync Face-ID
+ * loop (that gate fired on every ~3s hot-key signature). Doing the check here,
+ * on the user-initiated submit path only, re-confirms value transfers without
+ * touching background sync or auto-consume (which never call this) — so silent
+ * hot signing is preserved where it must be.
+ *
+ * Returns `true` (allow) when biometrics aren't available or aren't enabled, and
+ * on any probe error: the app-level lock is the backstop there, and hard-blocking
+ * a send on those devices would be a regression. Callers that need a stricter
+ * gate should layer their own policy on top.
+ *
+ * @param reason - Prompt text shown to the user (e.g. "Confirm your send").
+ */
+export async function confirmSensitiveAction(reason: string): Promise<boolean> {
+  try {
+    const { isAvailable } = await checkBiometricAvailability();
+    if (!isAvailable) return true;
+    if (!(await isBiometricEnabled())) return true;
+    return await authenticate(reason);
+  } catch {
+    return true;
+  }
+}
+
+/**
  * Store a credential (e.g., vault decryption key) in the secure keystore.
  * The credential is protected by biometric authentication - it can only be
  * retrieved after successful biometric verification.

@@ -1,4 +1,8 @@
 {
+  "advanced": {
+    "message": "Zaawansowany",
+    "englishSource": "Advanced"
+  },
   "appName": {
     "message": "Portfel Miden",
     "englishSource": "Bread"
@@ -359,6 +363,10 @@
     "message": "Wysyłanie płatności",
     "englishSource": "Sending Payment"
   },
+  "transactionTitleSwap": {
+    "message": "Generowanie wymiany",
+    "englishSource": "Generating Swap"
+  },
   "transactionStepGuardianApproved": {
     "message": "Opiekun zatwierdzony",
     "englishSource": "Guardian approved"
@@ -399,9 +407,25 @@
     "message": "Wykonywanie transakcji",
     "englishSource": "Executing transaction"
   },
+  "transactionStageExecutingDescription": {
+    "message": "Przygotowanie transakcji do sprawdzenia.",
+    "englishSource": "Preparing the transaction for proving."
+  },
+  "transactionStageProving": {
+    "message": "Generowanie dowodu",
+    "englishSource": "Generating proof"
+  },
+  "transactionStageProvingDescription": {
+    "message": "Tworzenie dowodu transakcji.",
+    "englishSource": "Creating the proof for your transaction."
+  },
   "transactionStageSwitching": {
     "message": "Zmiana opiekuna",
     "englishSource": "Switching guardian"
+  },
+  "transactionStageSwapping": {
+    "message": "Zamiana tokenów",
+    "englishSource": "Swapping tokens"
   },
   "transactionStageCreatingProposal": {
     "message": "Tworzenie propozycji",
@@ -426,6 +450,22 @@
   "transactionStageSubmittingDescription": {
     "message": "Wysyłanie podpisanej transakcji do sieci.",
     "englishSource": "Sending your signed transaction to the network."
+  },
+  "transactionStageGuardianSyncing": {
+    "message": "Synchronizacja z Guardianem",
+    "englishSource": "Syncing with Guardian"
+  },
+  "transactionStageGuardianSyncingDescription": {
+    "message": "Synchronizowanie zaktualizowanego stanu konta z opiekunem.",
+    "englishSource": "Syncing your updated account state with your guardian."
+  },
+  "transactionStageComplete": {
+    "message": "Transakcja zakończona",
+    "englishSource": "Transaction complete"
+  },
+  "transactionStageCompleteDescription": {
+    "message": "Finalizowanie szczegółów transakcji.",
+    "englishSource": "Finalizing transaction details."
   },
   "transactionStageConfirming": {
     "message": "Potwierdzam na łańcuszku",
@@ -498,6 +538,10 @@
   "about": {
     "message": "O",
     "englishSource": "About"
+  },
+  "aboutMidenWallet": {
+    "message": "O Chlebie",
+    "englishSource": "About Bread"
   },
   "preferences": {
     "message": "Preferencje",
@@ -707,6 +751,15 @@
       }
     }
   },
+  "revealSecretPasscodeInputDescription": {
+    "message": "Wprowadź swoje hasło, aby odsłonić $secretName$ .",
+    "englishSource": "Enter your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "revealSecretUnlockDescription": {
     "message": "Odblokuj za pomocą hasła, aby odsłonić $secretName$ .",
     "englishSource": "Unlock with your passcode to reveal the $secretName$.",
@@ -856,6 +909,10 @@
     "message": "Książka adresowa",
     "englishSource": "Address Book"
   },
+  "addressBookDescription": {
+    "message": "Zarządzaj tutaj swoimi kontaktami",
+    "englishSource": "Manage your contacts here"
+  },
   "chooseRecipient": {
     "message": "Wybierz odbiorcę",
     "englishSource": "Choose recipient"
@@ -893,9 +950,87 @@
     "message": "Szczegóły recenzji",
     "englishSource": "Review Details"
   },
+  "swap": {
+    "message": "Zamieniać",
+    "englishSource": "Swap"
+  },
+  "viaInProtocolDex": {
+    "message": "Poprzez protokół In Dex",
+    "englishSource": "Via In Protocol Dex"
+  },
+  "reviewSwap": {
+    "message": "Recenzja Zamień",
+    "englishSource": "Review Swap"
+  },
+  "reviewSwapDetails": {
+    "message": "Przejrzyj szczegóły wymiany",
+    "englishSource": "Review Swap Details"
+  },
+  "youPay": {
+    "message": "Płacisz",
+    "englishSource": "You Pay"
+  },
+  "youReceive": {
+    "message": "Otrzymujesz",
+    "englishSource": "You Receive"
+  },
+  "youSend": {
+    "message": "Wysyłasz",
+    "englishSource": "You Send"
+  },
   "youAreSending": {
     "message": "Wysyłasz",
     "englishSource": "You are sending"
+  },
+  "swapDirection": {
+    "message": "Zmień kierunek",
+    "englishSource": "Swap direction"
+  },
+  "rate": {
+    "message": "Wskaźnik",
+    "englishSource": "Rate"
+  },
+  "swapSolverFeeNote": {
+    "message": "Twoja otrzymana kwota obejmuje już: $percent$ opłata za rozwiązanie.",
+    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapSameToken": {
+    "message": "Wybierz dwa różne żetony do wymiany.",
+    "englishSource": "Pick two different tokens to swap."
+  },
+  "swapInvalidAmounts": {
+    "message": "Wprowadź prawidłową kwotę do wymiany.",
+    "englishSource": "Enter a valid amount to swap."
+  },
+  "swapPriceUnavailable": {
+    "message": "Cena niedostępna. Spróbuj ponownie wkrótce.",
+    "englishSource": "Price unavailable. Try again shortly."
+  },
+  "swapFetchingPrice": {
+    "message": "Pobieram cenę…",
+    "englishSource": "Fetching price…"
+  },
+  "swapOrderReservedNote": {
+    "message": "Twój $amount$ pozostaje zarezerwowane dla tego zamówienia do czasu jego wypełnienia.",
+    "englishSource": "Your $amount$ stays reserved for this order until it's filled.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapSuccessSourcingLiquidity": {
+    "message": "Pozyskujemy płynność dla Twojego swapu.",
+    "englishSource": "We're sourcing liquidity for your swap."
+  },
+  "swapSuccessTrackProgress": {
+    "message": "Możesz śledzić jego postęp w Aktywnościach.",
+    "englishSource": "You can track its progress in Activities."
   },
   "expirationDate": {
     "message": "Data ważności",
@@ -1051,9 +1186,37 @@
     "message": "Prawo",
     "englishSource": "Claim"
   },
+  "availableToClaim": {
+    "message": "Dostępne do reklamacji",
+    "englishSource": "Available to claim"
+  },
+  "privateTransactionsAnytimeAnywhere": {
+    "message": "Prywatne transakcje w dowolnym miejscu i czasie.",
+    "englishSource": "Private transactions anytime, anywhere."
+  },
   "midenWallet": {
     "message": "Chleb!",
     "englishSource": "Bread!"
+  },
+  "privateTransactions": {
+    "message": "Transakcje prywatne.",
+    "englishSource": "Private transactions."
+  },
+  "anytime": {
+    "message": "W każdej chwili.",
+    "englishSource": "Anytime."
+  },
+  "anywhere": {
+    "message": "Gdziekolwiek.",
+    "englishSource": "Anywhere."
+  },
+  "createANewWallet": {
+    "message": "Utwórz nowy portfel",
+    "englishSource": "Create a new wallet"
+  },
+  "iAlreadyHaveAWallet": {
+    "message": "Mam już portfel",
+    "englishSource": "I already have a wallet"
   },
   "welcome": {
     "message": "Powitanie",
@@ -1102,6 +1265,14 @@
   "forgotPasscode": {
     "message": "Zapomniałeś hasła?",
     "englishSource": "Forgot passcode?"
+  },
+  "enterYourPassword": {
+    "message": "Wpisz swoje hasło",
+    "englishSource": "Enter your password"
+  },
+  "incorrectPassword": {
+    "message": "Nieprawidłowe hasło. Spróbuj ponownie.",
+    "englishSource": "Incorrect password. Try again."
   },
   "createA6DigitCode": {
     "message": "Utwórz 6-cyfrowy kod",
@@ -1515,6 +1686,62 @@
     "message": "Klawiatura",
     "englishSource": "Keys"
   },
+  "guardianAboutDescription": {
+    "message": "Guardian podpisuje każdą transakcję z tego portfela, zapewniając Ci drugorzędną siatkę bezpieczeństwa bez przejmowania opieki nad Twoimi środkami. Możesz zmienić lub usunąć swojego Strażnika w dowolnym momencie, korzystając z frazy odzyskiwania.",
+    "englishSource": "Guardian cosigns every transaction from this wallet, giving you a second-factor safety net without taking custody of your funds. You can rotate or remove your Guardian anytime with your recovery phrase."
+  },
+  "customGuardian": {
+    "message": "Niestandardowy Strażnik",
+    "englishSource": "Custom Guardian"
+  },
+  "guardianProvider": {
+    "message": "Dostawca",
+    "englishSource": "Provider"
+  },
+  "guardianEndpointLabel": {
+    "message": "Punkt końcowy",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "Region",
+    "englishSource": "Region"
+  },
+  "customEndpoint": {
+    "message": "Niestandardowy punkt końcowy",
+    "englishSource": "Custom endpoint"
+  },
+  "customEndpointDescription": {
+    "message": "Wklej adres URL Guardiana, jeśli prowadzisz własny.",
+    "englishSource": "Paste a Guardian URL if you're running your own."
+  },
+  "customEndpointPlaceholder": {
+    "message": "https://guardian.example.com",
+    "englishSource": "https://guardian.example.com"
+  },
+  "reviewRotation": {
+    "message": "Przejrzyj rotację",
+    "englishSource": "Review rotation"
+  },
+  "newLabel": {
+    "message": "Nowy",
+    "englishSource": "New"
+  },
+  "walletKeyHot": {
+    "message": "Klucz do portfela (gorący)",
+    "englishSource": "Wallet key (hot)"
+  },
+  "recoveryPhraseCold": {
+    "message": "Fraza regeneracyjna (na zimno)",
+    "englishSource": "Recovery phrase (cold)"
+  },
+  "oldGuardianCantBlockTitle": {
+    "message": "Twój stary Strażnik nie może tego zablokować",
+    "englishSource": "Your old Guardian can't block this"
+  },
+  "oldGuardianCantBlockBody": {
+    "message": "Obrót jest zatwierdzany przez dwa klucze na urządzeniu. Stary Strażnik zostaje jedynie powiadomiony.",
+    "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
+  },
   "replaceHotKey": {
     "message": "Obróć klucz urządzenia",
     "englishSource": "Rotate device key"
@@ -1759,6 +1986,43 @@
     "message": "Zobacz szczegóły",
     "englishSource": "View Details"
   },
+  "multipleTransactionsFailed": {
+    "message": "Transakcje $count$ nie powiodły się. Spróbuj ponownie.",
+    "englishSource": "$count$ transactions failed. Please try again.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "onChainAccountPublic": {
+    "message": "Konto w łańcuchu (publiczne)",
+    "englishSource": "On-chain Account (Public)"
+  },
+  "onChainAccountDescription": {
+    "message": "Użyj istniejącej frazy odzyskiwania składającej się z 12 słów. Możesz także importować portfele od innych dostawców portfeli.",
+    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+  },
+  "offChainAccountPrivate": {
+    "message": "Konto poza łańcuchem (prywatne)",
+    "englishSource": "Off-chain Account (Private)"
+  },
+  "offChainAccountDescription": {
+    "message": "Szybkie, prywatne operacje przy minimalnych opłatach, z pominięciem bezpośredniej interakcji blockchain.",
+    "englishSource": "Fast, private operations with minimal fees, bypassing direct blockchain interaction."
+  },
+  "chooseYourAccountType": {
+    "message": "Wybierz typ konta",
+    "englishSource": "Choose Your Account Type"
+  },
+  "chooseAccountTypeDescription": {
+    "message": "Wybierz sposób interakcji z łańcuchem bloków — w łańcuchu lub poza łańcuchem.",
+    "englishSource": "Select how you want to interact with the blockchain -- on-chain or off-chain."
+  },
+  "canAddMultipleAccountsLater": {
+    "message": "Możesz później dodać wiele typów kont i zarządzać nimi w portfelu.",
+    "englishSource": "You can add and manage multiple account types later within the wallet."
+  },
   "chooseRecoveryMethod": {
     "message": "Skonfiguruj odzyskiwanie konta",
     "englishSource": "Set Up Account Recovery"
@@ -1992,6 +2256,15 @@
       }
     }
   },
+  "readyToClaim": {
+    "message": "Oczekujące notes: $count$ ",
+    "englishSource": "Pending notes: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "totalPending": {
     "message": "Łącznie w toku",
     "englishSource": "Total Pending"
@@ -2013,6 +2286,30 @@
       }
     }
   },
+  "addTokens": {
+    "message": "Dodaj tokeny",
+    "englishSource": "Add tokens"
+  },
+  "getTokens": {
+    "message": "Zdobądź tokeny",
+    "englishSource": "Get tokens"
+  },
+  "getTokensDescription": {
+    "message": "Możesz zdobyć tokeny z faucet lub przenieść je z innego portfela lub konta.",
+    "englishSource": "You can get tokens from the faucet or transfer them from another wallet or account."
+  },
+  "transferTokens": {
+    "message": "Tokeny transferu",
+    "englishSource": "Transfer tokens"
+  },
+  "midenFaucet": {
+    "message": "Miden Faucet",
+    "englishSource": "Miden Faucet"
+  },
+  "midenFaucetDescription": {
+    "message": "Kliknięcie poniższego przycisku spowoduje skopiowanie Twojego adresu do schowka i przejście do Miden Faucet.",
+    "englishSource": "Clicking the button below will copy your address to the clipboard and navigate you to the Miden Faucet."
+  },
   "accountPublicKey": {
     "message": "Klucz publiczny konta",
     "englishSource": "Account Public Key"
@@ -2032,6 +2329,26 @@
   "setNewFaucetIdDescription": {
     "message": "Wprowadź identyfikator Faucet miden",
     "englishSource": "Enter the ID of a miden faucet"
+  },
+  "verifyingTransaction": {
+    "message": "Weryfikacja transakcji",
+    "englishSource": "Verifying transaction"
+  },
+  "transactionProcessingDescription": {
+    "message": "Przesłany plik transakcji jest przetwarzany w celu sprawdzenia jego szczegółów. Proszę nie odświeżać ani nie zamykać aplikacji.",
+    "englishSource": "The uploaded transaction file is being processed to verify its details. Please do not refresh or close the app."
+  },
+  "yourAddress": {
+    "message": "Twój adres",
+    "englishSource": "Your address"
+  },
+  "errorClaiming": {
+    "message": "Błąd podczas zgłaszania roszczeń:",
+    "englishSource": "Error Claiming: "
+  },
+  "addAccount": {
+    "message": "Dodaj konto",
+    "englishSource": "Add Account"
   },
   "addAccountComingSoon": {
     "message": "Dodaj konto (wkrótce)",
@@ -2422,6 +2739,10 @@
     "message": "NA",
     "englishSource": "On"
   },
+  "onLowercase": {
+    "message": "NA",
+    "englishSource": "on"
+  },
   "off": {
     "message": "Wyłączony",
     "englishSource": "Off"
@@ -2482,6 +2803,38 @@
     "message": "Notes",
     "englishSource": "Notes"
   },
+  "orderTracking": {
+    "message": "Śledzenie zamówienia",
+    "englishSource": "Order Tracking"
+  },
+  "orderStatus": {
+    "message": "Status",
+    "englishSource": "Status"
+  },
+  "orderStatusActive": {
+    "message": "Otwarte",
+    "englishSource": "Open"
+  },
+  "orderStatusFilled": {
+    "message": "Wypełniony",
+    "englishSource": "Filled"
+  },
+  "orderStatusReclaimed": {
+    "message": "Odzyskany",
+    "englishSource": "Reclaimed"
+  },
+  "fillRounds": {
+    "message": "Wypełnij rundy",
+    "englishSource": "Fill rounds"
+  },
+  "amountFilled": {
+    "message": "Wypełniony",
+    "englishSource": "Filled"
+  },
+  "trackingUnavailable": {
+    "message": "Niedostępne",
+    "englishSource": "Not available"
+  },
   "created": {
     "message": "Stworzony",
     "englishSource": "Created"
@@ -2493,6 +2846,18 @@
   "date": {
     "message": "Data",
     "englishSource": "Date"
+  },
+  "details": {
+    "message": "Bliższe dane",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "Dodaj note",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "Opcje zaawansowane",
+    "englishSource": "Advanced Options"
   },
   "pinExtensionTitle": {
     "message": "Przypnij portfel Miden",

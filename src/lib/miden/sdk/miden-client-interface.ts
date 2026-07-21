@@ -546,7 +546,7 @@ export class MidenClientInterface {
       }
     )._withInnerWebClient;
     if (typeof withInner !== 'function') {
-      throw new Error('_withInnerWebClient missing on linked SDK — rebuild + reinstall @miden-sdk/miden-sdk.');
+      throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
     }
     // Build args + execute under the SDK's serialization lock. The lock is
     // released between this block and the offscreen prove so background sync
@@ -692,7 +692,7 @@ export class MidenClientInterface {
         }
       )._withInnerWebClient;
       if (typeof withInner !== 'function') {
-        throw new Error('_withInnerWebClient missing on linked SDK — rebuild + reinstall @miden-sdk/miden-sdk.');
+        throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
       }
       recordProveTiming('proveLocallyViaOffscreen got withInner');
 

@@ -3,7 +3,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
-import { SwapToken } from 'lib/miden/swap/tokens';
+import { SOLVER_MARGIN, SwapToken } from 'lib/miden/swap/tokens';
 
 export interface ReviewSwapProps {
   offerToken: SwapToken;
@@ -55,8 +55,10 @@ const SwapArrows: React.FC = () => (
 
 /**
  * Swap review screen: a two-amount hero (You Send / You Receive) with a swap
- * glyph between them, then the swap detail rows. Only Rate is wired today; the
- * remaining rows are static placeholders pending backend swap-quote metadata.
+ * glyph between them, then the Rate row. When a rate is available the receive
+ * amount is quote-derived and already has the solver margin baked in, so a
+ * short note discloses that fee to reconcile "amount × rate" with the shown
+ * receive amount. No fabricated fill-time / network-fee rows are rendered.
  */
 export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   offerToken,
@@ -71,6 +73,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
 }) => {
   const { t } = useTranslation();
   const divider = <div className="h-0.75 flex-1 bg-[#ECEBE8]" />;
+  const rate = formatRate(offerToken.symbol, requestToken.symbol, offerPrice, requestPrice);
 
   const hero = (
     <div className="mt-3">
@@ -101,14 +104,15 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
       hero={hero}
       heroDivider={false}
       dividers={false}
-      primary={{ label: t('swap'), onPress: onSubmit }}
+      primary={{ label: t('swap'), onPress: onSubmit, 'data-testid': 'swap-submit' }}
       secondary={{ label: t('back'), onPress: onGoBack }}
     >
-      <ReviewRow
-        label={t('rate')}
-        value={formatRate(offerToken.symbol, requestToken.symbol, offerPrice, requestPrice)}
-      />
-      <ReviewRow label={t('usuallyFillsIn')} value={t('swapUsuallyFillsInValue')} />
+      <ReviewRow label={t('rate')} value={rate} />
+      {rate && (
+        <p className="pt-1 text-xs text-[#6B6862]">
+          {t('swapSolverFeeNote', { percent: `${Math.round(SOLVER_MARGIN * 100)}%` })}
+        </p>
+      )}
       {submitError && <p className="select-text pt-2 text-sm font-medium text-status-negative">{submitError}</p>}
     </ReviewLayout>
   );

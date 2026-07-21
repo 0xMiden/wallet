@@ -27,6 +27,16 @@ export async function start() {
 
   await Actions.init();
 
+  // E2E-only (dead-stripped in prod): expose the swap taker discovery + fill in
+  // the SW, where the vault signs SW-direct. Signer mirrors swSignCallback.
+  if (process.env.MIDEN_E2E_TEST === 'true') {
+    const { installSwapConsumeHooks } = await import('lib/miden/swap/test-hooks');
+    installSwapConsumeHooks(async (pk, si) => {
+      const sigHex = await Actions.signTransaction(Buffer.from(pk).toString('hex'), Buffer.from(si).toString('hex'));
+      return new Uint8Array(Buffer.from(sigHex, 'hex'));
+    });
+  }
+
   // SpeculationManager wires through the same MidenClientInterface singleton
   // the rest of the SW uses. Lazy because the client is only created on
   // unlock; the manager doesn't run anything until a SPECULATE_SEND_REQUEST

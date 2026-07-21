@@ -44,8 +44,8 @@ test.describe('Guardian account - consume + send', () => {
 
     await steps.step('deploy_and_fund', async () => {
       await midenCli.init();
-      await midenCli.createFaucet();
-      await midenCli.mint(addressA!, 100_000_000_000, 'public');
+      const faucetId = await midenCli.createFaucet();
+      await midenCli.mint(faucetId, addressA!, 100_000_000_000, 'public');
       await midenCli.sync();
     });
 

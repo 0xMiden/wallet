@@ -474,5 +474,8 @@
   "first": "初め",
   "last": "最後",
   "language": "言語",
-  "languageDescription": "表示言語を変更する"
+  "languageDescription": "表示言語を変更する",
+  "revealSecretPasscodeInputDescription": "パスコードを入力すると、 $secretName$ .",
+  "enterYourPassword": "パスワードを入力してください",
+  "incorrectPassword": "パスワードが間違っています。もう一度やり直してください。"
 }

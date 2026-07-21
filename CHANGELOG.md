@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.15.7 (TBD)
+## 1.15.9 (TBD)
 
 ### Features
 
@@ -8,7 +8,17 @@
 
 ### Changes
 
+* [CHANGE][mobile] **The in-app swap is disabled on iOS.** Apple App Review classifies the In-Protocol DEX swap as a cryptocurrency exchange service under Guideline 3.1.5(iii), which requires per-storefront licensing the app does not yet hold, so the iOS build ships as a pure non-custodial wallet with no exchange surface. Swap availability is now gated by a single `isSwapEnabled()` flag (`!isIOS()`) applied to the Swap action-bar segment, the home swipe pane, and the `/swap` route (which redirects home on iOS); Android, the browser extension, and desktop are unaffected.
+
 * [CHANGE][all] **Merged the in-protocol-DEX branch and re-homed the Ethereum bridge onto its send flow.** The swap flow, the split `lib/miden/transaction/` module and the redesigned transaction-progress view land alongside the bridge work. Cross-chain sends now follow the same shape as same-chain ones: the destination network moved onto the recipient step (Miden for a bech32 address, Sepolia for a `0x` one), a 0x recipient then picks Fast (Epoch) vs Slow (Agglayer) on a Route step, and the full-screen `/send/review` page owns the whole submit pipeline for both routes plus the live "you receive" USDC quote. `bridged-send` rows are carried into the new transaction module (initiate/complete/Guardian-proposal arms), and batch consume (`Claim All`) moves there too.
+
+### Fixes
+
+* [FIX][mobile] **iOS now renders at the display's native refresh rate (up to 120Hz ProMotion) instead of being capped at 60fps.** Added `CADisableMinimumFrameDurationOnPhone` to `Info.plist`. Since iOS 15, iPhones cap every app — including its WKWebView — to 60fps unless the app opts in to high frame rates, so on ProMotion devices animations and scrolling felt stuck at 60Hz (the same as Low Power Mode). CSS/compositor animations and native scrolling now run at the full display rate.
+
+## 1.15.8 (2026-07-21)
+
+### Changes
 
 * [CHANGE][all] Internal refactor: the transaction pipeline moved from `src/lib/miden/activity/transactions.ts` into `src/lib/miden/transaction/` split by lifecycle (`initiate` / `complete` / `get` / `cancel` / `helper`, with `generateTransaction` and the processing loop in `index.ts`); the `lib/miden/activity` barrel re-exports it so consumers are unaffected.
 
@@ -20,6 +30,8 @@
 
 * [CHANGE][all] Animation polish pass: hover/press color feedback across buttons, list rows, chips, and inputs sped up from 300ms to a tokenized 150ms `ease` curve (`ease-hover`); dropdown close and react-modal transitions now use `ease-out` (modals settle from `scale(0.96)` instead of zooming from `0.75`); the toggle knob animates via `transform` instead of layout-thrashing `left`; and `prefers-reduced-motion` is honored by the page navigators, the Settings seed-phrase overlay, the mobile page slide-in, and the sync shimmer (movement dropped, fades kept). Audit plans live in `plans/`.
 
+* [CHANGE][extension] **Refreshed the network icons.** The default/testnet build's orange bread "B" is regenerated from a new transparent-background master (dropping the old opaque white card and padding so the B fills the frame), and the devnet icon is redesigned from the orange "B" with a blue corner wrench to a sage-green "B" with a centered developer wrench, so devnet is easy to tell apart from the default build at a glance. All sizes (16/32/40/48/128/234) were regenerated for both `logo-white-bg*` (default) and `logo-devnet*` (devnet) from 1536px masters with gamma-correct (linear-light) downscaling. Affects the Chrome extension (manifest icons + toolbar `action.default_icon`, notifications, and the full-page view) and the Tauri desktop window favicon; mobile is unaffected — it uses separate native app icons (`AppIcon`/`ic_launcher`) and `misc/brand/*` splash assets. Icon-swap wiring in `vite.extension.config.ts` is unchanged.
+
 ### Fixes
 
 * [FIX][all] **Receive-from-EVM bridge deposit keeps its state across the amount → route step.** The Receive screen drove the bridge deposit's two steps (amount entry, route selection) as separate outer-Navigator cards that both rendered a fresh `BridgeDeposit`, so advancing to the route step remounted `EvmBridgeDepositScreen` with empty state — the entered amount and Epoch quote were wiped and Confirm dead-ended. The bridge deposit now runs its own nested `Navigator` (mounted once, mirroring `SendManager`) so state survives step changes; the outer Receive navigator collapses to a single `ShowBridgePage` card, which also fixes the standalone `/bridge/deposit` route that previously threw for rendering without a `NavigatorProvider`.
@@ -27,8 +39,25 @@
 * [FIX][all] The transaction progress view no longer shows a spinning loader while the title already reads "Transaction completed" — a successful transaction now settles onto a green check hero for the beat before the success receipt appears, instead of reusing the in-progress spinner.
 
 * [FIX][mobile] **iOS no longer prompts Face ID every few seconds while a Guardian account syncs.** Reverts the `.userPresence` gate (#299) on the Secure Enclave hot key: guardian sync signs with the hot key on the ~3s AutoSync tick, so the per-use presence flag turned into a continuous Face ID prompt loop. New hot keys are created with `.privateKeyUsage` only again (silent signing, key still SE-bound). Since hot signing is silent everywhere now, the `background` consume flag and its Guardian cold-key auto-consume detour (which existed only to dodge that prompt) are also removed — every consume takes the standard hot-bound path. Android gets the equivalent fix: the Keystore hot-key wrapper is no longer auth-bound (`setUserAuthenticationRequired`), so hot signing no longer pops a fingerprint `BiometricPrompt` per signature; legacy auth-bound keys keep working through a prompt fallback until the hot key is rotated.
+## 1.15.7 (2026-07-20)
 
-## 1.15.6 (2026-07-07)
+### Changes
+
+* [CHANGE][extension] **Chrome extension renamed to the full product name "Bread Wallet by Miden".** The manifest `name` — shown in the Chrome Web Store listing and on `chrome://extensions` — changed from "Bread" to "Bread Wallet by Miden". Devnet builds keep their automatic "(Devnet)" suffix, so they read "Bread Wallet by Miden (Devnet)" (`vite.extension.config.ts` appends the suffix to whatever `name` is). `short_name` (constrained-UI slot), the toolbar tooltip (`default_title`), and in-app naming are unchanged.
+
+### Fixes
+
+* [FIX][extension] **Onboarding "Your Wallet is ready!" no longer shows raw `<highlight>` tags.** The Chrome side-panel handoff completion screen (`OpenSidePanel`) rendered its title via plain `t('yourWalletIsReady')`, which returns the raw i18n string including the `<highlight>Wallet</highlight>` markup, so the tags appeared as literal text. It now renders through `<Trans>` (matching `Confirmation.tsx`), styling "Wallet" in the primary color; `Message.title` was widened to `ReactNode` to accept the styled node. Added a regression test that renders the screen with real i18n and asserts the tags are parsed.
+* [FIX][devnet] **Restored the devnet developer (wrench) badge on the icon.** The v0 UI revamp (#248) rebranded the devnet icon to the plain Bread "B" and dropped the wrench badge, so devnet builds again looked identical to production. `public/misc/logo-devnet*.png` (234/128/48/40/32/16) now re-add the Advanced Settings / Developer wrench glyph in a white circle with a thin `#7286A0` ring, overlapping the B's bottom-right, so a devnet build is distinguishable at a glance. Wiring is unchanged — `vite.extension.config.ts` already swaps `logo-white-bg*` → `logo-devnet*` for `MIDEN_NETWORK=devnet` (manifest icons, action icon, and tab favicon).
+
+### Docs
+
+* [DOCS][all] **Privacy policy: added a dedicated Face ID / biometric data section.** Clarifies that the app collects, stores, shares, and retains no face or fingerprint data — biometric matching happens entirely in the device's Secure Enclave / hardware keystore and the app only ever receives a pass/fail result. Added in response to an iOS App Review request; the hosted policy at https://0xmiden.github.io/wallet/privacy/ is the source the Resolution Center reply quotes.
+* [DOCS][all] **Added a Support page** at https://0xmiden.github.io/wallet/support/ (GitHub Pages, `docs/support/index.md`) with a contact email, GitHub issues link, feedback-form link, and a short FAQ. Satisfies the App Store Connect Support URL requirement (App Review Guideline 1.5) that was previously pointing at a page without support information.
+* [DOCS][all] **Renamed the public docs product to "Bread Wallet by Miden"** (support + privacy policy titles/intros) to match the App Store listing name, so everything App Review sees is consistent. The privacy policy's biometric/Face ID wording is unchanged (it refers to "the App").
+* [DOCS][all] **Play Store assets rebranded to Bread.** Replaced the outdated Miden-branded feature graphic + 512 icon in `screenshots/playstore/` with Bread branding, and added nine framed 1080×1920 Android store screenshots (`01_home`…`09_faucet`) matching the iOS marketing set. Google Play accepts up to 8 phone screenshots, so pick 8 at upload time.
+
+## 1.15.6 (2026-07-09)
 
 ### Features
 
@@ -36,6 +65,8 @@
 
 ### Changes
 
+* [CHANGE][all] **Passcodes are now mobile-only; extension and desktop use a full password.** The extension/desktop create-wallet flow now goes Welcome → Create Password → Choose Guardian → Confirmation (no 6-digit passcode setup), and their unlock screen is a password form again instead of the numpad (desktop still tries hardware unlock first).
+* [CHANGE][mobile] **Settings flows that unlock the vault now prompt with the passcode numpad on mobile.** Reveal seed phrase / private key / hot key / guardian keys, verify seed phrase, and the encrypted-wallet-file export now show the shared 6-digit `PasscodeEntry` (dots + numpad, auto-submit) on mobile passcode-protected wallets instead of a typed password field; extension/desktop keep the password input.
 * [CHANGE][all] **Send review moved to its own full-screen page.** The send flow's review step now lives at `/send/review` (FullScreenPage, like the earn deposit review) and owns the whole transaction-creation pipeline; the form (recipient → amount → token) stays at `/send`, hands the inputs over via query params, and restores them on the Amount step when backing out of review. Submitting now hands off straight to the `/generating-transaction` in-progress page (tracking the tx via `?txId=`) instead of waiting silently on review. The bottom tab navbar is also hidden on the send-flow steps past recipient selection so each step's Continue button sits at the bottom of the screen.
 * [CHANGE][all] **Guardian picker now shows operator brand logos.** `ChooseGuardianScreen` cards render each operator's wordmark (Open-Zeppelin, Gateway, Lambda Class) centered, with the "Operated by / Location" caption moved below the card, a "Default" banner on the recommended operator, and the selected card outlined in the brand color; logos recolor with the theme. The onboarding subtitle is shortened to "Select an option below". (#248)
 * [CHANGE][all] **Send review screen restyled.** The transaction review screen drops its header and re-lays each detail row as a grey pill label above a large `font-heading` value: a "You are sending" hero caption, the full recipient address, the Miden network, and an expiration row whose "Edit" link is now inline and which explains that unclaimed funds return to the wallet automatically. Shared `ReviewRow`/`ReviewLayout`/`ReviewAmount` primitives carry the new look. (#248)
@@ -55,6 +86,7 @@
 
 ### Fixes
 
+* [FIX][all] **Reveal Private Key no longer crashes for standard accounts.** The reveal-private-key screen rendered its `AccountBanner` without an `account`, so the banner's `account.name` access threw `Cannot read properties of undefined (reading 'name')` for on-chain/off-chain accounts. (Guardian accounts route to the guardian-keys reveal, which shows no banner, so they were unaffected — which is why it looked intermittent.) The banner now receives the current account, and `AccountBanner` requires `account` as a prop so the type checker catches any caller that omits it.
 * [FIX][extension,desktop] **Onboarding skips the "choose how to protect your wallet" step where biometric can't work.** On the browser extension and desktop there is no Face ID / fingerprint API, so wallet creation now goes straight from Welcome to passcode setup instead of offering a biometric option that always fails, and the onboarding progress stepper shows 3 steps (passcode → guardian → confirm) with passcode first. Mobile is unchanged — it still offers the choice and its existing "use passcode instead" fallback. (#322)
 * [FIX][all] **Address-book contacts now persist and its UI follows dark mode.** `Vault.fetchSettings` was a stub returning `{}` so saved contacts were lost on relock/reload — it now decrypts the stored settings; the receive-address pill is tap-to-copy, and the address-book empty state, `CardItem` right icon and `CheckboxCircleFill` glyph no longer render black in dark mode (`currentColor` + theme-aware text tokens).
 * [FIX][all] **Dark-mode gray palette tokenized.** The onboarding surface no longer stays light cream in dark mode (the `data-onboarding-root` override now has a `.dark` variant painting `#191919`), and the raw gray hexes are theme-aware CSS variables: `text-gray` (`#808080` → `#E1D8D8`), `text-gray-secondary` (`#8E8E93`), secondary buttons (`#F9F9F9` → `#484848`), `--surface-input` dark (`#363636`), and the search placeholder (white in dark). (#248)

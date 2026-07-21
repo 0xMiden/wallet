@@ -3,7 +3,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TokenLogo } from 'components/TokenLogo';
-import { SWAP_TOKENS, SwapToken } from 'lib/miden/swap/tokens';
+import { getSwapTokens, SwapToken } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
@@ -43,7 +43,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
         </DrawerHeader>
         <div className="flex flex-col min-h-0 px-4 pb-4 h-120">
           <div className="flex flex-col min-h-0 overflow-y-auto no-scrollbar divide-y divide-rule-default">
-            {SWAP_TOKENS.map(token => (
+            {getSwapTokens().map(token => (
               <button
                 key={token.faucetId}
                 type="button"

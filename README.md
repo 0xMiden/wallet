@@ -4,6 +4,7 @@
 [![build](https://github.com/0xMiden/miden-wallet/actions/workflows/production-branch.yml/badge.svg)](https://github.com/0xMiden/miden-wallet/actions/workflows/production-branch.yml)
 [![build](https://github.com/0xMiden/miden-wallet/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/0xMiden/miden-wallet/actions/workflows/build-desktop.yml)
 [![build](https://github.com/0xMiden/miden-wallet/actions/workflows/build-mobile.yml/badge.svg)](https://github.com/0xMiden/miden-wallet/actions/workflows/build-mobile.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/0xMiden/wallet/badges/coverage.json)](https://github.com/0xMiden/wallet/actions/workflows/coverage-badge.yml)
 
 A secure, cross-platform wallet for the [Miden](https://miden.xyz) blockchain. Available as a browser extension, desktop application, and mobile app.
 

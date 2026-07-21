@@ -9,9 +9,11 @@ import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
+import { PasscodeEntry } from 'components/PasscodeEntry';
 import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext, useSecretState } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
+import { isMobile } from 'lib/platform';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { goBack } from 'lib/woozie';
@@ -177,7 +179,11 @@ const RevealSeedPhrase: FC = () => {
     );
   }
 
-  // Password drawer (for password-backed, shown on mount)
+  // Passcode / password drawer (for non-hardware wallets, shown on mount).
+  // Mobile vaults are protected by the 6-digit onboarding passcode, so they
+  // get the numpad; extension/desktop use a typed password.
+  const usePasscodeEntry = isMobile();
+
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
       <NavigationHeader title={t('recoveryPhrase')} onBack={() => goBack()} />
@@ -185,33 +191,44 @@ const RevealSeedPhrase: FC = () => {
       <Drawer open={showPasswordDrawer} onOpenChange={open => !open && handlePasswordDrawerClose()}>
         <DrawerContent>
           <DrawerHeader>
-            <DrawerTitle>{t('password')}</DrawerTitle>
+            <DrawerTitle>{t(usePasscodeEntry ? 'enterYourPasscode' : 'password')}</DrawerTitle>
           </DrawerHeader>
-          <form className="px-4 pb-6" onSubmit={handleSubmit(onPasswordSubmit)}>
-            <FormField
-              {...register('password', { required: t('required') })}
-              label={t('password')}
-              id="reveal-seed-password"
-              type="password"
-              name="password"
-              placeholder="********"
-              errorCaption={errors.password?.message}
-              containerClassName="mb-4"
-              onChange={e => {
-                register('password').onChange(e);
-                clearErrors();
-              }}
-              labelClassName="text-black"
-            />
-            <Button
-              className="w-full justify-center"
-              variant={ButtonVariant.Primary}
-              title={t('continue')}
-              disabled={isSubmitting || !passwordValue}
-              isLoading={isSubmitting}
-              onClick={handleSubmit(onPasswordSubmit)}
-            />
-          </form>
+          {usePasscodeEntry ? (
+            <div className="px-4 pb-6">
+              <PasscodeEntry
+                onSubmit={code => onPasswordSubmit({ password: code })}
+                onChange={() => clearErrors()}
+                error={errors.password?.message ?? null}
+                isSubmitting={isSubmitting}
+              />
+            </div>
+          ) : (
+            <form className="px-4 pb-6" onSubmit={handleSubmit(onPasswordSubmit)}>
+              <FormField
+                {...register('password', { required: t('required') })}
+                label={t('password')}
+                id="reveal-seed-password"
+                type="password"
+                name="password"
+                placeholder="********"
+                errorCaption={errors.password?.message}
+                containerClassName="mb-4"
+                onChange={e => {
+                  register('password').onChange(e);
+                  clearErrors();
+                }}
+                labelClassName="text-black"
+              />
+              <Button
+                className="w-full justify-center"
+                variant={ButtonVariant.Primary}
+                title={t('continue')}
+                disabled={isSubmitting || !passwordValue}
+                isLoading={isSubmitting}
+                onClick={handleSubmit(onPasswordSubmit)}
+              />
+            </form>
+          )}
         </DrawerContent>
       </Drawer>
     </div>

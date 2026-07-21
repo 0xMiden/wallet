@@ -1,5 +1,6 @@
 import React, { FC, useLayoutEffect, useMemo } from 'react';
 
+import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
 import FullScreenPage from 'app/layouts/FullScreenPage';
 import TabLayout from 'app/layouts/TabLayout';
@@ -9,6 +10,7 @@ import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
+import { isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import * as Woozie from 'lib/woozie';
 import EarnDepositAmount from 'screens/earn-flow/EarnDepositAmount';
@@ -31,6 +33,7 @@ import ResetRequired from './pages/ResetRequired';
 import RotateGuardian from './pages/RotateGuardian';
 import RotateGuardianReview from './pages/RotateGuardianReview';
 import TokenDetail from './pages/TokenDetail';
+import { resolveRootView } from './root-view';
 import { HistoryDetails } from './templates/history/HistoryDetails';
 
 interface RouteContext {
@@ -38,6 +41,7 @@ interface RouteContext {
   fullPage: boolean;
   ready: boolean;
   locked: boolean;
+  hydrated: boolean;
 }
 
 type RouteFactory = Woozie.Router.ResolveResult<RouteContext>;
@@ -81,11 +85,16 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '*',
     (_p, ctx) => {
-      switch (true) {
-        case ctx.locked:
+      switch (resolveRootView(ctx)) {
+        case 'unlock':
           return <Unlock />;
 
-        case !ctx.ready:
+        // Backend not yet heard from (MV3 SW cold-start): show the loading
+        // spinner, NOT onboarding — status is still the initial Idle here.
+        case 'loading':
+          return <RootSuspenseFallback />;
+
+        case 'welcome':
           return <Welcome />;
 
         default:
@@ -96,14 +105,25 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   // Tab pages - wrapped in TabLayout with persistent footer
   [
     '/',
-    (_p, ctx) =>
-      ctx.ready ? (
-        <TabLayout>
-          <Explore />
-        </TabLayout>
-      ) : (
-        <Welcome />
-      )
+    (_p, ctx) => {
+      switch (resolveRootView(ctx)) {
+        case 'app':
+          return (
+            <TabLayout>
+              <Explore />
+            </TabLayout>
+          );
+
+        case 'unlock':
+          return <Unlock />;
+
+        case 'loading':
+          return <RootSuspenseFallback />;
+
+        default:
+          return <Welcome />;
+      }
+    }
   ],
   [
     '/history/:programId?',
@@ -205,12 +225,20 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
+    // Swap is disabled on iOS (App Store Guideline 3.1.5(iii) — see
+    // isSwapEnabled). The tab and swipe pane are already hidden there; this
+    // redirects any deep link / stale navigation to `/swap` back home so the
+    // exchange surface is unreachable on iOS.
     '/swap',
-    onlyReady(() => (
-      <TabLayout>
-        <SwapFlow />
-      </TabLayout>
-    ))
+    onlyReady(() =>
+      isSwapEnabled() ? (
+        <TabLayout>
+          <SwapFlow />
+        </TabLayout>
+      ) : (
+        <Woozie.Redirect to="/" />
+      )
+    )
   ],
   [
     '/earn/vaults/:vaultId/deposit/review',
@@ -301,7 +329,8 @@ const PageRouter: FC = () => {
       popup: appEnv.popup,
       fullPage: appEnv.fullPage,
       ready: miden.ready,
-      locked: miden.locked
+      locked: miden.locked,
+      hydrated: miden.hydrated
     }),
     [appEnv.popup, appEnv.fullPage, miden]
   );

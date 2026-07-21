@@ -99,7 +99,6 @@ export const generateTransaction = async (
     }
   };
   dtag('entered');
-
   // Sync state first to ensure we have latest account state
   // Separate lock acquisition to avoid holding lock during network call
   // If sync fails (e.g. network down), the error propagates to generateTransactionsLoop's
@@ -551,23 +550,28 @@ const generateGuardianTransaction = async (
   }
 
   // Sync the cached hot service so the next consumer sees post-tx state.
-  // Skip for replace-hot-key: that path's service is a transient cold one,
-  // and the cached hot service was invalidated in completeReplaceHotKeyTransaction
-  // via clearGuardianServiceFor — next access re-inits with the new hot pubkey.
+  //
+  // Skipped for the structural ops (replace-hot-key / update-procedure-threshold
+  // / switch-guardian): each runs on a transient/cold service and invalidates
+  // the cached hot service in its completion handler (clearGuardianServiceFor),
+  // so there's nothing useful to sync here. For switch-guardian specifically a
+  // sync here would also be MIS-ORDERED: completeSwitchGuardianTransaction must
+  // run finalizeGuardianSwitch (register on the new guardian) "before anything
+  // else touches the local cache or storage", and this runs before the
+  // completion switch below.
   //
   // Post-completion bookkeeping only: the transaction is already marked Completed
   // and the on-chain submit succeeded, so a sync failure here must NOT propagate
   // (it would flip a genuinely-successful transaction to Failed). The next sync
   // tick reconciles.
-  // replace-hot-key and update-procedure-threshold both run on a transient cold
-  // service and invalidate the cached hot service in their completion handlers,
-  // so there's nothing useful to sync here.
-  if (transaction.type !== 'replace-hot-key' && transaction.type !== 'update-procedure-threshold') {
+  if (
+    transaction.type !== 'replace-hot-key' &&
+    transaction.type !== 'update-procedure-threshold' &&
+    transaction.type !== 'switch-guardian'
+  ) {
     try {
-      console.log('Transaction generation complete, syncing multisig service');
       await setTransactionStage(transaction.id, 'guardian-syncing');
       await service.sync();
-      console.log('synced');
       await setTransactionStage(transaction.id, 'guardian-synced');
     } catch (error) {
       console.warn('[Guardian] post-completion sync failed; will reconcile on next tick', error);
