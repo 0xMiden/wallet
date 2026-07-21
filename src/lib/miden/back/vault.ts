@@ -1525,6 +1525,7 @@ async function setupHardwareProtector(vaultKeyBytes: Uint8Array): Promise<boolea
   }
 
   if (isMobile()) {
+    let generatedKeyThisCall = false;
     try {
       const hs = await import('lib/biometric');
       const available = await hs.isHardwareSecurityAvailable();
@@ -1532,6 +1533,7 @@ async function setupHardwareProtector(vaultKeyBytes: Uint8Array): Promise<boolea
         const hasKey = await hs.hasHardwareKey();
         if (!hasKey) {
           await hs.generateHardwareKey();
+          generatedKeyThisCall = true;
         }
         const vaultKeyBase64 = Buffer.from(vaultKeyBytes).toString('base64');
         const hardwareProtectedVaultKey = await hs.encryptWithHardwareKey(vaultKeyBase64);
@@ -1541,6 +1543,20 @@ async function setupHardwareProtector(vaultKeyBytes: Uint8Array): Promise<boolea
         return false;
       }
     } catch (error) {
+      // Setup failed AFTER we generated the SE key — most often the user cancelled
+      // the auth prompt during encryptWithHardwareKey. The key is now persisted in
+      // the Keychain but no vault blob was saved: an orphaned, un-unlockable key
+      // that would strand the next unlock on "Hardware protector is not configured".
+      // Delete it so onboarding can be retried cleanly. Only remove a key WE created
+      // in this call — never a pre-existing valid one.
+      if (generatedKeyThisCall) {
+        try {
+          const hs = await import('lib/biometric');
+          await hs.deleteHardwareKey();
+        } catch {
+          // best-effort cleanup
+        }
+      }
       return false;
     }
   }

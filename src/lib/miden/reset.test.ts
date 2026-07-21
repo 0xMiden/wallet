@@ -48,6 +48,15 @@ jest.mock(
   { virtual: true }
 );
 
+const mockDeleteHardwareKey = jest.fn(async () => {});
+jest.mock(
+  'lib/biometric',
+  () => ({
+    deleteHardwareKey: (...args: unknown[]) => mockDeleteHardwareKey(...args)
+  }),
+  { virtual: true }
+);
+
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 
 import { clearClientStorage, clearStorage, resetStorageDestructive } from './reset';
@@ -80,6 +89,28 @@ describe('clearStorage', () => {
     _g.__resetTest.prefStub.clear.mockResolvedValueOnce(undefined);
     await clearStorage();
     expect(_g.__resetTest.prefStub.clear).toHaveBeenCalled();
+  });
+
+  it('deletes the Secure Enclave hardware key after clearing Preferences on mobile', async () => {
+    (isMobile as jest.Mock).mockReturnValue(true);
+    _g.__resetTest.prefStub.clear.mockResolvedValueOnce(undefined);
+    await clearStorage();
+    expect(mockDeleteHardwareKey).toHaveBeenCalled();
+    // Preferences.clear() must complete before the hardware key is dropped — the
+    // key lives in the Keychain, not Preferences, so ordering doesn't affect
+    // correctness here, but asserting it documents the intended sequence from
+    // the clearPlatformKeyValueStorage implementation.
+    const prefClearOrder = _g.__resetTest.prefStub.clear.mock.invocationCallOrder[0];
+    const deleteKeyOrder = mockDeleteHardwareKey.mock.invocationCallOrder[0];
+    expect(prefClearOrder).toBeLessThan(deleteKeyOrder);
+  });
+
+  it('does not throw when deleteHardwareKey rejects (best-effort cleanup)', async () => {
+    (isMobile as jest.Mock).mockReturnValue(true);
+    _g.__resetTest.prefStub.clear.mockResolvedValueOnce(undefined);
+    mockDeleteHardwareKey.mockRejectedValueOnce(new Error('no hardware key on this platform'));
+    await expect(clearStorage()).resolves.toBeUndefined();
+    expect(mockDeleteHardwareKey).toHaveBeenCalled();
   });
 
   it('clears localStorage on desktop', async () => {

@@ -269,7 +269,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           </div>
           <Button
             id="retry-biometric"
-            title={t('tryAgain')}
+            title={t('unlock')}
             variant={ButtonVariant.Primary}
             onClick={onRetryHardwareUnlock}
             className="w-full justify-center mb-3"
