@@ -37,7 +37,7 @@ jest.mock('./guardian-manager', () => ({
 // The self-heal hook dynamic-imports this; stub it so the sync test stays focused
 // on sync behavior (the hardening itself is covered in the transactions suite).
 const mockEnsureGuardianProcedureThresholds = jest.fn();
-jest.mock('lib/miden/activity/transactions', () => ({
+jest.mock('lib/miden/transaction', () => ({
   ensureGuardianProcedureThresholds: (...args: unknown[]) => mockEnsureGuardianProcedureThresholds(...args)
 }));
 

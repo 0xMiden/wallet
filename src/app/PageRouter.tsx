@@ -21,6 +21,7 @@ import EarnVaultDetail from 'screens/earn-flow/EarnVaultDetail';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
 import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
+import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
 import AllHistory from './pages/AllHistory';
 import Browser from './pages/Browser';
@@ -199,7 +200,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     '/swap',
     onlyReady(() => (
       <TabLayout>
-        <></>
+        <SwapFlow />
       </TabLayout>
     ))
   ],
@@ -252,18 +253,18 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
-    '/generating-transaction',
-    onlyReady(() => (
+    '/generating-transaction/:txId',
+    onlyReady(({ txId }) => (
       <FullScreenPage>
-        <GeneratingTransactionPage />
+        <GeneratingTransactionPage txId={txId!} />
       </FullScreenPage>
     ))
   ],
   [
-    '/generating-transaction-full',
-    onlyReady(() => (
+    '/generating-transaction-full/:txId',
+    onlyReady(({ txId }) => (
       <FullScreenPage>
-        <GeneratingTransactionPage keepOpen={true} />
+        <GeneratingTransactionPage txId={txId!} keepOpen={true} />
       </FullScreenPage>
     ))
   ],

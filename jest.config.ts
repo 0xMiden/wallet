@@ -6,27 +6,61 @@
 // eslint-disable-next-line import/no-anonymous-default-export
 export default {
   coverageProvider: 'v8',
+  // Force EVERY source file into the coverage denominator. Without this, v8 only
+  // reports files a test actually imports, so an untested file silently vanishes
+  // from the metric (the 95% gate historically graded ~37% of src while real
+  // coverage was ~45%). With collectCoverageFrom, an untested file shows 0% and
+  // fails the gate — drift can no longer hide, and coveragePathIgnorePatterns
+  // below is the single, reviewable record of intentional exclusions.
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/**/*.d.ts',
+    '!src/**/*.test.{ts,tsx}',
+    '!src/**/*.spec.ts',
+    '!src/**/__mocks__/**',
+    '!src/**/__tests__/**'
+  ],
   // Narrow exclusions only for code that is fundamentally E2E/snapshot
   // territory and has no unit-testable surface:
   //
   // - `app/pages/Browser/` — framer-motion drag handlers / launcher
   //   overlays, exercised by the mobile-e2e suite.
-  // - `app/pages/Receive.tsx` — QR canvas + long UI, E2E territory.
+  // - `app/pages/Pending.tsx` / `app/pages/Receive/` — long-lived polling,
+  //   QR/native-share UI, and transaction-list interactions covered by E2E.
   // - `app/providers/DappBrowserProvider.tsx` — Capacitor inappbrowser
   //   provider wired to native plugins, exercised via mobile-e2e.
   // - `components/TransactionProgressModal.tsx` — react-modal portal
   //   with framer-motion animation, covered by Playwright.
+  // - `components/review/ReviewRow.tsx`, `lib/ui/drawer.tsx`, and the swap
+  //   success view — interaction/animation wrappers with no domain logic.
+  // - `lib/animation/use-motion.ts` — browser media-query/animation plumbing.
   // - `app/icons/v2/index.tsx` — barrel file of SVG re-exports.
   // - `lib/mobile/faucet-webview.ts` — Capacitor InAppBrowser wrapper.
   // - `packages/dapp-browser/` — external package build output.
+  // - `lib/lock-up/run-checks.ts` — extension popup bootstrap with module-scope
+  //   top-level `await`; @swc/jest emits bare TLA into a CommonJS wrapper that
+  //   won't load, so it has no clean unit surface without a source refactor
+  //   (extract the logic out of the bootstrap) or a brittle transformer hack.
+  // - `lib/miden/assets/stake.ts` — zero-byte placeholder module: no exports,
+  //   not referenced by the `./index` barrel, not imported anywhere. It has no
+  //   runtime surface to test; when real staking logic lands, remove it from
+  //   this list so the gate demands proper tests.
   coveragePathIgnorePatterns: [
     '/node_modules/',
+    '/src/lib/lock-up/run-checks\\.ts$',
+    '/src/lib/miden/assets/stake\\.ts$',
     '/src/app/pages/Browser/',
+    '/src/app/pages/Pending\\.tsx$',
     '/src/app/pages/Receive\\.tsx$',
+    '/src/app/pages/Receive/',
     '/src/app/icons/v2/index\\.tsx$',
     '/src/app/providers/DappBrowserProvider\\.tsx$',
     '/src/components/TransactionProgressModal\\.tsx$',
+    '/src/components/review/ReviewRow\\.tsx$',
+    '/src/lib/animation/use-motion\\.ts$',
+    '/src/lib/ui/drawer\\.tsx$',
     '/src/lib/mobile/faucet-webview\\.ts$',
+    '/src/screens/generating-transaction/success/SwapSuccess\\.tsx$',
     '/packages/dapp-browser/'
   ],
   // 'json-summary' emits coverage/coverage-summary.json, consumed by the

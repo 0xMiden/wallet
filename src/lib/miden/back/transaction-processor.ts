@@ -1,14 +1,14 @@
-// Import directly from the transactions module, not through activity/index.ts.
+// Import directly from the transaction module, not through activity/index.ts.
 // The activity re-export creates a circular init deadlock in the Vite SW bundle:
 // init_store → init_fetchBalances → init_prices → init_store (via __esmMin async factories).
 // Direct import avoids this because transaction-processor doesn't need the
 // activity module's full init chain.
+import { type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import {
   cancelStuckTransactions,
   getAllUncompletedTransactions,
   safeGenerateTransactionsLoop
-} from 'lib/miden/activity/transactions';
-import { type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+} from 'lib/miden/transaction';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { getIntercom } from './defaults';
@@ -119,9 +119,9 @@ export async function startTransactionProcessing(): Promise<void> {
   if (isProcessing) return;
   isProcessing = true;
 
-  // In the Vite SW build, the activity module's re-export of transactions.ts
-  // doesn't await the async transactions module init (Rolldown treats
-  // `export * from './transactions'` as synchronous). Wait up to 60s for the
+  // In the Vite SW build, the activity module's re-export of lib/miden/transaction
+  // doesn't await the async transaction module init (Rolldown treats
+  // `export * from '../transaction'` as synchronous). Wait up to 60s for the
   // function to become available. The init chain is:
   // init_transactions → init_store (Zustand) → init_front → various frontend inits
   // This may take time as module factories resolve asynchronously.

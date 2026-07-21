@@ -8,6 +8,7 @@ import { Receive } from 'app/pages/Receive';
 import { springs } from 'lib/animation';
 import { navigate, useLocation } from 'lib/woozie';
 import { SendFlow } from 'screens/send-flow/SendManager';
+import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
 /**
  * Carousel container that mounts all five home-group pages (Overview /
@@ -16,8 +17,9 @@ import { SendFlow } from 'screens/send-flow/SendManager';
  * time and snaps to the next/previous index on release if dragged or
  * flicked past a threshold; otherwise it snaps back.
  *
- * Pathname is the source of truth for which page is centered; TabLayout's
- * top action bar reads the same path and stays in sync.
+ * Pathname is the source of truth for which page is centered — the
+ * SegmentedActionBar in TabLayout reads the same path and stays in sync
+ * via its framer-motion layoutId pill.
  */
 
 interface HomePage {
@@ -41,13 +43,6 @@ const COMMIT_THRESHOLD = 0.3;
 // momentum to extrapolate when deciding whether to commit. Higher feels
 // flickier; lower feels stickier.
 const VELOCITY_PROJECTION_MS = 300;
-
-const SwapPlaceholder: FC = () => (
-  <div className="h-full flex flex-col items-center justify-center gap-2 bg-app-bg">
-    <span className="text-2xl font-bold text-text-primary-token">Swap</span>
-    <span className="text-sm text-text-tertiary-token">Coming soon</span>
-  </div>
-);
 
 const HomeSwipeContainer: FC = () => {
   const { pathname } = useLocation();
@@ -144,7 +139,7 @@ const HomeSwipeContainer: FC = () => {
           <Earn />
         </div>
         <div className="h-full shrink-0" style={{ width: `${100 / PAGES.length}%` }}>
-          <SwapPlaceholder />
+          <SwapFlow />
         </div>
       </motion.div>
     </div>

@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppEnv } from 'app/env';
 import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
 import { ScreenHeader } from 'components/ScreenHeader';
+import { confirmSensitiveAction } from 'lib/biometric';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import {
   initiateSendTransaction,
@@ -126,6 +127,14 @@ export const ReviewTransaction: React.FC = () => {
   const onSubmit = useCallback(async () => {
     if (isSubmitting || !token || !publicKey) return;
     setIsSubmitting(true);
+    // Re-confirm this user-initiated send with biometrics when the user has them
+    // enabled. Hot signing is silent again (guardian sync / auto-consume must not
+    // prompt), so this is the app-layer gate that keeps value transfers explicit.
+    // Set submitting first so the async prompt can't be double-triggered.
+    if (!(await confirmSensitiveAction('Confirm your send'))) {
+      setIsSubmitting(false);
+      return;
+    }
     try {
       // Drop any hash from a previous completed tx before starting a fresh one,
       // so the in-progress page can't briefly flash a stale "View on Midenscan"
@@ -157,7 +166,7 @@ export const ReviewTransaction: React.FC = () => {
       // from the progress page skips the now-stale review params.
       clearSendDraft();
       navigate(
-        `${fullPage ? '/generating-transaction-full' : '/generating-transaction'}?txId=${encodeURIComponent(txId)}`,
+        `${fullPage ? '/generating-transaction-full' : '/generating-transaction'}/${encodeURIComponent(txId)}`,
         HistoryAction.Replace
       );
     } catch (e) {

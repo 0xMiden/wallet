@@ -13,6 +13,7 @@ src/
 ├── lib/
 │   ├── store/           # Zustand (frontend)
 │   ├── miden/{back,front,sdk,psm}
+│   ├── miden/transaction/   # tx pipeline: initiate/complete/get/cancel/helper; index = generateTransaction + loop (re-exported via miden/activity)
 │   ├── intercom/        # port messaging
 │   ├── platform/        # isMobile/isIOS/isAndroid/isExtension
 │   ├── mobile/          # haptics, back-handler
@@ -86,21 +87,27 @@ Add `hapticLight()` (taps), `hapticMedium()` (toggles), `hapticSelection()` (tab
 
 ## Transaction summary badge (Generating Transaction screen)
 
-The in-progress transaction view (`src/screens/generating-transaction/GeneratingTransaction.tsx`, shown full-screen on mobile and as a card via `TransactionProgressModal`) renders a dynamic one-line summary pill under the title — `src/screens/generating-transaction/TransactionSummaryBadge.tsx`.
+The in-progress transaction view (`src/screens/generating-transaction/GeneratingTransaction.tsx`) renders a dynamic one-line summary pill under the title — `src/screens/generating-transaction/TransactionSummaryBadge.tsx`.
 
-**Today only the `send` variant exists**: `{amount} {symbol} → {recipient} on (Miden logo) Miden`. The badge returns `null` for every other transaction type. Future agents should extend it per type.
+**The page is addressed by transaction id and observes a single row.** The route is `/generating-transaction/:txId` (and `/generating-transaction-full/:txId` for the desktop `keepOpen` variant) — see `PageRouter.tsx`. Send (`ReviewTransaction.tsx`) and swap (`SwapManager.tsx`) capture the id returned synchronously by their `initiate*` call and `navigate` straight to it. `GeneratingTransactionPage` subscribes to **that one row** by id via `useTransactionRow(txId)` (a Dexie `liveQuery`, `useTransactionRow.ts`) and derives everything from its status: `transactionComplete = status is Completed|Failed`, `hasErrors = status === Failed`, hash = `row.transactionId`. An unknown id `<Redirect>`s home.
 
-**Data source**: the active `ITransaction`, passed in as the `activeTransaction` prop (the modal passes `activeTx`; the page passes `active ?? receiptTransaction`). Fields populated per `ITransactionType` (see the `Transaction` subclasses in `src/lib/miden/db/types.ts`):
+**Why this shape (history).** The page began as a modal that watched the *whole queue* (`getAllUncompletedTransactions()`) and had to *guess* which tx it was showing (`pickActiveTx`), infer completion from the queue going empty, and infer failure by counting failed rows. Those heuristics existed only because the row **drops out of the uncompleted list the instant it completes** — so the page needed shadow state (`receiptTransaction`) to re-find it. Watching by id fixes the root cause: the row never disappears (`Queued → GeneratingTransaction → Completed | Failed`), so status alone is authoritative and all that scaffolding is gone. The FIFO processing loop (`safeGenerateTransactionsLoop` in `src/lib/miden/transaction/index.ts`) and the page's own `setInterval` driver are **unchanged** — the page still kicks the loop on mobile/desktop and is a pure observer on extension (SW owns the loop). Observing one row and draining the FIFO queue are orthogonal: the driver is not scoped to `txId`. Hiding the page mid-tx is safe because the in-flight `generateTransaction` promise isn't cancelled by unmount.
+
+**`send` and `swap` variants exist**: send renders `{amount} {symbol} → {recipient}`; swap renders `(logo) {amount} {symbol} → (logo) {amount} {symbol}`. The badge returns `null` for every other transaction type. Future agents should extend it per type.
+
+**Data source**: the tracked `ITransaction`, passed in as the `activeTransaction` prop (= the row from `useTransactionRow`). Fields populated per `ITransactionType` (see the `Transaction` subclasses in `src/lib/miden/db/types.ts`):
 - `send` → `amount`, `faucetId` (token), `secondaryAccountId` = **recipient address**.
+- `swap` → `amount`/`faucetId` = **offered** side; `extraInputs.requestedAmount`/`extraInputs.requestedFaucetId` = **requested** side. Symbol/decimals/logo for the fixed devnet DEX tokens resolve via `getSwapTokenByFaucetId` in `src/lib/miden/swap/tokens.ts` (the swap-token registry — source of truth, since these faucets may be absent from `assetsMetadata`).
 - `consume` (claim) → `faucetId`, `secondaryAccountId` = **note sender**, `noteId`; `amount` optional.
 - `execute` → usually nothing useful.
 - `switch-guardian` → `extraInputs.newGuardianEndpoint`. `replace-hot-key` → `extraInputs.newHotPublicKey`. Neither has amount/token.
 
 **Token symbol/logo**: `useWalletStore(s => s.assetsMetadata)[faucetId]` → `AssetMetadata` (`symbol`, `decimals`, `thumbnailUri`); native fallback `MIDEN_METADATA` (`lib/miden/metadata`). Miden network logo: `IconName.MidenLogo`. To add a variant, add a branch in `TransactionSummaryBadge`; keep returning `null` when there's no meaningful summary so no empty pill renders.
 
+**Per-step timing ("2 sec" on each step row) is built, frontend-only.** `GeneratingTransaction` stamps `startTimeForStep`/`endTimeForStep` (arrays indexed by UI step) in a `useEffect` on `activeStage`: step 0 runs `creating-proposal`→`sending`, step 1 `sending`→`submitting`, step 2 `submitting`→first post-submit stage (`confirming`/`registering-guardian`/`delivering`, stamped once via `step3StartedRef`), and the last started step ends when `transactionComplete` flips (there is no `'complete'` stage — completion is status-driven). Durations render via the `meta` prop on `TransactionStepRow` (right-aligned muted text, `transactionStepDurationSec` key). Deliberately NOT persisted on `ITransaction` — timings are component-local and reset on remount / next tx (the `creating-proposal` case resets both arrays).
+
 **Deferred — NOT built yet (the mock shows these, intentionally skipped):**
-- **Per-step timing** ("2 sec" / "4 sec" on each step row). There's a right-side meta slot placeholder in the step row. To wire real durations: record a first-entry timestamp on each stage change in `setTransactionStage` **and** the direct `stage: 'sending'` write in `generateTransaction` (both `src/lib/miden/activity/transactions.ts`), store as a non-indexed `stageTimings?: Partial<Record<ITransactionStage, number>>` on `ITransaction` (no Dexie schema bump — non-indexed fields ride through `exportDb`/`importDb` via `...rest`), then derive per-UI-step durations in the component (step→stage map is `getActiveTransactionStepIndex`).
-- **Bridge/swap badge** ("Submitting to Base", "via Epoch", token→token swap). There is **no `swap` tx type**, no backend producer for bridged `extraInputs`, and no chain-id→name map. `IBridgedSendExtraInputs`/`IBridgeProvider` are referenced in `TransactionSuccess.tsx` but **not defined anywhere** — define them before relying on them.
+- **Bridge step labels** ("Submitting to Base", "via Epoch"). The in-protocol token→token swap badge is **now built** (see the `swap` bullet above), but the bridge-specific step labels are still deferred — there's no backend producer for bridged `extraInputs` and no chain-id→name map. `IBridgedSendExtraInputs`/`IBridgeProvider` are defined in `src/lib/miden/db/types.ts` but nothing populates them yet.
 
 The redesigned in-progress view dropped the `ScreenHeader` and the linear progress bar; dismissal is via the bottom Hide/Done button.
 
@@ -108,9 +115,11 @@ The redesigned in-progress view dropped the `ScreenHeader` and the linear progre
 
 Two systems:
 - **Woozie** (`src/lib/woozie/`) — hash-based global router. `navigate`, `goBack`, `useLocation`, `<Link>`.
-- **Navigator** (`src/components/Navigator.tsx`) — internal step flows (`SendManager`, `EncryptedFileManager`). `useNavigator()` → `{navigateTo, goBack, cardStack}`.
+- **Navigator** (`src/components/Navigator.tsx`) — internal step flows (`SendManager`, `SwapManager`, `EncryptedFileManager`). `useNavigator()` → `{navigateTo, goBack, cardStack}`. The swap flow (`src/screens/swap-flow/`) mirrors send: amounts (two `SelectAmount` in `embedded` mode) → review, rendered at `/swap` in both `PageRouter` and `HomeSwipeContainer`; the token picker is a bottom-sheet drawer (`SelectSwapTokenDrawer`, like send's `SelectTokenDrawer`) closed first by SwapManager's mobile back handler.
 
 Onboarding (`Welcome.tsx`) and `ForgotPassword.tsx` use hash-based state (`/#step-name`), NOT Navigator.
+
+The in-progress transaction view is a routed full-screen page at `/generating-transaction/:txId` (desktop `keepOpen` variant: `/generating-transaction-full/:txId`). Send and swap `navigate` here with the id path param after initiating; it observes that one row to completion (see the Transaction summary badge section). `onClose` guards on `hash.includes('generating-transaction')`, so the substring must stay in any future route rename.
 
 Send flow: only recipient → amount remain Navigator steps inside `/send`; the token and contact pickers are fixed-height bottom-sheet drawers (`SelectTokenDrawer`, `AccountsListDrawer`) closed first by SendManager's mobile back handler; the review step is a routed full-screen page (`/send/review?amount=…&to=…&tokenId=…`, `ReviewTransaction.tsx`) that owns the transaction pipeline. Backing out restores the form via `send-flow/send-draft.ts` (SendManager reopens on the Amount step). Hardware back on review is covered by `MobileBackBridge` (history pop).
 

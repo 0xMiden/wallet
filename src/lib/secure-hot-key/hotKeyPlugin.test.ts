@@ -1,4 +1,6 @@
-const mockPlugin = {
+import type { HotKeyPlugin } from './hotKeyPlugin';
+
+const mockPlugin: jest.Mocked<HotKeyPlugin> = {
   generateHotKey: jest.fn(),
   signWithHotKey: jest.fn(),
   deleteHotKey: jest.fn(),

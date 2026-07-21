@@ -151,7 +151,7 @@ const IconifiedSelectOption = <T extends unknown>(props: IconifiedSelectOptionPr
         'w-full',
         'mb-1',
         'rounded',
-        'transition easy-in-out duration-200',
+        'transition-colors ease-hover duration-150',
         selected ? 'bg-chip-bg' : !disabled && 'hover:bg-gray-100',
         'flex items-center',
         disabled && 'opacity-25',
