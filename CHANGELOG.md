@@ -2,6 +2,10 @@
 
 ## 1.15.8 (TBD)
 
+### Features
+
+* [FEATURE][all] **Guardian accounts now auto-detect and reconcile out-of-band guardian switches; dApps can read guardian info via `requestGuardianInfo()`.**
+
 ### Changes
 
 * [CHANGE][extension] **Refreshed the network icons.** The default/testnet build's orange bread "B" is regenerated from a new transparent-background master (dropping the old opaque white card and padding so the B fills the frame), and the devnet icon is redesigned from the orange "B" with a blue corner wrench to a sage-green "B" with a centered developer wrench, so devnet is easy to tell apart from the default build at a glance. All sizes (16/32/40/48/128/234) were regenerated for both `logo-white-bg*` (default) and `logo-devnet*` (devnet) from 1536px masters with gamma-correct (linear-light) downscaling. Affects the Chrome extension (manifest icons + toolbar `action.default_icon`, notifications, and the full-page view) and the Tauri desktop window favicon; mobile is unaffected — it uses separate native app icons (`AppIcon`/`ic_launcher`) and `misc/brand/*` splash assets. Icon-swap wiring in `vite.extension.config.ts` is unchanged.
