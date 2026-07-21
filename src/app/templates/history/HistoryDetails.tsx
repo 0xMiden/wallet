@@ -12,7 +12,11 @@ import { ScreenHeader } from 'components/ScreenHeader';
 import {
   cancelTransactionById,
   getTransactionById,
+  isRequeueableTransaction,
   isUserCancelledTransaction,
+  requestSWTransactionProcessing,
+  requeueFailedTransaction,
+  retryEarnWithdrawReceive,
   trackOrderId,
   SwapOrderState,
   SwapOrderTracking,
@@ -21,6 +25,7 @@ import {
 import {
   IBridgedReceiveExtraInputs,
   IBridgedSendExtraInputs,
+  IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
   ITransactionStatus
 } from 'lib/miden/db/types';
@@ -32,7 +37,7 @@ import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
-import { goBack } from 'lib/woozie';
+import { goBack, navigate } from 'lib/woozie';
 
 import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
@@ -108,6 +113,23 @@ const BridgeStatusPill: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
     <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', tone)}>
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
       <span className="text-xs font-medium">{t(BRIDGE_STATUS_LABEL_KEY[status])}</span>
+    </div>
+  );
+};
+
+/** Pending/Confirmed/Failed pill for a Smart Deposit's solver-fulfilled lending leg (`epochStatus`). */
+const EarnDepositStatusPill: FC<{ status: NonNullable<IEarnDepositExtraInputs['epochStatus']> }> = ({ status }) => {
+  const { t } = useTranslation();
+  const toneClass =
+    status === 'confirmed'
+      ? 'bg-status-positive/15 text-status-positive'
+      : status === 'failed'
+        ? 'bg-status-negative/15 text-status-negative'
+        : 'bg-status-pending/15 text-status-pending';
+  return (
+    <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', toneClass)}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      <span className="text-xs font-medium">{t(status)}</span>
     </div>
   );
 };
@@ -196,6 +218,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  // Failed txs persist a friendly `error` plus the untouched thrown `rawError`;
+  // this reveals the latter on demand.
+  const [showFullError, setShowFullError] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
   // Swap order tracking: the orderId is persisted on the swap tx's extraInputs
   // by `completeSwapTransaction`; the live lineage is fetched via `trackOrderId`.
@@ -208,6 +235,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // Guards the earn-withdraw delivery poller so it is (re)started at most once per
   // intent nonce, even though the reload loop re-runs the effect as the row advances.
   const withdrawPollNonceRef = useRef<string | null>(null);
+  // Smart Deposit (open-position) metadata for the details card + intent polling.
+  const [earnDeposit, setEarnDeposit] = useState<IEarnDepositExtraInputs | null>(null);
+  const depositPollNonceRef = useRef<string | null>(null);
   const loadTransaction = useCallback(async () => {
     try {
       setLoadError(null);
@@ -245,6 +275,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         outputNoteIds: tx.outputNoteIds,
         txType: tx.type,
         errorMessage: tx.error,
+        rawErrorMessage: tx.rawError,
         isCancelled: isUserCancelledTransaction(tx.error),
         bridgeProvider: bridge?.provider,
         bridgeDestinationAddress: bridge?.destinationAddress,
@@ -286,6 +317,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       }
 
       setEarnWithdraw(tx.type === 'earn-withdraw' ? (tx.extraInputs as IEarnWithdrawExtraInputs) : null);
+      setEarnDeposit(tx.type === 'earn-deposit' ? (tx.extraInputs as IEarnDepositExtraInputs) : null);
 
       setEntry(historyEntry);
     } catch (error) {
@@ -324,6 +356,33 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       setIsCancelling(false);
     }
   }, [loadTransaction, t, transactionId]);
+
+  // Retry a failed transaction. Regular Miden txs (including Miden → EVM
+  // bridged sends) are re-queued through the FIFO loop. A failed Smart
+  // Withdraw retries only the RECEIVE leg — the redeem intent is already on
+  // Epoch, so the row flips back to non-terminal and delivery polling
+  // restarts. EVM → Miden bridge failures are EVM-side and not retryable.
+  const handleRetry = useCallback(async () => {
+    if (!entry) return;
+    setIsRetrying(true);
+    setRetryError(null);
+    try {
+      if (entry.txType === 'earn-withdraw') {
+        await retryEarnWithdrawReceive(transactionId);
+        await loadTransaction();
+      } else {
+        await requeueFailedTransaction(transactionId);
+        requestSWTransactionProcessing();
+        navigate(`/generating-transaction/${encodeURIComponent(transactionId)}`);
+        return; // navigating away — leave the spinner as-is
+      }
+    } catch (error) {
+      console.error('[HistoryDetails] Failed to retry transaction:', error);
+      setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+    } finally {
+      setIsRetrying(false);
+    }
+  }, [entry, loadTransaction, t, transactionId]);
 
   // Poll the swap order lineage until it reaches a terminal state. Unresolved
   // orders back off so they do not hold the WASM client lock every three seconds
@@ -416,6 +475,45 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     };
   }, [entry?.txType, withdrawPhase, withdrawNonce, withdrawOwner, transactionId, loadTransaction]);
 
+  // Drive a live lending-leg status on a Smart Deposit's detail page. The
+  // initiating context started `pollEarnIntentStatus`, but it dies with that
+  // context (popup closed / app restart), so this page (re)starts it — once per
+  // nonce — and reloads the row on an interval until `epochStatus` settles.
+  // Only meaningful once the Miden collateral note actually landed (Completed).
+  const depositStatus = earnDeposit?.epochStatus;
+  const depositNonce = earnDeposit?.intentNonce;
+  const depositOwner = earnDeposit?.evmRecipient;
+  useEffect(() => {
+    if (entry?.txType !== 'earn-deposit') return;
+    if (entry.status !== ITransactionStatus.Completed) return;
+    if (depositStatus === 'confirmed' || depositStatus === 'failed') return;
+    if (!depositNonce || !isHexEvmAddress(depositOwner)) return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const POLL_INTERVAL_MS = 3000;
+
+    if (depositPollNonceRef.current !== depositNonce) {
+      const sponsorAddress = depositOwner;
+      const nonce = depositNonce;
+      depositPollNonceRef.current = nonce;
+      import('lib/epoch')
+        .then(({ pollEarnIntentStatus }) => pollEarnIntentStatus({ sponsorAddress, nonce, txId: transactionId }))
+        .catch(err => console.warn('[earn-deposit] detail-page poll start failed', err));
+    }
+
+    const tick = async () => {
+      await loadTransaction();
+      if (!cancelled) timer = setTimeout(tick, POLL_INTERVAL_MS);
+    };
+    timer = setTimeout(tick, POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [entry?.txType, entry?.status, depositStatus, depositNonce, depositOwner, transactionId, loadTransaction]);
+
   const orderStatusLabel = (state: SwapOrderState): string => {
     switch (state) {
       case 'filled':
@@ -443,6 +541,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isBridgeIn = entry ? isBridgeInEntry(entry) && entry.txType === 'bridged-receive' : false;
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
+  const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
   const fromAddress = isBridgeOut
     ? entry?.address
     : isBridgeIn
@@ -465,6 +564,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       : undefined;
   const isPending =
     entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
+  // Retry only makes sense when there's something recoverable: a re-queueable
+  // failed Miden tx, or a Smart Withdraw whose redeem intent is on Epoch.
+  // EVM → Miden bridge failures are EVM-side — nothing the wallet can replay.
+  const canRetry =
+    entry !== null &&
+    !entry.isCancelled &&
+    (entry.txType === 'earn-withdraw'
+      ? earnWithdraw?.phase === 'failed' && Boolean(earnWithdraw.withdrawIntentNonce)
+      : isRequeueableTransaction({ status: entry.status, type: entry.txType }));
 
   return (
     <PageLayout hideToolbar>
@@ -500,6 +608,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   <BridgeStatusPill entry={entry} />
                 ) : isEarnWithdraw && earnWithdraw ? (
                   <EarnWithdrawStatusPill phase={earnWithdraw.phase} />
+                ) : isEarnDeposit && earnDeposit && entry.status === ITransactionStatus.Completed ? (
+                  // Miden note landed — the pill tracks the solver-fulfilled
+                  // lending leg instead of the (long-settled) Miden tx status.
+                  <EarnDepositStatusPill status={earnDeposit.epochStatus ?? 'pending'} />
                 ) : (
                   <StatusPill status={entry.status} isCancelled={entry.isCancelled} />
                 )}
@@ -639,6 +751,63 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </div>
             )}
 
+            {/* Smart Deposit details (market, position owner, intent, Sepolia tx) */}
+            {isEarnDeposit && earnDeposit && (
+              <div className="mt-6">
+                <DetailCard title={t('earnDepositDetailsTitle')}>
+                  <DetailRow label={t('earnMarketLabel')}>
+                    <span className="text-sm text-heading-gray font-medium select-text">
+                      {earnDeposit.marketUid.split(':')[0] || earnDeposit.marketUid}
+                    </span>
+                  </DetailRow>
+                  <DetailRow
+                    label={t('positionOwnerLabel')}
+                    isLast={!earnDeposit.intentNonce && !earnDeposit.evmTxHash}
+                  >
+                    <ExternalLinkValue
+                      displayValue={
+                        <HashChip
+                          hash={earnDeposit.evmRecipient}
+                          trimHash
+                          fill="#9E9E9E"
+                          className="ml-2"
+                          copyIcon={false}
+                        />
+                      }
+                      href={SEPOLIA_ADDRESS_URL(earnDeposit.evmRecipient)}
+                    />
+                  </DetailRow>
+                  {earnDeposit.intentNonce && (
+                    <DetailRow label={t('depositIntentLabel')} isLast={!earnDeposit.evmTxHash}>
+                      <HashChip
+                        hash={earnDeposit.intentNonce}
+                        trimHash
+                        fill="#9E9E9E"
+                        className="ml-2"
+                        copyIcon={false}
+                      />
+                    </DetailRow>
+                  )}
+                  {earnDeposit.evmTxHash && (
+                    <DetailRow label={t('txIdLabel')} isLast>
+                      <ExternalLinkValue
+                        displayValue={
+                          <HashChip
+                            hash={earnDeposit.evmTxHash}
+                            trimHash
+                            fill="#9E9E9E"
+                            className="ml-2"
+                            copyIcon={false}
+                          />
+                        }
+                        href={SEPOLIA_TX_URL(earnDeposit.evmTxHash)}
+                      />
+                    </DetailRow>
+                  )}
+                </DetailCard>
+              </div>
+            )}
+
             {/* Failure reason (persisted on `tx.error` by cancelTransaction) */}
             {(entry.status === ITransactionStatus.Failed || (isBridgeIn && entry.bridgeInPhase === 'failed')) &&
               entry.errorMessage && (
@@ -652,6 +821,22 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     >
                       {entry.errorMessage}
                     </p>
+                    {entry.rawErrorMessage && (
+                      <div className="px-4 pb-3">
+                        <button
+                          type="button"
+                          className="text-sm font-medium text-text-muted underline"
+                          onClick={() => setShowFullError(v => !v)}
+                        >
+                          {showFullError ? t('hideFullError') : t('showFullError')}
+                        </button>
+                        {showFullError && (
+                          <p className="mt-2 text-xs font-medium text-text-muted wrap-break-word select-text">
+                            {entry.rawErrorMessage}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </DetailCard>
                 </div>
               )}
@@ -763,6 +948,20 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               disabled={isCancelling}
               onClick={handleCancel}
               className="max-w-none bg-status-negative hover:bg-status-negative focus:bg-status-negative"
+            />
+          </div>
+        )}
+
+        {canRetry && (
+          <div className="shrink-0 pt-3 pb-4">
+            {retryError && <p className="mb-2 text-center text-sm text-status-negative">{retryError}</p>}
+            <Button
+              variant={ButtonVariant.Primary}
+              title={t('retry')}
+              isLoading={isRetrying}
+              disabled={isRetrying}
+              onClick={handleRetry}
+              className="max-w-none"
             />
           </div>
         )}

@@ -21,6 +21,8 @@ export interface IHistoryEntry {
   status?: ITransactionStatus;
   /** Failure reason (`tx.error`); set by the detail page for failed transactions. */
   errorMessage?: string;
+  /** The untouched thrown error (`tx.rawError`), present when `errorMessage` is a friendly rewrite. */
+  rawErrorMessage?: string;
   /** User-requested cancellation, persisted as a failed terminal transaction. */
   isCancelled?: boolean;
   token?: string;

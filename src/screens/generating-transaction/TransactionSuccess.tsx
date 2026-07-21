@@ -6,6 +6,7 @@ import { BridgeSuccess } from './success/BridgeSuccess';
 import { SendSuccess } from './success/SendSuccess';
 import { SwapSuccess } from './success/SwapSuccess';
 import { TransactionSuccessProps } from './success/TransactionSuccessLayout';
+import { WithdrawSuccess } from './success/WithdrawSuccess';
 
 export type { TransactionSuccessProps } from './success/TransactionSuccessLayout';
 
@@ -33,6 +34,10 @@ export const TransactionSuccess: FC<TransactionSuccessProps> = props => {
 
   if (props.transaction?.type === 'swap') {
     return <SwapSuccess {...props} />;
+  }
+
+  if (props.transaction?.type === 'earn-withdraw') {
+    return <WithdrawSuccess {...props} />;
   }
 
   if (isBridgedSendExtraInputs(extraInputs)) {

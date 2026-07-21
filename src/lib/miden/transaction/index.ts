@@ -53,9 +53,11 @@ import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 
 export * from './cancel';
 export * from './complete';
+export * from './constants';
 export * from './get';
 export * from './helper';
 export * from './initiate';
+export * from './retry';
 
 /**
  * Run the structural side effects a structural Guardian op needs after its

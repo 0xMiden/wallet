@@ -98,6 +98,27 @@ describe('gaslessEarnWithdrawalToMiden', () => {
     expect(deps.initiateRow).not.toHaveBeenCalled();
   });
 
+  it('fires onRowCreated with the row id before the intent work', async () => {
+    const executeActions = jest.fn().mockResolvedValue({ nonce: 'NONCE1' });
+    const onRowCreated = jest.fn();
+    const deps = baseDeps({ sdk: fakeSdk(executeActions) });
+
+    await gaslessEarnWithdrawalToMiden({ ...validArgs(), onRowCreated }, deps);
+
+    expect(onRowCreated).toHaveBeenCalledWith('TX1');
+    // The handoff happens before the smart-account/intent work runs.
+    expect(onRowCreated.mock.invocationCallOrder[0]!).toBeLessThan(executeActions.mock.invocationCallOrder[0]!);
+  });
+
+  it('still fires onRowCreated when the intent submission later throws', async () => {
+    const executeActions = jest.fn().mockRejectedValue(new Error('solve boom'));
+    const onRowCreated = jest.fn();
+    const deps = baseDeps({ sdk: fakeSdk(executeActions) });
+
+    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), onRowCreated }, deps)).rejects.toThrow('solve boom');
+    expect(onRowCreated).toHaveBeenCalledWith('TX1');
+  });
+
   it('marks the row failed when the intent submission throws', async () => {
     const executeActions = jest.fn().mockRejectedValue(new Error('solve boom'));
     const deps = baseDeps({ sdk: fakeSdk(executeActions) });

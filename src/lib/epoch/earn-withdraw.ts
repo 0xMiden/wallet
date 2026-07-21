@@ -35,6 +35,10 @@ export interface GaslessEarnWithdrawalArgs {
   /** Human-decimal withdrawable amount returned by the positions API. */
   amount: string;
   underlyingDecimals: number;
+  /** Fired once the tracking `earn-withdraw` row exists (before the intent work),
+   * so the caller can navigate to the generating-transaction screen — mirrors
+   * `openEarnPosition`'s callback. */
+  onRowCreated?: (txId: string) => void;
 }
 
 export interface GaslessEarnWithdrawalResult {
@@ -159,6 +163,7 @@ export async function gaslessEarnWithdrawalToMiden(
     args.amount,
     'USDC'
   );
+  args.onRowCreated?.(txId);
 
   try {
     const ensureSmartAccount = deps.ensureSmartAccount ?? ensureEpochSmartAccount;
