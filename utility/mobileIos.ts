@@ -6,13 +6,13 @@ let includeSwapForIos = false;
 for (let index = 0; index < args.length; index += 1) {
   const argument = args[index];
 
-  if (argument !== '--includeSwapForIos') {
+  if (argument !== '--include-swap') {
     throw new Error(`Unknown option: ${argument}`);
   }
 
   const value = args[index + 1];
   if (value !== 'true' && value !== 'false') {
-    throw new Error('--includeSwapForIos must be followed by true or false');
+    throw new Error('--include-swap must be followed by true or false');
   }
 
   // Internal testing only. Production/release builds must leave this false.

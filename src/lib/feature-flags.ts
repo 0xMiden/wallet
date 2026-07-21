@@ -12,7 +12,7 @@ import { isIOS } from 'lib/platform';
  * desktop) keeps swap.
  *
  * For internal testing only, developers can explicitly include swap in the
- * iOS bundle with `yarn mobile:ios --includeSwapForIos true`. The launcher
+ * iOS bundle with `yarn mobile:ios --include-swap true`. The launcher
  * converts that flag into a build-time constant; normal and release builds
  * remain gated.
  *
