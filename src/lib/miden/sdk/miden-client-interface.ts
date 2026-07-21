@@ -585,13 +585,20 @@ export class MidenClientInterface {
 
     recordProveTiming(`consumeNoteId entered noteId=${noteId} delegateTransaction=${transaction.delegateTransaction}`);
     return this.withProverFallback(async prover => {
-      const { result } = await this.client.transactions.consume({
-        account: accountId,
-        // Batch claims consume every note in one transaction (one proof/submit).
-        notes: noteIds && noteIds.length > 0 ? noteIds : [noteId],
-        prover
-      });
-      return result;
+      try {
+        const { result } = await this.client.transactions.consume({
+          account: accountId,
+          // Batch claims consume every note in one transaction (one proof/submit).
+          notes: noteIds && noteIds.length > 0 ? noteIds : [noteId],
+          prover
+        });
+        recordProveTiming('consumeNoteId SDK consume returned');
+        return result;
+      } catch (error) {
+        const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+        recordProveTiming(`consumeNoteId SDK consume THREW ${detail}`);
+        throw error;
+      }
     }, transaction.delegateTransaction);
   }
 

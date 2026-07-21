@@ -10,6 +10,10 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+jest.mock('./bridge-networks', () => ({
+  BRIDGE_OUTPUT_TOKEN_SYMBOL: 'USDC'
+}));
+
 // `components/Button` pulls in framer-motion, Capacitor haptics and the icon
 // barrel transitively. We stub it with a plain <button> that still renders
 // `iconLeft` (so the internal AddressBookIcon SVG is exercised) and forwards

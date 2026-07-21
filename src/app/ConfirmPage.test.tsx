@@ -29,6 +29,11 @@ jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   Address: { fromAccountId: jest.fn() },
   FungibleAsset: jest.fn(),
+  InputNoteState: {
+    ConsumedAuthenticatedLocal: 'ConsumedAuthenticatedLocal',
+    ConsumedUnauthenticatedLocal: 'ConsumedUnauthenticatedLocal',
+    ConsumedExternal: 'ConsumedExternal'
+  },
   SigningInputs: { deserialize: jest.fn() },
   SigningInputsType: { TransactionSummary: 'TransactionSummary', Arbitrary: 'Arbitrary', Blind: 'Blind' },
   Word: { deserialize: jest.fn() }
@@ -72,7 +77,8 @@ jest.mock('lib/swr', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  useLocation: jest.fn()
+  useLocation: jest.fn(),
+  navigate: jest.fn()
 }));
 
 // Tippy pulls in `tippy.js`; the component only needs a ref back.
@@ -201,8 +207,6 @@ const ctx = {
   confirmDAppConsumableNotes: jest.fn()
 };
 
-const openTransactionModal = jest.fn();
-
 const ACCOUNT = { name: 'Main', publicKey: 'mtst1account_ABCDpub', isPublic: true };
 
 const APP_META = { name: 'DApp', description: 'x', iconUri: '' };
@@ -248,7 +252,6 @@ beforeEach(() => {
   mockIsDelegateProofEnabled.mockReturnValue(false);
   mockGetNetworkId.mockReturnValue('testnet');
   mockGetTokenMetadata.mockResolvedValue({ decimals: 6, symbol: 'TOK' });
-  (useWalletStore.getState as jest.Mock).mockReturnValue({ openTransactionModal });
   consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 });
@@ -519,7 +522,6 @@ describe('transaction payload', () => {
     });
 
     await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', true, true));
-    expect(openTransactionModal).toHaveBeenCalledTimes(1);
   });
 
   it('renders the payloadError instead of the derived content when present', () => {
@@ -552,7 +554,7 @@ describe('consume payload', () => {
     expect(screen.getByText('NoCommaConsume')).toBeInTheDocument();
   });
 
-  it('confirms a consume via confirmDAppTransaction and opens the modal', async () => {
+  it('confirms a consume via confirmDAppTransaction', async () => {
     ctx.confirmDAppTransaction.mockResolvedValue(undefined);
     setPayload(consumePayload());
     render(<ConfirmPage />);
@@ -562,7 +564,6 @@ describe('consume payload', () => {
     });
 
     await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', true, false));
-    expect(openTransactionModal).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -32,6 +32,11 @@ jest.mock('app/templates/EvmConnectModal', () => ({
   default: () => null
 }));
 
+jest.mock('app/pages/BridgeDeposit', () => ({
+  __esModule: true,
+  default: () => <div data-testid="bridge-deposit" />
+}));
+
 jest.mock('components/Button', () => ({
   Button: ({
     children,
@@ -66,10 +71,6 @@ jest.mock('lib/platform', () => ({
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
-}));
-
-jest.mock('lib/platform', () => ({
-  isMobile: () => false
 }));
 
 jest.mock('lib/ui/useCopyToClipboard', () => ({

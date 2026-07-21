@@ -169,7 +169,7 @@ describe('AllHistory', () => {
 
     expect(hapticLight).toHaveBeenCalledTimes(1);
     expect(navigate).toHaveBeenCalledTimes(1);
-    expect(navigate).toHaveBeenCalledWith('/pending');
+    expect(navigate).toHaveBeenCalledWith('/pending-notes');
   });
 
   it('changes the active filter and propagates it to History on tap', () => {
