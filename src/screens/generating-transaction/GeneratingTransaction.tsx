@@ -257,9 +257,10 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     const step = TRANSACTION_STEPS[stepIndex];
     if (!step) return;
     const prevStep = TRANSACTION_STEPS[stepIndex - 1];
-    if (!prevStep) {
-      throw new Error('Prev Step Should be there');
-    }
+    // stepIndex === 0 is handled above, so a step past the first always has a
+    // predecessor; guard defensively rather than throwing from an effect if
+    // TRANSACTION_STEPS / getTimedStepIndexForStage ever drift out of sync.
+    if (!prevStep) return;
     setStepTimings(prev => {
       return {
         ...prev,

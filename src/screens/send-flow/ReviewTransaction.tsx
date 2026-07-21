@@ -9,6 +9,7 @@ import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { EVM_AGGLAYER_NETWORK_ID, MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import {
@@ -188,6 +189,14 @@ export const ReviewTransaction: React.FC = () => {
     if (isSubmitting || !token || !publicKey) return;
     setIsSubmitting(true);
     setSubmitError(undefined);
+    // Re-confirm this user-initiated send with biometrics when the user has them
+    // enabled. Hot signing is silent again (guardian sync / auto-consume must not
+    // prompt), so this is the app-layer gate that keeps value transfers explicit.
+    // Set submitting first so the async prompt can't be double-triggered.
+    if (!(await confirmSensitiveAction('Confirm your send'))) {
+      setIsSubmitting(false);
+      return;
+    }
     try {
       // Drop any hash from a previous completed tx before starting a fresh one,
       // so the in-progress page can't briefly flash a stale "View on Midenscan"
@@ -248,6 +257,7 @@ export const ReviewTransaction: React.FC = () => {
         requestSWTransactionProcessing();
       }
 
+      goToGeneratingTransaction(txId);
       goToGeneratingTransaction(txId);
     } catch (e) {
       console.error(e);

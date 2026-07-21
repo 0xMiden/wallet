@@ -57,13 +57,13 @@ describe('SelectRecipient', () => {
     expect(screen.getByTestId('send-scan-icon')).toBeInTheDocument();
     expect(screen.getByText('addressBook').closest('button')).toHaveClass(
       'h-auto!',
-      'px-1!',
+      'px-2!',
       'py-1!',
       'bg-surface-interactive!'
     );
     expect(screen.getByText('Scan QR Code').closest('button')).toHaveClass(
       'h-auto!',
-      'px-1!',
+      'px-2!',
       'py-1!',
       'bg-surface-interactive!'
     );

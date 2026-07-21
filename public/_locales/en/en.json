@@ -795,5 +795,15 @@
   "scanWithYourWalletDescription": "Open WalletConnect in any EVM wallet and scan the code.",
   "preparing": "Preparing connection…",
   "copyConnectionLink": "Copy connection link",
-  "disconnect": "Disconnect"
+  "disconnect": "Disconnect",
+  "agglayerBridgeInProgressSubtitle": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
+  "agglayerBridgeInProgressSubtitleNoAmount": "An incoming bridge from EVM via Agglayer is settling. This can take a while.",
+  "agglayerBridgeInProgressTitle": "Bridge in progress",
+  "enterYourPassword": "Enter your password",
+  "incorrectPassword": "Incorrect password. Try again.",
+  "revealSecretPasscodeInputDescription": "Enter your passcode to reveal the $secretName$.",
+  "swapFetchingPrice": "Fetching price…",
+  "swapInvalidAmounts": "Enter a valid amount to swap.",
+  "swapOrderReservedNote": "Your $amount$ stays reserved for this order until it's filled.",
+  "swapSolverFeeNote": "Your receive amount already includes a $percent$ solver fee."
 }

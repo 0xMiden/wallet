@@ -466,5 +466,8 @@
   "andWord": "y",
   "enterDecryptionPassword": "Ingrese la contraseña que estableció al exportar su billetera. Esto descifrará el archivo y restaurará el acceso.",
   "first": "Primero",
-  "last": "Último"
+  "last": "Último",
+  "revealSecretPasscodeInputDescription": "Ingrese su contraseña para revelar el $secretName$ .",
+  "enterYourPassword": "Introduce tu contraseña",
+  "incorrectPassword": "Contraseña incorrecta. Intentar otra vez."
 }

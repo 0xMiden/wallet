@@ -4,15 +4,17 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
+import { confirmSensitiveAction } from 'lib/biometric';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
-import { deriveRequestAmount, SwapToken, TOKEN_IETH, TOKEN_IMIDEN } from 'lib/miden/swap/tokens';
+import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { deriveRequestAmount, getSwapTokens, SwapToken } from 'lib/miden/swap/tokens';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
-import { navigate } from 'lib/woozie';
+import { HistoryAction, navigate } from 'lib/woozie';
 
 import { ReviewSwap } from './ReviewSwap';
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
@@ -32,8 +34,8 @@ const SwapManager: React.FC = () => {
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
 
-  const [offerToken, setOfferToken] = useState<SwapToken>(TOKEN_IMIDEN);
-  const [requestToken, setRequestToken] = useState<SwapToken>(TOKEN_IETH);
+  const [offerToken, setOfferToken] = useState<SwapToken>(() => getSwapTokens()[0]!);
+  const [requestToken, setRequestToken] = useState<SwapToken>(() => getSwapTokens()[1]!);
   const [offerAmount, setOfferAmount] = useState('');
   const [requestAmount, setRequestAmount] = useState('');
   // True once the user manually edits the receive amount, which pauses the
@@ -98,9 +100,18 @@ const SwapManager: React.FC = () => {
     }
   }, [quote, requestEdited]);
 
+  const offerBalanceKey = useMemo(() => {
+    try {
+      return getBech32AddressFromAccountId(accountIdStringToSdk(offerToken.faucetId));
+    } catch {
+      return offerToken.faucetId;
+    }
+  }, [offerToken.faucetId]);
   const offerBalance = useMemo(
-    () => balanceData.find(balance => balance.tokenId === offerToken.faucetId)?.balance ?? 0,
-    [balanceData, offerToken.faucetId]
+    () =>
+      balanceData.find(balance => balance.tokenId === offerBalanceKey || balance.tokenId === offerToken.faucetId)
+        ?.balance ?? 0,
+    [balanceData, offerBalanceKey, offerToken.faucetId]
   );
   const offerAmountValue = Number(offerAmount);
   const hasOfferAmount = offerAmountValue > 0;
@@ -127,9 +138,9 @@ const SwapManager: React.FC = () => {
     setOfferToken(requestToken);
     setRequestToken(offerToken);
     setOfferAmount(requestAmount);
-    setRequestAmount(offerAmount);
     setRequestEdited(false);
-  }, [offerToken, requestToken, offerAmount, requestAmount]);
+    setSubmitError(null);
+  }, [offerToken, requestToken, requestAmount]);
 
   const onSelectOfferToken = useCallback(() => {
     setSelectingSide('offer');
@@ -159,7 +170,15 @@ const SwapManager: React.FC = () => {
 
   const onSubmit = useCallback(async () => {
     if (submitting || !publicKey) return;
+    if (sameToken || !(Number(offerAmount) > 0) || !(Number(requestAmount) > 0) || offerAmountExceedsBalance) {
+      setSubmitError(t('swapInvalidAmounts'));
+      return;
+    }
     setSubmitting(true);
+    if (!(await confirmSensitiveAction('Confirm your swap'))) {
+      setSubmitting(false);
+      return;
+    }
     try {
       setSubmitError(null);
       useWalletStore.getState().setLastCompletedTxHash(null);
@@ -182,12 +201,22 @@ const SwapManager: React.FC = () => {
       // Hand off to the full-screen generating-transaction page, which renders
       // progress steps + the swap summary badge and observes the tx through to
       // its success/failure receipt. Replaces the old headless-modal path.
-      navigate(`/generating-transaction/${encodeURIComponent(txId)}`);
+      navigate(`/generating-transaction/${encodeURIComponent(txId)}`, HistoryAction.Replace);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : String(e));
       setSubmitting(false);
     }
-  }, [submitting, publicKey, offerToken, requestToken, offerAmount, requestAmount]);
+  }, [
+    submitting,
+    publicKey,
+    sameToken,
+    offerAmountExceedsBalance,
+    offerToken,
+    requestToken,
+    offerAmount,
+    requestAmount,
+    t
+  ]);
 
   const statusMessage = useMemo(() => {
     if (sameToken) return { text: t('swapSameToken'), isError: true };

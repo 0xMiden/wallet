@@ -325,31 +325,45 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     }
   }, [loadTransaction, t, transactionId]);
 
-  // Poll the swap order lineage every 3s until it reaches a terminal state
-  // (filled or reclaimed). The orderId is persisted on the swap tx; the live
-  // lineage is fetched via `trackOrderId`.
+  // Poll the swap order lineage until it reaches a terminal state. Unresolved
+  // orders back off so they do not hold the WASM client lock every three seconds
+  // forever; active orders retain the responsive three-second cadence.
   useEffect(() => {
     if (orderId == null) return;
+    const trackedOrderId = orderId;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const POLL_INTERVAL_MS = 3000;
+    const BASE_INTERVAL_MS = 3000;
+    const MAX_INTERVAL_MS = 30_000;
+    const MAX_UNRESOLVED_POLLS = 20;
+    let unresolved = 0;
 
-    const poll = async () => {
+    const scheduleUnresolvedRetry = () => {
+      unresolved += 1;
+      if (!cancelled && unresolved < MAX_UNRESOLVED_POLLS) {
+        const delay = Math.min(BASE_INTERVAL_MS * 2 ** (unresolved - 1), MAX_INTERVAL_MS);
+        timer = setTimeout(poll, delay);
+      }
+    };
+
+    async function poll() {
       try {
-        const result = await trackOrderId(orderId);
+        const result = await trackOrderId(trackedOrderId);
         if (cancelled) return;
         setSwapTracking(result);
-        // Keep polling while the order is still active (or not yet trackable).
-        if (result === null || result.state === 'active') {
-          timer = setTimeout(poll, POLL_INTERVAL_MS);
+        if (result === null) {
+          scheduleUnresolvedRetry();
+        } else if (result.state === 'active') {
+          unresolved = 0;
+          timer = setTimeout(poll, BASE_INTERVAL_MS);
         }
       } catch (error) {
         console.error('[HistoryDetails] Failed to track swap order:', error);
-        if (!cancelled) timer = setTimeout(poll, POLL_INTERVAL_MS);
+        if (!cancelled) scheduleUnresolvedRetry();
       } finally {
         if (!cancelled) setTrackingLoading(false);
       }
-    };
+    }
 
     setTrackingLoading(true);
     poll();

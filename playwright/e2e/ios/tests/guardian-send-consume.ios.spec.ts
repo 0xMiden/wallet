@@ -43,7 +43,7 @@ test.describe('Guardian account - consume + send', () => {
       await midenCli.init();
       faucetId = await midenCli.createFaucet();
       expect(faucetId).toBeTruthy();
-      await midenCli.mint(addressA!, 100_000_000_000, 'public');
+      await midenCli.mint(faucetId, addressA!, 100_000_000_000, 'public');
       await midenCli.sync();
     });
 

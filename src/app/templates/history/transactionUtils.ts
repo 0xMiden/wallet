@@ -171,7 +171,6 @@ export const EARN_WITHDRAW_STATUS_LABEL_KEY: Record<IEarnWithdrawPhase, string> 
   received: 'received',
   failed: 'failed'
 };
-
 export const fontColorForType = (type: ITransactionType): string => {
   return type === 'send' ? 'text-send-blue' : type === 'consume' ? 'text-receive-green' : TRANSACTION_COLORS.faucet;
 };

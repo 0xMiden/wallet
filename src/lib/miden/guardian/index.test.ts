@@ -18,11 +18,6 @@ jest.mock('../front/storage', () => ({
   fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
 }));
 
-jest.mock('lib/miden-chain/constants', () => ({
-  DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test',
-  GUARDIAN_OPTIONS: []
-}));
-
 jest.mock('lib/settings/constants', () => ({
   GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
 }));

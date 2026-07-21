@@ -474,5 +474,8 @@
   "first": "第一的",
   "last": "最后的",
   "language": "语言",
-  "languageDescription": "更改显示语言"
+  "languageDescription": "更改显示语言",
+  "revealSecretPasscodeInputDescription": "输入您的密码以显示 $secretName$ .",
+  "enterYourPassword": "输入您的密码",
+  "incorrectPassword": "密码不正确。再试一次。"
 }

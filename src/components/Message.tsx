@@ -4,9 +4,9 @@ import classNames from 'clsx';
 
 import { Icon, IconName, IconSize } from 'app/icons/v2';
 
-export interface MessageProps extends React.ButtonHTMLAttributes<HTMLDivElement> {
+export interface MessageProps extends Omit<React.ButtonHTMLAttributes<HTMLDivElement>, 'title'> {
   icon: IconName;
-  title: string;
+  title: React.ReactNode;
   description: string;
   secondDescription?: string;
   descriptionClasses?: string;

@@ -323,9 +323,17 @@ class HotKeyPlugin : Plugin() {
             return
         }
         // Fresh cipher: the silent attempt's rejected doFinal left its cipher
-        // in an unusable state.
+        // in an unusable state. For these auth-per-use asymmetric keys the auth
+        // check fires at doFinal (not init), so this init should not need auth —
+        // but guard it defensively so a failure fails the call cleanly instead
+        // of surfacing as a generic sign error from the caller's outer catch.
         val cipher = Cipher.getInstance(OAEP_TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, privateKey, oaepParams())
+        try {
+            cipher.init(Cipher.DECRYPT_MODE, privateKey, oaepParams())
+        } catch (e: Exception) {
+            call.reject("Failed to initialize cipher for legacy hot-key sign", "LEGACY_CIPHER_INIT_FAILED")
+            return
+        }
         pendingCall = call
         pendingPayload = payload
         pendingDigest = digest

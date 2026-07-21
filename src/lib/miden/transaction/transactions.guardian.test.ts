@@ -115,6 +115,29 @@ const makeResult = () => ({
   serialize: () => new Uint8Array([9, 9, 9])
 });
 
+const makeTransactionsApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(async () => {})) => ({
+  executeRequest: jest.fn(async () => result),
+  prove: jest.fn(async () => ({ proved: true })),
+  submitProven: jest.fn(async (_proven?: unknown, _executed?: unknown) => ({ blockNumber: 1 })),
+  apply
+});
+
+const makeClientApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(async () => {})) => {
+  const transactions = makeTransactionsApi(result, apply);
+  return {
+    transactions,
+    _withInnerWebClient: jest.fn(async (fn: (inner: object) => Promise<unknown>) =>
+      fn({
+        executeTransaction: transactions.executeRequest,
+        proveTransaction: transactions.prove,
+        submitProvenTransaction: async (proven: unknown, executed: unknown) =>
+          (await transactions.submitProven(proven, executed)).blockNumber,
+        applyTransaction: transactions.apply
+      })
+    )
+  };
+};
+
 const makeGuardianProvider = (isGuardian: boolean) => {
   mockIsGuardianAccount.mockResolvedValue(isGuardian);
   return {
@@ -240,14 +263,10 @@ describe('generateTransaction — Guardian routing', () => {
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
 
     // The pre-guardian sync call uses midenClient.syncState() directly; the
-    // post-proposal submit goes via midenClient.client.transactions.submit(..).
+    // proposal then follows the execute/prove/submit/apply transaction pipeline.
     mockGetMidenClient.mockResolvedValue({
       syncState: jest.fn(async () => {}),
-      client: {
-        transactions: {
-          submit: jest.fn(async () => ({ result }))
-        }
-      }
+      client: makeClientApi(result)
     });
 
     const provider = makeGuardianProvider(true);
@@ -287,7 +306,7 @@ describe('generateTransaction — Guardian routing', () => {
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
     mockGetMidenClient.mockResolvedValue({
       syncState: jest.fn(async () => {}),
-      client: { transactions: { submit: jest.fn(async () => ({ result })) } }
+      client: makeClientApi(result)
     });
     txStore.push({
       id: txId,
@@ -357,7 +376,7 @@ describe('generateTransaction — Guardian routing', () => {
       syncState: jest.fn(async () => {}),
       getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
       waitForTransactionCommit,
-      client: { transactions: { submit: jest.fn(async () => ({ result })) } }
+      client: makeClientApi(result)
     });
 
     await generateTransaction(
@@ -431,7 +450,7 @@ describe('generateTransaction — Guardian routing', () => {
       syncState: jest.fn(async () => {}),
       getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
       waitForTransactionCommit,
-      client: { transactions: { submit: jest.fn(async () => ({ result })) } }
+      client: makeClientApi(result)
     });
 
     const submittedRow = txStore.find(r => r.id === txId)!;
@@ -470,7 +489,7 @@ describe('generateTransaction — Guardian routing', () => {
     mockGetMidenClient.mockResolvedValue({
       syncState: jest.fn(async () => {}),
       getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
-      client: { transactions: { submit: jest.fn(async () => ({ result })) } }
+      client: makeClientApi(result)
     });
     const provider = {
       getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
@@ -513,7 +532,7 @@ describe('generateTransaction — Guardian routing', () => {
     });
     mockGetMidenClient.mockResolvedValue({
       syncState: jest.fn(async () => {}),
-      client: { transactions: { submit: jest.fn() } }
+      client: makeClientApi(makeResult())
     });
     mockGetOrCreateMultisigService.mockResolvedValue({});
 
@@ -564,13 +583,12 @@ describe('generateTransaction — Guardian routing', () => {
       syncState: jest.fn(async () => {}),
       getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
       waitForTransactionCommit: jest.fn(async () => {}),
-      client: {
-        transactions: {
-          submit: jest.fn(async () => {
-            throw applyErr;
-          })
-        }
-      }
+      client: makeClientApi(
+        makeResult(),
+        jest.fn(async () => {
+          throw applyErr;
+        })
+      )
     });
 
     txStore.push({ id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', status: ITransactionStatus.Queued });
@@ -623,13 +641,12 @@ describe('generateTransaction — Guardian routing', () => {
       syncState: jest.fn(async () => {}),
       getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
       waitForTransactionCommit: jest.fn(async () => {}),
-      client: {
-        transactions: {
-          submit: jest.fn(async () => {
-            throw applyErr;
-          })
-        }
-      }
+      client: makeClientApi(
+        makeResult(),
+        jest.fn(async () => {
+          throw applyErr;
+        })
+      )
     });
 
     txStore.push({
@@ -691,13 +708,12 @@ describe('generateTransaction — Guardian routing', () => {
       syncState: jest.fn(async () => {}),
       getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
       waitForTransactionCommit: jest.fn(async () => {}),
-      client: {
-        transactions: {
-          submit: jest.fn(async () => {
-            throw applyErr;
-          })
-        }
-      }
+      client: makeClientApi(
+        makeResult(),
+        jest.fn(async () => {
+          throw applyErr;
+        })
+      )
     });
 
     txStore.push({

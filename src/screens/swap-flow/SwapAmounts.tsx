@@ -131,6 +131,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           variant={ButtonVariant.Primary}
           onClick={onConfirm}
           disabled={!canProceed}
+          data-testid="swap-review-submit"
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
       </div>

@@ -220,7 +220,10 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           title={confirmTitle ?? t('confirm')}
           variant={ButtonVariant.Primary}
           onClick={onConfirm}
-          disabled={!canProceed}
+          // `onConfirm` is optional (the embedded variant omits it and returns
+          // early above), so in this page variant a missing handler disables
+          // the CTA rather than rendering a live-but-dead button.
+          disabled={!canProceed || !onConfirm}
           data-testid="send-amount-confirm"
           className="w-full max-w-none rounded-full text-base font-semibold"
         />

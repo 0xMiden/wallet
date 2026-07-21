@@ -49,11 +49,21 @@ export const TOKEN_IUSDT: SwapToken = {
 
 export const SWAP_TOKENS: SwapToken[] = [TOKEN_IMIDEN, TOKEN_IETH, TOKEN_IUSDT, TOKEN_IBTC];
 
+let swapTokens: SwapToken[] = SWAP_TOKENS;
+
+/** Live registry read so the swap E2E override is respected by all consumers. */
+export const getSwapTokens = (): SwapToken[] => swapTokens;
+
+/** Test-only setter. Pass undefined to restore the built-in registry. */
+export const _setSwapTokensForTest = (tokens: SwapToken[] | undefined): void => {
+  swapTokens = tokens ?? SWAP_TOKENS;
+};
+
 export const getSwapTokenByFaucetId = (faucetId?: string): SwapToken | undefined =>
-  faucetId ? SWAP_TOKENS.find(token => token.faucetId === faucetId) : undefined;
+  faucetId ? swapTokens.find(token => token.faucetId === faucetId) : undefined;
 
 export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
-  SWAP_TOKENS.find(token => token.symbol === symbol);
+  swapTokens.find(token => token.symbol === symbol);
 
 /**
  * A single quote for an (offered, requested) pair from the DEX `swap-eta`
@@ -73,6 +83,9 @@ export interface SwapEta {
   median24hSeconds: number | null;
 }
 
+const SWAP_ETA_BASE_URL = 'https://35-175-40-181.sslip.io';
+const SWAP_ETA_TIMEOUT_MS = 10_000;
+
 /**
  * Fetch a `SwapEta` for an offered → requested pair. Amounts are raw base units
  * (bigint); faucets are converted to their canonical hex account ids. The
@@ -91,11 +104,22 @@ export async function getSwapEta(
     requested_faucet: accountIdStringToSdk(requestToken.faucetId).toString(),
     requested_amount: requestAmountRaw.toString()
   });
-  const res = await fetch(`https://35-175-40-181.sslip.io/v1/swap-eta?${params.toString()}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SWAP_ETA_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${SWAP_ETA_BASE_URL}/v1/swap-eta?${params.toString()}`, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!res.ok) {
     throw new Error(`Swap ETA request failed for ${offerToken.symbol}→${requestToken.symbol}: ${res.status}`);
   }
-  const json: SwapEta = await res.json();
+  const json = (await res.json()) as SwapEta;
+  const marketPrice = Number(json?.marketPrice);
+  if (!Number.isFinite(marketPrice) || marketPrice <= 0) {
+    throw new Error(`Swap ETA returned an invalid market price for ${offerToken.symbol}→${requestToken.symbol}`);
+  }
   return json;
 }
 

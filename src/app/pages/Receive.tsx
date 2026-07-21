@@ -1,10 +1,9 @@
-import React, { useCallback } from 'react';
+import React from 'react';
 
 import classNames from 'clsx';
 
 import { AddressTab } from 'app/pages/Receive/AddressTab';
 import { useAccount } from 'lib/miden/front';
-import { navigate } from 'lib/woozie';
 
 export interface ReceiveProps {}
 

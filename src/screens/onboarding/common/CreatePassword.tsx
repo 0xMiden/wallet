@@ -153,12 +153,12 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
 
   return (
     <div
-      className={classNames('flex flex-col flex-1', 'bg-app-bg gap-y-6 px-4 pt-6 text-heading-gray', className)}
+      className={classNames('flex flex-col flex-1', 'bg-app-bg gap-y-6 px-4 pt-10 text-heading-gray', className)}
       {...props}
     >
-      <div className="flex flex-col items-center text-heading-gray gap-2">
-        <header className="text-[28px] leading-[100%] font-semibold">{t('createPassword')}</header>
-        <p className="text-[10px] leading-[150%] text-center font-normal">{t('createPasswordDescription')}</p>
+      <div className="flex flex-col items-center text-heading-gray gap-1">
+        <header className="font-heading text-[2rem] leading-none font-bold">{t('createPassword')}</header>
+        <p className="text-base leading-none text-center font-normal">{t('createPasswordDescription')}</p>
       </div>
 
       <article className="w-full justify-center items-center flex flex-col gap-y-6">

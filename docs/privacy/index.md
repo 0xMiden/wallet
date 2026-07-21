@@ -1,13 +1,13 @@
 ---
-title: Privacy Policy — Miden Wallet
+title: Privacy Policy — Bread Wallet by Miden
 permalink: /privacy/
 ---
 
-# Miden Wallet — Privacy Policy
+# Bread Wallet by Miden — Privacy Policy
 
-_Last updated: 2026-05-28_
+_Last updated: 2026-07-20_
 
-Miden Wallet ("the App") is a non-custodial cryptocurrency wallet for the Miden blockchain, published by Miden.
+Bread Wallet by Miden ("the App") is a non-custodial cryptocurrency wallet for the Miden blockchain, published by Miden.
 
 ## Data we collect
 
@@ -19,6 +19,20 @@ For transparency about how the App functions on your device (this is not data we
 
 - Your wallet's seed phrase, private keys, account names, transaction history, and balances are generated and held **only** on your device, encrypted at rest using your device's secure enclave (Android Keystore / iOS Secure Enclave) when biometric protection is enabled.
 - This information never leaves your device unless **you** explicitly export it via the in-app "Export Wallet" function.
+
+## Biometric authentication (Face ID, Touch ID, Fingerprint)
+
+The App offers **optional** biometric unlock using your device's built-in authentication — Face ID or Touch ID on iOS, fingerprint or face authentication on Android.
+
+**The App does not collect, access, receive, store, transmit, or share any face data, fingerprint data, or other biometric data.**
+
+Biometric matching is performed entirely by your device's operating system inside secure hardware (Apple's Secure Enclave / Android's hardware-backed keystore). Your biometric templates are created, stored, and managed solely by iOS/Android and are never made available to the App. When you unlock with biometrics, the App receives only a yes/no result indicating whether authentication succeeded — it never receives any biometric data itself.
+
+- **What we collect:** No face or fingerprint data. None is ever transmitted off your device; we operate no servers that could receive it.
+- **How it is used:** A successful biometric check causes your device's operating system to release a wallet-unlock key held in secure hardware, allowing the App to decrypt your local wallet without you typing your password. This happens entirely on-device.
+- **Sharing / third parties:** None. No biometric data exists in the App to share.
+- **Storage:** No biometric data is stored by the App. Your biometric templates remain solely under your operating system's control in secure hardware.
+- **Retention / deletion:** The App retains no biometric data. You manage your enrolled biometrics in your device's system settings. Disabling biometric unlock in the App, or uninstalling the App, removes the App's on-device unlock key and has no effect on and no access to your OS-level biometric enrollment.
 
 ## Network traffic
 

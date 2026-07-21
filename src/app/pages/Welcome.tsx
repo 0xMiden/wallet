@@ -50,10 +50,19 @@ async function checkHardwareSecurityAvailable(): Promise<boolean> {
  * On the browser extension and Tauri desktop there is no biometric API at all,
  * so the "choose how to protect your wallet" step collapses to a single real
  * option. When biometric can't work, onboarding skips that screen entirely and
- * goes straight to passcode setup.
+ * goes straight to the full-password step (passcodes are mobile-only).
  */
 function biometricProtectionSupported(): boolean {
   return isMobile();
+}
+
+/**
+ * Where the create flow's protection step lives per platform: mobile offers the
+ * biometric-vs-passcode choice; the extension and desktop keep the classic
+ * full password (no passcode UI at all — passcodes are mobile-only).
+ */
+function protectionStepRoute(): string {
+  return biometricProtectionSupported() ? '/#choose-protection' : '/#create-password';
 }
 
 /**
@@ -99,7 +108,7 @@ const Welcome: FC = () => {
   // Tracks which protection screen the user came through; needed so ChooseGuardian
   // back navigation and the create-password→confirmation routing pick the right
   // origin without colliding with the legacy create flow.
-  const [protectionMethod, setProtectionMethod] = useState<'passcode' | 'biometric' | null>(null);
+  const [protectionMethod, setProtectionMethod] = useState<'passcode' | 'biometric' | 'password' | null>(null);
   const { registerWallet, importWalletFromClient } = useMidenContext();
   const { trackEvent } = useAnalytics();
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
@@ -254,8 +263,8 @@ const Welcome: FC = () => {
         setOnboardingType(OnboardingType.Create);
         // Biometric is unavailable on the extension/desktop, so the
         // choose-protection screen has only one real option — skip it and go
-        // straight to passcode setup.
-        navigate(biometricProtectionSupported() ? '/#choose-protection' : '/#setup-passcode');
+        // straight to the full-password step.
+        navigate(protectionStepRoute());
         break;
       case 'setup-passcode':
         setOnboardingType(OnboardingType.Create);
@@ -348,7 +357,14 @@ const Welcome: FC = () => {
       case 'create-password-submit':
         setPassword(action.payload.password);
         eventCategory = AnalyticsEventCategory.FormSubmit;
-        if (onboardingType === OnboardingType.Import && importType === ImportType.SeedPhrase) {
+        if (onboardingType === OnboardingType.Create && !isMobile()) {
+          // Extension/desktop create flow: the password screen replaces
+          // passcode setup and runs before guardian selection — generate the
+          // mnemonic here, exactly like setup-passcode-submit does.
+          setSeedPhrase(generateMnemonic(128).split(' '));
+          setProtectionMethod('password');
+          navigate('/#choose-guardian');
+        } else if (onboardingType === OnboardingType.Import && importType === ImportType.SeedPhrase) {
           navigate('/#import-select-recovery-method');
         } else {
           navigate('/#confirmation');
@@ -411,11 +427,19 @@ const Welcome: FC = () => {
           // unavailable, so backing out of passcode setup returns to Welcome.
           navigate(biometricProtectionSupported() ? '/#choose-protection' : '/');
         } else if (step === OnboardingStep.ChooseGuardian) {
-          navigate(protectionMethod === 'biometric' ? '/#setup-biometric' : '/#setup-passcode');
+          if (protectionMethod === 'biometric') {
+            navigate('/#setup-biometric');
+          } else if (protectionMethod === 'password') {
+            navigate('/#create-password');
+          } else {
+            navigate('/#setup-passcode');
+          }
         } else if (step === OnboardingStep.CreatePassword) {
           if (onboardingType === OnboardingType.Create) {
-            // Biometric-without-hardware lands here from choose-guardian.
-            navigate('/#choose-guardian');
+            // Extension/desktop: the password screen is the first protection
+            // step, so back returns to Welcome. On mobile the
+            // biometric-without-hardware path lands here from choose-guardian.
+            navigate(isMobile() ? '/#choose-guardian' : '/');
           } else if (importType === ImportType.WalletFile) {
             navigate('/#import-from-file');
           } else {
@@ -450,15 +474,22 @@ const Welcome: FC = () => {
       case '#choose-protection':
         setOnboardingType(OnboardingType.Create);
         // Never render the choose-protection screen where biometric can't work
-        // (guards direct hash navigation / reload); redirect to passcode setup.
+        // (guards direct hash navigation / reload); redirect to the platform's
+        // protection step instead.
         if (!biometricProtectionSupported()) {
-          navigate('/#setup-passcode');
+          navigate(protectionStepRoute());
           break;
         }
         setStep(OnboardingStep.ChooseProtection);
         break;
       case '#setup-passcode':
         setOnboardingType(OnboardingType.Create);
+        // Passcodes are mobile-only — the extension/desktop create flow uses
+        // the full password screen (guards direct hash navigation / reload).
+        if (!isMobile()) {
+          navigate('/#create-password');
+          break;
+        }
         setStep(OnboardingStep.SetupPasscode);
         break;
       case '#setup-biometric':
@@ -480,6 +511,14 @@ const Welcome: FC = () => {
         setStep(OnboardingStep.ImportFromFile);
         break;
       case '#create-password':
+        // Onboarding state is in-memory only; reloading on this screen loses
+        // onboardingType (and the generated/imported seed phrase), so a
+        // create-password submit would dead-end at Confirmation with no seed.
+        // Restart from Welcome instead of entering that broken flow.
+        if (onboardingType === null) {
+          navigate('/');
+          break;
+        }
         setStep(OnboardingStep.CreatePassword);
         break;
       case '#import-select-recovery-method':
@@ -495,7 +534,7 @@ const Welcome: FC = () => {
       default:
         break;
     }
-  }, [hash, password]);
+  }, [hash, password, onboardingType]);
 
   // Handle mobile back button/gesture in onboarding flow
   useMobileBackHandler(() => {

@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.15.8 (TBD)
+## 1.15.9 (TBD)
 
 ### Fixes
 
@@ -18,6 +18,8 @@
 * [FEATURE][all] **Receive-from-EVM bridge deposit flow.** The deposit amount screen gained a "wallet connected · Miden Bridge" header (via a new optional `title` slot on `SelectAmount`) and an ETH/USDC token picker (bottom-sheet drawer). Token choice constrains the route: USDC disables the native-only Slow (Agglayer) route, and ETH on the Fast (Epoch) route shows a "wraps to WETH" notice (that combo isn't submittable yet — the wrap is a follow-up). Choosing a route then opens a "Review Deposit Details" screen (built on the shared `ReviewLayout`/`ReviewRow`/`ReviewAmount`, same design as the Send review) with amount, source network, route, and the quoted amount received on Miden; its **Confirm Deposit** button runs the bridge submit (`executeEVMToMiden` for Fast/Epoch, the Agglayer `bridgeAsset` call for Slow), spins while signing, and blocks re-submits once in flight.
 
 ### Changes
+
+* [CHANGE][mobile] **The in-app swap is disabled on iOS.** Apple App Review classifies the In-Protocol DEX swap as a cryptocurrency exchange service under Guideline 3.1.5(iii), so swap availability is gated by `isSwapEnabled()` on iOS while Android, browser extension, and desktop remain unaffected. Earn remains available.
 
 * [CHANGE][all] **Bridge-deposit amount screen shows the connected wallet.** The deposit amount step now leads with a wallet header — the connected wallet's logo (from AppKit's `useWalletInfo`, with a generic-glyph fallback on native mobile), the front-truncated EVM address, and a switch button — replacing the old "EVM wallet connected" line. The switch button opens a "Switch wallet" bottom sheet listing the current wallet (logo, address, ETH balance) with a "Connect another wallet" action that reopens the wallet picker.
 

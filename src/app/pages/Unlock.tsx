@@ -4,8 +4,10 @@ import { useTranslation } from 'react-i18next';
 
 import { openInFullPage, useAppEnv } from 'app/env';
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
+import { Icon, IconName } from 'app/icons/v2';
 import SimplePageLayout from 'app/layouts/SimplePageLayout';
 import { Button, ButtonVariant } from 'components/Button';
+import { Input } from 'components/Input';
 import { Numpad } from 'components/Numpad';
 import { useFormAnalytics } from 'lib/analytics';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
@@ -50,7 +52,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   // HARDWARE UNLOCK STATE
   // Mobile & Desktop: tries hardware unlock (biometric/passcode) automatically
-  // Extension: always shows passcode entry
+  // Fallback UI: passcode numpad on mobile, password form on extension/desktop
   const [hardwareUnlockAttempted, setHardwareUnlockAttempted] = useState(false);
   const [hardwareUnlockChecked, setHardwareUnlockChecked] = useState(false);
   // For hardware-only wallets (no password protector), show biometric-only UI
@@ -124,6 +126,9 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const [timeleft, setTimeleft] = useState(getTimeLeft(timelock, lockLevel));
 
   const [code, setCode] = useState('');
+  // Extension-only: the vault is protected by a full password, not a passcode.
+  const [password, setPassword] = useState('');
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [isError, setIsError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -204,6 +209,23 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     }
   }, [openForgotPasswordInFullPage, compact]);
 
+  const onPasswordSubmit = useCallback(
+    (e: React.FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      if (!password || isDisabled || isSubmitting) return;
+      submitPasscode(password);
+    },
+    [password, isDisabled, isSubmitting, submitPasscode]
+  );
+
+  const onPasswordChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (isError) setIsError(false);
+      setPassword(e.target.value);
+    },
+    [isError]
+  );
+
   const onRetryHardwareUnlock = useCallback(async () => {
     try {
       await unlock();
@@ -263,6 +285,66 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           />
         </div>
       </SimplePageLayout>
+    );
+  }
+
+  // Extension/desktop wallets are protected by a full password (set during
+  // onboarding — passcodes are mobile-only), so unlock is a password form:
+  // the 6-digit numpad can't type one.
+  if (!isMobile()) {
+    const passwordSubtitle = isDisabled
+      ? `${t('unlockPasswordErrorDelay')} ${timeleft}`
+      : isError
+        ? t('incorrectPassword')
+        : null;
+
+    return (
+      <div className="bg-app-bg h-full overflow-y-auto" data-testid="unlock-password">
+        <div className="min-h-full flex flex-col items-center px-6 pb-8">
+          <div className="flex flex-col items-center w-full mt-10 shrink-0">
+            <BrandIcon />
+            <h1 className="text-3xl font-semibold font-heading text-heading-gray text-center leading-[100%] tracking-tight mt-8">
+              {t('enterYourPassword')}
+            </h1>
+            <p className={`h-6 text-base text-center mt-3 ${passwordSubtitle ? 'text-red-500' : ''}`}>
+              {passwordSubtitle}
+            </p>
+          </div>
+
+          <form className="w-full flex flex-col gap-6 mt-4" onSubmit={onPasswordSubmit}>
+            <Input
+              id="unlock-password"
+              type={isPasswordVisible ? 'text' : 'password'}
+              label={t('password')}
+              value={password}
+              placeholder={t('enterPassword')}
+              autoFocus
+              disabled={isDisabled}
+              icon={
+                <button type="button" className="flex-1" onClick={() => setIsPasswordVisible(prev => !prev)}>
+                  <Icon name={isPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="currentColor" />
+                </button>
+              }
+              onChange={onPasswordChange}
+            />
+            <Button
+              type="submit"
+              title={t('unlock')}
+              isLoading={isSubmitting}
+              disabled={!password || isDisabled || isSubmitting}
+            />
+          </form>
+
+          <button
+            id="forgot-password"
+            type="button"
+            onClick={onForgotPasswordClick}
+            className="mt-6 text-heading-gray text-base font-medium"
+          >
+            {t('forgotPassword')}
+          </button>
+        </div>
+      </div>
     );
   }
 

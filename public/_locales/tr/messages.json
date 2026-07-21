@@ -1,4 +1,8 @@
 {
+  "advanced": {
+    "message": "Gelişmiş",
+    "englishSource": "Advanced"
+  },
   "appName": {
     "message": "Miden - Bread",
     "englishSource": "Bread"
@@ -375,6 +379,10 @@
     "message": "Ödeme Gönderiliyor",
     "englishSource": "Sending Payment"
   },
+  "transactionTitleSwap": {
+    "message": "Takas Oluşturuluyor",
+    "englishSource": "Generating Swap"
+  },
   "transactionStepGuardianApproved": {
     "message": "Guardian onaylı",
     "englishSource": "Guardian approved"
@@ -415,9 +423,25 @@
     "message": "İşlem yürütülüyor",
     "englishSource": "Executing transaction"
   },
+  "transactionStageExecutingDescription": {
+    "message": "İşlemin kanıtlanması için hazırlanması.",
+    "englishSource": "Preparing the transaction for proving."
+  },
+  "transactionStageProving": {
+    "message": "Kanıt oluşturuluyor",
+    "englishSource": "Generating proof"
+  },
+  "transactionStageProvingDescription": {
+    "message": "İşleminizin kanıtını oluşturmak.",
+    "englishSource": "Creating the proof for your transaction."
+  },
   "transactionStageSwitching": {
     "message": "Vasi değiştiriliyor",
     "englishSource": "Switching guardian"
+  },
+  "transactionStageSwapping": {
+    "message": "Jetonları değiştirme",
+    "englishSource": "Swapping tokens"
   },
   "transactionStageCreatingProposal": {
     "message": "Teklif oluşturuluyor",
@@ -442,6 +466,22 @@
   "transactionStageSubmittingDescription": {
     "message": "İmzalı işleminiz ağa gönderiliyor.",
     "englishSource": "Sending your signed transaction to the network."
+  },
+  "transactionStageGuardianSyncing": {
+    "message": "Guardian ile senkronizasyon",
+    "englishSource": "Syncing with Guardian"
+  },
+  "transactionStageGuardianSyncingDescription": {
+    "message": "Güncellenen hesap durumunuz vasinizle senkronize ediliyor.",
+    "englishSource": "Syncing your updated account state with your guardian."
+  },
+  "transactionStageComplete": {
+    "message": "İşlem tamamlandı",
+    "englishSource": "Transaction complete"
+  },
+  "transactionStageCompleteDescription": {
+    "message": "İşlem ayrıntılarının sonuçlandırılması.",
+    "englishSource": "Finalizing transaction details."
   },
   "transactionStageConfirming": {
     "message": "Zincirde onaylanıyor",
@@ -514,6 +554,10 @@
   "about": {
     "message": "Hakkında",
     "englishSource": "About"
+  },
+  "aboutMidenWallet": {
+    "message": "Ekmek Hakkında",
+    "englishSource": "About Bread"
   },
   "preferences": {
     "message": "Tercihler",
@@ -723,6 +767,15 @@
       }
     }
   },
+  "revealSecretPasscodeInputDescription": {
+    "message": "ortaya çıkarmak için şifrenizi girin $secretName$ .",
+    "englishSource": "Enter your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "revealSecretUnlockDescription": {
     "message": "Ortaya çıkarmak için şifrenizle kilidi açın $secretName$ .",
     "englishSource": "Unlock with your passcode to reveal the $secretName$.",
@@ -873,6 +926,10 @@
     "message": "Adres Defteri",
     "englishSource": "Address Book"
   },
+  "addressBookDescription": {
+    "message": "Kişilerinizi buradan yönetin",
+    "englishSource": "Manage your contacts here"
+  },
   "chooseRecipient": {
     "message": "Alıcıyı seçin",
     "englishSource": "Choose recipient"
@@ -910,9 +967,87 @@
     "message": "Ayrıntıları İncele",
     "englishSource": "Review Details"
   },
+  "swap": {
+    "message": "Takas",
+    "englishSource": "Swap"
+  },
+  "viaInProtocolDex": {
+    "message": "Protokol Dex aracılığıyla",
+    "englishSource": "Via In Protocol Dex"
+  },
+  "reviewSwap": {
+    "message": "Takas'ı İncele",
+    "englishSource": "Review Swap"
+  },
+  "reviewSwapDetails": {
+    "message": "Takas Ayrıntılarını İnceleyin",
+    "englishSource": "Review Swap Details"
+  },
+  "youPay": {
+    "message": "Sen Öde",
+    "englishSource": "You Pay"
+  },
+  "youReceive": {
+    "message": "Aldığınız",
+    "englishSource": "You Receive"
+  },
+  "youSend": {
+    "message": "Sen Gönder",
+    "englishSource": "You Send"
+  },
   "youAreSending": {
     "message": "gönderiyorsun",
     "englishSource": "You are sending"
+  },
+  "swapDirection": {
+    "message": "Yönü değiştir",
+    "englishSource": "Swap direction"
+  },
+  "rate": {
+    "message": "Oran",
+    "englishSource": "Rate"
+  },
+  "swapSolverFeeNote": {
+    "message": "Aldığınız tutar zaten bir $percent$ çözücü ücreti.",
+    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapSameToken": {
+    "message": "Takas etmek için iki farklı jeton seçin.",
+    "englishSource": "Pick two different tokens to swap."
+  },
+  "swapInvalidAmounts": {
+    "message": "Takas yapmak için geçerli bir tutar girin.",
+    "englishSource": "Enter a valid amount to swap."
+  },
+  "swapPriceUnavailable": {
+    "message": "Fiyat mevcut değil. Kısa süre sonra tekrar deneyin.",
+    "englishSource": "Price unavailable. Try again shortly."
+  },
+  "swapFetchingPrice": {
+    "message": "Fiyat getiriliyor…",
+    "englishSource": "Fetching price…"
+  },
+  "swapOrderReservedNote": {
+    "message": "Senin $amount$ dolduruluncaya kadar bu sipariş için ayrılmış olarak kalır.",
+    "englishSource": "Your $amount$ stays reserved for this order until it's filled.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapSuccessSourcingLiquidity": {
+    "message": "Takasınız için likidite sağlıyoruz.",
+    "englishSource": "We're sourcing liquidity for your swap."
+  },
+  "swapSuccessTrackProgress": {
+    "message": "İlerleme durumunu Etkinlikler'den takip edebilirsiniz.",
+    "englishSource": "You can track its progress in Activities."
   },
   "expirationDate": {
     "message": "Son kullanma tarihi",
@@ -1068,9 +1203,37 @@
     "message": "İddia",
     "englishSource": "Claim"
   },
+  "availableToClaim": {
+    "message": "Talep edilebilir",
+    "englishSource": "Available to claim"
+  },
+  "privateTransactionsAnytimeAnywhere": {
+    "message": "Her zaman, her yerde özel işlemler.",
+    "englishSource": "Private transactions anytime, anywhere."
+  },
   "midenWallet": {
     "message": "Ekmek!",
     "englishSource": "Bread!"
+  },
+  "privateTransactions": {
+    "message": "Özel işlemler.",
+    "englishSource": "Private transactions."
+  },
+  "anytime": {
+    "message": "Her zaman.",
+    "englishSource": "Anytime."
+  },
+  "anywhere": {
+    "message": "Herhangi bir yer.",
+    "englishSource": "Anywhere."
+  },
+  "createANewWallet": {
+    "message": "Yeni bir cüzdan oluştur",
+    "englishSource": "Create a new wallet"
+  },
+  "iAlreadyHaveAWallet": {
+    "message": "Zaten bir cüzdanım var",
+    "englishSource": "I already have a wallet"
   },
   "welcome": {
     "message": "Hoş geldin",
@@ -1119,6 +1282,14 @@
   "forgotPasscode": {
     "message": "Şifrenizi mi unuttunuz?",
     "englishSource": "Forgot passcode?"
+  },
+  "enterYourPassword": {
+    "message": "Şifrenizi girin",
+    "englishSource": "Enter your password"
+  },
+  "incorrectPassword": {
+    "message": "Yanlış şifre. Tekrar deneyin.",
+    "englishSource": "Incorrect password. Try again."
   },
   "createA6DigitCode": {
     "message": "6 haneli bir kod oluşturun",
@@ -1568,6 +1739,62 @@
     "message": "Anahtarlar",
     "englishSource": "Keys"
   },
+  "guardianAboutDescription": {
+    "message": "Guardian, bu cüzdandaki her işlemi birlikte imzalayarak, paranızın gözetimini almadan size ikinci faktörlü bir güvenlik ağı sağlar. Kurtarma ifadenizle Gözetmeninizi istediğiniz zaman döndürebilir veya kaldırabilirsiniz.",
+    "englishSource": "Guardian cosigns every transaction from this wallet, giving you a second-factor safety net without taking custody of your funds. You can rotate or remove your Guardian anytime with your recovery phrase."
+  },
+  "customGuardian": {
+    "message": "Özel Muhafız",
+    "englishSource": "Custom Guardian"
+  },
+  "guardianProvider": {
+    "message": "sağlayıcı",
+    "englishSource": "Provider"
+  },
+  "guardianEndpointLabel": {
+    "message": "Uç nokta",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "Bölge",
+    "englishSource": "Region"
+  },
+  "customEndpoint": {
+    "message": "Özel uç nokta",
+    "englishSource": "Custom endpoint"
+  },
+  "customEndpointDescription": {
+    "message": "Kendi URL'nizi çalıştırıyorsanız bir Guardian URL'si yapıştırın.",
+    "englishSource": "Paste a Guardian URL if you're running your own."
+  },
+  "customEndpointPlaceholder": {
+    "message": "https://guardian.example.com",
+    "englishSource": "https://guardian.example.com"
+  },
+  "reviewRotation": {
+    "message": "Rotasyonu inceleyin",
+    "englishSource": "Review rotation"
+  },
+  "newLabel": {
+    "message": "Yeni",
+    "englishSource": "New"
+  },
+  "walletKeyHot": {
+    "message": "Cüzdan anahtarı (sıcak)",
+    "englishSource": "Wallet key (hot)"
+  },
+  "recoveryPhraseCold": {
+    "message": "Kurtarma ifadesi (soğuk)",
+    "englishSource": "Recovery phrase (cold)"
+  },
+  "oldGuardianCantBlockTitle": {
+    "message": "Eski Guardian'ınız bunu engelleyemez",
+    "englishSource": "Your old Guardian can't block this"
+  },
+  "oldGuardianCantBlockBody": {
+    "message": "Döndürme, cihazdaki iki anahtarınız tarafından onaylanır. Yalnızca eski Muhafıza bilgi verilir.",
+    "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
+  },
   "replaceHotKey": {
     "message": "Cihaz anahtarını döndür",
     "englishSource": "Rotate device key"
@@ -1817,6 +2044,43 @@
     "message": "Ayrıntıları Görüntüle",
     "englishSource": "View Details"
   },
+  "multipleTransactionsFailed": {
+    "message": "$count$ işlemleri başarısız oldu. Lütfen tekrar deneyin.",
+    "englishSource": "$count$ transactions failed. Please try again.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "onChainAccountPublic": {
+    "message": "Zincir İçi Hesap (Herkese Açık)",
+    "englishSource": "On-chain Account (Public)"
+  },
+  "onChainAccountDescription": {
+    "message": "Mevcut 12 kelimelik bir kurtarma ifadesini kullanın. Ayrıca diğer cüzdan sağlayıcılarından da cüzdanları içe aktarabilirsiniz.",
+    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+  },
+  "offChainAccountPrivate": {
+    "message": "Zincir Dışı Hesap (Özel)",
+    "englishSource": "Off-chain Account (Private)"
+  },
+  "offChainAccountDescription": {
+    "message": "Doğrudan blockchain etkileşimini atlayarak minimum ücretle hızlı, özel işlemler.",
+    "englishSource": "Fast, private operations with minimal fees, bypassing direct blockchain interaction."
+  },
+  "chooseYourAccountType": {
+    "message": "Hesap Türünüzü Seçin",
+    "englishSource": "Choose Your Account Type"
+  },
+  "chooseAccountTypeDescription": {
+    "message": "Blockchain ile nasıl etkileşim kurmak istediğinizi seçin (zincir içi veya zincir dışı).",
+    "englishSource": "Select how you want to interact with the blockchain -- on-chain or off-chain."
+  },
+  "canAddMultipleAccountsLater": {
+    "message": "Daha sonra cüzdanın içine birden fazla hesap türü ekleyebilir ve yönetebilirsiniz.",
+    "englishSource": "You can add and manage multiple account types later within the wallet."
+  },
   "chooseRecoveryMethod": {
     "message": "Hesap Kurtarmayı Ayarlayın",
     "englishSource": "Set Up Account Recovery"
@@ -2050,6 +2314,15 @@
       }
     }
   },
+  "readyToClaim": {
+    "message": "Beklemede notes: $count$ ",
+    "englishSource": "Pending notes: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "totalPending": {
     "message": "Toplam Beklemede",
     "englishSource": "Total Pending"
@@ -2071,6 +2344,30 @@
       }
     }
   },
+  "addTokens": {
+    "message": "Jeton ekle",
+    "englishSource": "Add tokens"
+  },
+  "getTokens": {
+    "message": "Jeton alın",
+    "englishSource": "Get tokens"
+  },
+  "getTokensDescription": {
+    "message": "faucet'den jeton alabilir veya başka bir cüzdandan veya hesaptan aktarabilirsiniz.",
+    "englishSource": "You can get tokens from the faucet or transfer them from another wallet or account."
+  },
+  "transferTokens": {
+    "message": "Tokenları aktar",
+    "englishSource": "Transfer tokens"
+  },
+  "midenFaucet": {
+    "message": "Miden Faucet",
+    "englishSource": "Miden Faucet"
+  },
+  "midenFaucetDescription": {
+    "message": "Aşağıdaki düğmeyi tıklamak, adresinizi panoya kopyalayacak ve sizi Miden Faucet'ye yönlendirecektir.",
+    "englishSource": "Clicking the button below will copy your address to the clipboard and navigate you to the Miden Faucet."
+  },
   "accountPublicKey": {
     "message": "Hesap Genel Anahtarı",
     "englishSource": "Account Public Key"
@@ -2090,6 +2387,26 @@
   "setNewFaucetIdDescription": {
     "message": "Orta Faucetn kimliğini girin",
     "englishSource": "Enter the ID of a miden faucet"
+  },
+  "verifyingTransaction": {
+    "message": "İşlem doğrulanıyor",
+    "englishSource": "Verifying transaction"
+  },
+  "transactionProcessingDescription": {
+    "message": "Yüklenen işlem dosyası, ayrıntılarının doğrulanması için işleniyor. Lütfen uygulamayı yenilemeyin veya kapatmayın.",
+    "englishSource": "The uploaded transaction file is being processed to verify its details. Please do not refresh or close the app."
+  },
+  "yourAddress": {
+    "message": "Adresiniz",
+    "englishSource": "Your address"
+  },
+  "errorClaiming": {
+    "message": "Hata Talebi:",
+    "englishSource": "Error Claiming: "
+  },
+  "addAccount": {
+    "message": "Hesap Ekle",
+    "englishSource": "Add Account"
   },
   "addAccountComingSoon": {
     "message": "Hesap Ekle (Çok Yakında)",
@@ -2480,6 +2797,10 @@
     "message": "Açık",
     "englishSource": "On"
   },
+  "onLowercase": {
+    "message": "Açık",
+    "englishSource": "on"
+  },
   "off": {
     "message": "Kapalı",
     "englishSource": "Off"
@@ -2540,6 +2861,38 @@
     "message": "Notes",
     "englishSource": "Notes"
   },
+  "orderTracking": {
+    "message": "Sipariş Takibi",
+    "englishSource": "Order Tracking"
+  },
+  "orderStatus": {
+    "message": "Durum",
+    "englishSource": "Status"
+  },
+  "orderStatusActive": {
+    "message": "Açık",
+    "englishSource": "Open"
+  },
+  "orderStatusFilled": {
+    "message": "Dolu",
+    "englishSource": "Filled"
+  },
+  "orderStatusReclaimed": {
+    "message": "Geri alındı",
+    "englishSource": "Reclaimed"
+  },
+  "fillRounds": {
+    "message": "Turları doldurun",
+    "englishSource": "Fill rounds"
+  },
+  "amountFilled": {
+    "message": "Dolu",
+    "englishSource": "Filled"
+  },
+  "trackingUnavailable": {
+    "message": "Müsait değil",
+    "englishSource": "Not available"
+  },
   "created": {
     "message": "Oluşturuldu",
     "englishSource": "Created"
@@ -2551,6 +2904,18 @@
   "date": {
     "message": "Tarih",
     "englishSource": "Date"
+  },
+  "details": {
+    "message": "Detaylar",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "Bir note ekleyin",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "Gelişmiş Seçenekler",
+    "englishSource": "Advanced Options"
   },
   "pinExtensionTitle": {
     "message": "Miden Cüzdanını Pinle",

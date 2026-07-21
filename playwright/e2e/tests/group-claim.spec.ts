@@ -25,11 +25,11 @@ test.describe('Pending tab — per-faucet group claim', () => {
 
     await steps.step('deploy_and_fund', async () => {
       await midenCli.init();
-      await midenCli.createFaucet();
+      const faucetId = await midenCli.createFaucet();
       // Two notes from ONE faucet → a single asset group holding multiple notes,
       // so the group-claim button drains more than one note in a single action.
-      await midenCli.mint(addressA!, 50_000_000_000, 'public');
-      await midenCli.mint(addressA!, 30_000_000_000, 'public');
+      await midenCli.mint(faucetId, addressA!, 50_000_000_000, 'public');
+      await midenCli.mint(faucetId, addressA!, 30_000_000_000, 'public');
       await midenCli.sync();
     });
 

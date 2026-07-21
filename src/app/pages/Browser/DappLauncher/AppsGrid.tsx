@@ -18,7 +18,7 @@ import React, { type FC, useState } from 'react';
 import { motion } from 'framer-motion';
 
 import { useSprings } from 'lib/animation';
-import { EXPLORE_GRID_DAPPS, type FeaturedDapp } from 'lib/dapp-browser';
+import { getExploreGridDapps, type FeaturedDapp } from 'lib/dapp-browser';
 import { hapticLight } from 'lib/mobile/haptics';
 
 interface AppsGridProps {
@@ -30,7 +30,7 @@ interface AppCardProps {
   onOpen: (url: string) => void;
 }
 
-const FAUCET_DAPPS = EXPLORE_GRID_DAPPS.filter(dapp => dapp.id === 'swap-faucet' || dapp.id === 'faucet');
+const getFaucetDapps = () => getExploreGridDapps().filter(dapp => dapp.id === 'swap-faucet' || dapp.id === 'faucet');
 
 const AppCard: FC<AppCardProps> = ({ dapp, onOpen }) => {
   const [iconBroken, setIconBroken] = useState(false);
@@ -93,7 +93,7 @@ const AppCard: FC<AppCardProps> = ({ dapp, onOpen }) => {
 
 export const AppsGrid: FC<AppsGridProps> = ({ onOpen }) => (
   <section className="grid grid-cols-2 gap-3 px-4">
-    {FAUCET_DAPPS.map(dapp => (
+    {getFaucetDapps().map(dapp => (
       <AppCard key={dapp.id} dapp={dapp} onOpen={onOpen} />
     ))}
   </section>

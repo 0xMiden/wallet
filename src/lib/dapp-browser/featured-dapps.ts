@@ -19,6 +19,7 @@ import midenIcon from 'app/misc/dapp-icons/miden.png';
 import playgroundIcon from 'app/misc/dapp-icons/playground.png';
 import qashIcon from 'app/misc/dapp-icons/qash.png';
 import zoroIcon from 'app/misc/dapp-icons/zoro.png';
+import { isSwapEnabled } from 'lib/feature-flags';
 
 export type FeaturedDappCategory = 'defi' | 'nft' | 'tools' | 'social';
 export type FeaturedDappBadge = 'featured' | 'new' | 'verified';
@@ -42,6 +43,13 @@ export interface FeaturedDapp {
   badge?: FeaturedDappBadge;
   /** Marks dApps that should appear in the hero carousel (vs. just the grid). */
   featured?: boolean;
+  /**
+   * Marks a swap/exchange (DEX) surface. These are hidden from the curated
+   * launcher on iOS, where the app ships without an exchange surface (Apple
+   * treats in-app crypto exchange as requiring licensing under Guideline
+   * 3.1.5(iii)). See `getExploreGridDapps` / `isSwapEnabled`.
+   */
+  isExchange?: boolean;
 }
 
 export const FEATURED_DAPPS: FeaturedDapp[] = [
@@ -66,7 +74,8 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     brandColor: '#1D4ED8',
     category: 'defi',
     badge: 'featured',
-    featured: true
+    featured: true,
+    isExchange: true
   },
   {
     id: 'faucet',
@@ -89,7 +98,8 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     brandColor: '#FACC15',
     category: 'defi',
     badge: 'new',
-    featured: true
+    featured: true,
+    isExchange: true
   },
   {
     id: 'qash',
@@ -140,3 +150,15 @@ export const CAROUSEL_DAPPS = FEATURED_DAPPS.filter(d => d.featured);
 export const EXPLORE_GRID_DAPPS: FeaturedDapp[] = ['swap-faucet', 'qash', 'faucet', 'miden-name'].flatMap(id =>
   FEATURED_DAPPS.filter(d => d.id === id)
 );
+
+/**
+ * The Explore grid for the current platform. On iOS, where the app ships
+ * without a swap surface (App Store Guideline 3.1.5(iii)), swap/exchange (DEX)
+ * dApps are filtered out so the launcher does not first-party-promote an
+ * exchange the build otherwise omits. Off-iOS it returns EXPLORE_GRID_DAPPS
+ * unchanged. Call at render time (not module scope) so the platform check runs
+ * after Capacitor is initialized.
+ */
+export function getExploreGridDapps(): FeaturedDapp[] {
+  return isSwapEnabled() ? EXPLORE_GRID_DAPPS : EXPLORE_GRID_DAPPS.filter(d => !d.isExchange);
+}
