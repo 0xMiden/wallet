@@ -375,6 +375,10 @@
     "message": "Це може зайняти деякий час залежно від мережевого трафіку. Ви можете закрити це — ми повідомимо вас, коли це буде зроблено.",
     "englishSource": "This may take a moment depending on network traffic. You can close this — we'll notify you when it's done."
   },
+  "transactionProcessingHeader": {
+    "message": "Обробка",
+    "englishSource": "Processing"
+  },
   "transactionTitleSend": {
     "message": "Відправлення платежу",
     "englishSource": "Sending Payment"
@@ -944,8 +948,8 @@
     "englishSource": "Choose recipient"
   },
   "enterMidenOrEthereumAddress": {
-    "message": "Введіть адресу Miden",
-    "englishSource": "Enter Miden Address"
+    "message": "Введіть адресу Miden або Ethereum",
+    "englishSource": "Enter Miden or Ethereum address"
   },
   "selectAmount": {
     "message": "Виберіть Сума",
@@ -2304,6 +2308,78 @@
     "message": "Відкликати блоки",
     "englishSource": "Recall blocks"
   },
+  "delegateTransaction": {
+    "message": "Делегувати транзакцію",
+    "englishSource": "Delegate transaction"
+  },
+  "shareTransactionPrivately": {
+    "message": "Поділитися транзакцією приватно",
+    "englishSource": "Share transaction privately"
+  },
+  "privatePayment": {
+    "message": "Приватний платіж",
+    "englishSource": "Private Payment"
+  },
+  "privatePaymentDescription": {
+    "message": "Тримайте деталі транзакції в таємниці",
+    "englishSource": "Keep transaction details private"
+  },
+  "useDelegateProving": {
+    "message": "Використовуйте перевірку делегатів",
+    "englishSource": "Use Delegate Proving"
+  },
+  "delegateProving": {
+    "message": "Доведення делегата",
+    "englishSource": "Delegate Proving"
+  },
+  "delegateProvingDescription": {
+    "message": "Генерація доказів на аутсорсингу",
+    "englishSource": "Outsource proof generation"
+  },
+  "selectToken": {
+    "message": "Виберіть Токен",
+    "englishSource": "Select Token"
+  },
+  "arrives": {
+    "message": "Прибуває",
+    "englishSource": "Arrives"
+  },
+  "ethereum": {
+    "message": "Ethereum",
+    "englishSource": "Ethereum"
+  },
+  "fast": {
+    "message": "швидко",
+    "englishSource": "Fast"
+  },
+  "slow": {
+    "message": "Повільно",
+    "englishSource": "Slow"
+  },
+  "seconds": {
+    "message": "секунд",
+    "englishSource": "Seconds"
+  },
+  "minutes": {
+    "message": "хвилин",
+    "englishSource": "Minutes"
+  },
+  "invalidEthereumAddress": {
+    "message": "Недійсна адреса Ethereum",
+    "englishSource": "Invalid Ethereum address"
+  },
+  "oneToManyPayment": {
+    "message": "Оплата один до багатьох",
+    "englishSource": "One to Many Payment"
+  },
+  "oneToManyPaymentDescription": {
+    "message": "Надіслати кільком одержувачам",
+    "englishSource": "Send to multiple recipients"
+  },
+  "recallTransaction": {
+    "message": "Відкликати транзакцію",
+    "englishSource": "Recall Transaction"
+  },
   "sendPayment": {
     "message": "Надіслати платіж",
     "englishSource": "Send Payment"
@@ -2365,6 +2441,10 @@
         "content": "$1"
       }
     }
+  },
+  "pendingNotes": {
+    "message": "Очікує notes",
+    "englishSource": "Pending notes"
   },
   "addTokens": {
     "message": "Додайте жетони",
@@ -2787,6 +2867,23 @@
     "message": "діяльність",
     "englishSource": "Activity"
   },
+  "agglayerBridgeInProgressTitle": {
+    "message": "Міст у процесі",
+    "englishSource": "Bridge in progress"
+  },
+  "agglayerBridgeInProgressSubtitle": {
+    "message": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
+    "englishSource": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "agglayerBridgeInProgressSubtitleNoAmount": {
+    "message": "Вхідний міст від EVM через Agglayer встановлюється. Це може зайняти деякий час.",
+    "englishSource": "An incoming bridge from EVM via Agglayer is settling. This can take a while."
+  },
   "explore": {
     "message": "Досліджуйте",
     "englishSource": "Explore"
@@ -2814,6 +2911,22 @@
   "transferDetails": {
     "message": "Деталі переказу",
     "englishSource": "Transfer Details"
+  },
+  "advancedDetails": {
+    "message": "Розширені деталі",
+    "englishSource": "Advanced details"
+  },
+  "recallBy": {
+    "message": "Відкликати за",
+    "englishSource": "Recall by"
+  },
+  "options": {
+    "message": "Опції",
+    "englishSource": "Options"
+  },
+  "recallEnabled": {
+    "message": "Recall enabled",
+    "englishSource": "Recall enabled"
   },
   "on": {
     "message": "Увімкнено",
@@ -2959,10 +3072,6 @@
     "message": "В очікуванні",
     "englishSource": "Pending"
   },
-  "pendingNotes": {
-    "message": "Очікує notes",
-    "englishSource": "Pending notes"
-  },
   "faucetRequestTitle": {
     "message": "Faucet Запит",
     "englishSource": "Faucet Request"
@@ -2974,5 +3083,205 @@
   "copy": {
     "message": "Копія",
     "englishSource": "Copy"
+  },
+  "receiveFromEvm": {
+    "message": "З іншої мережі?",
+    "englishSource": "From another chain?"
+  },
+  "evmWalletConnected": {
+    "message": "Гаманець EVM підключено",
+    "englishSource": "EVM wallet connected"
+  },
+  "midenBridge": {
+    "message": "Міденський міст",
+    "englishSource": "Miden Bridge"
+  },
+  "evmWalletConnectedDescription": {
+    "message": "You can now bridge assets from the connected wallet.",
+    "englishSource": "You can now bridge assets from the connected wallet."
+  },
+  "connectEvmWallet": {
+    "message": "Підключіть гаманець EVM",
+    "englishSource": "Connect an EVM wallet"
+  },
+  "connectEvmWalletDescription": {
+    "message": "Підключіть гаманець, щоб перемкнути активи до та з Miden.",
+    "englishSource": "Connect a wallet to bridge assets to and from Miden."
+  },
+  "onlyBridgeableTokenSupported": {
+    "message": "Повільний (Agglayer) маршрут підтримує лише bridgeable токен. Використовуйте Fast для надсилання інших токенів.",
+    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
+  },
+  "connectEvmWalletFirst": {
+    "message": "Підключіть гаманець EVM, щоб використовувати швидкий маршрут.",
+    "englishSource": "Connect an EVM wallet to use the Fast route."
+  },
+  "connectDestinationWalletToClaim": {
+    "message": "Підключіть цільовий гаманець, щоб вимагати.",
+    "englishSource": "Connect the destination wallet to claim."
+  },
+  "bridgeDetails": {
+    "message": "Деталі мосту",
+    "englishSource": "Bridge details"
+  },
+  "route": {
+    "message": "Маршрут",
+    "englishSource": "Route"
+  },
+  "selectNetwork": {
+    "message": "Виберіть мережу",
+    "englishSource": "Select network"
+  },
+  "receiveOnArrivesAs": {
+    "message": "Отримати на $network$ · надходить як $symbol$ ",
+    "englishSource": "Receive on $network$ · arrives as $symbol$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "noFee": {
+    "message": "Без комісії",
+    "englishSource": "No fee"
+  },
+  "fastArrival": {
+    "message": "~30 сек",
+    "englishSource": "~30 sec"
+  },
+  "slowArrival": {
+    "message": "~6 годин",
+    "englishSource": "~6 hours"
+  },
+  "youAreDepositing": {
+    "message": "Ви вносите депозит",
+    "englishSource": "You are depositing"
+  },
+  "confirmDeposit": {
+    "message": "Підтвердити депозит",
+    "englishSource": "Confirm Deposit"
+  },
+  "slowNeedsNativeEth": {
+    "message": "Повільний (Agglayer) маршрут підтримує лише нативний ETH у тестовій мережі. Щоб використовувати його, виберіть ETH.",
+    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
+  },
+  "fastEthWrapNotice": {
+    "message": "Перемикання ETH на швидкому маршруті спочатку обертає його до WETH, а потім з’єднує WETH. Цей маршрут ще не доступний.",
+    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "destinationNetwork": {
+    "message": "Мережа призначення",
+    "englishSource": "Destination network"
+  },
+  "claimStatus": {
+    "message": "Статус претензії",
+    "englishSource": "Claim status"
+  },
+  "claimAsset": {
+    "message": "Претензія на актив",
+    "englishSource": "Claim Asset"
+  },
+  "claimAssetSubmitted": {
+    "message": "Претензію подано — кошти знаходяться на підключеному гаманці EVM.",
+    "englishSource": "Claim submitted — funds are on the connected EVM wallet."
+  },
+  "claimable": {
+    "message": "Готовий претендувати",
+    "englishSource": "Ready to claim"
+  },
+  "claiming": {
+    "message": "Заявка…",
+    "englishSource": "Claiming…"
+  },
+  "claimed": {
+    "message": "Заявлено",
+    "englishSource": "Claimed"
+  },
+  "claimPending": {
+    "message": "Перехід — претензія ще не готова",
+    "englishSource": "Bridging — claim not ready yet"
+  },
+  "claimFailedStatus": {
+    "message": "Претензія не вдалася",
+    "englishSource": "Claim failed"
+  },
+  "noManualClaimRequired": {
+    "message": "Кошти надходять автоматично — претензії не потрібні.",
+    "englishSource": "Funds arrive automatically — no claim needed."
+  },
+  "fastRouteLabel": {
+    "message": "Швидкий (епоха)",
+    "englishSource": "Fast (Epoch)"
+  },
+  "slowRouteLabel": {
+    "message": "Повільний (Agglayer)",
+    "englishSource": "Slow (Agglayer)"
+  },
+  "bridgeRowTitle": {
+    "message": "Міст $from$  →  $to$ ",
+    "englishSource": "Bridge $from$ → $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "to": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeRowVia": {
+    "message": "через $provider$  →  $network$ ",
+    "englishSource": "Via $provider$ → $network$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeInProgress": {
+    "message": "В роботі",
+    "englishSource": "In progress"
+  },
+  "bridgeFailed": {
+    "message": "Не вдалося",
+    "englishSource": "Failed"
+  },
+  "receivingTx": {
+    "message": "Отримання Tx",
+    "englishSource": "Receiving Tx"
+  },
+  "openInYourWallet": {
+    "message": "Відкрити в гаманці",
+    "englishSource": "Open in your wallet"
+  },
+  "openInYourWalletDescription": {
+    "message": "Виберіть встановлений гаманець, щоб підтвердити підключення.",
+    "englishSource": "Pick an installed wallet to approve the connection."
+  },
+  "scanWithYourWallet": {
+    "message": "Скануйте за допомогою гаманця",
+    "englishSource": "Scan with your wallet"
+  },
+  "scanWithYourWalletDescription": {
+    "message": "Відкрийте WalletConnect у будь-якому гаманці EVM і відскануйте код.",
+    "englishSource": "Open WalletConnect in any EVM wallet and scan the code."
+  },
+  "preparing": {
+    "message": "Підготовка підключення…",
+    "englishSource": "Preparing connection…"
+  },
+  "copyConnectionLink": {
+    "message": "Копіювати посилання на підключення",
+    "englishSource": "Copy connection link"
+  },
+  "disconnect": {
+    "message": "Відключити",
+    "englishSource": "Disconnect"
   }
 }

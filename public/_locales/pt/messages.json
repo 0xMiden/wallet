@@ -375,6 +375,10 @@
     "message": "Isso pode demorar um pouco, dependendo do tráfego da rede. Você pode fechar isto – iremos notificá-lo quando terminar.",
     "englishSource": "This may take a moment depending on network traffic. You can close this — we'll notify you when it's done."
   },
+  "transactionProcessingHeader": {
+    "message": "Processamento",
+    "englishSource": "Processing"
+  },
   "transactionTitleSend": {
     "message": "Enviando Pagamento",
     "englishSource": "Sending Payment"
@@ -935,8 +939,8 @@
     "englishSource": "Choose recipient"
   },
   "enterMidenOrEthereumAddress": {
-    "message": "Digite o endereço Miden",
-    "englishSource": "Enter Miden Address"
+    "message": "Insira o endereço Miden ou Ethereum",
+    "englishSource": "Enter Miden or Ethereum address"
   },
   "selectAmount": {
     "message": "Selecione o valor",
@@ -2292,6 +2296,78 @@
     "message": "Recuperar blocos",
     "englishSource": "Recall blocks"
   },
+  "delegateTransaction": {
+    "message": "Delegar transação",
+    "englishSource": "Delegate transaction"
+  },
+  "shareTransactionPrivately": {
+    "message": "Compartilhe a transação de forma privada",
+    "englishSource": "Share transaction privately"
+  },
+  "privatePayment": {
+    "message": "Pagamento Privado",
+    "englishSource": "Private Payment"
+  },
+  "privatePaymentDescription": {
+    "message": "Mantenha os detalhes da transação privados",
+    "englishSource": "Keep transaction details private"
+  },
+  "useDelegateProving": {
+    "message": "Use Prova de Delegado",
+    "englishSource": "Use Delegate Proving"
+  },
+  "delegateProving": {
+    "message": "Prova de Delegado",
+    "englishSource": "Delegate Proving"
+  },
+  "delegateProvingDescription": {
+    "message": "Terceirizar a geração de provas",
+    "englishSource": "Outsource proof generation"
+  },
+  "selectToken": {
+    "message": "Selecione o token",
+    "englishSource": "Select Token"
+  },
+  "arrives": {
+    "message": "Chega",
+    "englishSource": "Arrives"
+  },
+  "ethereum": {
+    "message": "Ethereum",
+    "englishSource": "Ethereum"
+  },
+  "fast": {
+    "message": "Rápido",
+    "englishSource": "Fast"
+  },
+  "slow": {
+    "message": "Lento",
+    "englishSource": "Slow"
+  },
+  "seconds": {
+    "message": "Segundos",
+    "englishSource": "Seconds"
+  },
+  "minutes": {
+    "message": "Minutos",
+    "englishSource": "Minutes"
+  },
+  "invalidEthereumAddress": {
+    "message": "Endereço Ethereum inválido",
+    "englishSource": "Invalid Ethereum address"
+  },
+  "oneToManyPayment": {
+    "message": "Pagamento um para muitos",
+    "englishSource": "One to Many Payment"
+  },
+  "oneToManyPaymentDescription": {
+    "message": "Envie para vários destinatários",
+    "englishSource": "Send to multiple recipients"
+  },
+  "recallTransaction": {
+    "message": "Recuperar transação",
+    "englishSource": "Recall Transaction"
+  },
   "sendPayment": {
     "message": "Enviar pagamento",
     "englishSource": "Send Payment"
@@ -2332,6 +2408,10 @@
   "pendingAssetsCount": {
     "message": "ativos",
     "englishSource": "assets"
+  },
+  "pendingNotes": {
+    "message": "Pendente notes",
+    "englishSource": "Pending notes"
   },
   "addTokens": {
     "message": "Adicionar tokens",
@@ -2754,6 +2834,23 @@
     "message": "Atividade",
     "englishSource": "Activity"
   },
+  "agglayerBridgeInProgressTitle": {
+    "message": "Ponte em andamento",
+    "englishSource": "Bridge in progress"
+  },
+  "agglayerBridgeInProgressSubtitle": {
+    "message": "Ponte $amount$ do EVM via Agglayer. Isso pode demorar um pouco.",
+    "englishSource": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "agglayerBridgeInProgressSubtitleNoAmount": {
+    "message": "Uma ponte de entrada do EVM via Agglayer está sendo estabelecida. Isso pode demorar um pouco.",
+    "englishSource": "An incoming bridge from EVM via Agglayer is settling. This can take a while."
+  },
   "explore": {
     "message": "Explorar",
     "englishSource": "Explore"
@@ -2781,6 +2878,22 @@
   "transferDetails": {
     "message": "Detalhes da transferência",
     "englishSource": "Transfer Details"
+  },
+  "advancedDetails": {
+    "message": "Detalhes avançados",
+    "englishSource": "Advanced details"
+  },
+  "recallBy": {
+    "message": "Lembrar por",
+    "englishSource": "Recall by"
+  },
+  "options": {
+    "message": "Opções",
+    "englishSource": "Options"
+  },
+  "recallEnabled": {
+    "message": "Rechamada ativada",
+    "englishSource": "Recall enabled"
   },
   "on": {
     "message": "Sobre",
@@ -2926,10 +3039,6 @@
     "message": "Pendente",
     "englishSource": "Pending"
   },
-  "pendingNotes": {
-    "message": "Pendente notes",
-    "englishSource": "Pending notes"
-  },
   "faucetRequestTitle": {
     "message": "Faucet Solicitação",
     "englishSource": "Faucet Request"
@@ -2941,5 +3050,205 @@
   "copy": {
     "message": "Cópia",
     "englishSource": "Copy"
+  },
+  "receiveFromEvm": {
+    "message": "De outra rede?",
+    "englishSource": "From another chain?"
+  },
+  "evmWalletConnected": {
+    "message": "Carteira EVM conectada",
+    "englishSource": "EVM wallet connected"
+  },
+  "midenBridge": {
+    "message": "Ponte Miden",
+    "englishSource": "Miden Bridge"
+  },
+  "evmWalletConnectedDescription": {
+    "message": "Agora você pode conectar ativos da carteira conectada.",
+    "englishSource": "You can now bridge assets from the connected wallet."
+  },
+  "connectEvmWallet": {
+    "message": "Conecte uma carteira EVM",
+    "englishSource": "Connect an EVM wallet"
+  },
+  "connectEvmWalletDescription": {
+    "message": "Conecte uma carteira para conectar ativos de e para Miden.",
+    "englishSource": "Connect a wallet to bridge assets to and from Miden."
+  },
+  "onlyBridgeableTokenSupported": {
+    "message": "A rota Slow (Agglayer) suporta apenas o token passível de ponte. Use Rápido para enviar outros tokens.",
+    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
+  },
+  "connectEvmWalletFirst": {
+    "message": "Conecte uma carteira EVM para usar a rota rápida.",
+    "englishSource": "Connect an EVM wallet to use the Fast route."
+  },
+  "connectDestinationWalletToClaim": {
+    "message": "Conecte a carteira de destino para reivindicar.",
+    "englishSource": "Connect the destination wallet to claim."
+  },
+  "bridgeDetails": {
+    "message": "Detalhes da ponte",
+    "englishSource": "Bridge details"
+  },
+  "route": {
+    "message": "Rota",
+    "englishSource": "Route"
+  },
+  "selectNetwork": {
+    "message": "Selecione a rede",
+    "englishSource": "Select network"
+  },
+  "receiveOnArrivesAs": {
+    "message": "Receba em $network$ · chega como $symbol$ ",
+    "englishSource": "Receive on $network$ · arrives as $symbol$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "noFee": {
+    "message": "Sem taxa",
+    "englishSource": "No fee"
+  },
+  "fastArrival": {
+    "message": "~30 segundos",
+    "englishSource": "~30 sec"
+  },
+  "slowArrival": {
+    "message": "~6 horas",
+    "englishSource": "~6 hours"
+  },
+  "youAreDepositing": {
+    "message": "Você está depositando",
+    "englishSource": "You are depositing"
+  },
+  "confirmDeposit": {
+    "message": "Confirmar depósito",
+    "englishSource": "Confirm Deposit"
+  },
+  "slowNeedsNativeEth": {
+    "message": "A rota Slow (Agglayer) suporta apenas ETH nativo na testnet. Escolha ETH para usá-lo.",
+    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
+  },
+  "fastEthWrapNotice": {
+    "message": "A ponte entre ETH na rota rápida envolve primeiro o WETH e, em seguida, faz a ponte com o WETH. Esta rota ainda não está disponível.",
+    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "destinationNetwork": {
+    "message": "Rede de destino",
+    "englishSource": "Destination network"
+  },
+  "claimStatus": {
+    "message": "Status da reivindicação",
+    "englishSource": "Claim status"
+  },
+  "claimAsset": {
+    "message": "Reivindicar ativo",
+    "englishSource": "Claim Asset"
+  },
+  "claimAssetSubmitted": {
+    "message": "Reivindicação enviada — os fundos estão na carteira EVM conectada.",
+    "englishSource": "Claim submitted — funds are on the connected EVM wallet."
+  },
+  "claimable": {
+    "message": "Pronto para reivindicar",
+    "englishSource": "Ready to claim"
+  },
+  "claiming": {
+    "message": "Reivindicando…",
+    "englishSource": "Claiming…"
+  },
+  "claimed": {
+    "message": "Reivindicado",
+    "englishSource": "Claimed"
+  },
+  "claimPending": {
+    "message": "Bridging – reivindicação ainda não está pronta",
+    "englishSource": "Bridging — claim not ready yet"
+  },
+  "claimFailedStatus": {
+    "message": "Falha na reivindicação",
+    "englishSource": "Claim failed"
+  },
+  "noManualClaimRequired": {
+    "message": "Os fundos chegam automaticamente – não é necessária nenhuma reclamação.",
+    "englishSource": "Funds arrive automatically — no claim needed."
+  },
+  "fastRouteLabel": {
+    "message": "Rápido (Época)",
+    "englishSource": "Fast (Epoch)"
+  },
+  "slowRouteLabel": {
+    "message": "Lento (Agglayer)",
+    "englishSource": "Slow (Agglayer)"
+  },
+  "bridgeRowTitle": {
+    "message": "Ponte $from$  →  $to$ ",
+    "englishSource": "Bridge $from$ → $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "to": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeRowVia": {
+    "message": "Através $provider$  →  $network$ ",
+    "englishSource": "Via $provider$ → $network$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeInProgress": {
+    "message": "Em andamento",
+    "englishSource": "In progress"
+  },
+  "bridgeFailed": {
+    "message": "Fracassado",
+    "englishSource": "Failed"
+  },
+  "receivingTx": {
+    "message": "Recebendo Tx",
+    "englishSource": "Receiving Tx"
+  },
+  "openInYourWallet": {
+    "message": "Abra na sua carteira",
+    "englishSource": "Open in your wallet"
+  },
+  "openInYourWalletDescription": {
+    "message": "Escolha uma carteira instalada para aprovar a conexão.",
+    "englishSource": "Pick an installed wallet to approve the connection."
+  },
+  "scanWithYourWallet": {
+    "message": "Digitalize com sua carteira",
+    "englishSource": "Scan with your wallet"
+  },
+  "scanWithYourWalletDescription": {
+    "message": "Abra o WalletConnect em qualquer carteira EVM e escaneie o código.",
+    "englishSource": "Open WalletConnect in any EVM wallet and scan the code."
+  },
+  "preparing": {
+    "message": "Preparando conexão…",
+    "englishSource": "Preparing connection…"
+  },
+  "copyConnectionLink": {
+    "message": "Copiar link de conexão",
+    "englishSource": "Copy connection link"
+  },
+  "disconnect": {
+    "message": "Desconectar",
+    "englishSource": "Disconnect"
   }
 }
