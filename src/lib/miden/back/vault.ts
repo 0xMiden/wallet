@@ -34,7 +34,7 @@ import { compareAccountIds } from '../activity/utils';
 import { fetchFromStorage, putToStorage } from '../front/storage';
 import type { CreatedGuardianKeys } from '../guardian/account';
 import { getSignerDetailsFromAccount } from '../guardian/account';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 
@@ -1136,7 +1136,9 @@ export class Vault {
     // tag-stripping consumer — Guardian — but isn't guaranteed to round-trip through the SDK's
     // `Signature.deserialize`.)
     if (signKind === 'word' && accountId) {
-      const account = (await this.fetchAccounts()).find(acc => acc.publicKey === accountId);
+      // Tolerant match: a dApp signBytes supplies the bare bech32 address, but the
+      // stored publicKey is a composite `<address>_<suffix>` (see sameWalletAccountId).
+      const account = (await this.fetchAccounts()).find(acc => sameWalletAccountId(acc.publicKey, accountId));
       if (account?.hotPublicKey) {
         const wordHex = `0x${bytesToHex(b64ToU8(data))}`;
         const sigHex = await this.signWord(account.hotPublicKey, wordHex);

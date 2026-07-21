@@ -12,6 +12,7 @@
 ### Fixes
 
 * [FIX][mobile] **iOS now renders at the display's native refresh rate (up to 120Hz ProMotion) instead of being capped at 60fps.** Added `CADisableMinimumFrameDurationOnPhone` to `Info.plist`. Since iOS 15, iPhones cap every app — including its WKWebView — to 60fps unless the app opts in to high frame rates, so on ProMotion devices animations and scrolling felt stuck at 60Hz (the same as Low Power Mode). CSS/compositor animations and native scrolling now run at the full display rate.
+* [FIX][all] **dApp transactions from a Guardian account no longer fail with "transaction is unauthorized".** A dApp/adapter supplies the account as its bare bech32 address (e.g. `mtst1…`), but `WalletAccount.publicKey` is a composite `<address>_<suffix>`; `isGuardianAccount` / `getOrCreateMultisigService` compared them with a raw `===`, which missed — so a Guardian account's dApp transaction was routed through the non-guardian path, no guardian co-signature was attached, and the on-chain guardian auth rejected it as `AUTH_UNAUTHORIZED` (e.g. registering a name on miden.name). Routing now matches through a shared `sameWalletAccountId` normalizer (both ids canonicalized to the SDK account id derived from the address portion), and `getOrCreateMultisigService` loads the SDK account by the matched account's stored `publicKey`. In-wallet Guardian sends (which already used the composite id) and single-sig accounts were unaffected.
 
 ## 1.15.8 (2026-07-21)
 

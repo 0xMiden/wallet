@@ -1,6 +1,6 @@
 import { Address } from '@miden-sdk/miden-sdk/lazy';
 
-import { accountIdStringToSdk, getBech32AddressFromAccountId } from './helpers';
+import { accountIdStringToSdk, getBech32AddressFromAccountId, sameWalletAccountId } from './helpers';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   Address: {
@@ -29,5 +29,35 @@ describe('miden sdk helpers', () => {
     const res = accountIdStringToSdk('mtst1qabc');
     expect(Address.fromBech32).toHaveBeenCalledWith('mtst1qabc');
     expect(res).toBe('accountId-mtst1qabc');
+  });
+
+  describe('sameWalletAccountId', () => {
+    it('matches a bare bech32 address against a composite `<address>_<suffix>` publicKey', () => {
+      // dApp/adapter passes the bare address; WalletAccount.publicKey is composite.
+      expect(sameWalletAccountId('mtst1qabc_qr7suffix', 'mtst1qabc')).toBe(true);
+      expect(sameWalletAccountId('mtst1qabc', 'mtst1qabc_qr7suffix')).toBe(true);
+    });
+
+    it('does not match different accounts', () => {
+      expect(sameWalletAccountId('mtst1qabc_x', 'mtst1qdef')).toBe(false);
+    });
+
+    it('unifies two different address encodings of the same account via the SDK round-trip', () => {
+      // Distinct address strings that resolve to the same on-chain account id must
+      // match — the value the SDK canonicalization adds over a plain prefix compare.
+      (Address.fromBech32 as jest.Mock)
+        .mockReturnValueOnce({ accountId: () => 'same-account-id' })
+        .mockReturnValueOnce({ accountId: () => 'same-account-id' });
+      expect(sameWalletAccountId('mtst1AAA_suffix', 'mtst1BBB')).toBe(true);
+    });
+
+    it('falls back to the address portion when the id cannot be parsed', () => {
+      (Address.fromBech32 as jest.Mock).mockImplementationOnce(() => {
+        throw new Error('not bech32');
+      });
+      // First arg fails to parse → falls back to the raw address portion; the
+      // second still canonicalizes, so they must NOT coincidentally match.
+      expect(sameWalletAccountId('rawid_suffix', 'mtst1qdef')).toBe(false);
+    });
   });
 });

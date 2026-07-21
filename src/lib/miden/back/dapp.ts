@@ -68,7 +68,7 @@ import { queueNoteImport } from '../activity';
 import { getCurrentMidenNetwork } from './safe-network';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 import {
@@ -860,7 +860,9 @@ const NOT_GUARDIAN_INFO: GuardianInfo = {
 async function getGuardianInfoData(accountId: string): Promise<GuardianInfo> {
   return withUnlocked(async ({ vault }) => {
     const accounts = await vault.fetchAccounts();
-    const account = accounts.find(acc => acc.publicKey === accountId);
+    // Tolerant match: the dApp-connected id may be the bare bech32 address while
+    // the stored publicKey is a composite `<address>_<suffix>`.
+    const account = accounts.find(acc => sameWalletAccountId(acc.publicKey, accountId));
     if (!account || account.type !== WalletType.Guardian) {
       return NOT_GUARDIAN_INFO;
     }
