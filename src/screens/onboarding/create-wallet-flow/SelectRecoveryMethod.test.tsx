@@ -80,7 +80,7 @@ describe('SelectRecoveryMethodScreen', () => {
       expect(badges[0]).toHaveAttribute('data-variant', 'default');
       expect(badges[0]).toHaveAttribute('data-classname', 'bg-primary-500 text-white');
       // The badge lives inside the Guardian card, not the OffChain card.
-      expect(optionCardByTitle('guardianRecovery')).toContainElement(badges[0]);
+      expect(optionCardByTitle('guardianRecovery')).toContainElement(badges[0]!);
     });
 
     it('applies mb-2 to non-last options and mb-8 to the last option', () => {

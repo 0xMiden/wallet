@@ -17,7 +17,7 @@
  * rule doesn't know that, hence the disable above.
  */
 
-const mockProcessDApp = jest.fn(async () => ({ ok: true }));
+const mockProcessDApp = jest.fn<Promise<{ ok: boolean }>, unknown[]>(async () => ({ ok: true }));
 jest.mock('lib/miden/back/actions', () => ({
   processDApp: (...args: unknown[]) => mockProcessDApp(...args)
 }));

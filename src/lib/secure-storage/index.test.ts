@@ -15,7 +15,13 @@
  * scenario.
  */
 
-type IndexModule = typeof import('./index');
+// The top-level `import` also makes TypeScript treat this file as a module
+// rather than a global script, so its top-level helpers (`loadModule`,
+// `LoadOptions`, …) don't collide with same-named globals in other script-mode
+// test files.
+import * as IndexModuleNs from './index';
+
+type IndexModule = typeof IndexModuleNs;
 
 interface DesktopMock {
   isHardwareSecurityAvailable: jest.Mock;

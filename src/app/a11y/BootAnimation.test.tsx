@@ -54,7 +54,7 @@ describe('BootAnimation', () => {
     // The layout effect flips `booted` false -> true, so the first render has
     // `in=false` and the final (post-effect) render has `in=true`.
     expect(mockCssTransitionCalls.length).toBeGreaterThanOrEqual(2);
-    expect(mockCssTransitionCalls[0].in).toBe(false);
+    expect(mockCssTransitionCalls[0]!.in).toBe(false);
     expect(mockCssTransitionCalls.at(-1)!.in).toBe(true);
   });
 

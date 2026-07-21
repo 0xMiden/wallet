@@ -75,10 +75,10 @@ describe('ProgressIndicator', () => {
       const bars = getBars();
 
       // currentStep=2 → indices 0,1 filled; indices 2,3 empty.
-      expect(animateOf(bars[0])).toEqual({ width: ACTIVE_WIDTH, backgroundColor: FILLED_COLOR });
-      expect(animateOf(bars[1])).toEqual({ width: ACTIVE_WIDTH, backgroundColor: FILLED_COLOR });
-      expect(animateOf(bars[2])).toEqual({ width: INACTIVE_WIDTH, backgroundColor: EMPTY_COLOR });
-      expect(animateOf(bars[3])).toEqual({ width: INACTIVE_WIDTH, backgroundColor: EMPTY_COLOR });
+      expect(animateOf(bars[0]!)).toEqual({ width: ACTIVE_WIDTH, backgroundColor: FILLED_COLOR });
+      expect(animateOf(bars[1]!)).toEqual({ width: ACTIVE_WIDTH, backgroundColor: FILLED_COLOR });
+      expect(animateOf(bars[2]!)).toEqual({ width: INACTIVE_WIDTH, backgroundColor: EMPTY_COLOR });
+      expect(animateOf(bars[3]!)).toEqual({ width: INACTIVE_WIDTH, backgroundColor: EMPTY_COLOR });
     });
 
     it('leaves every bar empty when currentStep is 0', () => {
@@ -109,7 +109,7 @@ describe('ProgressIndicator', () => {
   describe('motion props', () => {
     it('disables the initial animation and uses the configured transition', () => {
       render(<ProgressIndicator steps={1} currentStep={1} />);
-      const bar = getBars()[0];
+      const bar = getBars()[0]!;
 
       expect(bar).toHaveAttribute('data-initial', 'false');
       expect(JSON.parse(bar.getAttribute('data-transition') as string)).toEqual({

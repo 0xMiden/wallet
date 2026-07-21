@@ -130,7 +130,7 @@ jest.mock('./AccountsList', () => ({
 jest.mock('lib/miden/front', () => ({
   useAccount: () => useAccountMock(),
   useAllAccounts: () => useAllAccountsMock(),
-  useAllBalances: (...a: any[]) => useAllBalancesMock(...a),
+  useAllBalances: (...a: any[]) => (useAllBalancesMock as jest.Mock)(...a),
   useAllTokensBaseMetadata: () => useAllTokensBaseMetadataMock()
 }));
 jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
@@ -150,7 +150,7 @@ jest.mock('lib/woozie', () => ({
   useLocation: () => ({ pathname: mockPathname, search: mockSearch })
 }));
 jest.mock('utils/miden', () => ({ isValidMidenAddress: (a: string) => isValidMidenAddressMock(a) }));
-jest.mock('lib/i18n/numbers', () => ({ stringToBigInt: (...a: any[]) => stringToBigIntMock(...a) }));
+jest.mock('lib/i18n/numbers', () => ({ stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a) }));
 jest.mock('lib/miden/activity', () => ({
   requestSpeculateSend: (...a: any[]) => requestSpeculateSendMock(...a),
   requestSpeculateInvalidate: (...a: any[]) => requestSpeculateInvalidateMock(...a)

@@ -118,7 +118,16 @@ describe('CleanButton', () => {
   });
 
   it('passes through the rest props to the underlying button', () => {
-    render(<CleanButton data-testid="clean-btn" aria-label="clear field" disabled />);
+    // `disabled` is a button-only attribute forwarded via rest props; the
+    // component types rest as HTMLAttributes (no `disabled`), so spread it in
+    // through the precise ButtonHTMLAttributes type.
+    render(
+      <CleanButton
+        data-testid="clean-btn"
+        aria-label="clear field"
+        {...({ disabled: true } as React.ButtonHTMLAttributes<HTMLButtonElement>)}
+      />
+    );
     const button = screen.getByRole('button');
 
     expect(button).toHaveAttribute('data-testid', 'clean-btn');

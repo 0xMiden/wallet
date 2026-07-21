@@ -1,4 +1,9 @@
 /* eslint-disable import/first */
+// Type-only import (erased at runtime) that marks this file as a module, so its
+// top-level `const`/`let` declarations are module-scoped rather than leaking
+// into the global scope shared with other non-module test files — which would
+// otherwise trigger TS2451 redeclare errors for `flush`/`warnSpy`/`logSpy`.
+import type {} from 'webextension-polyfill';
 /**
  * Coverage tests for `src/background.ts` — the MV3 service-worker entry module.
  *

@@ -1,4 +1,5 @@
 import colorsDefault, { getColorHex, getRandomColor, isColorCode } from './colors';
+import { ColorCode } from '../types/colors';
 
 /*
  * `colors.ts` is backed by `tailwind-colors.js`, whose keys are:
@@ -28,7 +29,7 @@ describe('getColorHex', () => {
   });
 
   it('throws when the code has no dash', () => {
-    expect(() => getColorHex('primary')).toThrow('Color primary does not exist');
+    expect(() => getColorHex('primary' as ColorCode)).toThrow('Color primary does not exist');
   });
 
   it('throws when the name part is empty (leading dash)', () => {
@@ -128,6 +129,6 @@ describe('getRandomColor', () => {
 describe('default export', () => {
   it('exposes the full color palette', () => {
     expect(Object.keys(colorsDefault).sort()).toEqual(['blue', 'green', 'grey', 'primary', 'red', 'yellow'].sort());
-    expect(colorsDefault.primary['500']).toBe('#E77537');
+    expect(colorsDefault.primary!['500']).toBe('#E77537');
   });
 });

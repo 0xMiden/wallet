@@ -104,7 +104,7 @@ describe('TabSwitcher', () => {
   it('fires hapticSelection when a tab is clicked', () => {
     render(<TabSwitcher tabs={TABS} activeTabSlug="first" urlPrefix="/explore" />);
 
-    fireEvent.click(screen.getAllByTestId('tab-link')[1]);
+    fireEvent.click(screen.getAllByTestId('tab-link')[1]!);
 
     expect(mockHapticSelection).toHaveBeenCalledTimes(1);
   });

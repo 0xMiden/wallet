@@ -42,8 +42,8 @@ beforeEach(() => {
   for (const key of Object.keys(capturedHandlers)) delete capturedHandlers[key];
 
   mockInvoke.mockResolvedValue(undefined);
-  mockListen.mockImplementation((eventName: string, handler: (event: unknown) => void) => {
-    capturedHandlers[eventName] = handler;
+  mockListen.mockImplementation((eventName, handler) => {
+    capturedHandlers[eventName] = handler as (event: unknown) => void;
     return Promise.resolve(unlistenFn) as ReturnType<typeof listen>;
   });
 });
@@ -102,7 +102,7 @@ describe('onDappWalletRequest', () => {
     await onDappWalletRequest(cb);
 
     const request: DappWalletRequest = { type: 'CONNECT', payload: { a: 1 }, reqId: 'r1' };
-    capturedHandlers['dapp-wallet-request'](makeEvent(JSON.stringify(request), 'https://origin.test'));
+    capturedHandlers['dapp-wallet-request']!(makeEvent(JSON.stringify(request), 'https://origin.test'));
 
     expect(cb).toHaveBeenCalledWith(request, 'https://origin.test');
   });
@@ -113,7 +113,7 @@ describe('onDappWalletRequest', () => {
     const cb = jest.fn().mockRejectedValue(new Error('boom'));
     await onDappWalletRequest(cb);
 
-    capturedHandlers['dapp-wallet-request'](makeEvent(JSON.stringify({ type: 'X', reqId: 'r2' })));
+    capturedHandlers['dapp-wallet-request']!(makeEvent(JSON.stringify({ type: 'X', reqId: 'r2' })));
     expect(cb).toHaveBeenCalled();
     // Flush the microtask queue so the attached .catch runs before assertions end.
     await Promise.resolve();
@@ -124,7 +124,7 @@ describe('onDappWalletRequest', () => {
     const cb = jest.fn().mockResolvedValue(undefined);
     await onDappWalletRequest(cb);
 
-    capturedHandlers['dapp-wallet-request'](makeEvent(JSON.stringify({ type: 'X', reqId: 'r3' })));
+    capturedHandlers['dapp-wallet-request']!(makeEvent(JSON.stringify({ type: 'X', reqId: 'r3' })));
     expect(cb).toHaveBeenCalled();
     await Promise.resolve();
   });
@@ -134,7 +134,7 @@ describe('onDappWalletRequest', () => {
     await onDappWalletRequest(cb as never);
 
     expect(() =>
-      capturedHandlers['dapp-wallet-request'](makeEvent(JSON.stringify({ type: 'X', reqId: 'r4' })))
+      capturedHandlers['dapp-wallet-request']!(makeEvent(JSON.stringify({ type: 'X', reqId: 'r4' })))
     ).not.toThrow();
     expect(cb).toHaveBeenCalled();
   });
@@ -145,7 +145,7 @@ describe('onDappWalletRequest', () => {
     await onDappWalletRequest(cb as never);
 
     expect(() =>
-      capturedHandlers['dapp-wallet-request'](makeEvent(JSON.stringify({ type: 'X', reqId: 'r5' })))
+      capturedHandlers['dapp-wallet-request']!(makeEvent(JSON.stringify({ type: 'X', reqId: 'r5' })))
     ).not.toThrow();
     expect(cb).toHaveBeenCalled();
   });
@@ -154,7 +154,7 @@ describe('onDappWalletRequest', () => {
     const cb = jest.fn();
     await onDappWalletRequest(cb);
 
-    expect(() => capturedHandlers['dapp-wallet-request'](makeEvent('{not valid json'))).not.toThrow();
+    expect(() => capturedHandlers['dapp-wallet-request']!(makeEvent('{not valid json'))).not.toThrow();
     expect(cb).not.toHaveBeenCalled();
   });
 });
@@ -170,7 +170,7 @@ describe('onDappWindowClose', () => {
     const cb = jest.fn();
     await onDappWindowClose(cb);
 
-    capturedHandlers['dapp-window-closed']({});
+    capturedHandlers['dapp-window-closed']!({});
     expect(cb).toHaveBeenCalledTimes(1);
   });
 });
@@ -187,7 +187,7 @@ describe('onDappConfirmationResponse', () => {
     await onDappConfirmationResponse(cb);
 
     const response: DappConfirmationResponse = { requestId: 'req-9', confirmed: true };
-    capturedHandlers['dapp-confirmation-response']({ payload: JSON.stringify(response) });
+    capturedHandlers['dapp-confirmation-response']!({ payload: JSON.stringify(response) });
 
     expect(cb).toHaveBeenCalledWith(response);
   });
@@ -196,7 +196,7 @@ describe('onDappConfirmationResponse', () => {
     const cb = jest.fn();
     await onDappConfirmationResponse(cb);
 
-    expect(() => capturedHandlers['dapp-confirmation-response']({ payload: 'not-json{' })).not.toThrow();
+    expect(() => capturedHandlers['dapp-confirmation-response']!({ payload: 'not-json{' })).not.toThrow();
     expect(cb).not.toHaveBeenCalled();
   });
 });

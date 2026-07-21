@@ -87,7 +87,7 @@ describe('ReviewLabel (via barrel)', () => {
   });
 
   it('merges an extra className onto the base pill classes', () => {
-    const { container } = render(h(ReviewLabel, { className: 'extra-pill' }, 'Amount'));
+    const { container } = render(h(ReviewLabel, { className: 'extra-pill', children: 'Amount' }));
     const span = container.querySelector('span');
     expect(span).toHaveClass('extra-pill');
     expect(span).toHaveClass('rounded-full');

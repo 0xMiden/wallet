@@ -48,7 +48,7 @@ const mockUseAllTokensBaseMetadata = jest.fn(() => mockMetadata);
 const mockAccountIdStringToSdk = jest.fn((s: string) => s);
 const mockGetBech32 = jest.fn((s: string) => `bech32-${s}`);
 const mockConfirmSensitive = jest.fn().mockResolvedValue(true);
-const mockStringToBigInt = jest.fn((str: string) => BigInt(Math.trunc(Number(str) || 0)));
+const mockStringToBigInt = jest.fn((str: string, _decimals: number) => BigInt(Math.trunc(Number(str) || 0)));
 const mockInitiateSwap = jest.fn().mockResolvedValue('tx-1');
 const mockRequestSWProcessing = jest.fn();
 const mockIsExtension = jest.fn(() => true);

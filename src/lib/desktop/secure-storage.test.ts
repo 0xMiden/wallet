@@ -10,6 +10,14 @@
  *   `require()` for a fresh module (and fresh cache) per scenario.
  */
 
+// This file uses only dynamic `require()`/`typeof import()` and has no other
+// top-level import/export, so mark it as an ES module explicitly. Without this,
+// TypeScript treats the file as a global script: its top-level helpers collide
+// with same-named globals in other script-mode test files, and the crossed
+// global `SecureStorageModule` type mis-resolves `./secure-storage`.
+// eslint-disable-next-line jest/no-export -- module marker, exports nothing testable
+export {};
+
 // Marks the jsdom window as a Tauri context so `isDesktop()` returns true.
 function setDesktop(): void {
   (window as unknown as { __TAURI__?: unknown }).__TAURI__ = {};

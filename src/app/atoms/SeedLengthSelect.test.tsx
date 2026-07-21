@@ -110,7 +110,7 @@ describe('SeedLengthSelect', () => {
     fireEvent.click(getHeader(container));
     const [twelve] = getItems(container);
 
-    fireEvent.click(twelve);
+    fireEvent.click(twelve!);
 
     expect(setShowSeed).toHaveBeenCalledTimes(1);
     expect(setShowSeed).toHaveBeenCalledWith(true);

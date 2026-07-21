@@ -14,9 +14,17 @@
  * `Object.defineProperty` and throwing only for the `midenWallet` definition.
  */
 
+// This file has no runtime imports, so a type-only import is used to mark it as
+// a module (it is fully erased at compile time, so nothing is dragged in at
+// runtime). Without module scope TypeScript treats the file as a global script
+// and its top-level `logSpy`/`errorSpy`/`load` collide with the same-named
+// declarations in sibling test files (TS2451/TS2393). An empty `export {}`
+// would do the same but is rejected by the `jest/no-export` lint rule.
+import type { MidenWindowObject } from './lib/adapter/midenWindowObject';
+
 // ── Mock the adapter class (must be `mock`/`Mock`-prefixed to be referenced
 //    from the hoisted jest.mock factory) ─────────────────────────────────────
-const mockInstance = { __tag: 'miden-window-object' };
+const mockInstance = { __tag: 'miden-window-object' } as unknown as MidenWindowObject;
 const MockMidenWindowObject = jest.fn(() => mockInstance);
 
 jest.mock('./lib/adapter/midenWindowObject', () => ({

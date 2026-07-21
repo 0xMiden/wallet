@@ -84,7 +84,7 @@ describe('Sparkline', () => {
     expect(d.startsWith('M')).toBe(true);
     const commands = d.split(' ');
     expect(commands).toHaveLength(4);
-    expect(commands[0][0]).toBe('M');
+    expect(commands[0]![0]).toBe('M');
     expect(commands.slice(1).every(c => c[0] === 'L')).toBe(true);
   });
 

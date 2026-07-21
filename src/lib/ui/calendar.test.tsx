@@ -85,7 +85,7 @@ describe('Calendar', () => {
     downChevrons.forEach(svg => expect(svg.getAttribute('class')).toContain('size-4'));
 
     // The default `formatMonthDropdown` renders short month labels (e.g. "Jan").
-    const monthSelect = selects[0];
+    const monthSelect = selects[0]!;
     expect(within(monthSelect).getByText('Jan')).toBeInTheDocument();
 
     // The non-label caption branch styling is applied.

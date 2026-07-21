@@ -23,13 +23,13 @@
 // --- Native / heavy boundary mocks (hoisted above the imports) ---------
 
 // Tauri command bridge used by secure-storage + dapp-browser.
-const mockInvoke = jest.fn(async () => undefined);
+const mockInvoke = jest.fn<Promise<undefined>, unknown[]>(async () => undefined);
 jest.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: unknown[]) => mockInvoke(...args)
 }));
 
 // Tauri event bridge used by dapp-browser's listeners.
-const mockListen = jest.fn(async () => () => {});
+const mockListen = jest.fn<Promise<() => void>, unknown[]>(async () => () => {});
 jest.mock('@tauri-apps/api/event', () => ({
   listen: (...args: unknown[]) => mockListen(...args)
 }));

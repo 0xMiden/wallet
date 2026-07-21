@@ -26,7 +26,7 @@ import React from 'react';
 // ---------------------------------------------------------------------------
 const mockInitTheme = jest.fn();
 const mockRender = jest.fn();
-const mockCreateRoot = jest.fn(() => ({ render: mockRender }));
+const mockCreateRoot = jest.fn<{ render: typeof mockRender }, unknown[]>(() => ({ render: mockRender }));
 const mockRunChecks = jest.fn();
 
 // Side-effect-only CSS import — empty module so swc doesn't parse the stylesheet

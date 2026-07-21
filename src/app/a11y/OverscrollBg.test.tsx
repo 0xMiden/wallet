@@ -139,7 +139,7 @@ describe('OverscrollBg', () => {
     const { unmount } = renderBg();
 
     expect(addSpy).toHaveBeenCalledWith('scroll', expect.any(Function));
-    const listener = addSpy.mock.calls.find(([type]) => type === 'scroll')?.[1];
+    const listener = addSpy.mock.calls.find(([type]) => (type as string) === 'scroll')?.[1];
 
     unmount();
 

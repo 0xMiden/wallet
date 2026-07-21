@@ -153,7 +153,7 @@ describe('LanguageSettings', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
 
     // Ordering: analytics before the locale write.
-    expect(trackEvent.mock.invocationCallOrder[0]).toBeLessThan(mockUpdateLocale.mock.invocationCallOrder[0]);
+    expect(trackEvent.mock.invocationCallOrder[0]!).toBeLessThan(mockUpdateLocale.mock.invocationCallOrder[0]!);
   });
 
   it('does not throw when a language is selected without an onClose handler', () => {

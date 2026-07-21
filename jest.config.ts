@@ -41,9 +41,14 @@ export default {
   //   top-level `await`; @swc/jest emits bare TLA into a CommonJS wrapper that
   //   won't load, so it has no clean unit surface without a source refactor
   //   (extract the logic out of the bootstrap) or a brittle transformer hack.
+  // - `lib/miden/assets/stake.ts` — zero-byte placeholder module: no exports,
+  //   not referenced by the `./index` barrel, not imported anywhere. It has no
+  //   runtime surface to test; when real staking logic lands, remove it from
+  //   this list so the gate demands proper tests.
   coveragePathIgnorePatterns: [
     '/node_modules/',
     '/src/lib/lock-up/run-checks\\.ts$',
+    '/src/lib/miden/assets/stake\\.ts$',
     '/src/app/pages/Browser/',
     '/src/app/pages/Pending\\.tsx$',
     '/src/app/pages/Receive\\.tsx$',

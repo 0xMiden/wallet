@@ -40,7 +40,7 @@ describe('types/colors', () => {
       expect(colorNames.length).toBeGreaterThan(0);
 
       for (const name of colorNames) {
-        const shades = typed[name];
+        const shades = typed[name]!;
         expect(typeof shades).toBe('object');
         expect(shades).not.toBeNull();
 
@@ -84,10 +84,10 @@ describe('types/colors', () => {
       // Each sample must correspond to a real entry in the source data,
       // proving the type mirrors the runtime object.
       for (const code of samples) {
-        const [name, shade] = code.split('-');
+        const [name, shade] = code.split('-') as [string, string];
         const shades = (colorsData as Colors)[name];
         expect(shades).toBeDefined();
-        expect(shades[shade]).toBeDefined();
+        expect(shades![shade]).toBeDefined();
       }
     });
 

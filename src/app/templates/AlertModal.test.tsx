@@ -73,7 +73,7 @@ beforeEach(() => {
 describe('AlertModal', () => {
   it('renders children inside the modal body and an OK submit button', () => {
     render(
-      <AlertModal onRequestClose={jest.fn()}>
+      <AlertModal onRequestClose={jest.fn()} isOpen>
         <span>alert body content</span>
       </AlertModal>
     );
@@ -115,7 +115,11 @@ describe('AlertModal', () => {
   it('invokes onRequestClose when the OK button is clicked', () => {
     const onRequestClose = jest.fn();
 
-    render(<AlertModal onRequestClose={onRequestClose}>body</AlertModal>);
+    render(
+      <AlertModal onRequestClose={onRequestClose} isOpen>
+        body
+      </AlertModal>
+    );
 
     fireEvent.click(screen.getByTestId('ok-button'));
 
@@ -125,7 +129,7 @@ describe('AlertModal', () => {
   it('does not throw when clicked with no onRequestClose handler provided', () => {
     // `onRequestClose` is optional on ModalWithTitleProps → the OK button's
     // onClick is `undefined`; clicking must be a no-op, not a crash.
-    render(<AlertModal>body without handler</AlertModal>);
+    render(<AlertModal isOpen>body without handler</AlertModal>);
 
     const okButton = screen.getByTestId('ok-button');
     expect(() => fireEvent.click(okButton)).not.toThrow();

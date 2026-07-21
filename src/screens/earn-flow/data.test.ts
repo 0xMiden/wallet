@@ -106,7 +106,7 @@ describe('earn-flow/data', () => {
         assertChartSeries(position.chartData);
         // The demo series all span the same 18-point Mar→Jun window.
         expect(position.chartData).toHaveLength(18);
-        expect(position.chartData[0].label).toBe('Mar 18');
+        expect(position.chartData[0]!.label).toBe('Mar 18');
         expect(position.chartData.at(-1)?.label).toBe('Jun 28');
       });
     });
@@ -130,12 +130,12 @@ describe('earn-flow/data', () => {
         withdrawTime: '~30 sec · no lockup',
         route: 'Miden -> Aave (Ethereum)'
       });
-      expect(first.chartData[0]).toEqual({ label: 'Mar 18', value: 1000 });
+      expect(first!.chartData[0]).toEqual({ label: 'Mar 18', value: 1000 });
     });
 
     it('gives each position a distinct chart series', () => {
       const [first, second] = EARN_DATA.positions;
-      expect(first.chartData).not.toEqual(second.chartData);
+      expect(first!.chartData).not.toEqual(second!.chartData);
     });
   });
 
@@ -188,7 +188,7 @@ describe('earn-flow/data', () => {
       EARN_DATA.vaults.forEach(vault => {
         assertChartSeries(vault.chartData);
         expect(vault.chartData).toHaveLength(18);
-        expect(vault.chartData[0].label).toBe('Mar 18');
+        expect(vault.chartData[0]!.label).toBe('Mar 18');
         expect(vault.chartData.at(-1)?.label).toBe('Jun 28');
         // APY series are single-digit percentages, unlike the position
         // balance series which are in the thousands.
@@ -223,7 +223,7 @@ describe('earn-flow/data', () => {
 
   describe('cross-section invariants', () => {
     it('positions and vaults share the same 18-point chart window labels', () => {
-      const positionLabels = EARN_DATA.positions[0].chartData.map(p => p.label);
+      const positionLabels = EARN_DATA.positions[0]!.chartData.map(p => p.label);
       EARN_DATA.positions.forEach(position => {
         expect(position.chartData.map(p => p.label)).toEqual(positionLabels);
       });

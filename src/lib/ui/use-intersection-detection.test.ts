@@ -56,7 +56,7 @@ describe('useIntersectionDetection', () => {
     renderHook(() => useIntersectionDetection(ref, callback));
 
     expect(MockIntersectionObserver.instances).toHaveLength(1);
-    const observer = MockIntersectionObserver.last;
+    const observer = MockIntersectionObserver.last!;
     expect(observer.options).toEqual({ rootMargin: '0px' });
     expect(observer.observe).toHaveBeenCalledWith(el);
     expect(callback).not.toHaveBeenCalled();
@@ -72,7 +72,7 @@ describe('useIntersectionDetection', () => {
 
     renderHook(() => useIntersectionDetection(makeRef(el), callback, true));
 
-    MockIntersectionObserver.last.trigger([{ isIntersecting: false }]);
+    MockIntersectionObserver.last!.trigger([{ isIntersecting: false }]);
 
     expect(callback).not.toHaveBeenCalled();
   });
@@ -84,7 +84,7 @@ describe('useIntersectionDetection', () => {
     renderHook(() => useIntersectionDetection(makeRef(el), callback, true));
 
     // Empty entry list -> `entry` is undefined -> `entry?.isIntersecting` short-circuits.
-    MockIntersectionObserver.last.trigger([]);
+    MockIntersectionObserver.last!.trigger([]);
 
     expect(callback).not.toHaveBeenCalled();
   });
@@ -95,7 +95,7 @@ describe('useIntersectionDetection', () => {
 
     const { unmount } = renderHook(() => useIntersectionDetection(makeRef(el), callback, true));
 
-    const observer = MockIntersectionObserver.last;
+    const observer = MockIntersectionObserver.last!;
     expect(observer.unobserve).not.toHaveBeenCalled();
 
     unmount();

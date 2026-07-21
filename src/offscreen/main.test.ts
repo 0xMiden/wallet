@@ -24,6 +24,14 @@ type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => bool
 
 const G = globalThis as any;
 
+// This spec has no static import/export, so without a module marker TS treats it
+// as a global script and its top-level helpers (logSpy/flush/loadModule/…) collide
+// with identically-named globals in sibling spec files (TS2451/TS2393). The empty
+// export makes it a module so every top-level declaration is file-scoped. It is a
+// pure module marker, not a test-helper export, hence the jest/no-export override.
+// eslint-disable-next-line jest/no-export
+export {};
+
 // Override the moduleNameMapper → wasmMock.js binding for the lazy subpath.
 // The factory decides `initThreadPool`'s presence at import time from the
 // `hasInitThreadPool` flag (set before each `await import`), and delegates

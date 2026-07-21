@@ -156,7 +156,7 @@ describe('addToWindow.js injection', () => {
     expect(mockGetURL).toHaveBeenCalledWith('addToWindow.js');
     const injected = [...document.head.querySelectorAll('script')].filter(s => s.src.includes('addToWindow.js'));
     expect(injected.length).toBeGreaterThan(0);
-    expect(injected[injected.length - 1].src).toContain('chrome-extension://test/addToWindow.js');
+    expect(injected[injected.length - 1]!.src).toContain('chrome-extension://test/addToWindow.js');
   });
 
   it('falls back to documentElement when document.head is absent', () => {

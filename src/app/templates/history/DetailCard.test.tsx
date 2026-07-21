@@ -60,8 +60,8 @@ describe('DetailCard module re-exports', () => {
     expect(typeof DetailCard).toBe('function');
     expect(typeof DetailRow).toBe('function');
 
-    render(<DetailCard />);
-    render(<DetailRow />);
+    render(<DetailCard>{null}</DetailCard>);
+    render(<DetailRow label="" />);
     expect(screen.getByTestId('lib-detail-card')).toBeInTheDocument();
     expect(screen.getByTestId('lib-detail-row')).toBeInTheDocument();
   });

@@ -360,7 +360,7 @@ describe('Settings page — drawer interactions', () => {
 
     const open = openDrawers();
     expect(open).toHaveLength(1);
-    expect(within(open[0]).getByTestId('drawer-title')).toHaveTextContent('generalSettings');
+    expect(within(open[0]!).getByTestId('drawer-title')).toHaveTextContent('generalSettings');
   });
 
   it('closes the drawer via onOpenChange(false)', () => {
@@ -368,7 +368,7 @@ describe('Settings page — drawer interactions', () => {
     fireEvent.click(screen.getByTestId('menuitem-generalSettings'));
     expect(openDrawers()).toHaveLength(1);
 
-    const openDrawer = openDrawers()[0];
+    const openDrawer = openDrawers()[0]!;
     fireEvent.click(within(openDrawer).getByTestId('drawer-openchange-false'));
 
     expect(openDrawers()).toHaveLength(0);
@@ -378,7 +378,7 @@ describe('Settings page — drawer interactions', () => {
     render(<Settings tabSlug={null} />);
     fireEvent.click(screen.getByTestId('menuitem-generalSettings'));
 
-    const openDrawer = openDrawers()[0];
+    const openDrawer = openDrawers()[0]!;
     fireEvent.click(within(openDrawer).getByTestId('drawer-openchange-true'));
 
     expect(openDrawers()).toHaveLength(1);

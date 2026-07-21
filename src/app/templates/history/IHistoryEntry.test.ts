@@ -83,7 +83,7 @@ describe('IHistoryEntry (type-level shape)', () => {
       timestamp: 0,
       message: '',
       type: HistoryEntryType.PendingTransaction,
-      txType: 'receive'
+      txType: 'consume'
     };
 
     expect(entry.status).toBeUndefined();

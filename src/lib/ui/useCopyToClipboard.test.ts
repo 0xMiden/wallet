@@ -21,6 +21,13 @@ function makeField(value: string): HTMLInputElement {
   return input;
 }
 
+/** Assign to the hook's `fieldRef.current`, which React types as a read-only
+ * property on `RefObject`. Accepting the ref through a writable-`current` view
+ * lets the test drive the ref without an `as any` cast. */
+function setFieldRef(ref: { current: HTMLInputElement | null }, value: HTMLInputElement | null): void {
+  ref.current = value;
+}
+
 describe('useCopyToClipboard', () => {
   beforeEach(() => {
     jest.useFakeTimers();
@@ -51,7 +58,7 @@ describe('useCopyToClipboard', () => {
     const selectSpy = jest.spyOn(field, 'select');
 
     act(() => {
-      result.current.fieldRef.current = field;
+      setFieldRef(result.current.fieldRef, field);
     });
 
     act(() => {
@@ -81,7 +88,7 @@ describe('useCopyToClipboard', () => {
     const field = makeField('value-1');
 
     act(() => {
-      result.current.fieldRef.current = field;
+      setFieldRef(result.current.fieldRef, field);
     });
     act(() => {
       result.current.copy();
@@ -101,7 +108,7 @@ describe('useCopyToClipboard', () => {
     const blurSpy = jest.spyOn(field, 'blur');
 
     act(() => {
-      result.current.fieldRef.current = field;
+      setFieldRef(result.current.fieldRef, field);
     });
     act(() => {
       result.current.copy();
@@ -129,7 +136,7 @@ describe('useCopyToClipboard', () => {
     const field = makeField('custom-delay');
 
     act(() => {
-      result.current.fieldRef.current = field;
+      setFieldRef(result.current.fieldRef, field);
     });
     act(() => {
       result.current.copy();
@@ -153,7 +160,7 @@ describe('useCopyToClipboard', () => {
     const blurSpy = jest.spyOn(field, 'blur');
 
     act(() => {
-      result.current.fieldRef.current = field;
+      setFieldRef(result.current.fieldRef, field);
     });
     act(() => {
       result.current.copy();
@@ -178,7 +185,7 @@ describe('useCopyToClipboard', () => {
     const blurSpy = jest.spyOn(field, 'blur');
 
     act(() => {
-      result.current.fieldRef.current = field;
+      setFieldRef(result.current.fieldRef, field);
     });
     act(() => {
       result.current.copy();
@@ -186,7 +193,7 @@ describe('useCopyToClipboard', () => {
 
     // Clear the ref so the `textarea` guard is falsy inside the timeout.
     act(() => {
-      result.current.fieldRef.current = null;
+      setFieldRef(result.current.fieldRef, null);
     });
 
     act(() => {
@@ -202,7 +209,7 @@ describe('useCopyToClipboard', () => {
     const field = makeField('unmount');
 
     act(() => {
-      result.current.fieldRef.current = field;
+      setFieldRef(result.current.fieldRef, field);
     });
     act(() => {
       result.current.copy();

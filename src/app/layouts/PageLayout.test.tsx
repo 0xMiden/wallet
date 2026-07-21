@@ -353,7 +353,7 @@ describe('PageLayout', () => {
     mockLocation = { historyPosition: 1, pathname: '/foo' };
     render(<PageLayout>content</PageLayout>);
     expect(mockIOInstances).toHaveLength(1);
-    const observer = mockIOInstances[0];
+    const observer = mockIOInstances[0]!;
     expect(observer.observe).toHaveBeenCalledTimes(1);
 
     // Sticked: boundingClientRect.y < rootBounds.y  -> setSticked(true)
@@ -373,7 +373,7 @@ describe('PageLayout', () => {
 
   it('unobserves the toolbar on unmount', () => {
     const { unmount } = render(<PageLayout>content</PageLayout>);
-    const observer = mockIOInstances[0];
+    const observer = mockIOInstances[0]!;
     unmount();
     expect(observer.unobserve).toHaveBeenCalledTimes(1);
   });

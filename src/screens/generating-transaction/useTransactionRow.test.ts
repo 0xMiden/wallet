@@ -59,7 +59,7 @@ const state = _g.__txRowTest as {
 };
 
 /** Latest observer captured by the mocked `liveQuery().subscribe(...)`. */
-const lastObserver = () => state.observers[state.observers.length - 1];
+const lastObserver = () => state.observers[state.observers.length - 1]!;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -87,7 +87,7 @@ describe('useTransactionRow', () => {
 
     // Invoke the captured query arrow the way Dexie would, and assert it
     // targets the right row. This covers the `() => Repo.transactions...` line.
-    const queried = await state.queryFns[0]();
+    const queried = await state.queryFns[0]!();
 
     expect(Repo.transactions.where).toHaveBeenCalledWith({ id: 'tx-1' });
     expect(queried).toBe(row);

@@ -13,7 +13,7 @@ import { PromptCarousel } from './PromptCarousel';
 // time), never at factory-eval time, so there is no TDZ issue.
 // ---------------------------------------------------------------------------
 const mockAnimateStop = jest.fn();
-const mockAnimate = jest.fn(() => ({ stop: mockAnimateStop }));
+const mockAnimate = jest.fn((..._args: unknown[]) => ({ stop: mockAnimateStop }));
 const mockMotionSet = jest.fn();
 const mockMotionValue = { set: mockMotionSet, get: () => 0 };
 

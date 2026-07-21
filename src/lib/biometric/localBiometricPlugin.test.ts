@@ -33,35 +33,35 @@ const mockHardwareSecurity = {
   deleteHardwareKey: jest.fn()
 };
 
-const mockRegisterPlugin = jest.fn((name: string) => {
+const mockRegisterBiometricPlugin = jest.fn((name: string) => {
   if (name === 'LocalBiometric') return mockLocalBiometric;
   if (name === 'HardwareSecurity') return mockHardwareSecurity;
   return {};
 });
 
 jest.mock('@capacitor/core', () => ({
-  registerPlugin: (name: string) => mockRegisterPlugin(name)
+  registerPlugin: (name: string) => mockRegisterBiometricPlugin(name)
 }));
 
 describe('biometric localBiometricPlugin', () => {
   it('registers the Capacitor LocalBiometric plugin handle', async () => {
     const { LocalBiometric } = await import('./localBiometricPlugin');
 
-    expect(mockRegisterPlugin).toHaveBeenCalledWith('LocalBiometric');
+    expect(mockRegisterBiometricPlugin).toHaveBeenCalledWith('LocalBiometric');
     expect(LocalBiometric).toBe(mockLocalBiometric);
   });
 
   it('registers the Capacitor HardwareSecurity plugin handle', async () => {
     const { HardwareSecurity } = await import('./localBiometricPlugin');
 
-    expect(mockRegisterPlugin).toHaveBeenCalledWith('HardwareSecurity');
+    expect(mockRegisterBiometricPlugin).toHaveBeenCalledWith('HardwareSecurity');
     expect(HardwareSecurity).toBe(mockHardwareSecurity);
   });
 
   it('registers exactly the two expected native plugins by jsName', async () => {
     await import('./localBiometricPlugin');
 
-    const registeredNames = mockRegisterPlugin.mock.calls.map(([name]) => name);
+    const registeredNames = mockRegisterBiometricPlugin.mock.calls.map(([name]) => name);
     expect(registeredNames).toEqual(expect.arrayContaining(['LocalBiometric', 'HardwareSecurity']));
     // No stray registrations beyond the two documented handles.
     expect(new Set(registeredNames)).toEqual(new Set(['LocalBiometric', 'HardwareSecurity']));

@@ -249,7 +249,7 @@ describe('AccountsListDrawer', () => {
         accounts: [plainPublic, plainPrivate]
       });
 
-      fireEvent.click(screen.getAllByTestId('card-item')[1]);
+      fireEvent.click(screen.getAllByTestId('card-item')[1]!);
 
       expect(onSelectContact).toHaveBeenCalledTimes(1);
       expect(onSelectContact).toHaveBeenCalledWith(plainPrivate);

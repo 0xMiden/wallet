@@ -37,7 +37,7 @@ jest.mock('app/atoms/CustomModal', () => ({
     customModalPropsSpy(props);
     const { children, className } = props;
     return (
-      <div data-testid="custom-modal" className={className}>
+      <div data-testid="custom-modal" className={className as string | undefined}>
         {children}
       </div>
     );
@@ -53,7 +53,7 @@ beforeEach(() => {
 describe('ModalWithTitle', () => {
   it('renders the title as an <h1> with the title styling when `title` is provided', () => {
     render(
-      <ModalWithTitle title="My Title">
+      <ModalWithTitle isOpen title="My Title">
         <span>body content</span>
       </ModalWithTitle>
     );
@@ -68,7 +68,11 @@ describe('ModalWithTitle', () => {
   });
 
   it('renders a ReactNode title (not just a string)', () => {
-    render(<ModalWithTitle title={<em data-testid="rich-title">rich</em>}>content</ModalWithTitle>);
+    render(
+      <ModalWithTitle isOpen title={<em data-testid="rich-title">rich</em>}>
+        content
+      </ModalWithTitle>
+    );
 
     const heading = screen.getByRole('heading', { level: 1 });
     expect(heading).toContainElement(screen.getByTestId('rich-title'));
@@ -76,7 +80,7 @@ describe('ModalWithTitle', () => {
 
   it('omits the <h1> entirely when no `title` is provided', () => {
     render(
-      <ModalWithTitle>
+      <ModalWithTitle isOpen>
         <span>only body</span>
       </ModalWithTitle>
     );
@@ -86,14 +90,18 @@ describe('ModalWithTitle', () => {
   });
 
   it('omits the <h1> when `title` is an empty string (falsy branch)', () => {
-    render(<ModalWithTitle title="">body</ModalWithTitle>);
+    render(
+      <ModalWithTitle isOpen title="">
+        body
+      </ModalWithTitle>
+    );
 
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
   });
 
   it('renders children inside the body div with the body styling', () => {
     render(
-      <ModalWithTitle>
+      <ModalWithTitle isOpen>
         <span data-testid="child">hi</span>
       </ModalWithTitle>
     );
@@ -106,7 +114,7 @@ describe('ModalWithTitle', () => {
   it('applies `px-6` (non-compact) padding when `compact` is false', () => {
     useAppEnvMock.mockReturnValue({ compact: false });
 
-    render(<ModalWithTitle>body</ModalWithTitle>);
+    render(<ModalWithTitle isOpen>body</ModalWithTitle>);
 
     expect(customModalPropsSpy).toHaveBeenCalledTimes(1);
     const className = customModalPropsSpy.mock.calls[0][0].className as string;
@@ -122,7 +130,7 @@ describe('ModalWithTitle', () => {
   it('applies `px-4` (compact) padding when `compact` is true', () => {
     useAppEnvMock.mockReturnValue({ compact: true });
 
-    render(<ModalWithTitle>body</ModalWithTitle>);
+    render(<ModalWithTitle isOpen>body</ModalWithTitle>);
 
     const className = customModalPropsSpy.mock.calls[0][0].className as string;
     expect(className).toContain('px-4');
@@ -130,7 +138,11 @@ describe('ModalWithTitle', () => {
   });
 
   it('appends the caller-supplied `className` after the composed base classes', () => {
-    render(<ModalWithTitle className="custom-extra-class">body</ModalWithTitle>);
+    render(
+      <ModalWithTitle isOpen className="custom-extra-class">
+        body
+      </ModalWithTitle>
+    );
 
     const className = customModalPropsSpy.mock.calls[0][0].className as string;
     expect(className).toContain('custom-extra-class');

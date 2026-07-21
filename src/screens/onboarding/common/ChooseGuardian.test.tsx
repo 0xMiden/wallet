@@ -175,8 +175,8 @@ describe('ChooseGuardianScreen', () => {
     const { container } = render(<ChooseGuardianScreen />);
     const [ozBtn, gwBtn] = optionButtons(container);
 
-    expect(isHighlighted(ozBtn)).toBe(true);
-    expect(isHighlighted(gwBtn)).toBe(false);
+    expect(isHighlighted(ozBtn!)).toBe(true);
+    expect(isHighlighted(gwBtn!)).toBe(false);
 
     // Only the default card carries a badge, and it reads "default".
     expect(screen.getByText('default')).toBeInTheDocument();
@@ -200,10 +200,10 @@ describe('ChooseGuardianScreen', () => {
     const { container } = render(<ChooseGuardianScreen />);
     const [ozBtn, gwBtn] = optionButtons(container);
 
-    fireEvent.click(gwBtn);
+    fireEvent.click(gwBtn!);
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
-    expect(isHighlighted(gwBtn)).toBe(true);
-    expect(isHighlighted(ozBtn)).toBe(false);
+    expect(isHighlighted(gwBtn!)).toBe(true);
+    expect(isHighlighted(ozBtn!)).toBe(false);
   });
 
   it('submits the selected provider id + endpoint on continue', () => {
@@ -211,7 +211,7 @@ describe('ChooseGuardianScreen', () => {
     const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
     const [, gwBtn] = optionButtons(container);
 
-    fireEvent.click(gwBtn);
+    fireEvent.click(gwBtn!);
     fireEvent.click(screen.getByTestId('continue-button'));
 
     expect(onSubmit).toHaveBeenCalledWith({
@@ -253,8 +253,8 @@ describe('ChooseGuardianScreen', () => {
     const [ozBtn, gwBtn] = optionButtons(container);
 
     // Current provider is pre-selected...
-    expect(isHighlighted(gwBtn)).toBe(true);
-    expect(isHighlighted(ozBtn)).toBe(false);
+    expect(isHighlighted(gwBtn!)).toBe(true);
+    expect(isHighlighted(ozBtn!)).toBe(false);
     // ...and badged as "currentLabel" (not "default").
     expect(screen.getByText('currentLabel')).toBeInTheDocument();
     expect(screen.queryByText('default')).not.toBeInTheDocument();
@@ -264,7 +264,7 @@ describe('ChooseGuardianScreen', () => {
     const { container } = render(<ChooseGuardianScreen currentEndpoint="https://unknown.example.com" />);
     const [ozBtn] = optionButtons(container);
 
-    expect(isHighlighted(ozBtn)).toBe(true);
+    expect(isHighlighted(ozBtn!)).toBe(true);
     // No "current" badge (nothing matched); the default badge is shown instead.
     expect(screen.queryByText('currentLabel')).not.toBeInTheDocument();
     expect(screen.getByText('default')).toBeInTheDocument();
@@ -275,14 +275,14 @@ describe('ChooseGuardianScreen', () => {
     const [ozBtn] = optionButtons(container);
 
     // User explicitly picks OpenZeppelin.
-    fireEvent.click(ozBtn);
-    expect(isHighlighted(ozBtn)).toBe(true);
+    fireEvent.click(ozBtn!);
+    expect(isHighlighted(ozBtn!)).toBe(true);
 
     // A late-hydrating currentEndpoint change must NOT override the user's pick.
     rerender(<ChooseGuardianScreen currentEndpoint={LAMBDA.endpoint} />);
     const [ozAfter, , lambdaAfter] = optionButtons(container);
-    expect(isHighlighted(ozAfter)).toBe(true);
-    expect(isHighlighted(lambdaAfter)).toBe(false);
+    expect(isHighlighted(ozAfter!)).toBe(true);
+    expect(isHighlighted(lambdaAfter!)).toBe(false);
   });
 
   // --- custom endpoint -----------------------------------------------------
@@ -365,7 +365,7 @@ describe('ChooseGuardianScreen', () => {
 
     // ...then tapping a provider card exits custom mode.
     const [, gwBtn] = optionButtons(container);
-    fireEvent.click(gwBtn);
+    fireEvent.click(gwBtn!);
     expect(screen.queryByTestId('custom-input')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('continue-button'));

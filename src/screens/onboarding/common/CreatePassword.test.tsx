@@ -147,7 +147,7 @@ const renderScreen = (props: React.ComponentProps<typeof CreatePasswordScreen> =
 
   const [passwordEyeBtn, verifyEyeBtn] = screen
     .getAllByTestId('eye-icon')
-    .map(icon => icon.closest('button') as HTMLButtonElement);
+    .map(icon => icon.closest('button') as HTMLButtonElement) as [HTMLButtonElement, HTMLButtonElement];
 
   const setPassword = (v: string) => fireEvent.change(passwordInput, { target: { value: v } });
   const setVerify = (v: string) => fireEvent.change(verifyInput, { target: { value: v } });

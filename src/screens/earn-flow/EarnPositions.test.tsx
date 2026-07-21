@@ -107,7 +107,7 @@ describe('EarnPositions', () => {
     render(<EarnPositions />);
 
     const region = screen.getByRole('region', { name: 'Positions' });
-    const [firstPosition] = EARN_DATA.positions;
+    const firstPosition = EARN_DATA.positions[0]!;
 
     // "{protocol} • {asset}" — one occurrence per position (both share the copy).
     expect(within(region).getAllByText(`${firstPosition.protocol} • ${firstPosition.asset}`)).toHaveLength(
@@ -147,11 +147,11 @@ describe('EarnPositions', () => {
     const region = screen.getByRole('region', { name: 'Positions' });
     const cards = within(region).getAllByRole('button');
 
-    fireEvent.click(cards[0]);
+    fireEvent.click(cards[0]!);
 
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith(`/earn/positions/${EARN_DATA.positions[0].id}`);
+    expect(mockNavigate).toHaveBeenCalledWith(`/earn/positions/${EARN_DATA.positions[0]!.id}`);
   });
 
   it('navigates to the correct route for each distinct position id', () => {
@@ -162,7 +162,7 @@ describe('EarnPositions', () => {
 
     cards.forEach((card, index) => {
       fireEvent.click(card);
-      expect(mockNavigate).toHaveBeenNthCalledWith(index + 1, `/earn/positions/${EARN_DATA.positions[index].id}`);
+      expect(mockNavigate).toHaveBeenNthCalledWith(index + 1, `/earn/positions/${EARN_DATA.positions[index]!.id}`);
     });
 
     expect(mockHapticLight).toHaveBeenCalledTimes(EARN_DATA.positions.length);

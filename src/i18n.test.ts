@@ -95,7 +95,7 @@ describe('i18n', () => {
       const en = require('../public/_locales/en/en.json') as Record<string, unknown>;
       const [firstKey] = Object.keys(en);
       expect(typeof firstKey).toBe('string');
-      expect(i18n.getResource('en', 'translation', firstKey)).toBeDefined();
+      expect(i18n.getResource('en', 'translation', firstKey!)).toBeDefined();
     });
   });
 

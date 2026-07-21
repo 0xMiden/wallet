@@ -71,7 +71,7 @@ beforeEach(() => {
 describe('ConfirmationModal', () => {
   it('renders children, the cancel and confirm buttons with echoed copy', () => {
     render(
-      <ConfirmationModal onConfirm={jest.fn()} onRequestClose={jest.fn()}>
+      <ConfirmationModal onConfirm={jest.fn()} onRequestClose={jest.fn()} isOpen>
         <span data-testid="modal-body">Are you sure?</span>
       </ConfirmationModal>
     );
@@ -96,7 +96,7 @@ describe('ConfirmationModal', () => {
     const onConfirm = jest.fn();
 
     render(
-      <ConfirmationModal onConfirm={onConfirm} onRequestClose={onRequestClose}>
+      <ConfirmationModal onConfirm={onConfirm} onRequestClose={onRequestClose} isOpen>
         body
       </ConfirmationModal>
     );
@@ -112,7 +112,7 @@ describe('ConfirmationModal', () => {
     const onConfirm = jest.fn();
 
     render(
-      <ConfirmationModal onConfirm={onConfirm} onRequestClose={onRequestClose}>
+      <ConfirmationModal onConfirm={onConfirm} onRequestClose={onRequestClose} isOpen>
         body
       </ConfirmationModal>
     );

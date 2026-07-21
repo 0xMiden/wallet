@@ -203,7 +203,7 @@ describe('IconifiedSelect', () => {
     });
 
     it('supports numeric keys from getKey', async () => {
-      const numeric = [
+      const numeric: Fruit[] = [
         { id: '1', label: 'One' },
         { id: '2', label: 'Two' }
       ];
@@ -216,7 +216,7 @@ describe('IconifiedSelect', () => {
           OptionSelectedContent={OptionSelectedContent}
           getKey={(o: any) => Number(o.id)}
           options={numeric}
-          value={numeric[0]}
+          value={numeric[0]!}
           onChange={onChange}
           title={<div>t</div>}
         />
@@ -237,7 +237,7 @@ describe('IconifiedSelect', () => {
       const buttons = screen.getAllByRole('button');
       expect(buttons).toHaveLength(1);
 
-      const button = buttons[0];
+      const button = buttons[0]!;
       expect(button).toHaveTextContent('selicon:apple');
       expect(button).toHaveTextContent('selected-Apple');
       // dropdown falsy → cursor-default and no chevron svg.

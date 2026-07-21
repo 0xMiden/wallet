@@ -1027,7 +1027,7 @@ describe('Welcome — mobile back handler', () => {
   it('lets the system handle back on the Welcome step', async () => {
     await renderWelcome();
     expect(mockBackHandlerRef.current).not.toBeNull();
-    let result: boolean | void;
+    let result!: boolean | void;
     await act(async () => {
       result = mockBackHandlerRef.current!();
     });
@@ -1038,7 +1038,7 @@ describe('Welcome — mobile back handler', () => {
     await renderWelcome();
     await setHash('#select-import-type');
     mockNavigate.mockClear();
-    let result: boolean | void;
+    let result!: boolean | void;
     await act(async () => {
       result = mockBackHandlerRef.current!();
     });
@@ -1061,7 +1061,7 @@ describe('Welcome — mobile back handler', () => {
     expect(mockFlowProps.current.isLoading).toBe(true);
 
     mockNavigate.mockClear();
-    let result: boolean | void;
+    let result!: boolean | void;
     await act(async () => {
       result = mockBackHandlerRef.current!();
     });

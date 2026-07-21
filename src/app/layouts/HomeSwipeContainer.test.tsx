@@ -14,7 +14,7 @@ const mockNavigate = jest.fn();
 let mockPathname = '/';
 
 const mockAnimateStop = jest.fn();
-const mockAnimate = jest.fn(() => ({ stop: mockAnimateStop }));
+const mockAnimate = jest.fn((..._args: unknown[]) => ({ stop: mockAnimateStop }));
 const mockMotionSet = jest.fn();
 const mockMotionValue = { set: mockMotionSet, get: () => 0 };
 

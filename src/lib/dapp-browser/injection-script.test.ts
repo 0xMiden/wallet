@@ -80,7 +80,7 @@ function sentMessages(win: FakeWindow): NativeMessage[] {
 
 function lastMessage(win: FakeWindow): NativeMessage {
   const msgs = sentMessages(win);
-  return msgs[msgs.length - 1];
+  return msgs[msgs.length - 1]!;
 }
 
 // Deliver a native response keyed to a specific request id.
@@ -795,6 +795,6 @@ describe('signBytes', () => {
 // Local mirror of the script's u8ToB64, used only to build test inputs.
 function u8ToB64Local(u8: Uint8Array): string {
   let binary = '';
-  for (let i = 0; i < u8.length; i++) binary += String.fromCharCode(u8[i]);
+  for (let i = 0; i < u8.length; i++) binary += String.fromCharCode(u8[i]!);
   return btoa(binary);
 }

@@ -80,9 +80,9 @@ const renderHarness = (overrides: Partial<React.ComponentProps<typeof Harness>> 
   const verifyInput = screen.getByPlaceholderText('enterPasswordAgain') as HTMLInputElement;
   const continueBtn = screen.getByTestId('continue-btn') as HTMLButtonElement;
 
-  const [passwordEyeBtn, verifyEyeBtn] = screen
-    .getAllByTestId('eye-icon')
-    .map(icon => icon.closest('button') as HTMLButtonElement);
+  const eyeButtons = screen.getAllByTestId('eye-icon').map(icon => icon.closest('button') as HTMLButtonElement);
+  const passwordEyeBtn = eyeButtons[0]!;
+  const verifyEyeBtn = eyeButtons[1]!;
 
   const setName = (v: string) => fireEvent.change(nameInput, { target: { value: v } });
   const setPassword = (v: string) => fireEvent.change(passwordInput, { target: { value: v } });

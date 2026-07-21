@@ -90,8 +90,8 @@ describe('NavigationHeader', () => {
     expect(icons).toContain(IconName.ChevronLeft);
     expect(icons).toContain(IconName.Close);
 
-    fireEvent.click(buttons[0]);
-    fireEvent.click(buttons[1]);
+    fireEvent.click(buttons[0]!);
+    fireEvent.click(buttons[1]!);
     expect(onBack).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
   });

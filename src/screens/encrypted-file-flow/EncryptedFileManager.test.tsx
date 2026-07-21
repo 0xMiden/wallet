@@ -409,7 +409,7 @@ describe('mobile back handler', () => {
     mockCardStack = [{ name: EncryptedFileStep.WalletPassword }, { name: EncryptedFileStep.ExportFilePassword }];
     renderFlow();
 
-    let result: boolean | void;
+    let result!: boolean | void;
     act(() => {
       result = capturedBackHandler!();
     });
@@ -422,7 +422,7 @@ describe('mobile back handler', () => {
     mockCardStack = [{ name: EncryptedFileStep.WalletPassword }];
     renderFlow();
 
-    let result: boolean | void;
+    let result!: boolean | void;
     act(() => {
       result = capturedBackHandler!();
     });

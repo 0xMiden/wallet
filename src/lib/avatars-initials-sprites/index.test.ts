@@ -16,14 +16,14 @@ const allLevel600 = Object.keys(Color.collection).map(name => (Color.collection 
 function rectFill(svg: string): string {
   const match = /<rect width="1" height="1" fill="([^"]*)">/.exec(svg);
   if (!match) throw new Error(`no background rect found in: ${svg}`);
-  return match[1];
+  return match[1]!;
 }
 
 /** Extract the inner text of the `<text>` element. */
 function textContent(svg: string): string {
   const match = /<text[^>]*>([^<]*)<\/text>/.exec(svg);
   if (!match) throw new Error(`no <text> found in: ${svg}`);
-  return match[1];
+  return match[1]!;
 }
 
 describe('initialsSprites', () => {

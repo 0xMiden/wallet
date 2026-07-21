@@ -105,8 +105,8 @@ describe('Earn page', () => {
       .filter(button => button.textContent !== 'See All');
     expect(cards).toHaveLength(positions.length);
 
-    const first = positions[0];
-    const firstCard = cards[0];
+    const first = positions[0]!;
+    const firstCard = cards[0]!;
     // Protocol + asset are joined by a bullet in a single node.
     expect(firstCard).toHaveTextContent(`${first.protocol} • ${first.asset}`);
     expect(firstCard).toHaveTextContent(`${first.apy} APY`);
@@ -124,10 +124,10 @@ describe('Earn page', () => {
     const cards = within(positionsSection())
       .getAllByRole('button')
       .filter(button => button.textContent !== 'See All');
-    fireEvent.click(cards[0]);
+    fireEvent.click(cards[0]!);
 
     expect(mockHaptic).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith(`/earn/positions/${positions[0].id}`);
+    expect(mockNavigate).toHaveBeenCalledWith(`/earn/positions/${positions[0]!.id}`);
   });
 
   it('stops pointer-down propagation on the horizontal scroll row', () => {
@@ -149,8 +149,8 @@ describe('Earn page', () => {
     const rows = within(section).getAllByRole('button');
     expect(rows).toHaveLength(vaults.length);
 
-    const first = vaults[0];
-    const firstRow = rows[0];
+    const first = vaults[0]!;
+    const firstRow = rows[0]!;
     expect(firstRow).toHaveTextContent(first.protocol);
     expect(firstRow).toHaveTextContent(`${first.asset} on ${first.network}`);
     expect(firstRow).toHaveTextContent(first.apy);
@@ -169,9 +169,9 @@ describe('Earn page', () => {
     render(<Earn />);
 
     const rows = within(vaultsSection()).getAllByRole('button');
-    fireEvent.click(rows[0]);
+    fireEvent.click(rows[0]!);
 
     expect(mockHaptic).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith(`/earn/vaults/${vaults[0].id}`);
+    expect(mockNavigate).toHaveBeenCalledWith(`/earn/vaults/${vaults[0]!.id}`);
   });
 });

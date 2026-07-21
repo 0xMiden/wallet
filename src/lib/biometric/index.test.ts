@@ -11,6 +11,14 @@
  * sibling tests (see `src/lib/mobile/back-handler.test.ts`).
  */
 
+// Type-only import of the module-under-test. This has no runtime effect (it is
+// erased), but as a top-level `import` it marks this file as an ES module, so
+// its top-level helpers (`load`, `makePlugin`, `IOS`, …) stay file-scoped
+// instead of leaking into the global scope, where they would collide with
+// same-named helpers in sibling test files (TS2393 "Duplicate function
+// implementation").
+import type * as BiometricModule from './index';
+
 type PlatformCfg = {
   mobile: boolean;
   ios: boolean;
@@ -101,7 +109,7 @@ function load(opts: LoadOpts = {}) {
   jest.doMock('@capacitor/preferences', () => ({ Preferences: prefs }));
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const mod = require('./index') as typeof import('./index');
+  const mod = require('./index') as typeof BiometricModule;
   return { mod, platformMock, localPlugin, hardwarePlugin, nativePlugin, prefs };
 }
 

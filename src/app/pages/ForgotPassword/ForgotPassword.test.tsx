@@ -374,7 +374,7 @@ describe('ForgotPassword', () => {
   it('mobile back on a non-Welcome step: triggers the back action and consumes', async () => {
     const { container } = renderPage();
     await dispatch({ id: 'select-import-type' }); // step = SelectImportType
-    let result: boolean | void;
+    let result!: boolean | void;
     await act(async () => {
       result = captured.backHandler!();
     });

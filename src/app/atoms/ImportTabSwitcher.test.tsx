@@ -52,7 +52,7 @@ describe('ImportTabSwitcher', () => {
   it('applies the active classes to the matching tab (active branch)', () => {
     render(<ImportTabSwitcher tabs={TABS} activeTabSlug="first" urlPrefix="/import" />);
 
-    const inner = getInner(screen.getAllByTestId('tab-link')[0]);
+    const inner = getInner(screen.getAllByTestId('tab-link')[0]!);
     expect(inner).toHaveClass('border-primary-orange', 'text-primary-orange');
     expect(inner).not.toHaveClass('border-transparent');
     expect(inner).not.toHaveClass('hover:text-primary-orange');
@@ -61,7 +61,7 @@ describe('ImportTabSwitcher', () => {
   it('applies the inactive classes to non-matching tabs (inactive branch)', () => {
     render(<ImportTabSwitcher tabs={TABS} activeTabSlug="first" urlPrefix="/import" />);
 
-    const inner = getInner(screen.getAllByTestId('tab-link')[1]);
+    const inner = getInner(screen.getAllByTestId('tab-link')[1]!);
     expect(inner).toHaveClass('border-transparent', 'hover:text-primary-orange');
     expect(inner).not.toHaveClass('border-primary-orange');
     expect(inner).not.toHaveClass('text-primary-orange');
@@ -70,7 +70,7 @@ describe('ImportTabSwitcher', () => {
   it('renders shared static classes on each inner tab element', () => {
     render(<ImportTabSwitcher tabs={TABS} activeTabSlug="first" urlPrefix="/import" />);
 
-    const inner = getInner(screen.getAllByTestId('tab-link')[0]);
+    const inner = getInner(screen.getAllByTestId('tab-link')[0]!);
     expect(inner).toHaveClass('text-center', 'cursor-pointer', 'text-text-muted', 'border-b-2', 'truncate');
   });
 

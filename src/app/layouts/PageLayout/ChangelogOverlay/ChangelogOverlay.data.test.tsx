@@ -45,9 +45,9 @@ describe('ChangelogOverlay.data', () => {
 
     expect(populated).toHaveLength(2);
     expect(populated[0]).toEqual({ version: '1.0.0' });
-    expect(populated[0].data).toBeUndefined();
-    expect(populated[1].version).toBe('2.0.0');
-    expect(Array.isArray(populated[1].data)).toBe(true);
+    expect(populated[0]!.data).toBeUndefined();
+    expect(populated[1]!.version).toBe('2.0.0');
+    expect(Array.isArray(populated[1]!.data)).toBe(true);
     // The exported array itself is untouched by the spread above.
     expect(changelogData).toHaveLength(0);
   });

@@ -235,7 +235,15 @@ describe('PlainAssetInput', () => {
 
   describe('pass-through props', () => {
     it('spreads the remaining props onto the underlying input', () => {
-      render(<PlainAssetInput placeholder="0.00" className="my-input" data-testid="plain" name="amount" disabled />);
+      // placeholder / name / disabled belong to InputHTMLAttributes (the
+      // component's prop type is built from the narrower HTMLAttributes), so
+      // pass them as a typed spread — they are still forwarded via {...rest}.
+      const extraProps: Pick<React.InputHTMLAttributes<HTMLInputElement>, 'placeholder' | 'name' | 'disabled'> = {
+        placeholder: '0.00',
+        name: 'amount',
+        disabled: true
+      };
+      render(<PlainAssetInput className="my-input" data-testid="plain" {...extraProps} />);
       const input = getInput();
 
       expect(input).toHaveAttribute('placeholder', '0.00');

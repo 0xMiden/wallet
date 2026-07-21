@@ -70,7 +70,7 @@ const mockNavigate = navigate as jest.Mock;
 const RESOLVED_KEY = 'abcdef1234567890';
 const commitment = { toHex: () => `0x${RESOLVED_KEY}` };
 
-const getCopyButton = (container: HTMLElement) => container.querySelectorAll('button')[0];
+const getCopyButton = (container: HTMLElement) => container.querySelectorAll('button')[0]!;
 
 const renderWithResolvedKey = async (props?: { onClose?: () => void }) => {
   mockGetAccount.mockResolvedValue({});

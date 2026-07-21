@@ -60,7 +60,7 @@ describe('Stepper', () => {
     const blocks = getStepBlocks(container);
     expect(blocks).toHaveLength(steps.length);
     blocks.forEach((block, i) => {
-      expect(block.querySelector('p')).toHaveTextContent(steps[i]);
+      expect(block.querySelector('p')).toHaveTextContent(steps[i]!);
       // Every step always has a circle.
       expect(getCircle(block)).toBeInTheDocument();
     });
@@ -71,7 +71,7 @@ describe('Stepper', () => {
     // false → no circle-passed class and no ok-icon svg.
     const { container } = render(<Stepper style={{}} steps={['A', 'B', 'C']} currentStep={0} />);
 
-    const [first] = getStepBlocks(container);
+    const first = getStepBlocks(container)[0]!;
     const circle = getCircle(first);
     expect(circle).toHaveClass('circle', 'circle-active');
     expect(circle).not.toHaveClass('circle-passed');
@@ -82,7 +82,7 @@ describe('Stepper', () => {
     // currentStep > index → circle-passed branch true and the OkIcon renders.
     const { container } = render(<Stepper style={{}} steps={['A', 'B', 'C']} currentStep={1} />);
 
-    const [first] = getStepBlocks(container);
+    const first = getStepBlocks(container)[0]!;
     const circle = getCircle(first);
     expect(circle).toHaveClass('circle', 'circle-passed');
     // currentStep (1) !== index (0) → circle-active branch is false.
@@ -98,7 +98,7 @@ describe('Stepper', () => {
     // currentStep > index false → bare circle, no checkmark.
     const { container } = render(<Stepper style={{}} steps={['A', 'B', 'C']} currentStep={1} />);
 
-    const last = getStepBlocks(container)[2];
+    const last = getStepBlocks(container)[2]!;
     const circle = getCircle(last);
     expect(circle).toHaveClass('circle');
     expect(circle).not.toHaveClass('circle-active');
@@ -112,10 +112,10 @@ describe('Stepper', () => {
     const { container } = render(<Stepper style={{}} steps={['A', 'B', 'C']} currentStep={0} />);
 
     const blocks = getStepBlocks(container);
-    expect(getLine(blocks[0])).toBeInTheDocument();
-    expect(getLine(blocks[1])).toBeInTheDocument();
+    expect(getLine(blocks[0]!)).toBeInTheDocument();
+    expect(getLine(blocks[1]!)).toBeInTheDocument();
     // Last step: the `index !== steps.length - 1` branch is false → no line.
-    expect(getLine(blocks[2])).toBeNull();
+    expect(getLine(blocks[2]!)).toBeNull();
 
     // Total lines = steps - 1.
     expect(container.querySelectorAll('.line')).toHaveLength(blocks.length - 1);
@@ -127,9 +127,9 @@ describe('Stepper', () => {
     const { container } = render(<Stepper style={{}} steps={['A', 'B', 'C']} currentStep={1} />);
 
     const blocks = getStepBlocks(container);
-    expect(getLine(blocks[0])).toHaveClass('line', 'line-active');
-    expect(getLine(blocks[1])).toHaveClass('line');
-    expect(getLine(blocks[1])).not.toHaveClass('line-active');
+    expect(getLine(blocks[0]!)).toHaveClass('line', 'line-active');
+    expect(getLine(blocks[1]!)).toHaveClass('line');
+    expect(getLine(blocks[1]!)).not.toHaveClass('line-active');
   });
 
   it('renders an empty wrapper (no step blocks) when given no steps', () => {
@@ -149,7 +149,7 @@ describe('Stepper', () => {
     // Single-step edge: index (0) === steps.length - 1 (0) → no line at all.
     const { container } = render(<Stepper style={{}} steps={['Only']} currentStep={0} />);
 
-    const [block] = getStepBlocks(container);
+    const block = getStepBlocks(container)[0]!;
     expect(getCircle(block)).toHaveClass('circle', 'circle-active');
     expect(getLine(block)).toBeNull();
     expect(container.querySelectorAll('.line')).toHaveLength(0);

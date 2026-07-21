@@ -138,7 +138,7 @@ describe('desktop-app entry point', () => {
 
       // Backend was fetched and initialized.
       expect(mockGetDesktopIntercomAdapter).toHaveBeenCalledTimes(1);
-      const adapter = mockGetDesktopIntercomAdapter.mock.results[0].value;
+      const adapter = mockGetDesktopIntercomAdapter.mock.results[0]!.value;
       expect(adapter.init).toHaveBeenCalledTimes(1);
 
       // Rendered into the real #root container.
@@ -174,7 +174,7 @@ describe('desktop-app entry point', () => {
       await loadDesktopApp();
 
       // Backend still initialized before the container lookup.
-      const adapter = mockGetDesktopIntercomAdapter.mock.results[0].value;
+      const adapter = mockGetDesktopIntercomAdapter.mock.results[0]!.value;
       expect(adapter.init).toHaveBeenCalledTimes(1);
 
       // showError called with no error arg → the `String(error || '')` empty arm
