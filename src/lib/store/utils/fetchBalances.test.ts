@@ -12,9 +12,19 @@ const mockGetMidenClient = jest.fn(() => ({
   syncState: mockSyncState
 }));
 
+// Defaults to "lock free" — runs the op and reports it ran. A test overrides
+// this to `{ ran: false }` to exercise the WASM-busy skip path.
+const mockTryWithWasmClientLock = jest.fn(
+  async (operation: () => Promise<unknown>): Promise<{ ran: true; value: unknown } | { ran: false }> => ({
+    ran: true,
+    value: await operation()
+  })
+);
+
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
-  withWasmClientLock: async <T>(operation: () => Promise<T>): Promise<T> => operation()
+  withWasmClientLock: async <T>(operation: () => Promise<T>): Promise<T> => operation(),
+  tryWithWasmClientLock: (operation: () => Promise<unknown>) => mockTryWithWasmClientLock(operation)
 }));
 
 jest.mock('lib/miden/assets', () => ({
@@ -56,10 +66,21 @@ describe('fetchBalances', () => {
     warnSpy.mockRestore();
   });
 
+  it('returns null (skips the read) when the WASM client lock is busy', async () => {
+    // A transaction/sync holds withWasmClientLock — tryWithWasmClientLock can't
+    // acquire, so it skips without running the read op.
+    mockTryWithWasmClientLock.mockImplementationOnce(async () => ({ ran: false }));
+
+    const result = await fetchBalances('my-address', {});
+
+    expect(result).toBeNull();
+    expect(mockGetAccount).not.toHaveBeenCalled();
+  });
+
   it('returns default MIDEN balance when account not found', async () => {
     mockGetAccount.mockResolvedValueOnce(null);
 
-    const result = await fetchBalances('unknown-address', {});
+    const result = (await fetchBalances('unknown-address', {}))!;
 
     expect(result).toHaveLength(1);
     expect(result[0]).toEqual({
@@ -80,7 +101,7 @@ describe('fetchBalances', () => {
     getFaucetIdSetting.mockReturnValueOnce(undefined);
     mockGetAccount.mockResolvedValueOnce(null);
 
-    const result = await fetchBalances('unknown-address', {});
+    const result = (await fetchBalances('unknown-address', {}))!;
 
     expect(result).toEqual([]);
   });
@@ -104,7 +125,7 @@ describe('fetchBalances', () => {
       })
     });
 
-    const result = await fetchBalances('my-address', {});
+    const result = (await fetchBalances('my-address', {}))!;
 
     expect(result).toHaveLength(1);
     expect(result[0]!.tokenSlug).toBe('MIDEN');
@@ -129,7 +150,7 @@ describe('fetchBalances', () => {
       })
     });
 
-    const result = await fetchBalances('my-address', { 'bech32-other-faucet': tokenMetadata });
+    const result = (await fetchBalances('my-address', { 'bech32-other-faucet': tokenMetadata }))!;
 
     // Should NOT call fetchTokenMetadata — metadata already cached in tokenMetadatas
     expect(mockFetchTokenMetadata).not.toHaveBeenCalled();
@@ -159,7 +180,7 @@ describe('fetchBalances', () => {
     // fetchTokenMetadata will throw for unknown token — falls back to DEFAULT_TOKEN_METADATA
     mockFetchTokenMetadata.mockRejectedValueOnce(new Error('Not found'));
 
-    const result = await fetchBalances('my-address', {});
+    const result = (await fetchBalances('my-address', {}))!;
 
     // Unknown token shown with default metadata + MIDEN with 0 balance
     expect(result).toHaveLength(2);
@@ -282,7 +303,7 @@ describe('fetchBalances', () => {
     // fetchTokenMetadata throws — should not break balance loading
     mockFetchTokenMetadata.mockRejectedValueOnce(new Error('RPC error'));
 
-    const result = await fetchBalances('my-address', {}, { setAssetsMetadata: mockSetAssetsMetadata });
+    const result = (await fetchBalances('my-address', {}, { setAssetsMetadata: mockSetAssetsMetadata }))!;
 
     // Should still include the token with default metadata
     expect(mockSetAssetsMetadata).toHaveBeenCalledWith({
