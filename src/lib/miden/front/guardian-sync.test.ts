@@ -15,12 +15,14 @@ const storeState: {
   signWord: jest.Mock;
   persistNewHotKey: jest.Mock;
   swapHotKey: jest.Mock;
+  checkGuardianDrift: jest.Mock;
 } = {
   accounts: [],
   getPublicKeyForCommitment: jest.fn(),
   signWord: jest.fn(),
   persistNewHotKey: jest.fn(),
-  swapHotKey: jest.fn()
+  swapHotKey: jest.fn(),
+  checkGuardianDrift: jest.fn()
 };
 
 jest.mock('lib/store', () => ({
@@ -85,6 +87,7 @@ describe('syncGuardianAccounts', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     storeState.accounts = [];
+    storeState.checkGuardianDrift.mockResolvedValue(undefined);
   });
 
   it('is a no-op when no Guardian accounts are present', async () => {
@@ -172,5 +175,30 @@ describe('syncGuardianAccounts', () => {
     // Only the active account is synced; the legacy one is skipped, no throw.
     expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
     expect(mockGetOrCreateMultisigService).toHaveBeenCalledWith('guardian-active', zustandProvider);
+  });
+
+  it('checks guardian drift for each guardian account with a hot key', async () => {
+    storeState.accounts = [
+      { publicKey: 'pk1', type: WalletType.Guardian, hotPublicKey: 'h1' },
+      { publicKey: 'pk2', type: WalletType.OnChain }
+    ];
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+
+    await syncGuardianAccounts();
+
+    expect(storeState.checkGuardianDrift).toHaveBeenCalledWith('pk1');
+    expect(storeState.checkGuardianDrift).not.toHaveBeenCalledWith('pk2');
+  });
+
+  it('survives a rejected checkGuardianDrift call (best-effort)', async () => {
+    storeState.accounts = [{ publicKey: 'guardian-drift-fail', type: WalletType.Guardian, hotPublicKey: 'hot-1' }];
+    const sync = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+    storeState.checkGuardianDrift.mockRejectedValue(new Error('drift check failed'));
+
+    await expect(syncGuardianAccounts()).resolves.toBeUndefined();
+
+    expect(storeState.checkGuardianDrift).toHaveBeenCalledWith('guardian-drift-fail');
+    expect(sync).toHaveBeenCalledTimes(1);
   });
 });

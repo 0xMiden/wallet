@@ -69,6 +69,14 @@ export enum WalletMessageType {
   SwapHotKeyResponse = 'SWAP_HOT_KEY_RESPONSE',
   SetGuardianEndpointRequest = 'SET_GUARDIAN_ENDPOINT_REQUEST',
   SetGuardianEndpointResponse = 'SET_GUARDIAN_ENDPOINT_RESPONSE',
+  SetGuardianOperatorCommitmentRequest = 'SET_GUARDIAN_OPERATOR_COMMITMENT_REQUEST',
+  SetGuardianOperatorCommitmentResponse = 'SET_GUARDIAN_OPERATOR_COMMITMENT_RESPONSE',
+  SetGuardianSyncStatusRequest = 'SET_GUARDIAN_SYNC_STATUS_REQUEST',
+  SetGuardianSyncStatusResponse = 'SET_GUARDIAN_SYNC_STATUS_RESPONSE',
+  CheckGuardianDriftRequest = 'CHECK_GUARDIAN_DRIFT_REQUEST',
+  CheckGuardianDriftResponse = 'CHECK_GUARDIAN_DRIFT_RESPONSE',
+  ApplyUserGuardianEndpointRequest = 'APPLY_USER_GUARDIAN_ENDPOINT_REQUEST',
+  ApplyUserGuardianEndpointResponse = 'APPLY_USER_GUARDIAN_ENDPOINT_RESPONSE',
   GetPublicKeyForCommitmentRequest = 'GET_PUBLIC_KEY_FOR_COMMITMENT_REQUEST',
   GetPublicKeyForCommitmentResponse = 'GET_PUBLIC_KEY_FOR_COMMITMENT_RESPONSE',
   GetAuthSecretKeyRequest = 'GET_AUTH_SECRET_KEY_REQUEST',
@@ -337,6 +345,26 @@ export interface ReadyWalletState extends WalletState {
  */
 export type AuthScheme = 'falcon' | 'ecdsa';
 
+/**
+ * Local reconciliation state of a Guardian account's endpoint vs its on-chain
+ * guardian key. 'in-sync': stored endpoint matches on-chain. 'resolving':
+ * an out-of-band switch was detected and auto-resolution is in progress.
+ * 'needs-user-input': the new operator could not be identified (custom URL) and
+ * the user must supply it. Absent on non-Guardian accounts and legacy records.
+ */
+export type GuardianSyncStatus = 'in-sync' | 'resolving' | 'needs-user-input';
+
+/** Built-in guardian provider identity, reverse-mapped from the endpoint. */
+export type GuardianProvider = 'open-zeppelin' | 'gateway' | 'lambda-class' | 'custom';
+
+/** dApp-facing guardian info for the connected account. */
+export interface GuardianInfo {
+  isGuardianAccount: boolean;
+  guardianEndpoint: string | null;
+  guardianProvider: GuardianProvider | null;
+  guardianSyncStatus: 'in-sync' | 'out-of-sync' | null;
+}
+
 export interface WalletAccount {
   publicKey: string;
   name: string;
@@ -362,6 +390,15 @@ export interface WalletAccount {
    * Non-Guardian accounts leave this undefined.
    */
   guardianEndpoint?: string;
+  /**
+   * The operator-wide guardian key commitment the current `guardianEndpoint`
+   * corresponds to (the value baked into the account's on-chain
+   * `openzeppelin::guardian::public_key` slot at create/switch time). Local
+   * baseline for out-of-band-switch detection. Absent on non-Guardian accounts.
+   */
+  guardianOperatorCommitment?: string;
+  /** Reconciliation state; see GuardianSyncStatus. Defaults to 'in-sync'. */
+  guardianSyncStatus?: GuardianSyncStatus;
   /**
    * Auth scheme this account was created with. See {@link AuthScheme} for
    * the missing-on-read → `"falcon"` legacy interpretation.
@@ -642,6 +679,47 @@ export interface SetGuardianEndpointResponse extends WalletMessageBase {
   type: WalletMessageType.SetGuardianEndpointResponse;
 }
 
+export interface SetGuardianOperatorCommitmentRequest extends WalletMessageBase {
+  type: WalletMessageType.SetGuardianOperatorCommitmentRequest;
+  accountPublicKey: string;
+  guardianOperatorCommitment: string;
+}
+
+export interface SetGuardianOperatorCommitmentResponse extends WalletMessageBase {
+  type: WalletMessageType.SetGuardianOperatorCommitmentResponse;
+}
+
+export interface SetGuardianSyncStatusRequest extends WalletMessageBase {
+  type: WalletMessageType.SetGuardianSyncStatusRequest;
+  accountPublicKey: string;
+  guardianSyncStatus: GuardianSyncStatus;
+}
+
+export interface SetGuardianSyncStatusResponse extends WalletMessageBase {
+  type: WalletMessageType.SetGuardianSyncStatusResponse;
+}
+
+export interface CheckGuardianDriftRequest extends WalletMessageBase {
+  type: WalletMessageType.CheckGuardianDriftRequest;
+  accountPublicKey: string;
+}
+
+export interface CheckGuardianDriftResponse extends WalletMessageBase {
+  type: WalletMessageType.CheckGuardianDriftResponse;
+  guardianSyncStatus: GuardianSyncStatus;
+}
+
+export interface ApplyUserGuardianEndpointRequest extends WalletMessageBase {
+  type: WalletMessageType.ApplyUserGuardianEndpointRequest;
+  accountPublicKey: string;
+  guardianEndpoint: string;
+}
+
+export interface ApplyUserGuardianEndpointResponse extends WalletMessageBase {
+  type: WalletMessageType.ApplyUserGuardianEndpointResponse;
+  applied: boolean;
+}
+
 export interface GetPublicKeyForCommitmentRequest extends WalletMessageBase {
   type: WalletMessageType.GetPublicKeyForCommitmentRequest;
   commitment: string;
@@ -857,6 +935,10 @@ export type WalletRequest =
   | PersistNewHotKeyRequest
   | SwapHotKeyRequest
   | SetGuardianEndpointRequest
+  | SetGuardianOperatorCommitmentRequest
+  | SetGuardianSyncStatusRequest
+  | CheckGuardianDriftRequest
+  | ApplyUserGuardianEndpointRequest
   | GetPublicKeyForCommitmentRequest
   | GetAuthSecretKeyRequest
   | PageRequest
@@ -914,6 +996,10 @@ export type WalletResponse =
   | PersistNewHotKeyResponse
   | SwapHotKeyResponse
   | SetGuardianEndpointResponse
+  | SetGuardianOperatorCommitmentResponse
+  | SetGuardianSyncStatusResponse
+  | CheckGuardianDriftResponse
+  | ApplyUserGuardianEndpointResponse
   | GetPublicKeyForCommitmentResponse
   | GetAuthSecretKeyResponse
   | PageResponse

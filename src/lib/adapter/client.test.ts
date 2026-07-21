@@ -27,6 +27,7 @@ import {
   requestConsumableNotes,
   requestConsume,
   requestDisconnect,
+  requestGuardianInfo,
   requestPermission,
   requestPrivateNotes,
   requestSend,
@@ -255,6 +256,26 @@ describe('request-based functions', () => {
     const p = requestAssets('pk-6');
     deliverPageResponse({ type: MidenDAppMessageType.AssetsResponse, assets });
     await expect(p).resolves.toBe(assets);
+  });
+
+  it('requestGuardianInfo posts a request and returns the guardian info', async () => {
+    const guardianInfo = {
+      isGuardianAccount: true,
+      guardianEndpoint: 'https://g',
+      guardianProvider: 'gateway',
+      guardianSyncStatus: 'in-sync'
+    };
+    const p = requestGuardianInfo('pk-9');
+    expect(postSpy).toHaveBeenCalledWith(
+      {
+        type: MidenPageMessageType.Request,
+        payload: { type: MidenDAppMessageType.GuardianInfoRequest, sourcePublicKey: 'pk-9' },
+        reqId: 'id'
+      },
+      ORIGIN
+    );
+    deliverPageResponse({ type: MidenDAppMessageType.GuardianInfoResponse, guardianInfo });
+    await expect(p).resolves.toBe(guardianInfo);
   });
 
   it('importPrivateNote returns the note id', async () => {

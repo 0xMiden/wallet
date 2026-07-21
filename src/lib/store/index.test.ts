@@ -477,6 +477,93 @@ describe('useWalletStore', () => {
       const { getPublicKeyForCommitment } = useWalletStore.getState();
       await expect(getPublicKeyForCommitment('x')).rejects.toThrow('Invalid response');
     });
+
+    it('setGuardianOperatorCommitment posts a SetGuardianOperatorCommitmentRequest', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SetGuardianOperatorCommitmentResponse });
+
+      const { setGuardianOperatorCommitment } = useWalletStore.getState();
+      await setGuardianOperatorCommitment('pub-key', 'commitment-hex');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.SetGuardianOperatorCommitmentRequest,
+        accountPublicKey: 'pub-key',
+        guardianOperatorCommitment: 'commitment-hex'
+      });
+    });
+
+    it('setGuardianOperatorCommitment throws on a type-mismatched response', async () => {
+      mockRequest.mockResolvedValueOnce({ type: 'WrongType' });
+
+      const { setGuardianOperatorCommitment } = useWalletStore.getState();
+      await expect(setGuardianOperatorCommitment('pk', 'commitment-hex')).rejects.toThrow('Invalid response');
+    });
+
+    it('setGuardianSyncStatus posts a SetGuardianSyncStatusRequest', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SetGuardianSyncStatusResponse });
+
+      const { setGuardianSyncStatus } = useWalletStore.getState();
+      await setGuardianSyncStatus('pub-key', 'needs-user-input');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.SetGuardianSyncStatusRequest,
+        accountPublicKey: 'pub-key',
+        guardianSyncStatus: 'needs-user-input'
+      });
+    });
+
+    it('setGuardianSyncStatus throws on a type-mismatched response', async () => {
+      mockRequest.mockResolvedValueOnce({ type: 'WrongType' });
+
+      const { setGuardianSyncStatus } = useWalletStore.getState();
+      await expect(setGuardianSyncStatus('pk', 'needs-user-input')).rejects.toThrow('Invalid response');
+    });
+
+    it('checkGuardianDrift posts a CheckGuardianDriftRequest and returns the resolved status', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.CheckGuardianDriftResponse,
+        guardianSyncStatus: 'needs-user-input'
+      });
+
+      const { checkGuardianDrift } = useWalletStore.getState();
+      const status = await checkGuardianDrift('pub-key');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.CheckGuardianDriftRequest,
+        accountPublicKey: 'pub-key'
+      });
+      expect(status).toBe('needs-user-input');
+    });
+
+    it('checkGuardianDrift throws on a type-mismatched response', async () => {
+      mockRequest.mockResolvedValueOnce({ type: 'WrongType' });
+
+      const { checkGuardianDrift } = useWalletStore.getState();
+      await expect(checkGuardianDrift('pk')).rejects.toThrow('Invalid response');
+    });
+
+    it('applyUserGuardianEndpoint posts an ApplyUserGuardianEndpointRequest and returns whether it applied', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.ApplyUserGuardianEndpointResponse,
+        applied: true
+      });
+
+      const { applyUserGuardianEndpoint } = useWalletStore.getState();
+      const applied = await applyUserGuardianEndpoint('pub-key', 'https://mine');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.ApplyUserGuardianEndpointRequest,
+        accountPublicKey: 'pub-key',
+        guardianEndpoint: 'https://mine'
+      });
+      expect(applied).toBe(true);
+    });
+
+    it('applyUserGuardianEndpoint throws on a type-mismatched response', async () => {
+      mockRequest.mockResolvedValueOnce({ type: 'WrongType' });
+
+      const { applyUserGuardianEndpoint } = useWalletStore.getState();
+      await expect(applyUserGuardianEndpoint('pk', 'https://mine')).rejects.toThrow('Invalid response');
+    });
   });
 
   describe('Asset actions', () => {

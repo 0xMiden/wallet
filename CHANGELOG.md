@@ -2,6 +2,9 @@
 
 ## 1.15.9 (TBD)
 
+### Features
+
+* [FEATURE][all] **Guardian accounts now auto-detect and reconcile out-of-band guardian switches; dApps can read guardian info via `requestGuardianInfo()`.**
 ### Changes
 
 * [CHANGE][mobile] **The in-app swap is disabled on iOS.** Apple App Review classifies the In-Protocol DEX swap as a cryptocurrency exchange service under Guideline 3.1.5(iii), which requires per-storefront licensing the app does not yet hold, so the iOS build ships as a pure non-custodial wallet with no exchange surface. Swap availability is now gated by a single `isSwapEnabled()` flag (`!isIOS()`) applied to the Swap action-bar segment, the home swipe pane, and the `/swap` route (which redirects home on iOS); Android, the browser extension, and desktop are unaffected.

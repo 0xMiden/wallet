@@ -291,6 +291,14 @@ export const INJECTION_SCRIPT = `
       });
       return { consumableNotes: res.consumableNotes };
     }
+
+    async requestGuardianInfo() {
+      const res = await request({
+        type: 'GUARDIAN_INFO_REQUEST',
+        sourcePublicKey: this.address
+      });
+      return { guardianInfo: res.guardianInfo };
+    }
   }
 
   // Create and expose the wallet instance

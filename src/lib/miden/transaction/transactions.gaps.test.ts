@@ -716,7 +716,11 @@ describe('generateTransaction execute + consume default switch arms', () => {
       }
     });
     try {
-      await generateTransaction(txStore[0] as any, jest.fn(), false, {} as any);
+      // A real GuardianAccountProvider always implements getAccounts (the
+      // sync-status gate in generateGuardianTransaction reads it); `{}` would
+      // throw before reaching the branch under test here.
+      const provider = { getAccounts: async () => [{ publicKey: 'guardian-acc' }] };
+      await generateTransaction(txStore[0] as any, jest.fn(), false, provider as any);
       // Reaching here without throwing means the `case 'consume': ... break;`
       // arm at lines 911-913 in the outer switch ran.
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);

@@ -1833,6 +1833,18 @@
     "message": "Згенеруйте ключ пристрою для цього відновленого облікового запису. Обов'язково перед відправкою.",
     "englishSource": "Generate a device key for this recovered account. Required before sending."
   },
+  "guardianChangedTitle": {
+    "message": "Опікун змінився",
+    "englishSource": "Guardian changed"
+  },
+  "guardianChangedBody": {
+    "message": "Вашого опікуна змінили, і ми не змогли ідентифікувати нового оператора. Введіть URL-адресу, щоб повторно підключитися.",
+    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlMismatch": {
+    "message": "Цей оператор не відповідає опікуну вашого облікового запису в мережі.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "revealHotKey": {
     "message": "Розкрити ключ пристрою",
     "englishSource": "Reveal device key"

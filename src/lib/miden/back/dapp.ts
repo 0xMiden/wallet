@@ -16,6 +16,8 @@ import {
   MidenDAppDisconnectResponse,
   MidenDAppErrorType,
   MidenDAppGetCurrentPermissionResponse,
+  MidenDAppGuardianInfoRequest,
+  MidenDAppGuardianInfoResponse,
   MidenDAppMessageType,
   MidenDAppPermissionRequest,
   MidenDAppPermissionResponse,
@@ -42,6 +44,7 @@ import { dappConfirmationStore } from 'lib/dapp-browser/confirmation-store';
 import { formatBigInt } from 'lib/i18n/numbers';
 import { intercom } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
+import { guardianProviderFromEndpoint, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { NETWORKS } from 'lib/miden/networks';
@@ -57,7 +60,8 @@ import { getNetworkId } from 'lib/miden-chain/constants';
 import { isDesktop, isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
-import { WalletStatus } from 'lib/shared/types';
+import { GuardianInfo, WalletStatus } from 'lib/shared/types';
+import { WalletType } from 'screens/onboarding/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
 import { queueNoteImport } from '../activity';
@@ -822,6 +826,54 @@ async function getAssets(accountId: string): Promise<Asset[]> {
   } catch (e) {
     throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
   }
+}
+
+// Direct-return handler (mirrors getCurrentPermission) — guardian info is
+// non-sensitive, so it skips the requestConfirm popup that gated Assets.
+export async function requestGuardianInfo(
+  origin: string,
+  req: MidenDAppGuardianInfoRequest
+): Promise<MidenDAppGuardianInfoResponse> {
+  if (!req?.sourcePublicKey) {
+    throw new Error(MidenDAppErrorType.InvalidParams);
+  }
+
+  const dApp = await getDApp(origin, req.sourcePublicKey);
+  if (!dApp) {
+    throw new Error(MidenDAppErrorType.NotGranted);
+  }
+
+  const guardianInfo = await getGuardianInfoData(dApp.accountId);
+  return {
+    type: MidenDAppMessageType.GuardianInfoResponse,
+    guardianInfo
+  };
+}
+
+const NOT_GUARDIAN_INFO: GuardianInfo = {
+  isGuardianAccount: false,
+  guardianEndpoint: null,
+  guardianProvider: null,
+  guardianSyncStatus: null
+};
+
+async function getGuardianInfoData(accountId: string): Promise<GuardianInfo> {
+  return withUnlocked(async ({ vault }) => {
+    const accounts = await vault.fetchAccounts();
+    const account = accounts.find(acc => acc.publicKey === accountId);
+    if (!account || account.type !== WalletType.Guardian) {
+      return NOT_GUARDIAN_INFO;
+    }
+
+    const guardianEndpoint = await resolveGuardianEndpoint(account);
+    const status = account.guardianSyncStatus ?? 'in-sync';
+    return {
+      isGuardianAccount: true,
+      guardianEndpoint: guardianEndpoint || null,
+      guardianProvider: guardianProviderFromEndpoint(guardianEndpoint || null),
+      guardianSyncStatus: status === 'in-sync' ? 'in-sync' : 'out-of-sync'
+    };
+  });
 }
 
 export async function requestImportPrivateNote(
