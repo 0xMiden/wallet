@@ -47,7 +47,7 @@ it('stays in-sync when on-chain commitment equals the stored baseline', async ()
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('abc');
   const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'abc' });
 
-  expect(await resolveGuardianDrift(vault as never, 'pk')).toBe('in-sync');
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: false });
 
   expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
   expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
@@ -59,7 +59,7 @@ it('stays in-sync (case/prefix-insensitive) when the baseline matches modulo 0x-
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('0xABC123');
   const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'abc123' });
 
-  expect(await resolveGuardianDrift(vault as never, 'pk')).toBe('in-sync');
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: false });
 
   expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
 });
@@ -69,7 +69,7 @@ it('auto-resolves to the matching built-in operator on drift', async () => {
   (identifyGuardianOperator as jest.Mock).mockResolvedValue({ id: 'gateway', endpoint: 'https://g' });
   const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC' });
 
-  expect(await resolveGuardianDrift(vault as never, 'pk')).toBe('in-sync');
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
 
   expect(vault.setGuardianSyncStatus).toHaveBeenNthCalledWith(1, 'pk', 'resolving');
   expect(vault.setGuardianEndpoint).toHaveBeenCalledWith('pk', 'https://g');
@@ -83,7 +83,7 @@ it('writes the commitment baseline LAST — after status is finalized to in-sync
   const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC' });
   const order = trackWriteOrder(vault);
 
-  expect(await resolveGuardianDrift(vault as never, 'pk')).toBe('in-sync');
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
 
   expect(order).toEqual(['status:resolving', 'endpoint', 'status:in-sync', 'commitment']);
 });
@@ -92,7 +92,7 @@ it('self-heals a stranded account (commitment already advanced to on-chain, but 
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('abc');
   const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'abc', guardianSyncStatus: 'resolving' });
 
-  expect(await resolveGuardianDrift(vault as never, 'pk')).toBe('in-sync');
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
 
   expect(vault.setGuardianSyncStatus).toHaveBeenCalledTimes(1);
   expect(vault.setGuardianSyncStatus).toHaveBeenCalledWith('pk', 'in-sync');
@@ -105,7 +105,7 @@ it('does not write anything when the baseline matches on-chain and status is alr
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('abc');
   const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'abc', guardianSyncStatus: 'in-sync' });
 
-  expect(await resolveGuardianDrift(vault as never, 'pk')).toBe('in-sync');
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: false });
 
   expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
   expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
@@ -117,7 +117,7 @@ it('auto-resolves on first-ever check, when no baseline commitment is stored yet
   (identifyGuardianOperator as jest.Mock).mockResolvedValue({ id: 'gateway', endpoint: 'https://g' });
   const vault = makeVault({ publicKey: 'pk' });
 
-  expect(await resolveGuardianDrift(vault as never, 'pk')).toBe('in-sync');
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
 
   expect(vault.setGuardianEndpoint).toHaveBeenCalledWith('pk', 'https://g');
   expect(vault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk', 'newC');
@@ -129,7 +129,7 @@ it('flags needs-user-input when no built-in operator matches', async () => {
   (identifyGuardianOperator as jest.Mock).mockResolvedValue(undefined);
   const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC' });
 
-  expect(await resolveGuardianDrift(vault as never, 'pk')).toBe('needs-user-input');
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'needs-user-input', changed: true });
 
   expect(vault.setGuardianSyncStatus).toHaveBeenNthCalledWith(1, 'pk', 'resolving');
   expect(vault.setGuardianSyncStatus).toHaveBeenLastCalledWith('pk', 'needs-user-input');
@@ -140,7 +140,7 @@ it('flags needs-user-input when no built-in operator matches', async () => {
 it('returns in-sync without any reads or writes when the account is not in the vault', async () => {
   const vault = makeVault(undefined);
 
-  expect(await resolveGuardianDrift(vault as never, 'missing-pk')).toBe('in-sync');
+  expect(await resolveGuardianDrift(vault as never, 'missing-pk')).toEqual({ status: 'in-sync', changed: false });
 
   expect(getMidenClient).not.toHaveBeenCalled();
   expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
@@ -150,7 +150,7 @@ it('returns in-sync without writes when the account has no on-chain SDK record',
   (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: jest.fn(async () => undefined) });
   const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'abc' });
 
-  expect(await resolveGuardianDrift(vault as never, 'pk')).toBe('in-sync');
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: false });
 
   expect(getGuardianCommitmentFromAccount).not.toHaveBeenCalled();
   expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
@@ -160,7 +160,7 @@ it('returns in-sync without writes when the on-chain account has no guardian com
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue(undefined);
   const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'abc' });
 
-  expect(await resolveGuardianDrift(vault as never, 'pk')).toBe('in-sync');
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: false });
 
   expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
 });

@@ -34,27 +34,33 @@ interface GuardianDriftVault {
  * leaving the account stuck at `'resolving'` with no banner and no recovery
  * path (see the self-heal branch above).
  *
- * Returns the resulting sync status. The WASM account read is lock-guarded;
- * the built-in-operator HTTP probe runs outside the lock.
+ * Returns the resulting sync status plus `changed`: whether this call wrote
+ * anything to the vault. Callers (e.g. the periodic guardian-sync loop) use
+ * `changed` to skip re-fetching/broadcasting account state on the common
+ * no-op tick, instead of doing that work unconditionally on every call.
+ *
+ * The WASM account read is lock-guarded; the built-in-operator HTTP probe
+ * runs outside the lock.
  */
 export async function resolveGuardianDrift(
   vault: GuardianDriftVault,
   accountPublicKey: string
-): Promise<GuardianSyncStatus> {
+): Promise<{ status: GuardianSyncStatus; changed: boolean }> {
   const account = await vault.getAccount(accountPublicKey);
-  if (!account) return 'in-sync';
+  if (!account) return { status: 'in-sync', changed: false };
 
   const onChain = await withWasmClientLock(async () => {
     const sdkAccount = await (await getMidenClient()).getAccount(accountPublicKey);
     return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
   });
-  if (!onChain) return 'in-sync';
+  if (!onChain) return { status: 'in-sync', changed: false };
 
   if (account.guardianOperatorCommitment && normalizedEqual(onChain, account.guardianOperatorCommitment)) {
     if (account.guardianSyncStatus && account.guardianSyncStatus !== 'in-sync') {
       await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
+      return { status: 'in-sync', changed: true };
     }
-    return 'in-sync';
+    return { status: 'in-sync', changed: false };
   }
 
   await vault.setGuardianSyncStatus(accountPublicKey, 'resolving');
@@ -63,11 +69,11 @@ export async function resolveGuardianDrift(
     await vault.setGuardianEndpoint(accountPublicKey, operator.endpoint);
     await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
     await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
-    return 'in-sync';
+    return { status: 'in-sync', changed: true };
   }
 
   await vault.setGuardianSyncStatus(accountPublicKey, 'needs-user-input');
-  return 'needs-user-input';
+  return { status: 'needs-user-input', changed: true };
 }
 
 /**

@@ -364,11 +364,14 @@ export function setGuardianSyncStatus(accountPublicKey: string, guardianSyncStat
  * setters directly (not through the `setGuardian*` actions above), so this
  * wrapper re-reads the current account state afterward and broadcasts it —
  * same reason `setGuardianEndpoint` broadcasts: without it the popup's
- * Zustand snapshot keeps the stale endpoint/commitment/status.
+ * Zustand snapshot keeps the stale endpoint/commitment/status. Only does so
+ * when `resolveGuardianDrift` reports `changed: true` — the periodic
+ * guardian-sync loop calls this every 3s per guardian account, and on the
+ * common no-op tick (nothing drifted) there's nothing new to broadcast.
  */
 export function checkGuardianDrift(accountPublicKey: string) {
   return withUnlocked(async ({ vault }) => {
-    const guardianSyncStatus = await resolveGuardianDrift(
+    const { status, changed } = await resolveGuardianDrift(
       {
         getAccount: async pk => (await vault.fetchAccounts()).find(acc => acc.publicKey === pk),
         setGuardianEndpoint: (pk, endpoint) => vault.setGuardianEndpoint(pk, endpoint),
@@ -377,10 +380,12 @@ export function checkGuardianDrift(accountPublicKey: string) {
       },
       accountPublicKey
     );
-    const accounts = await vault.fetchAccounts();
-    const currentAccount = await vault.getCurrentAccount();
-    accountsUpdated({ accounts, currentAccount });
-    return guardianSyncStatus;
+    if (changed) {
+      const accounts = await vault.fetchAccounts();
+      const currentAccount = await vault.getCurrentAccount();
+      accountsUpdated({ accounts, currentAccount });
+    }
+    return status;
   });
 }
 
