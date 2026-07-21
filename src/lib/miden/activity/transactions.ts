@@ -10,6 +10,7 @@ import {
 } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import { withGuardianAccountLock, withGuardianConflictRetry } from 'lib/miden/guardian/serialize';
+import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { isExtension, isMobile } from 'lib/platform';
 import { u8ToB64 } from 'lib/shared/helpers';
@@ -1244,6 +1245,21 @@ const generateGuardianTransaction = async (
   guardianProvider: GuardianAccountProvider
 ): Promise<void> => {
   console.log('Generating Guardian transaction');
+
+  // Gate ordinary guardian-signed ops while the stored endpoint is untrustworthy.
+  // 'switch-guardian' is exempt: it's the deliberate, user-initiated provider
+  // change (GuardianSettings) and must stay available as a manual recovery path.
+  // The primary recovery mechanisms — resolveGuardianDrift's auto-resolution and
+  // applyUserGuardianEndpoint's verified-URL apply — reconcile the vault directly
+  // and never route through this function, so exempting switch-guardian here only
+  // affects the deliberate Settings-driven switch flow, not account recovery.
+  if (transaction.type !== 'switch-guardian') {
+    const walletAccount = (await guardianProvider.getAccounts()).find(a => a.publicKey === transaction.accountId);
+    if (walletAccount) {
+      assertGuardianInSync(walletAccount);
+    }
+  }
+
   const stepTimer = createTransactionStepTimer(transaction.id);
   // Set the stage eagerly — `getOrCreateMultisigService` and the subsequent
   // `createXxxProposal` call can both hit the guardian over the network,
