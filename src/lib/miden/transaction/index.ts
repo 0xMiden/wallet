@@ -1,4 +1,4 @@
-import { NoteType, TransactionProver, type TransactionResult, WasmWebClient } from '@miden-sdk/miden-sdk/lazy';
+import { NoteType, TransactionProver, WasmWebClient } from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 
 import {
@@ -84,48 +84,21 @@ export const generateTransaction = async (
   _useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
-  // DIAGNOSTIC tracing for the iOS send-tx pre-sync hang. Mirrors the
-  // recordProveTiming pattern in miden-client-interface.ts. Remove when
-  // the hang is understood and fixed.
-  const dtag = (msg: string) => {
-    const line = `[prove-timing] [generateTransaction:${transaction.type}:${transaction.id}] ${msg}`;
-    // eslint-disable-next-line no-console
-    console.log(line);
-    try {
-      const g = globalThis as unknown as { __PROVE_TIMINGS__?: string[] };
-      if (!g.__PROVE_TIMINGS__) g.__PROVE_TIMINGS__ = [];
-      g.__PROVE_TIMINGS__.push(`${Date.now()}|${line}`);
-    } catch {
-      // ignore
-    }
-  };
-  dtag('entered');
   // Sync state first to ensure we have latest account state
   // Separate lock acquisition to avoid holding lock during network call
   // If sync fails (e.g. network down), the error propagates to generateTransactionsLoop's
   // catch block which cancels the transaction — this is intentional fail-fast behavior,
   // since the transaction can't be submitted without network anyway
   await setTransactionStage(transaction.id, 'syncing');
-  dtag('about to acquire withWasmClientLock for syncState');
   await withWasmClientLock(async () => {
-    dtag('acquired lock for syncState; calling getMidenClient');
     const midenClient = await getMidenClient();
-    dtag('got midenClient; calling syncState');
-    const _t = performance.now();
     await midenClient.syncState();
-    dtag(`syncState returned in ${(performance.now() - _t).toFixed(0)}ms`);
   });
-  dtag('released syncState lock');
 
   // Mark transaction as in progress
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Math.floor(Date.now() / 1000), // seconds
     stage: 'sending'
-  });
-  console.log('Generating transaction', {
-    txId: transaction.id,
-    type: transaction.type,
-    accountId: transaction.accountId
   });
 
   // Route Guardian accounts through Guardian service
@@ -201,9 +174,7 @@ export const generateTransaction = async (
   };
 
   // MidenClient handles the full pipeline (execute → prove → submit → apply)
-  dtag('about to acquire withWasmClientLock for tx dispatch');
   const result = await withWasmClientLock(async () => {
-    dtag('acquired tx lock; calling midenClient dispatch');
     const midenClient = await getMidenClient(options);
     switch (transaction.type) {
       case 'send':
@@ -232,7 +203,6 @@ export const generateTransaction = async (
         );
     }
   });
-  dtag('tx dispatch completed');
 
   switch (transaction.type) {
     case 'send':
@@ -307,7 +277,6 @@ const generateGuardianTransaction = async (
   // so surfacing "Creating proposal" immediately is more honest than
   // leaving the label stuck on "Sending transaction".
   await setTransactionStage(transaction.id, 'creating-proposal');
-  console.log('setted the transaction stage to create-proposal');
   let proposalResult: Proposal;
   // The service that creates the proposal AND issues the final
   // signAndCreateTransactionRequest. Hot-bound for routine ops; cold-bound for
@@ -504,10 +473,8 @@ const generateGuardianTransaction = async (
   }
 
   const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
-  console.log('Created transaction request from proposal, submitting to Miden client');
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-      console.log('Signing transaction request with external callback');
       const keyString = Buffer.from(publicKey).toString('hex');
       const signingInputsString = Buffer.from(signingInputs).toString('hex');
       return await signCallback(keyString, signingInputsString);
@@ -515,30 +482,19 @@ const generateGuardianTransaction = async (
   };
 
   await setTransactionStage(transaction.id, 'sending');
-  const transactionResult = await withWasmClientLock(async () => {
+  const { id, result } = await withWasmClientLock(async () => {
     try {
       const midenClient = await getMidenClient(options);
-      const sdkClient = midenClient.client as unknown as {
-        _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
-      };
-      const withInner = sdkClient._withInnerWebClient;
-      if (typeof withInner !== 'function') {
-        throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
-      }
-
-      return (await withInner.call(sdkClient, async (inner: any) => {
-        await setTransactionStage(transaction.id, 'executing');
-        const executedTx = await inner.executeTransaction(accountIdStringToSdk(transaction.accountId), tr);
-        await setTransactionStage(transaction.id, 'proving');
-        const prover = !transaction.delegateTransaction ? TransactionProver.newLocalProver() : undefined;
-        const provedTx = prover
-          ? await inner.proveTransaction(executedTx, prover)
-          : await inner.proveTransaction(executedTx);
-        await setTransactionStage(transaction.id, 'submitting');
-        const blockNumber = await inner.submitProvenTransaction(provedTx, executedTx);
-        await inner.applyTransaction(executedTx, blockNumber);
-        return executedTx;
-      })) as TransactionResult;
+      await setTransactionStage(transaction.id, 'executing');
+      const executedTx = await midenClient.client.transactions.executeRequest(transaction.accountId, tr);
+      await setTransactionStage(transaction.id, 'proving');
+      const provenTx = await executedTx.prove({
+        prover: !transaction.delegateTransaction ? TransactionProver.newLocalProver() : undefined
+      });
+      await setTransactionStage(transaction.id, 'submitting');
+      const submittedTx = await provenTx.submit();
+      await submittedTx.apply();
+      return executedTx;
     } catch (error) {
       console.error('Error during transaction submission or execution', { error });
       throw error;
@@ -564,7 +520,7 @@ const generateGuardianTransaction = async (
     await setTransactionStage(transaction.id, 'confirming');
     await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
-      await midenClient.waitForTransactionCommit(transactionResult.executedTransaction().id().toHex());
+      await midenClient.waitForTransactionCommit(id.toHex());
     });
   }
 
@@ -599,45 +555,43 @@ const generateGuardianTransaction = async (
 
   switch (transaction.type) {
     case 'send':
-      await completeSendTransaction(transaction as SendTransaction, transactionResult);
+      await completeSendTransaction(transaction as SendTransaction, result);
       break;
     case 'consume':
-      await completeConsumeTransaction(transaction.id, transactionResult);
+      await completeConsumeTransaction(transaction.id, result);
       break;
     case 'switch-guardian':
       await completeSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
-        transactionResult,
+        result,
         service,
         guardianProvider
       );
       break;
     case 'replace-hot-key':
-      console.log('Completing replace-hot-key transaction');
       await completeReplaceHotKeyTransaction(
         transaction as ReplaceHotKeyTransaction,
-        transactionResult,
+        result,
         guardianProvider,
         service
       );
       break;
     case 'update-procedure-threshold':
-      console.log('Completing update-procedure-threshold transaction');
       await completeUpdateProcedureThresholdTransaction(
         transaction as UpdateProcedureThresholdTransaction,
-        transactionResult,
+        result,
         service
       );
       break;
     case 'swap':
-      await completeSwapTransaction(transaction as SwapTransaction, transactionResult);
+      await completeSwapTransaction(transaction as SwapTransaction, result);
       break;
     case 'bridged-send':
-      await completeBridgedSendTransaction(transaction as BridgedSendTransaction, transactionResult);
+      await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
       break;
     case 'execute':
     default:
-      await completeCustomTransaction(transaction, transactionResult);
+      await completeCustomTransaction(transaction, result);
       break;
   }
 
