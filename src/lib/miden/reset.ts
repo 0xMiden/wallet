@@ -7,6 +7,18 @@ async function clearPlatformKeyValueStorage(): Promise<void> {
     // On mobile, use native Capacitor Preferences.clear()
     const { Preferences } = await import('@capacitor/preferences');
     await Preferences.clear();
+    // Also delete the Secure Enclave hardware key. It lives in the iOS Keychain,
+    // NOT in Preferences, so Preferences.clear() leaves it behind. Without this a
+    // "Reset Wallet" can't recover from an orphaned/unusable hardware key: the next
+    // onboarding sees `hasHardwareKey() === true` and reuses the stale key, so the
+    // biometric-unlock dead-end survives the only escape button. Best-effort — the
+    // key may not exist, and non-iOS mobile platforms may not implement it.
+    try {
+      const { deleteHardwareKey } = await import('lib/biometric');
+      await deleteHardwareKey();
+    } catch {
+      // no hardware key / not supported on this platform — nothing to clean up
+    }
   } else if (isDesktop()) {
     // On desktop, use localStorage
     localStorage.clear();

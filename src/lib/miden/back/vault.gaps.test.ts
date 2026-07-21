@@ -452,7 +452,8 @@ describe('Vault hardware-backed unlock + reveal', () => {
             return encrypted.slice(4, -1);
           }
           return storedHardwareB64 ?? '';
-        })
+        }),
+        deleteHardwareKey: jest.fn(async () => {})
       }),
       { virtual: true }
     );
@@ -509,5 +510,72 @@ describe('Vault hardware-backed unlock + reveal', () => {
         { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
       ])
     ).rejects.toThrow(PublicError);
+  });
+
+  it(
+    'deletes the orphaned hardware key when encryptWithHardwareKey throws AFTER a fresh key was generated ' +
+      'this call (hasHardwareKey() was false)',
+    async () => {
+      (isMobile as jest.Mock).mockReturnValue(true);
+      (isDesktop as jest.Mock).mockReturnValue(false);
+      // Default mock: hasHardwareKey() resolves false, so setupHardwareProtector's
+      // mobile branch calls generateHardwareKey() and sets generatedKeyThisCall = true
+      // before the encrypt step throws below.
+      const biometric = require('lib/biometric');
+      biometric.encryptWithHardwareKey.mockRejectedValueOnce(new Error('user cancelled auth prompt'));
+
+      await expect(
+        Vault.spawnFromMidenClient('', VALID_MNEMONIC, [
+          { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
+        ])
+      ).rejects.toThrow(PublicError);
+
+      expect(biometric.generateHardwareKey).toHaveBeenCalled();
+      // The key WE just generated is orphaned (no vault blob was saved) — it
+      // must be cleaned up so the next attempt doesn't dead-end on a stale key.
+      expect(biometric.deleteHardwareKey).toHaveBeenCalled();
+    }
+  );
+
+  it('does NOT delete the hardware key when it already existed before this call (hasHardwareKey() was true)', async () => {
+    (isMobile as jest.Mock).mockReturnValue(true);
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    const biometric = require('lib/biometric');
+    // Simulate a pre-existing key: setupHardwareProtector must NOT call
+    // generateHardwareKey(), so generatedKeyThisCall stays false.
+    biometric.hasHardwareKey.mockResolvedValueOnce(true);
+    biometric.encryptWithHardwareKey.mockRejectedValueOnce(new Error('user cancelled auth prompt'));
+
+    await expect(
+      Vault.spawnFromMidenClient('', VALID_MNEMONIC, [
+        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
+      ])
+    ).rejects.toThrow(PublicError);
+
+    expect(biometric.generateHardwareKey).not.toHaveBeenCalled();
+    // Must never delete a pre-existing valid key just because this call's
+    // encrypt step failed — only a key WE generated in this call is fair game.
+    expect(biometric.deleteHardwareKey).not.toHaveBeenCalled();
+  });
+
+  it('swallows a failing best-effort deleteHardwareKey and still reports setup failure cleanly', async () => {
+    (isMobile as jest.Mock).mockReturnValue(true);
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    const biometric = require('lib/biometric');
+    // Fresh key generated this call (hasHardwareKey() default false), then the
+    // encrypt step fails, AND the cleanup delete itself fails (e.g. Keychain
+    // busy). The cleanup try/catch must swallow that secondary failure —
+    // spawnFromMidenClient still surfaces the original setup failure as a
+    // PublicError, not an unhandled rejection from the cleanup attempt.
+    biometric.encryptWithHardwareKey.mockRejectedValueOnce(new Error('user cancelled auth prompt'));
+    biometric.deleteHardwareKey.mockRejectedValueOnce(new Error('keychain busy'));
+
+    await expect(
+      Vault.spawnFromMidenClient('', VALID_MNEMONIC, [
+        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
+      ])
+    ).rejects.toThrow(PublicError);
+
+    expect(biometric.deleteHardwareKey).toHaveBeenCalled();
   });
 });
