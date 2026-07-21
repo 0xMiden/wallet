@@ -1,7 +1,7 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import classNames from 'clsx';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
@@ -95,6 +95,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   onAction
 }) => {
   const { t } = useTranslation();
+  const reduceMotion = useReducedMotion();
   const [navigationDirection, setNavigationDirection] = useState<'forward' | 'backward'>('forward');
 
   // Override for screens that have internal sub-steps (e.g. SetupPasscode's
@@ -316,7 +317,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             }}
             variants={{
               initialState: {
-                x: navigationDirection === 'forward' ? '1vw' : '-1vw',
+                x: reduceMotion ? 0 : navigationDirection === 'forward' ? '1vw' : '-1vw',
                 opacity: 0
               },
               animateState: {
@@ -324,7 +325,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
                 opacity: 1
               },
               exitState: {
-                x: navigationDirection === 'forward' ? '-1vw' : '1vw',
+                x: reduceMotion ? 0 : navigationDirection === 'forward' ? '-1vw' : '1vw',
                 opacity: 0
               }
             }}

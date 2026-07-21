@@ -30,7 +30,7 @@ jest.mock('lib/miden/back/store', () => ({
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
 }));
 
-jest.mock('lib/miden/activity/transactions', () => ({
+jest.mock('lib/miden/transaction', () => ({
   initiateSendTransaction: jest.fn(),
   requestCustomTransaction: jest.fn(),
   initiateConsumeTransactionFromId: jest.fn(),

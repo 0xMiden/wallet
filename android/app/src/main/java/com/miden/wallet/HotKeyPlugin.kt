@@ -4,6 +4,7 @@ import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
+import android.security.keystore.UserNotAuthenticatedException
 import android.util.Base64
 import android.util.Log
 import androidx.biometric.BiometricManager
@@ -40,9 +41,11 @@ import javax.crypto.spec.PSource
 //
 // Storage layout mirrors iOS so the JS facade stays platform-agnostic:
 //   - Per-account RSA-2048 key in Android Keystore aliased
-//     "com.miden.wallet.hot.<b64-suffix>", StrongBox-backed when available,
-//     auth-bound on the private key only (encrypt with the public key needs
-//     no auth, decrypt does — same shape as the iOS SE ECIES path).
+//     "com.miden.wallet.hot.<b64-suffix>", StrongBox-backed when available.
+//     NOT auth-bound: guardian sync signs on the ~3s AutoSync tick, so
+//     per-use auth would loop BiometricPrompt (see generateRsaWrapperKey).
+//     Legacy keys from older builds ARE auth-bound and take a prompt
+//     fallback until rotated.
 //   - Returned ciphertext is "<b64-suffix>:<b64-OAEP-payload>" so signWith /
 //     deleteWith can recover the alias from the blob alone.
 //
@@ -120,21 +123,20 @@ class HotKeyPlugin : Plugin() {
         }
     }
 
-    /// Unwrap the hot-key secret inside the Keystore (triggers BiometricPrompt),
-    /// Keccak-256 the supplied 32-byte word, ECDSA-sign (recoverable) over
-    /// secp256k1, and return r||s||v as 0x-prefixed hex (65 bytes). The
-    /// unwrapped secret is zeroed before returning.
+    /// Unwrap the hot-key secret inside the Keystore, Keccak-256 the supplied
+    /// 32-byte word, ECDSA-sign (recoverable) over secp256k1, and return r||s||v
+    /// as 0x-prefixed hex (65 bytes). The unwrapped secret is zeroed before
+    /// returning.
+    ///
+    /// Silent (no BiometricPrompt) for keys created by the current plugin —
+    /// they are not auth-bound, because guardian sync signs on the ~3s AutoSync
+    /// tick (see generateRsaWrapperKey). Keys created by older builds ARE
+    /// auth-bound at the Keystore level and physically cannot be unwrapped
+    /// without user auth, so those fall back to the legacy prompt path until
+    /// the hot key is rotated (replace-hot-key mints an unbound one).
     @PluginMethod
     fun signWithHotKey(call: PluginCall) {
         Log.d(TAG, "signWithHotKey called")
-
-        // The BiometricPrompt callback reads instance fields (pendingCall/
-        // pendingPayload/pendingDigest); a second concurrent call would clobber
-        // them, crossing signatures and responses. Reject while one is in flight.
-        if (pendingCall != null) {
-            call.reject("Another hot-key operation is in progress", "BIOMETRIC_BUSY")
-            return
-        }
 
         val ciphertext = call.getString("ciphertext")
         val digestHex = call.getString("digestHex")
@@ -166,38 +168,47 @@ class HotKeyPlugin : Plugin() {
                 return
             }
 
-            // 4. Initialize the OAEP cipher in DECRYPT_MODE; the actual doFinal
-            //    runs inside the BiometricPrompt callback, which is what gates
-            //    the unwrap on user presence (mirrors SecKeyCreateDecryptedData
-            //    on iOS).
-            val cipher = Cipher.getInstance(OAEP_TRANSFORMATION)
-            cipher.init(Cipher.DECRYPT_MODE, privateKey, oaepParams())
+            // 4. Unwrap directly. Only a legacy auth-bound key throws
+            //    UserNotAuthenticatedException here — route it through the
+            //    BiometricPrompt fallback.
+            var unwrapped: ByteArray? = null
+            try {
+                val cipher = Cipher.getInstance(OAEP_TRANSFORMATION)
+                cipher.init(Cipher.DECRYPT_MODE, privateKey, oaepParams())
+                unwrapped = cipher.doFinal(payload)
+            } catch (e: UserNotAuthenticatedException) {
+                promptForLegacyKey(call, privateKey, payload, digestBytes, PendingOp.SIGN, "Sign transaction")
+                return
+            }
 
-            pendingCall = call
-            pendingPayload = payload
-            pendingDigest = digestBytes
-            pendingOp = PendingOp.SIGN
-            promptForBiometric(cipher, "Sign transaction")
+            try {
+                if (unwrapped.size != 32) {
+                    call.reject("Unwrapped hot-key has wrong length")
+                    return
+                }
+                val signatureHex = signRecoverable(unwrapped, digestBytes)
+                val res = JSObject()
+                res.put("signatureHex", signatureHex)
+                Log.d(TAG, "signWithHotKey success")
+                call.resolve(res)
+            } finally {
+                zero(unwrapped)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "signWithHotKey failed: ${e.message}", e)
             call.reject("Hot-key sign failed: ${e.message}")
         }
     }
 
-    /// Unwrap the hot-key secret inside the Keystore (triggers BiometricPrompt)
-    /// and return the raw 32-byte secp256k1 secret as hex. Used by Settings →
-    /// Reveal Hot Key. Same OAEP unwrap path as `signWithHotKey`, minus the
-    /// signing step. The unwrapped secret is zeroed before returning.
+    /// Unwrap the hot-key secret inside the Keystore and return the raw 32-byte
+    /// secp256k1 secret as hex. Used by Settings → Reveal Hot Key. Same OAEP
+    /// unwrap path as `signWithHotKey`, minus the signing step; same silent /
+    /// legacy-prompt split (the reveal flow is gated by the wallet's own unlock
+    /// UI, matching iOS where the SE key also unwraps silently). The unwrapped
+    /// secret is zeroed before returning.
     @PluginMethod
     fun revealHotKey(call: PluginCall) {
         Log.d(TAG, "revealHotKey called")
-
-        // See signWithHotKey: reject while a biometric op is already in flight so
-        // the shared pending* fields aren't clobbered.
-        if (pendingCall != null) {
-            call.reject("Another hot-key operation is in progress", "BIOMETRIC_BUSY")
-            return
-        }
 
         val ciphertext = call.getString("ciphertext")
         if (ciphertext == null) {
@@ -217,14 +228,28 @@ class HotKeyPlugin : Plugin() {
                 return
             }
 
-            val cipher = Cipher.getInstance(OAEP_TRANSFORMATION)
-            cipher.init(Cipher.DECRYPT_MODE, privateKey, oaepParams())
+            var unwrapped: ByteArray? = null
+            try {
+                val cipher = Cipher.getInstance(OAEP_TRANSFORMATION)
+                cipher.init(Cipher.DECRYPT_MODE, privateKey, oaepParams())
+                unwrapped = cipher.doFinal(payload)
+            } catch (e: UserNotAuthenticatedException) {
+                promptForLegacyKey(call, privateKey, payload, null, PendingOp.REVEAL, "Reveal device key")
+                return
+            }
 
-            pendingCall = call
-            pendingPayload = payload
-            pendingDigest = null
-            pendingOp = PendingOp.REVEAL
-            promptForBiometric(cipher, "Reveal device key")
+            try {
+                if (unwrapped.size != 32) {
+                    call.reject("Unwrapped hot-key has wrong length")
+                    return
+                }
+                val res = JSObject()
+                res.put("secretKeyHex", unwrapped.toHex())
+                Log.d(TAG, "revealHotKey success")
+                call.resolve(res)
+            } finally {
+                zero(unwrapped)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "revealHotKey failed: ${e.message}", e)
             call.reject("Hot-key reveal failed: ${e.message}")
@@ -260,7 +285,48 @@ class HotKeyPlugin : Plugin() {
         }
     }
 
-    // -- Biometric prompt + post-auth sign ------------------------------------
+    // -- Legacy auth-bound keys: BiometricPrompt + post-auth sign --------------
+    //
+    // Everything in this section exists ONLY for hot keys created by older
+    // builds, whose Keystore wrapper was minted with per-use
+    // setUserAuthenticationRequired — the OS refuses to unwrap those without a
+    // BiometricPrompt CryptoObject, so dropping this path would brick them.
+    // Keys created by the current build never come through here; the section
+    // can be deleted once legacy keys are gone (rotated via replace-hot-key).
+
+    /// Route a legacy auth-bound key through BiometricPrompt. The prompt
+    /// callback reads the shared pending* instance fields, so only one legacy
+    /// op may be in flight at a time.
+    private fun promptForLegacyKey(
+        call: PluginCall,
+        privateKey: PrivateKey,
+        payload: ByteArray,
+        digest: ByteArray?,
+        op: PendingOp,
+        subtitle: String
+    ) {
+        if (pendingCall != null) {
+            call.reject("Another hot-key operation is in progress", "BIOMETRIC_BUSY")
+            return
+        }
+        // Fresh cipher: the silent attempt's rejected doFinal left its cipher
+        // in an unusable state. For these auth-per-use asymmetric keys the auth
+        // check fires at doFinal (not init), so this init should not need auth —
+        // but guard it defensively so a failure fails the call cleanly instead
+        // of surfacing as a generic sign error from the caller's outer catch.
+        val cipher = Cipher.getInstance(OAEP_TRANSFORMATION)
+        try {
+            cipher.init(Cipher.DECRYPT_MODE, privateKey, oaepParams())
+        } catch (e: Exception) {
+            call.reject("Failed to initialize cipher for legacy hot-key sign", "LEGACY_CIPHER_INIT_FAILED")
+            return
+        }
+        pendingCall = call
+        pendingPayload = payload
+        pendingDigest = digest
+        pendingOp = op
+        promptForBiometric(cipher, subtitle)
+    }
 
     private fun promptForBiometric(cipher: Cipher, subtitle: String) {
         val activity = activity as? FragmentActivity
@@ -391,6 +457,14 @@ class HotKeyPlugin : Plugin() {
 
     private fun generateRsaWrapperKey(alias: String, strongBox: Boolean): PublicKey {
         val gen = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA, ANDROID_KEYSTORE)
+        // THREAT MODEL: deliberately NOT auth-bound (no setUserAuthenticationRequired).
+        // Guardian sync signs with the hot key on the ~3s AutoSync tick, so a
+        // per-use auth requirement turns into a continuous BiometricPrompt loop
+        // (and concurrent sync signatures fail BIOMETRIC_BUSY while a prompt is
+        // up). This mirrors the iOS plugin, which keeps `.privateKeyUsage` only
+        // on the SE key for the same reason. The wrapped secret still never
+        // leaves StrongBox/TEE. If a per-use presence gate is ever reintroduced,
+        // background/sync signing must first be routed off the hot key.
         val builder = KeyGenParameterSpec.Builder(
             alias,
             KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
@@ -398,23 +472,6 @@ class HotKeyPlugin : Plugin() {
             .setKeySize(2048)
             .setDigests(KeyProperties.DIGEST_SHA256)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_RSA_OAEP)
-            .setUserAuthenticationRequired(true)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Android 11+: biometric-strong OR device credential, every-use auth.
-            builder.setUserAuthenticationParameters(
-                0,
-                KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
-            )
-        } else {
-            // Pre-Android-11: every-use auth, but BIOMETRIC_STRONG cannot be
-            // enforced here — on API 23–29 a non-FIDO-certified (BIOMETRIC_WEAK)
-            // fingerprint sensor can satisfy the guard. Key strength is therefore
-            // hardware-dependent on these older devices (StrongBox below still
-            // applies when present). `-1` = authentication required on every use.
-            @Suppress("DEPRECATION")
-            builder.setUserAuthenticationValidityDurationSeconds(-1)
-        }
 
         if (strongBox && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             builder.setIsStrongBoxBacked(true)

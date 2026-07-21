@@ -24,7 +24,7 @@ test.describe('Private Note Send', () => {
     await steps.step('deploy_and_fund', async () => {
       await midenCli.init();
       faucetId = await midenCli.createFaucet();
-      await midenCli.mint(addressA!, 100_000_000_000, 'public');
+      await midenCli.mint(faucetId, addressA!, 100_000_000_000, 'public');
       await midenCli.sync();
     });
 

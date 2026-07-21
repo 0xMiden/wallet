@@ -1,15 +1,19 @@
-import {
-  AllowedPrivateData,
-  MidenConsumeTransaction,
-  MidenSendTransaction,
-  MidenTransaction,
-  PrivateDataPermission,
-  SignKind,
-  WalletAdapterNetwork
-} from '@demox-labs/miden-wallet-adapter-base';
-import { NoteFilterTypes } from '@miden-sdk/miden-sdk/lazy';
+/**
+ * Unit coverage for `lib/adapter/client.ts` — the in-page dApp <-> wallet
+ * bridge that talks over `window.postMessage` / `window.addEventListener`.
+ *
+ * Strategy: `client.ts` registers real `window.addEventListener('message', ...)`
+ * listeners and posts via `window.postMessage`. Rather than depend on jsdom's
+ * async MessageEvent delivery (and its uncertain `event.source`), we spy on
+ * `window.addEventListener` / `removeEventListener` to capture the registered
+ * `message` handlers, and invoke them directly with fully-controlled
+ * `{ source, data }` envelopes — the same "capture the listener" technique the
+ * sibling intercom client test uses. `nanoid` is auto-mocked to always return
+ * `'id'`, so every request's `reqId` is the constant `'id'`.
+ */
 
 import {
+  assertResponse,
   getCurrentPermission,
   importPrivateNote,
   InvalidParamsMidenWalletError,
@@ -31,555 +35,534 @@ import {
   signBytes,
   waitForTransaction
 } from './client';
-import {
-  MidenDAppErrorType,
-  MidenDAppMessageType,
-  MidenDAppPermission,
-  MidenPageMessage,
-  MidenPageMessageType
-} from './types';
+import { MidenDAppErrorType, MidenDAppMessageType, MidenPageMessageType } from './types';
 
-// `request()` (the shared helper backing every function in client.ts) calls
-// `send()` — which calls `window.postMessage` — BEFORE it registers its
-// `message` listener, relying on real postMessage delivery being
-// asynchronous. jsdom also does not set `event.source` on same-window
-// `postMessage` deliveries (it comes through as `null`), which is what the
-// listener checks against `window`. So instead of using real postMessage
-// round-tripping, we spy on `window.postMessage` to capture the outgoing
-// request and reply with a synthetic `MessageEvent` (explicit
-// `source: window`) deferred via `queueMicrotask` so the listener exists
-// by the time the reply arrives. This exercises the real `request()`/
-// `send()` code paths end-to-end instead of mocking them away.
-function mockReply(reply: {
-  type: MidenPageMessageType.Response | MidenPageMessageType.ErrorResponse;
-  payload: unknown;
-}) {
-  const capturedPayloads: unknown[] = [];
-  const spy = jest.spyOn(window, 'postMessage').mockImplementation(msg => {
-    const req = msg as MidenPageMessage;
-    if (req.type !== MidenPageMessageType.Request) return;
-    capturedPayloads.push(req.payload);
-    queueMicrotask(() => {
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          source: window,
-          data: { type: reply.type, reqId: req.reqId, payload: reply.payload } satisfies MidenPageMessage
-        })
-      );
-    });
-  });
-  return { spy, capturedPayloads };
+// ── Captured window `message` listeners ────────────────────────────
+let messageListeners: Array<(evt: any) => void> = [];
+let postSpy: jest.SpyInstance;
+
+const ORIGIN = window.location.origin;
+
+/** Deliver a raw MessageEvent-shaped envelope to every captured listener. */
+function deliverRaw(data: any, source: any = window) {
+  for (const listener of [...messageListeners]) listener({ source, data });
 }
+
+/** Deliver a page-level Response wrapping a dApp response payload. */
+function deliverPageResponse(payload: any, reqId: string | number = 'id') {
+  deliverRaw({ type: MidenPageMessageType.Response, reqId, payload });
+}
+
+/** Deliver a page-level ErrorResponse. */
+function deliverPageError(payload: any, reqId: string | number = 'id') {
+  deliverRaw({ type: MidenPageMessageType.ErrorResponse, reqId, payload });
+}
+
+/** Deliver the PONG availability probe response. */
+function deliverPong() {
+  deliverRaw({ type: MidenPageMessageType.Response, payload: 'PONG' });
+}
+
+const flush = async (times = 4) => {
+  for (let i = 0; i < times; i++) await Promise.resolve();
+};
+
+beforeEach(() => {
+  messageListeners = [];
+
+  const realAdd = window.addEventListener.bind(window);
+  const realRemove = window.removeEventListener.bind(window);
+
+  jest.spyOn(window, 'addEventListener').mockImplementation((type: string, cb: any, opts?: any) => {
+    if (type === 'message') {
+      messageListeners.push(cb);
+      return;
+    }
+    return realAdd(type, cb, opts);
+  });
+  jest.spyOn(window, 'removeEventListener').mockImplementation((type: string, cb: any, opts?: any) => {
+    if (type === 'message') {
+      const i = messageListeners.indexOf(cb);
+      if (i >= 0) messageListeners.splice(i, 1);
+      return;
+    }
+    return realRemove(type, cb, opts);
+  });
+
+  postSpy = jest.spyOn(window, 'postMessage').mockImplementation(() => {});
+});
 
 afterEach(() => {
   jest.restoreAllMocks();
+  jest.useRealTimers();
 });
 
-describe('requestGuardianInfo', () => {
-  it('posts the GuardianInfo request and returns the payload', async () => {
-    const { capturedPayloads } = mockReply({
-      type: MidenPageMessageType.Response,
-      payload: {
-        type: MidenDAppMessageType.GuardianInfoResponse,
-        guardianInfo: {
-          isGuardianAccount: true,
-          guardianEndpoint: 'https://g',
-          guardianProvider: 'gateway',
-          guardianSyncStatus: 'in-sync'
-        }
-      }
-    });
+// ── Request-based accessor functions ───────────────────────────────
+describe('request-based functions', () => {
+  it('getCurrentPermission posts a request and returns the permission', async () => {
+    const permission = { address: 'acct1', rpc: 'rpc1', privateDataPermission: 'None', allowedPrivateData: {} };
+    const p = getCurrentPermission();
 
-    const info = await requestGuardianInfo('pk');
-
-    expect(capturedPayloads[0]).toEqual(
-      expect.objectContaining({ type: MidenDAppMessageType.GuardianInfoRequest, sourcePublicKey: 'pk' })
-    );
-    expect(info.guardianProvider).toBe('gateway');
-  });
-});
-
-describe('requestAssets', () => {
-  it('posts the Assets request and returns the assets', async () => {
-    const assets = [{ faucetId: 'faucet1', amount: '10' }];
-    const { capturedPayloads } = mockReply({
-      type: MidenPageMessageType.Response,
-      payload: { type: MidenDAppMessageType.AssetsResponse, assets }
-    });
-
-    const result = await requestAssets('pk');
-
-    expect(capturedPayloads[0]).toEqual(
-      expect.objectContaining({ type: MidenDAppMessageType.AssetsRequest, sourcePublicKey: 'pk' })
-    );
-    expect(result).toBe(assets);
-  });
-});
-
-describe('getCurrentPermission', () => {
-  it('posts the GetCurrentPermission request and returns the permission', async () => {
-    const permission: MidenDAppPermission = {
-      address: 'addr',
-      rpc: 'rpc',
-      privateDataPermission: PrivateDataPermission.UponRequest,
-      allowedPrivateData: AllowedPrivateData.All
-    };
-    const { capturedPayloads } = mockReply({
-      type: MidenPageMessageType.Response,
-      payload: { type: MidenDAppMessageType.GetCurrentPermissionResponse, permission }
-    });
-
-    const result = await getCurrentPermission();
-
-    expect(capturedPayloads[0]).toEqual(
-      expect.objectContaining({ type: MidenDAppMessageType.GetCurrentPermissionRequest })
-    );
-    expect(result).toBe(permission);
-  });
-});
-
-describe('requestPermission', () => {
-  it('posts the Permission request and returns the decoded permission', async () => {
-    const { capturedPayloads } = mockReply({
-      type: MidenPageMessageType.Response,
-      payload: {
-        type: MidenDAppMessageType.PermissionResponse,
-        accountId: 'addr',
-        network: 'testnet',
-        privateDataPermission: 'read',
-        allowedPrivateData: 'all',
-        publicKey: 'aGVsbG8=' // base64 for "hello"
-      }
-    });
-
-    const result = await requestPermission(
-      { name: 'dapp.example' },
-      false,
-      'read' as PrivateDataPermission,
-      'testnet' as WalletAdapterNetwork
+    // send() posts a page Request wrapping the dApp request, using the origin.
+    expect(postSpy).toHaveBeenCalledWith(
+      {
+        type: MidenPageMessageType.Request,
+        payload: { type: MidenDAppMessageType.GetCurrentPermissionRequest },
+        reqId: 'id'
+      },
+      ORIGIN
     );
 
-    expect(capturedPayloads[0]).toEqual(
-      expect.objectContaining({ type: MidenDAppMessageType.PermissionRequest, appMeta: { name: 'dapp.example' } })
+    deliverPageResponse({ type: MidenDAppMessageType.GetCurrentPermissionResponse, permission });
+    await expect(p).resolves.toBe(permission);
+    // Listener is cleaned up after resolving.
+    expect(messageListeners).toHaveLength(0);
+  });
+
+  it('requestPermission maps the response and decodes the public key', async () => {
+    const appMeta = { name: 'Test dApp' };
+    const p = requestPermission(appMeta, true, 'None' as any, 'testnet' as any, { foo: 'bar' } as any);
+
+    expect(postSpy).toHaveBeenCalledWith(
+      {
+        type: MidenPageMessageType.Request,
+        payload: {
+          type: MidenDAppMessageType.PermissionRequest,
+          appMeta,
+          force: true,
+          privateDataPermission: 'None',
+          network: 'testnet',
+          allowedPrivateData: { foo: 'bar' }
+        },
+        reqId: 'id'
+      },
+      ORIGIN
     );
-    expect(result).toEqual({
-      rpc: 'testnet',
-      address: 'addr',
-      privateDataPermission: 'read',
-      allowedPrivateData: 'all',
-      publicKey: new Uint8Array(Buffer.from('hello'))
+
+    deliverPageResponse({
+      type: MidenDAppMessageType.PermissionResponse,
+      network: 'testnet',
+      accountId: 'acct-abc',
+      privateDataPermission: 'None',
+      allowedPrivateData: { foo: 'bar' },
+      publicKey: 'AAEC' // base64 -> [0, 1, 2]
     });
+
+    const result = await p;
+    expect(result.rpc).toBe('testnet');
+    expect(result.address).toBe('acct-abc');
+    expect(result.privateDataPermission).toBe('None');
+    expect(result.allowedPrivateData).toEqual({ foo: 'bar' });
+    expect(Array.from(result.publicKey)).toEqual([0, 1, 2]);
   });
-});
 
-describe('requestDisconnect', () => {
-  it('posts the Disconnect request and returns the response', async () => {
-    const { capturedPayloads } = mockReply({
-      type: MidenPageMessageType.Response,
-      payload: { type: MidenDAppMessageType.DisconnectResponse }
-    });
-
-    const result = await requestDisconnect();
-
-    expect(capturedPayloads[0]).toEqual(expect.objectContaining({ type: MidenDAppMessageType.DisconnectRequest }));
-    expect(result).toEqual({ type: MidenDAppMessageType.DisconnectResponse });
+  it('requestDisconnect returns the full response', async () => {
+    const p = requestDisconnect();
+    deliverPageResponse({ type: MidenDAppMessageType.DisconnectResponse });
+    await expect(p).resolves.toEqual({ type: MidenDAppMessageType.DisconnectResponse });
   });
-});
 
-describe('requestSend', () => {
-  it('posts the SendTransaction request and returns the transactionId', async () => {
-    const { capturedPayloads } = mockReply({
-      type: MidenPageMessageType.Response,
-      payload: { type: MidenDAppMessageType.SendTransactionResponse, transactionId: 'tx1' }
-    });
-
-    const result = await requestSend('pk', {} as MidenSendTransaction);
-
-    expect(capturedPayloads[0]).toEqual(
-      expect.objectContaining({ type: MidenDAppMessageType.SendTransactionRequest, sourcePublicKey: 'pk' })
+  it('requestSend returns the transaction id', async () => {
+    const tx = { to: 'x', amount: '1' } as any;
+    const p = requestSend('pk-1', tx);
+    expect(postSpy).toHaveBeenCalledWith(
+      {
+        type: MidenPageMessageType.Request,
+        payload: { type: MidenDAppMessageType.SendTransactionRequest, sourcePublicKey: 'pk-1', transaction: tx },
+        reqId: 'id'
+      },
+      ORIGIN
     );
-    expect(result).toBe('tx1');
+    deliverPageResponse({ type: MidenDAppMessageType.SendTransactionResponse, transactionId: 'tx-send' });
+    await expect(p).resolves.toBe('tx-send');
   });
-});
 
-describe('requestTransaction', () => {
-  it('posts the Transaction request and returns the transactionId', async () => {
-    const { capturedPayloads } = mockReply({
-      type: MidenPageMessageType.Response,
-      payload: { type: MidenDAppMessageType.TransactionResponse, transactionId: 'tx2' }
-    });
+  it('requestTransaction returns the transaction id', async () => {
+    const tx = { kind: 'generic' } as any;
+    const p = requestTransaction('pk-2', tx);
+    deliverPageResponse({ type: MidenDAppMessageType.TransactionResponse, transactionId: 'tx-generic' });
+    await expect(p).resolves.toBe('tx-generic');
+  });
 
-    const result = await requestTransaction('pk', {} as MidenTransaction);
+  it('requestConsume returns the transaction id', async () => {
+    const tx = { noteIds: ['n'] } as any;
+    const p = requestConsume('pk-3', tx);
+    deliverPageResponse({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-consume' });
+    await expect(p).resolves.toBe('tx-consume');
+  });
 
-    expect(capturedPayloads[0]).toEqual(
-      expect.objectContaining({ type: MidenDAppMessageType.TransactionRequest, sourcePublicKey: 'pk' })
+  it('requestPrivateNotes returns notes (with noteIds)', async () => {
+    const notes = [{ id: 'n1' }];
+    const p = requestPrivateNotes('pk-4', 'All' as any, ['n1', 'n2']);
+    expect(postSpy).toHaveBeenCalledWith(
+      {
+        type: MidenPageMessageType.Request,
+        payload: {
+          type: MidenDAppMessageType.PrivateNotesRequest,
+          sourcePublicKey: 'pk-4',
+          notefilterType: 'All',
+          noteIds: ['n1', 'n2']
+        },
+        reqId: 'id'
+      },
+      ORIGIN
     );
-    expect(result).toBe('tx2');
+    deliverPageResponse({ type: MidenDAppMessageType.PrivateNotesResponse, privateNotes: notes });
+    await expect(p).resolves.toBe(notes);
   });
-});
 
-describe('requestConsume', () => {
-  it('posts the Consume request and returns the transactionId', async () => {
-    const { capturedPayloads } = mockReply({
-      type: MidenPageMessageType.Response,
-      payload: { type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx3' }
-    });
-
-    const result = await requestConsume('pk', {} as MidenConsumeTransaction);
-
-    expect(capturedPayloads[0]).toEqual(
-      expect.objectContaining({ type: MidenDAppMessageType.ConsumeRequest, sourcePublicKey: 'pk' })
+  it('requestPrivateNotes returns notes (without noteIds)', async () => {
+    const notes = [{ id: 'n9' }];
+    const p = requestPrivateNotes('pk-4b', 'Committed' as any);
+    expect(postSpy).toHaveBeenCalledWith(
+      {
+        type: MidenPageMessageType.Request,
+        payload: {
+          type: MidenDAppMessageType.PrivateNotesRequest,
+          sourcePublicKey: 'pk-4b',
+          notefilterType: 'Committed',
+          noteIds: undefined
+        },
+        reqId: 'id'
+      },
+      ORIGIN
     );
-    expect(result).toBe('tx3');
+    deliverPageResponse({ type: MidenDAppMessageType.PrivateNotesResponse, privateNotes: notes });
+    await expect(p).resolves.toBe(notes);
   });
-});
 
-describe('requestPrivateNotes', () => {
-  it('posts the PrivateNotes request and returns the notes', async () => {
-    const privateNotes = [{ id: 'note1' }];
-    const { capturedPayloads } = mockReply({
-      type: MidenPageMessageType.Response,
-      payload: { type: MidenDAppMessageType.PrivateNotesResponse, privateNotes }
-    });
-
-    const result = await requestPrivateNotes('pk', NoteFilterTypes.All, ['note1']);
-
-    expect(capturedPayloads[0]).toEqual(
-      expect.objectContaining({
-        type: MidenDAppMessageType.PrivateNotesRequest,
-        sourcePublicKey: 'pk',
-        notefilterType: NoteFilterTypes.All,
-        noteIds: ['note1']
-      })
+  it('signBytes returns the signature', async () => {
+    const p = signBytes('acct-9', 'pk-5', 'hello', 'Message' as any);
+    expect(postSpy).toHaveBeenCalledWith(
+      {
+        type: MidenPageMessageType.Request,
+        payload: {
+          type: MidenDAppMessageType.SignRequest,
+          sourceAccountId: 'acct-9',
+          sourcePublicKey: 'pk-5',
+          payload: 'hello',
+          kind: 'Message'
+        },
+        reqId: 'id'
+      },
+      ORIGIN
     );
-    expect(result).toBe(privateNotes);
-  });
-});
-
-describe('signBytes', () => {
-  it('posts the Sign request and returns the signature', async () => {
-    const { capturedPayloads } = mockReply({
-      type: MidenPageMessageType.Response,
-      payload: { type: MidenDAppMessageType.SignResponse, signature: 'c2ln' }
-    });
-
-    const result = await signBytes('acc', 'pk', 'msg', 'raw' as SignKind);
-
-    expect(capturedPayloads[0]).toEqual(
-      expect.objectContaining({
-        type: MidenDAppMessageType.SignRequest,
-        sourceAccountId: 'acc',
-        sourcePublicKey: 'pk',
-        payload: 'msg',
-        kind: 'raw'
-      })
-    );
-    expect(result).toBe('c2ln');
-  });
-});
-
-describe('importPrivateNote', () => {
-  it('posts the ImportPrivateNote request and returns the noteId', async () => {
-    const { capturedPayloads } = mockReply({
-      type: MidenPageMessageType.Response,
-      payload: { type: MidenDAppMessageType.ImportPrivateNoteResponse, noteId: 'note42' }
-    });
-
-    const result = await importPrivateNote('pk', 'bm90ZQ==');
-
-    expect(capturedPayloads[0]).toEqual(
-      expect.objectContaining({
-        type: MidenDAppMessageType.ImportPrivateNoteRequest,
-        sourcePublicKey: 'pk',
-        note: 'bm90ZQ=='
-      })
-    );
-    expect(result).toBe('note42');
-  });
-});
-
-describe('requestConsumableNotes', () => {
-  it('posts the ConsumableNotes request and returns the notes', async () => {
-    const consumableNotes = [{ id: 'cn1' }];
-    const { capturedPayloads } = mockReply({
-      type: MidenPageMessageType.Response,
-      payload: { type: MidenDAppMessageType.ConsumableNotesResponse, consumableNotes }
-    });
-
-    const result = await requestConsumableNotes('pk');
-
-    expect(capturedPayloads[0]).toEqual(
-      expect.objectContaining({ type: MidenDAppMessageType.ConsumableNotesRequest, sourcePublicKey: 'pk' })
-    );
-    expect(result).toBe(consumableNotes);
-  });
-});
-
-describe('waitForTransaction', () => {
-  it('posts the WaitForTransaction request and returns the transactionOutput', async () => {
-    const transactionOutput = { status: 'confirmed' };
-    const { capturedPayloads } = mockReply({
-      type: MidenPageMessageType.Response,
-      payload: { type: MidenDAppMessageType.WaitForTransactionResponse, transactionOutput }
-    });
-
-    const result = await waitForTransaction('tx99');
-
-    expect(capturedPayloads[0]).toEqual(
-      expect.objectContaining({ type: MidenDAppMessageType.WaitForTransactionRequest, txId: 'tx99' })
-    );
-    expect(result).toBe(transactionOutput);
-  });
-});
-
-describe('isAvailable', () => {
-  it('resolves true on a PONG response', async () => {
-    mockReply({ type: MidenPageMessageType.Response, payload: 'PONG' });
-
-    await expect(isAvailable()).resolves.toBe(true);
+    deliverPageResponse({ type: MidenDAppMessageType.SignResponse, signature: 'sig-123' });
+    await expect(p).resolves.toBe('sig-123');
   });
 
-  it('resolves false when no PONG arrives before the timeout', async () => {
-    jest.useFakeTimers();
-    jest.spyOn(window, 'postMessage').mockImplementation(() => {});
-
-    const pending = isAvailable();
-    await jest.advanceTimersByTimeAsync(500);
-
-    await expect(pending).resolves.toBe(false);
-    jest.useRealTimers();
+  it('requestAssets returns the assets', async () => {
+    const assets = [{ faucetId: 'f', amount: '10' }];
+    const p = requestAssets('pk-6');
+    deliverPageResponse({ type: MidenDAppMessageType.AssetsResponse, assets });
+    await expect(p).resolves.toBe(assets);
   });
-});
 
-describe('request() error handling (via requestGuardianInfo)', () => {
-  it('ignores unrelated messages before resolving on the matching response', async () => {
+  it('requestGuardianInfo posts a request and returns the guardian info', async () => {
     const guardianInfo = {
-      isGuardianAccount: false,
-      guardianEndpoint: null,
-      guardianProvider: null,
-      guardianSyncStatus: null
+      isGuardianAccount: true,
+      guardianEndpoint: 'https://g',
+      guardianProvider: 'gateway',
+      guardianSyncStatus: 'in-sync'
     };
-    jest.spyOn(window, 'postMessage').mockImplementation(msg => {
-      const req = msg as MidenPageMessage;
-      if (req.type !== MidenPageMessageType.Request) return;
-      queueMicrotask(() => {
-        // Decoy message: mismatched reqId, must be ignored (hits the
-        // `evt.source !== window || res?.reqId !== reqId` early-return case).
-        window.dispatchEvent(
-          new MessageEvent('message', {
-            source: window,
-            data: {
-              type: MidenPageMessageType.Response,
-              reqId: 'not-the-real-id',
-              payload: 'noise'
-            } satisfies MidenPageMessage
-          })
-        );
-        window.dispatchEvent(
-          new MessageEvent('message', {
-            source: window,
-            data: {
-              type: MidenPageMessageType.Response,
-              reqId: req.reqId,
-              payload: { type: MidenDAppMessageType.GuardianInfoResponse, guardianInfo }
-            } satisfies MidenPageMessage
-          })
-        );
-      });
-    });
-
-    await expect(requestGuardianInfo('pk')).resolves.toEqual(guardianInfo);
+    const p = requestGuardianInfo('pk-9');
+    expect(postSpy).toHaveBeenCalledWith(
+      {
+        type: MidenPageMessageType.Request,
+        payload: { type: MidenDAppMessageType.GuardianInfoRequest, sourcePublicKey: 'pk-9' },
+        reqId: 'id'
+      },
+      ORIGIN
+    );
+    deliverPageResponse({ type: MidenDAppMessageType.GuardianInfoResponse, guardianInfo });
+    await expect(p).resolves.toBe(guardianInfo);
   });
 
-  it('rejects with a NotGrantedMidenWalletError on a NOT_GRANTED error response', async () => {
-    mockReply({ type: MidenPageMessageType.ErrorResponse, payload: MidenDAppErrorType.NotGranted });
-
-    await expect(requestGuardianInfo('pk')).rejects.toBeInstanceOf(NotGrantedMidenWalletError);
+  it('importPrivateNote returns the note id', async () => {
+    const p = importPrivateNote('pk-7', 'note-blob');
+    deliverPageResponse({ type: MidenDAppMessageType.ImportPrivateNoteResponse, noteId: 'note-1' });
+    await expect(p).resolves.toBe('note-1');
   });
 
-  it('rejects with a NotFoundMidenWalletError when the message array mentions NOT_FOUND', async () => {
-    mockReply({ type: MidenPageMessageType.ErrorResponse, payload: [`Error: ${MidenDAppErrorType.NotFound}`] });
-
-    await expect(requestGuardianInfo('pk')).rejects.toMatchObject({
-      constructor: NotFoundMidenWalletError,
-      message: `Error: ${MidenDAppErrorType.NotFound}`
-    });
+  it('requestConsumableNotes returns the consumable notes', async () => {
+    const notes = [{ id: 'c1' }];
+    const p = requestConsumableNotes('pk-8');
+    deliverPageResponse({ type: MidenDAppMessageType.ConsumableNotesResponse, consumableNotes: notes });
+    await expect(p).resolves.toBe(notes);
   });
 
-  it('rejects with an InvalidParamsMidenWalletError when an error object message mentions INVALID_PARAMS', async () => {
-    mockReply({
-      type: MidenPageMessageType.ErrorResponse,
-      payload: { message: `bad: ${MidenDAppErrorType.InvalidParams}` }
-    });
-
-    await expect(requestGuardianInfo('pk')).rejects.toBeInstanceOf(InvalidParamsMidenWalletError);
+  it('waitForTransaction returns the transaction output', async () => {
+    const output = { status: 'committed' };
+    const p = waitForTransaction('tx-xyz');
+    expect(postSpy).toHaveBeenCalledWith(
+      {
+        type: MidenPageMessageType.Request,
+        payload: { type: MidenDAppMessageType.WaitForTransactionRequest, txId: 'tx-xyz' },
+        reqId: 'id'
+      },
+      ORIGIN
+    );
+    deliverPageResponse({ type: MidenDAppMessageType.WaitForTransactionResponse, transactionOutput: output });
+    await expect(p).resolves.toBe(output);
   });
 
-  it('rejects with a generic MidenWalletError for an unrecognized payload shape', async () => {
-    mockReply({ type: MidenPageMessageType.ErrorResponse, payload: 12345 });
-
-    const error = await requestGuardianInfo('pk').catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(MidenWalletError);
-    expect(error).not.toBeInstanceOf(NotGrantedMidenWalletError);
-    expect((error as MidenWalletError).message).toBe('An unknown error occured. Please try again or report it');
-  });
-
-  it('stringifies a non-string first element of an array error payload', async () => {
-    mockReply({ type: MidenPageMessageType.ErrorResponse, payload: [42] });
-
-    const error = await requestGuardianInfo('pk').catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(MidenWalletError);
-    expect((error as MidenWalletError).message).toBe('42');
-  });
-
-  it('throws when the response type does not match the expected type (assertResponse)', async () => {
-    mockReply({
-      type: MidenPageMessageType.Response,
-      payload: { type: MidenDAppMessageType.AssetsResponse, assets: [] }
-    });
-
-    await expect(requestGuardianInfo('pk')).rejects.toThrow('Invalid response recieved');
+  it('rejects with "Invalid response recieved" when the response type mismatches', async () => {
+    const p = requestSend('pk', {} as any);
+    // Wrong response type -> assertResponse guard fails.
+    deliverPageResponse({ type: MidenDAppMessageType.DisconnectResponse });
+    await expect(p).rejects.toThrow('Invalid response recieved');
   });
 });
 
+// ── request() message-filtering branches ───────────────────────────
+describe('request() message filtering', () => {
+  it('ignores messages from another source, wrong reqId, null data, or non-final types', async () => {
+    const p = requestDisconnect();
+
+    // source !== window -> ignored
+    deliverRaw(
+      { type: MidenPageMessageType.Response, reqId: 'id', payload: { type: MidenDAppMessageType.DisconnectResponse } },
+      {}
+    );
+    // reqId mismatch -> ignored
+    deliverRaw({ type: MidenPageMessageType.Response, reqId: 'other', payload: {} });
+    // data is null -> res?.reqId is undefined !== 'id' -> ignored
+    deliverRaw(null);
+    // type is neither Response nor ErrorResponse -> falls through, nothing happens
+    deliverRaw({ type: MidenPageMessageType.Request, reqId: 'id', payload: {} });
+
+    // Still pending; only the matching envelope resolves it.
+    const matched = { type: MidenDAppMessageType.DisconnectResponse };
+    deliverPageResponse(matched);
+    await expect(p).resolves.toEqual(matched);
+  });
+});
+
+// ── createError mapping (via ErrorResponse rejections) ─────────────
+describe('error mapping', () => {
+  async function rejectionOf(payload: any) {
+    const p = requestDisconnect();
+    deliverPageError(payload);
+    try {
+      await p;
+      throw new Error('expected rejection');
+    } catch (e) {
+      return e as MidenWalletError;
+    }
+  }
+
+  it('maps NOT_GRANTED string to NotGrantedMidenWalletError', async () => {
+    const err = await rejectionOf(MidenDAppErrorType.NotGranted);
+    expect(err).toBeInstanceOf(NotGrantedMidenWalletError);
+    expect(err.message).toBe('NOT_GRANTED');
+  });
+
+  it('maps NOT_FOUND string to NotFoundMidenWalletError', async () => {
+    const err = await rejectionOf(MidenDAppErrorType.NotFound);
+    expect(err).toBeInstanceOf(NotFoundMidenWalletError);
+    expect(err.message).toBe('NOT_FOUND');
+  });
+
+  it('maps INVALID_PARAMS string to InvalidParamsMidenWalletError', async () => {
+    const err = await rejectionOf(MidenDAppErrorType.InvalidParams);
+    expect(err).toBeInstanceOf(InvalidParamsMidenWalletError);
+    expect(err.message).toBe('INVALID_PARAMS');
+  });
+
+  it('maps an unrecognised string to the base MidenWalletError, keeping the message', async () => {
+    const err = await rejectionOf('something else');
+    expect(err).toBeInstanceOf(MidenWalletError);
+    expect(err).not.toBeInstanceOf(NotGrantedMidenWalletError);
+    expect(err.message).toBe('something else');
+  });
+
+  it('extracts the message from an array payload and matches the embedded code', async () => {
+    const err = await rejectionOf(['boom because NOT_GRANTED happened']);
+    expect(err).toBeInstanceOf(NotGrantedMidenWalletError);
+    expect(err.message).toBe('boom because NOT_GRANTED happened');
+  });
+
+  it('stringifies a non-string array head', async () => {
+    const err = await rejectionOf([123]);
+    expect(err).toBeInstanceOf(MidenWalletError);
+    expect(err.message).toBe('123');
+  });
+
+  it('reads the message from an object payload and matches its code', async () => {
+    const err = await rejectionOf({ message: 'INVALID_PARAMS: bad field' });
+    expect(err).toBeInstanceOf(InvalidParamsMidenWalletError);
+    expect(err.message).toBe('INVALID_PARAMS: bad field');
+  });
+
+  it('falls back to the default message for an object without a string message', async () => {
+    const err = await rejectionOf({ foo: 1 });
+    expect(err).toBeInstanceOf(MidenWalletError);
+    expect(err.message).toBe('An unknown error occured. Please try again or report it');
+  });
+
+  it('falls back to the default message for a null payload', async () => {
+    const err = await rejectionOf(null);
+    expect(err).toBeInstanceOf(MidenWalletError);
+    expect(err.message).toBe('An unknown error occured. Please try again or report it');
+  });
+
+  it('matches a code embedded as a substring (NETWORK_NOT_GRANTED contains NOT_GRANTED)', async () => {
+    const err = await rejectionOf(MidenDAppErrorType.NetworkNotGranted);
+    expect(err).toBeInstanceOf(NotGrantedMidenWalletError);
+    expect(err.message).toBe('NETWORK_NOT_GRANTED');
+  });
+});
+
+// ── isAvailable ────────────────────────────────────────────────────
+describe('isAvailable', () => {
+  it('resolves true when a PONG response arrives', async () => {
+    const p = isAvailable();
+    expect(postSpy).toHaveBeenCalledWith({ type: MidenPageMessageType.Request, payload: 'PING' }, ORIGIN);
+    deliverPong();
+    await expect(p).resolves.toBe(true);
+    // Listener + timeout cleaned up.
+    expect(messageListeners).toHaveLength(0);
+  });
+
+  it('ignores non-matching messages before a valid PONG', async () => {
+    const p = isAvailable();
+    deliverRaw({ type: MidenPageMessageType.Response, payload: 'PONG' }, {}); // source !== window
+    deliverRaw(null); // evt.data?.type undefined
+    deliverRaw({ type: 'NOT_A_RESPONSE', payload: 'PONG' }); // type !== Response
+    deliverRaw({ type: MidenPageMessageType.Response, payload: 'NOPE' }); // payload !== PONG
+    deliverPong(); // finally matches
+    await expect(p).resolves.toBe(true);
+  });
+
+  it('resolves false when no PONG arrives within the timeout', async () => {
+    jest.useFakeTimers();
+    const p = isAvailable();
+    await jest.advanceTimersByTimeAsync(500);
+    await expect(p).resolves.toBe(false);
+  });
+});
+
+// ── onAvailabilityChange ───────────────────────────────────────────
 describe('onAvailabilityChange', () => {
-  it('reports availability changes and can be cleaned up', async () => {
+  it('reports transitions and keeps polling; cleanup stops the loop', async () => {
     jest.useFakeTimers();
+    const cb = jest.fn();
+    const stop = onAvailabilityChange(cb);
 
-    const callback = jest.fn();
-    let pongReplies = 0;
-    jest.spyOn(window, 'postMessage').mockImplementation(msg => {
-      const req = msg as MidenPageMessage;
-      if (req.type !== MidenPageMessageType.Request) return;
-      pongReplies++;
-      queueMicrotask(() => {
-        window.dispatchEvent(
-          new MessageEvent('message', {
-            source: window,
-            data: { type: MidenPageMessageType.Response, reqId: req.reqId, payload: 'PONG' } satisfies MidenPageMessage
-          })
-        );
-      });
-    });
+    // First probe: deliver PONG -> becomes available (true).
+    deliverPong();
+    await flush();
+    expect(cb).toHaveBeenNthCalledWith(1, true);
 
-    const stop = onAvailabilityChange(callback);
+    // Let it keep polling with no PONG: it times out (false), reports the
+    // false transition, and exercises both the fast (attempt < 5) and slow
+    // (attempt >= 5) reschedule branches.
+    await jest.advanceTimersByTimeAsync(120_000);
+    expect(cb).toHaveBeenCalledWith(false);
 
-    // First `isAvailable()` check resolves on PONG, becomes available and
-    // fires the callback (currentStatus flips false -> true), then
-    // schedules the next check after 10s (the `available` branch).
-    await jest.advanceTimersByTimeAsync(0);
-    expect(callback).toHaveBeenCalledWith(true);
-    expect(pongReplies).toBeGreaterThanOrEqual(1);
-
+    const callsBeforeStop = cb.mock.calls.length;
     stop();
-    jest.useRealTimers();
-  });
-
-  it('backs off the poll cadence once unavailable past the initial attempts', async () => {
-    jest.useFakeTimers();
-    // Never reply -> isAvailable() always resolves false via its internal
-    // 500ms timeout, driving `check()` through attempts 0-5 so both the
-    // `!initial ? 5_000 : 0` and `initial ? attempt + 1 : attempt`
-    // sub-branches on the reschedule line get exercised.
-    jest.spyOn(window, 'postMessage').mockImplementation(() => {});
-
-    const callback = jest.fn();
-    const stop = onAvailabilityChange(callback);
-
-    // 6 cycles * 500ms/cycle (attempts 0..5) with a little slack.
-    await jest.advanceTimersByTimeAsync(3100);
-
-    expect(callback).not.toHaveBeenCalled();
-
-    stop();
-    jest.useRealTimers();
+    // After stop the pending timer is cleared: no further callbacks.
+    await jest.advanceTimersByTimeAsync(120_000);
+    expect(cb.mock.calls.length).toBe(callsBeforeStop);
   });
 });
 
+// ── onPermissionChange (also covers permissionsAreEqual) ───────────
 describe('onPermissionChange', () => {
-  it('invokes the callback when the permission changes and stays quiet when unchanged', async () => {
+  const permA = { address: 'a', rpc: 'r1', privateDataPermission: 'None', allowedPrivateData: {} };
+  const permAcopy = { address: 'a', rpc: 'r1', privateDataPermission: 'None', allowedPrivateData: {} };
+  const permArpc = { address: 'a', rpc: 'r2', privateDataPermission: 'None', allowedPrivateData: {} };
+  const permB = { address: 'b', rpc: 'r1', privateDataPermission: 'None', allowedPrivateData: {} };
+
+  const resolveWith = (permission: any) =>
+    deliverPageResponse({ type: MidenDAppMessageType.GetCurrentPermissionResponse, permission });
+
+  it('emits only on genuine permission changes and swallows errors', async () => {
     jest.useFakeTimers();
+    const cb = jest.fn();
+    const stop = onPermissionChange(cb);
 
-    const callback = jest.fn();
-    const permissionA: MidenDAppPermission = {
-      address: 'addr-a',
-      rpc: 'rpc',
-      privateDataPermission: PrivateDataPermission.UponRequest,
-      allowedPrivateData: AllowedPrivateData.All
-    };
-    let currentPermission: MidenDAppPermission = permissionA;
-    jest.spyOn(window, 'postMessage').mockImplementation(msg => {
-      const req = msg as MidenPageMessage;
-      if (req.type !== MidenPageMessageType.Request) return;
-      queueMicrotask(() => {
-        window.dispatchEvent(
-          new MessageEvent('message', {
-            source: window,
-            data: {
-              type: MidenPageMessageType.Response,
-              reqId: req.reqId,
-              payload: { type: MidenDAppMessageType.GetCurrentPermissionResponse, permission: currentPermission }
-            } satisfies MidenPageMessage
-          })
-        );
-      });
-    });
+    // check #1 (initial, in flight): null === null -> equal -> no callback.
+    resolveWith(null);
+    await flush();
+    expect(cb).not.toHaveBeenCalled();
 
-    const stop = onPermissionChange(callback);
-
-    // First check: currentPerm (null) !== permissionA -> callback fires.
-    await jest.advanceTimersByTimeAsync(0);
-    expect(callback).toHaveBeenCalledTimes(1);
-    expect(callback).toHaveBeenCalledWith(permissionA);
-
-    // Second check (after the 10s poll interval), same permission -> the
-    // `permissionsAreEqual` branch is true, callback is NOT called again.
+    // check #2: null -> permA (changed) -> callback(permA).
     await jest.advanceTimersByTimeAsync(10_000);
-    expect(callback).toHaveBeenCalledTimes(1);
+    resolveWith(permA);
+    await flush();
+    expect(cb).toHaveBeenNthCalledWith(1, permA);
 
-    // Third check, permission changes (different address) -> callback fires again.
-    currentPermission = { ...permissionA, address: 'addr-b' };
+    // check #3: permA -> identical fields -> equal -> no callback.
     await jest.advanceTimersByTimeAsync(10_000);
-    expect(callback).toHaveBeenCalledTimes(2);
-    expect(callback).toHaveBeenCalledWith(currentPermission);
+    resolveWith(permAcopy);
+    await flush();
+    expect(cb).toHaveBeenCalledTimes(1);
 
-    // Fourth check, wallet disconnects (permission goes back to null) ->
-    // exercises `permissionsAreEqual`'s `aPerm === null` true branch.
-    currentPermission = null;
+    // check #4: same address, different rpc -> changed -> callback.
     await jest.advanceTimersByTimeAsync(10_000);
-    expect(callback).toHaveBeenCalledTimes(3);
-    expect(callback).toHaveBeenCalledWith(null);
+    resolveWith(permArpc);
+    await flush();
+    expect(cb).toHaveBeenNthCalledWith(2, permArpc);
+
+    // check #5: different address -> changed -> callback.
+    await jest.advanceTimersByTimeAsync(10_000);
+    resolveWith(permB);
+    await flush();
+    expect(cb).toHaveBeenNthCalledWith(3, permB);
+
+    // check #6: back to null -> changed -> callback(null).
+    await jest.advanceTimersByTimeAsync(10_000);
+    resolveWith(null);
+    await flush();
+    expect(cb).toHaveBeenNthCalledWith(4, null);
+
+    // check #7: error is swallowed by the try/catch -> no callback, keeps polling.
+    await jest.advanceTimersByTimeAsync(10_000);
+    deliverPageError('boom');
+    await flush();
+    expect(cb).toHaveBeenCalledTimes(4);
 
     stop();
-    jest.useRealTimers();
+  });
+});
+
+// ── assertResponse (direct) ────────────────────────────────────────
+describe('assertResponse', () => {
+  it('does not throw for truthy conditions', () => {
+    expect(() => assertResponse(true)).not.toThrow();
+    expect(() => assertResponse('ok')).not.toThrow();
+    expect(() => assertResponse(1)).not.toThrow();
   });
 
-  it('swallows errors from a failed permission check', async () => {
-    jest.useFakeTimers();
-    jest.spyOn(window, 'postMessage').mockImplementation(msg => {
-      const req = msg as MidenPageMessage;
-      if (req.type !== MidenPageMessageType.Request) return;
-      queueMicrotask(() => {
-        window.dispatchEvent(
-          new MessageEvent('message', {
-            source: window,
-            data: {
-              type: MidenPageMessageType.ErrorResponse,
-              reqId: req.reqId,
-              payload: MidenDAppErrorType.NotGranted
-            } satisfies MidenPageMessage
-          })
-        );
-      });
-    });
+  it('throws for falsy conditions', () => {
+    expect(() => assertResponse(false)).toThrow('Invalid response recieved');
+    expect(() => assertResponse(0)).toThrow('Invalid response recieved');
+    expect(() => assertResponse(null)).toThrow('Invalid response recieved');
+  });
+});
 
-    const callback = jest.fn();
-    const stop = onPermissionChange(callback);
+// ── Error classes ──────────────────────────────────────────────────
+describe('error classes', () => {
+  it('expose the expected names and default messages', () => {
+    const base = new MidenWalletError();
+    expect(base.name).toBe('MidenWalletError');
+    expect(base.message).toBe('An unknown error occured. Please try again or report it');
 
-    await jest.advanceTimersByTimeAsync(0);
-    expect(callback).not.toHaveBeenCalled();
+    const notGranted = new NotGrantedMidenWalletError();
+    expect(notGranted.name).toBe('NotGrantedMidenWalletError');
+    expect(notGranted.message).toBe('Permission Not Granted');
+    expect(notGranted).toBeInstanceOf(MidenWalletError);
 
-    stop();
-    jest.useRealTimers();
+    const notFound = new NotFoundMidenWalletError();
+    expect(notFound.name).toBe('NotFoundMidenWalletError');
+    expect(notFound.message).toBe('Account Not Found. Try connect again');
+    expect(notFound).toBeInstanceOf(MidenWalletError);
+
+    const invalid = new InvalidParamsMidenWalletError();
+    expect(invalid.name).toBe('InvalidParamsMidenWalletError');
+    expect(invalid.message).toBe('Some of the parameters you provided are invalid');
+    expect(invalid).toBeInstanceOf(MidenWalletError);
   });
 });

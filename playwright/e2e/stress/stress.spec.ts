@@ -129,10 +129,10 @@ test.describe('Stress - random send/claim', () => {
 
     await steps.step('deploy_and_fund', async () => {
       await midenCli.init();
-      await midenCli.createFaucet();
+      const faucetId = await midenCli.createFaucet();
       for (let i = 0; i < initialMintsPerWallet; i++) {
-        await midenCli.mint(addressA, INITIAL_MINT_AMOUNT, 'public');
-        await midenCli.mint(addressB, INITIAL_MINT_AMOUNT, 'public');
+        await midenCli.mint(faucetId, addressA, INITIAL_MINT_AMOUNT, 'public');
+        await midenCli.mint(faucetId, addressB, INITIAL_MINT_AMOUNT, 'public');
       }
       await midenCli.sync();
     });

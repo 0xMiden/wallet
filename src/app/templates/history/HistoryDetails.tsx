@@ -6,9 +6,10 @@ import { useTranslation } from 'react-i18next';
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import PageLayout from 'app/layouts/PageLayout';
 import { ScreenHeader } from 'components/ScreenHeader';
-import { getTransactionById } from 'lib/miden/activity';
+import { getTransactionById, trackOrderId, SwapOrderState, SwapOrderTracking } from 'lib/miden/activity';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
@@ -25,6 +26,20 @@ import { formatDate } from './transactionUtils';
 
 interface HistoryDetailsProps {
   transactionId: string;
+}
+
+/** Requested side of a swap transaction, persisted on `SwapTransaction.extraInputs`. */
+interface SwapExtraInputs {
+  requestedFaucetId?: string;
+  requestedAmount?: bigint;
+  orderId?: bigint;
+}
+
+/** Requested-token display info for the swap order tracking card. */
+interface RequestedTokenInfo {
+  amount: bigint;
+  decimals?: number;
+  symbol?: string;
 }
 
 const DISPLAY_DECIMAL_PLACES = 3;
@@ -94,6 +109,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Swap order tracking: the orderId is persisted on the swap tx's extraInputs
+  // by `completeSwapTransaction`; the live lineage is fetched via `trackOrderId`.
+  const [orderId, setOrderId] = useState<string | bigint | null>(null);
+  const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
+  const [swapTracking, setSwapTracking] = useState<SwapOrderTracking | null>(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
   const loadTransaction = useCallback(async () => {
     try {
       setLoadError(null);
@@ -105,6 +126,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         key: `completed-${tx.id}`,
         timestamp: tx.completedAt,
         message: tx.displayMessage,
+        status: tx.status,
         transactionIcon: tx.displayIcon,
         amount: tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
         token: tokenMetadata ? tokenMetadata.symbol : undefined,
@@ -118,6 +140,24 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         txType: tx.type
       } as IHistoryEntry;
 
+      if (tx.type === 'swap') {
+        const extra: SwapExtraInputs = tx.extraInputs ?? {};
+        if (extra.orderId != null) {
+          // The DEX faucets are usually absent from assetsMetadata (where
+          // getTokenMetadata would fall back to MIDEN), so resolve via the
+          // swap-token registry first.
+          const swapToken = getSwapTokenByFaucetId(extra.requestedFaucetId);
+          const requestedMeta =
+            !swapToken && extra.requestedFaucetId ? await getTokenMetadata(extra.requestedFaucetId) : undefined;
+          setRequestedToken({
+            amount: extra.requestedAmount ?? 0n,
+            decimals: swapToken?.decimals ?? requestedMeta?.decimals,
+            symbol: swapToken?.symbol ?? requestedMeta?.symbol
+          });
+          setOrderId(extra.orderId);
+        }
+      }
+
       setEntry(historyEntry);
     } catch (error) {
       console.error('[HistoryDetails] Failed to load transaction:', error);
@@ -128,6 +168,86 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   useEffect(() => {
     if (!entry && !loadError) loadTransaction();
   }, [loadTransaction, entry, loadError]);
+
+  // Poll the swap order lineage until it reaches a terminal state (filled or
+  // reclaimed). The orderId is persisted on the swap tx; the live lineage is
+  // fetched via `trackOrderId`. Each poll takes the WASM client lock, so a
+  // `null`/error result (not-yet-trackable or an order this client can't
+  // resolve) backs off exponentially and gives up after a cap, rather than
+  // hammering the lock every 3s forever. A genuinely `active` order resets the
+  // backoff and keeps a steady watch at the base interval.
+  useEffect(() => {
+    if (orderId == null) return;
+    // Capture the non-null id in a const so the narrowing survives into the
+    // hoisted `poll` declaration below (a function declaration wouldn't inherit
+    // the `orderId != null` guard otherwise).
+    const trackedOrderId = orderId;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const BASE_INTERVAL_MS = 3000;
+    const MAX_INTERVAL_MS = 30_000;
+    const MAX_UNRESOLVED_POLLS = 20;
+    let unresolved = 0;
+
+    // Exponential backoff for unresolved polls, capped; give up after the cap.
+    const scheduleUnresolvedRetry = () => {
+      unresolved += 1;
+      if (!cancelled && unresolved < MAX_UNRESOLVED_POLLS) {
+        const delay = Math.min(BASE_INTERVAL_MS * 2 ** (unresolved - 1), MAX_INTERVAL_MS);
+        timer = setTimeout(poll, delay);
+      }
+    };
+
+    async function poll() {
+      try {
+        const result = await trackOrderId(trackedOrderId);
+        if (cancelled) return;
+        setSwapTracking(result);
+        if (result === null) {
+          // Not yet trackable / not found — back off and eventually give up.
+          scheduleUnresolvedRetry();
+        } else if (result.state === 'active') {
+          // Live and resolving; steady watch until a terminal state.
+          unresolved = 0;
+          timer = setTimeout(poll, BASE_INTERVAL_MS);
+        }
+        // filled / reclaimed → terminal, stop polling.
+      } catch (error) {
+        console.error('[HistoryDetails] Failed to track swap order:', error);
+        if (!cancelled) scheduleUnresolvedRetry();
+      } finally {
+        if (!cancelled) setTrackingLoading(false);
+      }
+    }
+
+    setTrackingLoading(true);
+    poll();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [orderId]);
+
+  const orderStatusLabel = (state: SwapOrderState): string => {
+    switch (state) {
+      case 'filled':
+        return t('orderStatusFilled');
+      case 'reclaimed':
+        return t('orderStatusReclaimed');
+      default:
+        return t('orderStatusActive');
+    }
+  };
+
+  // How much of the requested amount has been filled so far, derived from the
+  // original requested amount and the lineage's still-outstanding remainder.
+  const filledRequested =
+    requestedToken && swapTracking
+      ? swapTracking.remainingRequested > requestedToken.amount
+        ? 0n
+        : requestedToken.amount - swapTracking.remainingRequested
+      : undefined;
 
   const fromAddress = entry?.message === 'Sent' ? entry?.address : entry?.secondaryAddress;
   const toAddress = entry?.message === 'Sent' ? entry?.secondaryAddress : entry?.address;
@@ -164,7 +284,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </div>
               {approximateUsdAmount && <p className="text-sm font-medium text-gray">{approximateUsdAmount}</p>}
               <div className="mt-2">
-                <StatusPill message={entry.message} />
+                <StatusPill status={entry.status} />
               </div>
             </div>
 
@@ -207,6 +327,41 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 )}
               </DetailCard>
             </div>
+
+            {/* Swap order tracking */}
+            {entry.txType === 'swap' && orderId != null && (
+              <div className="mt-6" data-testid="swap-order-card">
+                <DetailCard title={t('orderTracking')}>
+                  <DetailRow label={t('orderStatus')} isLast={!swapTracking}>
+                    {swapTracking ? (
+                      <span data-testid="swap-order-status" className="text-sm text-heading-gray font-medium">
+                        {orderStatusLabel(swapTracking.state)}
+                      </span>
+                    ) : (
+                      <span className="text-sm text-text-muted font-medium">
+                        {trackingLoading ? t('loading') : t('trackingUnavailable')}
+                      </span>
+                    )}
+                  </DetailRow>
+                  {swapTracking && (
+                    <DetailRow label={t('fillRounds')} isLast={!requestedToken}>
+                      <span data-testid="swap-order-fill-rounds" className="text-sm text-heading-gray font-medium">
+                        {swapTracking.currentDepth}
+                      </span>
+                    </DetailRow>
+                  )}
+                  {swapTracking && requestedToken && (
+                    <DetailRow label={t('amountFilled')} isLast>
+                      <span data-testid="swap-order-amount-filled" className="text-sm text-heading-gray font-medium">
+                        {formatAmount(filledRequested ?? 0n, requestedToken.decimals)} /{' '}
+                        {formatAmount(requestedToken.amount, requestedToken.decimals)}
+                        {requestedToken.symbol ? ` ${requestedToken.symbol}` : ''}
+                      </span>
+                    </DetailRow>
+                  )}
+                </DetailCard>
+              </div>
+            )}
 
             {/* Notes */}
             {hasNoteData && (

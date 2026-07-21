@@ -174,11 +174,6 @@ export interface TransactionSuccessLayoutProps {
   primaryAction: SuccessAction;
   /** Optional secondary call to action. */
   secondaryAction?: SuccessAction;
-  /**
-   * Footer button arrangement. `stacked` = primary on top, secondary below;
-   * `row` = secondary left, primary right. Defaults to `stacked`.
-   */
-  actionsLayout?: 'stacked' | 'row';
   /** Invoked by the header close button. */
   onClose: () => void;
 }
@@ -190,7 +185,6 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
   footerDescription,
   primaryAction,
   secondaryAction,
-  actionsLayout = 'stacked',
   onClose
 }) => {
   const { t } = useTranslation();
@@ -219,17 +213,10 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
           )}
 
           {secondaryAction ? (
-            actionsLayout === 'row' ? (
-              <div className="flex w-full gap-3">
-                <FooterAction action={secondaryAction} className="flex-1 max-w-none" />
-                <FooterAction action={primaryAction} className="flex-1 max-w-none" />
-              </div>
-            ) : (
-              <div className="flex w-full flex-col gap-3">
-                <FooterAction action={primaryAction} className="w-full" />
-                <FooterAction action={secondaryAction} className="w-full" />
-              </div>
-            )
+            <div className="flex w-full flex-col gap-3 items-center justify-between">
+              <FooterAction action={primaryAction} className="w-full" />
+              <FooterAction action={secondaryAction} className="w-full" />
+            </div>
           ) : (
             <FooterAction action={primaryAction} className="w-full" />
           )}

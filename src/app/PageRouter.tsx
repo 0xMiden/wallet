@@ -1,5 +1,6 @@
 import React, { FC, useLayoutEffect, useMemo } from 'react';
 
+import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
 import FullScreenPage from 'app/layouts/FullScreenPage';
 import TabLayout from 'app/layouts/TabLayout';
@@ -20,6 +21,7 @@ import EarnVaultDetail from 'screens/earn-flow/EarnVaultDetail';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
 import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
+import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
 import AllHistory from './pages/AllHistory';
 import Browser from './pages/Browser';
@@ -27,6 +29,7 @@ import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
 import ResetRequired from './pages/ResetRequired';
 import TokenDetail from './pages/TokenDetail';
+import { resolveRootView } from './root-view';
 import { HistoryDetails } from './templates/history/HistoryDetails';
 
 interface RouteContext {
@@ -34,6 +37,7 @@ interface RouteContext {
   fullPage: boolean;
   ready: boolean;
   locked: boolean;
+  hydrated: boolean;
 }
 
 type RouteFactory = Woozie.Router.ResolveResult<RouteContext>;
@@ -77,11 +81,16 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '*',
     (_p, ctx) => {
-      switch (true) {
-        case ctx.locked:
+      switch (resolveRootView(ctx)) {
+        case 'unlock':
           return <Unlock />;
 
-        case !ctx.ready:
+        // Backend not yet heard from (MV3 SW cold-start): show the loading
+        // spinner, NOT onboarding — status is still the initial Idle here.
+        case 'loading':
+          return <RootSuspenseFallback />;
+
+        case 'welcome':
           return <Welcome />;
 
         default:
@@ -92,14 +101,25 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   // Tab pages - wrapped in TabLayout with persistent footer
   [
     '/',
-    (_p, ctx) =>
-      ctx.ready ? (
-        <TabLayout>
-          <Explore />
-        </TabLayout>
-      ) : (
-        <Welcome />
-      )
+    (_p, ctx) => {
+      switch (resolveRootView(ctx)) {
+        case 'app':
+          return (
+            <TabLayout>
+              <Explore />
+            </TabLayout>
+          );
+
+        case 'unlock':
+          return <Unlock />;
+
+        case 'loading':
+          return <RootSuspenseFallback />;
+
+        default:
+          return <Welcome />;
+      }
+    }
   ],
   [
     '/history/:programId?',
@@ -180,7 +200,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     '/swap',
     onlyReady(() => (
       <TabLayout>
-        <></>
+        <SwapFlow />
       </TabLayout>
     ))
   ],
@@ -233,18 +253,18 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
-    '/generating-transaction',
-    onlyReady(() => (
+    '/generating-transaction/:txId',
+    onlyReady(({ txId }) => (
       <FullScreenPage>
-        <GeneratingTransactionPage />
+        <GeneratingTransactionPage txId={txId!} />
       </FullScreenPage>
     ))
   ],
   [
-    '/generating-transaction-full',
-    onlyReady(() => (
+    '/generating-transaction-full/:txId',
+    onlyReady(({ txId }) => (
       <FullScreenPage>
-        <GeneratingTransactionPage keepOpen={true} />
+        <GeneratingTransactionPage txId={txId!} keepOpen={true} />
       </FullScreenPage>
     ))
   ],
@@ -273,7 +293,8 @@ const PageRouter: FC = () => {
       popup: appEnv.popup,
       fullPage: appEnv.fullPage,
       ready: miden.ready,
-      locked: miden.locked
+      locked: miden.locked,
+      hydrated: miden.hydrated
     }),
     [appEnv.popup, appEnv.fullPage, miden]
   );

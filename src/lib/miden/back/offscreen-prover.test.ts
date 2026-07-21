@@ -10,6 +10,14 @@
  * module-scope `lifecycleQueue` and `nonSpeculativeProveCount` start clean.
  */
 
+// A top-level import marks this file as an ES module so its helpers
+// (installChromeMock, flush, …) are module-scoped rather than leaking into the
+// global script scope, where they collide with identically-named declarations
+// in sibling test files (e.g. src/offscreen/main.test.ts). Type-only, so it is
+// erased at compile time and does not interfere with the jest.resetModules() +
+// dynamic-import pattern the suite relies on.
+import type { ProveViaOffscreenResult } from './offscreen-prover';
+
 type OnMessageListener = (msg: any, sender: any, sendResponse: (response?: any) => void) => boolean | undefined;
 
 interface FakeChromeRuntime {
@@ -263,7 +271,7 @@ describe('offscreen-prover', () => {
       const promise = mod.proveViaOffscreen(new Uint8Array([1, 2, 3]), null);
       await flush();
       fireReady();
-      const result = await promise;
+      const result: ProveViaOffscreenResult = await promise;
 
       expect(result.durationMs).toBe(1234);
       expect(new Uint8Array(result.provenBytes)).toEqual(provenBytes);

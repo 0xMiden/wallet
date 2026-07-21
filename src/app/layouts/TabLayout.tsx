@@ -7,7 +7,7 @@ import { useAppEnv } from 'app/env';
 import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
-import { BottomNav } from 'components/ui';
+import { BottomNav, SegmentedActionBar } from 'components/ui';
 import { springs } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
@@ -114,17 +114,17 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       id: 'receive',
       label: 'Receive',
       icon: <Icon name={IconName.Receive} className="w-5 h-5" />
-    }
+    },
     // {
     //   id: 'earn',
     //   label: 'Earn',
     //   icon: <Icon name={IconName.Earn} className="w-5 h-5" />
     // },
-    // {
-    //   id: 'swap',
-    //   label: 'Swap',
-    //   icon: <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
-    // }
+    {
+      id: 'swap',
+      label: 'Swap',
+      icon: <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
+    }
   ];
 
   const activeTab = activeTabFromPath(pathname);
@@ -142,13 +142,11 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     }
   };
 
+  // SegmentedActionBar already no-ops re-taps on the active segment and
+  // fires the selection haptic itself.
   const handleActionChange = (id: string) => {
-    if (id === activeAction) return;
     const to = ACTION_ROUTES[id];
-    if (to && to !== pathname) {
-      hapticSelection();
-      navigate(to);
-    }
+    if (to && to !== pathname) navigate(to);
   };
 
   // Platform-specific sizing:
@@ -181,43 +179,12 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           stays fixed across intra-home-group navigations. */}
       {showActionBar && (
         <div className="shrink-0 relative z-10">
-          {/* Temporary for this release: keep this inline until
-              we bring in another tabs and then use `SegmentedActionBar`. */}
-          <div role="tablist" className="flex h-16 items-center gap-1 bg-gray-25 px-3 py-3">
-            {actionItems.map(item => {
-              const isActive = item.id === activeAction;
-
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={isActive}
-                  aria-label={item.label}
-                  onClick={() => handleActionChange(item.id)}
-                  className={classNames(
-                    'relative flex h-12 min-w-0 flex-1 basis-0 items-center justify-center gap-1.5 overflow-hidden rounded-[22px] px-2',
-                    'text-text-primary-token transition-colors',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30'
-                  )}
-                >
-                  {isActive && (
-                    <motion.div
-                      layoutId="tab-layout-action-fill"
-                      className="absolute inset-0 rounded-[22px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
-                      transition={springs.standard}
-                    />
-                  )}
-                  <span className="relative flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full">
-                    {item.icon}
-                  </span>
-                  <span className="relative min-w-0 whitespace-nowrap text-sm font-bold leading-none">
-                    {item.label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <SegmentedActionBar
+            items={actionItems}
+            activeId={activeAction}
+            onChange={handleActionChange}
+            layoutId="tab-layout-action-fill"
+          />
         </div>
       )}
 

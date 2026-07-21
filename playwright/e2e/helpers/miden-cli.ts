@@ -5,11 +5,8 @@ import * as path from 'path';
 import type { CLIRunner } from '../harness/cli-runner';
 import type { CLIInvocation, EnvironmentConfig } from '../harness/types';
 
-const FAUCET_INIT_TOML = `[fungible-faucet-metadata]
-max_supply = 1000000000000
-decimals = 8
-symbol = "TST"
-`;
+const faucetInitToml = (symbol: string, decimals: number) =>
+  `[fungible-faucet-metadata]\nmax_supply = 1000000000000\ndecimals = ${decimals}\nsymbol = "${symbol}"\n`;
 
 /**
  * Classify a `miden-client` CLI stderr as a transient failure that should be
@@ -135,7 +132,8 @@ export function resolveCliPath(): string {
  * Each test run gets an isolated .miden directory via --local.
  */
 export class MidenCli {
-  private faucetId: string | undefined;
+  private faucets = new Map<string, string>(); // symbol -> faucetId
+  private lastFaucetId?: string;
   private binaryPath: string;
   private workDir: string;
   private env: EnvironmentConfig;
@@ -191,10 +189,10 @@ export class MidenCli {
    * Deploy a new fungible faucet account.
    * Returns the faucet account ID.
    */
-  async createFaucet(): Promise<string> {
+  async createFaucet(symbol = 'TST', decimals = 8): Promise<string> {
     // Write the init storage data TOML
     const tomlPath = path.join(this.workDir, 'faucet-init.toml');
-    fs.writeFileSync(tomlPath, FAUCET_INIT_TOML);
+    fs.writeFileSync(tomlPath, faucetInitToml(symbol, decimals));
 
     const createArgs =
       `new-account --account-type public ` +
@@ -225,40 +223,45 @@ export class MidenCli {
 
     // Parse account ID from stdout
     const accountId = createResult.parsed?.accountId;
+    let id: string;
     if (!accountId) {
       // Fallback: try to parse from "account -s <ID>" pattern
       const match = createResult.stdout.match(/account\s+-s\s+(\S+)/);
-      if (!match) {
+      if (!match || !match[1]) {
         throw new Error(
           `Could not parse faucet account ID from output:\n${createResult.stdout}`
         );
       }
-      this.faucetId = match[1];
+      id = match[1];
     } else {
-      this.faucetId = accountId;
+      id = accountId;
     }
+
+    this.faucets.set(symbol, id);
+    this.lastFaucetId = id;
 
     // Sync to confirm deployment
     await this.sync();
 
-    return this.faucetId!;
+    return id;
   }
 
   /**
    * Mint tokens from the deployed faucet to a target account.
    */
   async mint(
+    faucetId: string,
     targetAccountId: string,
-    amount: number,
+    amount: number | bigint,
     noteType: 'public' | 'private'
   ): Promise<{ txId: string; noteId: string }> {
-    if (!this.faucetId) {
-      throw new Error('Faucet not deployed. Call createFaucet() first.');
+    if (!faucetId) {
+      throw new Error('mint: faucetId required');
     }
 
     let mintArgs =
       `mint --target ${targetAccountId} ` +
-      `--asset ${amount}::${this.faucetId} ` +
+      `--asset ${amount}::${faucetId} ` +
       `--note-type ${noteType} ` +
       `--force`;
 
@@ -313,7 +316,7 @@ export class MidenCli {
    * Get the faucet ID (if deployed).
    */
   getFaucetId(): string | undefined {
-    return this.faucetId;
+    return this.lastFaucetId;
   }
 
   /**

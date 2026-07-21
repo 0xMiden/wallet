@@ -17,7 +17,9 @@ export interface SelectAmountProps {
   amount: string;
   isValidAmount: boolean;
   error?: string;
+  /** Overrides the amount label (e.g. "Select Amount", "You Pay"). */
   label?: React.ReactNode;
+  /** Overrides the Confirm button label in the page variant. */
   confirmTitle?: string;
   showNetworkPill?: boolean;
   showBalanceHelper?: boolean;
@@ -27,7 +29,17 @@ export interface SelectAmountProps {
   children?: React.ReactNode;
   onAmountChange: (amount: string) => void;
   onSelectToken: () => void;
-  onConfirm: () => void;
+  /** Required in the default (page) variant, which renders its own Confirm CTA. */
+  onConfirm?: () => void;
+  /**
+   * `embedded` strips the full-screen chrome (network pill, balance helper,
+   * scroll container, Confirm button) so the field can be stacked — the swap
+   * screen renders two of these (You Pay / You Receive) under one shared
+   * Confirm. Defaults to the standalone page layout used by the send flow.
+   */
+  embedded?: boolean;
+  /** Token-logo symbol override (e.g. the DEX `logoSymbol`); defaults to `token.name`. */
+  logoSymbol?: string;
 }
 
 /** Trim trailing zeros so "200.000" renders as "200" but "200.5" stays intact. */
@@ -48,7 +60,9 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   children,
   onAmountChange,
   onSelectToken,
-  onConfirm
+  onConfirm,
+  embedded = false,
+  logoSymbol
 }) => {
   const { t } = useTranslation();
 
@@ -65,7 +79,13 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       }}
       className="flex items-center gap-1.25 cursor-pointer"
     >
-      {token && <TokenLogo symbol={token.name} size="md" />}
+      {token ? (
+        <TokenLogo symbol={logoSymbol ?? token.name} size="md" />
+      ) : embedded ? (
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#2F6BED] text-lg font-bold text-pure-white">
+          $
+        </span>
+      ) : null}
       <span className="font-heading text-2xl font-bold text-heading-gray">
         {token ? token.name : t('selectAToken')}
       </span>
@@ -85,6 +105,22 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       </>
     ) : null;
 
+  const amountField = (
+    <AmountInput
+      label={label ?? t('selectAmount')}
+      value={amount}
+      error={error ? t(error) : undefined}
+      helper={embedded ? undefined : helper}
+      tokenSelector={tokenSelector}
+      data-testid="send-amount-input"
+      onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
+    />
+  );
+
+  if (embedded) {
+    return amountField;
+  }
+
   return (
     <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg', isMobile() ? 'px-8' : 'px-6')}>
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
@@ -93,15 +129,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
             {t('miden')}
           </span>
         )}
-        <AmountInput
-          label={label ?? t('selectAmount')}
-          value={amount}
-          error={error ? t(error) : undefined}
-          helper={helper}
-          tokenSelector={tokenSelector}
-          data-testid="send-amount-input"
-          onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
-        />
+        {amountField}
         {children}
       </div>
 
@@ -110,7 +138,10 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           title={confirmTitle ?? t('confirm')}
           variant={ButtonVariant.Primary}
           onClick={onConfirm}
-          disabled={!canProceed}
+          // `onConfirm` is optional (the embedded variant omits it and returns
+          // early above), so in this page variant a missing handler disables
+          // the CTA rather than rendering a live-but-dead button.
+          disabled={!canProceed || !onConfirm}
           data-testid="send-amount-confirm"
           className="w-full max-w-none rounded-full text-base font-semibold"
         />

@@ -1,0 +1,125 @@
+name: Swap E2E (Chrome)
+on:
+  pull_request:
+  workflow_dispatch: {}
+concurrency:
+  group: swap-e2e-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  # Runs on EVERY PR (no path filter, by choice) so a change that breaks swaps
+  # WITHOUT touching swap paths -- an @miden-sdk bump, a shared-file edit, a node
+  # image tag change -- is still caught. It runs in parallel with the other CI
+  # workflows on its own runner, so it doesn't lengthen the critical path; the
+  # cost is ~20-30m of runner time (mostly cold Rust compiles) per PR. Also
+  # runnable on demand via workflow_dispatch. swap-e2e-gate is the stable
+  # required-check name.
+  swap-e2e:
+    name: swap-e2e (chrome)
+    runs-on: ubuntu-latest
+    # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m);
+    # warm-cache runs are ~20m. 45m gives the cold run headroom to seed the cache.
+    timeout-minutes: 45
+    env:
+      E2E_NETWORK: localhost
+      MIDEN_NTX_AUTH: e2e-ntx-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: yarn }
+      # Pinned exact (NOT @stable): a required gate must not drift with upstream
+      # rustc -- a newer stable can reject the pinned older CLI/transport crates and
+      # go red on unrelated PRs. Bump this deliberately (and the cache key below).
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - name: Cache cargo (cli + note-transport)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ${{ runner.temp }}/note-transport/target
+          # rustc pin is in the key so a toolchain bump forces a clean rebuild
+          # (a binary built with a different rustc must not be reused).
+          key: swap-e2e-cargo-v1-rust1.96.1-${{ hashFiles('package.json', 'playwright/e2e/local-stack/versions.env') }}
+      - run: yarn install --frozen-lockfile
+      - name: Pre-install miden-client-cli (off the per-test clock)
+        run: |
+          # The harness auto-installs the CLI lazily on first use, but that ~7min
+          # compile blows the 300s per-test timeout. Pre-install the SAME pinned
+          # rev here so the harness's `miden-client --version` check short-circuits.
+          # Skip when the cargo cache already restored it (else `cargo install`
+          # errors "binary already exists"). The cache key hashes package.json, so
+          # a present binary is guaranteed to be the pinned rev.
+          if ! command -v miden-client >/dev/null 2>&1; then
+            url=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.url)")
+            rev=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.rev)")
+            cargo install miden-client-cli --git "$url" --rev "$rev" --locked
+          fi
+          miden-client --version
+      - name: Bring up node + prover
+        working-directory: playwright/e2e/local-stack
+        run: |
+          # --wait-timeout caps how long --wait blocks on readiness (--timeout is the
+          # unrelated shutdown timeout). Retry the bring-up so a transient GHCR image
+          # pull failure/rate-limit doesn't fail this gate.
+          for attempt in 1 2 3; do
+            docker compose --env-file versions.env -f docker-compose.local.yml up --wait --wait-timeout 300 && exit 0
+            echo "bring-up attempt $attempt failed; tearing down and retrying" >&2
+            docker compose --env-file versions.env -f docker-compose.local.yml down -v || true
+            sleep 10
+          done
+          exit 1
+      - name: Wait for node RPC
+        working-directory: playwright/e2e/local-stack
+        run: |
+          probe() { timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null; }
+          for _ in $(seq 1 90); do
+            probe 57291 && probe 50052 && echo "node(57291)+prover(50052) ready" && exit 0
+            sleep 2
+          done
+          echo "node RPC (57291) / prover (50052) not ready in time" >&2
+          docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color | tail -120
+          exit 1
+      # The guardian-maker swap spec (swap-guardian.spec.ts) needs the guardian
+      # co-signer (Tier-2). Guardian maker swaps work end-to-end; see that spec.
+      - name: Bring up guardian (Tier-2)
+        working-directory: playwright/e2e/local-stack
+        run: docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian up -d guardian
+      - name: Start note-transport
+        run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Build extension (localnet)
+        run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Run swap specs
+        run: xvfb-run -a yarn playwright test --config playwright.swap.config.ts --retries=1
+      - name: Dump stack logs on failure
+        if: failure()
+        working-directory: playwright/e2e/local-stack
+        run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml logs --no-color | tail -400
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: swap-e2e-report
+          path: test-results/
+      - name: Tear down
+        if: always()
+        working-directory: playwright/e2e/local-stack
+        run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml down -v || true
+
+  # Stable required-check name: passes iff swap-e2e succeeded, fails if it
+  # failed/cancelled. Mark THIS "required" in branch protection (not swap-e2e
+  # directly) so the required check name stays stable if the job is renamed.
+  swap-e2e-gate:
+    name: swap-e2e-gate
+    needs: [swap-e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          if [ "${{ needs.swap-e2e.result }}" != "success" ]; then
+            echo "swap-e2e ${{ needs.swap-e2e.result }}"; exit 1; fi
+          echo "swap-e2e ok"

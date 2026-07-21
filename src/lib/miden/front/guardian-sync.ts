@@ -73,7 +73,7 @@ export async function syncGuardianAccounts(): Promise<void> {
       // threshold-1 indefinitely. Idempotent + best-effort; once per session.
       if (!hardeningChecked.has(account.publicKey)) {
         hardeningChecked.add(account.publicKey);
-        const { ensureGuardianProcedureThresholds } = await import('lib/miden/activity/transactions');
+        const { ensureGuardianProcedureThresholds } = await import('lib/miden/transaction');
         await ensureGuardianProcedureThresholds(account.publicKey, undefined, zustandProvider);
       }
     } catch (error) {

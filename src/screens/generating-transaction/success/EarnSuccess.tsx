@@ -41,7 +41,6 @@ export const EarnSuccess: FC<TransactionSuccessProps> = ({ onDoneClick }) => {
         onClick: onDoneClick,
         variant: ButtonVariant.Secondary
       }}
-      actionsLayout="row"
       onClose={onDoneClick}
     />
   );

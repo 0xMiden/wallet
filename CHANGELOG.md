@@ -1,15 +1,32 @@
 # Changelog
 
-## 1.15.8 (TBD)
+## 1.15.9 (TBD)
 
 ### Features
 
 * [FEATURE][all] **Guardian accounts now auto-detect and reconcile out-of-band guardian switches; dApps can read guardian info via `requestGuardianInfo()`.**
 
+## 1.15.8 (2026-07-21)
+
 ### Changes
+
+* [CHANGE][all] Internal refactor: the transaction pipeline moved from `src/lib/miden/activity/transactions.ts` into `src/lib/miden/transaction/` split by lifecycle (`initiate` / `complete` / `get` / `cancel` / `helper`, with `generateTransaction` and the processing loop in `index.ts`); the `lib/miden/activity` barrel re-exports it so consumers are unaffected.
+
+* [CHANGE][all] Redesigned the swap flow into a multi-step wizard — a You Pay / You Receive amounts screen (two stacked `SelectAmount` fields with a swap-direction toggle), a "Review Swap Details" screen (composed two-amount hero with a live Rate row), a swap variant of the transaction-progress view ("Generating Swap" title + a logo-less two-tone token→token summary badge), a "Swap Order Created!" success screen (summary pill, Expiration Date row with the funds-return note, "sourcing liquidity" footer, Done + View in Activities), and a bespoke Activities row ("Swap {offered} → {requested}" / "Via In Protocol Dex" with the requested amount on the right). Extracted the fixed devnet DEX token registry and price-quote logic into `lib/miden/swap/tokens.ts`, replacing the old single-page native-select swap UI. Swap details in Activities add a live order-tracking card (order status / fill rounds / amount filled, polled via `trackOrderId`), and the history status pill is driven by the transaction's actual status (adding a Failed state) instead of message sniffing. "Usually fills in", "Expires", and "Network fee" are static placeholders pending backend swap-quote metadata.
+
+* [CHANGE][all] The transaction progress view now shows a per-step duration ("2 sec") on each completed step row, derived from the stage transitions observed while the screen is open.
+
+* [CHANGE][all] The generating-transaction page is now addressed by transaction id (`/generating-transaction/:txId`) and observes that single transaction row directly instead of guessing which one to show by scanning the uncompleted-transactions queue. Completion and failure come straight off the row's status (`Completed` / `Failed`), removing the queue-emptying and failed-row-counting heuristics. The FIFO processing loop and the page's driver are unchanged.
+
+* [CHANGE][all] Animation polish pass: hover/press color feedback across buttons, list rows, chips, and inputs sped up from 300ms to a tokenized 150ms `ease` curve (`ease-hover`); dropdown close and react-modal transitions now use `ease-out` (modals settle from `scale(0.96)` instead of zooming from `0.75`); the toggle knob animates via `transform` instead of layout-thrashing `left`; and `prefers-reduced-motion` is honored by the page navigators, the Settings seed-phrase overlay, the mobile page slide-in, and the sync shimmer (movement dropped, fades kept). Audit plans live in `plans/`.
 
 * [CHANGE][extension] **Refreshed the network icons.** The default/testnet build's orange bread "B" is regenerated from a new transparent-background master (dropping the old opaque white card and padding so the B fills the frame), and the devnet icon is redesigned from the orange "B" with a blue corner wrench to a sage-green "B" with a centered developer wrench, so devnet is easy to tell apart from the default build at a glance. All sizes (16/32/40/48/128/234) were regenerated for both `logo-white-bg*` (default) and `logo-devnet*` (devnet) from 1536px masters with gamma-correct (linear-light) downscaling. Affects the Chrome extension (manifest icons + toolbar `action.default_icon`, notifications, and the full-page view) and the Tauri desktop window favicon; mobile is unaffected — it uses separate native app icons (`AppIcon`/`ic_launcher`) and `misc/brand/*` splash assets. Icon-swap wiring in `vite.extension.config.ts` is unchanged.
 
+### Fixes
+
+* [FIX][all] The transaction progress view no longer shows a spinning loader while the title already reads "Transaction completed" — a successful transaction now settles onto a green check hero for the beat before the success receipt appears, instead of reusing the in-progress spinner.
+
+* [FIX][mobile] **iOS no longer prompts Face ID every few seconds while a Guardian account syncs.** Reverts the `.userPresence` gate (#299) on the Secure Enclave hot key: guardian sync signs with the hot key on the ~3s AutoSync tick, so the per-use presence flag turned into a continuous Face ID prompt loop. New hot keys are created with `.privateKeyUsage` only again (silent signing, key still SE-bound). Since hot signing is silent everywhere now, the `background` consume flag and its Guardian cold-key auto-consume detour (which existed only to dodge that prompt) are also removed — every consume takes the standard hot-bound path. Android gets the equivalent fix: the Keystore hot-key wrapper is no longer auth-bound (`setUserAuthenticationRequired`), so hot signing no longer pops a fingerprint `BiometricPrompt` per signature; legacy auth-bound keys keep working through a prompt fallback until the hot key is rotated.
 ## 1.15.7 (2026-07-20)
 
 ### Changes
