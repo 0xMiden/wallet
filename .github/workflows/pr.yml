@@ -26,7 +26,20 @@ jobs:
       - name: Check Out Code
         uses: actions/checkout@v3
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # Use a PAT (not GITHUB_TOKEN) so the translation commit this job pushes
+          # RE-TRIGGERS the PR checks automatically. By GitHub design, pushes made with
+          # GITHUB_TOKEN do NOT start new workflow runs (a guard against recursive
+          # runs) — which forced a maintainer to manually "Approve and run" the checks
+          # on every PR that changed locale strings. A PAT-authenticated push is not
+          # exempt, so CI re-runs on the translation commit without approval. No loop:
+          # the push below is gated on `git-check.outputs.changes == 'true'`, and the
+          # re-run regenerates identical locales → no diff → no second push.
+          #
+          # SETUP: repo/org admin must add a `TRANSLATIONS_PAT` secret — a token with
+          # write (contents) access to this repo (classic PAT with `repo`, or a
+          # fine-grained PAT / GitHub App token with Contents: write). Until then this
+          # falls back to GITHUB_TOKEN (push still works, manual-approval behavior kept).
+          token: ${{ secrets.TRANSLATIONS_PAT || secrets.GITHUB_TOKEN }}
           # Fork PRs: the head branch lives in the contributor's fork, not the
           # base repo. Without `repository`, checkout defaults to the base repo
           # and the fetch of `head_ref` fails (Check Out Code errors, and every
