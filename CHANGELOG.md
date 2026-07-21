@@ -15,6 +15,8 @@
 
 ### Fixes
 
+* [FIX][all] **Batch claims ("Claim All" / per-asset claim) now display the full claimed amount.** Completing a batch consume overwrote the row's amount with just the first note's value, so the transaction receipt, activity row, and history details showed a single note's balance even though every note was consumed; the completion now sums all consumed notes of the displayed faucet.
+
 * [FIX][extension] The Receive screen's EVM entry point is now a "Cross-chain" action (icon row next to Share, replacing the "From another chain?" bordered button) and is hidden on the browser extension, where WalletConnect cannot connect (the Reown relay rejects the extension bundle's auth JWT with WebSocket close 3000).
 
 * [FIX][mobile] **iOS now renders at the display's native refresh rate (up to 120Hz ProMotion) instead of being capped at 60fps.** Added `CADisableMinimumFrameDurationOnPhone` to `Info.plist`. Since iOS 15, iPhones cap every app — including its WKWebView — to 60fps unless the app opts in to high frame rates, so on ProMotion devices animations and scrolling felt stuck at 60Hz (the same as Low Power Mode). CSS/compositor animations and native scrolling now run at the full display rate.

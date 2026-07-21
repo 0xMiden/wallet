@@ -93,7 +93,8 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
 };
 
 export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
-  const firstInputNote = result.executedTransaction().inputNotes().notes()[0];
+  const inputNotes = result.executedTransaction().inputNotes().notes();
+  const firstInputNote = inputNotes[0];
   if (!firstInputNote) {
     throw new Error('completeConsumeTransaction: no input notes on executed transaction');
   }
@@ -110,7 +111,17 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     throw new Error('completeConsumeTransaction: note has no fungible assets');
   }
   const faucetId = getBech32AddressFromAccountId(asset.faucetId());
-  const amount = asset.amount();
+  // Batch claims consume many notes in one tx. Display amount mirrors the
+  // ConsumeTransaction constructor's policy: sum every consumed asset of the
+  // first note's faucet; other faucets in a mixed batch aren't reflected.
+  let amount = 0n;
+  for (const inputNote of inputNotes) {
+    for (const noteAsset of inputNote.note().assets().fungibleAssets()) {
+      if (getBech32AddressFromAccountId(noteAsset.faucetId()) === faucetId) {
+        amount += noteAsset.amount();
+      }
+    }
+  }
 
   await updateTransactionStatus(id, ITransactionStatus.Completed, {
     displayMessage,
