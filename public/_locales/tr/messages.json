@@ -1823,6 +1823,18 @@
     "message": "Kurtarılan bu hesap için bir cihaz anahtarı oluşturun. Göndermeden önce gereklidir.",
     "englishSource": "Generate a device key for this recovered account. Required before sending."
   },
+  "guardianChangedTitle": {
+    "message": "Gardiyan değişti",
+    "englishSource": "Guardian changed"
+  },
+  "guardianChangedBody": {
+    "message": "Vasiniz değiştirildi ve yeni operatörü belirleyemedik. Yeniden bağlanmak için URL'sini girin.",
+    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlMismatch": {
+    "message": "Bu operatör, hesabınızın zincirdeki koruyucusuyla eşleşmiyor.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "revealHotKey": {
     "message": "Cihaz anahtarını göster",
     "englishSource": "Reveal device key"

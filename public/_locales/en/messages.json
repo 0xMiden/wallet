@@ -1806,6 +1806,18 @@
     "message": "Generate a device key for this recovered account. Required before sending.",
     "englishSource": "Generate a device key for this recovered account. Required before sending."
   },
+  "guardianChangedTitle": {
+    "message": "Guardian changed",
+    "englishSource": "Guardian changed"
+  },
+  "guardianChangedBody": {
+    "message": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect.",
+    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlMismatch": {
+    "message": "That operator doesn't match your account's on-chain guardian.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "revealHotKey": {
     "message": "Reveal device key",
     "englishSource": "Reveal device key"

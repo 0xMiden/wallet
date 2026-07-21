@@ -1824,6 +1824,18 @@
     "message": "Создайте ключ устройства для этой восстановленной учетной записи. Обязательно перед отправкой.",
     "englishSource": "Generate a device key for this recovered account. Required before sending."
   },
+  "guardianChangedTitle": {
+    "message": "Хранитель изменен",
+    "englishSource": "Guardian changed"
+  },
+  "guardianChangedBody": {
+    "message": "Ваш опекун сменился, и мы не смогли определить нового оператора. Введите его URL-адрес для повторного подключения.",
+    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlMismatch": {
+    "message": "Этот оператор не соответствует опекуну вашей учетной записи в цепочке.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "revealHotKey": {
     "message": "Показать ключ устройства",
     "englishSource": "Reveal device key"
