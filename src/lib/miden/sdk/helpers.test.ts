@@ -42,6 +42,15 @@ describe('miden sdk helpers', () => {
       expect(sameWalletAccountId('mtst1qabc_x', 'mtst1qdef')).toBe(false);
     });
 
+    it('unifies two different address encodings of the same account via the SDK round-trip', () => {
+      // Distinct address strings that resolve to the same on-chain account id must
+      // match — the value the SDK canonicalization adds over a plain prefix compare.
+      (Address.fromBech32 as jest.Mock)
+        .mockReturnValueOnce({ accountId: () => 'same-account-id' })
+        .mockReturnValueOnce({ accountId: () => 'same-account-id' });
+      expect(sameWalletAccountId('mtst1AAA_suffix', 'mtst1BBB')).toBe(true);
+    });
+
     it('falls back to the address portion when the id cannot be parsed', () => {
       (Address.fromBech32 as jest.Mock).mockImplementationOnce(() => {
         throw new Error('not bech32');

@@ -91,7 +91,9 @@ jest.mock('lib/store', () => ({
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
-  accountIdStringToSdk: (id: string) => ({ toString: () => `sdk-${id}` })
+  accountIdStringToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+  canonicalWalletAccountId: (id: string) => id.split('_')[0] ?? id,
+  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
 }));
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
