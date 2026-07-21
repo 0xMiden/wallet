@@ -8,7 +8,6 @@ import { useMidenContext, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getNetworkId } from 'lib/miden-chain/constants';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
-import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { useLocation } from 'lib/woozie';
 

@@ -1225,9 +1225,7 @@ describe('MidenClientInterface', () => {
       await expect(
         client.consumeNoteId({ accountId: 'mtst1acc', noteId: 'note-id-123', type: 'consume' } as any)
       ).resolves.toBe(fakeTransactionResult);
-      expect(consume).toHaveBeenCalledWith(
-        expect.objectContaining({ account: 'mtst1acc', notes: ['note-id-123'] })
-      );
+      expect(consume).toHaveBeenCalledWith(expect.objectContaining({ account: 'mtst1acc', notes: ['note-id-123'] }));
     });
 
     it('consumeNoteId propagates SDK consumption failures', async () => {
