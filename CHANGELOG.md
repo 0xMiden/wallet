@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.9 (TBD)
+
+### Fixes
+
+* [FIX][mobile] **Consuming/claiming a note on a Guardian account no longer freezes the wallet in "consuming" forever.** With the SDK bump to 0.15.5, the guardian transaction pipeline runs execute→prove→submit inside the SDK's `_withInnerWebClient` window; while that window is open the client runs any *other* call inline (skipping its own serialization) and requires the caller to hold an external mutex over every other WASM path. The 5s balance poll deliberately bypassed `withWasmClientLock`, so it fired mid-consume, ran inline, and double-borrowed the WASM client's `RefCell` (`web-client` `platform.rs` "RefCell already borrowed") — trapping the single-threaded mobile WASM client so the consume never completed. The balance poll now skips its cycle while the WASM lock is held (via a new `isWasmClientBusy()`), which also covers notification-driven background consumes. Single-sig accounts and SDK 0.15.2 (the current store/TestFlight build) were unaffected.
+
 ## 1.15.8 (2026-07-21)
 
 ### Features
