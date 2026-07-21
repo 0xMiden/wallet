@@ -1,4 +1,4 @@
-import { NoteType, TransactionProver, type TransactionResult, WasmWebClient } from '@miden-sdk/miden-sdk/lazy';
+import { NoteType, type TransactionResult, WasmWebClient } from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 
 import {
@@ -45,7 +45,7 @@ import {
 } from '../db/types';
 import { accountIdStringToSdk, canonicalWalletAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
+import { MidenClientCreateOptions, proveWithFallback } from '../sdk/miden-client-interface';
 
 export * from './cancel';
 export * from './complete';
@@ -463,10 +463,19 @@ const generateGuardianTransaction = async (
         await setTransactionStage(transaction.id, 'executing');
         const executedTx = await inner.executeTransaction(accountIdStringToSdk(transaction.accountId), tr);
         await setTransactionStage(transaction.id, 'proving');
-        const prover = !transaction.delegateTransaction ? TransactionProver.newLocalProver() : undefined;
-        const provedTx = prover
-          ? await inner.proveTransaction(executedTx, prover)
-          : await inner.proveTransaction(executedTx);
+        // Prove via the shared prover selection (delegate → remote; otherwise
+        // native on mobile / WASM local on desktop), identical to the
+        // non-guardian path. We MUST pass a prover explicitly: this is the RAW
+        // inner WebClient, whose default prover is the single-threaded
+        // main-thread WASM one — calling `inner.proveTransaction(executedTx)`
+        // with no prover freezes the mobile UI for the whole multi-second prove.
+        // In the delegate branch `proveWithFallback` calls the closure with no
+        // prover, so we substitute the client's remote prover here.
+        const remoteProver = (midenClient.client as unknown as { defaultProver?: unknown }).defaultProver ?? undefined;
+        const provedTx = await proveWithFallback(
+          prover => inner.proveTransaction(executedTx, prover ?? remoteProver),
+          transaction.delegateTransaction
+        );
         await setTransactionStage(transaction.id, 'submitting');
         const blockNumber = await inner.submitProvenTransaction(provedTx, executedTx);
         await inner.applyTransaction(executedTx, blockNumber);

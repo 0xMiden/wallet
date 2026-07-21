@@ -110,6 +110,9 @@ export const useWalletStore = create<WalletStore>()(
         const address = state.currentAccount.publicKey;
         fetchBalances(address, get().assetsMetadata, { tokenPrices: get().tokenPrices })
           .then(balances => {
+            // `null` = WASM client was busy and the read was skipped; leave any
+            // prior balances in place and let a later poll refresh.
+            if (balances === null) return;
             set(s => ({
               balances: { ...s.balances, [address]: balances },
               balancesLoading: { ...s.balancesLoading, [address]: false },
@@ -538,6 +541,14 @@ export const useWalletStore = create<WalletStore>()(
           setAssetsMetadata,
           tokenPrices: get().tokenPrices
         });
+        // `null` = WASM client was busy and the read was skipped; clear the
+        // loading flag but keep any prior balances and retry later.
+        if (balances === null) {
+          set(state => ({
+            balancesLoading: { ...state.balancesLoading, [accountAddress]: false }
+          }));
+          return;
+        }
         set(state => ({
           balances: { ...state.balances, [accountAddress]: balances },
           balancesLoading: { ...state.balancesLoading, [accountAddress]: false },

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.15.9 (TBD)
+
+### Fixes
+
+* [FIX][mobile] **Consuming/claiming a note on a Guardian account no longer freezes the wallet in "consuming" forever.** With the SDK bump to 0.15.5, the guardian transaction pipeline runs execute→prove→submit inside the SDK's `_withInnerWebClient` window; while that window is open the client runs any *other* call inline (skipping its own serialization) and requires the caller to hold an external mutex over every other WASM path. The 5s balance poll deliberately bypassed `withWasmClientLock`, so it fired mid-consume, ran inline, and double-borrowed the WASM client's `RefCell` (`web-client` `platform.rs` "RefCell already borrowed") — trapping the single-threaded mobile WASM client so the consume never completed. The balance poll's account read now runs under a non-blocking attempt on the WASM lock and is skipped whenever the lock is held (a transaction or sync), so it can neither stall behind long writes nor race a transaction — covering the 5s poll, notification-driven background consumes, and the store's other balance-read call sites. Single-sig accounts and SDK 0.15.2 (the current store/TestFlight build) were unaffected.
+
+* [FIX][mobile] **Guardian transactions on mobile no longer freeze the UI while proving.** The Guardian transaction pipeline proved on the single-threaded main-thread WASM prover regardless of platform or the delegated-proving setting — it drives the raw SDK client directly, whose default prover is the WASM one — so a Guardian send/consume locked the UI (buttons/navigation dead) for the entire multi-second proof. It now uses the same prover selection as every other transaction: delegated proving goes to the remote prover, and local proving uses the native iOS/Android prover (off the main thread) on mobile, so the UI stays responsive during proving. Desktop/extension proving is unchanged.
+
 ## 1.15.8 (2026-07-21)
 
 ### Features
