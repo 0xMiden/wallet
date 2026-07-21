@@ -3077,6 +3077,10 @@
     "message": "D'une autre chaîne ?",
     "englishSource": "From another chain?"
   },
+  "crossChain": {
+    "message": "Chaîne croisée",
+    "englishSource": "Cross-chain"
+  },
   "evmWalletConnected": {
     "message": "Portefeuille EVM connecté",
     "englishSource": "EVM wallet connected"

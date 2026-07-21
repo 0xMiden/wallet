@@ -3100,6 +3100,10 @@
     "message": "З іншої мережі?",
     "englishSource": "From another chain?"
   },
+  "crossChain": {
+    "message": "Перехресний ланцюг",
+    "englishSource": "Cross-chain"
+  },
   "evmWalletConnected": {
     "message": "Гаманець EVM підключено",
     "englishSource": "EVM wallet connected"

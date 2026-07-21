@@ -3091,6 +3091,10 @@
     "message": "Из другой сети?",
     "englishSource": "From another chain?"
   },
+  "crossChain": {
+    "message": "Кроссчейн",
+    "englishSource": "Cross-chain"
+  },
   "evmWalletConnected": {
     "message": "Кошелек EVM подключен",
     "englishSource": "EVM wallet connected"

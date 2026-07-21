@@ -3090,6 +3090,10 @@
     "message": "他のチェーンからですか？",
     "englishSource": "From another chain?"
   },
+  "crossChain": {
+    "message": "クロスチェーン",
+    "englishSource": "Cross-chain"
+  },
   "evmWalletConnected": {
     "message": "EVMウォレットが接続されました",
     "englishSource": "EVM wallet connected"

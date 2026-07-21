@@ -3067,6 +3067,10 @@
     "message": "De outra rede?",
     "englishSource": "From another chain?"
   },
+  "crossChain": {
+    "message": "Cadeia cruzada",
+    "englishSource": "Cross-chain"
+  },
   "evmWalletConnected": {
     "message": "Carteira EVM conectada",
     "englishSource": "EVM wallet connected"

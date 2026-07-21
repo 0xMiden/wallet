@@ -3020,6 +3020,10 @@
     "message": "¿De otra cadena?",
     "englishSource": "From another chain?"
   },
+  "crossChain": {
+    "message": "cadena cruzada",
+    "englishSource": "Cross-chain"
+  },
   "evmWalletConnected": {
     "message": "Cartera EVM conectada",
     "englishSource": "EVM wallet connected"

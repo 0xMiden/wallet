@@ -3127,6 +3127,10 @@
     "message": "From another chain?",
     "englishSource": "From another chain?"
   },
+  "crossChain": {
+    "message": "Cross-chain",
+    "englishSource": "Cross-chain"
+  },
   "evmWalletConnected": {
     "message": "EVM wallet connected",
     "englishSource": "EVM wallet connected"

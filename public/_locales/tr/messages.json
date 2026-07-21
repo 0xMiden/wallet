@@ -3078,6 +3078,10 @@
     "message": "Başka bir zincirden mi?",
     "englishSource": "From another chain?"
   },
+  "crossChain": {
+    "message": "Çapraz zincir",
+    "englishSource": "Cross-chain"
+  },
   "evmWalletConnected": {
     "message": "EVM cüzdanı bağlandı",
     "englishSource": "EVM wallet connected"

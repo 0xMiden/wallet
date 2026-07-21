@@ -3099,6 +3099,10 @@
     "message": "다른 체인에서요?",
     "englishSource": "From another chain?"
   },
+  "crossChain": {
+    "message": "크로스체인",
+    "englishSource": "Cross-chain"
+  },
   "evmWalletConnected": {
     "message": "EVM 지갑이 연결되었습니다",
     "englishSource": "EVM wallet connected"

@@ -3099,6 +3099,10 @@
     "message": "来自另一条链？",
     "englishSource": "From another chain?"
   },
+  "crossChain": {
+    "message": "跨链",
+    "englishSource": "Cross-chain"
+  },
   "evmWalletConnected": {
     "message": "EVM钱包已连接",
     "englishSource": "EVM wallet connected"
