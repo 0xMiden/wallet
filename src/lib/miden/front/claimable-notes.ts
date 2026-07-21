@@ -13,7 +13,8 @@ import { toNoteTypeString } from '../helpers';
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
-import { ConsumableNote, NoteTypeEnum } from '../types';
+import { classifySwapOrderNotes } from '../swap/classification';
+import { ConsumableNote, NoteTypeEnum, SwapOrderNoteMetadata } from '../types';
 import { useTokensMetadata } from './assets';
 import { isTestSyncPaused } from './test-sync-pause';
 
@@ -37,11 +38,16 @@ type ParsedNote = {
   senderAddress: string;
   isBeingClaimed: boolean;
   type: NoteTypeEnum | 'unknown';
+  swapOrder?: SwapOrderNoteMetadata;
 };
 
 // -------------------- Pure helpers (no side effects) --------------------
 
-function parseNotes(rawNotes: InputNoteRecord[], notesBeingClaimed: Set<string>): ParsedNote[] {
+function parseNotes(
+  rawNotes: InputNoteRecord[],
+  notesBeingClaimed: Set<string>,
+  swapOrders: Map<string, SwapOrderNoteMetadata> = new Map()
+): ParsedNote[] {
   const parsed: ParsedNote[] = [];
 
   for (const note of rawNotes) {
@@ -72,7 +78,8 @@ function parseNotes(rawNotes: InputNoteRecord[], notesBeingClaimed: Set<string>)
         amountBaseUnits,
         senderAddress,
         isBeingClaimed: notesBeingClaimed.has(noteId),
-        type: kind
+        type: kind,
+        swapOrder: swapOrders.get(noteId)
       });
     } catch (err) {
       console.error('Error processing note:', err);
@@ -127,7 +134,8 @@ function attachMetadataToNotes(
       metadata: metadataByFaucetId[n.faucetId]!,
       senderAddress: n.senderAddress,
       isBeingClaimed: n.isBeingClaimed,
-      type: n.type
+      type: n.type,
+      swapOrder: n.swapOrder
     }));
 }
 
@@ -170,7 +178,12 @@ async function fetchNotesFromLocalClient(
       .flatMap(tx => tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []))
   );
 
-  return parseNotes(rawNotes, notesBeingClaimed);
+  const swapOrders = await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient();
+    return classifySwapOrderNotes(rawNotes, publicAddress, midenClient);
+  });
+
+  return parseNotes(rawNotes, notesBeingClaimed, swapOrders);
 }
 
 // -------------------- Extension hook (reads from Zustand) --------------------
@@ -211,6 +224,7 @@ function useExtensionClaimableNotes(_publicAddress: string, enabled: boolean) {
     if (!enabled || extensionNotes === null) return undefined;
 
     return extensionNotes
+      .filter(n => !n.swapOrder || n.swapOrder.autoConsume === false)
       .filter(n => n.metadata || assetsMetadata[n.faucetId])
       .map(n => ({
         id: n.id,
@@ -219,7 +233,8 @@ function useExtensionClaimableNotes(_publicAddress: string, enabled: boolean) {
         metadata: (n.metadata as AssetMetadata) || assetsMetadata[n.faucetId],
         senderAddress: n.senderAddress,
         isBeingClaimed: extensionClaimingNoteIds.has(n.id),
-        type: (n.noteType as NoteTypeEnum | 'unknown') ?? 'unknown'
+        type: (n.noteType as NoteTypeEnum | 'unknown') ?? 'unknown',
+        swapOrder: n.swapOrder ? { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true } : undefined
       }));
   }, [enabled, extensionNotes, extensionClaimingNoteIds, assetsMetadata]);
 
@@ -253,7 +268,9 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
   });
 
   const fetchClaimableNotes = useCallback(async () => {
-    const parsedNotes = await fetchNotesFromLocalClient(publicAddress, debugInfoRef);
+    const parsedNotes = (await fetchNotesFromLocalClient(publicAddress, debugInfoRef)).filter(
+      note => !note.swapOrder || note.swapOrder.autoConsume === false
+    );
 
     // 2) Seed metadata map from cache (and baked-in MIDEN)
     const metadataByFaucetId = await buildMetadataMapFromCache(parsedNotes, allTokensBaseMetadataRef.current);

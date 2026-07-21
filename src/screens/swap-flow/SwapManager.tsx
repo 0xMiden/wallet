@@ -41,6 +41,8 @@ const SwapManager: React.FC = () => {
   // True once the user manually edits the receive amount, which pauses the
   // auto-quote until they change the pay amount or a token again.
   const [requestEdited, setRequestEdited] = useState(false);
+  const [expirySeconds, setExpirySeconds] = useState('120');
+  const [autoConsume, setAutoConsume] = useState(true);
   const [selectingSide, setSelectingSide] = useState<SwapSide>('offer');
   const [showTokenDrawer, setShowTokenDrawer] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -117,12 +119,19 @@ const SwapManager: React.FC = () => {
   const hasOfferAmount = offerAmountValue > 0;
   const offerAmountExceedsBalance = offerAmountValue > offerBalance;
   const quoteUnavailable = Boolean(swapEta.error);
+  const expirySecondsValue = Number(expirySeconds);
+  const validExpiry = Number.isInteger(expirySecondsValue) && expirySecondsValue > 0;
   // The receive field is auto-derived: show a skeleton from the moment a pay
   // amount is entered until the first quote lands (or errors). Subsequent edits
   // recompute in place from the cached rate, so no skeleton flash there.
   const requestCalculating = !sameToken && hasOfferAmount && !requestEdited && !requestAmount && !quoteUnavailable;
   const canProceed =
-    !submitting && !sameToken && hasOfferAmount && !offerAmountExceedsBalance && Number(requestAmount) > 0;
+    !submitting &&
+    !sameToken &&
+    hasOfferAmount &&
+    !offerAmountExceedsBalance &&
+    Number(requestAmount) > 0 &&
+    validExpiry;
 
   const onOfferAmountChange = useCallback((amount: string) => {
     setOfferAmount(amount);
@@ -170,7 +179,13 @@ const SwapManager: React.FC = () => {
 
   const onSubmit = useCallback(async () => {
     if (submitting || !publicKey) return;
-    if (sameToken || !(Number(offerAmount) > 0) || !(Number(requestAmount) > 0) || offerAmountExceedsBalance) {
+    if (
+      sameToken ||
+      !(Number(offerAmount) > 0) ||
+      !(Number(requestAmount) > 0) ||
+      offerAmountExceedsBalance ||
+      !validExpiry
+    ) {
       setSubmitError(t('swapInvalidAmounts'));
       return;
     }
@@ -189,7 +204,9 @@ const SwapManager: React.FC = () => {
         stringToBigInt(offerAmount, offerToken.decimals),
         requestToken.faucetId,
         stringToBigInt(requestAmount, requestToken.decimals),
-        isDelegateProofEnabled()
+        isDelegateProofEnabled(),
+        expirySecondsValue,
+        autoConsume
       );
 
       // On extension the service worker owns the tx loop — nudge it. On
@@ -215,6 +232,9 @@ const SwapManager: React.FC = () => {
     requestToken,
     offerAmount,
     requestAmount,
+    expirySecondsValue,
+    autoConsume,
+    validExpiry,
     t
   ]);
 
@@ -257,6 +277,10 @@ const SwapManager: React.FC = () => {
               requestToken={requestToken}
               requestAmount={requestAmount}
               swapEta={swapEta.eta}
+              expirySeconds={expirySeconds}
+              autoConsume={autoConsume}
+              onExpirySecondsChange={setExpirySeconds}
+              onAutoConsumeChange={setAutoConsume}
               submitError={submitError}
               onGoBack={goBack}
               onSubmit={onSubmit}
@@ -273,6 +297,8 @@ const SwapManager: React.FC = () => {
       requestToken,
       requestAmount,
       swapEta.eta,
+      expirySeconds,
+      autoConsume,
       submitError,
       canProceed,
       requestCalculating,

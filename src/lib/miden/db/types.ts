@@ -440,7 +440,15 @@ export class SwapTransaction implements ITransaction {
   // Requested side of the swap. `orderId` is strictly output info (the PSWAP
   // lineage id resolved by `completeSwapTransaction`) rather than an input, but
   // it rides here to avoid a Dexie schema change; it's absent until completion.
-  extraInputs: { requestedFaucetId: string; requestedAmount: bigint; orderId?: bigint };
+  extraInputs: {
+    requestedFaucetId: string;
+    requestedAmount: bigint;
+    orderId?: bigint | string;
+    expirySeconds?: number;
+    expiresAt?: number;
+    expiryTriggeredAt?: number;
+    autoConsume?: boolean;
+  };
   delegateTransaction?: boolean;
   /**
    * Serialized PSWAP-create `TransactionRequest`, populated lazily by the
@@ -457,14 +465,16 @@ export class SwapTransaction implements ITransaction {
     offeredAmount: bigint,
     requestedFaucetId: string,
     requestedAmount: bigint,
-    delegateTransaction?: boolean
+    delegateTransaction?: boolean,
+    expirySeconds: number = 120,
+    autoConsume: boolean = true
   ) {
     this.id = uuid();
     this.type = 'swap';
     this.accountId = accountId;
     this.faucetId = offeredFaucetId;
     this.amount = offeredAmount;
-    this.extraInputs = { requestedFaucetId, requestedAmount };
+    this.extraInputs = { requestedFaucetId, requestedAmount, expirySeconds, autoConsume };
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'SWAP';

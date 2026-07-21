@@ -3,7 +3,8 @@ import React from 'react';
 import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
-import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
+import { ReviewAmount, ReviewLabel, ReviewLayout, ReviewRow } from 'components/review';
+import { Toggle } from 'components/Toggle';
 import { SwapEta, SwapToken } from 'lib/miden/swap/tokens';
 
 export interface ReviewSwapProps {
@@ -13,6 +14,10 @@ export interface ReviewSwapProps {
   requestAmount: string;
   /** Latest quote for the pair; drives the Rate and "Usually fills in" rows. */
   swapEta?: SwapEta;
+  expirySeconds: string;
+  autoConsume: boolean;
+  onExpirySecondsChange: (seconds: string) => void;
+  onAutoConsumeChange: (enabled: boolean) => void;
   submitError?: string | null;
   onGoBack: () => void;
   onSubmit: () => void;
@@ -63,6 +68,13 @@ const SwapArrows: React.FC = () => (
   </span>
 );
 
+const ReviewControlRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div className="flex items-center justify-between gap-4 py-6">
+    <ReviewLabel className="shrink-0">{label}</ReviewLabel>
+    <div className="flex min-w-0 items-center justify-end">{children}</div>
+  </div>
+);
+
 /**
  * Swap review screen: a two-amount hero (You Send / You Receive) with a swap
  * glyph between them, then the swap detail rows. Only Rate is wired today; the
@@ -74,6 +86,10 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   requestToken,
   requestAmount,
   swapEta,
+  expirySeconds,
+  autoConsume,
+  onExpirySecondsChange,
+  onAutoConsumeChange,
   submitError,
   onGoBack,
   onSubmit
@@ -115,6 +131,30 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
     >
       <ReviewRow label={t('rate')} value={formatRate(offerToken.symbol, requestToken.symbol, swapEta?.marketPrice)} />
       <ReviewRow label={t('usuallyFillsIn')} value={formatFillsIn(t, swapEta)} />
+      <ReviewControlRow label={t('expires')}>
+        <label className="inline-flex items-center justify-end gap-2 font-heading text-2xl font-bold text-heading-gray">
+          <input
+            data-testid="swap-expiry-seconds"
+            type="number"
+            min={1}
+            step={1}
+            inputMode="numeric"
+            value={expirySeconds}
+            onChange={event => onExpirySecondsChange(event.target.value)}
+            className="w-24 appearance-none rounded-lg border border-border-light bg-transparent px-3 py-2 text-right outline-none [appearance:textfield] focus:border-primary-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          />
+          <span>{t('seconds')}</span>
+        </label>
+      </ReviewControlRow>
+      <ReviewControlRow label={t('swapAutoConsume')}>
+        <Toggle
+          data-testid="swap-auto-consume"
+          value={autoConsume}
+          onChangeValue={onAutoConsumeChange}
+          aria-label={t('swapAutoConsume')}
+          className="!h-8 !w-16 !px-1.5 [&>div]:!h-5 [&>div]:!w-5"
+        />
+      </ReviewControlRow>
       {submitError && <p className="select-text pt-2 text-sm font-medium text-status-negative">{submitError}</p>}
     </ReviewLayout>
   );

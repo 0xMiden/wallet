@@ -238,6 +238,7 @@
   "swapEtaMinutes": "~$minutes$ min",
   "swapEtaFallback": "~30s",
   "expires": "Expires",
+  "swapAutoConsume": "Auto consume",
   "swapExpiresValue": "In 7 days",
   "networkFee": "Network fee",
   "swapNetworkFeeValue": "~$0.42",

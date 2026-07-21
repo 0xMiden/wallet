@@ -66,8 +66,7 @@ test.describe('swap: full fill B→A', () => {
       })
       .toBe(OFFER_BASE);
 
-    // Settlement 3: maker B claims the P2ID payback and receives the full requested SWPA.
-    await walletB.claimAllNotes(150_000);
+    // Settlement 3: maker B's hidden payback is consumed by the swap lifecycle.
     await expect
       .poll(async () => (await tokenBalance(walletB, b.address, pair.request.faucetId)).toString(), {
         timeout: 90_000,

@@ -119,6 +119,14 @@ jest.mock('./ReviewSwap', () => ({
       <span data-testid="rs-offer-amount">{props.offerAmount}</span>
       <span data-testid="rs-request-amount">{props.requestAmount}</span>
       <span data-testid="rs-market-price">{String(props.swapEta?.marketPrice)}</span>
+      <input
+        data-testid="rs-expiry"
+        value={props.expirySeconds}
+        onChange={event => props.onExpirySecondsChange(event.target.value)}
+      />
+      <button data-testid="rs-auto-consume" onClick={() => props.onAutoConsumeChange(!props.autoConsume)}>
+        {String(props.autoConsume)}
+      </button>
       <span data-testid="rs-submit-error">{props.submitError ?? ''}</span>
       <button data-testid="rs-go-back" onClick={props.onGoBack} />
       <button data-testid="rs-submit" onClick={props.onSubmit} />
@@ -259,6 +267,8 @@ describe('SwapFlow / SwapManager', () => {
 
     // Review side receives the single live swap-eta quote.
     expect(screen.getByTestId('rs-market-price')).toHaveTextContent('2');
+    expect(screen.getByTestId('rs-expiry')).toHaveValue('120');
+    expect(screen.getByTestId('rs-auto-consume')).toHaveTextContent('true');
 
     // Drawer starts closed, keyed to the offer side by default.
     const drawer = screen.getByTestId('swap-token-drawer');
@@ -482,6 +492,32 @@ describe('SwapFlow / SwapManager', () => {
   });
 
   describe('onSubmit', () => {
+    it('submits the edited expiry and auto-consume preference', async () => {
+      renderFlow();
+      setOffer('10');
+      fireEvent.change(screen.getByTestId('rs-expiry'), { target: { value: '300' } });
+      fireEvent.click(screen.getByTestId('rs-auto-consume'));
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 300, false);
+    });
+
+    it('rejects a non-positive expiry', async () => {
+      renderFlow();
+      setOffer('10');
+      fireEvent.change(screen.getByTestId('rs-expiry'), { target: { value: '0' } });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
+    });
+
     it('rejects an empty pay amount with a validation error', async () => {
       renderFlow();
       await act(async () => {
@@ -587,7 +623,7 @@ describe('SwapFlow / SwapManager', () => {
       });
 
       expect(mockWalletState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
-      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, true);
+      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, true, 120, true);
       expect(mockRequestSWProcessing).toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx%20123', 'replace');
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('');

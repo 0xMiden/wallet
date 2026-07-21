@@ -93,9 +93,8 @@ test.describe('swap: guardian maker full fill', () => {
       })
       .toBe(OFFER_BASE);
 
-    // Settlement 3: guardian maker claims the P2ID payback (guardian co-signs the
-    // consume) and receives the full requested SWPB.
-    await walletA.claimAllNotes(220_000);
+    // Settlement 3: the swap lifecycle batches the hidden payback and the
+    // guardian co-signs that background consume.
     await expect
       .poll(async () => (await tokenBalance(walletA, a.address, pair.request.faucetId)).toString(), {
         timeout: 120_000,
