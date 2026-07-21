@@ -45,7 +45,7 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { accountIdStringToSdk } from '../sdk/helpers';
+import { accountIdStringToSdk, canonicalWalletAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 
@@ -135,7 +135,10 @@ export const generateTransaction = async (
       // delta per account at a time, and concurrent same-account txs make its
       // expected commitment diverge from on-chain, stalling canonicalization
       // for minutes (see guardian/serialize.ts and OpenZeppelin/guardian#303).
-      await withGuardianAccountLock(transaction.accountId, () =>
+      // Canonicalize the lock key: the same guardian account can arrive as a bare
+      // bech32 address (dApp) or the composite publicKey (in-wallet); both must take
+      // the SAME per-account chain, else concurrent deltas stall canonicalization.
+      await withGuardianAccountLock(canonicalWalletAccountId(transaction.accountId), () =>
         generateGuardianTransaction(transaction, signCallback, guardianProvider)
       );
     } catch (error) {
@@ -291,7 +294,9 @@ const generateGuardianTransaction = async (
   // and never route through this function, so exempting switch-guardian here only
   // affects the deliberate Settings-driven switch flow, not account recovery.
   if (transaction.type !== 'switch-guardian') {
-    const walletAccount = (await guardianProvider.getAccounts()).find(a => a.publicKey === transaction.accountId);
+    const walletAccount = (await guardianProvider.getAccounts()).find(a =>
+      sameWalletAccountId(a.publicKey, transaction.accountId)
+    );
     if (walletAccount) {
       assertGuardianInSync(walletAccount);
     }

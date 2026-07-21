@@ -68,7 +68,8 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 
 jest.mock('../sdk/helpers', () => ({
-  getBech32AddressFromAccountId: jest.fn((id: any) => (typeof id === 'string' ? id : 'bech32:unknown'))
+  getBech32AddressFromAccountId: jest.fn((id: any) => (typeof id === 'string' ? id : 'bech32:unknown')),
+  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
 }));
 
 jest.mock('lib/miden/reset', () => ({

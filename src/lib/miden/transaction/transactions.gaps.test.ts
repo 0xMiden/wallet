@@ -129,7 +129,9 @@ jest.mock('../helpers', () => ({
 
 jest.mock('../sdk/helpers', () => ({
   getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub'),
-  accountIdStringToSdk: (x: any) => ({ __accountIdStub: x })
+  accountIdStringToSdk: (x: any) => ({ __accountIdStub: x }),
+  canonicalWalletAccountId: (id: string) => id.split('_')[0] ?? id,
+  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
 }));
 
 const mockTransactionResultDeserialize = jest.fn();

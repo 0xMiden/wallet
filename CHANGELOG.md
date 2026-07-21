@@ -6,10 +6,7 @@
 
 * [FEATURE][all] **Receive-from-EVM bridge deposit flow.** The deposit amount screen gained a "wallet connected · Miden Bridge" header (via a new optional `title` slot on `SelectAmount`) and an ETH/USDC token picker (bottom-sheet drawer). Token choice constrains the route: USDC disables the native-only Slow (Agglayer) route, and ETH on the Fast (Epoch) route shows a "wraps to WETH" notice (that combo isn't submittable yet — the wrap is a follow-up). Choosing a route then opens a "Review Deposit Details" screen (built on the shared `ReviewLayout`/`ReviewRow`/`ReviewAmount`, same design as the Send review) with amount, source network, route, and the quoted amount received on Miden; its **Confirm Deposit** button runs the bridge submit (`executeEVMToMiden` for Fast/Epoch, the Agglayer `bridgeAsset` call for Slow), spins while signing, and blocks re-submits once in flight.
 
-* [FEATURE][all] **Guardian accounts now auto-detect and reconcile out-of-band guardian switches; dApps can read guardian info via `requestGuardianInfo()`.**
 ### Changes
-
-* [CHANGE][mobile] **The in-app swap is disabled on iOS.** Apple App Review classifies the In-Protocol DEX swap as a cryptocurrency exchange service under Guideline 3.1.5(iii), which requires per-storefront licensing the app does not yet hold, so the iOS build ships as a pure non-custodial wallet with no exchange surface. Swap availability is now gated by a single `isSwapEnabled()` flag (`!isIOS()`) applied to the Swap action-bar segment, the home swipe pane, and the `/swap` route (which redirects home on iOS); Android, the browser extension, and desktop are unaffected.
 
 * [CHANGE][all] **Merged the in-protocol-DEX branch and re-homed the Ethereum bridge onto its send flow.** The swap flow, the split `lib/miden/transaction/` module and the redesigned transaction-progress view land alongside the bridge work. Cross-chain sends now follow the same shape as same-chain ones: the destination network moved onto the recipient step (Miden for a bech32 address, Sepolia for a `0x` one), a 0x recipient then picks Fast (Epoch) vs Slow (Agglayer) on a Route step, and the full-screen `/send/review` page owns the whole submit pipeline for both routes plus the live "you receive" USDC quote. `bridged-send` rows are carried into the new transaction module (initiate/complete/Guardian-proposal arms), and batch consume (`Claim All`) moves there too.
 
@@ -17,9 +14,13 @@
 
 * [FIX][extension] The Receive screen's EVM entry point is now a "Cross-chain" action (icon row next to Share, replacing the "From another chain?" bordered button) and is hidden on the browser extension, where WalletConnect cannot connect (the Reown relay rejects the extension bundle's auth JWT with WebSocket close 3000).
 
-* [FIX][mobile] **iOS now renders at the display's native refresh rate (up to 120Hz ProMotion) instead of being capped at 60fps.** Added `CADisableMinimumFrameDurationOnPhone` to `Info.plist`. Since iOS 15, iPhones cap every app — including its WKWebView — to 60fps unless the app opts in to high frame rates, so on ProMotion devices animations and scrolling felt stuck at 60Hz (the same as Low Power Mode). CSS/compositor animations and native scrolling now run at the full display rate.
+* [FIX][all] **Receive-from-EVM bridge deposit keeps its state across the amount → route step.** The Receive screen drove the bridge deposit's two steps (amount entry, route selection) as separate outer-Navigator cards that both rendered a fresh `BridgeDeposit`, so advancing to the route step remounted `EvmBridgeDepositScreen` with empty state — the entered amount and Epoch quote were wiped and Confirm dead-ended. The bridge deposit now runs its own nested `Navigator` (mounted once, mirroring `SendManager`) so state survives step changes; the outer Receive navigator collapses to a single `ShowBridgePage` card, which also fixes the standalone `/bridge/deposit` route that previously threw for rendering without a `NavigatorProvider`.
 
 ## 1.15.8 (2026-07-21)
+
+### Features
+
+* [FEATURE][all] **Guardian accounts now auto-detect and reconcile out-of-band guardian switches; dApps can read guardian info via `requestGuardianInfo()`.**
 
 ### Changes
 
@@ -35,13 +36,18 @@
 
 * [CHANGE][extension] **Refreshed the network icons.** The default/testnet build's orange bread "B" is regenerated from a new transparent-background master (dropping the old opaque white card and padding so the B fills the frame), and the devnet icon is redesigned from the orange "B" with a blue corner wrench to a sage-green "B" with a centered developer wrench, so devnet is easy to tell apart from the default build at a glance. All sizes (16/32/40/48/128/234) were regenerated for both `logo-white-bg*` (default) and `logo-devnet*` (devnet) from 1536px masters with gamma-correct (linear-light) downscaling. Affects the Chrome extension (manifest icons + toolbar `action.default_icon`, notifications, and the full-page view) and the Tauri desktop window favicon; mobile is unaffected — it uses separate native app icons (`AppIcon`/`ic_launcher`) and `misc/brand/*` splash assets. Icon-swap wiring in `vite.extension.config.ts` is unchanged.
 
-### Fixes
+* [CHANGE][mobile] **The in-app swap is disabled on iOS.** Apple App Review classifies the In-Protocol DEX swap as a cryptocurrency exchange service under Guideline 3.1.5(iii), which requires per-storefront licensing the app does not yet hold, so the iOS build ships as a pure non-custodial wallet with no exchange surface. Swap availability is now gated by a single `isSwapEnabled()` flag (`!isIOS()`) applied to the Swap action-bar segment, the home swipe pane, and the `/swap` route (which redirects home on iOS); Android, the browser extension, and desktop are unaffected.
 
-* [FIX][all] **Receive-from-EVM bridge deposit keeps its state across the amount → route step.** The Receive screen drove the bridge deposit's two steps (amount entry, route selection) as separate outer-Navigator cards that both rendered a fresh `BridgeDeposit`, so advancing to the route step remounted `EvmBridgeDepositScreen` with empty state — the entered amount and Epoch quote were wiped and Confirm dead-ended. The bridge deposit now runs its own nested `Navigator` (mounted once, mirroring `SendManager`) so state survives step changes; the outer Receive navigator collapses to a single `ShowBridgePage` card, which also fixes the standalone `/bridge/deposit` route that previously threw for rendering without a `NavigatorProvider`.
+### Fixes
 
 * [FIX][all] The transaction progress view no longer shows a spinning loader while the title already reads "Transaction completed" — a successful transaction now settles onto a green check hero for the beat before the success receipt appears, instead of reusing the in-progress spinner.
 
 * [FIX][mobile] **iOS no longer prompts Face ID every few seconds while a Guardian account syncs.** Reverts the `.userPresence` gate (#299) on the Secure Enclave hot key: guardian sync signs with the hot key on the ~3s AutoSync tick, so the per-use presence flag turned into a continuous Face ID prompt loop. New hot keys are created with `.privateKeyUsage` only again (silent signing, key still SE-bound). Since hot signing is silent everywhere now, the `background` consume flag and its Guardian cold-key auto-consume detour (which existed only to dodge that prompt) are also removed — every consume takes the standard hot-bound path. Android gets the equivalent fix: the Keystore hot-key wrapper is no longer auth-bound (`setUserAuthenticationRequired`), so hot signing no longer pops a fingerprint `BiometricPrompt` per signature; legacy auth-bound keys keep working through a prompt fallback until the hot key is rotated.
+
+* [FIX][mobile] **iOS now renders at the display's native refresh rate (up to 120Hz ProMotion) instead of being capped at 60fps.** Added `CADisableMinimumFrameDurationOnPhone` to `Info.plist`. Since iOS 15, iPhones cap every app — including its WKWebView — to 60fps unless the app opts in to high frame rates, so on ProMotion devices animations and scrolling felt stuck at 60Hz (the same as Low Power Mode). CSS/compositor animations and native scrolling now run at the full display rate.
+
+* [FIX][all] **dApp transactions from a Guardian account no longer fail with "transaction is unauthorized".** A dApp/adapter supplies the account as its bare bech32 address (e.g. `mtst1…`), but `WalletAccount.publicKey` is a composite `<address>_<suffix>`; `isGuardianAccount` / `getOrCreateMultisigService` compared them with a raw `===`, which missed — so a Guardian account's dApp transaction was routed through the non-guardian path, no guardian co-signature was attached, and the on-chain guardian auth rejected it as `AUTH_UNAUTHORIZED` (e.g. registering a name on miden.name). Routing now matches through a shared `sameWalletAccountId` normalizer (both ids canonicalized to the SDK account id derived from the address portion), and `getOrCreateMultisigService` loads the SDK account by the matched account's stored `publicKey`. In-wallet Guardian sends (which already used the composite id) and single-sig accounts were unaffected.
+
 ## 1.15.7 (2026-07-20)
 
 ### Changes
