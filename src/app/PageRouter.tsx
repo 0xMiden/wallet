@@ -11,6 +11,7 @@ import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
+import { isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import * as Woozie from 'lib/woozie';
 import EarnDepositAmount from 'screens/earn-flow/EarnDepositAmount';
@@ -197,12 +198,20 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
+    // Swap is disabled on iOS (App Store Guideline 3.1.5(iii) — see
+    // isSwapEnabled). The tab and swipe pane are already hidden there; this
+    // redirects any deep link / stale navigation to `/swap` back home so the
+    // exchange surface is unreachable on iOS.
     '/swap',
-    onlyReady(() => (
-      <TabLayout>
-        <SwapFlow />
-      </TabLayout>
-    ))
+    onlyReady(() =>
+      isSwapEnabled() ? (
+        <TabLayout>
+          <SwapFlow />
+        </TabLayout>
+      ) : (
+        <Woozie.Redirect to="/" />
+      )
+    )
   ],
   [
     '/earn/vaults/:vaultId/deposit/review',

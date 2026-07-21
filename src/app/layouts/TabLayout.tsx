@@ -9,6 +9,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import { BottomNav, SegmentedActionBar } from 'components/ui';
 import { springs } from 'lib/animation';
+import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
@@ -120,11 +121,16 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     //   label: 'Earn',
     //   icon: <Icon name={IconName.Earn} className="w-5 h-5" />
     // },
-    {
-      id: 'swap',
-      label: 'Swap',
-      icon: <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
-    }
+    // Swap is hidden on iOS (App Store Guideline 3.1.5(iii) — see isSwapEnabled).
+    ...(isSwapEnabled()
+      ? [
+          {
+            id: 'swap',
+            label: 'Swap',
+            icon: <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
+          }
+        ]
+      : [])
   ];
 
   const activeTab = activeTabFromPath(pathname);
