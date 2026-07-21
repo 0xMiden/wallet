@@ -23,6 +23,21 @@ const makeVault = (acc: Record<string, unknown> | undefined) => ({
   setGuardianSyncStatus: jest.fn()
 });
 
+/** Attaches recording implementations so write order can be asserted. */
+const trackWriteOrder = (vault: ReturnType<typeof makeVault>) => {
+  const order: string[] = [];
+  vault.setGuardianEndpoint.mockImplementation(async () => {
+    order.push('endpoint');
+  });
+  vault.setGuardianOperatorCommitment.mockImplementation(async () => {
+    order.push('commitment');
+  });
+  vault.setGuardianSyncStatus.mockImplementation(async (_pk: string, status: string) => {
+    order.push(`status:${status}`);
+  });
+  return order;
+};
+
 beforeEach(() => {
   jest.clearAllMocks();
   (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: jest.fn(async () => ({})) });
@@ -60,6 +75,41 @@ it('auto-resolves to the matching built-in operator on drift', async () => {
   expect(vault.setGuardianEndpoint).toHaveBeenCalledWith('pk', 'https://g');
   expect(vault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk', 'newC');
   expect(vault.setGuardianSyncStatus).toHaveBeenLastCalledWith('pk', 'in-sync');
+});
+
+it('writes the commitment baseline LAST — after status is finalized to in-sync — so a failed last write self-heals instead of sticking at resolving', async () => {
+  (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue({ id: 'gateway', endpoint: 'https://g' });
+  const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC' });
+  const order = trackWriteOrder(vault);
+
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toBe('in-sync');
+
+  expect(order).toEqual(['status:resolving', 'endpoint', 'status:in-sync', 'commitment']);
+});
+
+it('self-heals a stranded account (commitment already advanced to on-chain, but status stuck at resolving) back to in-sync', async () => {
+  (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('abc');
+  const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'abc', guardianSyncStatus: 'resolving' });
+
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toBe('in-sync');
+
+  expect(vault.setGuardianSyncStatus).toHaveBeenCalledTimes(1);
+  expect(vault.setGuardianSyncStatus).toHaveBeenCalledWith('pk', 'in-sync');
+  expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
+  expect(vault.setGuardianOperatorCommitment).not.toHaveBeenCalled();
+  expect(identifyGuardianOperator).not.toHaveBeenCalled();
+});
+
+it('does not write anything when the baseline matches on-chain and status is already in-sync (true no-op)', async () => {
+  (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('abc');
+  const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'abc', guardianSyncStatus: 'in-sync' });
+
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toBe('in-sync');
+
+  expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
+  expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
+  expect(vault.setGuardianOperatorCommitment).not.toHaveBeenCalled();
 });
 
 it('auto-resolves on first-ever check, when no baseline commitment is stored yet', async () => {
@@ -127,6 +177,17 @@ describe('applyUserGuardianEndpoint', () => {
     expect(vault.setGuardianEndpoint).toHaveBeenCalledWith('pk', 'https://mine');
     expect(vault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk', 'cc');
     expect(vault.setGuardianSyncStatus).toHaveBeenLastCalledWith('pk', 'in-sync');
+  });
+
+  it('writes the commitment baseline LAST — after status is finalized to in-sync — matching resolveGuardianDrift ordering', async () => {
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue(true);
+    const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'old' });
+    const order = trackWriteOrder(vault);
+
+    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).toBe(true);
+
+    expect(order).toEqual(['endpoint', 'status:in-sync', 'commitment']);
   });
 
   it('rejects a user URL that does not match on-chain', async () => {
