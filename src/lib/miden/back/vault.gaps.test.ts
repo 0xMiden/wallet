@@ -17,6 +17,14 @@ import { PublicError } from './defaults';
 import { encryptAndSaveMany, savePlain } from './safe-storage';
 import { Vault } from './vault';
 
+// Nearly every test here seeds a real vault, which runs the production PBKDF2
+// key derivation (~10.3M SHA-256 iterations). Each test passes comfortably in
+// isolation, but under full-suite CPU contention on CI the derivation can push
+// a single test past Jest's 5s default, intermittently failing the coverage
+// job. Raise the per-test ceiling for this crypto-heavy file so a slow-but-
+// healthy run doesn't flake; a genuine hang would still blow past this.
+jest.setTimeout(30_000);
+
 const memoryStore: Record<string, any> = {};
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: jest.fn(() => ({
