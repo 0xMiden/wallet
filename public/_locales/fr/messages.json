@@ -1826,6 +1826,18 @@
     "message": "Générez une clé de périphérique pour ce compte récupéré. Obligatoire avant l'envoi.",
     "englishSource": "Generate a device key for this recovered account. Required before sending."
   },
+  "guardianChangedTitle": {
+    "message": "Tuteur changé",
+    "englishSource": "Guardian changed"
+  },
+  "guardianChangedBody": {
+    "message": "Votre tuteur a été changé et nous n'avons pas pu identifier le nouvel opérateur. Entrez son URL pour vous reconnecter.",
+    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlMismatch": {
+    "message": "Cet opérateur ne correspond pas au tuteur en chaîne de votre compte.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "revealHotKey": {
     "message": "Révéler la clé de l'appareil",
     "englishSource": "Reveal device key"

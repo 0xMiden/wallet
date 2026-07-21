@@ -9,7 +9,10 @@
 
 import {
   createGuardianAccount,
+  getGuardianCommitmentFromAccount,
   getSignerDetailsFromAccount,
+  GUARDIAN_SLOT_NAMES,
+  guardianProviderFromEndpoint,
   MULTISIG_SLOT_NAMES,
   resolveGuardianEndpoint
 } from './account';
@@ -19,9 +22,34 @@ jest.mock('../front/storage', () => ({
   fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
 }));
 
+// Mirrors the shape (and a couple of real URLs) of the real GUARDIAN_OPTIONS
+// in lib/miden-chain/constants, so guardianProviderFromEndpoint's reverse-map
+// is exercised against realistic data, not a fabricated fixture.
 jest.mock('lib/miden-chain/constants', () => ({
   DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test',
-  GUARDIAN_OPTIONS: []
+  GUARDIAN_OPTIONS: [
+    {
+      id: 'open-zeppelin',
+      endpoint: new Map([
+        ['testnet', 'https://guardian.openzeppelin.com'],
+        ['devnet', 'https://guardian-stg.openzeppelin.com']
+      ])
+    },
+    {
+      id: 'gateway',
+      endpoint: new Map([['testnet', 'https://miden-guardian.dev.eu-north-3.gateway.fm']])
+    },
+    {
+      id: 'lambda-class',
+      endpoint: new Map([['testnet', 'https://miden-guardian.lambdaclass.com']])
+    },
+    // Defensive-fallback fixture: an option whose id isn't in PROVIDER_ID_MAP,
+    // so a URL match still falls through to 'custom' rather than a bogus id.
+    {
+      id: 'unmapped-provider',
+      endpoint: new Map([['testnet', 'https://unmapped.guardian.test']])
+    }
+  ]
 }));
 
 jest.mock('lib/settings/constants', () => ({
@@ -186,6 +214,91 @@ describe('getSignerDetailsFromAccount', () => {
 
   it('exposes the multisig storage slot names', () => {
     expect(MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS).toBe('openzeppelin::multisig::signer_public_keys');
+  });
+});
+
+describe('getGuardianCommitmentFromAccount', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  // The guardian public_key slot is a SEPARATE storage map from the multisig
+  // signer slots read by getSignerDetailsFromAccount — the mock keys the fake
+  // getMapItem by slot name so a cross-slot read would return the wrong (or
+  // no) value.
+  const makeAccount = (bySlot: Record<string, string | undefined>) => ({
+    storage: () => ({
+      getMapItem: jest.fn((slot: string) => {
+        const hex = bySlot[slot];
+        return hex === undefined ? undefined : { toHex: () => hex };
+      })
+    })
+  });
+
+  it('reads the guardian commitment from the guardian public_key slot', () => {
+    const account = makeAccount({ [GUARDIAN_SLOT_NAMES.PUBLIC_KEY]: '0xdeadbeef' });
+
+    expect(getGuardianCommitmentFromAccount(account as never)).toBe('deadbeef');
+  });
+
+  it('returns undefined when the guardian public_key slot has no entry', () => {
+    const account = makeAccount({});
+
+    expect(getGuardianCommitmentFromAccount(account as never)).toBeUndefined();
+  });
+
+  it('returns undefined for the empty (all-zero) word', () => {
+    const account = makeAccount({ [GUARDIAN_SLOT_NAMES.PUBLIC_KEY]: '0x' + '0'.repeat(64) });
+
+    expect(getGuardianCommitmentFromAccount(account as never)).toBeUndefined();
+  });
+
+  it('accepts a guardian commitment hex without a 0x prefix', () => {
+    const account = makeAccount({ [GUARDIAN_SLOT_NAMES.PUBLIC_KEY]: 'deadbeef' });
+
+    expect(getGuardianCommitmentFromAccount(account as never)).toBe('deadbeef');
+  });
+
+  it('does not read from the multisig signer_public_keys slot', () => {
+    const account = makeAccount({ [MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS]: '0xcommit-hot' });
+
+    expect(getGuardianCommitmentFromAccount(account as never)).toBeUndefined();
+  });
+
+  it('exposes the guardian storage slot names', () => {
+    expect(GUARDIAN_SLOT_NAMES.PUBLIC_KEY).toBe('openzeppelin::guardian::public_key');
+    expect(GUARDIAN_SLOT_NAMES.SELECTOR).toBe('openzeppelin::guardian::selector');
+    expect(GUARDIAN_SLOT_NAMES.SCHEME_ID).toBe('openzeppelin::guardian::scheme_id');
+  });
+});
+
+describe('guardianProviderFromEndpoint', () => {
+  it('maps a known Open-Zeppelin endpoint to its provider id', () => {
+    expect(guardianProviderFromEndpoint('https://guardian.openzeppelin.com')).toBe('open-zeppelin');
+  });
+
+  it('maps a known Gateway endpoint to its provider id', () => {
+    expect(guardianProviderFromEndpoint('https://miden-guardian.dev.eu-north-3.gateway.fm')).toBe('gateway');
+  });
+
+  it('maps a known Lambda Class endpoint to its provider id', () => {
+    expect(guardianProviderFromEndpoint('https://miden-guardian.lambdaclass.com')).toBe('lambda-class');
+  });
+
+  it('falls back to custom for an unrecognized endpoint', () => {
+    expect(guardianProviderFromEndpoint('https://my-own.example.com')).toBe('custom');
+  });
+
+  it('falls back to custom for a matched option whose id has no PROVIDER_ID_MAP entry', () => {
+    // Defensive branch: a GUARDIAN_OPTIONS entry could in principle carry an
+    // id outside the known GuardianProvider union; the URL still matches, but
+    // the map lookup misses, so it falls through to 'custom' rather than
+    // returning an invalid provider id.
+    expect(guardianProviderFromEndpoint('https://unmapped.guardian.test')).toBe('custom');
+  });
+
+  it('returns null for a null endpoint', () => {
+    expect(guardianProviderFromEndpoint(null)).toBeNull();
   });
 });
 

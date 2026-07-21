@@ -149,6 +149,21 @@ describe('SECONDS_PER_BLOCK', () => {
 });
 
 describe('dateTimeToRecallBlocks', () => {
+  // Freeze the clock. Each test builds its target from `Date.now()`, while
+  // dateTimeToRecallBlocks reads the current time via `new Date()` internally;
+  // if any time elapses between those two reads, a boundary-aligned target
+  // (e.g. exactly 30s = 10 blocks) slips just under the boundary and
+  // `Math.floor` drops the count by one (1009 instead of 1010). That's rare
+  // locally but reliably flakes under CI load. Fake timers pin BOTH `Date.now()`
+  // and `new Date()` to the same instant so the two reads always agree.
+  const FROZEN_NOW = new Date('2030-01-01T00:00:00Z').getTime();
+  beforeEach(() => {
+    jest.useFakeTimers({ now: FROZEN_NOW });
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('returns the current block for a past/now target (<= 0 seconds until target)', () => {
     const past = new Date(Date.now() - 60_000);
     expect(dateTimeToRecallBlocks(past, 500)).toBe(500);

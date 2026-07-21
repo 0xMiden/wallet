@@ -1827,6 +1827,18 @@
     "message": "Generieren Sie einen Geräteschlüssel für dieses wiederhergestellte Konto. Vor dem Senden erforderlich.",
     "englishSource": "Generate a device key for this recovered account. Required before sending."
   },
+  "guardianChangedTitle": {
+    "message": "Der Wächter hat sich geändert",
+    "englishSource": "Guardian changed"
+  },
+  "guardianChangedBody": {
+    "message": "Ihr Vormund wurde gewechselt und wir konnten den neuen Betreiber nicht identifizieren. Geben Sie die URL ein, um die Verbindung wiederherzustellen.",
+    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlMismatch": {
+    "message": "Dieser Betreiber stimmt nicht mit dem On-Chain-Vormund Ihres Kontos überein.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "revealHotKey": {
     "message": "Geräteschlüssel anzeigen",
     "englishSource": "Reveal device key"

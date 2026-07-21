@@ -12,6 +12,7 @@ import {
 import type { NoteFilterTypes } from '@miden-sdk/miden-sdk/lazy';
 
 import { TransactionOutput } from 'lib/miden/db/types';
+import { GuardianInfo } from 'lib/shared/types';
 
 export type MidenDAppMessage = MidenDAppRequest | MidenDAppResponse;
 
@@ -27,7 +28,8 @@ export type MidenDAppRequest =
   | MidenDAppAssetsRequest
   | MidenDAppImportPrivateNoteRequest
   | MidenDAppConsumableNotesRequest
-  | MidenDAppWaitForTxRequest;
+  | MidenDAppWaitForTxRequest
+  | MidenDAppGuardianInfoRequest;
 
 export type MidenDAppResponse =
   | MidenDAppGetCurrentPermissionResponse
@@ -41,7 +43,8 @@ export type MidenDAppResponse =
   | MidenDAppAssetsResponse
   | MidenDAppImportPrivateNoteResponse
   | MidenDAppConsumableNotesResponse
-  | MidenDAppWaitForTxResponse;
+  | MidenDAppWaitForTxResponse
+  | MidenDAppGuardianInfoResponse;
 
 export interface MidenDAppMessageBase {
   type: MidenDAppMessageType;
@@ -71,7 +74,9 @@ export enum MidenDAppMessageType {
   ConsumableNotesRequest = 'CONSUMABLE_NOTES_REQUEST',
   ConsumableNotesResponse = 'CONSUMABLE_NOTES_RESPONSE',
   WaitForTransactionRequest = 'WAIT_FOR_TRANSACTION_REQUEST',
-  WaitForTransactionResponse = 'WAIT_FOR_TRANSACTION_RESPONSE'
+  WaitForTransactionResponse = 'WAIT_FOR_TRANSACTION_RESPONSE',
+  GuardianInfoRequest = 'GUARDIAN_INFO_REQUEST',
+  GuardianInfoResponse = 'GUARDIAN_INFO_RESPONSE'
 }
 
 /**
@@ -179,6 +184,16 @@ export interface MidenDAppAssetsRequest extends MidenDAppMessageBase {
 export interface MidenDAppAssetsResponse extends MidenDAppMessageBase {
   type: MidenDAppMessageType.AssetsResponse;
   assets: Asset[];
+}
+
+export interface MidenDAppGuardianInfoRequest extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.GuardianInfoRequest;
+  sourcePublicKey: string;
+}
+
+export interface MidenDAppGuardianInfoResponse extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.GuardianInfoResponse;
+  guardianInfo: GuardianInfo;
 }
 
 export interface MidenDAppImportPrivateNoteRequest extends MidenDAppMessageBase {

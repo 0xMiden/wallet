@@ -1827,6 +1827,18 @@
     "message": "この回復されたアカウントのデバイス キーを生成します。送信する前に必須です。",
     "englishSource": "Generate a device key for this recovered account. Required before sending."
   },
+  "guardianChangedTitle": {
+    "message": "保護者が変更されました",
+    "englishSource": "Guardian changed"
+  },
+  "guardianChangedBody": {
+    "message": "保護者が変更されましたが、新しいオペレーターを特定できませんでした。再接続するには、その URL を入力します。",
+    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlMismatch": {
+    "message": "そのオペレーターはあなたのアカウントのオンチェーンガーディアンと一致しません。",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "revealHotKey": {
     "message": "デバイスキーを明らかにする",
     "englishSource": "Reveal device key"

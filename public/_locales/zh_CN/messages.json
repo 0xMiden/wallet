@@ -1845,6 +1845,18 @@
     "message": "为该恢复的帐户生成设备密钥。发送前需要。",
     "englishSource": "Generate a device key for this recovered account. Required before sending."
   },
+  "guardianChangedTitle": {
+    "message": "监护人变更",
+    "englishSource": "Guardian changed"
+  },
+  "guardianChangedBody": {
+    "message": "您的监护人已更换，我们无法识别新的操作员。输入其 URL 以重新连接。",
+    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlMismatch": {
+    "message": "该运营商与您账户的链上监护人不匹配。",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "revealHotKey": {
     "message": "显示设备密钥",
     "englishSource": "Reveal device key"

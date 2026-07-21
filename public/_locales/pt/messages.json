@@ -1825,6 +1825,18 @@
     "message": "Gere uma chave de dispositivo para esta conta recuperada. Obrigatório antes do envio.",
     "englishSource": "Generate a device key for this recovered account. Required before sending."
   },
+  "guardianChangedTitle": {
+    "message": "Guardião alterado",
+    "englishSource": "Guardian changed"
+  },
+  "guardianChangedBody": {
+    "message": "Seu responsável foi trocado e não conseguimos identificar o novo operador. Digite seu URL para reconectar.",
+    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlMismatch": {
+    "message": "Esse operador não corresponde ao guardião da rede da sua conta.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "revealHotKey": {
     "message": "Revelar chave do dispositivo",
     "englishSource": "Reveal device key"
