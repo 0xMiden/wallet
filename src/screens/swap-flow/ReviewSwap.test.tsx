@@ -41,11 +41,13 @@ jest.mock('components/review', () => {
         R.createElement('span', { 'data-testid': 'ra-label' }, label),
         R.createElement('span', { 'data-testid': 'ra-amount' }, `${amount} ${symbol}`)
       ),
-    ReviewRow: ({ label, value }: any) =>
+    ReviewLabel: ({ children, className }: any) =>
+      R.createElement('span', { 'data-testid': 'review-label', className }, children),
+    ReviewRow: ({ label, value, children }: any) =>
       R.createElement(
         'div',
         { 'data-testid': 'review-row', 'data-label': label },
-        R.createElement('span', { 'data-testid': 'rr-value' }, value ?? '')
+        R.createElement('span', { 'data-testid': 'rr-value' }, children ?? value ?? '')
       ),
     ReviewLayout: ({ hero, heroDivider, dividers, primary, secondary, children }: any) =>
       R.createElement(
@@ -73,6 +75,15 @@ const etaWithRate = (marketPrice: string): SwapEta => ({
   median24hSeconds: null
 });
 
+jest.mock('components/Toggle', () => ({
+  Toggle: ({ value, onChangeValue, ...props }: any) =>
+    React.createElement('button', {
+      ...props,
+      'data-value': String(value),
+      onClick: () => onChangeValue?.(!value)
+    })
+}));
+
 const OFFER_TOKEN = { symbol: 'IMIDEN', faucetId: 'f-offer', decimals: 8, logoSymbol: 'MIDEN' };
 const REQUEST_TOKEN = { symbol: 'IETH', faucetId: 'f-request', decimals: 8, logoSymbol: 'ETH' };
 
@@ -83,6 +94,10 @@ const renderComponent = (overrides: Partial<ReviewSwapProps> = {}) => {
     requestToken: REQUEST_TOKEN,
     requestAmount: '3',
     swapEta: undefined,
+    expirySeconds: '120',
+    autoConsume: true,
+    onExpirySecondsChange: jest.fn(),
+    onAutoConsumeChange: jest.fn(),
     submitError: null,
     onGoBack: jest.fn(),
     onSubmit: jest.fn(),
@@ -196,6 +211,28 @@ describe('ReviewSwap', () => {
     it('falls back to the 24h median when the order cannot fill right now', () => {
       renderComponent({ swapEta: { ...etaWithRate('2'), estimatedSeconds: 12, median24hSeconds: 45 } });
       expect(fillsInValue()).toHaveTextContent('swapEtaSeconds_45');
+    });
+  });
+
+  describe('settlement controls', () => {
+    it('renders the expiry in seconds and auto-consume enabled by default', () => {
+      renderComponent();
+      const expiry = screen.getByTestId('swap-expiry-seconds');
+      const toggle = screen.getByTestId('swap-auto-consume');
+      expect(expiry).toHaveValue(120);
+      expect(expiry).toHaveClass('[appearance:textfield]');
+      expect(toggle).toHaveAttribute('data-value', 'true');
+      expect(toggle).toHaveClass('!h-8', '!w-16');
+      expect(screen.getByText('expires').parentElement).toHaveClass('justify-between');
+      expect(screen.getByText('swapAutoConsume').parentElement).toHaveClass('justify-between');
+    });
+
+    it('forwards expiry edits and auto-consume toggles', () => {
+      const { props } = renderComponent();
+      fireEvent.change(screen.getByTestId('swap-expiry-seconds'), { target: { value: '300' } });
+      fireEvent.click(screen.getByTestId('swap-auto-consume'));
+      expect(props.onExpirySecondsChange).toHaveBeenCalledWith('300');
+      expect(props.onAutoConsumeChange).toHaveBeenCalledWith(false);
     });
   });
 

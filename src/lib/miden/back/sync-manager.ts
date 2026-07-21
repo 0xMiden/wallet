@@ -13,6 +13,8 @@ import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { classifySwapOrderNotes } from '../swap/classification';
+import { settleSwapOrders } from '../swap/settlement';
 
 // `init_vault` is the ESM module factory for `./vault`, injected by Vite's
 // SW bundle transform. We must NOT add a source-level binding (e.g.
@@ -172,6 +174,7 @@ async function runSync(): Promise<void> {
         // custom transaction — hidden from the claimable UI until the user
         // confirms (or forever, if they cancel). See note-quarantine.ts.
         const quarantined = await getQuarantinedNoteIds();
+        const swapOrders = await classifySwapOrderNotes(rawNotes || [], accountPubKey, client);
         const notes: SerializedConsumableNote[] = (rawNotes || [])
           .map((note: any) => {
             try {
@@ -191,7 +194,8 @@ async function runSync(): Promise<void> {
                 faucetId: getBech32AddressFromAccountId(firstAsset.faucetId()),
                 amountBaseUnits: firstAsset.amount().toString(),
                 senderAddress: noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : '',
-                noteType: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown'
+                noteType: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown',
+                swapOrder: swapOrders.get(noteId)
               };
             } catch {
               return null;
@@ -250,7 +254,7 @@ async function runSync(): Promise<void> {
       }
 
       // Always update seenNoteIds for background dedup consistency
-      const noteIds = parsedNotes.map(n => n.id);
+      const noteIds = parsedNotes.filter(n => !n.swapOrder || n.swapOrder.autoConsume === false).map(n => n.id);
       const newIds = await mergeAndPersistSeenNoteIds(noteIds);
 
       // Write sync data to chrome.storage.local — the reliable data channel.
@@ -281,6 +285,18 @@ async function runSync(): Promise<void> {
             : getMessage('noteReceivedMultiple', { count: String(newIds.length) }) ||
               `You have ${newIds.length} new notes to claim`;
         showBackgroundNotification(title, message);
+      }
+
+      if (parsedNotes.some(note => note.swapOrder)) {
+        try {
+          const settlement = await settleSwapOrders(accountPubKey);
+          if (settlement.queuedTransactionIds.length > 0) {
+            const { startTransactionProcessing } = await import('./transaction-processor');
+            startTransactionProcessing().catch(err => console.warn('[swap-settlement] processing failed', err));
+          }
+        } catch (err) {
+          console.warn('[swap-settlement] reconcile failed', err);
+        }
       }
     } else {
       // No account — broadcast bare SyncCompleted (just sync status)

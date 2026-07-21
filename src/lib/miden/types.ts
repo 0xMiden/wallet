@@ -30,6 +30,17 @@ export interface ConsumableNote {
   senderAddress: string;
   isBeingClaimed: boolean;
   type: NoteType | 'unknown';
+  swapOrder?: SwapOrderNoteMetadata;
+}
+
+export interface SwapOrderNoteMetadata {
+  orderId: string;
+  depth: number;
+  role: 'tip' | 'payback';
+  lineageState: 'active' | 'filled' | 'reclaimed';
+  expiresAt: number;
+  expiryTriggeredAt?: number;
+  autoConsume: boolean;
 }
 
 export enum MidenSharedStorageKey {

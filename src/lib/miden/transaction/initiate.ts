@@ -249,7 +249,9 @@ export const initiateSwapTransaction = async (
   offeredAmount: bigint,
   requestedFaucetId: string,
   requestedAmount: bigint,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  expirySeconds: number = 120,
+  autoConsume: boolean = true
 ): Promise<string> => {
   const dbTransaction = new SwapTransaction(
     accountId,
@@ -257,7 +259,9 @@ export const initiateSwapTransaction = async (
     offeredAmount,
     requestedFaucetId,
     requestedAmount,
-    delegateTransaction
+    delegateTransaction,
+    expirySeconds,
+    autoConsume
   );
   await Repo.transactions.add(dbTransaction);
 

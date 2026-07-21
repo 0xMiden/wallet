@@ -1,0 +1,163 @@
+import { ITransactionStatus } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
+import type { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
+import { initiateConsumeNotesTransaction } from 'lib/miden/transaction/initiate';
+import { NoteTypeEnum } from 'lib/miden/types';
+
+import { classifySwapOrderNotes, reconcileSwapOrderNotes } from './settlement';
+
+jest.mock('lib/miden/repo', () => ({
+  transactions: {
+    filter: jest.fn(),
+    where: jest.fn()
+  }
+}));
+
+jest.mock('lib/miden/transaction/initiate', () => ({
+  initiateConsumeNotesTransaction: jest.fn(async () => 'consume-1')
+}));
+
+const tx = (overrides: Record<string, unknown> = {}) => ({
+  id: 'swap-1',
+  type: 'swap',
+  status: ITransactionStatus.Completed,
+  accountId: 'account-1',
+  initiatedAt: 10,
+  completedAt: 100,
+  extraInputs: {
+    requestedFaucetId: 'requested',
+    requestedAmount: 50n,
+    orderId: 77n,
+    expiresAt: 220
+  },
+  ...overrides
+});
+
+const note = (id: string, attachment?: [bigint, bigint, bigint, bigint]) => ({
+  id: () => ({ toString: () => id }),
+  attachments: () =>
+    attachment
+      ? [
+          {
+            toWords: () => [{ toU64s: () => BigUint64Array.from(attachment) }]
+          }
+        ]
+      : []
+});
+
+const consumable = (
+  id: string,
+  role: 'tip' | 'payback',
+  lineageState: 'active' | 'filled' | 'reclaimed' = 'active'
+) => ({
+  id,
+  faucetId: role === 'tip' ? 'offer' : 'request',
+  amount: '50',
+  senderAddress: 'sender',
+  isBeingClaimed: false,
+  type: NoteTypeEnum.Public,
+  swapOrder: {
+    orderId: '77',
+    depth: role === 'tip' ? 2 : 1,
+    role,
+    lineageState,
+    expiresAt: 220,
+    autoConsume: true
+  }
+});
+
+describe('swap order note settlement', () => {
+  const toArray = jest.fn();
+  const modify = jest.fn(async () => 1);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    toArray.mockResolvedValue([tx()]);
+    (Repo.transactions.filter as jest.Mock).mockReturnValue({ toArray });
+    (Repo.transactions.where as jest.Mock).mockReturnValue({ modify });
+  });
+
+  it('classifies the lineage tip and PSWAP-attached paybacks without amount heuristics', async () => {
+    const notes = [
+      note('tip-2'),
+      note('payback-1', [999n, 77n, 1n, 0n]),
+      note('future-depth-unrelated', [999n, 77n, 99n, 0n]),
+      note('same-amount-unrelated', [999n, 88n, 1n, 0n])
+    ];
+    const client = {
+      client: {
+        pswap: {
+          lineage: jest.fn(async () => ({
+            currentTipNoteId: () => ({ toString: () => 'tip-2' }),
+            currentDepth: () => 2,
+            state: () => 0
+          }))
+        }
+      }
+    };
+
+    const result = await classifySwapOrderNotes(notes as any, 'account-1', client as unknown as MidenClientInterface);
+
+    expect(result.get('tip-2')).toEqual(expect.objectContaining({ orderId: '77', depth: 2, role: 'tip' }));
+    expect(result.get('payback-1')).toEqual(expect.objectContaining({ orderId: '77', depth: 1, role: 'payback' }));
+    expect(result.has('future-depth-unrelated')).toBe(false);
+    expect(result.has('same-amount-unrelated')).toBe(false);
+  });
+
+  it('leaves partial-fill paybacks untouched while active and unexpired', async () => {
+    await reconcileSwapOrderNotes(
+      'account-1',
+      [consumable('tip', 'tip'), consumable('payback', 'payback')],
+      false,
+      219
+    );
+
+    expect(initiateConsumeNotesTransaction).not.toHaveBeenCalled();
+    expect(modify).not.toHaveBeenCalled();
+  });
+
+  it('does not settle an order whose per-swap auto-consume setting is off', async () => {
+    toArray.mockResolvedValue([
+      tx({
+        extraInputs: {
+          requestedFaucetId: 'requested',
+          requestedAmount: 50n,
+          orderId: 77n,
+          expiresAt: 220,
+          autoConsume: false
+        }
+      })
+    ]);
+
+    await reconcileSwapOrderNotes(
+      'account-1',
+      [consumable('tip', 'tip'), consumable('payback', 'payback')],
+      false,
+      220
+    );
+
+    expect(initiateConsumeNotesTransaction).not.toHaveBeenCalled();
+    expect(modify).not.toHaveBeenCalled();
+  });
+
+  it('settles every accumulated payback, but not the tip, after a full fill', async () => {
+    const payback0 = consumable('payback-0', 'payback', 'filled');
+    const payback1 = consumable('payback-1', 'payback', 'filled');
+    await reconcileSwapOrderNotes('account-1', [consumable('tip', 'tip', 'filled'), payback0, payback1], false, 150);
+
+    expect(initiateConsumeNotesTransaction).toHaveBeenCalledTimes(1);
+    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback0, payback1], false);
+  });
+
+  it('persists expiry intent before batching the current tip and all paybacks', async () => {
+    const tip = consumable('tip', 'tip');
+    const payback = consumable('payback', 'payback');
+    await reconcileSwapOrderNotes('account-1', [tip, payback], true, 220);
+
+    expect(modify).toHaveBeenCalledTimes(1);
+    expect(modify.mock.invocationCallOrder[0]).toBeLessThan(
+      (initiateConsumeNotesTransaction as jest.Mock).mock.invocationCallOrder[0]!
+    );
+    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [tip, payback], true);
+  });
+});

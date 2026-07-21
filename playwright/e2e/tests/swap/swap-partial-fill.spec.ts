@@ -6,8 +6,9 @@ import { createSwapOrder, fillSwapOrder, fundSwapPair, readLineage, tokenBalance
  *
  * A offers 10 SWPA for 10 SWPB (1:1 so proportions stay whole). B fills only 4
  * SWPB. Asserts the partial-swap mechanics: B receives the proportional 4 SWPA,
- * A gets a 4-SWPB payback, and the order lineage stays `active` carrying a
- * remainder of 6 SWPA offered / 6 SWPB requested.
+ * A's 4-SWPB payback stays hidden/unconsumed while active. At the fixed
+ * two-minute deadline the lifecycle consumes it together with the remainder,
+ * crediting the fill and restoring the unfilled 6 SWPA.
  */
 test.describe('swap: partial fill + remainder', () => {
   test.describe.configure({ mode: 'serial' });
@@ -18,7 +19,7 @@ test.describe('swap: partial fill + remainder', () => {
   const PROP_OFFER_BASE = '400000000'; // 4 SWPA (4/10 * 10)
   const REMAIN_BASE = '600000000'; // 6 of each
 
-  test('A offers 10 SWPA for 10 SWPB, B fills 4; proportional settle + active remainder', async ({
+  test('A offers 10 SWPA for 10 SWPB, B fills 4; expiry settles payback + remainder', async ({
     walletA,
     walletB,
     midenCli,
@@ -75,13 +76,26 @@ test.describe('swap: partial fill + remainder', () => {
       })
       .toBe(PROP_OFFER_BASE);
 
-    // Settlement 3: maker claims the P2ID payback and receives the 4 SWPB paid so far.
-    await walletA.claimAllNotes(150_000);
+    // Settlement 3: expiry reclaims the active remainder without Claim All.
+    await expect
+      .poll(async () => (await readLineage(walletA, orderId)).state, { timeout: 180_000, intervals: [3000] })
+      .toBe('reclaimed');
+
+    // The single expiry batch claims every accumulated payback...
     await expect
       .poll(async () => (await tokenBalance(walletA, a.address, pair.request.faucetId)).toString(), {
         timeout: 90_000,
         intervals: [3000]
       })
       .toBe(FILL_BASE);
+
+    // ...and restores the unfilled offered remainder (the original funded 10
+    // minus the proportional 4 delivered to the taker).
+    await expect
+      .poll(async () => (await tokenBalance(walletA, a.address, pair.offer.faucetId)).toString(), {
+        timeout: 90_000,
+        intervals: [3000]
+      })
+      .toBe(REMAIN_BASE);
   });
 });

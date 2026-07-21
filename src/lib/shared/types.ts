@@ -204,6 +204,15 @@ export interface SerializedConsumableNote {
   amountBaseUnits: string;
   senderAddress: string;
   noteType?: string; // 'public' | 'private' | 'unknown'
+  swapOrder?: {
+    orderId: string;
+    depth: number;
+    role: 'tip' | 'payback';
+    lineageState: 'active' | 'filled' | 'reclaimed';
+    expiresAt: number;
+    expiryTriggeredAt?: number;
+    autoConsume?: boolean;
+  };
   metadata?: {
     decimals: number;
     symbol: string;
