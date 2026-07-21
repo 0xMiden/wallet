@@ -227,7 +227,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
       <HomePrompts account={account} balances={balances} balancesLoading={balancesLoading} />
 
       <div className="flex items-center justify-between pt-2">
-        <span className="text-2xl font-bold text-text-primary-token">{t('assets')}</span>
+        <span className="text-2xl font-bold font-heading text-text-primary-token">{t('assets')}</span>
       </div>
 
       <SearchInput value={search} onChange={onSearchChange} placeholder="Search for tokens" />
