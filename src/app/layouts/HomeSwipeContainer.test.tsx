@@ -173,6 +173,10 @@ describe('HomeSwipeContainer', () => {
     expect(getByTestId('page-send')).toBeInTheDocument();
     expect(getByTestId('page-receive')).toBeInTheDocument();
     expect(getByTestId('page-earn')).toBeInTheDocument();
+    // Track math must derive from the 4-page filtered array — not a hardcoded 5 —
+    // so the drag bounds shrink accordingly (a phantom 5th slot would fail here).
+    measure(300);
+    expect(mockLastDragConstraints).toEqual({ left: -900, right: 0 }); // -(4 - 1) * 300
   });
 
   it('on mount at width 0 sets the motion value directly instead of animating', () => {
