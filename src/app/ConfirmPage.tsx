@@ -1,9 +1,9 @@
 /* eslint-disable no-restricted-globals */
 
-import React, { FC, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { FC, Suspense, useCallback, useMemo, useState } from 'react';
 
 import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
-import { Address, FungibleAsset, SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
+import { SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
@@ -13,18 +13,14 @@ import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
 import { CustomRpsContext } from 'lib/analytics';
-import { AssetMetadata, MIDEN_METADATA, useAccount, useMidenContext } from 'lib/miden/front';
-import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { MIDEN_METADATA, useAccount, useMidenContext } from 'lib/miden/front';
 import { MidenDAppPayload } from 'lib/miden/types';
-import { getNetworkId } from 'lib/miden-chain/constants';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
-import { formatAmount } from 'lib/shared/format';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import useSafeState from 'lib/ui/useSafeState';
-import useTippy from 'lib/ui/useTippy';
 import { useLocation } from 'lib/woozie';
 import { truncateAddress, truncateHash } from 'utils/string';
 
@@ -32,6 +28,8 @@ import Alert from './atoms/Alert';
 import FormSecondaryButton from './atoms/FormSecondaryButton';
 import FormSubmitButton from './atoms/FormSubmitButton';
 import Name from './atoms/Name';
+import { summaryToView } from './confirm/decode';
+import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 import { Icon, IconName } from './icons/v2';
 import AccountBanner from './templates/AccountBanner';
@@ -269,27 +267,8 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
   );
 };
 
-type FungibleAssetDetails = {
-  asset: FungibleAsset;
-  metadata: AssetMetadata;
-};
-
 const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes }) => {
   const { t } = useTranslation();
-  const [removedFungibleAssets, setRemovedFungibleAssets] = useState<FungibleAsset[]>([]);
-  const [addedFungibleAssets, setAddedFungibleAssets] = useState<FungibleAsset[]>([]);
-  const [removedFungibleAssetsDetails, setRemovedFungibleAssetsDetails] = useState<FungibleAssetDetails[]>([]);
-  const [addedFungibleAssetsDetails, setAddedFungibleAssetsDetails] = useState<FungibleAssetDetails[]>([]);
-
-  let content: string | React.ReactNode = t('noPreview');
-  const tippyProps = {
-    trigger: 'mouseenter',
-    hideOnClick: false,
-    content: t('transactionAffectsAccountStorage'),
-    animation: 'shift-away-subtle'
-  };
-
-  const iconAnchorRef = useTippy<HTMLElement>(tippyProps);
 
   const signingInputs = useMemo(() => {
     try {
@@ -300,177 +279,26 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
     }
   }, [bytes]);
 
-  // Derive asset arrays from signing inputs variant; avoid setState during render
-  useEffect(() => {
-    if (!signingInputs) {
-      setAddedFungibleAssets([]);
-      setRemovedFungibleAssets([]);
-      return;
-    }
-    if (signingInputs.variantType === SigningInputsType.TransactionSummary) {
-      const ts = signingInputs.transactionSummaryPayload();
-      const vault = ts.accountDelta().vault();
-      setAddedFungibleAssets(vault.addedFungibleAssets());
-      setRemovedFungibleAssets(vault.removedFungibleAssets());
-    } else {
-      setAddedFungibleAssets([]);
-      setRemovedFungibleAssets([]);
-    }
-  }, [signingInputs]);
-
-  useEffect(() => {
-    const fetchFungibleAssets = async () => {
-      const removedFungibleAssetsDetails = await Promise.all(
-        removedFungibleAssets.map(async asset => {
-          const metadata = await getTokenMetadata(asset.faucetId().toString());
-          return {
-            asset,
-            metadata
-          };
-        })
-      );
-      setRemovedFungibleAssetsDetails(removedFungibleAssetsDetails);
-    };
-    fetchFungibleAssets();
-  }, [removedFungibleAssets]);
-
-  useEffect(() => {
-    const fetchFungibleAssets = async () => {
-      const addedFungibleAssetsDetails = await Promise.all(
-        addedFungibleAssets.map(async asset => {
-          const metadata = await getTokenMetadata(asset.faucetId().toString());
-          return {
-            asset,
-            metadata
-          };
-        })
-      );
-      setAddedFungibleAssetsDetails(addedFungibleAssetsDetails);
-    };
-    fetchFungibleAssets();
-  }, [addedFungibleAssets]);
-
   if (!signingInputs) {
-    content = <div className="text-md text-center my-6">{t('failedToParseSigningPayload')}</div>;
-  } else {
-    const variant = signingInputs.variantType;
-
-    switch (variant) {
-      case SigningInputsType.TransactionSummary: {
-        console.log('starting case SigningInputsType.TransactionSummary');
-        const ts = signingInputs.transactionSummaryPayload();
-        const accountDelta = ts.accountDelta();
-        const accountAddress = Address.fromAccountId(accountDelta.id(), 'BasicWallet');
-        const accountAddressAsBech32 = accountAddress.toBech32(getNetworkId());
-        const vault = accountDelta.vault();
-        const storage = accountDelta.storage();
-        const inputNotes = ts.inputNotes();
-        const numNotes = inputNotes.numNotes();
-        const outputNotes = ts.outputNotes();
-        const numOutputNotes = outputNotes.numNotes();
-        console.log('end case SigningInputsType.TransactionSummary');
-
-        content = (
-          <div className="flex flex-col items-center justify-center">
-            <div className="flex flex-col border border-gray-100 rounded-2xl mb-4 w-full p-4">
-              <div
-                className={`flex flex-row w-full items-center justify-between border-gray-100 ${
-                  vault.isEmpty() ? '' : 'border-b pb-4'
-                }`}
-              >
-                <div className="flex flex-row text-md text-center items-center gap-x-3">
-                  <Icon name={IconName.Globe} fill="currentColor" size="md" />
-                  <span className="text-text-muted">{t('account')}</span>
-                </div>
-                <div>{`${truncateAddress(accountAddressAsBech32)}`}</div>
-              </div>
-
-              {!vault.isEmpty() && (
-                <div className="flex flex-col w-full pt-4">
-                  <span className="text-text-muted">{t('assetChanges')}</span>
-                  {removedFungibleAssets.length > 0 &&
-                    removedFungibleAssetsDetails.map(details => (
-                      <div key={details.asset.faucetId().toString()} className="flex flex-col w-full my-2 text-sm">
-                        <span className="font-heading text-black-500 text-lg font-semibold">
-                          {`${formatAmount(details.asset.amount(), details.metadata.decimals)} ${
-                            details.metadata.symbol ?? t('unknown')
-                          }`}
-                        </span>
-                        <span className="font-heading text-text-muted">{`~$${details.asset.amount()}`}</span>
-                      </div>
-                    ))}
-
-                  {addedFungibleAssets.length > 0 &&
-                    addedFungibleAssetsDetails.map(details => (
-                      <div key={details.asset.faucetId().toString()} className="flex flex-col w-full my-2 text-sm">
-                        <span className="font-heading text-green-500 text-lg font-semibold">
-                          {`${formatAmount(details.asset.amount(), details.metadata.decimals)} ${
-                            details.metadata.symbol ?? t('unknown')
-                          }`}
-                        </span>
-                        <span className="font-heading text-text-muted">{`~$${details.asset.amount()}`}</span>
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
-            <div className="flex flex-col w-full border-b border-gray-100 pb-4">
-              <div className="flex flex-row w-full items-center justify-between pb-1">
-                <span className="text-text-muted">{t('inputNotesConsumed')}</span>
-                <span>{numNotes}</span>
-              </div>
-              <div className="flex flex-row w-full items-center justify-between pb-1">
-                <span className="text-text-muted">{t('outputNotesCreated')}</span>
-                <span>{numOutputNotes}</span>
-              </div>
-              <div className="flex flex-row w-full items-center justify-between">
-                <span className="text-text-muted">{t('storageChanged')}</span>
-                {storage.isEmpty() ? (
-                  <span>{t('no')}</span>
-                ) : (
-                  <div className="flex flex-row items-center gap-x-2">
-                    <span ref={iconAnchorRef} className="inline-flex align-middle">
-                      <Icon name={IconName.WarningFill} fill="orange" size="md" />
-                    </span>
-                    <span>{t('yes')}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-            <Button
-              type="button"
-              variant={ButtonVariant.Ghost}
-              className={classNames(
-                'w-full mt-2',
-                'rounded-4xl hover:rounded-4xl',
-                'transition-all duration-200 ease-in-out',
-                'hover:bg-gray-100',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300',
-                'py-4 px-0'
-              )}
-              onClick={() => downloadBytes('transaction_summary.bin', bytes)}
-            >
-              <span className="flex flex-row items-center justify-center gap-x-2">
-                <Icon name={IconName.Download} fill="currentColor" size="md" />
-                <span className="text-lg text-black font-medium">{t('downloadFullSummary')}</span>
-              </span>
-            </Button>
-          </div>
-        );
-        break;
-      }
-      case SigningInputsType.Arbitrary: {
-        content = <div className="text-md text-center my-6">{t('signArbitraryPayload')}</div>;
-        break;
-      }
-      case SigningInputsType.Blind: {
-        content = <div className="text-md text-center my-6">{t('signBlindCommitment')}</div>;
-        break;
-      }
-    }
+    return <div className="text-md text-center my-6">{t('failedToParseSigningPayload')}</div>;
   }
 
-  return content;
+  switch (signingInputs.variantType) {
+    case SigningInputsType.TransactionSummary:
+      return (
+        <TransactionAssetView
+          view={summaryToView(signingInputs.transactionSummaryPayload())}
+          mode="verified"
+          onDownload={() => downloadBytes('transaction_summary.bin', bytes)}
+        />
+      );
+    case SigningInputsType.Arbitrary:
+      return <div className="text-md text-center my-6">{t('signArbitraryPayload')}</div>;
+    case SigningInputsType.Blind:
+      return <div className="text-md text-center my-6">{t('signBlindCommitment')}</div>;
+    default:
+      return <div className="text-md text-center my-6">{t('noPreview')}</div>;
+  }
 };
 
 export default ConfirmPage;
