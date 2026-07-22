@@ -40,6 +40,7 @@ import {
   ConsumeTransaction,
   ITransaction,
   ITransactionStatus,
+  ITransactionType,
   ReplaceHotKeyTransaction,
   SendTransaction,
   SwapTransaction,
@@ -56,6 +57,21 @@ export * from './complete';
 export * from './get';
 export * from './helper';
 export * from './initiate';
+
+// Transaction types whose proposal creator is side-effect-free and idempotent on
+// a pending-delta 409, so returning the tx to the queue for a later cycle is safe.
+// Structural ops are deliberately EXCLUDED: `replace-hot-key` mints a hardware hot
+// key inside createReplaceHotKeyProposal BEFORE its proposal POST, so a requeue
+// re-mints and orphans another key every cycle; `switch-guardian` /
+// `update-procedure-threshold` create a proposal (and switch-guardian cold
+// co-signs) whose re-run can register a duplicate delta and push the commitment
+// past the guardian's expected single delta. Those fall through to cancelTransaction.
+const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
+  'send',
+  'consume',
+  'swap',
+  'execute'
+]);
 
 /**
  * Run the structural side effects a structural Guardian op needs after its
@@ -154,16 +170,21 @@ export const generateTransaction = async (
         return;
       }
       // A transient guardian 409 (a prior delta still canonicalizing) that
-      // outlasted withGuardianConflictRetry's budget is NOT a terminal failure:
-      // the single-delta lock clears on its own. Return the tx to the queue so
-      // the next generateTransactionsLoop cycle retries it instead of marking it
-      // permanently Failed. We must reset the status to Queued AND clear
-      // processingStartedAt — a bare return would leave it GeneratingTransaction,
-      // which cancelStuckTransactions would then reap as stalled. The retry-wrapped
-      // creators are side-effect-free (replace-hot-key is not retry-wrapped, so it
-      // never reaches this branch with a pending conflict); cancelStaleQueuedTransactions
-      // (MAX_QUEUED_AGE) remains the terminal cap.
-      if (isGuardianPendingConflict(error)) {
+      // outlasted withGuardianConflictRetry's budget is NOT a terminal failure
+      // for a VALUE-MOVING op: the single-delta lock clears on its own, and its
+      // proposal creator is side-effect-free/idempotent, so returning the tx to
+      // the queue for the next generateTransactionsLoop cycle is safe. We reset
+      // the status to Queued AND clear processingStartedAt — a bare return would
+      // leave it GeneratingTransaction, which cancelStuckTransactions would then
+      // reap as stalled; cancelStaleQueuedTransactions (MAX_QUEUED_AGE) remains
+      // the terminal cap.
+      //
+      // Structural ops are gated OUT (see REQUEUEABLE_ON_PENDING_CONFLICT): a
+      // replace-hot-key 409 escapes createReplaceHotKeyProposal AFTER the hardware
+      // hot key was minted, so requeueing would re-mint and orphan a key every
+      // cycle; switch-guardian / update-procedure-threshold re-runs can register a
+      // duplicate delta. They fall through to cancelTransaction — the user retries.
+      if (isGuardianPendingConflict(error) && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)) {
         console.warn('[Guardian] proposal still conflicting after retry budget — requeueing for a later cycle');
         await updateTransactionStatus(transaction.id, ITransactionStatus.Queued, {
           processingStartedAt: undefined,
