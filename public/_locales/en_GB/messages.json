@@ -3013,5 +3013,37 @@
   "copy": {
     "message": "Copy",
     "englishSource": "Copy"
+  },
+  "declaredBySiteVerifying": {
+    "message": "Declared by site — verifying by simulation…",
+    "englishSource": "Declared by site — verifying by simulation…"
+  },
+  "unverified": {
+    "message": "unverified",
+    "englishSource": "unverified"
+  },
+  "couldNotVerifyBySimulation": {
+    "message": "Could not verify by simulation. Amounts below are as declared by the site.",
+    "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
+  },
+  "couldNotDecodeTransaction": {
+    "message": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does.",
+    "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "advancedDetails": {
+    "message": "Advanced details",
+    "englishSource": "Advanced details"
+  },
+  "rawValue": {
+    "message": "Raw value",
+    "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "Opaque signature request",
+    "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureWarning": {
+    "message": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site.",
+    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
   }
 }

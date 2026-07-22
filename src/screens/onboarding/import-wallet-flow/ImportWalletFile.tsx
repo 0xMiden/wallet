@@ -10,6 +10,7 @@ import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { Icon, IconName } from 'app/icons/v2';
 import { decrypt, decryptJson, deriveKey, generateKey } from 'lib/miden/passworder';
 import { importDb } from 'lib/miden/repo';
+import { getMidenClient } from 'lib/miden/sdk/miden-client';
 import type { WalletAccount } from 'lib/shared/types';
 import { DecryptedWalletFile, ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, EncryptedWalletFile } from 'screens/shared';
 
@@ -44,6 +45,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
   const walletFileRef = useRef<HTMLInputElement>(null);
   const [walletFile, setWalletFile] = useState<WalletFile | null>(null);
   const [isWrongPassword, setIsWrongPassword] = useState(false);
+  const [isRestoreError, setIsRestoreError] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(null);
 
@@ -61,6 +63,11 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
   const handleClear = () => {
     setWalletFile(null);
     setPendingRestore(null);
+    // Reset the error flags too, otherwise a failed attempt on the previous
+    // file leaks a stale error caption/red border onto the next file the
+    // moment it's selected, before any action is taken on it.
+    setIsRestoreError(false);
+    setIsWrongPassword(false);
   };
 
   const handleImportSubmit = async () => {
@@ -73,6 +80,11 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
       return;
     }
 
+    // Decryption is the only step that depends on the password, so it is the
+    // only step whose failure means "wrong password". Keep it in its own
+    // try/catch; anything after it is a client/store/import failure that must
+    // surface a distinct error (see below).
+    let decryptedWallet: DecryptedWalletFile;
     try {
       const passKey = await generateKey(filePassword);
       const saltByteArray = Object.values(walletFile.salt) as number[];
@@ -87,21 +99,40 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
         return;
       }
 
-      // Reset wrong password error if it was previously set
+      // Reset error state if it was previously set
       setIsWrongPassword(false);
 
       // Proceed with full decryption
-      const decryptedWallet: DecryptedWalletFile = await decryptJson(
-        { dt: walletFile.dt, iv: walletFile.iv },
-        derivedKey
-      );
+      decryptedWallet = await decryptJson({ dt: walletFile.dt, iv: walletFile.iv }, derivedKey);
+    } catch (error) {
+      console.error('Decryption failed:', error);
+      setIsWrongPassword(true); // Ensure error appears in case of failure
+      return;
+    }
+
+    // Password was correct and the file decrypted cleanly. The remaining work
+    // (spinning up the miden-client, resolving its store name, and writing the
+    // dumps into IndexedDB) is independent of the password, so a failure here
+    // is NOT a wrong password — reporting it as one traps the user in an
+    // infinite retry loop with the correct password. Surface a distinct,
+    // actionable restore error instead.
+    try {
+      setIsRestoreError(false);
+
       const midenClientDbContent = decryptedWallet.midenClientDbContent;
       const walletDbContent = decryptedWallet.walletDbContent;
       const seedPhrase = decryptedWallet.seedPhrase;
       const walletAccounts = decryptedWallet.accounts;
       const omittedImportedAccountCount = decryptedWallet.omittedImportedAccountCount ?? 0;
 
-      await importStore(midenClientDbContent, 'miden-wallet');
+      // Restore the miden-client dump into the SAME IndexedDB store the active
+      // client reads from. The export path writes it out via the client's
+      // `storeIdentifier()` (defaulting to `MidenClientDB_<network>`), so the
+      // restore must target that exact store name. A hardcoded literal here
+      // leaves the running client reading its own empty DB, so account/balance
+      // state stays invisible and balances read as 0 (issue #253).
+      const storeName = await (await getMidenClient()).client.storeIdentifier();
+      await importStore(midenClientDbContent, storeName);
       await importDb(walletDbContent);
 
       // Mirror the export-side warning on the restore side: if the
@@ -116,8 +147,8 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
 
       onSubmit(seedPhrase, walletAccounts);
     } catch (error) {
-      console.error('Decryption failed:', error);
-      setIsWrongPassword(true); // Ensure error appears in case of failure
+      console.error('Wallet restore failed:', error);
+      setIsRestoreError(true);
     }
   };
 
@@ -260,8 +291,13 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
             type="password"
             name="password"
             placeholder="********"
-            // TODO: Determine error caption? Could also be "the import fucked up"-type error
-            errorCaption={isWrongPassword ? 'Wrong password' : errors.password?.message}
+            errorCaption={
+              isWrongPassword
+                ? 'Wrong password'
+                : isRestoreError
+                  ? "Couldn't restore the wallet. Please try again."
+                  : errors.password?.message
+            }
             containerClassName="mb-4"
           />
         </div>

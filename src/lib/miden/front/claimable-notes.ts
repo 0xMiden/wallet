@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { type InputNoteRecord } from '@miden-sdk/miden-sdk/lazy';
 
 import { getUncompletedTransactions } from 'lib/miden/activity';
+import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import { isExtension, isIOS } from 'lib/platform';
 import { SerializedConsumableNote, SyncData, WalletMessageType } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
@@ -168,7 +169,18 @@ async function fetchNotesFromLocalClient(
     uncompletedTxs.filter(tx => tx.type === 'consume' && tx.noteId != null).map(tx => tx.noteId!)
   );
 
-  return parseNotes(rawNotes, notesBeingClaimed);
+  // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
+  // custom transaction — hidden from the claimable UI until the user
+  // confirms (or forever, if they cancel). See note-quarantine.ts.
+  //
+  // NOTE: `parseNotes`'s 2nd arg (`notesBeingClaimed`) only flags matching
+  // notes as `isBeingClaimed` — it does NOT remove them from the result, so
+  // it cannot be reused to hide quarantined notes. We instead filter the
+  // parsed result by id (parseNotes derives ids the same way, via
+  // `note.id()?.toString()`, so the ids match exactly).
+  const quarantined = await getQuarantinedNoteIds();
+  const parsed = parseNotes(rawNotes, notesBeingClaimed);
+  return quarantined.size === 0 ? parsed : parsed.filter(n => !quarantined.has(n.id));
 }
 
 // -------------------- Extension hook (reads from Zustand) --------------------

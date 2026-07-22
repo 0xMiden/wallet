@@ -3,6 +3,7 @@ import browser from 'webextension-polyfill';
 import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
+import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { toNoteTypeString } from '../helpers';
@@ -154,6 +155,10 @@ async function runSync(): Promise<void> {
 
         // Read consumable notes
         const rawNotes = await client.getConsumableNotes(accountPubKey);
+        // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
+        // custom transaction — hidden from the claimable UI until the user
+        // confirms (or forever, if they cancel). See note-quarantine.ts.
+        const quarantined = await getQuarantinedNoteIds();
         const notes: SerializedConsumableNote[] = (rawNotes || [])
           .map((note: any) => {
             try {
@@ -161,6 +166,7 @@ async function runSync(): Promise<void> {
               // consumed — skip until sync completes them.
               const noteId = note.id()?.toString();
               if (!noteId) return null;
+              if (quarantined.has(noteId)) return null;
               const noteMeta = note.metadata();
               const details = note.details();
               const fungibleAssets = details.assets().fungibleAssets();

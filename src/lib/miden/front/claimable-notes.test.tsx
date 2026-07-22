@@ -70,6 +70,10 @@ jest.mock('lib/miden/activity', () => ({
   getUncompletedTransactions: async () => (globalThis as any).__cnTest.uncompletedTxs
 }));
 
+jest.mock('lib/miden/note-quarantine', () => ({
+  getQuarantinedNoteIds: async () => (globalThis as any).__cnTest.quarantined ?? new Set()
+}));
+
 jest.mock('../assets', () => ({
   isMidenFaucet: jest.fn(async (id: string) => id === 'miden-faucet')
 }));
@@ -102,6 +106,7 @@ beforeEach(() => {
   _g.__cnTest.storage = {};
   _g.__cnTest.consumableNotes = [];
   _g.__cnTest.uncompletedTxs = [];
+  _g.__cnTest.quarantined = new Set();
   _g.__cnTest.walletState.extensionClaimableNotes = null;
   _g.__cnTest.walletState.extensionClaimingNoteIds = new Set();
   _g.__cnTest.walletState.assetsMetadata = {};
@@ -346,6 +351,17 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     await waitFor(() => {
       expect(mockGetMidenClient).toHaveBeenCalled();
     });
+  });
+
+  it('excludes quarantined notes (simulation dry-run imports) from the result', async () => {
+    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'quarantined-note' }), makeMockNote({ id: 'visible-note' })];
+    _g.__cnTest.quarantined = new Set(['quarantined-note']);
+    mockGetMidenClient.mockResolvedValue({
+      getConsumableNotes: jest.fn(async () => _g.__cnTest.consumableNotes)
+    });
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    expect(_g.__cnTest.lastFetchData.map((n: any) => n.id)).toEqual(['visible-note']);
   });
 
   it('uses the in-progress consume transactions to mark notes as being claimed', async () => {
