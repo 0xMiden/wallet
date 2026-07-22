@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.9 (TBD)
+
+### Fixes
+
+* [FIX][all] **Guardian consume/send no longer stays permanently "Failed" after the transaction already landed on chain.** When a guardian value-moving transaction submitted successfully but the local apply step then failed (`ApplyTransactionAfterSubmitFailed`, e.g. the account was briefly locked), the guardian branch cancelled it to a terminal `Failed` state even though the note was consumed on chain — losing track of the funds locally until the next reconcile that never came. Guardian consume/send/swap/execute now mark the transaction `Completed` in that case (matching the non-guardian path), so the next sync reconciles the note via `ConsumedExternal`.
+
 ## 1.15.8 (2026-07-21)
 
 ### Features
