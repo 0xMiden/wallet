@@ -294,6 +294,121 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.sync).toHaveBeenCalled();
   });
 
+  it('Guardian send: a still-pending 409 (delta not yet canonicalized) requeues instead of failing', async () => {
+    // The guardian holds a single-delta lock; a proposal issued while a prior
+    // delta is still canonicalizing returns 409 ConflictPendingDelta. If it
+    // never clears within withGuardianConflictRetry's budget, the tx must be
+    // returned to the queue (transient lock) — NOT terminally Failed.
+    jest.useFakeTimers();
+    try {
+      const txId = 'send-pending-conflict';
+      txStore.push({
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false,
+        initiatedAt: Math.floor(Date.now() / 1000)
+      });
+
+      const conflict = { status: 409, body: 'ConflictPendingDelta' };
+      const multisigService = {
+        createSendProposal: jest.fn(async () => {
+          throw conflict;
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const provider = makeGuardianProvider(true);
+
+      const pending = generateTransaction(
+        {
+          id: txId,
+          type: 'send',
+          accountId: 'guardian-acc',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          amount: '1000',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        provider
+      );
+      // Fast-forward the withGuardianConflictRetry backoff sleeps so the retry
+      // budget exhausts synchronously instead of burning ~60s of real time.
+      await jest.runAllTimersAsync();
+      await pending;
+
+      // The proposal kept conflicting, so the tx is back in the queue — the next
+      // generateTransactionsLoop cycle will retry it — and never signs/submits.
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(row.processingStartedAt).toBeUndefined();
+      expect(multisigService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian send: a paused-account 409 fails fast (not a transient lock)', async () => {
+    const txId = 'send-paused-conflict';
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const paused = { status: 409, body: 'GUARDIAN_ACCOUNT_PAUSED' };
+    const multisigService = {
+      createSendProposal: jest.fn(async () => {
+        throw paused;
+      }),
+      signAndCreateTransactionRequest: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // A paused account is not a transient lock — retrying just delays the
+    // inevitable, so it stays terminally Failed rather than being requeued.
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+  });
+
   it('Guardian consume: builds a consume-notes proposal off the noteId', async () => {
     const txId = 'consume-guardian-1';
     const result = makeResult();

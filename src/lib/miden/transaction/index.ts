@@ -7,7 +7,11 @@ import {
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
-import { withGuardianAccountLock, withGuardianConflictRetry } from 'lib/miden/guardian/serialize';
+import {
+  isGuardianPendingConflict,
+  withGuardianAccountLock,
+  withGuardianConflictRetry
+} from 'lib/miden/guardian/serialize';
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { DEFAULT_NETWORK, MIDEN_NETWORK_ENDPOINTS } from 'lib/miden-chain/constants';
@@ -147,6 +151,24 @@ export const generateTransaction = async (
           // updateTransactionStatus throws if the tx is already finalized — fine.
           console.warn('[Guardian] could not re-mark Completed (likely already finalized):', markErr);
         }
+        return;
+      }
+      // A transient guardian 409 (a prior delta still canonicalizing) that
+      // outlasted withGuardianConflictRetry's budget is NOT a terminal failure:
+      // the single-delta lock clears on its own. Return the tx to the queue so
+      // the next generateTransactionsLoop cycle retries it instead of marking it
+      // permanently Failed. We must reset the status to Queued AND clear
+      // processingStartedAt — a bare return would leave it GeneratingTransaction,
+      // which cancelStuckTransactions would then reap as stalled. The retry-wrapped
+      // creators are side-effect-free (replace-hot-key is not retry-wrapped, so it
+      // never reaches this branch with a pending conflict); cancelStaleQueuedTransactions
+      // (MAX_QUEUED_AGE) remains the terminal cap.
+      if (isGuardianPendingConflict(error)) {
+        console.warn('[Guardian] proposal still conflicting after retry budget — requeueing for a later cycle');
+        await updateTransactionStatus(transaction.id, ITransactionStatus.Queued, {
+          processingStartedAt: undefined,
+          stage: 'creating-proposal'
+        });
         return;
       }
       await cancelTransaction(transaction, error);
