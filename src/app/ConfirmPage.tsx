@@ -28,7 +28,7 @@ import Alert from './atoms/Alert';
 import FormSecondaryButton from './atoms/FormSecondaryButton';
 import FormSubmitButton from './atoms/FormSubmitButton';
 import Name from './atoms/Name';
-import { AdvancedDetails } from './confirm/AdvancedDetails';
+import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
 import { declaredRequestToView, summaryBytesToView, summaryToView, TxAssetView } from './confirm/decode';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
@@ -363,15 +363,9 @@ const CustomTransactionContent: React.FC<{
 
   const advanced = (
     <AdvancedDetails>
-      {JSON.stringify(
-        {
-          recipient: payload.recipientAddress,
-          importNotes: payload.importNotes?.length ?? 0,
-          requestBytes: payload.requestBytes
-        },
-        null,
-        2
-      )}
+      <FoldableField label="recipient" value={payload.recipientAddress ?? '(none)'} />
+      <FoldableField label="importNotes" value={payload.importNotes?.length ?? 0} />
+      <FoldableField label="requestBytes" value={payload.requestBytes ?? '(none)'} />
     </AdvancedDetails>
   );
 
