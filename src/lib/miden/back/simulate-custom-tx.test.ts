@@ -49,4 +49,10 @@ describe('simulateCustomTransaction', () => {
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
     expect(res).toEqual({ error: 'note not found' });
   });
+
+  it('returns a string error when execution rejects with a non-Error value', async () => {
+    (executeForSummary as jest.Mock).mockRejectedValueOnce('boom');
+    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+    expect(res).toEqual({ error: 'boom' });
+  });
 });
