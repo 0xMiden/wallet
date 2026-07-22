@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.9 (TBD)
+
+### Fixes
+
+* [FIX][all] **Dark-theme contrast fixes.** Several spots hardcoded light-mode colors (or baked `stroke`/`fill` into SVGs) instead of using theme tokens, so they didn't flip in dark mode and rendered low-contrast — notably the send Review note text and the Advanced-Settings copy icon. These now use `currentColor`/theme tokens so text and icons stay legible in dark mode.
+
 ## 1.15.8 (2026-07-21)
 
 ### Features
