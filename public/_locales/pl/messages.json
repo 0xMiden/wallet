@@ -2906,5 +2906,37 @@
   "copy": {
     "message": "Kopia",
     "englishSource": "Copy"
+  },
+  "declaredBySiteVerifying": {
+    "message": "Deklarowane przez stronę — weryfikacja poprzez symulację…",
+    "englishSource": "Declared by site — verifying by simulation…"
+  },
+  "unverified": {
+    "message": "niesprawdzony",
+    "englishSource": "unverified"
+  },
+  "couldNotVerifyBySimulation": {
+    "message": "Nie można zweryfikować za pomocą symulacji. Poniższe kwoty są zgodne z deklaracjami na stronie.",
+    "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
+  },
+  "couldNotDecodeTransaction": {
+    "message": "Ta aplikacja dApp żąda niestandardowej transakcji. Portfel nie mógł rozszyfrować swoich szczegółów — kontynuuj tylko wtedy, gdy wiesz dokładnie, co robi.",
+    "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "advancedDetails": {
+    "message": "Zaawansowane szczegóły",
+    "englishSource": "Advanced details"
+  },
+  "rawValue": {
+    "message": "Wartość surowa",
+    "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "Nieprzejrzysta prośba o podpis",
+    "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureWarning": {
+    "message": "W tej witrynie poprosiliśmy Cię o podpisanie nieprzetworzonej wartości. Portfel nie może pokazać, co autoryzuje. Kontynuuj tylko wtedy, gdy w pełni ufasz tej witrynie.",
+    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
   }
 }

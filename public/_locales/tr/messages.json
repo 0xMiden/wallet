@@ -2964,5 +2964,37 @@
   "copy": {
     "message": "Kopyala",
     "englishSource": "Copy"
+  },
+  "declaredBySiteVerifying": {
+    "message": "Tesis tarafından beyan edildi — simülasyonla doğrulanıyor…",
+    "englishSource": "Declared by site — verifying by simulation…"
+  },
+  "unverified": {
+    "message": "doğrulanmamış",
+    "englishSource": "unverified"
+  },
+  "couldNotVerifyBySimulation": {
+    "message": "Simülasyonla doğrulanamadı. Aşağıdaki tutarlar site tarafından beyan edilen tutarlardır.",
+    "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
+  },
+  "couldNotDecodeTransaction": {
+    "message": "Bu dApp özel bir işlem talep ediyor. M-cüzdan ayrıntılarının şifresini çözemedi; ancak tam olarak ne yaptığını biliyorsanız devam edin.",
+    "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "advancedDetails": {
+    "message": "Gelişmiş ayrıntılar",
+    "englishSource": "Advanced details"
+  },
+  "rawValue": {
+    "message": "Ham değer",
+    "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "Şeffaf imza isteği",
+    "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureWarning": {
+    "message": "Bu site sizden ham bir değer imzalamanızı istedi. M-cüzdan neye yetki verdiğini gösteremez. Yalnızca bu siteye tamamen güveniyorsanız devam edin.",
+    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
   }
 }
