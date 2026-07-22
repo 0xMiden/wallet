@@ -556,6 +556,40 @@ describe('decryption flow', () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith('Decryption failed:', expect.any(Error));
     expect(onSubmit).not.toHaveBeenCalled();
   });
+
+  it('shows a distinct restore error (not wrong password) when the miden-client init fails on the correct password', async () => {
+    // Regression for the #364 review finding: with the correct password the
+    // decryption succeeds, so a client/store/import failure must NOT be
+    // reported as "Wrong password" (which sent users into an infinite retry
+    // loop with the right password). It must surface a distinct, actionable
+    // restore error instead.
+    const onSubmit = jest.fn();
+    mockGetMidenClient.mockRejectedValueOnce(new Error('wasm client init failed'));
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+
+    await submit(container);
+
+    const ffError = () => within(screen.getByTestId('form-field')).getByTestId('ff-error');
+    await waitFor(() => expect(ffError()).toHaveTextContent("Couldn't restore the wallet. Please try again."));
+    expect(ffError()).not.toHaveTextContent('Wrong password');
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Wallet restore failed:', expect.any(Error));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('shows the restore error (not wrong password) when importStore rejects on the correct password', async () => {
+    const onSubmit = jest.fn();
+    mockImportStore.mockRejectedValueOnce(new Error('idb write failed'));
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+
+    await submit(container);
+
+    const ffError = () => within(screen.getByTestId('form-field')).getByTestId('ff-error');
+    await waitFor(() => expect(ffError()).toHaveTextContent("Couldn't restore the wallet. Please try again."));
+    expect(ffError()).not.toHaveTextContent('Wrong password');
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
