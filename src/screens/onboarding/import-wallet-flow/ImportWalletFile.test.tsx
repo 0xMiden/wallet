@@ -55,6 +55,8 @@ const mockRegister = jest.fn((name: string, _opts?: unknown) => ({
 
 const mockImportStore = jest.fn();
 const mockImportDb = jest.fn();
+const mockStoreIdentifier = jest.fn();
+const mockGetMidenClient = jest.fn();
 const mockGenerateKey = jest.fn();
 const mockDeriveKey = jest.fn();
 const mockDecrypt = jest.fn();
@@ -100,6 +102,13 @@ jest.mock('lib/miden/passworder', () => ({
 jest.mock('lib/miden/repo', () => ({
   db: { tables: [] },
   importDb: (...args: unknown[]) => mockImportDb(...args)
+}));
+
+// The restore must write the miden-client dump into the same IndexedDB store
+// the active client reads from. That store name comes from the client's
+// `storeIdentifier()`, so mock `getMidenClient` to hand back a deterministic one.
+jest.mock('lib/miden/sdk/miden-client', () => ({
+  getMidenClient: (...args: unknown[]) => mockGetMidenClient(...args)
 }));
 
 jest.mock('app/icons/v2', () => ({
@@ -222,6 +231,8 @@ beforeEach(() => {
   });
   mockImportStore.mockResolvedValue(undefined);
   mockImportDb.mockResolvedValue(undefined);
+  mockStoreIdentifier.mockResolvedValue('MidenClientDB_mtst');
+  mockGetMidenClient.mockResolvedValue({ client: { storeIdentifier: mockStoreIdentifier } });
 
   (global as unknown as { FileReader: unknown }).FileReader = FakeFileReader as unknown;
   alertSpy = jest.spyOn(window, 'alert').mockImplementation(() => undefined);
@@ -397,6 +408,50 @@ describe('clear', () => {
     expect(screen.queryByText('wallet.json')).not.toBeInTheDocument();
     expect(getDropzone(container)).toBeInTheDocument();
   });
+
+  // Regression for the #364 round-2 finding: clearing the staged file must also
+  // reset the error flags, otherwise a failed attempt on file A leaves a stale
+  // error caption showing the moment file B is selected, before any action.
+  const clearStagedFile = (container: HTMLElement) =>
+    fireEvent.click(container.querySelector('button[type="button"]') as HTMLButtonElement);
+
+  it('clears a restore error when the file is removed, so a re-selected file starts clean', async () => {
+    const onSubmit = jest.fn();
+    mockImportStore.mockRejectedValueOnce(new Error('idb write failed'));
+    const { container } = renderScreen({ onSubmit });
+    uploadViaInput(container, 'wallet-a.json', { mode: 'load', content: VALID_WALLET_JSON });
+
+    await submit(container);
+
+    const ffError = () => within(screen.getByTestId('form-field')).getByTestId('ff-error');
+    await waitFor(() => expect(ffError()).toHaveTextContent("Couldn't restore the wallet. Please try again."));
+
+    // Remove the file, then select a different one WITHOUT submitting again.
+    clearStagedFile(container);
+    uploadViaInput(container, 'wallet-b.json', { mode: 'load', content: VALID_WALLET_JSON });
+
+    expect(screen.getByText('wallet-b.json')).toBeInTheDocument();
+    expect(within(screen.getByTestId('form-field')).queryByTestId('ff-error')).not.toBeInTheDocument();
+  });
+
+  it('clears a wrong-password error when the file is removed, so a re-selected file starts clean', async () => {
+    const onSubmit = jest.fn();
+    mockDecrypt.mockResolvedValueOnce('this-is-not-the-check');
+    const { container } = renderScreen({ onSubmit });
+    uploadViaInput(container, 'wallet-a.json', { mode: 'load', content: VALID_WALLET_JSON });
+
+    await submit(container);
+
+    const ffError = () => within(screen.getByTestId('form-field')).getByTestId('ff-error');
+    await waitFor(() => expect(ffError()).toHaveTextContent('Wrong password'));
+
+    // Remove the file, then select a different one WITHOUT submitting again.
+    clearStagedFile(container);
+    uploadViaInput(container, 'wallet-b.json', { mode: 'load', content: VALID_WALLET_JSON });
+
+    expect(screen.getByText('wallet-b.json')).toBeInTheDocument();
+    expect(within(screen.getByTestId('form-field')).queryByTestId('ff-error')).not.toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -465,8 +520,25 @@ describe('decryption flow', () => {
     expect(mockDeriveKey).toHaveBeenCalledWith('pass-key', new Uint8Array([10, 20, 30]));
     expect(mockDecrypt).toHaveBeenCalledWith({ dt: 'check-dt', iv: 'check-iv' }, 'derived-key');
     expect(mockDecryptJson).toHaveBeenCalledWith({ dt: 'payload-dt', iv: 'payload-iv' }, 'derived-key');
-    expect(mockImportStore).toHaveBeenCalledWith('miden-client-db', 'miden-wallet');
+    expect(mockImportStore).toHaveBeenCalledWith('miden-client-db', 'MidenClientDB_mtst');
     expect(mockImportDb).toHaveBeenCalledWith('wallet-db');
+  });
+
+  it('restores the miden-client dump into the active client store name, not the hardcoded "miden-wallet"', async () => {
+    // Regression for #253: the export path writes the dump into the client's
+    // own store (`storeIdentifier()` -> `MidenClientDB_<network>`), so the
+    // restore must target that exact store or the running client keeps reading
+    // its empty DB and balances stay 0.
+    const onSubmit = jest.fn();
+    mockStoreIdentifier.mockResolvedValue('MidenClientDB_mtst');
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+
+    await submit(container);
+
+    await waitFor(() => expect(mockImportStore).toHaveBeenCalled());
+    expect(mockImportStore).toHaveBeenCalledWith('miden-client-db', 'MidenClientDB_mtst');
+    expect(mockImportStore).not.toHaveBeenCalledWith('miden-client-db', 'miden-wallet');
   });
 
   it('defaults filePassword to an empty string when the watched value is undefined', async () => {
@@ -526,6 +598,40 @@ describe('decryption flow', () => {
       expect(within(screen.getByTestId('form-field')).getByTestId('ff-error')).toHaveTextContent('Wrong password')
     );
     expect(consoleErrorSpy).toHaveBeenCalledWith('Decryption failed:', expect.any(Error));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('shows a distinct restore error (not wrong password) when the miden-client init fails on the correct password', async () => {
+    // Regression for the #364 review finding: with the correct password the
+    // decryption succeeds, so a client/store/import failure must NOT be
+    // reported as "Wrong password" (which sent users into an infinite retry
+    // loop with the right password). It must surface a distinct, actionable
+    // restore error instead.
+    const onSubmit = jest.fn();
+    mockGetMidenClient.mockRejectedValueOnce(new Error('wasm client init failed'));
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+
+    await submit(container);
+
+    const ffError = () => within(screen.getByTestId('form-field')).getByTestId('ff-error');
+    await waitFor(() => expect(ffError()).toHaveTextContent("Couldn't restore the wallet. Please try again."));
+    expect(ffError()).not.toHaveTextContent('Wrong password');
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Wallet restore failed:', expect.any(Error));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('shows the restore error (not wrong password) when importStore rejects on the correct password', async () => {
+    const onSubmit = jest.fn();
+    mockImportStore.mockRejectedValueOnce(new Error('idb write failed'));
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+
+    await submit(container);
+
+    const ffError = () => within(screen.getByTestId('form-field')).getByTestId('ff-error');
+    await waitFor(() => expect(ffError()).toHaveTextContent("Couldn't restore the wallet. Please try again."));
+    expect(ffError()).not.toHaveTextContent('Wrong password');
     expect(onSubmit).not.toHaveBeenCalled();
   });
 });
