@@ -16,6 +16,8 @@
 const mockAlarmsCreate = jest.fn();
 const mockAlarmsClear = jest.fn();
 const mockAlarmsOnAlarm = { addListener: jest.fn() };
+const mockStorageGet = jest.fn();
+const mockStorageSet = jest.fn();
 
 // The real webextension-polyfill module shape. Tests override the
 // import behavior in specific cases to force rejection.
@@ -24,6 +26,12 @@ const mockPolyfill = {
     create: (...args: unknown[]) => mockAlarmsCreate(...args),
     clear: (...args: unknown[]) => mockAlarmsClear(...args),
     onAlarm: mockAlarmsOnAlarm
+  },
+  storage: {
+    local: {
+      get: (...args: unknown[]) => mockStorageGet(...args),
+      set: (...args: unknown[]) => mockStorageSet(...args)
+    }
   }
 };
 
@@ -48,11 +56,6 @@ jest.mock('lib/miden/repo', () => ({
   db: { open: (...args: unknown[]) => mockDbOpen(...args) }
 }));
 
-const mockTrackEvent = jest.fn();
-jest.mock('./analytics', () => ({
-  trackEvent: (...args: unknown[]) => mockTrackEvent(...args)
-}));
-
 const mockWithUnlocked = jest.fn();
 jest.mock('./store', () => ({
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
@@ -70,7 +73,8 @@ beforeEach(() => {
   mockSafeGenerateTransactionsLoop.mockResolvedValue({ success: true });
   mockCancelStuckTransactions.mockResolvedValue(undefined);
   mockDbOpen.mockResolvedValue(undefined);
-  mockTrackEvent.mockResolvedValue(undefined);
+  mockStorageGet.mockResolvedValue({});
+  mockStorageSet.mockResolvedValue(undefined);
 });
 
 /** Flush a few microtask / macrotask ticks so in-flight awaits can progress. */
@@ -248,16 +252,21 @@ describe('setupTransactionProcessor', () => {
 
     expect(mockDbOpen).toHaveBeenCalledTimes(1);
     expect(mockCancelStuckTransactions).toHaveBeenCalledTimes(2);
-    // A recovered heal must not escalate.
-    expect(mockTrackEvent).not.toHaveBeenCalled();
+    // A recovered heal must not escalate — no diagnostic gets persisted.
+    expect(mockStorageSet).not.toHaveBeenCalled();
   });
 
-  it('escalates via trackEvent when the heal keeps failing after re-open (issue #254)', async () => {
+  it('persists a diagnostic to chrome.storage.local when the heal keeps failing after re-open (issue #254)', async () => {
+    // The Segment escalation the PR originally used is dead in the shipped SW
+    // build (`back/analytics.ts` throws without ALEO_WALLET_SEGMENT_WRITE_KEY,
+    // which the background Vite build never defines), so a persistently-wedged
+    // heal must be recorded to `chrome.storage.local` — a sink that actually
+    // works in the MV3 SW and survives a broken IndexedDB.
     const mod = await import('./transaction-processor');
     mod.setupTransactionProcessor();
     await flushAsync();
     mockCancelStuckTransactions.mockClear();
-    mockTrackEvent.mockClear();
+    mockStorageSet.mockClear();
 
     const dbClosed = new Error('database is closed');
     dbClosed.name = 'DatabaseClosedError';
@@ -268,8 +277,39 @@ describe('setupTransactionProcessor', () => {
     listener({ name: 'miden-tx-stuck-heal' });
     await flushAsync();
 
-    // A silently-failing heal must be surfaced, not swallowed.
-    expect(mockTrackEvent).toHaveBeenCalledWith(expect.objectContaining({ event: expect.stringContaining('Heal') }));
+    expect(mockStorageSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stuckTxHealDiagnostic: expect.objectContaining({
+          message: expect.stringContaining('DatabaseClosedError'),
+          consecutiveFailures: 1,
+          lastFailureAt: expect.any(Number)
+        })
+      })
+    );
+  });
+
+  it('increments the consecutiveFailures counter across repeated persistent heal failures (issue #254)', async () => {
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    mockCancelStuckTransactions.mockClear();
+    mockStorageSet.mockClear();
+
+    // A prior diagnostic already exists from earlier failed ticks.
+    mockStorageGet.mockResolvedValue({
+      stuckTxHealDiagnostic: { lastFailureAt: 1, message: 'old failure', consecutiveFailures: 4 }
+    });
+    mockCancelStuckTransactions.mockRejectedValueOnce(new Error('still broken'));
+
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+    listener({ name: 'miden-tx-stuck-heal' });
+    await flushAsync();
+
+    expect(mockStorageSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stuckTxHealDiagnostic: expect.objectContaining({ consecutiveFailures: 5 })
+      })
+    );
   });
 
   it('escalates a non-DatabaseClosedError without attempting a Dexie re-open (issue #254)', async () => {
@@ -278,7 +318,7 @@ describe('setupTransactionProcessor', () => {
     await flushAsync();
     mockCancelStuckTransactions.mockClear();
     mockDbOpen.mockClear();
-    mockTrackEvent.mockClear();
+    mockStorageSet.mockClear();
 
     mockCancelStuckTransactions.mockRejectedValueOnce(new Error('some other failure'));
 
@@ -287,7 +327,7 @@ describe('setupTransactionProcessor', () => {
     await flushAsync();
 
     expect(mockDbOpen).not.toHaveBeenCalled();
-    expect(mockTrackEvent).toHaveBeenCalled();
+    expect(mockStorageSet).toHaveBeenCalledWith(expect.objectContaining({ stuckTxHealDiagnostic: expect.any(Object) }));
   });
 
   it('keepalive alarm tick does not invoke cancelStuckTransactions', async () => {

@@ -3,7 +3,6 @@
 // init_store → init_fetchBalances → init_prices → init_store (via __esmMin async factories).
 // Direct import avoids this because transaction-processor doesn't need the
 // activity module's full init chain.
-import { AnalyticsEventCategory } from 'lib/miden/analytics-types';
 import { type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import * as Repo from 'lib/miden/repo';
 import {
@@ -187,33 +186,47 @@ export async function startTransactionProcessing(): Promise<void> {
   }
 }
 
+// Diagnostic record persisted to `chrome.storage.local` when the self-heal
+// keeps failing. Read it from the SW DevTools console with
+// `chrome.storage.local.get('stuckTxHealDiagnostic')`.
+const STUCK_TX_HEAL_DIAGNOSTIC_KEY = 'stuckTxHealDiagnostic';
+interface StuckTxHealDiagnostic {
+  lastFailureAt: number;
+  message: string;
+  consecutiveFailures: number;
+}
+
 /**
  * Escalate a self-heal failure that survived the Dexie re-open + retry.
  *
- * A bare `console.warn` is invisible without an open DevTools session, so a
- * silently-wedged heal is undiagnosable in the field. Surface it on the
- * shipped telemetry sink (Segment) instead. The analytics module is loaded
- * lazily and guarded exactly like `getBrowser()`: `back/analytics.ts` throws
- * at module load when the Segment write key is absent and pulls in a Node
- * SDK, so it must never be evaluated on the mobile / desktop bundle's load
- * path — only inside this SW-only error branch, and even then failures to
- * report are swallowed so telemetry can never break the heal itself.
+ * A bare `console.error` is invisible without an open DevTools session, so a
+ * silently-wedged heal is undiagnosable in the field. The obvious escalation
+ * sink — Segment via `back/analytics.ts` — is DEAD in the shipped SW build:
+ * that module throws at load unless `ALEO_WALLET_SEGMENT_WRITE_KEY` is set, and
+ * the background Vite build (`vite.background.config.ts`) never defines it, so a
+ * dynamic `import('./analytics')` here would only ever reject and emit nothing.
+ * Escalating to a Dexie table is just as self-defeating: the heal usually fails
+ * BECAUSE IndexedDB is down. Persist a small diagnostic to `chrome.storage.local`
+ * instead — it works in the MV3 service worker and survives a broken IndexedDB —
+ * bumping a consecutive-failure counter so a persistently-wedged heal is visible.
+ * Loaded lazily via `getBrowser()` and fully swallowed on error so escalation
+ * can never break the heal itself (and so non-extension bundles never touch it).
  */
 async function reportHealFailure(err: unknown): Promise<void> {
   console.error('[TransactionProcessor] Stuck-tx self-heal failed:', err);
   try {
-    const { trackEvent } = await import('./analytics');
-    await trackEvent({
-      userId: 'service-worker',
-      rpc: undefined,
-      event: 'StuckTxHealFailed',
-      category: AnalyticsEventCategory.General,
-      properties: {
-        error: err instanceof Error ? `${err.name}: ${err.message}` : String(err)
-      }
-    });
+    const browser = await getBrowser();
+    const previous = (await browser.storage.local.get(STUCK_TX_HEAL_DIAGNOSTIC_KEY))[STUCK_TX_HEAL_DIAGNOSTIC_KEY] as
+      | StuckTxHealDiagnostic
+      | undefined;
+    const diagnostic: StuckTxHealDiagnostic = {
+      lastFailureAt: Date.now(),
+      message: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      consecutiveFailures: (previous?.consecutiveFailures ?? 0) + 1
+    };
+    await browser.storage.local.set({ [STUCK_TX_HEAL_DIAGNOSTIC_KEY]: diagnostic });
   } catch {
-    // Telemetry sink unavailable (no write key / non-extension bundle) —
+    // No `browser.storage` (non-extension bundle) or a storage write failure —
     // the console.error above remains as the fallback diagnostic surface.
   }
 }
