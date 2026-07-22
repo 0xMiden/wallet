@@ -27,6 +27,7 @@ import { getAllUncompletedTransactions, getTransactionsInProgress } from './get'
 import {
   buildSignCallbackError,
   isGuardianCanonicalizationError,
+  isLockedError,
   readLastAuthReason,
   setTransactionStage,
   updateTransactionStatus
@@ -113,6 +114,13 @@ export const generateTransaction = async (
         generateGuardianTransaction(transaction, signCallback, guardianProvider)
       );
     } catch (error) {
+      // The wallet locked (vault === null) somewhere in the guardian flow: DEFER,
+      // don't cancel. Re-throw so generateTransactionsLoop's locked-requeue path
+      // leaves the tx Queued for retry after unlock instead of marking it Failed
+      // and losing the note-claim (issue #313).
+      if (isLockedError(error)) {
+        throw error;
+      }
       // Submit-succeeded-but-local-apply-failed on a structural op (replace-hot-key
       // / switch-guardian) is special: the change IS on chain, but the failure
       // happened before generateGuardianTransaction's completion handler ran, so
@@ -626,9 +634,13 @@ export const generateTransactionsLoop = async (
     // This prevents the note-loss scenario the 1000-op stress run
     // surfaced: lock during executeTransaction → tx cancelled → next
     // cycle starts fresh but some races can leave the note stuck.
+    // Two locked signals: the SDK-captured sign-callback auth error (non-guardian
+    // path), and an explicit locked error thrown by the guardian provider when the
+    // vault is null (guardian path — never reaches the SDK sign callback). Either
+    // one defers the tx for retry after unlock rather than marking it Failed.
     const authReason = await readLastAuthReason();
-    if (authReason === 'locked') {
-      logger.warning('Sign callback reported locked wallet; leaving tx queued for retry');
+    if (authReason === 'locked' || isLockedError(e)) {
+      logger.warning('Wallet locked during tx generation; leaving tx queued for retry');
       return false;
     }
 

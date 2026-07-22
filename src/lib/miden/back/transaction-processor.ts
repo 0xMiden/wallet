@@ -13,6 +13,7 @@ import { WalletMessageType } from 'lib/shared/types';
 
 import { getIntercom } from './defaults';
 import { accountsUpdated, withUnlocked } from './store';
+import type { Vault } from './vault';
 
 // NOTE: `webextension-polyfill` throws at module load time when
 // `globalThis.chrome?.runtime?.id` is undefined (non-extension
@@ -59,27 +60,50 @@ async function swSignCallback(publicKey: string, signingInputs: string): Promise
 }
 
 /**
+ * Like `withUnlocked`, but additionally guards against a NULL vault.
+ *
+ * `withUnlocked` → `assertUnlocked` only asserts the store is INITED; it does
+ * NOT check that the vault is actually present. A LOCKED wallet has
+ * `inited === true` but `vault === null`, so a factory that dereferences the
+ * vault throws an opaque `TypeError: Cannot read properties of null`. That
+ * TypeError is not recognised as a "locked" failure by the transaction loop,
+ * so a background Guardian consume that runs while the wallet is locked gets
+ * marked Failed (losing the note-claim) instead of deferred (issue #313).
+ *
+ * Throwing an explicit locked-classified error (matched by `isLockedError`)
+ * lets the loop leave the tx Queued for retry after the wallet unlocks.
+ */
+function withUnlockedVault<T>(factory: (ctx: { vault: Vault }) => T): T {
+  return withUnlocked(({ vault }) => {
+    if (!vault) {
+      throw Object.assign(new Error('Wallet is locked: vault unavailable'), { reason: 'locked' as const });
+    }
+    return factory({ vault });
+  });
+}
+
+/**
  * Vault-backed Guardian account provider for service worker context.
  * Uses the Vault directly instead of the Zustand store.
  */
-const vaultGuardianProvider: GuardianAccountProvider = {
+export const vaultGuardianProvider: GuardianAccountProvider = {
   getAccounts: async () => {
-    return withUnlocked(async ({ vault }) => {
+    return withUnlockedVault(async ({ vault }) => {
       return await vault.fetchAccounts();
     });
   },
   getPublicKeyForCommitment: async (commitment: string) => {
-    return withUnlocked(async ({ vault }) => {
+    return withUnlockedVault(async ({ vault }) => {
       return await vault.getPublicKeyForCommitment(commitment);
     });
   },
   signWord: async (publicKey: string, wordHex: string) => {
-    return withUnlocked(async ({ vault }) => {
+    return withUnlockedVault(async ({ vault }) => {
       return await vault.signWord(publicKey, wordHex);
     });
   },
   persistNewHotKey: async (newHotPubKey: string, newHotCiphertext: string) => {
-    return withUnlocked(async ({ vault }) => {
+    return withUnlockedVault(async ({ vault }) => {
       await vault.persistNewHotKey(newHotPubKey, newHotCiphertext);
     });
   },
@@ -95,7 +119,7 @@ const vaultGuardianProvider: GuardianAccountProvider = {
     // intercom-driven path; we don't route through Actions.swapHotKey here
     // because importing actions.ts drags webextension-polyfill into the
     // transaction-processor's init chain.
-    return withUnlocked(async ({ vault }) => {
+    return withUnlockedVault(async ({ vault }) => {
       const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
       accountsUpdated(updated);
     });
@@ -104,7 +128,7 @@ const vaultGuardianProvider: GuardianAccountProvider = {
     // Mirror swapHotKey: persist then `accountsUpdated` so the Effector store
     // (and every popup pulling from it) reflects the new per-account endpoint.
     // Otherwise the popup keeps resolving the old guardian for this account.
-    return withUnlocked(async ({ vault }) => {
+    return withUnlockedVault(async ({ vault }) => {
       const updated = await vault.setGuardianEndpoint(accountPublicKey, guardianEndpoint);
       accountsUpdated(updated);
     });

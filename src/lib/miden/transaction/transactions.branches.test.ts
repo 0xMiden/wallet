@@ -538,6 +538,30 @@ describe('generateTransactionsLoop error paths', () => {
     sdk.withWasmClientLock = origLock;
   });
 
+  it('leaves a Guardian tx Queued (not Failed) when the wallet is locked at consume time (#313)', async () => {
+    // A background Guardian consume that runs while the wallet is locked hits
+    // `isGuardianAccount` → `guardianProvider.getAccounts()` first, which throws
+    // because the vault is null. That failure must be recognised as "locked" and
+    // the tx DEFERRED (left non-Failed) for the next cycle — NOT cancelled like a
+    // genuine error, otherwise the note-claim is lost.
+    const gm = require('lib/miden/front/guardian-manager');
+    gm.isGuardianAccount.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('Wallet is locked: vault unavailable'), { reason: 'locked' });
+    });
+
+    txStore.push({
+      id: 'tx-guardian-locked',
+      type: 'consume',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'guardian-acc'
+    });
+
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(result).toBe(false);
+    expect(txStore[0]!.status).not.toBe(ITransactionStatus.Failed);
+  });
+
   it('invokes the wrapped sign callback during dispatch (success path)', async () => {
     // Default withWasmClientLock runs fn(), so generateTransaction reaches
     // getMidenClient(options) and the mock invokes the wrapped sign callback.

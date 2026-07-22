@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.9 (TBD)
+
+### Fixes
+
+* [FIX][all] **Background Guardian consume no longer crashes when the vault is locked.** The service-worker guardian provider dereferenced a null vault (`withUnlocked` only asserts the store is inited, not that the vault is present), throwing an opaque `Cannot read properties of null` TypeError that the transaction loop failed to classify and so marked the note-claim Failed. The provider now throws an explicit locked-classified error and the loop defers (requeues) the transaction for retry after the wallet unlocks.
+
 ## 1.15.8 (2026-07-21)
 
 ### Features
