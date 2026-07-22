@@ -30,6 +30,7 @@ jest.mock('react-i18next', () => ({
 jest.mock('lib/miden/activity', () => ({
   cancelTransactionById: (...args: unknown[]) => mockCancelTransactionById(...args),
   getTransactionById: (...args: unknown[]) => mockGetTransactionById(...args),
+  isRequeueableTransaction: () => false,
   isUserCancelledTransaction: () => false,
   trackOrderId: (...args: unknown[]) => mockTrackOrderId(...args),
   USER_CANCELLED_TRANSACTION_REASON: 'Cancelled by user'
@@ -127,7 +128,8 @@ jest.mock('./DetailCard', () => ({
 
 jest.mock('./TransactionIcon', () => ({
   __esModule: true,
-  default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />
+  default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />,
+  getTransactionIconBackgroundColor: () => '#91ACC1'
 }));
 
 // The branch adds the EVM bridge claim panel to history details. Stub it here
@@ -264,9 +266,9 @@ describe('HistoryDetails', () => {
       mockGetTransactionById.mockResolvedValue({ ...baseSendTx });
       await renderAndLoad();
 
-      // Amount + token from the top section.
-      expect(screen.getByText('1000')).toBeInTheDocument();
-      expect(screen.getByText('MID')).toBeInTheDocument();
+      // Amount + token now share the summary badge's left side.
+      expect(screen.getByText('1000 MID')).toBeInTheDocument();
+      expect(screen.getByText('acct-B')).toBeInTheDocument();
       // Fiat: |1000| * price(2) => 2000.00.
       expect(screen.getByText('≈ $2000.00 USD')).toBeInTheDocument();
 
@@ -295,6 +297,11 @@ describe('HistoryDetails', () => {
       // Notes section: created count = outputNoteIds length; noteType truthy => 'on'.
       expect(rowByLabel('created')?.textContent).toBe('1');
       expect(rowByLabel('Note')?.textContent).toBe('on');
+
+      // Transfer details and Notes are separated using the transaction icon accent.
+      const dividers = screen.getAllByTestId('history-section-divider');
+      expect(dividers).toHaveLength(2);
+      dividers.forEach(divider => expect(divider).toHaveStyle({ backgroundColor: '#91ACC1' }));
 
       // Not a swap → no order-tracking card.
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
@@ -356,8 +363,8 @@ describe('HistoryDetails', () => {
       mockGetTransactionById.mockResolvedValue({ ...baseSendTx });
       await renderAndLoad();
 
-      // formatDisplayAmount('NaN') → non-finite → returns 'NaN' verbatim.
-      expect(screen.getByText('NaN')).toBeInTheDocument();
+      // The shared summary badge preserves the formatter's non-finite output.
+      expect(screen.getByText('NaN MID')).toBeInTheDocument();
       // formatFiatDisplayAmount → non-finite → undefined → no fiat line.
       expect(screen.queryByText(/USD/)).not.toBeInTheDocument();
     });

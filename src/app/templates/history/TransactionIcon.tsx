@@ -28,6 +28,40 @@ const sizeConfig = {
 
 const whiteIconClass = 'text-pure-white [&_path]:fill-pure-white';
 
+/** Shared accent used by both the transaction glyph and detail-section dividers. */
+export const getTransactionIconBackgroundColor = (entry: IHistoryEntry): string => {
+  if (entry.isCancelled) return '#9CA3AF';
+
+  if (
+    (entry.txType === 'bridged-send' || entry.txType === 'bridged-receive' || entry.bridgeInProvider) &&
+    bridgeStatusOf(entry) === 'failed'
+  ) {
+    return '#CC5D5D';
+  }
+
+  if (entry.txType === 'bridged-send' || entry.txType === 'bridged-receive' || entry.bridgeInProvider) {
+    return BRIDGE_ICON_BG;
+  }
+
+  if (entry.txType === 'earn-withdraw' || entry.txType === 'earn-deposit') {
+    return entry.earnWithdrawPhase === 'failed' ? '#CC5D5D' : 'var(--tx-earn)';
+  }
+
+  if (isFaucetRequest(entry)) return TRANSACTION_COLORS.faucet;
+
+  switch (entry.transactionIcon) {
+    case 'FAILED':
+      return '#CC5D5D';
+    case 'SEND':
+      return TRANSACTION_COLORS.send;
+    case 'SWAP':
+      return 'var(--tx-swap)';
+    case 'RECEIVE':
+    default:
+      return TRANSACTION_COLORS.receive;
+  }
+};
+
 const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
   const config = sizeConfig[size];
   const isPending =
