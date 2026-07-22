@@ -23,10 +23,34 @@
  * failure must never break sync or simulation, so all storage access is
  * wrapped in try/catch with safe fallbacks.
  */
-import { Note } from '@miden-sdk/miden-sdk/lazy';
+import { Note, NoteFile } from '@miden-sdk/miden-sdk/lazy';
 
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { b64ToU8 } from 'lib/shared/helpers';
+
+/**
+ * Derives a note id from imported note bytes, mirroring exactly how
+ * `importNoteBytes` (`deserializeNoteFileOrNote`) parses them: the bytes may be
+ * a serialized `NoteFile` OR a bare `Note` — two mutually incompatible formats,
+ * and the dApp controls which it sends. Deriving the id from only one format
+ * would let notes in the other format be imported but never quarantined (they'd
+ * leak into the claimable UI). Tries NoteFile first (as the import does), then a
+ * bare Note. Returns null if neither parses.
+ */
+function noteIdFromBytes(bytes: Uint8Array): string | null {
+  try {
+    const noteFile = NoteFile.deserialize(bytes);
+    const id = noteFile.noteId() ?? noteFile.note()?.id();
+    if (id) return id.toString();
+  } catch {
+    // Not a NoteFile — fall through to a bare Note.
+  }
+  try {
+    return Note.deserialize(bytes).id().toString();
+  } catch {
+    return null;
+  }
+}
 
 const QUARANTINE_KEY = 'simulation_quarantined_note_ids';
 // Bounds growth: declined/abandoned simulations accumulate ids that are
@@ -47,7 +71,7 @@ export function importedNoteIds(importNotes: string[] | undefined): string[] {
   return (importNotes ?? [])
     .map(b64 => {
       try {
-        return Note.deserialize(b64ToU8(b64)).id().toString();
+        return noteIdFromBytes(b64ToU8(b64));
       } catch {
         return null;
       }

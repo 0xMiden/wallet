@@ -18,12 +18,20 @@ jest.mock('lib/miden/front/storage', () => ({
 const mockDeserialize = jest.fn((bytes: Uint8Array) => ({
   id: () => ({ toString: () => `id:${Array.from(bytes).join('-')}` })
 }));
+// NoteFile.deserialize is tried FIRST (mirroring importNoteBytes). By default it
+// throws — i.e. "these bytes are a bare Note, not a NoteFile" — so the Note.deserialize
+// path is exercised by the existing tests. NoteFile-format tests override it.
+const mockNoteFileDeserialize = jest.fn((_bytes: Uint8Array): any => {
+  throw new Error('not a NoteFile');
+});
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
-  Note: { deserialize: (bytes: Uint8Array) => mockDeserialize(bytes) }
+  Note: { deserialize: (bytes: Uint8Array) => mockDeserialize(bytes) },
+  NoteFile: { deserialize: (bytes: Uint8Array) => mockNoteFileDeserialize(bytes) }
 }));
 
+const mockB64ToU8 = jest.fn((s: string) => new Uint8Array([s.length]));
 jest.mock('lib/shared/helpers', () => ({
-  b64ToU8: jest.fn((s: string) => new Uint8Array([s.length]))
+  b64ToU8: (s: string) => mockB64ToU8(s)
 }));
 
 const QUARANTINE_KEY = 'simulation_quarantined_note_ids';
@@ -34,6 +42,9 @@ beforeEach(() => {
   mockDeserialize.mockImplementation((bytes: Uint8Array) => ({
     id: () => ({ toString: () => `id:${Array.from(bytes).join('-')}` })
   }));
+  mockNoteFileDeserialize.mockImplementation(() => {
+    throw new Error('not a NoteFile');
+  });
 });
 
 describe('importedNoteIds', () => {
@@ -56,6 +67,45 @@ describe('importedNoteIds', () => {
     });
     const ids = importedNoteIds(['bad', 'good']);
     expect(ids).toEqual(['id:4']);
+  });
+
+  it('derives the id from a NoteFile-serialized note via noteId() (bare-Note parse would throw)', () => {
+    // A dApp can hand off notes as a serialized NoteFile (the preferred export
+    // format); those must be quarantined too, not silently dropped.
+    mockNoteFileDeserialize.mockImplementationOnce(() => ({
+      noteId: () => ({ toString: () => 'nf-note-id' }),
+      note: () => undefined
+    }));
+    // If this fell through to Note.deserialize it would produce 'id:...'; assert
+    // it used the NoteFile id instead.
+    expect(importedNoteIds(['x'])).toEqual(['nf-note-id']);
+  });
+
+  it('falls back to NoteFile.note().id() when noteId() is undefined', () => {
+    mockNoteFileDeserialize.mockImplementationOnce(() => ({
+      noteId: () => undefined,
+      note: () => ({ id: () => ({ toString: () => 'nf-via-note' }) })
+    }));
+    expect(importedNoteIds(['x'])).toEqual(['nf-via-note']);
+  });
+
+  it('skips a note that is neither a resolvable NoteFile nor a bare Note', () => {
+    // NoteFile parses but yields no id, and Note.deserialize also throws.
+    mockNoteFileDeserialize.mockImplementationOnce(() => ({
+      noteId: () => undefined,
+      note: () => undefined
+    }));
+    mockDeserialize.mockImplementationOnce(() => {
+      throw new Error('not a Note either');
+    });
+    expect(importedNoteIds(['x'])).toEqual([]);
+  });
+
+  it('skips an entry whose base64 fails to decode, without throwing', () => {
+    mockB64ToU8.mockImplementationOnce(() => {
+      throw new Error('bad base64');
+    });
+    expect(importedNoteIds(['bad', 'good'])).toEqual(['id:4']);
   });
 });
 
