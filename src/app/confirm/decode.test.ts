@@ -1,3 +1,7 @@
+import { Note, TransactionRequest, TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
+
+import { declaredRequestToView, summaryBytesToView, summaryToView } from './decode';
+
 const fa = (faucetId: string, amount: bigint) => ({
   faucetId: () => ({ toString: () => faucetId }),
   amount: () => amount
@@ -16,10 +20,6 @@ jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn((s: string) => new Uint8Array([s.length]))
 }));
 
-import { Note, TransactionRequest, TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
-
-import { declaredRequestToView, summaryToView } from './decode';
-
 describe('summaryToView', () => {
   it('maps a TransactionSummary account delta to outgoing/incoming + note counts', () => {
     const ts = {
@@ -32,6 +32,29 @@ describe('summaryToView', () => {
       outputNotes: () => ({ numNotes: () => 2 })
     };
     expect(summaryToView(ts as any)).toEqual({
+      account: 'mtst1account',
+      outgoing: [{ faucetId: 'fA', amount: 10n }],
+      incoming: [{ faucetId: 'fB', amount: 3n }],
+      inputNotesConsumed: 1,
+      outputNotesCreated: 2,
+      storageChanged: false
+    });
+  });
+
+  it('summaryBytesToView deserializes bytes then maps like summaryToView', () => {
+    const ts = {
+      accountDelta: () => ({
+        id: () => 'acctId',
+        vault: () => ({ removedFungibleAssets: () => [fa('fA', 10n)], addedFungibleAssets: () => [fa('fB', 3n)] }),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => 1 }),
+      outputNotes: () => ({ numNotes: () => 2 })
+    };
+    (TransactionSummary.deserialize as jest.Mock).mockReturnValueOnce(ts);
+    const view = summaryBytesToView('sumB64');
+    expect(TransactionSummary.deserialize).toHaveBeenCalledWith(expect.any(Uint8Array));
+    expect(view).toEqual({
       account: 'mtst1account',
       outgoing: [{ faucetId: 'fA', amount: 10n }],
       incoming: [{ faucetId: 'fB', amount: 3n }],
@@ -67,5 +90,14 @@ describe('declaredRequestToView', () => {
     expect(view.incoming).toEqual([]);
     expect(view.outputNotesCreated).toBe(0);
     expect(view.inputNotesConsumed).toBe(0);
+  });
+
+  it('contributes [] for an output note whose assets() returns undefined', () => {
+    (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({
+      expectedOutputOwnNotes: () => [{ assets: () => undefined }]
+    });
+    const view = declaredRequestToView('reqB64');
+    expect(view.outgoing).toEqual([]);
+    expect(view.outputNotesCreated).toBe(1);
   });
 });
