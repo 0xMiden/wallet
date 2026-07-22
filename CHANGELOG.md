@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.9 (TBD)
+
+### Fixes
+
+* [FIX][all] **Seed-phrase restore now validates the BIP-39 checksum.** The import screen only checked that each word was in the wordlist, so a checksum-invalid phrase (e.g. the same valid word repeated 12 times) passed and silently derived a brand-new, unrelated wallet while the user believed they were restoring an existing one. Restore now runs `validateMnemonic` on the full phrase and rejects invalid checksums with a clear error.
+
 ## 1.15.8 (2026-07-21)
 
 ### Features
