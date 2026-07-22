@@ -1,6 +1,6 @@
 /* eslint-disable no-restricted-globals */
 
-import React, { FC, Suspense, useCallback, useMemo, useState } from 'react';
+import React, { FC, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 import { SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
@@ -28,7 +28,8 @@ import Alert from './atoms/Alert';
 import FormSecondaryButton from './atoms/FormSecondaryButton';
 import FormSubmitButton from './atoms/FormSubmitButton';
 import Name from './atoms/Name';
-import { summaryToView } from './confirm/decode';
+import { AdvancedDetails } from './confirm/AdvancedDetails';
+import { declaredRequestToView, summaryBytesToView, summaryToView, TxAssetView } from './confirm/decode';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 import { Icon, IconName } from './icons/v2';
@@ -109,7 +110,7 @@ interface PayloadContentProps {
   error?: any;
 }
 
-const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account }) => {
+const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account, viewKey }) => {
   const { t } = useTranslation();
   let content: string | React.ReactNode = t('noPreview');
 
@@ -127,9 +128,15 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             console.error('Failed to deserialize payload for sign:', e);
           }
           content = (
-            <div className="text-md text-center my-6">
-              {t('signTheFollowingWord', { word: truncateAddress(wordHex) })}
-            </div>
+            <>
+              <Alert
+                type="warn"
+                title={t('opaqueSignatureTitle')}
+                description={t('opaqueSignatureWarning')}
+                className="my-2"
+              />
+              <AdvancedDetails label={t('rawValue')}>{wordHex}</AdvancedDetails>
+            </>
           );
           break;
         }
@@ -169,6 +176,10 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
     }
 
     case 'transaction': {
+      if (payload.txKind === 'custom') {
+        content = <CustomTransactionContent payload={payload} id={viewKey ?? ''} />;
+        break;
+      }
       content = (
         <div>
           <div className="text-sm" key={0}>
@@ -293,12 +304,107 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
         />
       );
     case SigningInputsType.Arbitrary:
-      return <div className="text-md text-center my-6">{t('signArbitraryPayload')}</div>;
     case SigningInputsType.Blind:
-      return <div className="text-md text-center my-6">{t('signBlindCommitment')}</div>;
+      return (
+        <>
+          <Alert
+            type="warn"
+            title={t('opaqueSignatureTitle')}
+            description={t('opaqueSignatureWarning')}
+            className="my-2"
+          />
+          <AdvancedDetails label={t('rawValue')}>
+            {signingInputs.variantType === SigningInputsType.Arbitrary
+              ? t('signArbitraryPayload')
+              : t('signBlindCommitment')}
+          </AdvancedDetails>
+        </>
+      );
     default:
       return <div className="text-md text-center my-6">{t('noPreview')}</div>;
   }
+};
+
+const CustomTransactionContent: React.FC<{
+  payload: Extract<MidenDAppPayload, { type: 'transaction' }>;
+  id: string;
+}> = ({ payload, id }) => {
+  const { t } = useTranslation();
+  const { simulateCustomTransaction } = useMidenContext();
+
+  const declaredView = useMemo<TxAssetView | null>(() => {
+    if (!payload.requestBytes) return null;
+    try {
+      return declaredRequestToView(payload.requestBytes, payload.importNotes ?? []);
+    } catch (e) {
+      console.error('Failed to decode declared custom transaction:', e);
+      return null;
+    }
+  }, [payload.requestBytes, payload.importNotes]);
+
+  const [verifiedView, setVerifiedView] = useState<TxAssetView | null>(null);
+  const [simError, setSimError] = useState(false);
+
+  useEffect(() => {
+    if (!payload.requestBytes) return;
+    let cancelled = false;
+    (async () => {
+      const { summaryBytes, error } = await simulateCustomTransaction(id);
+      if (cancelled) return;
+      if (summaryBytes) {
+        try {
+          setVerifiedView(summaryBytesToView(summaryBytes));
+          return;
+        } catch (e) {
+          console.error('Failed to decode simulated summary:', e);
+        }
+      }
+      if (error || !summaryBytes) setSimError(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, payload.requestBytes, simulateCustomTransaction]);
+
+  const advanced = (
+    <AdvancedDetails>
+      {JSON.stringify(
+        {
+          recipient: payload.recipientAddress,
+          importNotes: payload.importNotes?.length ?? 0,
+          requestBytes: payload.requestBytes
+        },
+        null,
+        2
+      )}
+    </AdvancedDetails>
+  );
+
+  if (verifiedView) {
+    return (
+      <>
+        <TransactionAssetView view={verifiedView} mode="verified" />
+        {advanced}
+      </>
+    );
+  }
+
+  if (declaredView) {
+    return (
+      <>
+        <TransactionAssetView view={declaredView} mode="declared" />
+        {simError && <div className="text-xs text-text-muted my-2">{t('couldNotVerifyBySimulation')}</div>}
+        {advanced}
+      </>
+    );
+  }
+
+  return (
+    <div>
+      <div className="text-sm my-4">{t('couldNotDecodeTransaction')}</div>
+      {advanced}
+    </div>
+  );
 };
 
 export default ConfirmPage;
@@ -657,7 +763,7 @@ const ConfirmDAppForm: FC = () => {
                   />
                 )
               ) : (
-                <PayloadContent payload={payload} error={payloadError} account={account} />
+                <PayloadContent payload={payload} error={payloadError} account={account} viewKey={id} />
               )}
             </>
           )}

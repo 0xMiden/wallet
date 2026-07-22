@@ -11,6 +11,7 @@ import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { useLocation } from 'lib/woozie';
 
+import { declaredRequestToView, summaryBytesToView } from './confirm/decode';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import ConfirmPage from './ConfirmPage';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
@@ -117,6 +118,28 @@ jest.mock('./confirm/TransactionAssetView', () => ({
   ))
 }));
 
+// Partial mock: `summaryToView` stays real (the sign->TransactionSummary tests
+// below assert on its actual mapping); only the custom-tx decode entry points
+// are stubbed so these UI tests don't touch the WASM SDK.
+jest.mock('./confirm/decode', () => ({
+  ...jest.requireActual('./confirm/decode'),
+  declaredRequestToView: jest.fn(() => ({
+    outgoing: [{ faucetId: 'fA', amount: 10n }],
+    incoming: [],
+    inputNotesConsumed: 0,
+    outputNotesCreated: 1,
+    storageChanged: false
+  })),
+  summaryBytesToView: jest.fn(() => ({
+    account: 'mtst1acct',
+    outgoing: [{ faucetId: 'fA', amount: 10n }],
+    incoming: [{ faucetId: 'fB', amount: 3n }],
+    inputNotesConsumed: 1,
+    outputNotesCreated: 1,
+    storageChanged: false
+  }))
+}));
+
 jest.mock('./atoms/Alert', () => ({
   __esModule: true,
   default: ({ description, onClose }: any) => (
@@ -187,6 +210,8 @@ const mockWord = Word as unknown as { deserialize: jest.Mock };
 const mockSigningInputs = SigningInputs as unknown as { deserialize: jest.Mock };
 const mockAddress = Address as unknown as { fromAccountId: jest.Mock };
 const mockTransactionAssetView = TransactionAssetView as unknown as jest.Mock;
+const mockDeclaredRequestToView = declaredRequestToView as unknown as jest.Mock;
+const mockSummaryBytesToView = summaryBytesToView as unknown as jest.Mock;
 
 const UPON_REQUEST = 'UPON_REQUEST';
 const AUTO = 'AUTO';
@@ -200,7 +225,8 @@ const ctx = {
   confirmDAppSign: jest.fn(),
   confirmDAppAssets: jest.fn(),
   confirmDAppImportPrivateNote: jest.fn(),
-  confirmDAppConsumableNotes: jest.fn()
+  confirmDAppConsumableNotes: jest.fn(),
+  simulateCustomTransaction: jest.fn()
 };
 
 const openTransactionModal = jest.fn();
@@ -619,25 +645,31 @@ describe('sign payload — word', () => {
     preview: {}
   });
 
-  it('renders the deserialized word hex', () => {
+  it('renders an opaque-signature warning and the deserialized word hex under advanced details', () => {
     mockWord.deserialize.mockReturnValue({ toHex: () => '0xdeadbeefcafe' });
     setPayload(wordPayload());
     render(<ConfirmPage />);
 
-    expect(screen.getByText('signTheFollowingWord')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
     expect(screen.getByText('requestsYourSignature')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
+    expect(screen.getByText('0xdeadbeefcafe')).toBeInTheDocument();
   });
 
-  it('logs and shows the invalid-payload copy when deserialization throws', () => {
+  it('logs and shows the invalid-payload copy under advanced details when deserialization throws', () => {
     mockWord.deserialize.mockImplementation(() => {
       throw new Error('bad word');
     });
     setPayload(wordPayload());
     render(<ConfirmPage />);
 
-    // Still renders the sign prompt; the word text is the invalid fallback.
-    expect(screen.getByText('signTheFollowingWord')).toBeInTheDocument();
+    // Still renders the opaque-signature warning; the raw value is the invalid fallback.
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
     expect(consoleErrorSpy).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
+    expect(screen.getByText('invalidPayload')).toBeInTheDocument();
   });
 
   it('confirms the signature via confirmDAppSign', async () => {
@@ -778,19 +810,23 @@ describe('sign payload — signingInputs', () => {
     await waitFor(() => expect(revokeObjSpy).toHaveBeenCalled());
   });
 
-  it('renders the arbitrary-payload copy for the Arbitrary variant', () => {
+  it('renders an opaque-signature warning and the arbitrary-payload copy under advanced details for the Arbitrary variant', () => {
     setPayload(siPayload());
     mockSigningInputs.deserialize.mockReturnValue({ variantType: SigningInputsType.Arbitrary });
     render(<ConfirmPage />);
 
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
     expect(screen.getByText('signArbitraryPayload')).toBeInTheDocument();
   });
 
-  it('renders the blind-commitment copy for the Blind variant', () => {
+  it('renders an opaque-signature warning and the blind-commitment copy under advanced details for the Blind variant', () => {
     setPayload(siPayload());
     mockSigningInputs.deserialize.mockReturnValue({ variantType: SigningInputsType.Blind });
     render(<ConfirmPage />);
 
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
     expect(screen.getByText('signBlindCommitment')).toBeInTheDocument();
   });
 });
@@ -885,5 +921,98 @@ describe('consumableNotes payload', () => {
     });
 
     await waitFor(() => expect(ctx.confirmDAppConsumableNotes).toHaveBeenCalledWith('req-1', true));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transaction payload — custom-tx state machine (declared -> verifying ->
+// verified | undecodable), driven by simulateCustomTransaction(id)
+// ---------------------------------------------------------------------------
+
+describe('ConfirmPage custom transaction', () => {
+  const customPayload = (over: any = {}) => ({
+    type: 'transaction',
+    txKind: 'custom',
+    requestBytes: 'reqB64',
+    importNotes: [],
+    recipientAddress: 'mtst1recipient',
+    decodeStatus: 'declared',
+    transactionMessages: [],
+    ...baseFields(),
+    ...over
+  });
+
+  it('swaps the declared view for the verified view after simulation', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ summaryBytes: 'sumB64' });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
+    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-account', 'mtst1acct');
+    expect((ctx as any).simulateCustomTransaction).toHaveBeenCalledWith('req-1');
+  });
+
+  it('keeps the declared view with a caveat when simulation errors', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'boom' });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
+    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
+  });
+
+  it('shows could-not-decode when requestBytes is absent', () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'x' });
+    setPayload(customPayload({ requestBytes: undefined, decodeStatus: 'undecodable' }));
+    render(<ConfirmPage />);
+
+    expect(screen.getByText('couldNotDecodeTransaction')).toBeInTheDocument();
+  });
+
+  it('logs and falls back to could-not-decode when declaredRequestToView throws and simulation also fails', async () => {
+    mockDeclaredRequestToView.mockImplementationOnce(() => {
+      throw new Error('bad declared bytes');
+    });
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'boom' });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByText('couldNotDecodeTransaction')).toBeInTheDocument());
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to decode declared custom transaction:', expect.any(Error));
+  });
+
+  it('logs and keeps the declared view when summaryBytesToView throws for the simulated summary', async () => {
+    mockSummaryBytesToView.mockImplementationOnce(() => {
+      throw new Error('bad summary bytes');
+    });
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ summaryBytes: 'sumB64' });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() =>
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to decode simulated summary:', expect.any(Error))
+    );
+    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
+    // A decode failure on an otherwise-successful simulation does not set the
+    // simError caveat (only a genuinely failed/missing simulation does) —
+    // documented here as the actual state-machine behavior.
+    expect(screen.queryByText('couldNotVerifyBySimulation')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// opaque-signature hardening — kind:'word' and SigningInputs
+// Arbitrary/Blind leaves get a warning banner + raw value under advanced
+// details (also exercised inline in the 'sign payload' describes above).
+// ---------------------------------------------------------------------------
+
+describe('ConfirmPage opaque signature', () => {
+  it('shows a blind-sign warning for a raw word signature', () => {
+    mockWord.deserialize.mockReturnValue({ toHex: () => '0xabc' });
+    setPayload({ type: 'sign', kind: 'word', payload: b64('w'), ...baseFields() });
+    render(<ConfirmPage />);
+
+    // The Alert mock (top of file) renders its `description`; `t` echoes keys.
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
   });
 });
