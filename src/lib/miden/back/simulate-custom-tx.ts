@@ -39,7 +39,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
       }
       await client.syncState();
 
-      const accountId = accountIdStringToSdk(input.address);
+      const accountId = accountIdStringToSdk(input.address).toString();
       const request = TransactionRequest.deserialize(b64ToU8(input.transactionRequest));
       const summary = await executeForSummary(client.client, accountId, request);
 

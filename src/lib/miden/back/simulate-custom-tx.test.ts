@@ -7,7 +7,7 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   withWasmClientLock: jest.fn((fn: any) => fn())
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({
-  accountIdStringToSdk: jest.fn((s: string) => ({ __accountId: s }))
+  accountIdStringToSdk: jest.fn((s: string) => ({ toString: () => `hex:${s}` }))
 }));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   TransactionRequest: { deserialize: jest.fn((bytes: Uint8Array) => ({ __req: bytes })) }
@@ -34,7 +34,7 @@ describe('simulateCustomTransaction', () => {
     });
     expect(importNoteBytes).toHaveBeenCalledTimes(2);
     expect(syncState).toHaveBeenCalledTimes(1);
-    expect(executeForSummary).toHaveBeenCalledWith(fakeClient, { __accountId: 'mtst1abc' }, { __req: expect.any(Uint8Array) });
+    expect(executeForSummary).toHaveBeenCalledWith(fakeClient, 'hex:mtst1abc', { __req: expect.any(Uint8Array) });
     expect(res).toEqual({ summaryBytes: 'b64:1-2-3' });
   });
 
