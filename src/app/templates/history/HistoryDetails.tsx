@@ -992,11 +992,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <DetailRow label={t('created')}>
                       <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
                     </DetailRow>
-                    <DetailRow label="Note" isLast>
-                      <span className={`text-sm font-medium ${entry.noteType ? 'text-[#E8913A]' : 'text-text-muted'}`}>
-                        {entry.noteType ? t('on') : t('off')}
-                      </span>
-                    </DetailRow>
                   </DetailCard>
                 </div>
               </div>
