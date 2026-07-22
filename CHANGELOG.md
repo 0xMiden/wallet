@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.9 (TBD)
+
+### Fixes
+
+* [FIX][all] **Guardian transactions that hit a transient pending-delta conflict now requeue and retry instead of failing.** A guardian `409 conflict_pending_delta` that outlasted the ~60s inline retry budget fell through to a terminal `Failed`, even though the conflict is transient (a single in-flight delta clears on its own). Such transactions are now reset to `Queued` (with `processingStartedAt` cleared) so the processing loop retries them, bounded by the existing 30-minute queued-age cap.
+
 ## 1.15.8 (2026-07-21)
 
 ### Features
