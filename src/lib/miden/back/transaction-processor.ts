@@ -4,6 +4,7 @@
 // Direct import avoids this because transaction-processor doesn't need the
 // activity module's full init chain.
 import { type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import * as Repo from 'lib/miden/repo';
 import {
   cancelStuckTransactions,
   getAllUncompletedTransactions,
@@ -153,7 +154,11 @@ export async function startTransactionProcessing(): Promise<void> {
     }
 
     let attempts = 0;
-    const maxAttempts = 60; // Max 5 minutes (60 * 5 seconds)
+    // Loop-pass ceiling, not a wall-clock bound: a single pass can now spend up
+    // to the guardian conflict-retry budget (~60s), so 60 passes is NOT "5
+    // minutes". Terminal per-tx caps live elsewhere (MAX_QUEUED_AGE /
+    // MAX_WAIT_BEFORE_CANCEL).
+    const maxAttempts = 60;
 
     while (attempts < maxAttempts) {
       attempts++;
@@ -185,6 +190,104 @@ export async function startTransactionProcessing(): Promise<void> {
   }
 }
 
+// Diagnostic record persisted to `chrome.storage.local` when the self-heal
+// keeps failing. Read it from the SW DevTools console with
+// `chrome.storage.local.get('stuckTxHealDiagnostic')`.
+const STUCK_TX_HEAL_DIAGNOSTIC_KEY = 'stuckTxHealDiagnostic';
+interface StuckTxHealDiagnostic {
+  lastFailureAt: number;
+  message: string;
+  consecutiveFailures: number;
+}
+
+/**
+ * Escalate a self-heal failure that survived the Dexie re-open + retry.
+ *
+ * A bare `console.error` is invisible without an open DevTools session, so a
+ * silently-wedged heal is undiagnosable in the field. The obvious escalation
+ * sink — Segment via `back/analytics.ts` — is DEAD in the shipped SW build:
+ * that module throws at load unless `ALEO_WALLET_SEGMENT_WRITE_KEY` is set, and
+ * the background Vite build (`vite.background.config.ts`) never defines it, so a
+ * dynamic `import('./analytics')` here would only ever reject and emit nothing.
+ * Escalating to a Dexie table is just as self-defeating: the heal usually fails
+ * BECAUSE IndexedDB is down. Persist a small diagnostic to `chrome.storage.local`
+ * instead — it works in the MV3 service worker and survives a broken IndexedDB —
+ * bumping a consecutive-failure counter so a persistently-wedged heal is visible.
+ * Loaded lazily via `getBrowser()` and fully swallowed on error so escalation
+ * can never break the heal itself (and so non-extension bundles never touch it).
+ */
+async function reportHealFailure(err: unknown): Promise<void> {
+  console.error('[TransactionProcessor] Stuck-tx self-heal failed:', err);
+  try {
+    const browser = await getBrowser();
+    const previous = (await browser.storage.local.get(STUCK_TX_HEAL_DIAGNOSTIC_KEY))[STUCK_TX_HEAL_DIAGNOSTIC_KEY] as
+      | StuckTxHealDiagnostic
+      | undefined;
+    const diagnostic: StuckTxHealDiagnostic = {
+      lastFailureAt: Date.now(),
+      message: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      consecutiveFailures: (previous?.consecutiveFailures ?? 0) + 1
+    };
+    await browser.storage.local.set({ [STUCK_TX_HEAL_DIAGNOSTIC_KEY]: diagnostic });
+  } catch {
+    // No `browser.storage` (non-extension bundle) or a storage write failure —
+    // the console.error above remains as the fallback diagnostic surface.
+  }
+}
+
+/**
+ * Clear the persisted heal-failure diagnostic after a successful heal.
+ *
+ * `reportHealFailure` bumps `consecutiveFailures` but never resets it, so
+ * without this a record persisted while the DB was down would linger forever
+ * once the DB recovers — implying a wedged heal that has actually healed, and
+ * turning `consecutiveFailures` into a monotonic total. Removing the key on a
+ * successful heal keeps the counter truly *consecutive*. The `remove` is
+ * idempotent (a no-op when nothing is stored) and fully swallowed on error so
+ * clearing can never break the heal (and so non-extension bundles never touch
+ * `browser.storage`).
+ */
+async function clearHealDiagnostic(): Promise<void> {
+  try {
+    const browser = await getBrowser();
+    await browser.storage.local.remove(STUCK_TX_HEAL_DIAGNOSTIC_KEY);
+  } catch {
+    // No `browser.storage` (non-extension bundle) or a remove failure — a stale
+    // record, if any, is harmless and the next failed heal re-persists a fresh one.
+  }
+}
+
+/**
+ * Run the stuck-transaction self-heal, recovering from a stale Dexie handle.
+ *
+ * An MV3 SW respawn can leave the Dexie connection closed, so the first read
+ * inside `cancelStuckTransactions` rejects with `DatabaseClosedError` and,
+ * without recovery, every subsequent alarm tick fails identically and the
+ * heal never progresses (issue #254). Re-open the connection once and retry;
+ * if that (or any other error) still fails, escalate rather than swallow.
+ */
+async function healStuckTransactions(): Promise<void> {
+  try {
+    await cancelStuckTransactions();
+    // First-call success: clear any diagnostic left by earlier failed ticks.
+    await clearHealDiagnostic();
+  } catch (err) {
+    if ((err as { name?: unknown })?.name === 'DatabaseClosedError') {
+      try {
+        await Repo.db.open();
+        await cancelStuckTransactions();
+        // Post-reopen retry success: clear any lingering diagnostic too.
+        await clearHealDiagnostic();
+        return;
+      } catch (retryErr) {
+        await reportHealFailure(retryErr);
+        return;
+      }
+    }
+    await reportHealFailure(err);
+  }
+}
+
 /**
  * Set up on SW startup: check for orphaned transactions and resume processing.
  */
@@ -203,9 +306,7 @@ export function setupTransactionProcessor(): void {
           // processingStartedAt is past MAX_WAIT_BEFORE_CANCEL. This is
           // independent of `startTransactionProcessing` so we don't depend
           // on the SW being mid-loop when an orphan ages out.
-          cancelStuckTransactions().catch(err =>
-            console.warn('[TransactionProcessor] Stuck-tx heal alarm error:', err)
-          );
+          void healStuckTransactions();
         }
       });
       // Long-period self-heal alarm. Chrome MV3 clamps periodInMinutes to
@@ -246,5 +347,5 @@ export function setupTransactionProcessor(): void {
   // orphan is reaped even when nothing else is queued. (The alarm above
   // catches the steady state; this catches the very-first SW respawn
   // after long idle, before the first alarm tick.)
-  cancelStuckTransactions().catch(err => console.warn('[TransactionProcessor] Startup heal error:', err));
+  void healStuckTransactions();
 }
