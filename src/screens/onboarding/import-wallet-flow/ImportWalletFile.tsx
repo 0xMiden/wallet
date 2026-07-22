@@ -63,6 +63,11 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
   const handleClear = () => {
     setWalletFile(null);
     setPendingRestore(null);
+    // Reset the error flags too, otherwise a failed attempt on the previous
+    // file leaks a stale error caption/red border onto the next file the
+    // moment it's selected, before any action is taken on it.
+    setIsRestoreError(false);
+    setIsWrongPassword(false);
   };
 
   const handleImportSubmit = async () => {

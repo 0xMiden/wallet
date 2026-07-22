@@ -408,6 +408,50 @@ describe('clear', () => {
     expect(screen.queryByText('wallet.json')).not.toBeInTheDocument();
     expect(getDropzone(container)).toBeInTheDocument();
   });
+
+  // Regression for the #364 round-2 finding: clearing the staged file must also
+  // reset the error flags, otherwise a failed attempt on file A leaves a stale
+  // error caption showing the moment file B is selected, before any action.
+  const clearStagedFile = (container: HTMLElement) =>
+    fireEvent.click(container.querySelector('button[type="button"]') as HTMLButtonElement);
+
+  it('clears a restore error when the file is removed, so a re-selected file starts clean', async () => {
+    const onSubmit = jest.fn();
+    mockImportStore.mockRejectedValueOnce(new Error('idb write failed'));
+    const { container } = renderScreen({ onSubmit });
+    uploadViaInput(container, 'wallet-a.json', { mode: 'load', content: VALID_WALLET_JSON });
+
+    await submit(container);
+
+    const ffError = () => within(screen.getByTestId('form-field')).getByTestId('ff-error');
+    await waitFor(() => expect(ffError()).toHaveTextContent("Couldn't restore the wallet. Please try again."));
+
+    // Remove the file, then select a different one WITHOUT submitting again.
+    clearStagedFile(container);
+    uploadViaInput(container, 'wallet-b.json', { mode: 'load', content: VALID_WALLET_JSON });
+
+    expect(screen.getByText('wallet-b.json')).toBeInTheDocument();
+    expect(within(screen.getByTestId('form-field')).queryByTestId('ff-error')).not.toBeInTheDocument();
+  });
+
+  it('clears a wrong-password error when the file is removed, so a re-selected file starts clean', async () => {
+    const onSubmit = jest.fn();
+    mockDecrypt.mockResolvedValueOnce('this-is-not-the-check');
+    const { container } = renderScreen({ onSubmit });
+    uploadViaInput(container, 'wallet-a.json', { mode: 'load', content: VALID_WALLET_JSON });
+
+    await submit(container);
+
+    const ffError = () => within(screen.getByTestId('form-field')).getByTestId('ff-error');
+    await waitFor(() => expect(ffError()).toHaveTextContent('Wrong password'));
+
+    // Remove the file, then select a different one WITHOUT submitting again.
+    clearStagedFile(container);
+    uploadViaInput(container, 'wallet-b.json', { mode: 'load', content: VALID_WALLET_JSON });
+
+    expect(screen.getByText('wallet-b.json')).toBeInTheDocument();
+    expect(within(screen.getByTestId('form-field')).queryByTestId('ff-error')).not.toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
