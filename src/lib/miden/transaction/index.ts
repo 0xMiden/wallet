@@ -673,9 +673,12 @@ export const generateTransactionsLoop = async (
       if (tx && tx.status !== ITransactionStatus.Completed) {
         // Guardian ops never reach here — they're routed through the guardian branch
         // of `generateTransaction`, whose own catch handles apply-after-submit-failed
-        // (structural via `reconcileStructuralApplyFailure`, value-moving by marking
-        // Completed directly). This generic path covers non-guardian send/consume,
-        // whose note states the next sync reconciles via ConsumedExternal.
+        // for value-moving ops (send/consume/swap/execute) by marking Completed, and
+        // for replace-hot-key/switch-guardian via `reconcileStructuralApplyFailure`.
+        // (update-procedure-threshold is currently handled by neither and still falls
+        // through to cancel there — a separate, pre-existing gap.) This generic path
+        // covers non-guardian send/consume, whose note states the next sync reconciles
+        // via ConsumedExternal.
         await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
           displayMessage: 'Completed',
           completedAt: Math.floor(Date.now() / 1000)
