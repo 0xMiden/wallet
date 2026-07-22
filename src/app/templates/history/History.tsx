@@ -15,6 +15,7 @@ import {
   IBridgedSendExtraInputs,
   IBridgeInInfo,
   IEarnWithdrawExtraInputs,
+  ITransaction,
   ITransactionStatus
 } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
@@ -156,25 +157,7 @@ async function fetchTransactionsAsHistoryEntries(
   tokenId?: string
 ): Promise<IHistoryEntry[]> {
   const transactions = await getCompletedTransactions(address, offset, limit, true, tokenId);
-
-  // Suppress the auto-consume row that claimed a Smart Withdraw's bridged note when
-  // its `earn-withdraw` row still exists — that withdraw row is the single trace. A
-  // dangling reference (withdraw row gone) falls through to a normal bridge-in receive.
-  const linkedTrackingIds = transactions
-    .map(tx =>
-      tx.type === 'consume'
-        ? (tx.extraInputs?.bridgeIn?.earnWithdrawTxId ?? tx.extraInputs?.bridgeIn?.bridgeReceiveTxId)
-        : undefined
-    )
-    .filter((id): id is string => Boolean(id));
-  const existingTrackingIds = await existingTransactionIds(linkedTrackingIds);
-  const visibleTransactions = transactions.filter(tx => {
-    const linkedId =
-      tx.type === 'consume'
-        ? (tx.extraInputs?.bridgeIn?.earnWithdrawTxId ?? tx.extraInputs?.bridgeIn?.bridgeReceiveTxId)
-        : undefined;
-    return !(linkedId && existingTrackingIds.has(linkedId));
-  });
+  const visibleTransactions = await suppressLinkedConsumes(transactions);
 
   const entries = visibleTransactions.map(async tx => {
     const isCancelled = isUserCancelledTransaction(tx.error);
@@ -215,6 +198,7 @@ async function fetchTransactionsAsHistoryEntries(
       token: earnWithdraw ? earnWithdraw.sourceSymbol : swapFields ? swapFields.token : tokenMetadata?.symbol,
       requestedAmount: swapFields?.requestedAmount,
       requestedToken: swapFields?.requestedToken,
+      swapSettlement: swapSettlementOf(tx),
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,
@@ -252,7 +236,7 @@ async function fetchTransactionsAsHistoryEntries(
 }
 
 async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId?: string): Promise<IHistoryEntry[]> {
-  let pendingTransactions = await getUncompletedTransactions(address, tokenId);
+  const pendingTransactions = await suppressLinkedConsumes(await getUncompletedTransactions(address, tokenId));
 
   const entryPromises = pendingTransactions.map(async tx => {
     const entryType =
@@ -294,6 +278,58 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
   });
   const entries = await Promise.all(entryPromises);
   return entries;
+}
+
+/**
+ * Suppress auto-consume rows that are the tail of another row's lifecycle
+ * while that primary row still exists — it is the single trace: a Smart
+ * Withdraw's bridged-note claim (earn-withdraw / bridged-receive rows) and a
+ * swap order's settlement consume (payback claim or expiry reclaim, linked
+ * via `swapOrderTxId`). A dangling reference (primary row gone) falls through
+ * to a normal receive row. Shared by the completed and pending fetches so the
+ * two lists can't desynchronize. Token-scoped views stay complete because the
+ * token filter (`matchesTokenId` in `lib/miden/transaction/get.ts`) surfaces
+ * the swap row on its requested-token page too.
+ */
+async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
+  const linkedTrackingIds = transactions.map(linkedPrimaryTxId).filter((id): id is string => Boolean(id));
+  if (linkedTrackingIds.length === 0) return transactions;
+  const existingTrackingIds = await existingTransactionIds(linkedTrackingIds);
+  return transactions.filter(tx => {
+    const linkedId = linkedPrimaryTxId(tx);
+    return !(linkedId && existingTrackingIds.has(linkedId));
+  });
+}
+
+/**
+ * The primary row a `consume` transaction is the lifecycle tail of, if any:
+ * Smart Withdraw / bridged-receive claims (via `extraInputs.bridgeIn`) and
+ * swap-order settlement consumes (via `extraInputs.swapOrderTxId`).
+ */
+function linkedPrimaryTxId(tx: ITransaction): string | undefined {
+  if (tx.type !== 'consume') return undefined;
+  return (
+    tx.extraInputs?.bridgeIn?.earnWithdrawTxId ??
+    tx.extraInputs?.bridgeIn?.bridgeReceiveTxId ??
+    tx.extraInputs?.swapOrderTxId
+  );
+}
+
+/**
+ * Settlement state for a completed swap order, driving the single swap row's
+ * status chip; `undefined` renders Confirmed. Pending only for auto-consumed
+ * orders that carry an explicit expiry (stamped since settlement shipped) and
+ * have no settlement stamp yet — settled, legacy, and manual-claim orders all
+ * fall through to Confirmed. A settledAt stamp wins over reclaimedAt (a batch
+ * containing payback notes delivered funds even if the order later expired).
+ */
+function swapSettlementOf(tx: ITransaction): 'pending' | 'reclaimed' | undefined {
+  if (tx.type !== 'swap' || tx.status !== ITransactionStatus.Completed) return undefined;
+  const extra = tx.extraInputs ?? {};
+  if (extra.settledAt != null) return undefined;
+  if (extra.reclaimedAt != null) return 'reclaimed';
+  if (extra.autoConsume !== false && extra.orderId != null && extra.expiresAt != null) return 'pending';
+  return undefined;
 }
 
 function mergeAndSort(base?: IHistoryEntry[], toAppend: IHistoryEntry[] = []) {

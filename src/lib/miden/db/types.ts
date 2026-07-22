@@ -204,6 +204,18 @@ export interface IConsumeBridgeInExtraInputs {
 }
 
 /**
+ * `extraInputs` shape for a `consume` row queued by swap settlement
+ * (`reconcileSwapOrderNotes`). History suppresses these rows while the linked
+ * swap row exists — the swap row is the single trace of the whole order.
+ */
+export interface IConsumeSwapSettleExtraInputs {
+  /** The `SwapTransaction.id` whose order this consume settles. */
+  swapOrderTxId: string;
+  /** Payback claim on fill vs. expiry-driven reclaim of the remaining tip. */
+  swapSettleKind: 'settle' | 'reclaim';
+}
+
+/**
  * Sub-phase of a transaction while `status === GeneratingTransaction` (or
  * still `Queued` during the initial sync). Drives the modal's per-stage
  * label so users see what the wallet is actually doing during the 3-8s
@@ -451,6 +463,10 @@ export class SwapTransaction implements ITransaction {
     expiresAt?: number;
     expiryTriggeredAt?: number;
     autoConsume?: boolean;
+    /** Stamped when a payback-claim settlement consume completes. */
+    settledAt?: number;
+    /** Stamped when an expiry-reclaim settlement consume completes. */
+    reclaimedAt?: number;
   };
   delegateTransaction?: boolean;
   /**

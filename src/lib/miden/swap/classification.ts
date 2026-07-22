@@ -29,7 +29,10 @@ const lineageState = (state: number): SwapOrderNoteMetadata['lineageState'] => {
 
 export const isSwapTransaction = (tx: ITransaction): tx is SwapTransaction => tx.type === 'swap';
 
-const isSwapOrder = (tx: SwapTransaction): tx is SwapOrder => tx.extraInputs.orderId != null;
+// Optional-chained: persisted rows are plain objects, and a legacy or
+// partially-written swap row without extraInputs must not throw inside the
+// Dexie filter predicate (a throw rejects the whole toArray()).
+const isSwapOrder = (tx: SwapTransaction): tx is SwapOrder => tx.extraInputs?.orderId != null;
 
 export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
   const rows = await Repo.transactions
@@ -37,11 +40,10 @@ export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
       tx =>
         tx.status === ITransactionStatus.Completed &&
         compareAccountIds(tx.accountId, accountId) &&
-        isSwapTransaction(tx) &&
-        isSwapOrder(tx)
+        isSwapTransaction(tx)
     )
     .toArray();
-  return rows.filter(isSwapTransaction).filter(isSwapOrder);
+  return rows.filter((tx): tx is SwapOrder => isSwapTransaction(tx) && isSwapOrder(tx));
 }
 
 function attachmentOrderAndDepth(note: InputNoteRecord): { orderId: string; depth: number } | null {
@@ -58,13 +60,18 @@ function attachmentOrderAndDepth(note: InputNoteRecord): { orderId: string; dept
   return null;
 }
 
-/** Classify only notes belonging to swap orders created by this wallet. */
+/**
+ * Classify only notes belonging to swap orders created by this wallet.
+ * Pass `preloadedOrders` when the caller already ran `localSwapOrders` this
+ * tick — it is an unindexed full scan of the transactions table.
+ */
 export async function classifySwapOrderNotes(
   notes: InputNoteRecord[],
   accountId: string,
-  client: MidenClientInterface
+  client: MidenClientInterface,
+  preloadedOrders?: SwapOrder[]
 ): Promise<Map<string, SwapOrderNoteMetadata>> {
-  const orders = await localSwapOrders(accountId);
+  const orders = preloadedOrders ?? (await localSwapOrders(accountId));
   const result = new Map<string, SwapOrderNoteMetadata>();
 
   // Sequential on purpose: the WASM client is single-threaded, and the outer

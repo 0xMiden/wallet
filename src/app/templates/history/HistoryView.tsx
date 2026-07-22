@@ -187,6 +187,12 @@ function getRowStatus(entry: IHistoryEntry, state: RowState, t: Translate): NonN
   const pending =
     entry.type === HistoryEntryType.PendingTransaction || entry.type === HistoryEntryType.ProcessingTransaction;
   if (pending) return { label: t('pending'), tone: 'pending' };
+
+  // A completed swap row is the single trace of the whole order (its
+  // settlement consumes are suppressed) — the chip reflects settlement.
+  if (state.swap && entry.swapSettlement === 'pending') return { label: t('pending'), tone: 'pending' };
+  if (state.swap && entry.swapSettlement === 'reclaimed') return { label: t('reclaimed'), tone: 'cancelled' };
+
   return { label: t('confirmed'), tone: 'confirmed' };
 }
 

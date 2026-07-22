@@ -31,6 +31,12 @@ export interface IHistoryEntry {
   requestedAmount?: string;
   /** Swap only: requested-side token symbol. */
   requestedToken?: string;
+  /**
+   * Swap only: settlement state of the order, driving the single swap row's
+   * status chip. Absent (rendered Confirmed) once settled, and for legacy /
+   * manual-claim orders.
+   */
+  swapSettlement?: 'pending' | 'reclaimed';
   secondaryAddress?: string;
   cancel?: () => Promise<void>;
   explorerLink?: string;

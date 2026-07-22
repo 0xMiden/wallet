@@ -12,7 +12,7 @@ import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { classifySwapOrderNotes } from '../swap/classification';
+import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
 import { reconcileSwapOrderNotes } from '../swap/settlement';
 import { ConsumableNote, NoteTypeEnum } from '../types';
 
@@ -166,6 +166,10 @@ async function runSync(): Promise<void> {
     const accountPubKey = await vault2.getCurrentAccountPublicKey();
 
     if (accountPubKey) {
+      // Loaded once per sync and threaded into classify + reconcile below —
+      // localSwapOrders is an unindexed full scan of the transactions table.
+      const swapOrderRows = await localSwapOrders(accountPubKey);
+
       // [Lock 2] Read notes + vault assets from warm WASM client
       const { parsedNotes, vaultAssets } = await withWasmClientLock(async () => {
         const client = await getMidenClient();
@@ -174,7 +178,7 @@ async function runSync(): Promise<void> {
 
         // Read consumable notes
         const rawNotes = await client.getConsumableNotes(accountPubKey);
-        const swapOrders = await classifySwapOrderNotes(rawNotes || [], accountPubKey, client);
+        const swapOrders = await classifySwapOrderNotes(rawNotes || [], accountPubKey, client, swapOrderRows);
         const notes: SerializedConsumableNote[] = (rawNotes || [])
           .map((note: any) => {
             try {
@@ -313,9 +317,17 @@ async function runSync(): Promise<void> {
           }
         ];
       });
-      if (managedNotes.length > 0) {
+      // Gate on orders, not notes: an order with no consumable notes left may
+      // still need its settlement stamp repaired inside reconcile.
+      if (swapOrderRows.length > 0) {
         try {
-          const settlement = await reconcileSwapOrderNotes(accountPubKey, managedNotes);
+          const settlement = await reconcileSwapOrderNotes(
+            accountPubKey,
+            managedNotes,
+            undefined,
+            undefined,
+            swapOrderRows
+          );
           if (settlement.queuedTransactionIds.length > 0) {
             const { startTransactionProcessing } = await import('./transaction-processor');
             startTransactionProcessing().catch(err => console.warn('[swap-settlement] processing failed', err));
