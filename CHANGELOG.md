@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.9 (TBD)
+
+### Fixes
+
+* [FIX][extension] **A send interrupted by closing the browser mid-prove is now failed on restart instead of hanging on "Sending" for ~30 minutes.** An orphaned in-flight send kept its `processingStartedAt`, so the 30-minute stuck-transaction reaper wouldn't touch it and the loop skipped it as "in progress". A `runtime.onStartup` sweep now fails any still-in-flight transaction on cold start with a clear message so the user can retry immediately.
+
 ## 1.15.8 (2026-07-21)
 
 ### Features
