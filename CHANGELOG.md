@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.9 (TBD)
+
+### Fixes
+
+* [FIX][extension] **The side panel no longer clips its right edge in Brave's narrow sidebar.** The side-panel document hard-clamped its root to `min-width: 360px` with hidden overflow, so any host giving less than 360px (Brave's sidebar, whose icon rail eats width) clipped the balance, Faucet button, and token amounts with no scrollbar. The floor is removed so the layout shrinks to the host viewport.
+
 ## 1.15.8 (2026-07-21)
 
 ### Features
