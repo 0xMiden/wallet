@@ -1619,7 +1619,7 @@ function formatSendTransactionPreview(transaction: SendTransaction): string[] {
     `Note Type, ${capitalizeFirstLetter(transaction.noteType)}`
   ];
 
-  if (transaction.recallBlocks) {
+  if (transaction.recallBlocks != null) {
     tsTexts.push(`Recall Blocks, ${transaction.recallBlocks}`);
   }
 

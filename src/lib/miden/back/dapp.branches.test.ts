@@ -383,6 +383,25 @@ describe('requestSendTransaction — mobile error branches', () => {
       transaction: { ...validTx, recallBlocks: 100 }
     } as never);
     expect(res.type).toBe(MidenDAppMessageType.SendTransactionResponse);
+    expect(mockRequestConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({ transactionMessages: expect.arrayContaining(['Recall Blocks, 100']) })
+    );
+  });
+
+  // Regression guard for #308: a 0 recall offset means "reclaimable at the
+  // current height" and IS honored on execution, so the preview must surface
+  // the row (value 0) rather than hide it behind a truthiness check.
+  it('surfaces the recallBlocks row in preview when the offset is 0', async () => {
+    mockInitiateSendTransaction.mockResolvedValue('tx-recall-zero');
+    const res = await dapp.requestSendTransaction('https://miden.xyz', {
+      type: MidenDAppMessageType.SendTransactionRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: { ...validTx, recallBlocks: 0 }
+    } as never);
+    expect(res.type).toBe(MidenDAppMessageType.SendTransactionResponse);
+    expect(mockRequestConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({ transactionMessages: expect.arrayContaining(['Recall Blocks, 0']) })
+    );
   });
 });
 
