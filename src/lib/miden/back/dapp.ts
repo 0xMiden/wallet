@@ -53,6 +53,7 @@ import {
   MidenDAppPayload,
   MidenDAppSession,
   MidenDAppSessions,
+  MidenDAppTransactionPayload,
   MidenMessageType,
   MidenRequest
 } from 'lib/miden/types';
@@ -66,6 +67,7 @@ import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
 import { queueNoteImport } from '../activity';
 import { getCurrentMidenNetwork } from './safe-network';
+import { simulateCustomTransaction } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
@@ -974,6 +976,50 @@ export async function requestTransaction(
   return new Promise((resolve, reject) => generatePromisifyTransaction(resolve, reject, dApp, req, sessionId));
 }
 
+export function buildCustomTxConfirmPayload(args: {
+  origin: string;
+  networkRpc: string;
+  appMeta: DappMetadata;
+  sourcePublicKey: string;
+  transactionMessages: string[];
+  customTransaction: MidenCustomTransaction;
+}): MidenDAppTransactionPayload {
+  const { customTransaction: tx } = args;
+  return {
+    type: 'transaction',
+    origin: args.origin,
+    networkRpc: args.networkRpc,
+    appMeta: args.appMeta,
+    sourcePublicKey: args.sourcePublicKey,
+    transactionMessages: args.transactionMessages,
+    preview: null,
+    txKind: 'custom',
+    requestBytes: tx.transactionRequest,
+    importNotes: tx.importNotes,
+    recipientAddress: tx.recipientAddress || undefined,
+    decodeStatus: 'declared'
+  };
+}
+
+/**
+ * Builds the intercom handler that answers a `DAppSimulateTransactionRequest`
+ * for THIS confirm popup (matched by id) with the ground-truth summary. Returns
+ * `undefined` for non-matching requests so the caller keeps dispatching.
+ */
+export function makeSimulateHandler(id: string, tx: MidenCustomTransaction) {
+  return async (req: MidenRequest): Promise<any | undefined> => {
+    if (req?.type !== MidenMessageType.DAppSimulateTransactionRequest || (req as any).id !== id) {
+      return undefined;
+    }
+    const { summaryBytes, error } = await simulateCustomTransaction({
+      address: tx.address,
+      transactionRequest: tx.transactionRequest,
+      importNotes: tx.importNotes
+    });
+    return { type: MidenMessageType.DAppSimulateTransactionResponse, summaryBytes, error };
+  };
+}
+
 const generatePromisifyTransaction = async (
   resolve: (value: MidenDAppTransactionResponse | PromiseLike<MidenDAppTransactionResponse>) => void,
   reject: (reason?: any) => void,
@@ -1090,17 +1136,19 @@ const generatePromisifyTransaction = async (
     return;
   }
 
+  const customTransaction = req.transaction.payload as MidenCustomTransaction;
+
   await requestConfirm({
     id,
-    payload: {
-      type: 'transaction',
+    payload: buildCustomTxConfirmPayload({
       origin,
       networkRpc,
       appMeta: dApp.appMeta,
       sourcePublicKey: req.sourcePublicKey,
       transactionMessages,
-      preview: null
-    },
+      customTransaction
+    }),
+    handleSimulate: makeSimulateHandler(id, customTransaction),
     onDecline: () => {
       reject(new Error(MidenDAppErrorType.NotGranted));
     },
@@ -1469,9 +1517,10 @@ type RequestConfirmParams = {
   payload: MidenDAppPayload;
   onDecline: () => void;
   handleIntercomRequest: (req: MidenRequest, decline: () => void) => Promise<any>;
+  handleSimulate?: (req: MidenRequest) => Promise<any>;
 };
 
-async function requestConfirm({ id, payload, onDecline, handleIntercomRequest }: RequestConfirmParams) {
+async function requestConfirm({ id, payload, onDecline, handleIntercomRequest, handleSimulate }: RequestConfirmParams) {
   /* c8 ignore start */ if (!isExtension())
     throw new Error('DApp confirmation popup is only available in extension context'); /* c8 ignore stop */
 
@@ -1505,14 +1554,22 @@ async function requestConfirm({ id, payload, onDecline, handleIntercomRequest }:
         type: MidenMessageType.DAppGetPayloadResponse,
         payload
       };
-    } else {
-      if (knownPort !== port) return;
+    }
 
-      const result = await handleIntercomRequest(req, onDecline);
-      if (result) {
-        close();
-        return result;
+    if (req?.type === MidenMessageType.DAppSimulateTransactionRequest && (req as any).id === id) {
+      knownPort = port;
+      if (!handleSimulate) {
+        return { type: MidenMessageType.DAppSimulateTransactionResponse, error: 'unsupported' };
       }
+      return await handleSimulate(req); // must NOT close() — the popup stays open
+    }
+
+    if (knownPort !== port) return;
+
+    const result = await handleIntercomRequest(req, onDecline);
+    if (result) {
+      close();
+      return result;
     }
   });
 
