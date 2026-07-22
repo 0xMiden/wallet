@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.9 (TBD)
+
+### Fixes
+
+* [FIX][extension] **The stuck-transaction heal alarm now recovers a closed database and surfaces failures instead of silently swallowing them.** After an MV3 service-worker respawn left a stale Dexie handle, the heal alarm hit `DatabaseClosedError` on every tick and only `console.warn`'d it, so it never recovered and there was no diagnostic surface. It now re-opens Dexie and retries on `DatabaseClosedError`, and escalates persistent failures through analytics instead of swallowing them.
+
 ## 1.15.8 (2026-07-21)
 
 ### Features
