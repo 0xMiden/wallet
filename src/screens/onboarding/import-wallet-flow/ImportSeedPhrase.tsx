@@ -42,14 +42,13 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
   // A restore also requires a valid BIP-39 checksum. Without this, any 12 words
   // from the wordlist (e.g. a repeated word) would pass and silently derive an
   // unrelated wallet instead of restoring the user's existing one.
-  const isValid = useMemo(
-    () => allWordsKnown && validateMnemonic(formatMnemonic(seedPhrase.join(' '))),
-    [allWordsKnown, seedPhrase]
-  );
+  const isChecksumValid = useMemo(() => validateMnemonic(formatMnemonic(seedPhrase.join(' '))), [seedPhrase]);
+
+  const isValid = isChecksumValid && allWordsKnown;
 
   // Distinguish a per-word typo (word not in wordlist) from a checksum mismatch
   // (every word is known but the phrase is not a valid mnemonic).
-  const isChecksumError = allWordsKnown && !isValid;
+  const isChecksumError = allWordsKnown && !isChecksumValid;
 
   const handleSubmit = useCallback(() => {
     if (onSubmit && isValid) {
