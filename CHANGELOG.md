@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.9 (TBD)
+
+### Fixes
+
+* [FIX][all] **Scheduled recall/reclaim height is no longer double-counted.** The send UI produced an absolute reclaim block height while the SDK interface layer added the current chain height again, so a note's on-chain reclaim height landed at roughly twice the chain height and the recall stayed un-executable for days. The UI now emits a relative offset and the interface layer resolves it against the current height exactly once.
+
 ## 1.15.8 (2026-07-21)
 
 ### Features
