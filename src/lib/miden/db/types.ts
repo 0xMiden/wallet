@@ -175,6 +175,10 @@ export class SendTransaction implements ITransaction {
   displayMessage?: string;
   displayIcon: ITransactionIcon;
   delegateTransaction?: boolean;
+  // `recallBlocks` is a RELATIVE block offset (blocks from send time until the
+  // note becomes reclaimable). The absolute P2IDE reclaim height is derived once,
+  // in MidenClientInterface.sendTransaction, as `sync.blockNum() + recallBlocks`.
+  // Do NOT pre-add the current height here or it gets counted twice (see #308).
   extraInputs: { recallBlocks?: number } = {
     recallBlocks: undefined
   };

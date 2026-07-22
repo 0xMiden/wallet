@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 import { addDays, format, formatDistanceToNow } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
@@ -16,7 +15,6 @@ import {
 } from 'lib/miden/activity';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { NoteTypeEnum } from 'lib/miden/types';
-import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
@@ -88,27 +86,15 @@ export const ReviewTransaction: React.FC = () => {
   const [recallBlocks, setRecallBlocks] = useState<string | undefined>(undefined);
   const [showCalendar, setShowCalendar] = useState(false);
 
-  // Default every send to a 7-day reclaim (expiration) height. Fetch the
-  // current block height once on mount and seed recallDate/recallBlocks. The
-  // user can override via the "Edit" link, which opens RecallCalendarDrawer.
+  // Default every send to a 7-day reclaim (expiration) offset. recallBlocks is a
+  // RELATIVE block offset — the current chain height is added later, once, by the
+  // SDK interface — so no block-height fetch is needed here. The user can override
+  // via the "Edit" link, which opens RecallCalendarDrawer.
   useEffect(() => {
-    let cancelled = false;
-    ensureSdkWasmReady()
-      .then(() => {
-        if (cancelled) return;
-        const rpc = new RpcClient(getRpcEndpoint());
-        return rpc.getBlockHeaderByNumber().then(header => {
-          if (cancelled) return;
-          const date = addDays(new Date(), 7);
-          setRecallDate(date);
-          setRecallTime(format(date, 'HH:mm'));
-          setRecallBlocks(String(dateTimeToRecallBlocks(date, header.blockNum())));
-        });
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
+    const date = addDays(new Date(), 7);
+    setRecallDate(date);
+    setRecallTime(format(date, 'HH:mm'));
+    setRecallBlocks(String(dateTimeToRecallBlocks(date)));
   }, []);
 
   // Leaving review = leaving the send flow: drop any cached speculative prove

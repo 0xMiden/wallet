@@ -397,6 +397,48 @@ describe('MidenClientInterface', () => {
     expect(fakeMidenClient.transactions.send).toHaveBeenCalled();
   });
 
+  // Regression guard for #308: `extraInputs.recallBlocks` is a RELATIVE offset.
+  // The interface must add the current chain height exactly ONCE to derive the
+  // note's absolute reclaim height. A double-add (height baked in by the UI AND
+  // added again here) put the on-chain reclaim height at ~2x the chain height,
+  // so every sender-side reclaim before that (days out) failed the kernel's
+  // ERR_P2IDE_RECLAIM_HEIGHT_NOT_REACHED assertion.
+  it('adds the current chain height exactly once to a relative recallBlocks offset (#308)', async () => {
+    // Fixed sync height H = 1000; a 30-min offset is 1800s / 3s = 600 blocks.
+    const fakeMidenClient = buildFakeMidenClient({
+      sync: jest.fn(async () => ({ blockNum: () => 1000 }))
+    });
+
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id)
+    }));
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      TransactionProver: {
+        newLocalProver: jest.fn(() => 'local')
+      }
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await client.sendTransaction({
+      accountId: 'sender',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      noteType: 'public' as any,
+      amount: BigInt(100),
+      extraInputs: { recallBlocks: 600 }
+    } as any);
+
+    // reclaimAfter must be H + offset = 1600, NOT H + (H + offset) = 2600.
+    expect(fakeMidenClient.transactions.send).toHaveBeenCalledWith(expect.objectContaining({ reclaimAfter: 1600 }));
+    expect(fakeMidenClient.sync).toHaveBeenCalledTimes(1);
+  });
+
   it('consumeNoteId returns TransactionResult', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 

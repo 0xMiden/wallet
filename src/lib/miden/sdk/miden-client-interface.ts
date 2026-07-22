@@ -479,6 +479,9 @@ export class MidenClientInterface {
 
     let reclaimAfter: number | undefined;
     if (extraInputs?.recallBlocks) {
+      // `recallBlocks` is a RELATIVE offset (blocks from now); the current chain
+      // height is added here, in exactly ONE place, to derive the note's absolute
+      // P2IDE reclaim height. Callers (send UI + dApp) MUST pass a relative offset.
       const syncResult = await this.client.sync();
       reclaimAfter = syncResult.blockNum() + extraInputs.recallBlocks;
     }
