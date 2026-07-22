@@ -744,7 +744,12 @@ describe('sign payload — signingInputs', () => {
   // mode/view/onDownload wiring — i.e. that ConfirmPage computes the right
   // `TxAssetView` via `summaryToView` and hands it off.
   it('renders a TransactionSummary via the verified TransactionAssetView', () => {
-    mockAddress.fromAccountId.mockReturnValue({ toBech32: () => 'mtst1accbech_wxyz' });
+    // Input-aware so each faucet id resolves to its own bech32 — proving the
+    // view maps assets by the bech32 faucet address (getBech32AddressFromAccountId),
+    // not AccountId.toString() (hex), which is what makes non-Miden metadata resolve.
+    mockAddress.fromAccountId.mockImplementation((id: any) => ({
+      toBech32: () => `bech32:${typeof id === 'string' ? id : id.toString()}`
+    }));
     setPayload(siPayload());
     mockSigningInputs.deserialize.mockReturnValue(
       transactionSummary({
@@ -758,21 +763,22 @@ describe('sign payload — signingInputs', () => {
 
     const assetView = screen.getByTestId('asset-view');
     expect(assetView).toHaveAttribute('data-mode', 'verified');
-    expect(assetView).toHaveAttribute('data-account', 'mtst1accbech_wxyz');
+    expect(assetView).toHaveAttribute('data-account', 'bech32:acc-id');
 
     // The view handed to TransactionAssetView is the ground-truth mapping of
     // the executed TransactionSummary (summaryToView), not a re-derivation.
+    // Faucet ids are resolved to bech32 (metadata cache key), not hex.
     expect(mockTransactionAssetView).toHaveBeenCalledTimes(1);
     const { view } = mockTransactionAssetView.mock.calls[0][0];
     expect(view).toEqual({
-      account: 'mtst1accbech_wxyz',
+      account: 'bech32:acc-id',
       outgoing: [
-        { faucetId: 'rem1', amount: 100 },
-        { faucetId: 'rem-null', amount: 200 }
+        { faucetId: 'bech32:rem1', amount: 100 },
+        { faucetId: 'bech32:rem-null', amount: 200 }
       ],
       incoming: [
-        { faucetId: 'add1', amount: 300 },
-        { faucetId: 'add-null', amount: 400 }
+        { faucetId: 'bech32:add1', amount: 300 },
+        { faucetId: 'bech32:add-null', amount: 400 }
       ],
       inputNotesConsumed: 2,
       outputNotesCreated: 3,
