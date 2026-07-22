@@ -1105,6 +1105,108 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row.status).toBe(ITransactionStatus.Failed);
   });
 
+  it('Guardian consume apply-after-submit-failure marks Completed (sync reconciles) instead of cancelling', async () => {
+    const txId = 'consume-apply-fail';
+    const multisigService = {
+      createConsumeNotesProposal: jest.fn(async () => ({ id: 'prop-consume' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    // Submit lands on chain but the LOCAL apply throws — the note IS consumed.
+    const applyErr: Error & { errorCode?: string } = new Error('apply failed');
+    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(
+        makeResult(),
+        jest.fn(async () => {
+          throw applyErr;
+        })
+      )
+    });
+
+    txStore.push({
+      id: txId,
+      type: 'consume',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      noteId: 'note-xyz'
+    });
+
+    await generateTransaction(
+      { id: txId, type: 'consume', accountId: 'guardian-acc', noteId: 'note-xyz', delegateTransaction: false } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // The note is consumed on chain — the tx is Completed (next sync reconciles the
+    // note state via ConsumedExternal), NOT cancelled/Failed.
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).toBe('Claimed');
+  });
+
+  it('Guardian send apply-after-submit-failure marks Completed instead of cancelling', async () => {
+    const txId = 'send-apply-fail';
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const applyErr: Error & { errorCode?: string } = new Error('apply failed');
+    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(
+        makeResult(),
+        jest.fn(async () => {
+          throw applyErr;
+        })
+      )
+    });
+
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000'
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // Submit reached chain — mark Completed, not Failed.
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).toBe('Sent');
+  });
+
   it('Guardian send: blocked while guardianSyncStatus is out of sync — fails fast without building a proposal', async () => {
     const txId = 'send-out-of-sync';
     txStore.push({

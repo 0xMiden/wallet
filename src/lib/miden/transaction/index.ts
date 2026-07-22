@@ -161,6 +161,36 @@ export const generateTransaction = async (
           console.error('Structural-op apply-failure reconcile failed; cancelling', reconcileError);
         }
       }
+      // Value-moving guardian op (consume/send/swap/execute) whose submit landed on
+      // chain but whose LOCAL apply failed. The tx IS live — cancelling would leave
+      // it terminally Failed while the note is spent on chain (conservation loss),
+      // and verifyStuckTransactionsFromNode only scans in-progress rows so it can't
+      // recover a Failed one. Mirror generateTransactionsLoop's generic
+      // ApplyTransactionAfterSubmitFailed handler: mark Completed so the next sync
+      // reconciles the note state via ConsumedExternal. (Structural ops are handled
+      // above and never reach here on success.)
+      if (
+        extractSdkErrorCode(error) === 'ApplyTransactionAfterSubmitFailed' &&
+        (transaction.type === 'consume' ||
+          transaction.type === 'send' ||
+          transaction.type === 'swap' ||
+          transaction.type === 'execute')
+      ) {
+        console.warn(
+          '[Guardian] submit landed but local apply failed — marking Completed; sync will reconcile:',
+          error
+        );
+        try {
+          await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
+            displayMessage: transaction.type === 'consume' ? 'Claimed' : 'Sent',
+            completedAt: Math.floor(Date.now() / 1000) // seconds
+          });
+        } catch (markErr) {
+          // updateTransactionStatus throws if the tx is already finalized — fine.
+          console.warn('[Guardian] could not re-mark Completed (likely already finalized):', markErr);
+        }
+        return;
+      }
       // Guardian canonicalization is eventually-consistent: the SDK can throw
       // "Refusing to overwrite local state: incoming nonce N is not greater
       // than local nonce M" when the guardian's view lags the local client.
@@ -703,11 +733,14 @@ export const generateTransactionsLoop = async (
       logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
       const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
       if (tx && tx.status !== ITransactionStatus.Completed) {
-        // Structural Guardian ops never reach here — they're routed through the
-        // guardian branch of `generateTransaction`, whose own catch handles the
-        // apply-after-submit-failed reconcile (see `reconcileStructuralApplyFailure`).
-        // This generic path covers send/consume, whose note states the next sync
-        // reconciles via ConsumedExternal.
+        // Guardian ops never reach here — they're routed through the guardian branch
+        // of `generateTransaction`, whose own catch handles apply-after-submit-failed
+        // for value-moving ops (send/consume/swap/execute) by marking Completed, and
+        // for replace-hot-key/switch-guardian via `reconcileStructuralApplyFailure`.
+        // (update-procedure-threshold is currently handled by neither and still falls
+        // through to cancel there — a separate, pre-existing gap.) This generic path
+        // covers non-guardian send/consume, whose note states the next sync reconciles
+        // via ConsumedExternal.
         await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
           displayMessage: 'Completed',
           completedAt: Math.floor(Date.now() / 1000)
