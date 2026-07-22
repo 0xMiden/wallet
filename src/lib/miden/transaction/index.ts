@@ -7,7 +7,11 @@ import {
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
-import { withGuardianAccountLock, withGuardianConflictRetry } from 'lib/miden/guardian/serialize';
+import {
+  isGuardianPendingConflict,
+  withGuardianAccountLock,
+  withGuardianConflictRetry
+} from 'lib/miden/guardian/serialize';
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { DEFAULT_NETWORK, MIDEN_NETWORK_ENDPOINTS } from 'lib/miden-chain/constants';
@@ -36,6 +40,7 @@ import {
   ConsumeTransaction,
   ITransaction,
   ITransactionStatus,
+  ITransactionType,
   ReplaceHotKeyTransaction,
   SendTransaction,
   SwapTransaction,
@@ -52,6 +57,31 @@ export * from './complete';
 export * from './get';
 export * from './helper';
 export * from './initiate';
+
+// Transaction types whose proposal creator is side-effect-free and idempotent on
+// a pending-delta 409, so returning the tx to the queue for a later cycle is safe.
+// Structural ops are deliberately EXCLUDED: `replace-hot-key` mints a hardware hot
+// key inside createReplaceHotKeyProposal BEFORE its proposal POST, so a requeue
+// re-mints and orphans another key every cycle; `switch-guardian` /
+// `update-procedure-threshold` create a proposal (and switch-guardian cold
+// co-signs) whose re-run can register a duplicate delta and push the commitment
+// past the guardian's expected single delta. Those fall through to cancelTransaction.
+const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
+  'send',
+  'consume',
+  'swap',
+  'execute'
+]);
+
+// Cooldown (seconds) applied to a tx requeued after a transient guardian
+// pending-delta 409. A persistently-conflicting tx is always the OLDEST Queued
+// row by initiatedAt, so without a backoff it is re-picked every cycle — burning
+// the ~60s inline retry budget and starving another account's freshly-queued tx
+// until it ages out at MAX_QUEUED_AGE. Setting `nextEligibleAt = now + this` makes
+// the loop skip it for at least one cycle so other accounts drain first. Kept
+// comfortably above the processing loop's ~5s poll interval so the skip is not a
+// race; MAX_QUEUED_AGE stays the terminal cap.
+const PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC = 15;
 
 /**
  * Run the structural side effects a structural Guardian op needs after its
@@ -147,6 +177,32 @@ export const generateTransaction = async (
           // updateTransactionStatus throws if the tx is already finalized — fine.
           console.warn('[Guardian] could not re-mark Completed (likely already finalized):', markErr);
         }
+        return;
+      }
+      // A transient guardian 409 (a prior delta still canonicalizing) that
+      // outlasted withGuardianConflictRetry's budget is NOT a terminal failure
+      // for a VALUE-MOVING op: the single-delta lock clears on its own, and its
+      // proposal creator is side-effect-free/idempotent, so returning the tx to
+      // the queue for the next generateTransactionsLoop cycle is safe. We reset
+      // the status to Queued AND clear processingStartedAt — a bare return would
+      // leave it GeneratingTransaction, which cancelStuckTransactions would then
+      // reap as stalled; cancelStaleQueuedTransactions (MAX_QUEUED_AGE) remains
+      // the terminal cap. We also stamp `nextEligibleAt` so the loop backs this
+      // tx off for a cycle rather than re-picking it as the oldest row every
+      // time — otherwise it would starve another account's queued tx.
+      //
+      // Structural ops are gated OUT (see REQUEUEABLE_ON_PENDING_CONFLICT): a
+      // replace-hot-key 409 escapes createReplaceHotKeyProposal AFTER the hardware
+      // hot key was minted, so requeueing would re-mint and orphan a key every
+      // cycle; switch-guardian / update-procedure-threshold re-runs can register a
+      // duplicate delta. They fall through to cancelTransaction — the user retries.
+      if (isGuardianPendingConflict(error) && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)) {
+        console.warn('[Guardian] proposal still conflicting after retry budget — requeueing for a later cycle');
+        await updateTransactionStatus(transaction.id, ITransactionStatus.Queued, {
+          processingStartedAt: undefined,
+          stage: 'creating-proposal',
+          nextEligibleAt: Math.floor(Date.now() / 1000) + PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC
+        });
         return;
       }
       await cancelTransaction(transaction, error);
@@ -605,9 +661,15 @@ export const generateTransactionsLoop = async (
     return;
   }
 
-  // Process next transaction
-  const nextTransaction = queuedTransactions[0];
-  if (!nextTransaction) return; // redundant after length check but satisfies the type narrower
+  // Process the oldest ELIGIBLE transaction. A tx requeued after a transient
+  // guardian pending-delta 409 carries a `nextEligibleAt` cooldown; skip it while
+  // that is in the future so it doesn't monopolize the loop as the oldest row and
+  // starve another account's queued tx. A tx with no `nextEligibleAt` is always
+  // eligible (backward compatible). If every queued tx is still cooling down there
+  // is nothing to do this cycle; MAX_QUEUED_AGE remains the terminal cap.
+  const now = Math.floor(Date.now() / 1000);
+  const nextTransaction = queuedTransactions.find(tx => tx.nextEligibleAt === undefined || tx.nextEligibleAt <= now);
+  if (!nextTransaction) return;
 
   // Call safely to cancel transaction and unlock records if something goes wrong
   try {
@@ -718,7 +780,13 @@ export const startBackgroundTransactionProcessing = (
   const processLoop = async () => {
     let hasMore = true;
     let attempts = 0;
-    const maxAttempts = 60; // Max 5 minutes (60 * 5 seconds)
+    // Cap the number of loop passes, not wall-clock time. Each pass now runs one
+    // full generate cycle whose guardian ops can spend up to the conflict-retry
+    // budget (~60s) before returning, so 60 passes is NOT "5 minutes" — it's a
+    // pass ceiling that, together with the 5s inter-pass wait, just bounds how
+    // long this background driver keeps polling. Terminal per-tx caps live
+    // elsewhere: MAX_QUEUED_AGE (queued) and MAX_WAIT_BEFORE_CANCEL (in-flight).
+    const maxAttempts = 60;
 
     while (hasMore && attempts < maxAttempts) {
       attempts++;
