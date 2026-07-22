@@ -103,6 +103,16 @@ function downloadBytes(filename: string, data: Uint8Array, mimeType = 'applicati
   }
 }
 
+const OpaqueSignatureWarning: React.FC<{ rawValue: string }> = ({ rawValue }) => {
+  const { t } = useTranslation();
+  return (
+    <>
+      <Alert type="warn" title={t('opaqueSignatureTitle')} description={t('opaqueSignatureWarning')} className="my-2" />
+      <AdvancedDetails label={t('rawValue')}>{rawValue}</AdvancedDetails>
+    </>
+  );
+};
+
 interface PayloadContentProps {
   payload: MidenDAppPayload;
   account?: WalletAccount;
@@ -127,17 +137,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
           } catch (e) {
             console.error('Failed to deserialize payload for sign:', e);
           }
-          content = (
-            <>
-              <Alert
-                type="warn"
-                title={t('opaqueSignatureTitle')}
-                description={t('opaqueSignatureWarning')}
-                className="my-2"
-              />
-              <AdvancedDetails label={t('rawValue')}>{wordHex}</AdvancedDetails>
-            </>
-          );
+          content = <OpaqueSignatureWarning rawValue={wordHex} />;
           break;
         }
 
@@ -306,19 +306,13 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
     case SigningInputsType.Arbitrary:
     case SigningInputsType.Blind:
       return (
-        <>
-          <Alert
-            type="warn"
-            title={t('opaqueSignatureTitle')}
-            description={t('opaqueSignatureWarning')}
-            className="my-2"
-          />
-          <AdvancedDetails label={t('rawValue')}>
-            {signingInputs.variantType === SigningInputsType.Arbitrary
+        <OpaqueSignatureWarning
+          rawValue={
+            signingInputs.variantType === SigningInputsType.Arbitrary
               ? t('signArbitraryPayload')
-              : t('signBlindCommitment')}
-          </AdvancedDetails>
-        </>
+              : t('signBlindCommitment')
+          }
+        />
       );
     default:
       return <div className="text-md text-center my-6">{t('noPreview')}</div>;
@@ -349,17 +343,18 @@ const CustomTransactionContent: React.FC<{
     if (!payload.requestBytes) return;
     let cancelled = false;
     (async () => {
-      const { summaryBytes, error } = await simulateCustomTransaction(id);
-      if (cancelled) return;
-      if (summaryBytes) {
-        try {
+      try {
+        const { summaryBytes } = await simulateCustomTransaction(id);
+        if (cancelled) return;
+        if (summaryBytes) {
           setVerifiedView(summaryBytesToView(summaryBytes));
           return;
-        } catch (e) {
-          console.error('Failed to decode simulated summary:', e);
         }
+        setSimError(true);
+      } catch (e) {
+        console.error('Custom transaction simulation failed:', e);
+        if (!cancelled) setSimError(true);
       }
-      if (error || !summaryBytes) setSimError(true);
     })();
     return () => {
       cancelled = true;

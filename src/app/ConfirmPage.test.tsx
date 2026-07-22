@@ -981,7 +981,7 @@ describe('ConfirmPage custom transaction', () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to decode declared custom transaction:', expect.any(Error));
   });
 
-  it('logs and keeps the declared view when summaryBytesToView throws for the simulated summary', async () => {
+  it('logs and shows the caveat when summaryBytesToView throws for the simulated summary', async () => {
     mockSummaryBytesToView.mockImplementationOnce(() => {
       throw new Error('bad summary bytes');
     });
@@ -990,13 +990,21 @@ describe('ConfirmPage custom transaction', () => {
     render(<ConfirmPage />);
 
     await waitFor(() =>
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to decode simulated summary:', expect.any(Error))
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Custom transaction simulation failed:', expect.any(Error))
     );
     expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
-    // A decode failure on an otherwise-successful simulation does not set the
-    // simError caveat (only a genuinely failed/missing simulation does) —
-    // documented here as the actual state-machine behavior.
-    expect(screen.queryByText('couldNotVerifyBySimulation')).not.toBeInTheDocument();
+    // A decode failure on an otherwise-successful simulation now surfaces the
+    // same "could not verify" caveat as any other simulation failure mode.
+    expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument();
+  });
+
+  it('keeps the declared view with a caveat when simulation rejects', async () => {
+    (ctx as any).simulateCustomTransaction.mockRejectedValue(new Error('service worker gone'));
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
+    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
   });
 });
 
