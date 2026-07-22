@@ -19,7 +19,7 @@ describe('public/sidepanel.html', () => {
 
   const rootStyle = (() => {
     const match = html.match(/<html\b[^>]*\bstyle="([^"]*)"/i);
-    return match ? match[1] : '';
+    return match?.[1] ?? '';
   })();
 
   it('does not clamp the root <html> width to 360px', () => {
