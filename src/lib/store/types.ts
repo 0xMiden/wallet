@@ -168,6 +168,7 @@ export interface WalletActions {
 
   // DApp actions
   getDAppPayload: (id: string) => Promise<any>;
+  simulateCustomTransaction: (id: string) => Promise<{ summaryBytes?: string; error?: string }>;
   confirmDAppPermission: (
     id: string,
     confirmed: boolean,

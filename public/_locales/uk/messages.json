@@ -2986,5 +2986,37 @@
   "copy": {
     "message": "Копія",
     "englishSource": "Copy"
+  },
+  "declaredBySiteVerifying": {
+    "message": "Заявлено сайтом — перевірка моделюванням…",
+    "englishSource": "Declared by site — verifying by simulation…"
+  },
+  "unverified": {
+    "message": "неперевірений",
+    "englishSource": "unverified"
+  },
+  "couldNotVerifyBySimulation": {
+    "message": "Не вдалося перевірити за допомогою моделювання. Наведені нижче суми відповідають заявкам сайту.",
+    "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
+  },
+  "couldNotDecodeTransaction": {
+    "message": "Цей dApp запитує спеціальну транзакцію. Гаманцю не вдалося розшифрувати його деталі — продовжуйте, лише якщо ви точно знаєте, що він робить.",
+    "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "advancedDetails": {
+    "message": "Розширені деталі",
+    "englishSource": "Advanced details"
+  },
+  "rawValue": {
+    "message": "Необроблене значення",
+    "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "Непрозорий запит на підпис",
+    "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureWarning": {
+    "message": "Цей сайт попросив вас підписати необроблене значення. Гаманець не може показати, що він авторизує. Продовжуйте, лише якщо ви повністю довіряєте цьому сайту.",
+    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
   }
 }

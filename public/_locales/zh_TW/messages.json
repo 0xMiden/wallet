@@ -2985,5 +2985,37 @@
   "copy": {
     "message": "复制",
     "englishSource": "Copy"
+  },
+  "declaredBySiteVerifying": {
+    "message": "由现场声明——通过模拟验证……",
+    "englishSource": "Declared by site — verifying by simulation…"
+  },
+  "unverified": {
+    "message": "未经验证",
+    "englishSource": "unverified"
+  },
+  "couldNotVerifyBySimulation": {
+    "message": "无法通过模拟验证。以下金额由网站公布。",
+    "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
+  },
+  "couldNotDecodeTransaction": {
+    "message": "该 dApp 正在请求自定义交易。钱包无法解码其详细信息 - 只有在您确切知道它的用途时才能继续。",
+    "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "advancedDetails": {
+    "message": "高级细节",
+    "englishSource": "Advanced details"
+  },
+  "rawValue": {
+    "message": "原始值",
+    "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "不透明的签名请求",
+    "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureWarning": {
+    "message": "该网站要求您签署原始值。钱包无法显示其授权内容。仅当您完全信任该网站时才继续。",
+    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
   }
 }

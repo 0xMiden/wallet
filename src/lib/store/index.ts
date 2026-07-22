@@ -427,6 +427,15 @@ export const useWalletStore = create<WalletStore>()(
       return res.payload;
     },
 
+    simulateCustomTransaction: async (id: string) => {
+      const res = await request({
+        type: MidenMessageType.DAppSimulateTransactionRequest,
+        id
+      });
+      assertResponse(res.type === MidenMessageType.DAppSimulateTransactionResponse);
+      return { summaryBytes: res.summaryBytes, error: res.error };
+    },
+
     confirmDAppPermission: async (id, confirmed, accountId, privateDataPermission, allowedPrivateData) => {
       const res = await request({
         type: MidenMessageType.DAppPermConfirmationRequest,

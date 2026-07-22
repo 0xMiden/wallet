@@ -5,13 +5,14 @@ import { Address, SigningInputs, SigningInputsType, Word } from '@miden-sdk/mide
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { useMidenContext, useAccount } from 'lib/miden/front';
-import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getNetworkId } from 'lib/miden-chain/constants';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { useLocation } from 'lib/woozie';
 
+import { declaredRequestToView, summaryBytesToView } from './confirm/decode';
+import { TransactionAssetView } from './confirm/TransactionAssetView';
 import ConfirmPage from './ConfirmPage';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 
@@ -47,20 +48,12 @@ jest.mock('lib/miden/front', () => ({
   MIDEN_METADATA: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
 }));
 
-jest.mock('lib/miden/metadata/utils', () => ({
-  getTokenMetadata: jest.fn()
-}));
-
 jest.mock('lib/miden-chain/constants', () => ({
   getNetworkId: jest.fn(() => 'testnet')
 }));
 
 jest.mock('lib/settings/helpers', () => ({
   isDelegateProofEnabled: jest.fn(() => false)
-}));
-
-jest.mock('lib/shared/format', () => ({
-  formatAmount: (amount: any) => `${amount}`
 }));
 
 jest.mock('lib/store', () => ({
@@ -73,12 +66,6 @@ jest.mock('lib/swr', () => ({
 
 jest.mock('lib/woozie', () => ({
   useLocation: jest.fn()
-}));
-
-// Tippy pulls in `tippy.js`; the component only needs a ref back.
-jest.mock('lib/ui/useTippy', () => ({
-  __esModule: true,
-  default: () => ({ current: null })
 }));
 
 // Layout/boundary wrappers: render children so `ConfirmDAppForm` mounts.
@@ -114,6 +101,44 @@ jest.mock('lib/analytics', () => {
   const React2 = require('react');
   return { CustomRpsContext: React2.createContext(undefined) };
 });
+
+// `TransactionAssetView` owns its own pixel-level rendering (asset rows, note
+// counts, storage warning) and is unit-tested in TransactionAssetView.test.tsx.
+// Here we only need to assert ConfirmPage routes the sign->TransactionSummary
+// branch through it with the right mode/view/onDownload wiring.
+jest.mock('./confirm/TransactionAssetView', () => ({
+  TransactionAssetView: jest.fn(({ mode, view, onDownload }: any) => (
+    <div data-testid="asset-view" data-mode={mode} data-account={view.account ?? ''}>
+      {onDownload && (
+        <button type="button" onClick={onDownload}>
+          downloadFullSummary
+        </button>
+      )}
+    </div>
+  ))
+}));
+
+// Partial mock: `summaryToView` stays real (the sign->TransactionSummary tests
+// below assert on its actual mapping); only the custom-tx decode entry points
+// are stubbed so these UI tests don't touch the WASM SDK.
+jest.mock('./confirm/decode', () => ({
+  ...jest.requireActual('./confirm/decode'),
+  declaredRequestToView: jest.fn(() => ({
+    outgoing: [{ faucetId: 'fA', amount: 10n }],
+    incoming: [],
+    inputNotesConsumed: 0,
+    outputNotesCreated: 1,
+    storageChanged: false
+  })),
+  summaryBytesToView: jest.fn(() => ({
+    account: 'mtst1acct',
+    outgoing: [{ faucetId: 'fA', amount: 10n }],
+    incoming: [{ faucetId: 'fB', amount: 3n }],
+    inputNotesConsumed: 1,
+    outputNotesCreated: 1,
+    storageChanged: false
+  }))
+}));
 
 jest.mock('./atoms/Alert', () => ({
   __esModule: true,
@@ -179,12 +204,14 @@ const mockUseMidenContext = useMidenContext as jest.Mock;
 const mockUseAccount = useAccount as jest.Mock;
 const mockUseRetryableSWR = useRetryableSWR as jest.Mock;
 const mockUseLocation = useLocation as jest.Mock;
-const mockGetTokenMetadata = getTokenMetadata as jest.Mock;
 const mockIsDelegateProofEnabled = isDelegateProofEnabled as jest.Mock;
 const mockGetNetworkId = getNetworkId as jest.Mock;
 const mockWord = Word as unknown as { deserialize: jest.Mock };
 const mockSigningInputs = SigningInputs as unknown as { deserialize: jest.Mock };
 const mockAddress = Address as unknown as { fromAccountId: jest.Mock };
+const mockTransactionAssetView = TransactionAssetView as unknown as jest.Mock;
+const mockDeclaredRequestToView = declaredRequestToView as unknown as jest.Mock;
+const mockSummaryBytesToView = summaryBytesToView as unknown as jest.Mock;
 
 const UPON_REQUEST = 'UPON_REQUEST';
 const AUTO = 'AUTO';
@@ -198,7 +225,8 @@ const ctx = {
   confirmDAppSign: jest.fn(),
   confirmDAppAssets: jest.fn(),
   confirmDAppImportPrivateNote: jest.fn(),
-  confirmDAppConsumableNotes: jest.fn()
+  confirmDAppConsumableNotes: jest.fn(),
+  simulateCustomTransaction: jest.fn()
 };
 
 const openTransactionModal = jest.fn();
@@ -247,7 +275,6 @@ beforeEach(() => {
   mockUseLocation.mockReturnValue({ search: '?id=req-1' });
   mockIsDelegateProofEnabled.mockReturnValue(false);
   mockGetNetworkId.mockReturnValue('testnet');
-  mockGetTokenMetadata.mockResolvedValue({ decimals: 6, symbol: 'TOK' });
   (useWalletStore.getState as jest.Mock).mockReturnValue({ openTransactionModal });
   consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -618,25 +645,31 @@ describe('sign payload — word', () => {
     preview: {}
   });
 
-  it('renders the deserialized word hex', () => {
+  it('renders an opaque-signature warning and the deserialized word hex under advanced details', () => {
     mockWord.deserialize.mockReturnValue({ toHex: () => '0xdeadbeefcafe' });
     setPayload(wordPayload());
     render(<ConfirmPage />);
 
-    expect(screen.getByText('signTheFollowingWord')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
     expect(screen.getByText('requestsYourSignature')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
+    expect(screen.getByText('0xdeadbeefcafe')).toBeInTheDocument();
   });
 
-  it('logs and shows the invalid-payload copy when deserialization throws', () => {
+  it('logs and shows the invalid-payload copy under advanced details when deserialization throws', () => {
     mockWord.deserialize.mockImplementation(() => {
       throw new Error('bad word');
     });
     setPayload(wordPayload());
     render(<ConfirmPage />);
 
-    // Still renders the sign prompt; the word text is the invalid fallback.
-    expect(screen.getByText('signTheFollowingWord')).toBeInTheDocument();
+    // Still renders the opaque-signature warning; the raw value is the invalid fallback.
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
     expect(consoleErrorSpy).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
+    expect(screen.getByText('invalidPayload')).toBeInTheDocument();
   });
 
   it('confirms the signature via confirmDAppSign', async () => {
@@ -703,13 +736,20 @@ describe('sign payload — signingInputs', () => {
     expect(consoleErrorSpy).toHaveBeenCalled();
   });
 
-  it('renders a TransactionSummary with asset changes and storage warning', async () => {
-    mockAddress.fromAccountId.mockReturnValue({ toBech32: () => 'mtst1accbech_wxyz' });
-    // Two removed + two added assets, mixing present/absent symbols to hit both
-    // sides of the `symbol ?? unknown` fallback.
-    mockGetTokenMetadata.mockImplementation((id: string) =>
-      Promise.resolve({ decimals: 6, symbol: id.includes('null') ? null : `SYM-${id}` })
-    );
+  // Pixel-level rendering (asset rows, amount/symbol formatting, storage
+  // warning) is owned by `TransactionAssetView` and covered in
+  // `TransactionAssetView.test.tsx`. `TransactionAssetView` is stubbed here
+  // (see the `jest.mock` above) so these tests assert only that the
+  // sign->TransactionSummary branch routes through it with the correct
+  // mode/view/onDownload wiring — i.e. that ConfirmPage computes the right
+  // `TxAssetView` via `summaryToView` and hands it off.
+  it('renders a TransactionSummary via the verified TransactionAssetView', () => {
+    // Input-aware so each faucet id resolves to its own bech32 — proving the
+    // view maps assets by the bech32 faucet address (getBech32AddressFromAccountId),
+    // not AccountId.toString() (hex), which is what makes non-Miden metadata resolve.
+    mockAddress.fromAccountId.mockImplementation((id: any) => ({
+      toBech32: () => `bech32:${typeof id === 'string' ? id : id.toString()}`
+    }));
     setPayload(siPayload());
     mockSigningInputs.deserialize.mockReturnValue(
       transactionSummary({
@@ -721,29 +761,44 @@ describe('sign payload — signingInputs', () => {
     );
     render(<ConfirmPage />);
 
-    // Note counts render immediately.
-    expect(screen.getByText('inputNotesConsumed')).toBeInTheDocument();
-    expect(screen.getByText('2')).toBeInTheDocument();
-    expect(screen.getByText('3')).toBeInTheDocument();
-    // Storage changed => warning + yes.
-    expect(screen.getByText('yes')).toBeInTheDocument();
+    const assetView = screen.getByTestId('asset-view');
+    expect(assetView).toHaveAttribute('data-mode', 'verified');
+    expect(assetView).toHaveAttribute('data-account', 'bech32:acc-id');
 
-    // Asset detail rows appear after the metadata effects resolve.
-    await waitFor(() => expect(screen.getByText('100 SYM-rem1')).toBeInTheDocument());
-    expect(screen.getByText('200 unknown')).toBeInTheDocument();
-    expect(screen.getByText('300 SYM-add1')).toBeInTheDocument();
-    expect(screen.getByText('400 unknown')).toBeInTheDocument();
+    // The view handed to TransactionAssetView is the ground-truth mapping of
+    // the executed TransactionSummary (summaryToView), not a re-derivation.
+    // Faucet ids are resolved to bech32 (metadata cache key), not hex.
+    expect(mockTransactionAssetView).toHaveBeenCalledTimes(1);
+    const { view } = mockTransactionAssetView.mock.calls[0][0];
+    expect(view).toEqual({
+      account: 'bech32:acc-id',
+      outgoing: [
+        { faucetId: 'bech32:rem1', amount: 100 },
+        { faucetId: 'bech32:rem-null', amount: 200 }
+      ],
+      incoming: [
+        { faucetId: 'bech32:add1', amount: 300 },
+        { faucetId: 'bech32:add-null', amount: 400 }
+      ],
+      inputNotesConsumed: 2,
+      outputNotesCreated: 3,
+      storageChanged: true
+    });
   });
 
-  it('renders a TransactionSummary with an empty vault and empty storage', async () => {
+  it('renders a TransactionSummary with an empty vault and empty storage', () => {
     mockAddress.fromAccountId.mockReturnValue({ toBech32: () => 'mtst1accbech_wxyz' });
     setPayload(siPayload());
     mockSigningInputs.deserialize.mockReturnValue(transactionSummary({ vaultEmpty: true, storageEmpty: true }));
     render(<ConfirmPage />);
 
-    // Storage unchanged => "no"; no asset-changes section.
-    await waitFor(() => expect(screen.getByText('no')).toBeInTheDocument());
-    expect(screen.queryByText('assetChanges')).not.toBeInTheDocument();
+    const assetView = screen.getByTestId('asset-view');
+    expect(assetView).toHaveAttribute('data-mode', 'verified');
+
+    const { view } = mockTransactionAssetView.mock.calls[0][0];
+    expect(view.outgoing).toEqual([]);
+    expect(view.incoming).toEqual([]);
+    expect(view.storageChanged).toBe(false);
   });
 
   it('downloads the full summary binary when the download button is clicked', async () => {
@@ -761,19 +816,23 @@ describe('sign payload — signingInputs', () => {
     await waitFor(() => expect(revokeObjSpy).toHaveBeenCalled());
   });
 
-  it('renders the arbitrary-payload copy for the Arbitrary variant', () => {
+  it('renders an opaque-signature warning and the arbitrary-payload copy under advanced details for the Arbitrary variant', () => {
     setPayload(siPayload());
     mockSigningInputs.deserialize.mockReturnValue({ variantType: SigningInputsType.Arbitrary });
     render(<ConfirmPage />);
 
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
     expect(screen.getByText('signArbitraryPayload')).toBeInTheDocument();
   });
 
-  it('renders the blind-commitment copy for the Blind variant', () => {
+  it('renders an opaque-signature warning and the blind-commitment copy under advanced details for the Blind variant', () => {
     setPayload(siPayload());
     mockSigningInputs.deserialize.mockReturnValue({ variantType: SigningInputsType.Blind });
     render(<ConfirmPage />);
 
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
     expect(screen.getByText('signBlindCommitment')).toBeInTheDocument();
   });
 });
@@ -868,5 +927,105 @@ describe('consumableNotes payload', () => {
     });
 
     await waitFor(() => expect(ctx.confirmDAppConsumableNotes).toHaveBeenCalledWith('req-1', true));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transaction payload — custom-tx state machine (declared -> verifying ->
+// verified | undecodable), driven by simulateCustomTransaction(id)
+// ---------------------------------------------------------------------------
+
+describe('ConfirmPage custom transaction', () => {
+  const customPayload = (over: any = {}) => ({
+    type: 'transaction',
+    txKind: 'custom',
+    requestBytes: 'reqB64',
+    importNotes: [],
+    recipientAddress: 'mtst1recipient',
+    transactionMessages: [],
+    ...baseFields(),
+    ...over
+  });
+
+  it('swaps the declared view for the verified view after simulation', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ summaryBytes: 'sumB64' });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
+    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-account', 'mtst1acct');
+    expect((ctx as any).simulateCustomTransaction).toHaveBeenCalledWith('req-1');
+  });
+
+  it('keeps the declared view with a caveat when simulation errors', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'boom' });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
+    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
+  });
+
+  it('shows could-not-decode when requestBytes is absent', () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'x' });
+    setPayload(customPayload({ requestBytes: undefined }));
+    render(<ConfirmPage />);
+
+    expect(screen.getByText('couldNotDecodeTransaction')).toBeInTheDocument();
+  });
+
+  it('logs and falls back to could-not-decode when declaredRequestToView throws and simulation also fails', async () => {
+    mockDeclaredRequestToView.mockImplementationOnce(() => {
+      throw new Error('bad declared bytes');
+    });
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'boom' });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByText('couldNotDecodeTransaction')).toBeInTheDocument());
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to decode declared custom transaction:', expect.any(Error));
+  });
+
+  it('logs and shows the caveat when summaryBytesToView throws for the simulated summary', async () => {
+    mockSummaryBytesToView.mockImplementationOnce(() => {
+      throw new Error('bad summary bytes');
+    });
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ summaryBytes: 'sumB64' });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() =>
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Custom transaction simulation failed:', expect.any(Error))
+    );
+    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
+    // A decode failure on an otherwise-successful simulation now surfaces the
+    // same "could not verify" caveat as any other simulation failure mode.
+    expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument();
+  });
+
+  it('keeps the declared view with a caveat when simulation rejects', async () => {
+    (ctx as any).simulateCustomTransaction.mockRejectedValue(new Error('service worker gone'));
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
+    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// opaque-signature hardening — kind:'word' and SigningInputs
+// Arbitrary/Blind leaves get a warning banner + raw value under advanced
+// details (also exercised inline in the 'sign payload' describes above).
+// ---------------------------------------------------------------------------
+
+describe('ConfirmPage opaque signature', () => {
+  it('shows a blind-sign warning for a raw word signature', () => {
+    mockWord.deserialize.mockReturnValue({ toHex: () => '0xabc' });
+    setPayload({ type: 'sign', kind: 'word', payload: b64('w'), ...baseFields() });
+    render(<ConfirmPage />);
+
+    // The Alert mock (top of file) renders its `description`; `t` echoes keys.
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
   });
 });

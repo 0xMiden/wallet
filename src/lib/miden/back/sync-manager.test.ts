@@ -33,6 +33,11 @@ jest.mock('./note-checker-storage', () => ({
   mergeAndPersistSeenNoteIds: (...args: unknown[]) => mockMergeAndPersistSeenNoteIds(...args)
 }));
 
+const mockGetQuarantinedNoteIds = jest.fn(async () => new Set<string>());
+jest.mock('lib/miden/note-quarantine', () => ({
+  getQuarantinedNoteIds: () => mockGetQuarantinedNoteIds()
+}));
+
 const mockFetchTokenMetadata = jest.fn();
 jest.mock('lib/miden/metadata', () => ({
   fetchTokenMetadata: (...args: unknown[]) => mockFetchTokenMetadata(...args)
@@ -127,6 +132,7 @@ beforeEach(() => {
   });
   mockMergeAndPersistSeenNoteIds.mockResolvedValue([]);
   mockHasClients.mockReturnValue(true);
+  mockGetQuarantinedNoteIds.mockResolvedValue(new Set());
 });
 
 describe('doSync', () => {
@@ -170,6 +176,20 @@ describe('doSync', () => {
         miden_sync_data: expect.objectContaining({ accountPublicKey: 'pk-1' })
       })
     );
+  });
+
+  it('excludes quarantined notes from the cached consumable-notes write', async () => {
+    mockClient.getConsumableNotes.mockResolvedValueOnce([
+      fakeNote({ id: 'quarantined-note', faucetId: 'f1' }),
+      fakeNote({ id: 'visible-note', faucetId: 'f1' })
+    ]);
+    mockGetQuarantinedNoteIds.mockResolvedValueOnce(new Set(['quarantined-note']));
+
+    await doSync();
+
+    const call = mockStorageSet.mock.calls.find(c => 'miden_cached_consumable_notes' in c[0]);
+    const cached = call?.[0]?.miden_cached_consumable_notes as Array<{ id: string }>;
+    expect(cached.map(n => n.id)).toEqual(['visible-note']);
   });
 
   it('shows a desktop notification when a new note arrives and no frontends are connected', async () => {
