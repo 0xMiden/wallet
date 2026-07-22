@@ -2,8 +2,13 @@ import { Note, TransactionRequest, TransactionSummary } from '@miden-sdk/miden-s
 
 import { declaredRequestToView, summaryBytesToView, summaryToView } from './decode';
 
+// `faucetId()` returns an AccountId object (not a string). Token metadata is
+// cached under the BECH32 faucet address, so the decoders must resolve the id
+// via `getBech32AddressFromAccountId`, NOT `AccountId.toString()` (hex) — a hex
+// key misses the cache and mislabels non-Miden assets as Miden. The stub below
+// carries a marker the mocked `getBech32AddressFromAccountId` turns into bech32.
 const fa = (faucetId: string, amount: bigint) => ({
-  faucetId: () => ({ toString: () => faucetId }),
+  faucetId: () => ({ __faucet: faucetId }),
   amount: () => amount
 });
 const note = (assets: any[]) => ({ assets: () => ({ fungibleAssets: () => assets }) });
@@ -14,14 +19,18 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   Note: { deserialize: jest.fn() }
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({
-  getBech32AddressFromAccountId: jest.fn(() => 'mtst1account')
+  // Input-aware: the account delta id is a bare string; faucet ids are the
+  // `{ __faucet }` stubs above. Both must go through this helper (bech32).
+  getBech32AddressFromAccountId: jest.fn((id: any) =>
+    typeof id === 'string' ? `bech32:${id}` : `bech32:${id.__faucet}`
+  )
 }));
 jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn((s: string) => new Uint8Array([s.length]))
 }));
 
 describe('summaryToView', () => {
-  it('maps a TransactionSummary account delta to outgoing/incoming + note counts', () => {
+  it('maps a TransactionSummary account delta to bech32 outgoing/incoming + note counts', () => {
     const ts = {
       accountDelta: () => ({
         id: () => 'acctId',
@@ -32,9 +41,9 @@ describe('summaryToView', () => {
       outputNotes: () => ({ numNotes: () => 2 })
     };
     expect(summaryToView(ts as any)).toEqual({
-      account: 'mtst1account',
-      outgoing: [{ faucetId: 'fA', amount: 10n }],
-      incoming: [{ faucetId: 'fB', amount: 3n }],
+      account: 'bech32:acctId',
+      outgoing: [{ faucetId: 'bech32:fA', amount: 10n }],
+      incoming: [{ faucetId: 'bech32:fB', amount: 3n }],
       inputNotesConsumed: 1,
       outputNotesCreated: 2,
       storageChanged: false
@@ -55,9 +64,9 @@ describe('summaryToView', () => {
     const view = summaryBytesToView('sumB64');
     expect(TransactionSummary.deserialize).toHaveBeenCalledWith(expect.any(Uint8Array));
     expect(view).toEqual({
-      account: 'mtst1account',
-      outgoing: [{ faucetId: 'fA', amount: 10n }],
-      incoming: [{ faucetId: 'fB', amount: 3n }],
+      account: 'bech32:acctId',
+      outgoing: [{ faucetId: 'bech32:fA', amount: 10n }],
+      incoming: [{ faucetId: 'bech32:fB', amount: 3n }],
       inputNotesConsumed: 1,
       outputNotesCreated: 2,
       storageChanged: false
@@ -66,7 +75,7 @@ describe('summaryToView', () => {
 });
 
 describe('declaredRequestToView', () => {
-  it('derives outgoing from expected output notes and incoming from imported notes', () => {
+  it('derives bech32 outgoing from expected output notes and incoming from imported notes', () => {
     (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({
       expectedOutputOwnNotes: () => [note([fa('fA', 10n)])]
     });
@@ -75,8 +84,8 @@ describe('declaredRequestToView', () => {
     const view = declaredRequestToView('reqB64', ['imported']);
     expect(view).toEqual({
       account: undefined,
-      outgoing: [{ faucetId: 'fA', amount: 10n }],
-      incoming: [{ faucetId: 'fB', amount: 3n }],
+      outgoing: [{ faucetId: 'bech32:fA', amount: 10n }],
+      incoming: [{ faucetId: 'bech32:fB', amount: 3n }],
       inputNotesConsumed: 1,
       outputNotesCreated: 1,
       storageChanged: false

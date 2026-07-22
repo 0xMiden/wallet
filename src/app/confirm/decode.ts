@@ -1,4 +1,4 @@
-import { Note, TransactionRequest, TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
+import { FungibleAsset, Note, TransactionRequest, TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
 
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { b64ToU8 } from 'lib/shared/helpers';
@@ -20,8 +20,13 @@ export interface TxAssetView {
   storageChanged: boolean;
 }
 
-function toAmounts(assets: Array<{ faucetId(): { toString(): string }; amount(): bigint }>): AssetAmount[] {
-  return assets.map(a => ({ faucetId: a.faucetId().toString(), amount: a.amount() }));
+function toAmounts(assets: FungibleAsset[]): AssetAmount[] {
+  // Token metadata is cached under the BECH32 faucet address (see
+  // fetchTokenMetadata's `Address.fromBech32` and how balances/claimable-notes
+  // populate it via getBech32AddressFromAccountId). Using AccountId.toString()
+  // (hex) here misses that cache, so getTokenMetadata falls back to Miden's
+  // metadata and mislabels non-Miden assets (e.g. 0.05 BTC → "-5 Miden").
+  return assets.map(a => ({ faucetId: getBech32AddressFromAccountId(a.faucetId()), amount: a.amount() }));
 }
 
 function noteAssets(note: { assets(): { fungibleAssets(): any[] } | undefined } | undefined): AssetAmount[] {
