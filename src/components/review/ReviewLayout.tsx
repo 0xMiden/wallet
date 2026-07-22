@@ -54,7 +54,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
 
         {heroDivider && <div className="mt-4 h-2 w-full rounded-full bg-primary-500" />}
 
-        <div className={classNames(dividers && 'divide-y divide-[#F1F1F1]')}>{children}</div>
+        <div className={classNames(dividers && 'divide-y divide-rule-default')}>{children}</div>
       </div>
 
       <div className="shrink-0 pt-6 flex flex-col gap-y-2">
