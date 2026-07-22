@@ -13,7 +13,7 @@ import { isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
 // without the barrel's heavy dependency graph.
 jest.mock('app/icons/v2', () => ({
   __esModule: true,
-  IconName: { Convert: 'convert' },
+  IconName: { Convert: 'convert', Earn: 'earn' },
   Icon: ({ name, size, className }: { name: string; size?: string; className?: string }) => (
     <div data-testid="v2-icon" data-name={name} data-size={size} className={className} />
   )
@@ -52,6 +52,19 @@ beforeEach(() => {
 });
 
 describe('TransactionIcon', () => {
+  describe('earn transaction branch', () => {
+    it('renders the Earn glyph for an opened position even when its persisted icon is RECEIVE', () => {
+      const { container, getByTestId } = render(
+        <TransactionIcon entry={makeEntry({ txType: 'earn-deposit', transactionIcon: 'RECEIVE' })} size="lg" />
+      );
+
+      expect(root(container)).toHaveClass('w-18', 'h-18', 'rounded-10', 'bg-tx-earn');
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-name', 'earn');
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-size', 'lg');
+      expect(container.querySelector('svg')).not.toBeInTheDocument();
+    });
+  });
+
   describe('pending / processing spinner branch', () => {
     it.each([
       ['PendingTransaction', HistoryEntryType.PendingTransaction],
