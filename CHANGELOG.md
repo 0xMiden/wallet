@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.9 (TBD)
+
+### Fixes
+
+* [FIX][all] **Restoring an encrypted wallet file now writes into the client's active database, so balances appear instead of staying 0.** The restore path imported the miden-client dump into a hardcoded store name (`miden-wallet`) while the running client reads from `MidenClientDB_<network>`, so the restored account/balance state was invisible (sync logged "No account header record found"). Restore now targets the active client's store name.
+
 ## 1.15.8 (2026-07-21)
 
 ### Features
