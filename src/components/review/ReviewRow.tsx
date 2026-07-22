@@ -55,7 +55,7 @@ export const ReviewRow: React.FC<ReviewRowProps> = ({ label, value, onEdit, edit
     </div>
 
     {note && (
-      <div className="mt-2 flex items-start gap-1.5 text-xs text-text-muted">
+      <div className="mt-2 flex items-start gap-1.5 text-xs text-heading-gray">
         <InfoIcon className="mt-0.5 h-4 w-4 shrink-0 fill-current" />
         <span>{note}</span>
       </div>
