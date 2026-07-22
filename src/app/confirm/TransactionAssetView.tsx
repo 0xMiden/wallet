@@ -4,7 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
 import { formatAmount } from 'lib/shared/format';
 import { truncateAddress } from 'utils/string';
 
@@ -22,7 +22,7 @@ interface ResolvedAsset {
   faucetId: string;
   amount: bigint;
   // Undefined when the metadata lookup failed (see Fix D: guarded against
-  // getTokenMetadata rejecting) — callers fall back to the `unknown` label /
+  // fetchTokenMetadata rejecting) — callers fall back to the `unknown` label /
   // formatAmount's own decimals default.
   symbol: string | undefined;
   decimals: number | undefined;
@@ -35,7 +35,13 @@ function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
     (async () => {
       const out = await Promise.all(
         assets.map(async a => {
-          const md = await getTokenMetadata(a.faucetId).catch(() => ({ symbol: undefined, decimals: undefined }));
+          // fetchTokenMetadata checks the cache, then reads the faucet account
+          // ON-CHAIN for its real symbol+decimals, degrading to the "Unknown"
+          // default (never native MIDEN) on failure — so an unrecognized
+          // faucet is never mislabeled as native MIDEN on this security screen.
+          const md = await fetchTokenMetadata(a.faucetId)
+            .then(r => r.base)
+            .catch(() => ({ symbol: undefined, decimals: undefined }));
           return { faucetId: a.faucetId, amount: a.amount, symbol: md.symbol, decimals: md.decimals };
         })
       );

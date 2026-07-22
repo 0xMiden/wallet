@@ -2,12 +2,12 @@ import React from 'react';
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
 
 import { TransactionAssetView } from './TransactionAssetView';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }) }));
-jest.mock('lib/miden/metadata/utils', () => ({ getTokenMetadata: jest.fn() }));
+jest.mock('lib/miden/metadata/fetch', () => ({ fetchTokenMetadata: jest.fn() }));
 jest.mock('lib/shared/format', () => ({ formatAmount: (a: bigint, d: number) => `${a}/${d}` }));
 jest.mock('utils/string', () => ({ truncateAddress: (s: string) => `trunc(${s})` }));
 jest.mock('app/icons/v2', () => ({
@@ -33,9 +33,8 @@ const view = {
 };
 
 beforeEach(() => {
-  (getTokenMetadata as jest.Mock).mockImplementation(async (id: string) => ({
-    decimals: 6,
-    symbol: id === 'fA' ? 'miZK' : 'rETH'
+  (fetchTokenMetadata as jest.Mock).mockImplementation(async (id: string) => ({
+    base: { decimals: 6, symbol: id === 'fA' ? 'miZK' : 'rETH' }
   }));
 });
 
@@ -111,7 +110,7 @@ it('renders a download button and invokes onDownload when clicked', () => {
 });
 
 it('falls back to the unknown label when a resolved asset has no symbol', async () => {
-  (getTokenMetadata as jest.Mock).mockResolvedValueOnce({ decimals: 6, symbol: undefined });
+  (fetchTokenMetadata as jest.Mock).mockResolvedValueOnce({ base: { decimals: 6, symbol: undefined } });
   render(
     <TransactionAssetView
       view={{ ...view, outgoing: [{ faucetId: 'fA', amount: 10n }], incoming: [] } as any}
@@ -122,7 +121,7 @@ it('falls back to the unknown label when a resolved asset has no symbol', async 
 });
 
 it('falls back to the unknown label for an incoming asset with no symbol', async () => {
-  (getTokenMetadata as jest.Mock).mockResolvedValueOnce({ decimals: 6, symbol: undefined });
+  (fetchTokenMetadata as jest.Mock).mockResolvedValueOnce({ base: { decimals: 6, symbol: undefined } });
   render(
     <TransactionAssetView
       view={{ ...view, outgoing: [], incoming: [{ faucetId: 'fB', amount: 5n }] } as any}
@@ -132,10 +131,10 @@ it('falls back to the unknown label for an incoming asset with no symbol', async
   await waitFor(() => expect(screen.getByText('5/6 unknown')).toBeInTheDocument());
 });
 
-it('still renders (with the unknown fallback) when getTokenMetadata rejects for one asset', async () => {
-  (getTokenMetadata as jest.Mock).mockImplementation(async (id: string) => {
+it('still renders (with the unknown fallback) when fetchTokenMetadata rejects for one asset', async () => {
+  (fetchTokenMetadata as jest.Mock).mockImplementation(async (id: string) => {
     if (id === 'fA') throw new Error('metadata service down');
-    return { decimals: 6, symbol: 'rETH' };
+    return { base: { decimals: 6, symbol: 'rETH' } };
   });
 
   expect(() => render(<TransactionAssetView view={view as any} mode="verified" />)).not.toThrow();
@@ -145,4 +144,19 @@ it('still renders (with the unknown fallback) when getTokenMetadata rejects for 
   // isolated, not fatal to the whole row set.
   await waitFor(() => expect(screen.getByText('3/6 rETH')).toBeInTheDocument());
   expect(screen.getByText(/unknown/)).toBeInTheDocument();
+});
+
+it('shows the "Unknown" label (not native MIDEN) for an on-chain-resolved unknown token', async () => {
+  // fetchTokenMetadata degrades an unrecognized, uncached faucet to
+  // DEFAULT_TOKEN_METADATA ("Unknown") rather than MIDEN_METADATA — this
+  // guards against a never-held token being mislabeled as native MIDEN.
+  (fetchTokenMetadata as jest.Mock).mockResolvedValueOnce({ base: { decimals: 6, symbol: 'Unknown' } });
+  render(
+    <TransactionAssetView
+      view={{ ...view, outgoing: [{ faucetId: 'fUnrecognized', amount: 7n }], incoming: [] } as any}
+      mode="verified"
+    />
+  );
+  await waitFor(() => expect(screen.getByText('7/6 Unknown')).toBeInTheDocument());
+  expect(screen.queryByText(/MIDEN/)).not.toBeInTheDocument();
 });

@@ -85,7 +85,6 @@ export interface MidenDAppTransactionPayload extends MidenDAppPayloadBase {
   requestBytes?: string; // base64 serialized Miden-SDK TransactionRequest
   importNotes?: string[]; // base64 serialized notes carried by the request
   recipientAddress?: string; // dApp-declared recipient (shown as "declared by site")
-  decodeStatus?: 'declared' | 'undecodable';
 }
 
 export interface MidenDAppConsumePayload extends MidenDAppPayloadBase {

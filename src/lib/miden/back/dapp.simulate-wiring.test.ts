@@ -30,8 +30,7 @@ describe('buildCustomTxConfirmPayload', () => {
       txKind: 'custom',
       requestBytes: 'reqB64',
       importNotes: ['noteB64'],
-      recipientAddress: 'mtst1recipient',
-      decodeStatus: 'declared'
+      recipientAddress: 'mtst1recipient'
     });
   });
 

@@ -363,6 +363,9 @@ const CustomTransactionContent: React.FC<{
 
   const advanced = (
     <AdvancedDetails>
+      {/* These labels are intentional raw payload-field keys (a JSON-like dump
+          of the dApp-declared request), not user-facing copy — deliberately
+          not translated via t(). */}
       <FoldableField label="recipient" value={payload.recipientAddress ?? '(none)'} />
       <FoldableField label="importNotes" value={payload.importNotes?.length ?? 0} />
       <FoldableField label="requestBytes" value={payload.requestBytes ?? '(none)'} />

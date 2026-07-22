@@ -68,6 +68,10 @@ export function declaredRequestToView(requestB64: string, importNotes: string[] 
     account: undefined,
     outgoing: outputNotes.flatMap(n => noteAssets(n)),
     incoming: consumed.flatMap(n => noteAssets(n)),
+    // Only counts the carried `importNotes`; it may undercount notes consumed
+    // from the wallet's own store (referenced by inputNoteIds, not carried
+    // here as full note bytes). This is the explicitly-unverified "declared"
+    // view — the verified (simulated/executed) summary supersedes it.
     inputNotesConsumed: consumed.length,
     outputNotesCreated: outputNotes.length,
     storageChanged: false

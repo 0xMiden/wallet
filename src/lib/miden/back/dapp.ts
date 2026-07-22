@@ -996,8 +996,7 @@ export function buildCustomTxConfirmPayload(args: {
     txKind: 'custom',
     requestBytes: tx.transactionRequest,
     importNotes: tx.importNotes,
-    recipientAddress: tx.recipientAddress || undefined,
-    decodeStatus: 'declared'
+    recipientAddress: tx.recipientAddress || undefined
   };
 }
 
@@ -1557,7 +1556,6 @@ async function requestConfirm({ id, payload, onDecline, handleIntercomRequest, h
     }
 
     if (req?.type === MidenMessageType.DAppSimulateTransactionRequest && (req as any).id === id) {
-      knownPort = port;
       if (!handleSimulate) {
         return { type: MidenMessageType.DAppSimulateTransactionResponse, error: 'unsupported' };
       }

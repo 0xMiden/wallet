@@ -942,7 +942,6 @@ describe('ConfirmPage custom transaction', () => {
     requestBytes: 'reqB64',
     importNotes: [],
     recipientAddress: 'mtst1recipient',
-    decodeStatus: 'declared',
     transactionMessages: [],
     ...baseFields(),
     ...over
@@ -969,7 +968,7 @@ describe('ConfirmPage custom transaction', () => {
 
   it('shows could-not-decode when requestBytes is absent', () => {
     (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'x' });
-    setPayload(customPayload({ requestBytes: undefined, decodeStatus: 'undecodable' }));
+    setPayload(customPayload({ requestBytes: undefined }));
     render(<ConfirmPage />);
 
     expect(screen.getByText('couldNotDecodeTransaction')).toBeInTheDocument();
