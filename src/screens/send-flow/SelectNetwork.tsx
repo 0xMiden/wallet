@@ -42,21 +42,6 @@ export const SelectNetworkDrawer: React.FC<SelectNetworkDrawerProps> = ({
         </DrawerHeader>
         <div className="flex h-120 min-h-0 flex-col px-4 pb-4">
           <div className="flex min-h-0 flex-col overflow-y-auto divide-y divide-rule-default no-scrollbar">
-            <button
-              type="button"
-              data-testid="send-network-miden-option"
-              aria-pressed={selectedNetwork === 'miden'}
-              onClick={() => selectNetwork('miden')}
-              className="flex items-center gap-3 py-3.5 text-left"
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-500">
-                <Icon name={IconName.MidenLogoWhite} size="sm" className="text-pure-white" fill="currentColor" />
-              </span>
-              <span className="flex-1 text-base font-bold text-heading-gray">{t('miden')}</span>
-              {selectedNetwork === 'miden' && (
-                <Icon name={IconName.CheckboxCircleFill} size="sm" className="text-primary-500" fill="currentColor" />
-              )}
-            </button>
             {BRIDGE_NETWORKS.map(network => (
               <button
                 key={network.id}

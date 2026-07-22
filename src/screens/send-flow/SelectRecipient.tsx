@@ -52,8 +52,8 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   const isEthereum = chain === 'ethereum';
   const hasAddress = address.trim().length > 0;
   const canConfirm = isValidAddress && (!isEthereum || !!selectedNetwork);
-  // eslint-disable-next-line i18next/no-literal-string -- Product-specified network-picker copy.
-  const chooseNetworkLabel = 'Choose Network';
+  // eslint-disable-next-line i18next/no-literal-string -- Product-specified recipient placeholder copy.
+  const addressPlaceholder = 'Enter Miden or Ethereum Address';
   // eslint-disable-next-line i18next/no-literal-string -- Product-specified scanner copy.
   const scanQrCodeLabel = 'Scan QR Code';
 
@@ -93,7 +93,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             ref={textareaRef}
             data-testid="send-recipient-input"
             rows={1}
-            placeholder={t('enterAddress')}
+            placeholder={addressPlaceholder}
             className={clsx(
               'font-heading w-full resize-none bg-transparent outline-none',
               'text-[40px] font-bold leading-tight wrap-break-word',
@@ -110,10 +110,10 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
 
         {error && <p className="text-red-500 text-sm mt-2">{t(`${error}`)}</p>}
 
-        <div className="mt-1 flex flex-col items-start">
-          <span className="ml-2 h-18 w-2 rounded-full bg-grey-300" aria-hidden="true" />
-          <div className="pt-3">
-            {!hasAddress || isEthereum ? (
+        {isValidAddress && isEthereum && (
+          <div className="mt-1 flex flex-col items-start">
+            <span className="ml-2 h-18 w-2 rounded-full bg-grey-300" aria-hidden="true" />
+            <div className="pt-3">
               <button
                 type="button"
                 data-testid="send-network-selector"
@@ -127,27 +127,13 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
                   <Icon name={IconName.Globe} size="sm" className="text-pure-white" fill="currentColor" />
                 </span>
                 <span className="font-heading text-xl font-bold text-heading-gray">
-                  {!hasAddress
-                    ? network === 'miden'
-                      ? t('miden')
-                      : (selectedNetwork?.name ?? chooseNetworkLabel)
-                    : (selectedNetwork?.name ?? t('selectNetwork'))}
+                  {selectedNetwork?.name ?? t('selectNetwork')}
                 </span>
                 <Icon name={IconName.ChevronRightLucide} size="sm" className="text-primary-500" />
               </button>
-            ) : (
-              <div
-                data-testid="send-network-miden"
-                className="flex items-center gap-2 rounded-full bg-surface-interactive py-2 pr-4 pl-2"
-              >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-500">
-                  <Icon name={IconName.MidenLogoWhite} size="sm" className="text-pure-white" fill="currentColor" />
-                </span>
-                <span className="font-heading text-xl font-bold text-heading-gray">{t('miden')}</span>
-              </div>
-            )}
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="mt-auto flex flex-col items-start gap-3 pt-12 pb-10">
           <Button

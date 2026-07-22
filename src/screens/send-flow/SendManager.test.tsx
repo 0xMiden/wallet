@@ -128,7 +128,9 @@ jest.mock('./AccountsList', () => ({
 }));
 
 jest.mock('./bridge-networks', () => ({
-  DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 11155111 }
+  DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+  BRIDGE_NETWORKS: [],
+  getBridgeNetwork: jest.fn()
 }));
 
 jest.mock('./useEpochQuote', () => ({
@@ -153,7 +155,7 @@ jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
   useMobileBackHandler: (cb: any, deps: any) => useMobileBackHandlerMock(cb, deps)
 }));
-jest.mock('lib/platform', () => ({ isExtension: () => isExtensionMock() }));
+jest.mock('lib/platform', () => ({ isExtension: () => isExtensionMock(), isMobile: () => false }));
 jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => isDelegateProofEnabledMock() }));
 jest.mock('lib/store', () => ({ useWalletStore: { getState: () => walletStoreState } }));
 jest.mock('lib/woozie', () => ({

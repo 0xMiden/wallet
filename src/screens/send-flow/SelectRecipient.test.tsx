@@ -9,7 +9,7 @@ jest.mock('lib/epoch', () => ({
   EPOCH_DESTINATION_CHAIN_ID: 11155111
 }));
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => (key === 'enterAddress' ? 'Enter Address' : key) })
+  useTranslation: () => ({ t: (key: string) => key })
 }));
 
 const ETH_ADDRESS = '0x71C7656EC7ab88b098defB751B7401B5f6d8976F';
@@ -53,19 +53,19 @@ function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
 }
 
 describe('SelectRecipient', () => {
-  it('shows Choose Network before an address is entered', () => {
-    const props = renderRecipient();
+  it('hides the network selector before an address is entered', () => {
+    renderRecipient();
 
-    expect(screen.getByTestId('send-network-selector')).toHaveTextContent('Choose Network');
-    expect(screen.queryByTestId('send-network-miden')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('send-network-selector'));
-    expect(props.onSelectNetwork).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('send-network-selector')).not.toBeInTheDocument();
   });
 
-  it('uses the Enter Address placeholder and leaves unknown recipients plain', () => {
+  it('uses the chain-aware address placeholder and leaves unknown recipients plain', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', onScan: jest.fn() });
 
-    expect(screen.getByTestId('send-recipient-input')).toHaveAttribute('placeholder', 'Enter Address');
+    expect(screen.getByTestId('send-recipient-input')).toHaveAttribute(
+      'placeholder',
+      'Enter Miden or Ethereum Address'
+    );
     expect(screen.queryByTestId('send-recipient-avatar')).not.toBeInTheDocument();
     expect(screen.queryByText('Scan QR Code')).not.toBeInTheDocument();
   });
@@ -110,6 +110,12 @@ describe('SelectRecipient', () => {
     expect(props.onSelectNetwork).toHaveBeenCalledTimes(1);
   });
 
+  it('hides the network selector for an incomplete EVM address', () => {
+    renderRecipient({ address: '0x1234', isValidAddress: false, chain: 'ethereum' });
+
+    expect(screen.queryByTestId('send-network-selector')).not.toBeInTheDocument();
+  });
+
   it('enables EVM confirmation after Sepolia is selected', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', network: 'sepolia' });
 
@@ -117,10 +123,9 @@ describe('SelectRecipient', () => {
     expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
   });
 
-  it('shows Miden as a static network and allows a valid Miden recipient', () => {
+  it('hides the network block and allows a valid Miden recipient', () => {
     renderRecipient({ address: MIDEN_ADDRESS, isValidAddress: true, chain: 'miden' });
 
-    expect(screen.getByTestId('send-network-miden')).toBeInTheDocument();
     expect(screen.queryByTestId('send-network-selector')).not.toBeInTheDocument();
     expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
   });

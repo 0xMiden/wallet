@@ -13,14 +13,14 @@ jest.mock('react-i18next', () => ({
 }));
 
 describe('SelectNetworkDrawer', () => {
-  it('lists Miden and configured EVM networks and closes after selection', () => {
+  it('lists only configured EVM networks and closes after selection', () => {
     const onOpenChange = jest.fn();
     const onSelect = jest.fn();
 
     render(<SelectNetworkDrawer open onOpenChange={onOpenChange} onSelect={onSelect} selectedNetwork={undefined} />);
 
     const sepolia = screen.getByTestId('send-network-sepolia');
-    expect(screen.getByTestId('send-network-miden-option')).toBeInTheDocument();
+    expect(screen.queryByText('miden')).not.toBeInTheDocument();
     expect(screen.getByTestId('send-network-sepolia-logo')).toBeInTheDocument();
     expect(sepolia).toHaveAttribute('aria-pressed', 'false');
 
