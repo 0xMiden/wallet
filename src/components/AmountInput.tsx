@@ -30,6 +30,8 @@ export interface AmountInputProps {
   helper?: React.ReactNode;
   /** Token chip rendered under the orange divider (e.g. "Select a token" / "USDC ▾"). */
   tokenSelector?: React.ReactNode;
+  /** Whether to render the orange divider. Defaults to true. */
+  showDivider?: boolean;
   autoFocus?: boolean;
   disabled?: boolean;
   /** Show a skeleton in place of the value while the amount is being computed. */
@@ -52,6 +54,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   error,
   helper,
   tokenSelector,
+  showDivider = true,
   autoFocus,
   disabled,
   loading,
@@ -104,10 +107,9 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         <div className="flex flex-col pt-2">{helper}</div>
       ) : null}
 
-      {/* Orange underline divider */}
-      <div className="mt-3 h-2 rounded-full bg-primary-500 w-55" />
+      {showDivider && <div data-testid="amount-token-divider" className="mt-3 h-2 rounded-full bg-primary-500 w-55" />}
 
-      {tokenSelector != null && <div className="mt-4">{tokenSelector}</div>}
+      {tokenSelector != null && <div className={classNames(showDivider && 'mt-4')}>{tokenSelector}</div>}
     </div>
   );
 };

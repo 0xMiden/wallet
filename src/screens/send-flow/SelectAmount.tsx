@@ -102,7 +102,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         hapticLight();
         onSelectToken();
       }}
-      className="flex items-center gap-1.25 cursor-pointer"
+      className="flex items-center gap-1.25 cursor-pointer rounded-full bg-input-bg px-3 py-2"
     >
       {token ? (
         <TokenLogo symbol={logoSymbol ?? token.name} size="md" />
@@ -192,6 +192,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       error={error ? t(error) : undefined}
       helper={embedded ? undefined : helper}
       tokenSelector={isBridge ? bridgeSelector : tokenSelector}
+      showDivider={!!amount && !!token}
       data-testid="send-amount-input"
       loading={loading}
       onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
