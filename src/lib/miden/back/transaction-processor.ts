@@ -153,7 +153,11 @@ export async function startTransactionProcessing(): Promise<void> {
     }
 
     let attempts = 0;
-    const maxAttempts = 60; // Max 5 minutes (60 * 5 seconds)
+    // Loop-pass ceiling, not a wall-clock bound: a single pass can now spend up
+    // to the guardian conflict-retry budget (~60s), so 60 passes is NOT "5
+    // minutes". Terminal per-tx caps live elsewhere (MAX_QUEUED_AGE /
+    // MAX_WAIT_BEFORE_CANCEL).
+    const maxAttempts = 60;
 
     while (attempts < maxAttempts) {
       attempts++;

@@ -354,6 +354,11 @@ describe('generateTransaction — Guardian routing', () => {
       const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
       expect(row.status).toBe(ITransactionStatus.Queued);
       expect(row.processingStartedAt).toBeUndefined();
+      // Backoff: the requeue stamps a future nextEligibleAt so the loop skips this
+      // tx for a cycle instead of re-picking it (as the oldest row) and starving
+      // another account's queued tx.
+      expect(typeof row.nextEligibleAt).toBe('number');
+      expect(row.nextEligibleAt as number).toBeGreaterThan(row.initiatedAt as number);
       expect(multisigService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();
@@ -526,6 +531,127 @@ describe('generateTransaction — Guardian routing', () => {
     expect(coldService.createReplaceHotKeyProposal).toHaveBeenCalledTimes(1);
     // The POST failed before persistence, so no orphaned ciphertext was written.
     expect(persistNewHotKey).not.toHaveBeenCalled();
+  });
+
+  it('Guardian switch-guardian: a still-pending 409 is NOT requeued — it fails (structural op excluded from the gate)', async () => {
+    // switch-guardian creates a proposal AND cold co-signs; a requeued re-run can
+    // register a duplicate delta and push the commitment past the guardian's
+    // expected single delta. It is deliberately excluded from
+    // REQUEUEABLE_ON_PENDING_CONFLICT, so a pending-delta 409 that outlasts the
+    // retry budget must fall through to cancelTransaction (terminal Failed) — the
+    // user re-initiates — rather than being reset to Queued.
+    jest.useFakeTimers();
+    try {
+      const txId = 'switch-guardian-pending-conflict';
+      txStore.push({
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+      });
+
+      const conflict = { status: 409, body: 'ConflictPendingDelta' };
+      const multisigService = {
+        createSwitchGuardianProposal: jest.fn(async () => {
+          throw conflict;
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const pending = generateTransaction(
+        {
+          id: txId,
+          type: 'switch-guardian',
+          accountId: 'guardian-acc',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+        } as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      // Exhaust withGuardianConflictRetry's backoff sleeps synchronously.
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      // Terminally Failed — NOT requeued (structural ops are gated out).
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.processingStartedAt).toBeDefined(); // never cleared for a requeue
+      expect(multisigService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian update-procedure-threshold: a still-pending 409 is NOT requeued — it fails (structural op excluded from the gate)', async () => {
+    // update-procedure-threshold is a cold-signed structural change; re-running it
+    // can register a duplicate delta, so like switch-guardian / replace-hot-key it
+    // is excluded from REQUEUEABLE_ON_PENDING_CONFLICT. A pending-delta 409 that
+    // outlasts the retry budget must stay terminally Failed, not be requeued.
+    jest.useFakeTimers();
+    try {
+      const txId = 'update-threshold-pending-conflict';
+      txStore.push({
+        id: txId,
+        type: 'update-procedure-threshold',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        extraInputs: { procedure: 'update_guardian', threshold: 2 }
+      });
+
+      const conflict = { status: 409, body: 'ConflictPendingDelta' };
+      const coldService = {
+        createUpdateProcedureThresholdProposal: jest.fn(async () => {
+          throw conflict;
+        }),
+        signAndCreateTransactionRequest: jest.fn()
+      };
+      mockBuildColdMultisigService.mockResolvedValue(coldService);
+      // getOrCreateMultisigService is not used on this cold-routed path, but the
+      // initial guardian-account gate still resolves a service; stub it harmlessly.
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+
+      const provider = {
+        getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot' }],
+        getPublicKeyForCommitment: async () => 'pk',
+        signWord: async () => 'sig'
+      };
+      mockIsGuardianAccount.mockResolvedValue(true);
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+        client: makeClientApi(makeResult())
+      });
+
+      const pending = generateTransaction(
+        {
+          id: txId,
+          type: 'update-procedure-threshold',
+          accountId: 'guardian-acc',
+          extraInputs: { procedure: 'update_guardian', threshold: 2 }
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      // Terminally Failed — NOT requeued (structural ops are gated out).
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.processingStartedAt).toBeDefined(); // never cleared for a requeue
+      expect(coldService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('Guardian consume: builds a consume-notes proposal off the noteId', async () => {

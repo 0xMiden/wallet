@@ -107,6 +107,15 @@ export interface ITransaction {
    * `status`, and is stale once `status` reaches `Completed`/`Failed`.
    */
   stage?: ITransactionStage;
+  /**
+   * Earliest time (unix seconds) this Queued tx may be re-selected by the
+   * processing loop. Set when a transient guardian pending-delta 409 requeues
+   * the tx, so a persistently-conflicting op backs off and yields its slot to
+   * other accounts instead of being re-picked every cycle as the oldest row
+   * (head-of-line starvation). Absent ⇒ always eligible (backward compatible);
+   * `MAX_QUEUED_AGE` remains the terminal cap.
+   */
+  nextEligibleAt?: number;
 }
 
 export interface ISuccessTransactionOutput {
