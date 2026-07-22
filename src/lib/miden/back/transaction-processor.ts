@@ -232,6 +232,28 @@ async function reportHealFailure(err: unknown): Promise<void> {
 }
 
 /**
+ * Clear the persisted heal-failure diagnostic after a successful heal.
+ *
+ * `reportHealFailure` bumps `consecutiveFailures` but never resets it, so
+ * without this a record persisted while the DB was down would linger forever
+ * once the DB recovers — implying a wedged heal that has actually healed, and
+ * turning `consecutiveFailures` into a monotonic total. Removing the key on a
+ * successful heal keeps the counter truly *consecutive*. The `remove` is
+ * idempotent (a no-op when nothing is stored) and fully swallowed on error so
+ * clearing can never break the heal (and so non-extension bundles never touch
+ * `browser.storage`).
+ */
+async function clearHealDiagnostic(): Promise<void> {
+  try {
+    const browser = await getBrowser();
+    await browser.storage.local.remove(STUCK_TX_HEAL_DIAGNOSTIC_KEY);
+  } catch {
+    // No `browser.storage` (non-extension bundle) or a remove failure — a stale
+    // record, if any, is harmless and the next failed heal re-persists a fresh one.
+  }
+}
+
+/**
  * Run the stuck-transaction self-heal, recovering from a stale Dexie handle.
  *
  * An MV3 SW respawn can leave the Dexie connection closed, so the first read
@@ -243,11 +265,15 @@ async function reportHealFailure(err: unknown): Promise<void> {
 async function healStuckTransactions(): Promise<void> {
   try {
     await cancelStuckTransactions();
+    // First-call success: clear any diagnostic left by earlier failed ticks.
+    await clearHealDiagnostic();
   } catch (err) {
     if ((err as { name?: unknown })?.name === 'DatabaseClosedError') {
       try {
         await Repo.db.open();
         await cancelStuckTransactions();
+        // Post-reopen retry success: clear any lingering diagnostic too.
+        await clearHealDiagnostic();
         return;
       } catch (retryErr) {
         await reportHealFailure(retryErr);

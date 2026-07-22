@@ -18,6 +18,7 @@ const mockAlarmsClear = jest.fn();
 const mockAlarmsOnAlarm = { addListener: jest.fn() };
 const mockStorageGet = jest.fn();
 const mockStorageSet = jest.fn();
+const mockStorageRemove = jest.fn();
 
 // The real webextension-polyfill module shape. Tests override the
 // import behavior in specific cases to force rejection.
@@ -30,7 +31,8 @@ const mockPolyfill = {
   storage: {
     local: {
       get: (...args: unknown[]) => mockStorageGet(...args),
-      set: (...args: unknown[]) => mockStorageSet(...args)
+      set: (...args: unknown[]) => mockStorageSet(...args),
+      remove: (...args: unknown[]) => mockStorageRemove(...args)
     }
   }
 };
@@ -75,6 +77,7 @@ beforeEach(() => {
   mockDbOpen.mockResolvedValue(undefined);
   mockStorageGet.mockResolvedValue({});
   mockStorageSet.mockResolvedValue(undefined);
+  mockStorageRemove.mockResolvedValue(undefined);
 });
 
 /** Flush a few microtask / macrotask ticks so in-flight awaits can progress. */
@@ -310,6 +313,52 @@ describe('setupTransactionProcessor', () => {
         stuckTxHealDiagnostic: expect.objectContaining({ consecutiveFailures: 5 })
       })
     );
+  });
+
+  it('clears the persisted diagnostic on a successful heal so consecutiveFailures is truly consecutive (issue #254)', async () => {
+    // Without a clear-on-success, `consecutiveFailures` is really a monotonic
+    // total: a recovered DB would leave a stale record lingering forever,
+    // implying a wedged heal that has actually healed. A successful heal must
+    // remove the diagnostic key so the counter is truly consecutive.
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+
+    // A tick fails and persists the diagnostic...
+    mockCancelStuckTransactions.mockRejectedValueOnce(new Error('still broken'));
+    mockStorageSet.mockClear();
+    listener({ name: 'miden-tx-stuck-heal' });
+    await flushAsync();
+    expect(mockStorageSet).toHaveBeenCalled();
+
+    // ...then a later tick succeeds and must clear the lingering diagnostic.
+    mockStorageRemove.mockClear();
+    mockCancelStuckTransactions.mockResolvedValueOnce(undefined);
+    listener({ name: 'miden-tx-stuck-heal' });
+    await flushAsync();
+
+    expect(mockStorageRemove).toHaveBeenCalledWith('stuckTxHealDiagnostic');
+  });
+
+  it('clears the persisted diagnostic when the heal succeeds after a Dexie re-open (issue #254)', async () => {
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    mockCancelStuckTransactions.mockClear();
+    mockStorageRemove.mockClear();
+
+    // First read rejects with DatabaseClosedError; the retry after re-open
+    // succeeds — the post-reopen success path must also clear the diagnostic.
+    const dbClosed = new Error('database is closed');
+    dbClosed.name = 'DatabaseClosedError';
+    mockCancelStuckTransactions.mockRejectedValueOnce(dbClosed).mockResolvedValueOnce(undefined);
+
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+    listener({ name: 'miden-tx-stuck-heal' });
+    await flushAsync();
+
+    expect(mockStorageRemove).toHaveBeenCalledWith('stuckTxHealDiagnostic');
   });
 
   it('escalates a non-DatabaseClosedError without attempting a Dexie re-open (issue #254)', async () => {
