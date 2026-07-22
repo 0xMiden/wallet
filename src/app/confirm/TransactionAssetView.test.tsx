@@ -59,12 +59,7 @@ it('renders outgoing and incoming asset rows with symbol + amount (verified)', a
 });
 
 it('renders declared (unverified) amounts with muted styling, not the confident verified styling', async () => {
-  render(
-    <TransactionAssetView
-      view={{ ...view, account: undefined } as any}
-      mode="declared"
-    />
-  );
+  render(<TransactionAssetView view={{ ...view, account: undefined } as any} mode="declared" />);
   await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());
 
   const outgoingAmount = screen.getByText('10/6 miZK');
@@ -143,9 +138,7 @@ it('still renders (with the unknown fallback) when getTokenMetadata rejects for 
     return { decimals: 6, symbol: 'rETH' };
   });
 
-  expect(() =>
-    render(<TransactionAssetView view={view as any} mode="verified" />)
-  ).not.toThrow();
+  expect(() => render(<TransactionAssetView view={view as any} mode="verified" />)).not.toThrow();
 
   // The failed lookup falls back to the unknown symbol; the sibling asset
   // (whose lookup succeeded) still renders correctly — the rejection is

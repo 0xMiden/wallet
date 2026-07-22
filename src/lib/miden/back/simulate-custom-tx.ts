@@ -1,5 +1,5 @@
-import { executeForSummary } from '@openzeppelin/miden-multisig-client';
 import { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+import { executeForSummary } from '@openzeppelin/miden-multisig-client';
 
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';

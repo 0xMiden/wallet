@@ -1,3 +1,9 @@
+import { executeForSummary } from '@openzeppelin/miden-multisig-client';
+
+import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+
+import { simulateCustomTransaction } from './simulate-custom-tx';
+
 const importNoteBytes = jest.fn(async () => 'noteid');
 const syncState = jest.fn(async () => undefined);
 const fakeClient = {};
@@ -19,10 +25,6 @@ jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn((s: string) => new Uint8Array([s.length])),
   u8ToB64: jest.fn((u: Uint8Array) => `b64:${Array.from(u).join('-')}`)
 }));
-
-import { executeForSummary } from '@openzeppelin/miden-multisig-client';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
-import { simulateCustomTransaction } from './simulate-custom-tx';
 
 describe('simulateCustomTransaction', () => {
   beforeEach(() => jest.clearAllMocks());
