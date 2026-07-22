@@ -3,7 +3,9 @@
 // init_store → init_fetchBalances → init_prices → init_store (via __esmMin async factories).
 // Direct import avoids this because transaction-processor doesn't need the
 // activity module's full init chain.
+import { AnalyticsEventCategory } from 'lib/miden/analytics-types';
 import { type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import * as Repo from 'lib/miden/repo';
 import {
   cancelStuckTransactions,
   getAllUncompletedTransactions,
@@ -186,6 +188,64 @@ export async function startTransactionProcessing(): Promise<void> {
 }
 
 /**
+ * Escalate a self-heal failure that survived the Dexie re-open + retry.
+ *
+ * A bare `console.warn` is invisible without an open DevTools session, so a
+ * silently-wedged heal is undiagnosable in the field. Surface it on the
+ * shipped telemetry sink (Segment) instead. The analytics module is loaded
+ * lazily and guarded exactly like `getBrowser()`: `back/analytics.ts` throws
+ * at module load when the Segment write key is absent and pulls in a Node
+ * SDK, so it must never be evaluated on the mobile / desktop bundle's load
+ * path — only inside this SW-only error branch, and even then failures to
+ * report are swallowed so telemetry can never break the heal itself.
+ */
+async function reportHealFailure(err: unknown): Promise<void> {
+  console.error('[TransactionProcessor] Stuck-tx self-heal failed:', err);
+  try {
+    const { trackEvent } = await import('./analytics');
+    await trackEvent({
+      userId: 'service-worker',
+      rpc: undefined,
+      event: 'StuckTxHealFailed',
+      category: AnalyticsEventCategory.General,
+      properties: {
+        error: err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+      }
+    });
+  } catch {
+    // Telemetry sink unavailable (no write key / non-extension bundle) —
+    // the console.error above remains as the fallback diagnostic surface.
+  }
+}
+
+/**
+ * Run the stuck-transaction self-heal, recovering from a stale Dexie handle.
+ *
+ * An MV3 SW respawn can leave the Dexie connection closed, so the first read
+ * inside `cancelStuckTransactions` rejects with `DatabaseClosedError` and,
+ * without recovery, every subsequent alarm tick fails identically and the
+ * heal never progresses (issue #254). Re-open the connection once and retry;
+ * if that (or any other error) still fails, escalate rather than swallow.
+ */
+async function healStuckTransactions(): Promise<void> {
+  try {
+    await cancelStuckTransactions();
+  } catch (err) {
+    if ((err as { name?: unknown })?.name === 'DatabaseClosedError') {
+      try {
+        await Repo.db.open();
+        await cancelStuckTransactions();
+        return;
+      } catch (retryErr) {
+        await reportHealFailure(retryErr);
+        return;
+      }
+    }
+    await reportHealFailure(err);
+  }
+}
+
+/**
  * Set up on SW startup: check for orphaned transactions and resume processing.
  */
 export function setupTransactionProcessor(): void {
@@ -203,9 +263,7 @@ export function setupTransactionProcessor(): void {
           // processingStartedAt is past MAX_WAIT_BEFORE_CANCEL. This is
           // independent of `startTransactionProcessing` so we don't depend
           // on the SW being mid-loop when an orphan ages out.
-          cancelStuckTransactions().catch(err =>
-            console.warn('[TransactionProcessor] Stuck-tx heal alarm error:', err)
-          );
+          void healStuckTransactions();
         }
       });
       // Long-period self-heal alarm. Chrome MV3 clamps periodInMinutes to
@@ -246,5 +304,5 @@ export function setupTransactionProcessor(): void {
   // orphan is reaped even when nothing else is queued. (The alarm above
   // catches the steady state; this catches the very-first SW respawn
   // after long idle, before the first alarm tick.)
-  cancelStuckTransactions().catch(err => console.warn('[TransactionProcessor] Startup heal error:', err));
+  void healStuckTransactions();
 }

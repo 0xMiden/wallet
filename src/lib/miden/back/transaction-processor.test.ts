@@ -43,6 +43,16 @@ jest.mock('lib/miden/transaction', () => ({
   cancelStuckTransactions: (...args: unknown[]) => mockCancelStuckTransactions(...args)
 }));
 
+const mockDbOpen = jest.fn();
+jest.mock('lib/miden/repo', () => ({
+  db: { open: (...args: unknown[]) => mockDbOpen(...args) }
+}));
+
+const mockTrackEvent = jest.fn();
+jest.mock('./analytics', () => ({
+  trackEvent: (...args: unknown[]) => mockTrackEvent(...args)
+}));
+
 const mockWithUnlocked = jest.fn();
 jest.mock('./store', () => ({
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
@@ -59,6 +69,8 @@ beforeEach(() => {
   mockGetAllUncompletedTransactions.mockResolvedValue([]);
   mockSafeGenerateTransactionsLoop.mockResolvedValue({ success: true });
   mockCancelStuckTransactions.mockResolvedValue(undefined);
+  mockDbOpen.mockResolvedValue(undefined);
+  mockTrackEvent.mockResolvedValue(undefined);
 });
 
 /** Flush a few microtask / macrotask ticks so in-flight awaits can progress. */
@@ -215,6 +227,67 @@ describe('setupTransactionProcessor', () => {
     const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
     listener({ name: 'miden-tx-stuck-heal' });
     expect(mockCancelStuckTransactions).toHaveBeenCalled();
+  });
+
+  it('re-opens Dexie and retries the heal once when it hits DatabaseClosedError (issue #254)', async () => {
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    mockCancelStuckTransactions.mockClear();
+    mockDbOpen.mockClear();
+
+    // An MV3 SW respawn can leave a stale/closed Dexie handle; the first read
+    // rejects with DatabaseClosedError, the retry after re-open succeeds.
+    const dbClosed = new Error('database is closed');
+    dbClosed.name = 'DatabaseClosedError';
+    mockCancelStuckTransactions.mockRejectedValueOnce(dbClosed).mockResolvedValueOnce(undefined);
+
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+    listener({ name: 'miden-tx-stuck-heal' });
+    await flushAsync();
+
+    expect(mockDbOpen).toHaveBeenCalledTimes(1);
+    expect(mockCancelStuckTransactions).toHaveBeenCalledTimes(2);
+    // A recovered heal must not escalate.
+    expect(mockTrackEvent).not.toHaveBeenCalled();
+  });
+
+  it('escalates via trackEvent when the heal keeps failing after re-open (issue #254)', async () => {
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    mockCancelStuckTransactions.mockClear();
+    mockTrackEvent.mockClear();
+
+    const dbClosed = new Error('database is closed');
+    dbClosed.name = 'DatabaseClosedError';
+    // Rejects persistently — the re-open + retry still fails.
+    mockCancelStuckTransactions.mockRejectedValue(dbClosed);
+
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+    listener({ name: 'miden-tx-stuck-heal' });
+    await flushAsync();
+
+    // A silently-failing heal must be surfaced, not swallowed.
+    expect(mockTrackEvent).toHaveBeenCalledWith(expect.objectContaining({ event: expect.stringContaining('Heal') }));
+  });
+
+  it('escalates a non-DatabaseClosedError without attempting a Dexie re-open (issue #254)', async () => {
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    mockCancelStuckTransactions.mockClear();
+    mockDbOpen.mockClear();
+    mockTrackEvent.mockClear();
+
+    mockCancelStuckTransactions.mockRejectedValueOnce(new Error('some other failure'));
+
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+    listener({ name: 'miden-tx-stuck-heal' });
+    await flushAsync();
+
+    expect(mockDbOpen).not.toHaveBeenCalled();
+    expect(mockTrackEvent).toHaveBeenCalled();
   });
 
   it('keepalive alarm tick does not invoke cancelStuckTransactions', async () => {
