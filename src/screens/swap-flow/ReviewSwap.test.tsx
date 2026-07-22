@@ -159,6 +159,17 @@ describe('ReviewSwap', () => {
       expect(screen.getByText('swapSolverFeeNote_5%')).toBeInTheDocument();
     });
 
+    it('colours the solver-fee note with a theme token that flips in dark mode, not a hardcoded light hex', () => {
+      renderComponent({ offerPrice: 2, requestPrice: 1 });
+
+      // The note sits on the dark app background in dark mode, so its colour must
+      // come from a token that flips. `text-heading-gray` (--color-text-secondary)
+      // is #484848 in light (9.15:1 on white) and #ffffff in dark — both clear AA.
+      const note = screen.getByText('swapSolverFeeNote_5%');
+      expect(note.className).toContain('text-heading-gray');
+      expect(note.className).not.toContain('text-[#6B6862]');
+    });
+
     it('renders a fractional rate rounded to 4 significant figures', () => {
       renderComponent({ offerPrice: 1, requestPrice: 3 });
       // 1/3 -> toPrecision(4) = "0.3333" -> Number -> "0.3333".
