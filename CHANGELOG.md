@@ -5,6 +5,7 @@
 ### Fixes
 
 * [FIX][all] **Guardian transactions that hit a transient pending-delta conflict now requeue and retry instead of failing.** A guardian `409 conflict_pending_delta` that outlasted the ~60s inline retry budget fell through to a terminal `Failed`, even though the conflict is transient (a single in-flight delta clears on its own). Such transactions are now reset to `Queued` (with `processingStartedAt` cleared) so the processing loop retries them, bounded by the existing 30-minute queued-age cap.
+* [FIX][extension] **The stuck-transaction heal alarm now recovers a closed database and surfaces failures instead of silently swallowing them.** After an MV3 service-worker respawn left a stale Dexie handle, the heal alarm hit `DatabaseClosedError` on every tick and only `console.warn`'d it, so it never recovered and there was no diagnostic surface. It now re-opens Dexie and retries on `DatabaseClosedError`, and persists a diagnostic record (`stuckTxHealDiagnostic`) to `chrome.storage.local` on persistent failure — a sink that works in the MV3 service worker and survives a broken IndexedDB — instead of swallowing them.
 
 ## 1.15.8 (2026-07-21)
 
