@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.9 (TBD)
+
+### Fixes
+
+* [FIX][all] **The note-import queue no longer drops or duplicates imported notes under concurrent access.** `queueNoteImport`'s read-modify-write and `importAllNotes`'s dequeue-rewrite shared an unserialized window: an enqueue landing between the rewrite's read and write could be clobbered, silently dropping a private note whose bytes are its only copy. Both are now serialized behind a small storage-scoped queue mutex (the WASM import and sync delay stay outside it, so enqueues are never blocked beyond a storage round-trip).
+
 ## 1.15.8 (2026-07-21)
 
 ### Features
