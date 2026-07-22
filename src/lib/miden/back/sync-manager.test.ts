@@ -512,6 +512,35 @@ describe('doSync — note metadata branches', () => {
 // is module-level. Each test isolates the module so the counter starts at 0
 // and the backoff window is closed at the start of every case.
 describe('doSync — syncState timeout + circuit breaker', () => {
+  it('queues one forced retry when a sync is already in flight', async () => {
+    await jest.isolateModulesAsync(async () => {
+      mockClient.syncState.mockReset();
+      let signalStarted!: () => void;
+      let releaseSync!: () => void;
+      const started = new Promise<void>(resolve => {
+        signalStarted = resolve;
+      });
+      const syncGate = new Promise<void>(resolve => {
+        releaseSync = resolve;
+      });
+      mockClient.syncState
+        .mockImplementationOnce(async () => {
+          signalStarted();
+          await syncGate;
+        })
+        .mockResolvedValueOnce(undefined);
+
+      const { doSync: isolated } = await import('./sync-manager');
+      const active = isolated();
+      await started;
+      const forced = isolated(true);
+      releaseSync();
+      await Promise.all([active, forced]);
+
+      expect(mockClient.syncState).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it('increments the failure counter when syncState rejects and trips the breaker after consecutive failures', async () => {
     await jest.isolateModulesAsync(async () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
@@ -531,6 +560,10 @@ describe('doSync — syncState timeout + circuit breaker', () => {
       await isolated();
       await isolated();
       expect(mockClient.syncState).toHaveBeenCalledTimes(3);
+
+      // An explicit user retry bypasses the automatic polling backoff.
+      await isolated(true);
+      expect(mockClient.syncState).toHaveBeenCalledTimes(4);
 
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('circuit breaker open — skipping syncs'));
       warnSpy.mockRestore();
@@ -559,6 +592,30 @@ describe('doSync — syncState timeout + circuit breaker', () => {
 
       // All four calls reached syncState; breaker never opened.
       expect(mockClient.syncState).toHaveBeenCalledTimes(4);
+    });
+  });
+
+  it('a successful forced probe closes the existing backoff window', async () => {
+    await jest.isolateModulesAsync(async () => {
+      jest.spyOn(console, 'warn').mockImplementation();
+      mockClient.syncState.mockReset();
+      mockClient.syncState
+        .mockRejectedValueOnce(new Error('offline 1'))
+        .mockRejectedValueOnce(new Error('offline 2'))
+        .mockRejectedValueOnce(new Error('offline 3'))
+        .mockResolvedValue(undefined);
+
+      const { doSync: isolated } = await import('./sync-manager');
+      await isolated();
+      await isolated();
+      await isolated();
+
+      // The manual probe bypasses backoff and succeeds. The following normal
+      // poll must run too, proving the old deadline was cleared.
+      await isolated(true);
+      await isolated();
+
+      expect(mockClient.syncState).toHaveBeenCalledTimes(5);
     });
   });
 

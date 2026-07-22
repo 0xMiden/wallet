@@ -193,6 +193,8 @@ export interface SyncCompleted extends WalletMessageBase {
 
 export interface SyncRequest extends WalletMessageBase {
   type: WalletMessageType.SyncRequest;
+  /** User-initiated retries may probe immediately even while automatic sync is backed off. */
+  force?: boolean;
 }
 
 export interface SyncResponse extends WalletMessageBase {

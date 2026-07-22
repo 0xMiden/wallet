@@ -16,10 +16,15 @@ import { act, renderHook } from '@testing-library/react';
 // ---------------------------------------------------------------------------
 const mockUseStorage = jest.fn();
 const mockPutToStorage = jest.fn().mockResolvedValue(undefined);
+const mockIsExtension = jest.fn(() => false);
 
 jest.mock('../front/storage', () => ({
   useStorage: (...args: unknown[]) => mockUseStorage(...args),
   putToStorage: (...args: unknown[]) => mockPutToStorage(...args)
+}));
+
+jest.mock('../../platform', () => ({
+  isExtension: () => mockIsExtension()
 }));
 
 import {
@@ -31,7 +36,11 @@ import {
   markConnectivityIssue,
   resetConnectivityState
 } from './connectivity-state';
-import { useConnectivityState } from './use-connectivity-state';
+import { CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, useConnectivityState } from './use-connectivity-state';
+
+let storageSnapshot: ConnectivityStateSnapshot | null;
+let storedDismissedActivations: Partial<Record<ConnectivityCategory, number | null>>;
+const mockSetStoredDismissedActivations = jest.fn().mockResolvedValue(undefined);
 
 /** Build a fresh all-clear snapshot, optionally flipping some categories on. */
 function makeSnapshot(active: Partial<Record<ConnectivityCategory, boolean>> = {}): ConnectivityStateSnapshot {
@@ -45,9 +54,17 @@ function makeSnapshot(active: Partial<Record<ConnectivityCategory, boolean>> = {
 beforeEach(() => {
   jest.clearAllMocks();
   mockPutToStorage.mockResolvedValue(undefined);
+  mockSetStoredDismissedActivations.mockResolvedValue(undefined);
+  mockIsExtension.mockReturnValue(false);
+  storageSnapshot = null;
+  storedDismissedActivations = {};
   // Default: storage mirror is empty, so the hook falls back to the in-memory
   // machine. Individual tests override this before rendering.
-  mockUseStorage.mockReturnValue([null, jest.fn()]);
+  mockUseStorage.mockImplementation((key: string) =>
+    key === CONNECTIVITY_STATE_KEY
+      ? [storageSnapshot, jest.fn()]
+      : [storedDismissedActivations, mockSetStoredDismissedActivations]
+  );
   resetConnectivityState();
 });
 
@@ -56,6 +73,7 @@ describe('useConnectivityState', () => {
     const { result } = renderHook(() => useConnectivityState());
 
     expect(mockUseStorage).toHaveBeenCalledWith(CONNECTIVITY_STATE_KEY, null);
+    expect(mockUseStorage).toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, {});
     expect(result.current.state).toEqual(getConnectivityState());
     expect(result.current.hasAnyIssue).toBe(false);
     expect(typeof result.current.dismiss).toBe('function');
@@ -72,8 +90,9 @@ describe('useConnectivityState', () => {
   });
 
   it('prefers the storage snapshot over the in-memory one when present (storage wins)', () => {
+    mockIsExtension.mockReturnValue(true);
     const storageSnap = makeSnapshot({ prover: true });
-    mockUseStorage.mockReturnValue([storageSnap, jest.fn()]);
+    storageSnapshot = storageSnap;
 
     const { result } = renderHook(() => useConnectivityState());
 
@@ -83,8 +102,9 @@ describe('useConnectivityState', () => {
   });
 
   it('storage snapshot wins even while the in-memory machine reports a different state', () => {
+    mockIsExtension.mockReturnValue(true);
     const storageSnap = makeSnapshot(); // all clear
-    mockUseStorage.mockReturnValue([storageSnap, jest.fn()]);
+    storageSnapshot = storageSnap;
 
     const { result } = renderHook(() => useConnectivityState());
 
@@ -98,9 +118,19 @@ describe('useConnectivityState', () => {
     expect(result.current.hasAnyIssue).toBe(false);
   });
 
+  it('uses live in-process state off-extension instead of a stale storage snapshot', () => {
+    storageSnapshot = makeSnapshot({ node: true });
+    const { result } = renderHook(() => useConnectivityState());
+
+    expect(result.current.state.node.active).toBe(false);
+    act(() => markConnectivityIssue('network'));
+    expect(result.current.state.network.active).toBe(true);
+  });
+
   describe('hasAnyIssue reflects each category independently', () => {
     it.each(CONNECTIVITY_CATEGORIES)('is true when only "%s" is active', category => {
-      mockUseStorage.mockReturnValue([makeSnapshot({ [category]: true }), jest.fn()]);
+      mockIsExtension.mockReturnValue(true);
+      storageSnapshot = makeSnapshot({ [category]: true });
 
       const { result } = renderHook(() => useConnectivityState());
 
@@ -108,7 +138,7 @@ describe('useConnectivityState', () => {
     });
 
     it('is false when every category is inactive', () => {
-      mockUseStorage.mockReturnValue([makeSnapshot(), jest.fn()]);
+      storageSnapshot = makeSnapshot();
 
       const { result } = renderHook(() => useConnectivityState());
 
@@ -128,42 +158,66 @@ describe('useConnectivityState', () => {
     expect(result.current.hasAnyIssue).toBe(true);
   });
 
-  it('dismiss clears the category in the machine and mirrors the fresh snapshot to storage', () => {
+  it('dismiss hides the current failure episode without clearing the underlying machine', () => {
     const { result } = renderHook(() => useConnectivityState());
 
     act(() => {
       markConnectivityIssue('network');
     });
     expect(result.current.hasAnyIssue).toBe(true);
-    mockPutToStorage.mockClear();
-
     act(() => {
       result.current.dismiss('network');
     });
 
-    // In-process machine was cleared…
-    expect(getConnectivityState().network.active).toBe(false);
-    // …the hook re-rendered to reflect it…
+    // Keeping the source active means another failed poll cannot recreate a
+    // new episode and immediately pop the banner back open.
+    expect(getConnectivityState().network.active).toBe(true);
     expect(result.current.state.network.active).toBe(false);
     expect(result.current.hasAnyIssue).toBe(false);
-    // …and the mirror write went out with the post-clear snapshot.
-    expect(mockPutToStorage).toHaveBeenCalledWith(CONNECTIVITY_STATE_KEY, getConnectivityState());
-    const [, mirrored] = mockPutToStorage.mock.calls.at(-1)!;
-    expect((mirrored as ConnectivityStateSnapshot).network.active).toBe(false);
+    expect(mockSetStoredDismissedActivations).toHaveBeenCalledWith({
+      network: getConnectivityState().network.since
+    });
   });
 
-  it('dismiss is a no-op mirror when the category was already clear', () => {
+  it('keeps a dismissed extension episode hidden after the hook remounts', () => {
+    mockIsExtension.mockReturnValue(true);
+    storageSnapshot = makeSnapshot({ node: true });
+
+    const first = renderHook(() => useConnectivityState());
+    act(() => first.result.current.dismiss('node'));
+    expect(first.result.current.state.node.active).toBe(false);
+
+    storedDismissedActivations = mockSetStoredDismissedActivations.mock.calls.at(-1)![0];
+    first.unmount();
+    const second = renderHook(() => useConnectivityState());
+
+    expect(second.result.current.state.node.active).toBe(false);
+    expect(second.result.current.hasAnyIssue).toBe(false);
+  });
+
+  it('dismiss is a no-op when the category was already clear', () => {
     const { result } = renderHook(() => useConnectivityState());
-    mockPutToStorage.mockClear();
+    const stateBefore = result.current.state;
 
     act(() => {
       result.current.dismiss('prover');
     });
 
-    // clearConnectivityIssue no-ops (already clear) but dismiss still writes
-    // the current snapshot to storage unconditionally.
     expect(getConnectivityState().prover.active).toBe(false);
-    expect(mockPutToStorage).toHaveBeenCalledWith(CONNECTIVITY_STATE_KEY, getConnectivityState());
+    expect(result.current.state).toBe(stateBefore);
+  });
+
+  it('shows a later failure after the dismissed episode has recovered', () => {
+    const { result } = renderHook(() => useConnectivityState());
+
+    act(() => markConnectivityIssue('network'));
+    act(() => result.current.dismiss('network'));
+    expect(result.current.state.network.active).toBe(false);
+
+    act(() => resetConnectivityState());
+    act(() => markConnectivityIssue('network'));
+
+    expect(result.current.state.network.active).toBe(true);
   });
 
   it('keeps a stable dismiss reference across re-renders', () => {
