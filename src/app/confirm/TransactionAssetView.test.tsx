@@ -10,7 +10,18 @@ jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k
 jest.mock('lib/miden/metadata/utils', () => ({ getTokenMetadata: jest.fn() }));
 jest.mock('lib/shared/format', () => ({ formatAmount: (a: bigint, d: number) => `${a}/${d}` }));
 jest.mock('utils/string', () => ({ truncateAddress: (s: string) => `trunc(${s})` }));
-jest.mock('app/icons/v2', () => ({ Icon: () => <i />, IconName: { Globe: 'globe', WarningFill: 'warn' } }));
+jest.mock('app/icons/v2', () => ({
+  Icon: () => <i />,
+  IconName: { Globe: 'globe', WarningFill: 'warn', Download: 'Download' }
+}));
+jest.mock('components/Button', () => ({
+  ButtonVariant: { Ghost: 'ghost' },
+  Button: ({ children, onClick }: any) => (
+    <button type="button" onClick={onClick}>
+      {children}
+    </button>
+  )
+}));
 
 const view = {
   account: 'mtst1acct',
@@ -34,6 +45,12 @@ it('renders outgoing and incoming asset rows with symbol + amount (verified)', a
   expect(screen.getByText('3/6 rETH')).toBeInTheDocument();
   expect(screen.getByText('trunc(mtst1acct)')).toBeInTheDocument();
   expect(screen.getByText('outputNotesCreated')).toBeInTheDocument();
+
+  // Outgoing row shows a leading minus, incoming row shows a leading plus.
+  const outgoingRow = screen.getByText('10/6 miZK').closest('div');
+  expect(outgoingRow).toHaveTextContent('-10/6 miZK');
+  const incomingRow = screen.getByText('3/6 rETH').closest('div');
+  expect(incomingRow).toHaveTextContent('+3/6 rETH');
 });
 
 it('shows the declared/unverified label in declared mode', () => {
@@ -76,4 +93,15 @@ it('falls back to the unknown label when a resolved asset has no symbol', async 
     />
   );
   await waitFor(() => expect(screen.getByText('10/6 unknown')).toBeInTheDocument());
+});
+
+it('falls back to the unknown label for an incoming asset with no symbol', async () => {
+  (getTokenMetadata as jest.Mock).mockResolvedValueOnce({ decimals: 6, symbol: undefined });
+  render(
+    <TransactionAssetView
+      view={{ ...view, outgoing: [], incoming: [{ faucetId: 'fB', amount: 5n }] } as any}
+      mode="verified"
+    />
+  );
+  await waitFor(() => expect(screen.getByText('5/6 unknown')).toBeInTheDocument());
 });

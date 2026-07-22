@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 
+import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { Button, ButtonVariant } from 'components/Button';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
 import { truncateAddress } from 'utils/string';
@@ -124,13 +126,24 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
       </div>
 
       {onDownload && (
-        <button
+        <Button
           type="button"
-          className="w-full mt-2 py-3 text-black font-medium hover:bg-gray-100 rounded-4xl"
+          variant={ButtonVariant.Ghost}
+          className={classNames(
+            'w-full mt-2',
+            'rounded-4xl hover:rounded-4xl',
+            'transition-all duration-200 ease-in-out',
+            'hover:bg-gray-100',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300',
+            'py-4 px-0'
+          )}
           onClick={onDownload}
         >
-          {t('downloadFullSummary')}
-        </button>
+          <span className="flex flex-row items-center justify-center gap-x-2">
+            <Icon name={IconName.Download} fill="currentColor" size="md" />
+            <span className="text-lg text-black font-medium">{t('downloadFullSummary')}</span>
+          </span>
+        </Button>
       )}
     </div>
   );
