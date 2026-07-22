@@ -1,5 +1,6 @@
 import { executeForSummary } from '@openzeppelin/miden-multisig-client';
 
+import { importedNoteIds, quarantineNoteIds } from 'lib/miden/note-quarantine';
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 
 import { simulateCustomTransaction } from './simulate-custom-tx';
@@ -14,6 +15,10 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: jest.fn((s: string) => ({ toString: () => `hex:${s}` }))
+}));
+jest.mock('lib/miden/note-quarantine', () => ({
+  importedNoteIds: jest.fn((notes: string[] | undefined) => (notes ?? []).map(n => `id:${n}`)),
+  quarantineNoteIds: jest.fn(async () => undefined)
 }));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   TransactionRequest: { deserialize: jest.fn((bytes: Uint8Array) => ({ __req: bytes })) }
@@ -39,6 +44,26 @@ describe('simulateCustomTransaction', () => {
     expect(syncState).toHaveBeenCalledTimes(1);
     expect(executeForSummary).toHaveBeenCalledWith(fakeClient, 'hex:mtst1abc', { __req: expect.any(Uint8Array) });
     expect(res).toEqual({ summaryBytes: 'b64:1-2-3' });
+  });
+
+  it('quarantines the imported notes (derived ids) before importing them', async () => {
+    await simulateCustomTransaction({
+      address: 'mtst1abc',
+      transactionRequest: 'reqB64',
+      importNotes: ['noteA', 'noteB']
+    });
+    expect(importedNoteIds).toHaveBeenCalledWith(['noteA', 'noteB']);
+    expect(quarantineNoteIds).toHaveBeenCalledWith(['id:noteA', 'id:noteB']);
+    // Quarantine must be placed before the notes actually land in the client DB.
+    const quarantineOrder = (quarantineNoteIds as jest.Mock).mock.invocationCallOrder[0]!;
+    const importOrder = importNoteBytes.mock.invocationCallOrder[0]!;
+    expect(quarantineOrder).toBeLessThan(importOrder);
+  });
+
+  it('quarantines with an empty id list when importNotes is missing', async () => {
+    await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+    expect(importedNoteIds).toHaveBeenCalledWith(undefined);
+    expect(quarantineNoteIds).toHaveBeenCalledWith([]);
   });
 
   it('tolerates a missing importNotes list', async () => {

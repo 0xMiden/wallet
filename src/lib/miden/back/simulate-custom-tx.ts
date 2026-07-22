@@ -1,6 +1,7 @@
 import { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 import { executeForSummary } from '@openzeppelin/miden-multisig-client';
 
+import { importedNoteIds, quarantineNoteIds } from 'lib/miden/note-quarantine';
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
@@ -52,6 +53,14 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
     try {
       return await withWasmClientLock(async () => {
         const client = await getMidenClient();
+
+        // Quarantine BEFORE importing: these notes are about to land in the
+        // real client DB purely so `executeForSummary` can resolve them for
+        // the dry run — the user hasn't approved anything yet. Quarantining
+        // first (rather than after the import loop) means a failure partway
+        // through the loop still leaves every already-imported note hidden.
+        // See lib/miden/note-quarantine.ts for the full lifecycle.
+        await quarantineNoteIds(importedNoteIds(input.importNotes));
 
         for (const noteB64 of input.importNotes ?? []) {
           await client.importNoteBytes(b64ToU8(noteB64));

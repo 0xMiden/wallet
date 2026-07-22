@@ -48,6 +48,7 @@ import { guardianProviderFromEndpoint, resolveGuardianEndpoint } from 'lib/miden
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { NETWORKS } from 'lib/miden/networks';
+import { importedNoteIds, releaseNoteIds } from 'lib/miden/note-quarantine';
 import {
   DappMetadata,
   MidenDAppPayload,
@@ -1168,6 +1169,12 @@ const generatePromisifyTransaction = async (
                 recipientAddress || undefined
               );
             });
+            // The transaction is queued and will consume these notes —
+            // release the quarantine the pre-confirm dry-run placed on them
+            // so a failed/abandoned submission doesn't hide them forever.
+            // Deliberately NOT released on the decline branch below:
+            // declined notes must stay hidden from the claimable UI.
+            await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
             startDappBackgroundProcessing();
             resolve({
               type: MidenDAppMessageType.TransactionResponse,
