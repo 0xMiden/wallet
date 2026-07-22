@@ -2,6 +2,10 @@
 
 ## 1.15.9 (TBD)
 
+### Features
+
+* [FEATURE][extension] **The custom-transaction confirmation now shows what the transaction actually does instead of an opaque "custom transaction" notice.** The wallet decodes the request for an instant declared preview, then runs a local dry-run (`executeForSummary`, no prove/submit) to show the ground-truth asset changes (what you send / receive), notes consumed/created, and storage impact — with the raw request under an Advanced disclosure. Genuinely-opaque signature requests (blind word / arbitrary / blind-commitment) now carry an explicit "you are blind-signing" warning so they are visually distinct from real transactions.
+
 ### Fixes
 
 * [FIX][all] **Restoring an encrypted wallet file now writes into the client's active database, so balances appear instead of staying 0.** The restore path imported the miden-client dump into a hardcoded store name (`miden-wallet`) while the running client reads from `MidenClientDB_<network>`, so the restored account/balance state was invisible (sync logged "No account header record found"). Restore now targets the active client's store name.
