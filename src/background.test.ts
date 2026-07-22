@@ -28,6 +28,7 @@ const mockStart = jest.fn(() => Promise.resolve());
 const mockDoSync = jest.fn(() => Promise.resolve());
 const mockSetupSyncManager = jest.fn();
 const mockSetupTransactionProcessor = jest.fn();
+const mockFailInterruptedTransactions = jest.fn(() => Promise.resolve());
 
 jest.mock('./xhr-shim', () => ({}));
 
@@ -42,6 +43,10 @@ jest.mock('lib/miden/back/sync-manager', () => ({
 
 jest.mock('lib/miden/back/transaction-processor', () => ({
   setupTransactionProcessor: (...args: unknown[]) => mockSetupTransactionProcessor(...(args as []))
+}));
+
+jest.mock('lib/miden/transaction', () => ({
+  failInterruptedTransactions: (...args: unknown[]) => mockFailInterruptedTransactions(...(args as [])) as Promise<void>
 }));
 
 // ── Listener-capturing `webextension-polyfill` stub ─────────────────────────
@@ -69,6 +74,7 @@ jest.mock('webextension-polyfill', () => {
 
   const runtime = {
     onUpdateAvailable: makeEvent(),
+    onStartup: makeEvent(),
     reload: jest.fn(),
     getURL: jest.fn((path: string) => `chrome-extension://test-id/${path}`)
   };
@@ -85,7 +91,7 @@ jest.mock('webextension-polyfill', () => {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 type Polyfill = {
-  runtime: { onUpdateAvailable: CapturedEvent; reload: jest.Mock; getURL: jest.Mock };
+  runtime: { onUpdateAvailable: CapturedEvent; onStartup: CapturedEvent; reload: jest.Mock; getURL: jest.Mock };
   tabs: { create: jest.Mock };
   alarms: { onAlarm: CapturedEvent };
   notifications: { onClicked: CapturedEvent; clear: jest.Mock };
@@ -113,6 +119,7 @@ const loadBackground = (opts: { target?: string; chrome?: any } = {}): Polyfill 
   mockDoSync.mockClear();
   mockSetupSyncManager.mockClear();
   mockSetupTransactionProcessor.mockClear();
+  mockFailInterruptedTransactions.mockClear();
 
   if (opts.target === undefined) {
     delete process.env.TARGET_BROWSER;
@@ -278,6 +285,34 @@ describe('background.ts — core service-worker listeners', () => {
 
     expect(mockSetupSyncManager).toHaveBeenCalledTimes(1);
     expect(mockSetupTransactionProcessor).toHaveBeenCalledTimes(1);
+  });
+
+  it('registers the onStartup listener synchronously so it survives MV3 SW eviction', () => {
+    const wep = loadBackground({ target: 'firefox' });
+
+    // Registered at module top level, not inside start().then — so the listener
+    // exists the instant the SW re-evaluates, before any async work settles.
+    expect(wep.runtime.onStartup.listeners).toHaveLength(1);
+    expect(mockFailInterruptedTransactions).not.toHaveBeenCalled();
+  });
+
+  it('fails interrupted transactions on a real browser cold-start', () => {
+    const wep = loadBackground({ target: 'firefox' });
+
+    fire(wep.runtime.onStartup);
+
+    expect(mockFailInterruptedTransactions).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs a warning when the onStartup interrupted-tx sweep rejects', async () => {
+    const wep = loadBackground({ target: 'firefox' });
+    const err = new Error('sweep failed');
+    mockFailInterruptedTransactions.mockReturnValueOnce(Promise.reject(err));
+
+    fire(wep.runtime.onStartup);
+    await flush();
+
+    expect(warnSpy).toHaveBeenCalledWith('[Background] Interrupted-transaction sweep error:', err);
   });
 
   it('opens the receive full page when a notification is clicked', () => {

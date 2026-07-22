@@ -17,6 +17,7 @@ import {
   initiateUpdateProcedureThresholdTransaction,
   cancelStuckTransactions,
   cancelStaleQueuedTransactions,
+  failInterruptedTransactions,
   generateTransaction,
   MAX_WAIT_BEFORE_CANCEL,
   MAX_QUEUED_AGE,
@@ -689,6 +690,75 @@ describe('transactions utilities', () => {
       await cancelStuckTransactions();
 
       expect(mockModify).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('failInterruptedTransactions', () => {
+    it('leaves a freshly-orphaned send untouched under cancelStuckTransactions (documents the #282 gap)', async () => {
+      // A private send orphaned when the browser closed mid-prove has
+      // processingStartedAt set to "now" (stamped atomically at
+      // generateTransaction). The 30-min gate means the reaper does nothing,
+      // so the row sits on "Sending" with no feedback until it finally ages out.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const orphan = {
+        id: 'orphan-send',
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        stage: 'sending',
+        initiatedAt: nowSec - 5,
+        processingStartedAt: nowSec
+      };
+
+      mockTransactionsFilter.mockReturnValueOnce({
+        toArray: jest.fn().mockResolvedValueOnce([orphan])
+      });
+      const mockModify = jest.fn();
+      mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
+
+      await cancelStuckTransactions();
+
+      expect(mockModify).not.toHaveBeenCalled();
+    });
+
+    it('immediately fails a freshly-orphaned in-progress send with the interrupted message', async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const orphan = {
+        id: 'orphan-send',
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        stage: 'sending',
+        initiatedAt: nowSec - 5,
+        processingStartedAt: nowSec
+      };
+
+      mockTransactionsFilter.mockReturnValueOnce({
+        toArray: jest.fn().mockResolvedValueOnce([orphan])
+      });
+      const dbTx: any = {};
+      const mockModify = jest.fn(async (fn: (t: any) => void) => fn(dbTx));
+      mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
+
+      await failInterruptedTransactions();
+
+      expect(mockModify).toHaveBeenCalledTimes(1);
+      expect(dbTx.status).toBe(ITransactionStatus.Failed);
+      expect(dbTx.displayMessage).toMatch(/interrupted/i);
+      // We do NOT resubmit, so no on-chain tx id must be stamped on the row.
+      expect(dbTx.transactionId).toBeUndefined();
+    });
+
+    it('no-ops when there are no in-progress transactions (Queued / Completed rows are never returned)', async () => {
+      // getTransactionsInProgress filters to GeneratingTransaction only, so
+      // Queued and Completed rows are outside the sweep by construction.
+      mockTransactionsFilter.mockReturnValueOnce({
+        toArray: jest.fn().mockResolvedValueOnce([])
+      });
+      const mockModify = jest.fn();
+      mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
+
+      await failInterruptedTransactions();
+
+      expect(mockModify).not.toHaveBeenCalled();
     });
   });
 

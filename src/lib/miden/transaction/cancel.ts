@@ -15,7 +15,7 @@ export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins o
 // Maximum age for a queued transaction before it's considered stale and cancelled
 export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
 
-export const cancelTransaction = async (transaction: Transaction, error: any) => {
+export const cancelTransaction = async (transaction: Transaction, error: any, displayMessage: string = 'Failed') => {
   // Refuse to downgrade a finalized transaction. A late error fired AFTER
   // completeXxxTransaction has already marked the tx Completed (most often
   // a transient guardian-canonicalization sync error) would otherwise flip
@@ -33,7 +33,7 @@ export const cancelTransaction = async (transaction: Transaction, error: any) =>
     dbTx.completedAt = Math.floor(Date.now() / 1000); // Convert to seconds
     dbTx.status = ITransactionStatus.Failed;
     dbTx.error = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-    dbTx.displayMessage = 'Failed';
+    dbTx.displayMessage = displayMessage;
     dbTx.displayIcon = 'FAILED';
   });
 };
@@ -67,6 +67,40 @@ export const cancelStaleQueuedTransactions = async () => {
   const queued = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
   const stale = queued.filter(tx => Math.floor(Date.now() / 1000) - tx.initiatedAt > MAX_QUEUED_AGE);
   await Promise.all(stale.map(tx => cancelTransaction(tx, 'Transaction expired after being queued too long')));
+};
+
+/**
+ * Fail every transaction still in `GeneratingTransaction`, regardless of age.
+ *
+ * Called from the extension's `browser.runtime.onStartup` handler, which fires
+ * ONLY on a genuine browser/profile cold-start — never on a service-worker
+ * idle-wake. Any row still `GeneratingTransaction` at that point is
+ * definitionally orphaned: the tab/SW that was driving it died when the browser
+ * closed, so nothing will ever resume it. The steady-state
+ * `cancelStuckTransactions` reaper only ages these out after
+ * `MAX_WAIT_BEFORE_CANCEL` (30 min on desktop) because `processingStartedAt` is
+ * stamped to "now" at `generateTransaction`, so a send interrupted mid-prove
+ * sits on "Sending" with no feedback for up to half an hour (issue #282).
+ * Failing them immediately on startup closes that gap.
+ *
+ * We deliberately do NOT auto-retry. In the rare window where `submit()` landed
+ * on chain but the browser died before the local apply/complete, the tx IS on
+ * chain; resubmitting would trip the node's nullifier check. The next sync
+ * reconciles that case — which is why the copy says "check your activity" rather
+ * than promising nothing was submitted (the existing 30-min reaper already
+ * marks that same edge case Failed, so this is not a new regression).
+ */
+export const failInterruptedTransactions = async () => {
+  const transactions = await getTransactionsInProgress();
+  await Promise.all(
+    transactions.map(async tx =>
+      cancelTransaction(
+        tx,
+        'Transaction was interrupted when the browser closed',
+        'Interrupted — check your activity after it syncs'
+      )
+    )
+  );
 };
 
 /**
