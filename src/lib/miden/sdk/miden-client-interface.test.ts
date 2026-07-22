@@ -395,6 +395,51 @@ describe('MidenClientInterface', () => {
 
     expect(result).toBe(fakeTransactionResult);
     expect(fakeMidenClient.transactions.send).toHaveBeenCalled();
+    // No recall requested → the note must be broadcast without a reclaim height.
+    expect(fakeMidenClient.transactions.send).toHaveBeenCalledWith(
+      expect.objectContaining({ reclaimAfter: undefined })
+    );
+    expect(fakeMidenClient.sync).not.toHaveBeenCalled();
+  });
+
+  // Regression guard for #308 (edge case): a RELATIVE offset of 0 means "reclaimable
+  // right now" (the user kept "today" and picked a time that is now/past, so
+  // `dateTimeToRecallBlocks` returned 0). It must resolve to `reclaimAfter = current
+  // height + 0`, NOT be dropped — otherwise a NON-reclaimable note is broadcast and
+  // the sender can never reclaim it.
+  it('treats a zero recallBlocks offset as immediately reclaimable, not non-reclaimable (#308)', async () => {
+    const fakeMidenClient = buildFakeMidenClient({
+      sync: jest.fn(async () => ({ blockNum: () => 1000 }))
+    });
+
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id)
+    }));
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      TransactionProver: {
+        newLocalProver: jest.fn(() => 'local')
+      }
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await client.sendTransaction({
+      accountId: 'sender',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      noteType: 'public' as any,
+      amount: BigInt(100),
+      extraInputs: { recallBlocks: 0 }
+    } as any);
+
+    // reclaimAfter must be H + 0 = 1000 (reclaimable now), NOT undefined (never).
+    expect(fakeMidenClient.transactions.send).toHaveBeenCalledWith(expect.objectContaining({ reclaimAfter: 1000 }));
+    expect(fakeMidenClient.sync).toHaveBeenCalledTimes(1);
   });
 
   // Regression guard for #308: `extraInputs.recallBlocks` is a RELATIVE offset.

@@ -478,10 +478,13 @@ export class MidenClientInterface {
     const { accountId, secondaryAccountId, faucetId, noteType, amount, extraInputs } = dbTransaction;
 
     let reclaimAfter: number | undefined;
-    if (extraInputs?.recallBlocks) {
+    if (extraInputs?.recallBlocks != null) {
       // `recallBlocks` is a RELATIVE offset (blocks from now); the current chain
       // height is added here, in exactly ONE place, to derive the note's absolute
       // P2IDE reclaim height. Callers (send UI + dApp) MUST pass a relative offset.
+      // A 0 offset means "reclaimable right now" (current height + 0), so we guard
+      // on `!= null` — treating 0 as falsy would drop it and broadcast a note the
+      // sender can NEVER reclaim (see #308).
       const syncResult = await this.client.sync();
       reclaimAfter = syncResult.blockNum() + extraInputs.recallBlocks;
     }
