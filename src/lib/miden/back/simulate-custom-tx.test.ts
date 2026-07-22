@@ -21,6 +21,7 @@ jest.mock('lib/shared/helpers', () => ({
 }));
 
 import { executeForSummary } from '@openzeppelin/miden-multisig-client';
+import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { simulateCustomTransaction } from './simulate-custom-tx';
 
 describe('simulateCustomTransaction', () => {
@@ -54,5 +55,30 @@ describe('simulateCustomTransaction', () => {
     (executeForSummary as jest.Mock).mockRejectedValueOnce('boom');
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
     expect(res).toEqual({ error: 'boom' });
+  });
+
+  it('passes a hex address straight through without calling accountIdStringToSdk', async () => {
+    const res = await simulateCustomTransaction({ address: '0xabc', transactionRequest: 'reqB64' });
+    expect(executeForSummary).toHaveBeenCalledWith(fakeClient, '0xabc', { __req: expect.any(Uint8Array) });
+    expect(accountIdStringToSdk as jest.Mock).not.toHaveBeenCalled();
+    expect(res).toEqual({ summaryBytes: 'b64:1-2-3' });
+  });
+
+  it('times out and returns { error: "Simulation timed out" } when the locked work hangs', async () => {
+    jest.useFakeTimers();
+    try {
+      (executeForSummary as jest.Mock).mockImplementationOnce(() => new Promise(() => {}));
+
+      const resultPromise = simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+
+      jest.advanceTimersByTime(20_000);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const res = await resultPromise;
+      expect(res).toEqual({ error: 'Simulation timed out' });
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

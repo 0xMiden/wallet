@@ -2959,6 +2959,10 @@
     "message": "Declared by site — verifying by simulation…",
     "englishSource": "Declared by site — verifying by simulation…"
   },
+  "unverified": {
+    "message": "unverified",
+    "englishSource": "unverified"
+  },
   "couldNotVerifyBySimulation": {
     "message": "Could not verify by simulation. Amounts below are as declared by the site.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."

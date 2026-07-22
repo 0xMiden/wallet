@@ -21,8 +21,11 @@ export interface TransactionAssetViewProps {
 interface ResolvedAsset {
   faucetId: string;
   amount: bigint;
-  symbol: string;
-  decimals: number;
+  // Undefined when the metadata lookup failed (see Fix D: guarded against
+  // getTokenMetadata rejecting) — callers fall back to the `unknown` label /
+  // formatAmount's own decimals default.
+  symbol: string | undefined;
+  decimals: number | undefined;
 }
 
 function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
@@ -32,7 +35,7 @@ function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
     (async () => {
       const out = await Promise.all(
         assets.map(async a => {
-          const md = await getTokenMetadata(a.faucetId);
+          const md = await getTokenMetadata(a.faucetId).catch(() => ({ symbol: undefined, decimals: undefined }));
           return { faucetId: a.faucetId, amount: a.amount, symbol: md.symbol, decimals: md.decimals };
         })
       );
@@ -50,6 +53,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
   const outgoing = useResolvedAssets(view.outgoing);
   const incoming = useResolvedAssets(view.incoming);
   const hasAssets = view.outgoing.length > 0 || view.incoming.length > 0;
+  const isVerified = mode === 'verified';
 
   return (
     <div className="flex flex-col items-center justify-center">
@@ -77,24 +81,44 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
             <span className="text-text-muted">{t('assetChanges')}</span>
             {outgoing.map(a => (
               <div key={`out-${a.faucetId}`} className="flex flex-row items-baseline w-full my-2 text-sm">
-                <span className="font-heading text-black-500 text-lg font-semibold mr-1" aria-hidden="true">
+                <span
+                  className={classNames(
+                    'font-heading text-lg mr-1',
+                    isVerified ? 'text-black-500 font-semibold' : 'text-text-muted font-normal'
+                  )}
+                  aria-hidden="true"
+                >
                   -
                 </span>
-                <span className="font-heading text-black-500 text-lg font-semibold">{`${formatAmount(
-                  a.amount,
-                  a.decimals
-                )} ${a.symbol ?? t('unknown')}`}</span>
+                <span
+                  className={classNames(
+                    'font-heading text-lg',
+                    isVerified ? 'text-black-500 font-semibold' : 'text-text-muted font-normal'
+                  )}
+                  data-verified={isVerified ? 'true' : 'false'}
+                >{`${formatAmount(a.amount, a.decimals)} ${a.symbol ?? t('unknown')}`}</span>
+                {!isVerified && <span className="text-text-muted text-xs ml-2">{t('unverified')}</span>}
               </div>
             ))}
             {incoming.map(a => (
               <div key={`in-${a.faucetId}`} className="flex flex-row items-baseline w-full my-2 text-sm">
-                <span className="font-heading text-green-500 text-lg font-semibold mr-1" aria-hidden="true">
+                <span
+                  className={classNames(
+                    'font-heading text-lg mr-1',
+                    isVerified ? 'text-green-500 font-semibold' : 'text-text-muted font-normal'
+                  )}
+                  aria-hidden="true"
+                >
                   +
                 </span>
-                <span className="font-heading text-green-500 text-lg font-semibold">{`${formatAmount(
-                  a.amount,
-                  a.decimals
-                )} ${a.symbol ?? t('unknown')}`}</span>
+                <span
+                  className={classNames(
+                    'font-heading text-lg',
+                    isVerified ? 'text-green-500 font-semibold' : 'text-text-muted font-normal'
+                  )}
+                  data-verified={isVerified ? 'true' : 'false'}
+                >{`${formatAmount(a.amount, a.decimals)} ${a.symbol ?? t('unknown')}`}</span>
+                {!isVerified && <span className="text-text-muted text-xs ml-2">{t('unverified')}</span>}
               </div>
             ))}
           </div>

@@ -695,6 +695,7 @@
   "share": "Share",
   "copy": "Copy",
   "declaredBySiteVerifying": "Declared by site — verifying by simulation…",
+  "unverified": "unverified",
   "couldNotVerifyBySimulation": "Could not verify by simulation. Amounts below are as declared by the site.",
   "couldNotDecodeTransaction": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does.",
   "advancedDetails": "Advanced details",
