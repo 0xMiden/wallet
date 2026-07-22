@@ -141,7 +141,20 @@ jest.mock('../helpers', () => ({
 }));
 
 jest.mock('../sdk/helpers', () => ({
-  getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub')
+  getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub'),
+  // Needed once a test enters the Guardian branch of generateTransaction
+  // (isGuardianAccount → true): the per-account lock key is canonicalized and
+  // wallet-account matching is done via these helpers.
+  canonicalWalletAccountId: (id: string) => id,
+  sameWalletAccountId: (a: string, b: string) => a === b
+}));
+
+// The guardian branch wraps generateGuardianTransaction in a per-account lock;
+// run the callback straight through so the branch is exercised without the real
+// navigator.locks-backed serializer.
+jest.mock('lib/miden/guardian/serialize', () => ({
+  withGuardianAccountLock: (_key: string, fn: () => Promise<unknown>) => fn(),
+  withGuardianConflictRetry: (fn: () => Promise<unknown>) => fn()
 }));
 
 jest.mock('lib/store', () => ({
@@ -551,6 +564,33 @@ describe('generateTransactionsLoop error paths', () => {
 
     txStore.push({
       id: 'tx-guardian-locked',
+      type: 'consume',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'guardian-acc'
+    });
+
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(result).toBe(false);
+    expect(txStore[0]!.status).not.toBe(ITransactionStatus.Failed);
+  });
+
+  it('leaves a Guardian tx Queued (not Failed) when the wallet locks mid-guardian-flow, e.g. at sign time (#313)', async () => {
+    // Distinct from the getAccounts-preflight case above: here we ENTER the
+    // guardian branch (isGuardianAccount → true, getAccounts already passed) and
+    // a locked-classified error surfaces DEEPER inside generateGuardianTransaction
+    // — the null-vault sign step (`swSignCallback`) is the motivating case, but the
+    // guardian catch is source-agnostic, so any locked error from the flow must
+    // route the same way. It must be re-thrown by the guardian catch and DEFERRED
+    // by the loop, NOT cancelled to Failed (which would lose the note-claim).
+    const gm = require('lib/miden/front/guardian-manager');
+    gm.isGuardianAccount.mockImplementationOnce(async () => true);
+    gm.getOrCreateMultisigService.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('Wallet is locked: vault unavailable'), { reason: 'locked' });
+    });
+
+    txStore.push({
+      id: 'tx-guardian-sign-locked',
       type: 'consume',
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),

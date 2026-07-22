@@ -51,9 +51,17 @@ let isProcessing = false;
 /**
  * Sign callback that runs in the service worker.
  * Re-acquires the vault on each call (same pattern as dapp.ts).
+ *
+ * Exported for testing. Uses `withUnlockedVault` (not the bare `withUnlocked`)
+ * so a background Guardian consume that reaches `executeTransaction`'s sign
+ * step AFTER an auto-lock nulled the vault throws an explicit locked-classified
+ * error instead of an opaque `TypeError: Cannot read properties of null`. The
+ * guardian transaction loop classifies that locked error and DEFERS the tx
+ * (leaves it Queued for retry after unlock) rather than marking it Failed and
+ * losing the note-claim (issue #313).
  */
-async function swSignCallback(publicKey: string, signingInputs: string): Promise<Uint8Array> {
-  return withUnlocked(async ({ vault }) => {
+export async function swSignCallback(publicKey: string, signingInputs: string): Promise<Uint8Array> {
+  return withUnlockedVault(async ({ vault }) => {
     const signatureHex = await vault.signTransaction(publicKey, signingInputs);
     return new Uint8Array(Buffer.from(signatureHex, 'hex'));
   });
