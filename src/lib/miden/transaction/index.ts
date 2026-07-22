@@ -438,16 +438,23 @@ const generateGuardianTransaction = async (
       if (!transaction.requestBytes) {
         const requestBytes = await withWasmClientLock(async () => {
           const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
-          const tr = await client.newPswapCreateTransactionRequest(
-            accountIdStringToSdk(swapTx.accountId),
-            accountIdStringToSdk(swapTx.faucetId),
-            swapTx.amount,
-            accountIdStringToSdk(swapTx.extraInputs.requestedFaucetId),
-            swapTx.extraInputs.requestedAmount,
-            NoteType.Public,
-            NoteType.Public
-          );
-          return tr.serialize();
+          try {
+            const tr = await client.newPswapCreateTransactionRequest(
+              accountIdStringToSdk(swapTx.accountId),
+              accountIdStringToSdk(swapTx.faucetId),
+              swapTx.amount,
+              accountIdStringToSdk(swapTx.extraInputs.requestedFaucetId),
+              swapTx.extraInputs.requestedAmount,
+              NoteType.Public,
+              NoteType.Public
+            );
+            return tr.serialize();
+          } finally {
+            // Each WasmWebClient owns a web-client-methods-worker + a rayon
+            // pool (hardwareConcurrency workers); without this they leak
+            // per swap.
+            client.terminate();
+          }
         });
         transaction.requestBytes = requestBytes;
         await Repo.transactions.where({ id: transaction.id }).modify(t => {
