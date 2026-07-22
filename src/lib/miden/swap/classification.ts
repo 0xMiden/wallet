@@ -1,7 +1,7 @@
 import type { InputNoteRecord } from '@miden-sdk/miden-sdk/lazy';
 
 import { compareAccountIds } from 'lib/miden/activity/utils';
-import { ITransactionStatus, type SwapTransaction } from 'lib/miden/db/types';
+import { type ITransaction, ITransactionStatus, type SwapTransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
 import type { MidenClientInterface } from '../sdk/miden-client-interface';
@@ -27,17 +27,21 @@ const lineageState = (state: number): SwapOrderNoteMetadata['lineageState'] => {
   return 'active';
 };
 
+export const isSwapTransaction = (tx: ITransaction): tx is SwapTransaction => tx.type === 'swap';
+
+const isSwapOrder = (tx: SwapTransaction): tx is SwapOrder => tx.extraInputs.orderId != null;
+
 export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
   const rows = await Repo.transactions
     .filter(
       tx =>
-        tx.type === 'swap' &&
         tx.status === ITransactionStatus.Completed &&
         compareAccountIds(tx.accountId, accountId) &&
-        (tx as SwapTransaction).extraInputs?.orderId != null
+        isSwapTransaction(tx) &&
+        isSwapOrder(tx)
     )
     .toArray();
-  return rows as SwapOrder[];
+  return rows.filter(isSwapTransaction).filter(isSwapOrder);
 }
 
 function attachmentOrderAndDepth(note: InputNoteRecord): { orderId: string; depth: number } | null {
@@ -63,50 +67,52 @@ export async function classifySwapOrderNotes(
   const orders = await localSwapOrders(accountId);
   const result = new Map<string, SwapOrderNoteMetadata>();
 
-  await Promise.all(
-    orders.map(async order => {
-      const orderId = orderIdString(order.extraInputs.orderId);
-      let lineage: Awaited<ReturnType<typeof client.client.pswap.lineage>> = null;
-      try {
-        lineage = await client.client.pswap.lineage(orderId);
-      } catch (err) {
-        console.warn('[swap-settlement] lineage lookup failed', orderId, err);
-        return;
-      }
-      if (!lineage) return;
+  // Sequential on purpose: the WASM client is single-threaded, and the outer
+  // withWasmClientLock held by callers does not serialize sibling promises
+  // launched by the same holder — concurrent lineage() calls throw
+  // "recursive use of an object ... unsafe aliasing".
+  for (const order of orders) {
+    const orderId = orderIdString(order.extraInputs.orderId);
+    let lineage: Awaited<ReturnType<typeof client.client.pswap.lineage>> = null;
+    try {
+      lineage = await client.client.pswap.lineage(orderId);
+    } catch (err) {
+      console.warn('[swap-settlement] lineage lookup failed', orderId, err);
+      continue;
+    }
+    if (!lineage) continue;
 
-      const currentTipNoteId = lineage.currentTipNoteId().toString();
-      const currentDepth = lineage.currentDepth();
-      const state = lineageState(lineage.state());
-      const expiresAt =
-        order.extraInputs.expiresAt ??
-        (order.completedAt ?? order.initiatedAt) + (order.extraInputs.expirySeconds ?? SWAP_ORDER_EXPIRY_SECONDS);
+    const currentTipNoteId = lineage.currentTipNoteId().toString();
+    const currentDepth = lineage.currentDepth();
+    const state = lineageState(lineage.state());
+    const expiresAt =
+      order.extraInputs.expiresAt ??
+      (order.completedAt ?? order.initiatedAt) + (order.extraInputs.expirySeconds ?? SWAP_ORDER_EXPIRY_SECONDS);
 
-      for (const note of notes) {
-        const noteId = note.id()?.toString();
-        if (!noteId) continue;
-        let role: SwapOrderNoteMetadata['role'] | undefined;
-        let depth = currentDepth;
-        if (noteId === currentTipNoteId) role = 'tip';
-        else {
-          const attached = attachmentOrderAndDepth(note);
-          if (attached?.orderId === orderId && attached.depth <= currentDepth) {
-            role = 'payback';
-            depth = attached.depth;
-          }
+    for (const note of notes) {
+      const noteId = note.id()?.toString();
+      if (!noteId) continue;
+      let role: SwapOrderNoteMetadata['role'] | undefined;
+      let depth = currentDepth;
+      if (noteId === currentTipNoteId) role = 'tip';
+      else {
+        const attached = attachmentOrderAndDepth(note);
+        if (attached?.orderId === orderId && attached.depth <= currentDepth) {
+          role = 'payback';
+          depth = attached.depth;
         }
-        if (!role) continue;
-        result.set(noteId, {
-          orderId,
-          depth,
-          role,
-          lineageState: state,
-          expiresAt,
-          expiryTriggeredAt: order.extraInputs.expiryTriggeredAt,
-          autoConsume: order.extraInputs.autoConsume ?? true
-        });
       }
-    })
-  );
+      if (!role) continue;
+      result.set(noteId, {
+        orderId,
+        depth,
+        role,
+        lineageState: state,
+        expiresAt,
+        expiryTriggeredAt: order.extraInputs.expiryTriggeredAt,
+        autoConsume: order.extraInputs.autoConsume ?? true
+      });
+    }
+  }
   return result;
 }

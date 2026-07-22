@@ -116,6 +116,30 @@ describe('swap order note settlement', () => {
     expect(modify).not.toHaveBeenCalled();
   });
 
+  it('never treats a pre-upgrade order without an explicit expiresAt as expired', async () => {
+    toArray.mockResolvedValue([
+      tx({
+        completedAt: 100,
+        extraInputs: {
+          requestedFaucetId: 'requested',
+          requestedAmount: 50n,
+          orderId: 77n
+        }
+      })
+    ]);
+
+    // Far past completedAt + any fabricated default — must still not reclaim.
+    await reconcileSwapOrderNotes(
+      'account-1',
+      [consumable('tip', 'tip'), consumable('payback', 'payback')],
+      false,
+      10_000
+    );
+
+    expect(initiateConsumeNotesTransaction).not.toHaveBeenCalled();
+    expect(modify).not.toHaveBeenCalled();
+  });
+
   it('does not settle an order whose per-swap auto-consume setting is off', async () => {
     toArray.mockResolvedValue([
       tx({
@@ -147,6 +171,15 @@ describe('swap order note settlement', () => {
 
     expect(initiateConsumeNotesTransaction).toHaveBeenCalledTimes(1);
     expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback0, payback1], false);
+  });
+
+  it('falls back to the swap row delegate preference when no delegate flag is passed', async () => {
+    toArray.mockResolvedValue([tx({ delegateTransaction: true })]);
+    const payback = consumable('payback', 'payback', 'filled');
+
+    await reconcileSwapOrderNotes('account-1', [payback], undefined, 150);
+
+    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback], true);
   });
 
   it('persists expiry intent before batching the current tip and all paybacks', async () => {

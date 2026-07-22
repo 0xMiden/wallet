@@ -4,6 +4,8 @@
 
 ### Features
 
+- [FEATURE][all] **Auto-settle swap order notes.** Swap paybacks and expired-order remainders are consumed automatically by the swap lifecycle (per-order expiry + auto-consume controls on the swap review screen); swap-managed notes are hidden from the generic Pending Notes / Claim All flow.
+
 - [FEATURE][all] **Receive-from-EVM bridge deposit flow.** The deposit amount screen gained a "wallet connected · Miden Bridge" header (via a new optional `title` slot on `SelectAmount`) and an ETH/USDC token picker (bottom-sheet drawer). Token choice constrains the route: USDC disables the native-only Slow (Agglayer) route, and ETH on the Fast (Epoch) route shows a "wraps to WETH" notice (that combo isn't submittable yet — the wrap is a follow-up). Choosing a route then opens a "Review Deposit Details" screen (built on the shared `ReviewLayout`/`ReviewRow`/`ReviewAmount`, same design as the Send review) with amount, source network, route, and the quoted amount received on Miden; its **Confirm Deposit** button runs the bridge submit (`executeEVMToMiden` for Fast/Epoch, the Agglayer `bridgeAsset` call for Slow), spins while signing, and blocks re-submits once in flight.
 
 - [FEATURE][all] **Guardian accounts now auto-detect and reconcile out-of-band guardian switches; dApps can read guardian info via `requestGuardianInfo()`.**

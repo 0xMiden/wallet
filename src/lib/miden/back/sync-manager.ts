@@ -13,7 +13,8 @@ import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { classifySwapOrderNotes } from '../swap/classification';
-import { settleSwapOrders } from '../swap/settlement';
+import { reconcileSwapOrderNotes } from '../swap/settlement';
+import { ConsumableNote, NoteTypeEnum } from '../types';
 
 // `init_vault` is the ESM module factory for `./vault`, injected by Vite's
 // SW bundle transform. We must NOT add a source-level binding (e.g.
@@ -251,9 +252,17 @@ async function runSync(): Promise<void> {
         }
       }
 
-      // Always update seenNoteIds for background dedup consistency
-      const noteIds = parsedNotes.filter(n => !n.swapOrder || n.swapOrder.autoConsume === false).map(n => n.id);
-      const newIds = await mergeAndPersistSeenNoteIds(noteIds);
+      // Always update seenNoteIds for background dedup consistency. Every
+      // note id goes into the seen set — including swap-managed ones —
+      // otherwise a transient classification failure (note untagged for one
+      // cycle) makes an already-known note look brand new. Swap-managed
+      // auto-consume notes are excluded only from the notification below.
+      const managedAutoConsumeIds = new Set(
+        parsedNotes.filter(n => n.swapOrder && n.swapOrder.autoConsume !== false).map(n => n.id)
+      );
+      const newIds = (await mergeAndPersistSeenNoteIds(parsedNotes.map(n => n.id))).filter(
+        id => !managedAutoConsumeIds.has(id)
+      );
 
       // Write sync data to chrome.storage.local — the reliable data channel.
       // Frontends read from here via chrome.storage.onChanged (works across all extension contexts).
@@ -285,9 +294,28 @@ async function runSync(): Promise<void> {
         showBackgroundNotification(title, message);
       }
 
-      if (parsedNotes.some(note => note.swapOrder)) {
+      // Reuse the notes classified above under Lock 2 — re-running
+      // settleSwapOrders here would repeat the consumable-notes read and all
+      // lineage lookups under a fresh WASM lock for no new information.
+      const managedNotes: ConsumableNote[] = parsedNotes.flatMap(n => {
+        if (!n.swapOrder) return [];
+        const type: ConsumableNote['type'] =
+          n.noteType === NoteTypeEnum.Public || n.noteType === NoteTypeEnum.Private ? n.noteType : 'unknown';
+        return [
+          {
+            id: n.id,
+            faucetId: n.faucetId,
+            amount: n.amountBaseUnits,
+            senderAddress: n.senderAddress,
+            isBeingClaimed: false,
+            type,
+            swapOrder: { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true }
+          }
+        ];
+      });
+      if (managedNotes.length > 0) {
         try {
-          const settlement = await settleSwapOrders(accountPubKey);
+          const settlement = await reconcileSwapOrderNotes(accountPubKey, managedNotes);
           if (settlement.queuedTransactionIds.length > 0) {
             const { startTransactionProcessing } = await import('./transaction-processor');
             startTransactionProcessing().catch(err => console.warn('[swap-settlement] processing failed', err));
