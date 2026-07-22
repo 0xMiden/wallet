@@ -2,6 +2,9 @@
 
 ## 1.15.9 (TBD)
 
+### Fixes
+
+* [FIX][extension] **The consumable-notes cache is now scoped per account, so switching accounts no longer auto-consumes the previous account's notes.** The extension cached consumable notes under a single wallet-wide key and the claimable-notes hook ignored the account argument, so after an account switch account A's notes were served to — and auto-consumed under — account B without any user action. The cache read is now guarded by the account the notes belong to and cleared on switch.
 ### Features
 
 * [FEATURE][extension] **The custom-transaction confirmation now shows what the transaction actually does instead of an opaque "custom transaction" notice.** The wallet decodes the request for an instant declared preview, then runs a local dry-run (`executeForSummary`, no prove/submit) to show the ground-truth asset changes (what you send / receive), notes consumed/created, and storage impact — with the raw request under an Advanced disclosure. Genuinely-opaque signature requests (blind word / arbitrary / blind-commitment) now carry an explicit "you are blind-signing" warning so they are visually distinct from real transactions.

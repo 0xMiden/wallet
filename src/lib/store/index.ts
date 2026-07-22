@@ -709,7 +709,12 @@ export const useWalletStore = create<WalletStore>()(
       set({
         seenNoteIds: new Set<string>(),
         isNoteToastVisible: false,
-        noteToastShownAt: null
+        noteToastShownAt: null,
+        // Drop the previous account's cached consumable notes so they are never
+        // shown or auto-consumed under the newly selected account (#280). The
+        // account-scoped poll in useExtensionClaimableNotes repopulates this for
+        // the new account on its next tick.
+        extensionClaimableNotes: null
       });
 
       if (isExtension()) {

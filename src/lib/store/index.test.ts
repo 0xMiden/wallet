@@ -1188,6 +1188,16 @@ describe('useWalletStore', () => {
       expect(s.isNoteToastVisible).toBe(false);
       expect(s.noteToastShownAt).toBeNull();
     });
+
+    it('resetSeenNotes clears stale extension claimable notes', () => {
+      useWalletStore
+        .getState()
+        .setExtensionClaimableNotes([
+          { id: 'a', faucetId: 'f', amountBaseUnits: '1', senderAddress: 's', noteType: 'public' } as any
+        ]);
+      useWalletStore.getState().resetSeenNotes();
+      expect(useWalletStore.getState().extensionClaimableNotes).toBeNull();
+    });
   });
 
   describe('extension claimable notes', () => {
