@@ -4,7 +4,7 @@ import { type InputNoteRecord } from '@miden-sdk/miden-sdk/lazy';
 
 import { getUncompletedTransactions } from 'lib/miden/activity';
 import { isExtension, isIOS } from 'lib/platform';
-import { SerializedConsumableNote, WalletMessageType } from 'lib/shared/types';
+import { SerializedConsumableNote, SyncData, WalletMessageType } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 
@@ -173,15 +173,21 @@ async function fetchNotesFromLocalClient(
 
 // -------------------- Extension hook (reads from Zustand) --------------------
 
-function useExtensionClaimableNotes(_publicAddress: string, enabled: boolean) {
+function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   const extensionNotes = useWalletStore(s => s.extensionClaimableNotes);
   const extensionClaimingNoteIds = useWalletStore(s => s.extensionClaimingNoteIds);
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
 
   // Poll chrome.storage.local for notes on mount + every 3s.
-  // The SW writes miden_cached_consumable_notes on every sync cycle.
+  // The SW writes miden_sync_data on every sync cycle (see sync-manager.ts).
   // This is the primary data channel — more reliable than intercom broadcasts
   // which can be lost if any port in the forEach throws.
+  //
+  // We read the account-scoped miden_sync_data (which carries both `notes` and
+  // the `accountPublicKey` they belong to) rather than the bare, wallet-wide
+  // miden_cached_consumable_notes key. Without this guard, after an account
+  // switch the previous account's cached notes are served to — and auto-consumed
+  // under — the newly selected account (#280).
   useEffect(() => {
     if (!enabled) return;
 
@@ -190,9 +196,16 @@ function useExtensionClaimableNotes(_publicAddress: string, enabled: boolean) {
     if (!g.chrome?.storage?.local) return;
 
     const poll = () => {
-      g.chrome.storage.local.get('miden_cached_consumable_notes', (result: any) => {
-        const cached: SerializedConsumableNote[] = result?.miden_cached_consumable_notes || [];
-        useWalletStore.getState().setExtensionClaimableNotes(cached);
+      g.chrome.storage.local.get('miden_sync_data', (result: any) => {
+        const syncData: SyncData | undefined = result?.miden_sync_data;
+        // Nothing synced yet — leave the store untouched so isLoading stays true.
+        if (!syncData) return;
+        // Only serve notes that belong to the account currently being viewed;
+        // for any other account, clear to [] so a stale set is never displayed
+        // or auto-consumed.
+        const notes: SerializedConsumableNote[] =
+          syncData.accountPublicKey === publicAddress ? (syncData.notes ?? []) : [];
+        useWalletStore.getState().setExtensionClaimableNotes(notes);
       });
     };
 
@@ -202,7 +215,7 @@ function useExtensionClaimableNotes(_publicAddress: string, enabled: boolean) {
     // Then poll every 3s (aligned with useSyncTrigger's SyncRequest interval)
     const timer = setInterval(poll, 3_000);
     return () => clearInterval(timer);
-  }, [enabled]);
+  }, [enabled, publicAddress]);
 
   // Map serialized notes to ConsumableNote with metadata
   const computedData = useMemo(() => {
