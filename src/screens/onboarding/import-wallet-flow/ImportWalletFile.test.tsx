@@ -55,6 +55,8 @@ const mockRegister = jest.fn((name: string, _opts?: unknown) => ({
 
 const mockImportStore = jest.fn();
 const mockImportDb = jest.fn();
+const mockStoreIdentifier = jest.fn();
+const mockGetMidenClient = jest.fn();
 const mockGenerateKey = jest.fn();
 const mockDeriveKey = jest.fn();
 const mockDecrypt = jest.fn();
@@ -100,6 +102,13 @@ jest.mock('lib/miden/passworder', () => ({
 jest.mock('lib/miden/repo', () => ({
   db: { tables: [] },
   importDb: (...args: unknown[]) => mockImportDb(...args)
+}));
+
+// The restore must write the miden-client dump into the same IndexedDB store
+// the active client reads from. That store name comes from the client's
+// `storeIdentifier()`, so mock `getMidenClient` to hand back a deterministic one.
+jest.mock('lib/miden/sdk/miden-client', () => ({
+  getMidenClient: (...args: unknown[]) => mockGetMidenClient(...args)
 }));
 
 jest.mock('app/icons/v2', () => ({
@@ -222,6 +231,8 @@ beforeEach(() => {
   });
   mockImportStore.mockResolvedValue(undefined);
   mockImportDb.mockResolvedValue(undefined);
+  mockStoreIdentifier.mockResolvedValue('MidenClientDB_mtst');
+  mockGetMidenClient.mockResolvedValue({ client: { storeIdentifier: mockStoreIdentifier } });
 
   (global as unknown as { FileReader: unknown }).FileReader = FakeFileReader as unknown;
   alertSpy = jest.spyOn(window, 'alert').mockImplementation(() => undefined);
@@ -465,8 +476,25 @@ describe('decryption flow', () => {
     expect(mockDeriveKey).toHaveBeenCalledWith('pass-key', new Uint8Array([10, 20, 30]));
     expect(mockDecrypt).toHaveBeenCalledWith({ dt: 'check-dt', iv: 'check-iv' }, 'derived-key');
     expect(mockDecryptJson).toHaveBeenCalledWith({ dt: 'payload-dt', iv: 'payload-iv' }, 'derived-key');
-    expect(mockImportStore).toHaveBeenCalledWith('miden-client-db', 'miden-wallet');
+    expect(mockImportStore).toHaveBeenCalledWith('miden-client-db', 'MidenClientDB_mtst');
     expect(mockImportDb).toHaveBeenCalledWith('wallet-db');
+  });
+
+  it('restores the miden-client dump into the active client store name, not the hardcoded "miden-wallet"', async () => {
+    // Regression for #253: the export path writes the dump into the client's
+    // own store (`storeIdentifier()` -> `MidenClientDB_<network>`), so the
+    // restore must target that exact store or the running client keeps reading
+    // its empty DB and balances stay 0.
+    const onSubmit = jest.fn();
+    mockStoreIdentifier.mockResolvedValue('MidenClientDB_mtst');
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+
+    await submit(container);
+
+    await waitFor(() => expect(mockImportStore).toHaveBeenCalled());
+    expect(mockImportStore).toHaveBeenCalledWith('miden-client-db', 'MidenClientDB_mtst');
+    expect(mockImportStore).not.toHaveBeenCalledWith('miden-client-db', 'miden-wallet');
   });
 
   it('defaults filePassword to an empty string when the watched value is undefined', async () => {

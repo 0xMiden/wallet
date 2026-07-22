@@ -10,6 +10,7 @@ import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { Icon, IconName } from 'app/icons/v2';
 import { decrypt, decryptJson, deriveKey, generateKey } from 'lib/miden/passworder';
 import { importDb } from 'lib/miden/repo';
+import { getMidenClient } from 'lib/miden/sdk/miden-client';
 import type { WalletAccount } from 'lib/shared/types';
 import { DecryptedWalletFile, ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, EncryptedWalletFile } from 'screens/shared';
 
@@ -101,7 +102,14 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
       const walletAccounts = decryptedWallet.accounts;
       const omittedImportedAccountCount = decryptedWallet.omittedImportedAccountCount ?? 0;
 
-      await importStore(midenClientDbContent, 'miden-wallet');
+      // Restore the miden-client dump into the SAME IndexedDB store the active
+      // client reads from. The export path writes it out via the client's
+      // `storeIdentifier()` (defaulting to `MidenClientDB_<network>`), so the
+      // restore must target that exact store name. A hardcoded literal here
+      // leaves the running client reading its own empty DB, so account/balance
+      // state stays invisible and balances read as 0 (issue #253).
+      const storeName = await (await getMidenClient()).client.storeIdentifier();
+      await importStore(midenClientDbContent, storeName);
       await importDb(walletDbContent);
 
       // Mirror the export-side warning on the restore side: if the
