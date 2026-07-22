@@ -12,6 +12,7 @@ import {
   BridgedSendTransaction,
   IBridgeClaimStatus,
   IBridgedSendExtraInputs,
+  IConsumeSwapSettleExtraInputs,
   ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
@@ -123,6 +124,28 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
     resultBytes: result.serialize()
   });
+
+  // Swap settlement: a consume queued by `reconcileSwapOrderNotes` carries a
+  // link to its swap order. Stamp the settlement on the swap row so history
+  // can flip the single swap row's chip (Pending → Confirmed / Reclaimed)
+  // while the linked consume row itself stays suppressed. Must never fail the
+  // consume itself.
+  try {
+    const settle: IConsumeSwapSettleExtraInputs | undefined =
+      dbTransaction?.extraInputs?.swapOrderTxId != null ? dbTransaction.extraInputs : undefined;
+    if (settle) {
+      const stampedAt = Math.floor(Date.now() / 1000);
+      await Repo.transactions.where({ id: settle.swapOrderTxId }).modify(tx => {
+        if (tx.type !== 'swap') return;
+        tx.extraInputs = {
+          ...(tx.extraInputs ?? {}),
+          ...(settle.swapSettleKind === 'reclaim' ? { reclaimedAt: stampedAt } : { settledAt: stampedAt })
+        };
+      });
+    }
+  } catch (err) {
+    console.warn('[swap-settlement] consume stamping failed (non-fatal)', err);
+  }
 };
 
 export const completeSwapTransaction = async (tx: SwapTransaction, result: TransactionResult) => {

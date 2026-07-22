@@ -3,8 +3,18 @@ import { PswapLineageState } from '@miden-sdk/miden-sdk/lazy';
 import * as Repo from 'lib/miden/repo';
 
 import { compareAccountIds } from '../activity/utils';
-import { ITransactionStatus, Transaction } from '../db/types';
+import { ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+
+/**
+ * Token-scoped history filter. A swap row belongs to BOTH sides' token views:
+ * it is filed under the offered `faucetId`, but it also delivers the requested
+ * faucet — and the consume that settles that delivery is suppressed in history
+ * (the swap row is the order's single trace), so without the requested-side
+ * match the received funds would appear in no row of that token's history.
+ */
+const matchesTokenId = (tx: ITransaction, tokenId: string): boolean =>
+  tx.faucetId === tokenId || (tx.type === 'swap' && tx.extraInputs?.requestedFaucetId === tokenId);
 
 export const hasQueuedTransactions = async () => {
   const tx = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
@@ -21,7 +31,7 @@ const getTransactionsInStatuses = async (statuses: ITransactionStatus[], account
   txs.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt);
   txs = txs.filter(tx => compareAccountIds(tx.accountId, accountId));
   if (tokenId) {
-    txs = txs.filter(tx => tx.faucetId === tokenId);
+    txs = txs.filter(tx => matchesTokenId(tx, tokenId));
   }
 
   return txs;
@@ -63,7 +73,7 @@ export const getCompletedTransactions = async (
   // Compare ignoring note tag suffix since stored vs queried account IDs may differ
   transactions = transactions.filter(tx => compareAccountIds(tx.accountId, accountId));
   if (tokenId) {
-    transactions = transactions.filter(tx => tx.faucetId === tokenId);
+    transactions = transactions.filter(tx => matchesTokenId(tx, tokenId));
   }
   return transactions.slice(offset, limit);
 };

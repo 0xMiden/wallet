@@ -68,7 +68,7 @@ const consumable = (
 
 describe('swap order note settlement', () => {
   const toArray = jest.fn();
-  const modify = jest.fn(async () => 1);
+  const modify = jest.fn(async (_writer: unknown) => 1);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -187,10 +187,92 @@ describe('swap order note settlement', () => {
     const payback = consumable('payback', 'payback');
     await reconcileSwapOrderNotes('account-1', [tip, payback], true, 220);
 
-    expect(modify).toHaveBeenCalledTimes(1);
+    // Two writes: the expiry intent on the swap row, then the settlement tag
+    // on the queued consume row.
+    expect(modify).toHaveBeenCalledTimes(2);
     expect(modify.mock.invocationCallOrder[0]).toBeLessThan(
       (initiateConsumeNotesTransaction as jest.Mock).mock.invocationCallOrder[0]!
     );
     expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [tip, payback], true);
+  });
+
+  it('tags an expired batch that still carries payback notes as settle — funds were received', async () => {
+    await reconcileSwapOrderNotes('account-1', [consumable('tip', 'tip'), consumable('payback', 'payback')], true, 220);
+
+    expect(Repo.transactions.where).toHaveBeenCalledWith({ id: 'consume-1' });
+    const tagWriter = modify.mock.calls[modify.mock.calls.length - 1]![0] as unknown as (tx: {
+      type: string;
+      extraInputs?: Record<string, unknown>;
+    }) => void;
+    const consumeRow = { type: 'consume', extraInputs: undefined as Record<string, unknown> | undefined };
+    tagWriter(consumeRow);
+    expect(consumeRow.extraInputs).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'settle' });
+  });
+
+  it('tags a fund-less expired batch (tip only) as reclaim', async () => {
+    await reconcileSwapOrderNotes('account-1', [consumable('tip', 'tip')], true, 220);
+
+    const tagWriter = modify.mock.calls[modify.mock.calls.length - 1]![0] as unknown as (tx: {
+      type: string;
+      extraInputs?: Record<string, unknown>;
+    }) => void;
+    const consumeRow = { type: 'consume', extraInputs: undefined as Record<string, unknown> | undefined };
+    tagWriter(consumeRow);
+    expect(consumeRow.extraInputs).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim' });
+  });
+
+  it('repairs a lost settlement stamp when no consumable notes remain', async () => {
+    const order = tx();
+    const completedConsume = {
+      id: 'consume-done',
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      completedAt: 500,
+      extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+    };
+    // First filter call = localSwapOrders scan, second = the repair's consume scan.
+    toArray.mockResolvedValueOnce([order]).mockResolvedValueOnce([completedConsume]);
+
+    await reconcileSwapOrderNotes('account-1', [], false, 150);
+
+    expect(initiateConsumeNotesTransaction).not.toHaveBeenCalled();
+    expect(Repo.transactions.where).toHaveBeenCalledWith({ id: 'swap-1' });
+    const stampWriter = modify.mock.calls[0]![0] as unknown as (tx: Record<string, unknown>) => void;
+    const swapRow = { ...order };
+    stampWriter(swapRow);
+    expect(swapRow.extraInputs).toEqual(expect.objectContaining({ settledAt: 500 }));
+  });
+
+  it('does not run the stamp repair for an already-stamped order', async () => {
+    toArray.mockResolvedValue([
+      tx({
+        extraInputs: {
+          requestedFaucetId: 'requested',
+          requestedAmount: 50n,
+          orderId: 77n,
+          expiresAt: 220,
+          settledAt: 400
+        }
+      })
+    ]);
+
+    await reconcileSwapOrderNotes('account-1', [], false, 150);
+
+    expect(modify).not.toHaveBeenCalled();
+    expect(toArray).toHaveBeenCalledTimes(1);
+  });
+
+  it('tags a payback settlement consume with the settle kind', async () => {
+    const payback = consumable('payback', 'payback', 'filled');
+    await reconcileSwapOrderNotes('account-1', [payback], false, 150);
+
+    expect(modify).toHaveBeenCalledTimes(1);
+    const tagWriter = modify.mock.calls[0]![0] as unknown as (tx: {
+      type: string;
+      extraInputs?: Record<string, unknown>;
+    }) => void;
+    const consumeRow = { type: 'consume', extraInputs: undefined as Record<string, unknown> | undefined };
+    tagWriter(consumeRow);
+    expect(consumeRow.extraInputs).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'settle' });
   });
 });

@@ -155,6 +155,14 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string, opts?: Record<string
   ) {
     statusTone = 'pending';
     statusLabel = t('pending');
+  } else if (isSwap && entry.swapSettlement === 'pending') {
+    // A completed swap row is the single trace of the whole order (its
+    // settlement consumes are suppressed) — the chip reflects settlement.
+    statusTone = 'pending';
+    statusLabel = t('pending');
+  } else if (isSwap && entry.swapSettlement === 'reclaimed') {
+    statusTone = 'cancelled';
+    statusLabel = t('reclaimed');
   }
 
   return {

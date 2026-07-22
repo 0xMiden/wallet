@@ -168,3 +168,16 @@ export async function takeBridgeInInfoForNotes(noteIds: string[]): Promise<IBrid
   if (registryChanged) await writeRegistry(next);
   return matched?.info;
 }
+
+/**
+ * Return the subset of `ids` that exist as transaction rows. Used by the
+ * history list to decide whether a `consume` row that is the tail of another
+ * row's lifecycle should be suppressed (its primary row still exists) or shown
+ * as a plain receive (dangling reference — funds are never invisible).
+ */
+export async function existingTransactionIds(ids: string[]): Promise<Set<string>> {
+  const unique = [...new Set(ids)].filter(Boolean);
+  if (unique.length === 0) return new Set();
+  const rows = await Repo.transactions.where('id').anyOf(unique).primaryKeys();
+  return new Set(rows);
+}

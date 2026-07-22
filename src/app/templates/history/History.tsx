@@ -1,11 +1,17 @@
 import React, { memo, RefObject, useMemo, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
-import { cancelTransactionById, getCompletedTransactions, getUncompletedTransactions } from 'lib/miden/activity';
+import {
+  cancelTransactionById,
+  existingTransactionIds,
+  getCompletedTransactions,
+  getUncompletedTransactions
+} from 'lib/miden/activity';
 import {
   formatTransactionStatus,
   IBridgedSendExtraInputs,
   IBridgeInInfo,
+  ITransaction,
   ITransactionStatus
 } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
@@ -143,7 +149,8 @@ async function fetchTransactionsAsHistoryEntries(
   tokenId?: string
 ): Promise<IHistoryEntry[]> {
   const transactions = await getCompletedTransactions(address, offset, limit, false, tokenId);
-  const entries = transactions.map(async tx => {
+  const visibleTransactions = await suppressLinkedConsumes(transactions);
+  const entries = visibleTransactions.map(async tx => {
     const updateMessageForFailed = tx.status === ITransactionStatus.Failed ? 'Transaction failed' : tx.displayMessage;
     const icon = tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.displayIcon;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
@@ -163,6 +170,7 @@ async function fetchTransactionsAsHistoryEntries(
       token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
       requestedAmount: swapFields?.requestedAmount,
       requestedToken: swapFields?.requestedToken,
+      swapSettlement: swapSettlementOf(tx),
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,
@@ -192,7 +200,7 @@ async function fetchTransactionsAsHistoryEntries(
 }
 
 async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId?: string): Promise<IHistoryEntry[]> {
-  let pendingTransactions = await getUncompletedTransactions(address, tokenId);
+  const pendingTransactions = await suppressLinkedConsumes(await getUncompletedTransactions(address, tokenId));
 
   const entryPromises = pendingTransactions.map(async tx => {
     const entryType =
@@ -233,6 +241,53 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
   });
   const entries = await Promise.all(entryPromises);
   return entries;
+}
+
+/**
+ * Suppress auto-consume rows that are the tail of another row's lifecycle
+ * while that primary row still exists — it is the single trace: a swap
+ * order's settlement consume (payback claim or expiry reclaim, linked via
+ * `swapOrderTxId`). A dangling reference (primary row gone) falls through
+ * to a normal receive row. Shared by the completed and pending fetches so the
+ * two lists can't desynchronize. Token-scoped views stay complete because the
+ * token filter (`matchesTokenId` in `lib/miden/transaction/get.ts`) surfaces
+ * the swap row on its requested-token page too.
+ */
+async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
+  const linkedTrackingIds = transactions.map(linkedPrimaryTxId).filter((id): id is string => Boolean(id));
+  if (linkedTrackingIds.length === 0) return transactions;
+  const existingTrackingIds = await existingTransactionIds(linkedTrackingIds);
+  return transactions.filter(tx => {
+    const linkedId = linkedPrimaryTxId(tx);
+    return !(linkedId && existingTrackingIds.has(linkedId));
+  });
+}
+
+/**
+ * The primary row a `consume` transaction is the lifecycle tail of, if any —
+ * currently only swap-order settlement consumes, linked via
+ * `extraInputs.swapOrderTxId` by `reconcileSwapOrderNotes`.
+ */
+function linkedPrimaryTxId(tx: ITransaction): string | undefined {
+  if (tx.type !== 'consume') return undefined;
+  return tx.extraInputs?.swapOrderTxId;
+}
+
+/**
+ * Settlement state for a completed swap order, driving the single swap row's
+ * status chip; `undefined` renders Confirmed. Pending only for auto-consumed
+ * orders that carry an explicit expiry (stamped since settlement shipped) and
+ * have no settlement stamp yet — settled, legacy, and manual-claim orders all
+ * fall through to Confirmed. A settledAt stamp wins over reclaimedAt (a batch
+ * containing payback notes delivered funds even if the order later expired).
+ */
+function swapSettlementOf(tx: ITransaction): 'pending' | 'reclaimed' | undefined {
+  if (tx.type !== 'swap' || tx.status !== ITransactionStatus.Completed) return undefined;
+  const extra = tx.extraInputs ?? {};
+  if (extra.settledAt != null) return undefined;
+  if (extra.reclaimedAt != null) return 'reclaimed';
+  if (extra.autoConsume !== false && extra.orderId != null && extra.expiresAt != null) return 'pending';
+  return undefined;
 }
 
 function mergeAndSort(base?: IHistoryEntry[], toAppend: IHistoryEntry[] = []) {
