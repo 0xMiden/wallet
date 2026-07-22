@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.9 (TBD)
+
+### Fixes
+
+* [FIX][extension] **The consumable-notes cache is now scoped per account, so switching accounts no longer auto-consumes the previous account's notes.** The extension cached consumable notes under a single wallet-wide key and the claimable-notes hook ignored the account argument, so after an account switch account A's notes were served to — and auto-consumed under — account B without any user action. The cache read is now guarded by the account the notes belong to and cleared on switch.
+
 ## 1.15.8 (2026-07-21)
 
 ### Features
