@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.11 (TBD)
+
+### Fixes
+
+* [FIX][mobile] **Tapping a home action (Send/Receive/Overview) now slides between the carousel pages as smoothly as a finger swipe.** The programmatic slide animated the full page width via a main-thread spring whose opening frames were starved by the route-commit re-render, and the track wasn't compositor-promoted so WebKit repainted it as the slide began — while a drag stays on a live layer and only springs a tiny residual. The track is now pre-promoted (`will-change: transform`) and the tab/action navigations defer their route re-render via `startTransition`, so the slide keeps its frames.
+
 ## 1.15.10 (2026-07-23)
 
 ### Changes

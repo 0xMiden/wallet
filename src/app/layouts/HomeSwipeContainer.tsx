@@ -127,7 +127,12 @@ const HomeSwipeContainer: FC = () => {
     <div ref={containerRef} className="h-full w-full overflow-hidden touch-pan-y bg-app-bg">
       <motion.div
         className="h-full flex"
-        style={{ x, width: `${pages.length * 100}%` }}
+        // `willChange` pre-promotes the track to its own compositor layer so
+        // WebKit doesn't create the layer (a full repaint) on the first frame
+        // of a programmatic slide — that repaint is what makes the
+        // press-to-navigate transition feel choppier than a finger drag, which
+        // is already on a live layer.
+        style={{ x, width: `${pages.length * 100}%`, willChange: 'transform' }}
         drag="x"
         dragDirectionLock
         dragConstraints={{ left: dragMaxLeft, right: 0 }}
