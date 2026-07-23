@@ -1,4 +1,4 @@
-import React, { FC, startTransition, useEffect, useRef } from 'react';
+import React, { FC, useEffect, useRef } from 'react';
 
 import classNames from 'clsx';
 import { motion } from 'framer-motion';
@@ -144,10 +144,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     const to = TAB_ROUTES[id];
     if (to && to !== pathname) {
       hapticSelection();
-      // Defer the route re-render so the arriving page's reconciliation can't
-      // starve the carousel slide's opening frames (see HomeSwipeContainer).
-      // Haptic fires synchronously, so the tap still feels instant.
-      startTransition(() => navigate(to));
+      navigate(to);
     }
   };
 
@@ -155,7 +152,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // fires the selection haptic itself.
   const handleActionChange = (id: string) => {
     const to = ACTION_ROUTES[id];
-    if (to && to !== pathname) startTransition(() => navigate(to));
+    if (to && to !== pathname) navigate(to);
   };
 
   // Platform-specific sizing:

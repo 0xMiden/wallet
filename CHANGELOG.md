@@ -4,7 +4,7 @@
 
 ### Fixes
 
-* [FIX][mobile] **Tapping a home action (Send/Receive/Overview) now slides between the carousel pages as smoothly as a finger swipe.** The programmatic slide animated the full page width via a main-thread spring whose opening frames were starved by the route-commit re-render, and the track wasn't compositor-promoted so WebKit repainted it as the slide began — while a drag stays on a live layer and only springs a tiny residual. The track is now pre-promoted (`will-change: transform`) and the tab/action navigations defer their route re-render via `startTransition`, so the slide keeps its frames.
+* [FIX][mobile] **Tapping a home action (Send/Receive/Overview) slides between the carousel pages more smoothly.** The horizontal track is now pre-promoted to its own compositor layer (`will-change: transform`), so a programmatic slide no longer pays for layer creation — a full repaint — on its first frame; a finger drag was already on a live layer, which is why swiping felt smoother than tapping.
 
 ## 1.15.10 (2026-07-23)
 

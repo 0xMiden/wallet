@@ -127,11 +127,15 @@ const HomeSwipeContainer: FC = () => {
     <div ref={containerRef} className="h-full w-full overflow-hidden touch-pan-y bg-app-bg">
       <motion.div
         className="h-full flex"
-        // `willChange` pre-promotes the track to its own compositor layer so
-        // WebKit doesn't create the layer (a full repaint) on the first frame
-        // of a programmatic slide — that repaint is what makes the
-        // press-to-navigate transition feel choppier than a finger drag, which
-        // is already on a live layer.
+        // Pre-promote the track to its own compositor layer so a programmatic
+        // slide (tapping Send/Receive) doesn't pay for layer creation — a full
+        // repaint — on its first frame; a finger drag is already on a live
+        // layer, which is why it feels smoother. Intentionally ALWAYS-on:
+        // toggling `willChange` at tap time would create the layer on that
+        // first frame, defeating the purpose. Caveat: the non-`none` transform
+        // already makes this the containing block for `position: fixed`
+        // descendants, so any future home-page child needing viewport-fixed
+        // placement must portal out of the track (today's drawers/modals do).
         style={{ x, width: `${pages.length * 100}%`, willChange: 'transform' }}
         drag="x"
         dragDirectionLock
