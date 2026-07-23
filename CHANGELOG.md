@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.11 (TBD)
+
+### Fixes
+
+* [FIX][mobile] **Tapping a home action (Send/Receive/Overview) slides between the carousel pages more smoothly.** The horizontal track is now pre-promoted to its own compositor layer (`will-change: transform`), so a programmatic slide no longer pays for layer creation — a full repaint — on its first frame; a finger drag was already on a live layer, which is why swiping felt smoother than tapping.
+
 ## 1.15.10 (2026-07-23)
 
 ### Changes
