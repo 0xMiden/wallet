@@ -91,10 +91,19 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
         //    reintroduced, background/sync signing must first be routed off the
         //    hot key (or the gate scoped to user-initiated operations only).
         //    The key still never leaves the Secure Enclave.
+        //
+        //    Accessibility is `AfterFirstUnlockThisDeviceOnly`, NOT
+        //    `WhenUnlockedThisDeviceOnly`: the same AutoSync tick also signs
+        //    while the device is locked / screen off, and a WhenUnlocked key
+        //    fails those unwraps with errSecInteractionNotAllowed (-25308).
+        //    AfterFirstUnlock keeps the key usable any time after the first
+        //    post-boot unlock while staying non-migratable (ThisDeviceOnly).
+        //    Keys minted before this change are stuck WhenUnlocked forever —
+        //    SE access control is immutable — until rotated (replace-hot-key).
         var accessError: Unmanaged<CFError>?
         guard let accessControl = SecAccessControlCreateWithFlags(
             kCFAllocatorDefault,
-            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
             .privateKeyUsage,
             &accessError
         ) else {
@@ -125,7 +134,10 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
         guard let sePrivateKey = SecKeyCreateRandomKey(seKeyAttributes as CFDictionary, &keyError) else {
             zeroBytes(&secretBytes)
             let msg = keyError?.takeRetainedValue().localizedDescription ?? "unknown"
-            call.reject("Failed to generate hot-key SE key: \(msg)")
+            // Secure Enclave genuinely unusable on this device — code it so the JS
+            // facade can surface the report prompt (parity with Android's
+            // ERR_HARDWARE_UNAVAILABLE).
+            call.reject("Secure hardware unavailable: \(msg)", "HARDWARE_UNAVAILABLE")
             return
         }
         guard let sePublicKey = SecKeyCopyPublicKey(sePrivateKey) else {
@@ -257,8 +269,16 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("Authentication cancelled", "USER_CANCELLED")
             } else if nsError?.domain == LAError.errorDomain && nsError?.code == LAError.authenticationFailed.rawValue {
                 call.reject("Authentication failed", "AUTH_FAILED")
+            } else if nsError?.code == Int(errSecInteractionNotAllowed) {
+                // -25308: the key's accessibility condition isn't met (device
+                // locked / before first unlock) — a transient state, NOT broken
+                // hardware. Legacy WhenUnlocked keys hit this on the locked-phone
+                // AutoSync tick; the caller should just retry on the next tick.
+                call.reject("Hot key not accessible while device is locked", "DEVICE_LOCKED")
             } else {
-                call.reject("Failed to unwrap hot-key secret: \(msg)")
+                // Not a user-driven cancel/auth failure: the SE couldn't unwrap.
+                // Code it so the JS facade surfaces the report prompt.
+                call.reject("Secure hardware unavailable: \(msg)", "HARDWARE_UNAVAILABLE")
             }
             return
         }
@@ -365,8 +385,13 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("Authentication cancelled", "USER_CANCELLED")
             } else if nsError?.domain == LAError.errorDomain && nsError?.code == LAError.authenticationFailed.rawValue {
                 call.reject("Authentication failed", "AUTH_FAILED")
+            } else if nsError?.code == Int(errSecInteractionNotAllowed) {
+                // -25308: accessibility condition not met (device locked) —
+                // transient, not broken hardware. See signWithHotKey.
+                call.reject("Hot key not accessible while device is locked", "DEVICE_LOCKED")
             } else {
-                call.reject("Failed to unwrap hot-key secret: \(msg)")
+                // Not a user-driven cancel/auth failure: the SE couldn't unwrap.
+                call.reject("Secure hardware unavailable: \(msg)", "HARDWARE_UNAVAILABLE")
             }
             return
         }

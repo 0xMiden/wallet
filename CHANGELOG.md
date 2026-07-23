@@ -1,16 +1,26 @@
 # Changelog
 
-## 1.15.9 (2026-07-22)
+## 1.15.10 (TBD)
+
+### Changes
+
+* [CHANGE][mobile] The native hot-key plugins now reject with typed error codes: `HARDWARE_UNAVAILABLE` when the secure hardware (Keystore/StrongBox on Android, Secure Enclave on iOS) genuinely can't be used, and `DEVICE_LOCKED` (iOS) when the unwrap merely ran while the device was locked (`errSecInteractionNotAllowed`, a transient state callers should retry). JS-side report-prompt UI lands separately. The secure-hot-key facade now falls back to the JS (vault-envelope) hot-key implementation when native generation rejects with `HARDWARE_UNAVAILABLE`, so onboarding succeeds on devices without usable secure hardware; per-key operations route by blob format (native `<tag>:<payload>` vs JS hex) instead of by platform.
 
 ### Fixes
 
-* [FIX][extension] **The consumable-notes cache is now scoped per account, so switching accounts no longer auto-consumes the previous account's notes.** The extension cached consumable notes under a single wallet-wide key and the claimable-notes hook ignored the account argument, so after an account switch account A's notes were served to — and auto-consumed under — account B without any user action. The cache read is now guarded by the account the notes belong to and cleared on switch.
+* [FIX][mobile] **iOS hot-key signing no longer fails with `errSecInteractionNotAllowed` (OSStatus -25308) when guardian sync signs while the device is locked.** The Secure Enclave hot key was minted `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, so the ~3s AutoSync tick's unwrap failed any time the screen was off/locked. New keys use `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` (usable after the first post-boot unlock, still non-migratable); existing keys keep the old access control until the hot key is rotated.
+
+* [FIX][mobile] **Android hot-key signing no longer fails with `INCOMPATIBLE_MGF_DIGEST`, leaving consume/claim stuck on the pending page.** The Keystore RSA-OAEP wrapper key was authorized for the SHA-256 digest only; pre-Android-13 Keymaster reuses that same digest list to authorize the MGF1 function (default SHA-1) and refuses any OAEP-MGF1 op unless SHA-1 is present, so hardware decrypt threw while software public-key encrypt silently succeeded (generate looked fine, sign failed). The wrapper key now authorizes both SHA-256 and SHA-1 digests, and explicitly authorizes both MGF1 digests on Android 15+ (`setMgf1Digests`). Existing keys minted before this fix must be regenerated (rotate the hot key or re-add the account).
+
+## 1.15.9 (2026-07-22)
+
 ### Features
 
 * [FEATURE][extension] **The custom-transaction confirmation now shows what the transaction actually does instead of an opaque "custom transaction" notice.** The wallet decodes the request for an instant declared preview, then runs a local dry-run (`executeForSummary`, no prove/submit) to show the ground-truth asset changes (what you send / receive), notes consumed/created, and storage impact — with the raw request under an Advanced disclosure. Genuinely-opaque signature requests (blind word / arbitrary / blind-commitment) now carry an explicit "you are blind-signing" warning so they are visually distinct from real transactions.
 
 ### Fixes
 
+* [FIX][extension] **The consumable-notes cache is now scoped per account, so switching accounts no longer auto-consumes the previous account's notes.** The extension cached consumable notes under a single wallet-wide key and the claimable-notes hook ignored the account argument, so after an account switch account A's notes were served to — and auto-consumed under — account B without any user action. The cache read is now guarded by the account the notes belong to and cleared on switch.
 * [FIX][all] **Restoring an encrypted wallet file now writes into the client's active database, so balances appear instead of staying 0.** The restore path imported the miden-client dump into a hardcoded store name (`miden-wallet`) while the running client reads from `MidenClientDB_<network>`, so the restored account/balance state was invisible (sync logged "No account header record found"). Restore now targets the active client's store name.
 * [FIX][all] **Guardian consume/send no longer stays permanently "Failed" after the transaction already landed on chain.** When a guardian value-moving transaction submitted successfully but the local apply step then failed (`ApplyTransactionAfterSubmitFailed`, e.g. the account was briefly locked), the guardian branch cancelled it to a terminal `Failed` state even though the note was consumed on chain — losing track of the funds locally until the next reconcile that never came. Guardian consume/send/swap/execute now mark the transaction `Completed` in that case (matching the non-guardian path), so the next sync reconciles the note via `ConsumedExternal`.
 * [FIX][extension] **The side panel no longer clips its right edge in Brave's narrow sidebar.** The side-panel document hard-clamped its root to `min-width: 360px` with hidden overflow, so any host giving less than 360px (Brave's sidebar, whose icon rail eats width) clipped the balance, Faucet button, and token amounts with no scrollbar. The floor is removed so the layout shrinks to the host viewport.
