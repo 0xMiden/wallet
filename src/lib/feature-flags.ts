@@ -1,20 +1,16 @@
-import { isIOS } from 'lib/platform';
-
 /**
- * In-app swap (the In-Protocol DEX / PSWAP flow) is disabled on iOS.
+ * In-app swap (the In-Protocol DEX / PSWAP flow) availability.
  *
- * Apple App Review treats an in-app crypto swap as a "cryptocurrency exchange
- * service" under App Store Review Guideline 3.1.5(iii), which requires
- * per-storefront licensing the app does not currently hold. Until that
- * compliance work is done, the iOS build ships as a pure non-custodial wallet
- * with no exchange surface. Every other platform (Android, browser extension,
- * desktop) keeps swap.
+ * Swap is enabled on every platform, including iOS. It was previously disabled
+ * on iOS for App Store Review Guideline 3.1.5(iii) — Apple App Review read an
+ * in-app crypto swap as a "cryptocurrency exchange service" — and is re-enabled
+ * here now that the iOS build ships swap for distribution.
  *
  * This is the single source of truth for swap availability — the swap tab, the
- * home swipe pane, and the `/swap` route all read it. To re-enable swap on iOS
- * (e.g. once it is cleared for distribution, or behind a region/remote flag),
+ * home swipe pane, the `/swap` route, and the featured swap dApps all read it.
+ * To gate swap again (per-platform, per-region, or behind a remote flag),
  * change only this function.
  */
 export function isSwapEnabled(): boolean {
-  return !isIOS();
+  return true;
 }

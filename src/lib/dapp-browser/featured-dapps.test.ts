@@ -173,7 +173,7 @@ describe('getExploreGridDapps', () => {
     expect(getExploreGridDapps()).toEqual(EXPLORE_GRID_DAPPS);
   });
 
-  it('drops swap/exchange (DEX) dApps when swap is disabled (iOS, App Store 3.1.5(iii))', () => {
+  it('drops swap/exchange (DEX) dApps when swap is disabled', () => {
     mockSwapEnabled.value = false;
     const grid = getExploreGridDapps();
     // 'zoro' (a DEX) is filtered out; the remaining curated apps keep their order.

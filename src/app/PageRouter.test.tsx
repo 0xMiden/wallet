@@ -396,7 +396,7 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('swap-flow'));
   });
 
-  it('/swap redirects home when swap is disabled (iOS, App Store 3.1.5(iii))', () => {
+  it('/swap redirects home when swap is disabled', () => {
     mockSwapEnabled.value = false;
     renderAt('/swap', ready);
     expect(screen.queryByTestId('swap-flow')).toBeNull();
