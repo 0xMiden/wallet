@@ -6,7 +6,7 @@ import { navigate } from 'lib/woozie';
 
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { isFaucetRequest } from './transactionUtils';
+import { bridgeRowDisplay, isFaucetRequest } from './transactionUtils';
 
 // i18n: identity translator so `t(key)` returns the key verbatim, letting us
 // assert on the raw translation keys the component passes in.
@@ -101,11 +101,18 @@ jest.mock('./HistoryItem', () => ({
 // isFaucetRequest: pure predicate driven off a test-only `__faucet` marker so
 // each entry can opt into the faucet branch independently.
 jest.mock('./transactionUtils', () => ({
+  BRIDGE_STATUS_LABEL_KEY: {
+    pending: 'pending',
+    confirmed: 'confirmed',
+    failed: 'bridgeFailed'
+  },
   isFaucetRequest: jest.fn((entry: { __faucet?: boolean }) => Boolean(entry.__faucet)),
   isBridgeInEntry: jest.fn(() => false),
   bridgeInRowDisplay: jest.fn(),
   bridgeRowDisplay: jest.fn()
 }));
+
+const mockBridgeRowDisplay = bridgeRowDisplay as jest.MockedFunction<typeof bridgeRowDisplay>;
 
 // InfiniteScroll: render children inline, invoke getScrollParent so the
 // `() => scrollParentRef.current` closure is exercised, and expose a button
@@ -222,6 +229,29 @@ describe('HistoryView summary (non-full) list', () => {
 });
 
 describe('HistoryView full-history rows (buildRowProps branches)', () => {
+  it('uses failed styling for a failed bridge row', () => {
+    mockBridgeRowDisplay.mockReturnValue({
+      inSymbol: 'MIDEN',
+      outSymbol: 'USDC',
+      outAmount: '10',
+      providerLabel: 'AggLayer',
+      network: 'Sepolia',
+      status: 'failed'
+    });
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[makeEntry({ key: 'bridge-failed', txType: 'bridged-send', txId: 'bridge-tx' })]}
+        fullHistory
+      />
+    );
+
+    const row = rowByTitle('bridgeRowTitle');
+    expect(iconNameIn(row)).toBe('Close');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-status-negative');
+    expect(row).toHaveAttribute('data-status-tone', 'failed');
+  });
+
   // One render exercising every icon/title/subtitle/amount/status branch.
   const entries: IHistoryEntry[] = [
     // --- Day A group (first group → gets pt-4; set + push + push) ---

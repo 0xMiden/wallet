@@ -67,9 +67,10 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string, opts?: Record<string
   if (entry.txType === 'bridged-send' || isBridgeInEntry(entry)) {
     const bridgeIn = entry.txType !== 'bridged-send';
     const d = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
+    const failed = d.status === 'failed';
     return {
-      icon: <SwapIcon className="w-5 h-5" />,
-      iconBg: 'bg-[#777487]',
+      icon: failed ? <Icon name={IconName.Close} size="sm" fill="currentColor" /> : <SwapIcon className="w-5 h-5" />,
+      iconBg: failed ? 'bg-status-negative' : 'bg-[#777487]',
       title: t('bridgeRowTitle', { from: d.inSymbol, to: d.outSymbol }),
       subtitle: t('bridgeRowVia', { provider: d.providerLabel, network: d.network }),
       amount: d.outAmount
