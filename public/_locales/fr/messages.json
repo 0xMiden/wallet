@@ -1114,6 +1114,18 @@
     "message": "Vérifier la Seed Phrase",
     "englishSource": "Verify Seed Phrase"
   },
+  "faucetPromptTitle": {
+    "message": "Financez votre portefeuille",
+    "englishSource": "Fund your wallet"
+  },
+  "faucetPromptBody": {
+    "message": "Ajoutez des jetons à votre portefeuille pour commencer.",
+    "englishSource": "Add tokens to your wallet to get started."
+  },
+  "faucetPromptAction": {
+    "message": "Financer maintenant",
+    "englishSource": "Fund now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "Vérifiez votre Seed Phrase",
     "englishSource": "Verify your recovery phrase"
@@ -1121,6 +1133,26 @@
   "verifySeedPhrasePromptBody": {
     "message": "Confirmez que vous avez enregistré votre Seed Phrase afin de pouvoir restaurer ce portefeuille plus tard.",
     "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+  },
+  "hotKeyHardwareErrorPromptTitle": {
+    "message": "Signature sécurisée indisponible",
+    "englishSource": "Secure signing unavailable"
+  },
+  "hotKeyHardwareErrorPromptBody": {
+    "message": "Cet appareil n'a pas pu utiliser son matériel sécurisé pour signer des transactions. Copiez l'erreur et envoyez-la à l'équipe Miden.",
+    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+  },
+  "hotKeyHardwareErrorPromptAction": {
+    "message": "Erreur de copie",
+    "englishSource": "Copy error"
+  },
+  "bridgePromptTitle": {
+    "message": "Pont en cours",
+    "englishSource": "Bridge in progress"
+  },
+  "bridgePromptBody": {
+    "message": "Nous continuerons à suivre votre pont en arrière-plan.",
+    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "Vous révélerez votre Seed Phrase avant de la vérifier. Assurez-vous que personne ne puisse voir votre écran.",
@@ -3292,10 +3324,6 @@
   "couldNotDecodeTransaction": {
     "message": "Cette dApp demande une transaction personnalisée. Le portefeuille n’a pas pu décoder ses détails – ne continuez que si vous savez exactement ce qu’il fait.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
-  },
-  "advancedDetails": {
-    "message": "Détails avancés",
-    "englishSource": "Advanced details"
   },
   "rawValue": {
     "message": "Valeur brute",

@@ -1123,6 +1123,18 @@
     "message": "Перевірте вихідну фразу",
     "englishSource": "Verify Seed Phrase"
   },
+  "faucetPromptTitle": {
+    "message": "Поповнюйте свій гаманець",
+    "englishSource": "Fund your wallet"
+  },
+  "faucetPromptBody": {
+    "message": "Щоб почати, додайте токени у свій гаманець.",
+    "englishSource": "Add tokens to your wallet to get started."
+  },
+  "faucetPromptAction": {
+    "message": "Профінансуйте зараз",
+    "englishSource": "Fund now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "Перевірте фразу відновлення",
     "englishSource": "Verify your recovery phrase"
@@ -1130,6 +1142,26 @@
   "verifySeedPhrasePromptBody": {
     "message": "Підтвердьте, що ви зберегли фразу для відновлення, щоб пізніше відновити цей гаманець.",
     "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+  },
+  "hotKeyHardwareErrorPromptTitle": {
+    "message": "Безпечний підпис недоступний",
+    "englishSource": "Secure signing unavailable"
+  },
+  "hotKeyHardwareErrorPromptBody": {
+    "message": "Цей пристрій не міг використовувати захищене обладнання для підписання транзакцій. Скопіюйте помилку та надішліть її команді Miden.",
+    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+  },
+  "hotKeyHardwareErrorPromptAction": {
+    "message": "Помилка копіювання",
+    "englishSource": "Copy error"
+  },
+  "bridgePromptTitle": {
+    "message": "Міст у процесі",
+    "englishSource": "Bridge in progress"
+  },
+  "bridgePromptBody": {
+    "message": "Ми продовжуватимемо відстежувати ваш міст у фоновому режимі.",
+    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "Ви відкриєте свою фразу відновлення перед її перевіркою. Переконайтеся, що ніхто не бачить ваш еFaucet.",
@@ -3315,10 +3347,6 @@
   "couldNotDecodeTransaction": {
     "message": "Цей dApp запитує спеціальну транзакцію. Гаманцю не вдалося розшифрувати його деталі — продовжуйте, лише якщо ви точно знаєте, що він робить.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
-  },
-  "advancedDetails": {
-    "message": "Розширені деталі",
-    "englishSource": "Advanced details"
   },
   "rawValue": {
     "message": "Необроблене значення",

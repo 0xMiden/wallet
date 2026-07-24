@@ -1097,6 +1097,18 @@
     "message": "Verificar Seed Phrase",
     "englishSource": "Verify Seed Phrase"
   },
+  "faucetPromptTitle": {
+    "message": "Financia tu billetera",
+    "englishSource": "Fund your wallet"
+  },
+  "faucetPromptBody": {
+    "message": "Agregue tokens a su billetera para comenzar.",
+    "englishSource": "Add tokens to your wallet to get started."
+  },
+  "faucetPromptAction": {
+    "message": "Financiar ahora",
+    "englishSource": "Fund now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "Verifica tu frase de recuperación",
     "englishSource": "Verify your recovery phrase"
@@ -1104,6 +1116,26 @@
   "verifySeedPhrasePromptBody": {
     "message": "Confirma que guardaste tu frase de recuperación para que puedas restaurar esta billetera más tarde.",
     "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+  },
+  "hotKeyHardwareErrorPromptTitle": {
+    "message": "Firma segura no disponible",
+    "englishSource": "Secure signing unavailable"
+  },
+  "hotKeyHardwareErrorPromptBody": {
+    "message": "Este dispositivo no pudo usar su hardware seguro para firmar transacciones. Copie el error y envíelo al equipo de Miden.",
+    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+  },
+  "hotKeyHardwareErrorPromptAction": {
+    "message": "Error de copia",
+    "englishSource": "Copy error"
+  },
+  "bridgePromptTitle": {
+    "message": "Puente en progreso",
+    "englishSource": "Bridge in progress"
+  },
+  "bridgePromptBody": {
+    "message": "Seguiremos rastreando su puente en segundo plano.",
+    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "Revelarás tu frase de recuperación antes de verificarla. Asegúrate de que nadie pueda ver tu pantalla.",
@@ -3235,10 +3267,6 @@
   "couldNotDecodeTransaction": {
     "message": "Esta dApp solicita una transacción personalizada. La billetera no pudo decodificar sus detalles; solo continúa si sabes exactamente lo que hace.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
-  },
-  "advancedDetails": {
-    "message": "Detalles avanzados",
-    "englishSource": "Advanced details"
   },
   "rawValue": {
     "message": "Valor bruto",

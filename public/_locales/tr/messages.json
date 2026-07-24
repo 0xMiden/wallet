@@ -1114,6 +1114,18 @@
     "message": "Başlangıç ​​İfadesini Doğrulayın",
     "englishSource": "Verify Seed Phrase"
   },
+  "faucetPromptTitle": {
+    "message": "Cüzdanınıza fon sağlayın",
+    "englishSource": "Fund your wallet"
+  },
+  "faucetPromptBody": {
+    "message": "Başlamak için cüzdanınıza token ekleyin.",
+    "englishSource": "Add tokens to your wallet to get started."
+  },
+  "faucetPromptAction": {
+    "message": "Şimdi fonla",
+    "englishSource": "Fund now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "Kurtarma ifadenizi doğrulayın",
     "englishSource": "Verify your recovery phrase"
@@ -1121,6 +1133,26 @@
   "verifySeedPhrasePromptBody": {
     "message": "Bu cüzdanı daha sonra geri yükleyebilmeniz için kurtarma ifadenizi kaydettiğinizi onaylayın.",
     "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+  },
+  "hotKeyHardwareErrorPromptTitle": {
+    "message": "Güvenli imzalama kullanılamıyor",
+    "englishSource": "Secure signing unavailable"
+  },
+  "hotKeyHardwareErrorPromptBody": {
+    "message": "Bu cihaz, işlemleri imzalamak için güvenli donanımını kullanamadı. Hatayı kopyalayıp Miden ekibine gönderin.",
+    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+  },
+  "hotKeyHardwareErrorPromptAction": {
+    "message": "Kopyalama hatası",
+    "englishSource": "Copy error"
+  },
+  "bridgePromptTitle": {
+    "message": "Köprü yapılıyor",
+    "englishSource": "Bridge in progress"
+  },
+  "bridgePromptBody": {
+    "message": "Köprünüzü arka planda takip etmeye devam edeceğiz.",
+    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "Doğrulamadan önce kurtarma ifadenizi açıklayacaksınız. Kimsenin ekranınızı göremediğinden emin olun.",
@@ -3293,10 +3325,6 @@
   "couldNotDecodeTransaction": {
     "message": "Bu dApp özel bir işlem talep ediyor. M-cüzdan ayrıntılarının şifresini çözemedi; ancak tam olarak ne yaptığını biliyorsanız devam edin.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
-  },
-  "advancedDetails": {
-    "message": "Gelişmiş ayrıntılar",
-    "englishSource": "Advanced details"
   },
   "rawValue": {
     "message": "Ham değer",

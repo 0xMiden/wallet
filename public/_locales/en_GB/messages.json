@@ -1150,6 +1150,18 @@
     "message": "Verify Seed Phrase",
     "englishSource": "Verify Seed Phrase"
   },
+  "faucetPromptTitle": {
+    "message": "Fund your wallet",
+    "englishSource": "Fund your wallet"
+  },
+  "faucetPromptBody": {
+    "message": "Add tokens to your wallet to get started.",
+    "englishSource": "Add tokens to your wallet to get started."
+  },
+  "faucetPromptAction": {
+    "message": "Fund now",
+    "englishSource": "Fund now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "Verify your recovery phrase",
     "englishSource": "Verify your recovery phrase"
@@ -1157,6 +1169,26 @@
   "verifySeedPhrasePromptBody": {
     "message": "Confirm you saved your recovery phrase so you can restore this wallet later.",
     "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+  },
+  "hotKeyHardwareErrorPromptTitle": {
+    "message": "Secure signing unavailable",
+    "englishSource": "Secure signing unavailable"
+  },
+  "hotKeyHardwareErrorPromptBody": {
+    "message": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team.",
+    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+  },
+  "hotKeyHardwareErrorPromptAction": {
+    "message": "Copy error",
+    "englishSource": "Copy error"
+  },
+  "bridgePromptTitle": {
+    "message": "Bridge in progress",
+    "englishSource": "Bridge in progress"
+  },
+  "bridgePromptBody": {
+    "message": "We’ll keep tracking your bridge in the background.",
+    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "You will reveal your recovery phrase before verifying it. Make sure no one can see your screen.",
@@ -3342,10 +3374,6 @@
   "couldNotDecodeTransaction": {
     "message": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
-  },
-  "advancedDetails": {
-    "message": "Advanced details",
-    "englishSource": "Advanced details"
   },
   "rawValue": {
     "message": "Raw value",

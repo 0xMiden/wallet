@@ -1114,6 +1114,18 @@
     "message": "Проверьте исходную фразу",
     "englishSource": "Verify Seed Phrase"
   },
+  "faucetPromptTitle": {
+    "message": "Пополните свой кошелек",
+    "englishSource": "Fund your wallet"
+  },
+  "faucetPromptBody": {
+    "message": "Добавьте токены в свой кошелек, чтобы начать.",
+    "englishSource": "Add tokens to your wallet to get started."
+  },
+  "faucetPromptAction": {
+    "message": "Фонд сейчас",
+    "englishSource": "Fund now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "Подтвердите свою фразу восстановления",
     "englishSource": "Verify your recovery phrase"
@@ -1121,6 +1133,26 @@
   "verifySeedPhrasePromptBody": {
     "message": "Подтвердите, что вы сохранили фразу восстановления, чтобы позже можно было восстановить этот кошелек.",
     "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+  },
+  "hotKeyHardwareErrorPromptTitle": {
+    "message": "Безопасная подпись недоступна",
+    "englishSource": "Secure signing unavailable"
+  },
+  "hotKeyHardwareErrorPromptBody": {
+    "message": "Это устройство не могло использовать свое защищенное оборудование для подписи транзакций. Скопируйте ошибку и отправьте ее команде Miden.",
+    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+  },
+  "hotKeyHardwareErrorPromptAction": {
+    "message": "Ошибка копирования",
+    "englishSource": "Copy error"
+  },
+  "bridgePromptTitle": {
+    "message": "Мост в процессе",
+    "englishSource": "Bridge in progress"
+  },
+  "bridgePromptBody": {
+    "message": "Мы продолжим отслеживать ваш мост в фоновом режиме.",
+    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "Вы покажете свою фразу восстановления перед ее проверкой. Убедитесь, что никто не видит ваш эFaucet.",
@@ -3306,10 +3338,6 @@
   "couldNotDecodeTransaction": {
     "message": "Это dApp запрашивает пользовательскую транзакцию. Кошелек не смог расшифровать свои данные — продолжайте, только если вы точно знаете, что он делает.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
-  },
-  "advancedDetails": {
-    "message": "Дополнительные сведения",
-    "englishSource": "Advanced details"
   },
   "rawValue": {
     "message": "Исходное значение",

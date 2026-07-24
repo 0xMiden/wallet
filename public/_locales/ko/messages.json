@@ -1123,6 +1123,18 @@
     "message": "Seed Phrase 확인",
     "englishSource": "Verify Seed Phrase"
   },
+  "faucetPromptTitle": {
+    "message": "지갑에 자금을 조달하세요",
+    "englishSource": "Fund your wallet"
+  },
+  "faucetPromptBody": {
+    "message": "시작하려면 지갑에 토큰을 추가하세요.",
+    "englishSource": "Add tokens to your wallet to get started."
+  },
+  "faucetPromptAction": {
+    "message": "지금 자금을 조달하세요",
+    "englishSource": "Fund now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "복구 문구를 확인하세요",
     "englishSource": "Verify your recovery phrase"
@@ -1130,6 +1142,26 @@
   "verifySeedPhrasePromptBody": {
     "message": "나중에 이 지갑을 복원할 수 있도록 복구 문구를 저장했는지 확인하세요.",
     "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+  },
+  "hotKeyHardwareErrorPromptTitle": {
+    "message": "보안 서명을 사용할 수 없음",
+    "englishSource": "Secure signing unavailable"
+  },
+  "hotKeyHardwareErrorPromptBody": {
+    "message": "이 기기는 보안 하드웨어를 사용하여 거래에 서명할 수 없습니다. 오류를 복사하여 Miden 팀에 보내세요.",
+    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+  },
+  "hotKeyHardwareErrorPromptAction": {
+    "message": "복사 오류",
+    "englishSource": "Copy error"
+  },
+  "bridgePromptTitle": {
+    "message": "브릿지 진행 중",
+    "englishSource": "Bridge in progress"
+  },
+  "bridgePromptBody": {
+    "message": "우리는 백그라운드에서 다리를 계속 추적할 것입니다.",
+    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "복구 문구를 확인하기 전에 공개합니다. 다른 사람이 화면을 볼 수 없도록 하세요.",
@@ -3314,10 +3346,6 @@
   "couldNotDecodeTransaction": {
     "message": "이 dApp은 맞춤 거래를 요청하고 있습니다. 지갑은 세부 정보를 해독할 수 없습니다. 지갑이 수행하는 작업을 정확히 알고 있는 경우에만 계속하세요.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
-  },
-  "advancedDetails": {
-    "message": "고급 세부정보",
-    "englishSource": "Advanced details"
   },
   "rawValue": {
     "message": "원시 가치",

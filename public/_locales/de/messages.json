@@ -1114,6 +1114,18 @@
     "message": "Überprüfen Sie die Seed Phrase",
     "englishSource": "Verify Seed Phrase"
   },
+  "faucetPromptTitle": {
+    "message": "Finanzieren Sie Ihren Geldbeutel",
+    "englishSource": "Fund your wallet"
+  },
+  "faucetPromptBody": {
+    "message": "Fügen Sie Ihrer Wallet Token hinzu, um loszulegen.",
+    "englishSource": "Add tokens to your wallet to get started."
+  },
+  "faucetPromptAction": {
+    "message": "Jetzt finanzieren",
+    "englishSource": "Fund now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "Überprüfen Sie Ihre Wiederherstellungsphrase",
     "englishSource": "Verify your recovery phrase"
@@ -1121,6 +1133,26 @@
   "verifySeedPhrasePromptBody": {
     "message": "Bestätigen Sie, dass Sie Ihre Wiederherstellungsphrase gespeichert haben, damit Sie diese Wallet später wiederherstellen können.",
     "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+  },
+  "hotKeyHardwareErrorPromptTitle": {
+    "message": "Sicheres Signieren nicht verfügbar",
+    "englishSource": "Secure signing unavailable"
+  },
+  "hotKeyHardwareErrorPromptBody": {
+    "message": "Dieses Gerät konnte seine sichere Hardware nicht zum Signieren von Transaktionen verwenden. Kopieren Sie den Fehler und senden Sie ihn an das Miden-Team.",
+    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+  },
+  "hotKeyHardwareErrorPromptAction": {
+    "message": "Kopierfehler",
+    "englishSource": "Copy error"
+  },
+  "bridgePromptTitle": {
+    "message": "Brücke in Bearbeitung",
+    "englishSource": "Bridge in progress"
+  },
+  "bridgePromptBody": {
+    "message": "Wir verfolgen Ihre Brücke weiterhin im Hintergrund.",
+    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "Sie geben Ihren Wiederherstellungssatz bekannt, bevor Sie ihn überprüfen. Stellen Sie sicher, dass niemand Ihren Bildschirm sehen kann.",
@@ -3305,10 +3337,6 @@
   "couldNotDecodeTransaction": {
     "message": "Diese dApp fordert eine benutzerdefinierte Transaktion an. Die Wallet konnte ihre Details nicht entschlüsseln – fahren Sie nur fort, wenn Sie genau wissen, was sie tut.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
-  },
-  "advancedDetails": {
-    "message": "Erweiterte Details",
-    "englishSource": "Advanced details"
   },
   "rawValue": {
     "message": "Rohwert",

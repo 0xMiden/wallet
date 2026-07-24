@@ -1132,6 +1132,18 @@
     "message": "验证Seed Phrase",
     "englishSource": "Verify Seed Phrase"
   },
+  "faucetPromptTitle": {
+    "message": "为你的钱包充值",
+    "englishSource": "Fund your wallet"
+  },
+  "faucetPromptBody": {
+    "message": "将代币添加到您的钱包即可开始。",
+    "englishSource": "Add tokens to your wallet to get started."
+  },
+  "faucetPromptAction": {
+    "message": "立即基金",
+    "englishSource": "Fund now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "验证您的恢复短语",
     "englishSource": "Verify your recovery phrase"
@@ -1139,6 +1151,26 @@
   "verifySeedPhrasePromptBody": {
     "message": "确认您已保存恢复短语，以便稍后恢复此钱包。",
     "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+  },
+  "hotKeyHardwareErrorPromptTitle": {
+    "message": "安全签名不可用",
+    "englishSource": "Secure signing unavailable"
+  },
+  "hotKeyHardwareErrorPromptBody": {
+    "message": "该设备无法使用其安全硬件来签署交易。复制错误并将其发送给 Miden 团队。",
+    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+  },
+  "hotKeyHardwareErrorPromptAction": {
+    "message": "复制错误",
+    "englishSource": "Copy error"
+  },
+  "bridgePromptTitle": {
+    "message": "桥梁建设中",
+    "englishSource": "Bridge in progress"
+  },
+  "bridgePromptBody": {
+    "message": "我们将在后台继续跟踪您的桥梁。",
+    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "在验证之前，您将显示您的恢复短语。确保没有人可以看到您的屏幕。",
@@ -3323,10 +3355,6 @@
   "couldNotDecodeTransaction": {
     "message": "该 dApp 正在请求自定义交易。钱包无法解码其详细信息 - 只有在您确切知道它的用途时才能继续。",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
-  },
-  "advancedDetails": {
-    "message": "高级细节",
-    "englishSource": "Advanced details"
   },
   "rawValue": {
     "message": "原始值",

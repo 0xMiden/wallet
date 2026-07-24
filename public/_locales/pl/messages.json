@@ -1097,6 +1097,18 @@
     "message": "Sprawdź frazę źródłową",
     "englishSource": "Verify Seed Phrase"
   },
+  "faucetPromptTitle": {
+    "message": "Zasil swój portfel",
+    "englishSource": "Fund your wallet"
+  },
+  "faucetPromptBody": {
+    "message": "Aby rozpocząć, dodaj tokeny do swojego portfela.",
+    "englishSource": "Add tokens to your wallet to get started."
+  },
+  "faucetPromptAction": {
+    "message": "Fundusz teraz",
+    "englishSource": "Fund now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "Sprawdź frazę odzyskiwania",
     "englishSource": "Verify your recovery phrase"
@@ -1104,6 +1116,26 @@
   "verifySeedPhrasePromptBody": {
     "message": "Potwierdź, że zapisałeś frazę odzyskiwania, aby móc później przywrócić ten portfel.",
     "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+  },
+  "hotKeyHardwareErrorPromptTitle": {
+    "message": "Bezpieczne podpisywanie jest niedostępne",
+    "englishSource": "Secure signing unavailable"
+  },
+  "hotKeyHardwareErrorPromptBody": {
+    "message": "To urządzenie nie mogło używać bezpiecznego sprzętu do podpisywania transakcji. Skopiuj błąd i wyślij go do zespołu Miden.",
+    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+  },
+  "hotKeyHardwareErrorPromptAction": {
+    "message": "Kopiuj błąd",
+    "englishSource": "Copy error"
+  },
+  "bridgePromptTitle": {
+    "message": "Most w trakcie",
+    "englishSource": "Bridge in progress"
+  },
+  "bridgePromptBody": {
+    "message": "Będziemy śledzić Twój most w tle.",
+    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "Przed zweryfikowaniem ujawnisz swoją frazę odzyskiwania. Upewnij się, że nikt nie widzi Twojego ekranu.",
@@ -3235,10 +3267,6 @@
   "couldNotDecodeTransaction": {
     "message": "Ta aplikacja dApp żąda niestandardowej transakcji. Portfel nie mógł rozszyfrować swoich szczegółów — kontynuuj tylko wtedy, gdy wiesz dokładnie, co robi.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
-  },
-  "advancedDetails": {
-    "message": "Zaawansowane szczegóły",
-    "englishSource": "Advanced details"
   },
   "rawValue": {
     "message": "Wartość surowa",
