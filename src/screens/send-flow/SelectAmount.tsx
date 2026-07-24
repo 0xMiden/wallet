@@ -49,6 +49,8 @@ export interface SelectAmountProps {
   outputSymbol?: string;
   /** Optional custom header rendered above the amount (e.g. the bridge-deposit "wallet connected · Miden Bridge" title). */
   title?: React.ReactNode;
+  /** Show a skeleton in place of the amount while it is being computed (e.g. the swap receive quote). */
+  loading?: boolean;
   onSelectNetwork?: () => void;
 }
 
@@ -84,6 +86,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   network,
   outputSymbol,
   title,
+  loading,
   onSelectNetwork
 }) => {
   const { t } = useTranslation();
@@ -99,7 +102,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         hapticLight();
         onSelectToken();
       }}
-      className="flex items-center gap-1.25 cursor-pointer"
+      className="flex items-center gap-1.25 cursor-pointer rounded-full bg-input-bg px-3 py-2"
     >
       {token ? (
         <TokenLogo symbol={logoSymbol ?? token.name} size="md" />
@@ -189,7 +192,9 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       error={error ? t(error) : undefined}
       helper={embedded ? undefined : helper}
       tokenSelector={isBridge ? bridgeSelector : tokenSelector}
+      showDivider={!!amount && !!token}
       data-testid="send-amount-input"
+      loading={loading}
       onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
     />
   );

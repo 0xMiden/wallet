@@ -1,5 +1,3 @@
-import type { WalletAccount } from 'lib/shared/types';
-
 export enum OnboardingType {
   Create = 'create',
   Import = 'import'
@@ -11,11 +9,6 @@ export enum WalletType {
   OnChain = 'on-chain'
 }
 
-export enum ImportType {
-  SeedPhrase = 'seed-phrase',
-  WalletFile = 'wallet-file'
-}
-
 export enum OnboardingStep {
   Welcome = 'welcome',
   SelectWalletType = 'select-wallet-type',
@@ -24,9 +17,7 @@ export enum OnboardingStep {
   SetupBiometric = 'setup-biometric',
   BackupSeedPhrase = 'backup-seed-phrase',
   VerifySeedPhrase = 'verify-seed-phrase',
-  SelectImportType = 'select-import-type',
   ImportFromSeed = 'import-from-seed',
-  ImportFromFile = 'import-from-file',
   CreatePassword = 'create-password',
   BiometricSetup = 'biometric-setup',
   SelectTransactionType = 'select-transaction-type',
@@ -57,7 +48,6 @@ export type OnboardingActionId =
   | 'choose-guardian'
   | 'import-select-recovery-method'
   | 'confirmation'
-  | 'import-from-file'
   | 'import-from-seed';
 
 export type CreateWalletAction = {
@@ -92,10 +82,6 @@ export type ChooseGuardianSubmitAction = {
 
 export type SelectImportTypeAction = {
   id: 'select-import-type';
-};
-
-export type ImportFromFileAction = {
-  id: 'import-from-file';
 };
 
 export type ImportFromSeedAction = {
@@ -149,12 +135,6 @@ export type BiometricSetupSubmitAction = {
   payload: boolean; // Whether biometric was enabled
 };
 
-export type ImportWalletFileSubmitAction = {
-  id: 'import-wallet-file-submit';
-  payload: string;
-  walletAccounts: WalletAccount[];
-};
-
 export type ImportSeedPhraseSubmitAction = {
   id: 'import-seed-phrase-submit';
   payload: string;
@@ -190,9 +170,7 @@ export type OnboardingAction =
   | ConfirmationAction
   | ImportSeedPhraseSubmitAction
   | BackAction
-  | ImportFromFileAction
   | ImportFromSeedAction
-  | ImportWalletFileSubmitAction
   | SwitchToPasswordAction;
 
 // TODO: Potentially make this into what the onboarding flows use to render the

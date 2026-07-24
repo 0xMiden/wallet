@@ -11,6 +11,9 @@ import { BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL, EPOCH_DESTINATION_CHAIN_ID } from '
  */
 export type BridgeNetworkId = 'sepolia';
 
+/** Networks selectable before the recipient address determines its chain. */
+export type SendNetworkId = 'miden' | BridgeNetworkId;
+
 export interface BridgeNetwork {
   id: BridgeNetworkId;
   /** Display name, e.g. "Sepolia". */

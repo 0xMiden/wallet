@@ -59,6 +59,7 @@ jest.mock('components/AmountInput', () => ({
     error,
     helper,
     tokenSelector,
+    showDivider,
     onValueChange,
     'data-testid': dataTestId
   }: {
@@ -67,10 +68,11 @@ jest.mock('components/AmountInput', () => ({
     error?: string;
     helper?: React.ReactNode;
     tokenSelector?: React.ReactNode;
+    showDivider?: boolean;
     onValueChange?: OnValueChange;
     'data-testid'?: string;
   }) => (
-    <div data-testid="amount-input" data-forwarded-testid={dataTestId}>
+    <div data-testid="amount-input" data-forwarded-testid={dataTestId} data-show-divider={String(showDivider)}>
       <div data-testid="ai-label">{label}</div>
       {error !== undefined && <div data-testid="ai-error">{error}</div>}
       {helper !== undefined && <div data-testid="ai-helper">{helper}</div>}
@@ -126,6 +128,7 @@ describe('SelectAmount', () => {
       // Token name chip + chevron icon.
       expect(screen.getByText('USDC')).toBeInTheDocument();
       expect(screen.getByTestId('icon')).toHaveAttribute('data-name', 'chevron-down');
+      expect(screen.getByTestId('send-token-selector')).toHaveClass('rounded-full', 'bg-input-bg');
 
       // Default label + forwarded testid.
       expect(screen.getByTestId('ai-label')).toHaveTextContent('selectAmount');
@@ -214,6 +217,35 @@ describe('SelectAmount', () => {
   });
 
   describe('token selector', () => {
+    it('shows the divider only after both an amount and token are present', () => {
+      const { rerender } = renderComponent({ amount: '', token: undefined });
+      expect(screen.getByTestId('amount-input')).toHaveAttribute('data-show-divider', 'false');
+
+      rerender(
+        <SelectAmount
+          token={baseToken()}
+          amount=""
+          isValidAmount={false}
+          onAmountChange={jest.fn()}
+          onSelectToken={jest.fn()}
+          onConfirm={jest.fn()}
+        />
+      );
+      expect(screen.getByTestId('amount-input')).toHaveAttribute('data-show-divider', 'false');
+
+      rerender(
+        <SelectAmount
+          token={baseToken()}
+          amount="10"
+          isValidAmount
+          onAmountChange={jest.fn()}
+          onSelectToken={jest.fn()}
+          onConfirm={jest.fn()}
+        />
+      );
+      expect(screen.getByTestId('amount-input')).toHaveAttribute('data-show-divider', 'true');
+    });
+
     it('fires haptic feedback and onSelectToken when tapped', () => {
       const onSelectToken = jest.fn();
       renderComponent({ onSelectToken });

@@ -494,6 +494,12 @@ export class IosWalletPage implements WalletPage {
     // 1. SelectRecipient: fill the recipient address (textarea) and confirm.
     // Confirm is gated on a valid address, so wait for it to enable.
     await this.fillInput('[data-testid="send-recipient-input"]', params.recipientAddress);
+    if (params.recipientAddress.trim().startsWith('0x')) {
+      await this.pollForSelector('[data-testid="send-network-selector"]', 15_000);
+      await this.click('[data-testid="send-network-selector"]');
+      await this.pollForSelector('[data-testid="send-network-sepolia"]', 15_000);
+      await this.click('[data-testid="send-network-sepolia"]');
+    }
     await this.clickWhenEnabled('[data-testid="send-recipient-confirm"]', 30_000);
 
     // 2. SelectAmount: open the token sub-screen, pick a token, then fill the

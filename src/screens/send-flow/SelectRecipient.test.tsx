@@ -1,17 +1,24 @@
-import React, { ChangeEvent } from 'react';
+import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { SelectRecipient, SelectRecipientProps } from './SelectRecipient';
 
-// react-i18next: return the key verbatim so we can assert on translation keys
-// (mirrors sibling atom tests such as ColorIdenticon/SeedWordInput).
+jest.mock('lib/epoch', () => ({
+  BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL: 'USDC',
+  EPOCH_DESTINATION_CHAIN_ID: 11155111
+}));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+const ETH_ADDRESS = '0x71C7656EC7ab88b098defB751B7401B5f6d8976F';
+const MIDEN_ADDRESS = 'mtst1recipient';
+
 jest.mock('./bridge-networks', () => ({
-  BRIDGE_OUTPUT_TOKEN_SYMBOL: 'USDC'
+  BRIDGE_OUTPUT_TOKEN_SYMBOL: 'USDC',
+  getBridgeNetwork: (id: string | undefined) =>
+    id === 'sepolia' ? { id: 'sepolia', name: 'Sepolia', chainId: 11155111 } : undefined
 }));
 
 // `components/Button` pulls in framer-motion, Capacitor haptics and the icon
@@ -29,129 +36,97 @@ jest.mock('components/Button', () => {
   };
 });
 
-// jsdom does not lay out elements, so `scrollHeight` is 0 by default. Pin it to
-// a deterministic value so we can assert that the auto-grow effect ran and set
-// the textarea height from `scrollHeight`.
-beforeAll(() => {
-  Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', {
-    configurable: true,
-    get() {
-      return 77;
-    }
-  });
-});
-
-const renderComponent = (overrides: Partial<SelectRecipientProps> = {}) => {
+function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
   const props: SelectRecipientProps = {
     address: '',
-    chain: 'miden',
     isValidAddress: false,
-    error: undefined,
+    chain: 'miden',
     onAddressChange: jest.fn(),
     onAddressBook: jest.fn(),
+    onSelectNetwork: jest.fn(),
     onConfirm: jest.fn(),
     ...overrides
   };
-  const utils = render(<SelectRecipient {...props} />);
-  return { props, ...utils };
-};
 
-const getTextarea = () => screen.getByTestId('send-recipient-input') as HTMLTextAreaElement;
-const getConfirm = () => screen.getByTestId('send-recipient-confirm') as HTMLButtonElement;
+  render(<SelectRecipient {...props} />);
+  return props;
+}
 
 describe('SelectRecipient', () => {
-  it('renders the heading, placeholder, address-book and confirm buttons', () => {
-    renderComponent();
+  it('hides the network selector before an address is entered', () => {
+    renderRecipient();
 
-    // Heading + labels come through as raw i18n keys via the mocked translator.
-    expect(screen.getByText('chooseRecipient')).toBeInTheDocument();
-    expect(getTextarea()).toHaveAttribute('placeholder', 'enterMidenOrEthereumAddress');
-    expect(screen.getByText('addressBook')).toBeInTheDocument();
-    expect(getConfirm()).toHaveTextContent('confirm');
-
-    // The internal AddressBookIcon SVG is rendered inside the address-book button.
-    expect(document.querySelector('svg')).not.toBeNull();
+    expect(screen.queryByTestId('send-network-selector')).not.toBeInTheDocument();
   });
 
-  it('reflects the address prop as the textarea value', () => {
-    renderComponent({ address: 'mtst1abc' });
-    expect(getTextarea()).toHaveValue('mtst1abc');
+  it('uses the chain-aware address placeholder and leaves unknown recipients plain', () => {
+    renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', onScan: jest.fn() });
+
+    expect(screen.getByTestId('send-recipient-input')).toHaveAttribute(
+      'placeholder',
+      'Enter Miden or Ethereum Address'
+    );
+    expect(screen.queryByTestId('send-recipient-avatar')).not.toBeInTheDocument();
+    expect(screen.queryByText('Scan QR Code')).not.toBeInTheDocument();
   });
 
-  it('runs the auto-grow effect, sizing the textarea from scrollHeight', () => {
-    renderComponent({ address: 'a' });
-    // Effect sets height to `${scrollHeight}px` (pinned to 77 above).
-    expect(getTextarea().style.height).toBe('77px');
+  it('shows Scan QR Code with extracted icons and compact action pills while the address field is empty', () => {
+    renderRecipient({ onScan: jest.fn() });
+
+    expect(screen.getByText('Scan QR Code')).toBeInTheDocument();
+    expect(screen.getByTestId('send-address-book-icon')).toBeInTheDocument();
+    expect(screen.getByTestId('send-scan-icon')).toBeInTheDocument();
+    expect(screen.getByText('addressBook').closest('button')).toHaveClass(
+      'h-auto!',
+      'px-2!',
+      'py-1!',
+      'bg-surface-interactive!'
+    );
+    expect(screen.getByText('Scan QR Code').closest('button')).toHaveClass(
+      'h-auto!',
+      'px-2!',
+      'py-1!',
+      'bg-surface-interactive!'
+    );
   });
 
-  it('re-runs the auto-grow effect when the address changes', () => {
-    const { rerender, props } = renderComponent({ address: 'a' });
-    expect(getTextarea().style.height).toBe('77px');
+  it('shows the saved contact identity when a recipient name is provided', () => {
+    renderRecipient({
+      address: ETH_ADDRESS,
+      isValidAddress: true,
+      chain: 'ethereum',
+      recipientName: 'Charlie'
+    });
 
-    // Blow away the inline height, then rerender with a new address to prove
-    // the [address]-keyed effect fires again and re-applies the height.
-    getTextarea().style.height = '';
-    rerender(<SelectRecipient {...props} address="ab" />);
-    expect(getTextarea().style.height).toBe('77px');
+    expect(screen.getByText('Charlie')).toBeInTheDocument();
+    expect(screen.getByTestId('send-recipient-avatar')).toBeInTheDocument();
   });
 
-  describe('error branch', () => {
-    it('does not render the error paragraph and uses the black text class when there is no error', () => {
-      renderComponent({ error: undefined });
-      expect(screen.queryByText('invalidAddress')).not.toBeInTheDocument();
-      const ta = getTextarea();
-      expect(ta.className).toContain('text-black');
-      expect(ta.className).not.toContain('text-red-500');
-    });
+  it('requires an EVM network and opens the network picker', () => {
+    const props = renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum' });
 
-    it('renders the translated error paragraph and uses the red text class when there is an error', () => {
-      renderComponent({ error: 'invalidAddress' });
-      // The <p> renders the translated (key-echoed) error message.
-      const paragraph = screen.getByText('invalidAddress');
-      expect(paragraph.tagName.toLowerCase()).toBe('p');
-      expect(paragraph).toHaveClass('text-red-500');
-      // The textarea itself flips to the red text class.
-      expect(getTextarea().className).toContain('text-red-500');
-    });
+    expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('send-network-selector'));
+    expect(props.onSelectNetwork).toHaveBeenCalledTimes(1);
   });
 
-  describe('confirm button enabled state', () => {
-    it('disables the confirm button when the address is invalid', () => {
-      renderComponent({ isValidAddress: false });
-      expect(getConfirm()).toBeDisabled();
-    });
+  it('hides the network selector for an incomplete EVM address', () => {
+    renderRecipient({ address: '0x1234', isValidAddress: false, chain: 'ethereum' });
 
-    it('enables the confirm button when the address is valid', () => {
-      renderComponent({ isValidAddress: true });
-      expect(getConfirm()).toBeEnabled();
-    });
+    expect(screen.queryByTestId('send-network-selector')).not.toBeInTheDocument();
   });
 
-  describe('callbacks', () => {
-    it('calls onAddressChange when the textarea changes', () => {
-      // Capture the value synchronously inside the handler: the textarea is
-      // controlled (value={address}), so React reverts the DOM value after the
-      // event and reading `event.target.value` afterwards would see ''.
-      let seenValue: string | undefined;
-      const onAddressChange = jest.fn((event: ChangeEvent<HTMLTextAreaElement>) => {
-        seenValue = event.target.value;
-      });
-      renderComponent({ onAddressChange });
-      fireEvent.change(getTextarea(), { target: { value: 'newaddr' } });
-      expect(onAddressChange).toHaveBeenCalledTimes(1);
-      expect(seenValue).toBe('newaddr');
-    });
+  it('enables EVM confirmation after Sepolia is selected', () => {
+    renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', network: 'sepolia' });
 
-    it('calls onAddressBook when the address-book button is clicked', () => {
-      const { props } = renderComponent();
-      fireEvent.click(screen.getByText('addressBook'));
-      expect(props.onAddressBook).toHaveBeenCalledTimes(1);
-    });
+    expect(screen.getByText('Sepolia')).toBeInTheDocument();
+    expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
+  });
 
-    it('calls onConfirm when the enabled confirm button is clicked', () => {
-      const { props } = renderComponent({ isValidAddress: true });
-      fireEvent.click(getConfirm());
-      expect(props.onConfirm).toHaveBeenCalledTimes(1);
-    });
+  it('hides the network block and allows a valid Miden recipient', () => {
+    renderRecipient({ address: MIDEN_ADDRESS, isValidAddress: true, chain: 'miden' });
+
+    expect(screen.queryByTestId('send-network-selector')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
   });
 });

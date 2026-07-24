@@ -14,11 +14,17 @@ describe('Miden and Ethereum address utilities', () => {
     expect(isValidMidenAddress('unknown1account')).toBe(false);
   });
 
-  it('validates complete Ethereum addresses after trimming whitespace', () => {
+  it('validates complete uniform-case Ethereum addresses after trimming whitespace', () => {
     const address = `0x${'a1'.repeat(20)}`;
     expect(isValidEthereumAddress(`  ${address}  `)).toBe(true);
+    expect(isValidEthereumAddress(`0x${'A1'.repeat(20)}`)).toBe(true);
     expect(isValidEthereumAddress('0x1234')).toBe(false);
     expect(isValidEthereumAddress(`0x${'z'.repeat(40)}`)).toBe(false);
+  });
+
+  it('requires a valid EIP-55 checksum for mixed-case Ethereum addresses', () => {
+    expect(isValidEthereumAddress('0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed')).toBe(true);
+    expect(isValidEthereumAddress('0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAeD')).toBe(false);
   });
 
   it('accepts either supported recipient-address format', () => {
