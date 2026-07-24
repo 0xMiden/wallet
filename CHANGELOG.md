@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.11 (TBD)
+
+### Features
+
+* [FEATURE][all] **Wallet prompt system on Home ported from the earn branch.** `lib/wallet-prompts` now drives every Home prompt type: fund-wallet faucet prompt (mints from forkchoice + the official Miden faucet API in parallel, with PoW solving in `lib/miden-chain/faucet-api`), an active-bridge prompt that polls in-flight `bridged-send` transactions (Agglayer claim readiness / Epoch intent fills) and links to the newest one's history details, the verify-seed-phrase prompt, and a mobile-only hot-key hardware-failure report prompt (native hot-key op failures are recorded via `secure-hot-key` and surfaced with a copy-error action). `PromptCard` gains an inline action CTA with loading/success/failure status; `PromptCarousel` gains a drag-vs-click guard and late-mount track measurement.
+
 ## 1.15.9 (TBD)
 
 ### Features

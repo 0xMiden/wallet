@@ -57,6 +57,14 @@ export const MIDEN_FAUCET_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:8080']
 ]);
 
+// REST API of the official faucet service — a different host from the
+// MIDEN_FAUCET_ENDPOINTS website (locally the API binds :8000, frontend :8080).
+export const MIDEN_FAUCET_API_ENDPOINTS = new Map<string, string>([
+  [MIDEN_NETWORK_NAME.TESTNET, 'https://faucet-api.testnet.miden.io'],
+  [MIDEN_NETWORK_NAME.DEVNET, 'https://faucet-api.devnet.miden.io'],
+  [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:8000']
+]);
+
 export const MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.TESTNET, 'https://transport.miden.io'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://transport.devnet.miden.io'],

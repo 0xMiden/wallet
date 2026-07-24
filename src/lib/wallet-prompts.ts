@@ -1,9 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { findClaimableMidenToEvmDeposit } from 'lib/agglayer';
+import { compareAccountIds } from 'lib/miden/activity/utils';
+import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import * as Repo from 'lib/miden/repo';
+import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
+import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 
 export enum WalletPromptType {
-  VerifySeedPhrase = 'verifySeedPhrase'
+  Bridge = 'bridge',
+  Faucet = 'faucet',
+  VerifySeedPhrase = 'verifySeedPhrase',
+  // Mobile-only: the native hot-key plugin could not use the device's secure
+  // hardware (TEE / Secure Enclave), so transactions can't be signed. Surfaced
+  // so the user can copy the raw native error and report it to us.
+  HotKeyHardwareUnavailable = 'hotKeyHardwareUnavailable'
 }
 
 export enum WalletPromptStatus {
@@ -26,6 +38,61 @@ export const EMPTY_WALLET_PROMPT_STORAGE: WalletPromptStorage = {
 
 const VALID_STATUSES = new Set<string>(Object.values(WalletPromptStatus));
 const VALID_TYPES = new Set<string>(Object.values(WalletPromptType));
+
+function isBridgePromptActive(tx: ITransaction): boolean {
+  if (tx.status === ITransactionStatus.Failed) return false;
+  if (tx.type !== 'bridged-send') return false;
+  if (tx.status !== ITransactionStatus.Completed) return true;
+
+  const inputs = tx.extraInputs as IBridgedSendExtraInputs;
+  return inputs.provider === 'epoch'
+    ? inputs.epochStatus !== 'confirmed' && inputs.epochStatus !== 'failed'
+    : inputs.claimStatus !== 'claimed' && inputs.claimStatus !== 'failed';
+}
+
+export async function fetchActiveBridgePrompts(accountId: string): Promise<ITransaction[]> {
+  const rows = await Repo.transactions
+    .filter(tx => tx.type === 'bridged-send' && compareAccountIds(tx.accountId, accountId))
+    .toArray();
+  return rows.filter(isBridgePromptActive).sort((left, right) => right.initiatedAt - left.initiatedAt);
+}
+
+async function pollBridgedSend(tx: ITransaction): Promise<void> {
+  if (tx.type !== 'bridged-send' || tx.status !== ITransactionStatus.Completed) return;
+  const inputs = tx.extraInputs as IBridgedSendExtraInputs;
+
+  if (inputs.provider === 'agglayer') {
+    if (inputs.claimStatus !== 'pending' || !inputs.destinationAddress) return;
+    const deposit = await findClaimableMidenToEvmDeposit(inputs.destinationAddress);
+    if (deposit) await updateBridgeClaimStatus(tx.id, 'ready', { depositReady: true });
+    return;
+  }
+
+  if (
+    inputs.epochStatus === 'confirmed' ||
+    inputs.epochStatus === 'failed' ||
+    !inputs.intentNonce ||
+    !inputs.destinationAddress
+  ) {
+    return;
+  }
+
+  const { pollEpochIntentFill } = await import('lib/epoch');
+  const fill = await pollEpochIntentFill({
+    destinationAddress: inputs.destinationAddress,
+    intentNonce: inputs.intentNonce
+  });
+  if (!fill || (!fill.fillTxHash && fill.status === 'pending')) return;
+  await updateBridgeClaimStatus(tx.id, 'not-applicable', {
+    epochStatus: fill.status,
+    fillTxHash: fill.fillTxHash,
+    fillChainId: fill.fillChainId
+  });
+}
+
+export async function pollActiveBridgePrompts(transactions: ITransaction[]): Promise<void> {
+  await Promise.all(transactions.filter(tx => tx.type === 'bridged-send').map(pollBridgedSend));
+}
 
 export function normalizeWalletPromptStorage(value: unknown): WalletPromptStorage {
   if (!value || typeof value !== 'object') {
@@ -95,12 +162,77 @@ export const dismissWalletPrompt = (type: WalletPromptType) =>
 export const completeWalletPrompt = (type: WalletPromptType) =>
   setWalletPromptStatus(type, WalletPromptStatus.Completed);
 
+// -- Hot-key hardware failure report --------------------------------------
+//
+// When native hot-key signing fails because the device's secure hardware is
+// unusable, we stash the raw native error string alongside seeding the
+// HotKeyHardwareUnavailable prompt, so the prompt's "Copy error" action has
+// something concrete to hand back to us. Kept in its own storage key rather
+// than on WalletPromptStorage so the prompt-status shape stays a plain
+// type→status map.
+
+export const HOT_KEY_HARDWARE_ERROR_STORAGE_KEY = 'hot_key_hardware_error_v1';
+
+export type HotKeyHardwareErrorRecord = {
+  message: string;
+};
+
+export async function fetchHotKeyHardwareError(): Promise<HotKeyHardwareErrorRecord | null> {
+  const raw = await fetchFromStorage(HOT_KEY_HARDWARE_ERROR_STORAGE_KEY);
+  if (!raw || typeof raw !== 'object') return null;
+  const message = Reflect.get(raw, 'message');
+  return typeof message === 'string' ? { message } : null;
+}
+
+/**
+ * Record a native hot-key hardware failure and surface the report prompt.
+ * Called (via a lazy import) from the secure-hot-key facade on mobile when a
+ * native op rejects with the HARDWARE_UNAVAILABLE code. `seedWalletPrompt`
+ * respects an earlier dismiss/complete, so we don't re-nag a user who already
+ * acknowledged it.
+ */
+export async function reportHotKeyHardwareFailure(message: string): Promise<void> {
+  await putToStorage(HOT_KEY_HARDWARE_ERROR_STORAGE_KEY, { message });
+  await seedWalletPrompt(WalletPromptType.HotKeyHardwareUnavailable);
+}
+
+const FAUCET_API_URL = 'https://faucet-api.forkchoice.xyz/api/mint';
+// 10 IMIDEN in base units (8 decimals).
+const IMIDEN_FAUCET_AMOUNT = 1_000_000_000;
+// 100 MIDEN in base units (6 decimals).
+const MIDEN_FAUCET_AMOUNT = 100_000_000n;
+
+async function mintFromForkchoice(address: string): Promise<void> {
+  const response = await fetch(FAUCET_API_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      token: 'IMIDEN',
+      address,
+      amount: IMIDEN_FAUCET_AMOUNT,
+      note_type: 'public'
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Faucet request failed with status ${response.status}`);
+  }
+}
+
+export async function faucet(address: string): Promise<void> {
+  await Promise.all([mintFromForkchoice(address), mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT)]);
+}
+
 export function useWalletPromptStorage() {
   const [storage, setStorage] = useState<WalletPromptStorage>(EMPTY_WALLET_PROMPT_STORAGE);
+  const [isLoaded, setIsLoaded] = useState(false);
 
   const refreshPrompts = useCallback(async () => {
     const nextStorage = await fetchWalletPromptStorage();
     setStorage(nextStorage);
+    setIsLoaded(true);
     return nextStorage;
   }, []);
 
@@ -109,7 +241,10 @@ export function useWalletPromptStorage() {
 
     fetchWalletPromptStorage()
       .then(nextStorage => {
-        if (!cancelled) setStorage(nextStorage);
+        if (!cancelled) {
+          setStorage(nextStorage);
+          setIsLoaded(true);
+        }
       })
       .catch(error => {
         console.warn('[wallet-prompts] failed to refresh prompts:', error);
@@ -155,6 +290,7 @@ export function useWalletPromptStorage() {
 
   return {
     storage,
+    isLoaded,
     refreshPrompts,
     setPromptStatus,
     dismissPrompt,

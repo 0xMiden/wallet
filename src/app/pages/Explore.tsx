@@ -39,7 +39,10 @@ const Explore: FC = () => {
   const midenFaucetId = useMidenFaucetId();
   const { signTransaction } = useMidenContext();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
-  const { data: allTokenBalances = [] } = useAllBalances(account.publicKey, allTokensBaseMetadata);
+  const { data: allTokenBalances = [], isLoading: balancesLoading } = useAllBalances(
+    account.publicKey,
+    allTokensBaseMetadata
+  );
   const tokenPrices = useWalletStore(s => s.tokenPrices);
 
   const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(account.publicKey);
@@ -146,10 +149,12 @@ const Explore: FC = () => {
           <HomeOverview
             address={address}
             tokenPrices={tokenPrices}
+            balances={allTokenBalances}
             filteredTokens={filteredTokens}
             search={search}
             onSearchChange={setSearch}
             account={account}
+            balancesLoading={balancesLoading}
           />
         </div>
       </div>
@@ -162,19 +167,23 @@ export default Explore;
 interface HomeOverviewProps {
   address: string;
   tokenPrices: TokenPrices;
+  balances: TokenBalanceData[];
   filteredTokens: TokenBalanceData[];
   search: string;
   onSearchChange: (v: string) => void;
   account: WalletAccount;
+  balancesLoading: boolean;
 }
 
 const HomeOverview: FC<HomeOverviewProps> = ({
   address,
   tokenPrices,
+  balances,
   filteredTokens,
   search,
   onSearchChange,
-  account
+  account,
+  balancesLoading
 }) => {
   const [accountsOpen, setAccountsOpen] = useState(false);
   const { t } = useTranslation();
@@ -195,7 +204,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
 
       <AccountsDrawer open={accountsOpen} onOpenChange={setAccountsOpen} />
 
-      <HomePrompts account={account} />
+      <HomePrompts account={account} balances={balances} balancesLoading={balancesLoading} />
 
       <div className="flex items-center justify-between pt-2">
         <span className="text-2xl font-bold text-text-primary-token">{t('assets')}</span>
