@@ -27,6 +27,25 @@ const sizeConfig = {
 
 const whiteIconClass = 'text-pure-white [&_path]:fill-pure-white';
 
+/** Shared accent used by both the transaction glyph and detail-section dividers. */
+export const getTransactionIconBackgroundColor = (entry: IHistoryEntry): string => {
+  if (entry.txType === 'bridged-send' || entry.bridgeInProvider) {
+    return bridgeStatusOf(entry) === 'failed' ? '#CC5D5D' : BRIDGE_ICON_BG;
+  }
+
+  if (isFaucetRequest(entry)) return TRANSACTION_COLORS.faucet;
+
+  switch (entry.transactionIcon) {
+    case 'SEND':
+      return TRANSACTION_COLORS.send;
+    case 'SWAP':
+      return 'var(--tx-swap)';
+    case 'RECEIVE':
+    default:
+      return TRANSACTION_COLORS.receive;
+  }
+};
+
 const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
   const config = sizeConfig[size];
   const isPending =

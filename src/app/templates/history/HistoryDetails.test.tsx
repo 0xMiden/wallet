@@ -123,7 +123,8 @@ jest.mock('./DetailCard', () => ({
 
 jest.mock('./TransactionIcon', () => ({
   __esModule: true,
-  default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />
+  default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />,
+  getTransactionIconBackgroundColor: () => '#91ACC1'
 }));
 
 // The branch adds the EVM bridge claim panel to history details. Stub it here
@@ -254,9 +255,9 @@ describe('HistoryDetails', () => {
       mockGetTransactionById.mockResolvedValue({ ...baseSendTx });
       await renderAndLoad();
 
-      // Amount + token from the top section.
-      expect(screen.getByText('1000')).toBeInTheDocument();
-      expect(screen.getByText('MID')).toBeInTheDocument();
+      // Amount + token now share the summary badge's left side.
+      expect(screen.getByText('1000 MID')).toBeInTheDocument();
+      expect(screen.getByText('acct-B')).toBeInTheDocument();
       // Fiat: |1000| * price(2) => 2000.00.
       expect(screen.getByText('≈ $2000.00 USD')).toBeInTheDocument();
 
@@ -282,9 +283,13 @@ describe('HistoryDetails', () => {
       expect(toChip).toHaveAttribute('data-address', 'acct-B');
       expect(toChip).toHaveAttribute('data-displayname', 'you (Other)');
 
-      // Notes section: created count = outputNoteIds length; noteType truthy => 'on'.
+      // Notes section: created count = outputNoteIds length.
       expect(rowByLabel('created')?.textContent).toBe('1');
-      expect(rowByLabel('Note')?.textContent).toBe('on');
+
+      // Transfer details and Notes are separated using the transaction icon accent.
+      const dividers = screen.getAllByTestId('history-section-divider');
+      expect(dividers).toHaveLength(2);
+      dividers.forEach(divider => expect(divider).toHaveStyle({ backgroundColor: '#91ACC1' }));
 
       // Not a swap → no order-tracking card.
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
@@ -305,7 +310,6 @@ describe('HistoryDetails', () => {
         transactionId: undefined, // no external tx id row
         amount: 0n, // falsy → amount undefined → no amount span / no fiat
         faucetId: undefined, // no metadata → token undefined
-        noteType: undefined, // notes 'off' branch
         outputNoteIds: ['note-x'] // still has note data
       });
       await renderAndLoad();
@@ -321,15 +325,12 @@ describe('HistoryDetails', () => {
       expect(rowByLabel('txIdLabel')).toBeUndefined();
       // No amount span (amount undefined) → fiat also absent.
       expect(screen.queryByText('≈ $2000.00 USD')).not.toBeInTheDocument();
-      // noteType falsy → 'off'.
-      expect(rowByLabel('Note')?.textContent).toBe('off');
     });
 
     it('hides the notes section entirely when there is no note data', async () => {
       mockGetTransactionById.mockResolvedValue({ ...baseSendTx, outputNoteIds: undefined });
       await renderAndLoad();
       expect(rowByLabel('created')).toBeUndefined();
-      expect(rowByLabel('Note')).toBeUndefined();
     });
 
     it('treats a present-but-empty-first note id as note data via the outputNoteIds branch', async () => {
@@ -346,8 +347,8 @@ describe('HistoryDetails', () => {
       mockGetTransactionById.mockResolvedValue({ ...baseSendTx });
       await renderAndLoad();
 
-      // formatDisplayAmount('NaN') → non-finite → returns 'NaN' verbatim.
-      expect(screen.getByText('NaN')).toBeInTheDocument();
+      // The shared summary badge preserves the formatter's non-finite output.
+      expect(screen.getByText('NaN MID')).toBeInTheDocument();
       // formatFiatDisplayAmount → non-finite → undefined → no fiat line.
       expect(screen.queryByText(/USD/)).not.toBeInTheDocument();
     });

@@ -9,6 +9,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { getTransactionById, trackOrderId, SwapOrderState, SwapOrderTracking } from 'lib/miden/activity';
+import { ITransaction } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
@@ -18,13 +19,17 @@ import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { goBack } from 'lib/woozie';
+import {
+  TransactionSummaryBadge,
+  useTransactionSummaryBadgeContent
+} from 'screens/generating-transaction/TransactionSummaryBadge';
 
 import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
 import { IHistoryEntry } from './IHistoryEntry';
-import TransactionIcon from './TransactionIcon';
+import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
 import { BRIDGE_STATUS_LABEL_KEY, bridgeRowDisplay, bridgeStatusOf, formatDate } from './transactionUtils';
 
 interface HistoryDetailsProps {
@@ -46,6 +51,14 @@ interface RequestedTokenInfo {
 }
 
 const DISPLAY_DECIMAL_PLACES = 3;
+
+const SectionDivider: FC<{ color: string }> = ({ color }) => (
+  <div
+    data-testid="history-section-divider"
+    className="h-1 w-full shrink-0 rounded-full"
+    style={{ backgroundColor: color }}
+  />
+);
 
 /** Bridge hero amounts: "IN → OUT" with the destination token greyed, matching the activity row. */
 const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
@@ -144,6 +157,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const account = useAccount();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
+  const [transaction, setTransaction] = useState<ITransaction | undefined>();
+  const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Swap order tracking: the orderId is persisted on the swap tx's extraInputs
   // by `completeSwapTransaction`; the live lineage is fetched via `trackOrderId`.
@@ -194,6 +209,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         }
       }
 
+      setTransaction(tx);
       setEntry(historyEntry);
     } catch (error) {
       console.error('[HistoryDetails] Failed to load transaction:', error);
@@ -297,6 +313,20 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     entry?.amount !== undefined && entry.token
       ? formatFiatDisplayAmount(entry.amount, entry.token, tokenPrices)
       : undefined;
+  // The shared badge resolves its own amounts from the raw tx; for the types
+  // whose hero already reads as "amount token → recipient" we override the left
+  // side with the formatted history amount so both views agree.
+  const historySummaryBadgeContent =
+    transactionSummaryBadgeContent &&
+    entry?.amount !== undefined &&
+    entry.token &&
+    (entry.txType === 'send' || entry.txType === 'bridged-send')
+      ? {
+          ...transactionSummaryBadgeContent,
+          lhs: `${formatDisplayAmount(entry.amount)} ${entry.token}`
+        }
+      : transactionSummaryBadgeContent;
+  const sectionDividerColor = entry ? getTransactionIconBackgroundColor(entry) : 'transparent';
 
   return (
     <PageLayout hideToolbar>
@@ -316,7 +346,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             {/* Top Section — a bridge reads "IN → OUT" across the two chains. */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
               <TransactionIcon entry={entry} size="lg" />
-              {isBridge ? (
+              {historySummaryBadgeContent ? (
+                <TransactionSummaryBadge {...historySummaryBadgeContent} className="mt-2" />
+              ) : isBridge ? (
                 <BridgeHeroAmounts entry={entry} />
               ) : (
                 <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
@@ -334,95 +366,114 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
             {/* Transfer Details */}
             <div className="mt-4">
-              <DetailCard title={t('transferDetails')}>
-                <DetailRow label={t('date')}>
-                  <span className="text-sm text-heading-gray font-medium">{formatDate(entry.timestamp)}</span>
-                </DetailRow>
-
-                {entry.externalTxId && (
-                  <DetailRow label={t('txIdLabel')}>
-                    <ExternalLinkValue
-                      displayValue={
-                        <HashChip hash={entry.externalTxId} trimHash fill="#9E9E9E" className="ml-2" copyIcon={false} />
-                      }
-                      href={`https://testnet.midenscan.com/tx/${entry.externalTxId}`}
-                    />
+              <SectionDivider color={sectionDividerColor} />
+              <div className="mt-5">
+                <DetailCard title={t('transferDetails')}>
+                  <DetailRow label={t('date')}>
+                    <span className="text-sm text-heading-gray font-medium">{formatDate(entry.timestamp)}</span>
                   </DetailRow>
-                )}
 
-                {fromAddress && (
-                  <DetailRow label={t('from')}>
-                    <ExternalLinkValue
-                      displayValue={
-                        <AccountDisplay address={fromAddress} account={account} allAccounts={allAccounts} />
-                      }
-                      href={`https://testnet.midenscan.com/account/${fromAddress}`}
-                    />
-                  </DetailRow>
-                )}
+                  {entry.externalTxId && (
+                    <DetailRow label={t('txIdLabel')}>
+                      <ExternalLinkValue
+                        displayValue={
+                          <HashChip
+                            hash={entry.externalTxId}
+                            trimHash
+                            fill="#9E9E9E"
+                            className="ml-2"
+                            copyIcon={false}
+                          />
+                        }
+                        href={`https://testnet.midenscan.com/tx/${entry.externalTxId}`}
+                      />
+                    </DetailRow>
+                  )}
 
-                {toAddress && (
-                  <DetailRow label={t('to')} isLast>
-                    <ExternalLinkValue
-                      displayValue={<AccountDisplay address={toAddress} account={account} allAccounts={allAccounts} />}
-                      href={`https://testnet.midenscan.com/account/${toAddress}`}
-                    />
-                  </DetailRow>
-                )}
-              </DetailCard>
+                  {fromAddress && (
+                    <DetailRow label={t('from')}>
+                      <ExternalLinkValue
+                        displayValue={
+                          <AccountDisplay address={fromAddress} account={account} allAccounts={allAccounts} />
+                        }
+                        href={`https://testnet.midenscan.com/account/${fromAddress}`}
+                      />
+                    </DetailRow>
+                  )}
+
+                  {toAddress && (
+                    <DetailRow label={t('to')} isLast>
+                      <ExternalLinkValue
+                        displayValue={
+                          <AccountDisplay address={toAddress} account={account} allAccounts={allAccounts} />
+                        }
+                        href={`https://testnet.midenscan.com/account/${toAddress}`}
+                      />
+                    </DetailRow>
+                  )}
+                </DetailCard>
+              </div>
             </div>
 
             {/* Bridge route + EVM-side claim (bridged-send only) */}
-            {isBridge && <BridgeClaimSection entry={entry} onUpdated={loadTransaction} />}
+            {isBridge && (
+              <>
+                <div className="mt-6">
+                  <SectionDivider color={sectionDividerColor} />
+                </div>
+                <BridgeClaimSection entry={entry} onUpdated={loadTransaction} />
+              </>
+            )}
 
             {/* Swap order tracking */}
             {entry.txType === 'swap' && orderId != null && (
               <div className="mt-6" data-testid="swap-order-card">
-                <DetailCard title={t('orderTracking')}>
-                  <DetailRow label={t('orderStatus')} isLast={!swapTracking}>
-                    {swapTracking ? (
-                      <span data-testid="swap-order-status" className="text-sm text-heading-gray font-medium">
-                        {orderStatusLabel(swapTracking.state)}
-                      </span>
-                    ) : (
-                      <span className="text-sm text-text-muted font-medium">
-                        {trackingLoading ? t('loading') : t('trackingUnavailable')}
-                      </span>
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailCard title={t('orderTracking')}>
+                    <DetailRow label={t('orderStatus')} isLast={!swapTracking}>
+                      {swapTracking ? (
+                        <span data-testid="swap-order-status" className="text-sm text-heading-gray font-medium">
+                          {orderStatusLabel(swapTracking.state)}
+                        </span>
+                      ) : (
+                        <span className="text-sm text-text-muted font-medium">
+                          {trackingLoading ? t('loading') : t('trackingUnavailable')}
+                        </span>
+                      )}
+                    </DetailRow>
+                    {swapTracking && (
+                      <DetailRow label={t('fillRounds')} isLast={!requestedToken}>
+                        <span data-testid="swap-order-fill-rounds" className="text-sm text-heading-gray font-medium">
+                          {swapTracking.currentDepth}
+                        </span>
+                      </DetailRow>
                     )}
-                  </DetailRow>
-                  {swapTracking && (
-                    <DetailRow label={t('fillRounds')} isLast={!requestedToken}>
-                      <span data-testid="swap-order-fill-rounds" className="text-sm text-heading-gray font-medium">
-                        {swapTracking.currentDepth}
-                      </span>
-                    </DetailRow>
-                  )}
-                  {swapTracking && requestedToken && (
-                    <DetailRow label={t('amountFilled')} isLast>
-                      <span data-testid="swap-order-amount-filled" className="text-sm text-heading-gray font-medium">
-                        {formatAmount(filledRequested ?? 0n, requestedToken.decimals)} /{' '}
-                        {formatAmount(requestedToken.amount, requestedToken.decimals)}
-                        {requestedToken.symbol ? ` ${requestedToken.symbol}` : ''}
-                      </span>
-                    </DetailRow>
-                  )}
-                </DetailCard>
+                    {swapTracking && requestedToken && (
+                      <DetailRow label={t('amountFilled')} isLast>
+                        <span data-testid="swap-order-amount-filled" className="text-sm text-heading-gray font-medium">
+                          {formatAmount(filledRequested ?? 0n, requestedToken.decimals)} /{' '}
+                          {formatAmount(requestedToken.amount, requestedToken.decimals)}
+                          {requestedToken.symbol ? ` ${requestedToken.symbol}` : ''}
+                        </span>
+                      </DetailRow>
+                    )}
+                  </DetailCard>
+                </div>
               </div>
             )}
 
             {/* Notes */}
             {hasNoteData && (
               <div className="mt-6 mb-4">
-                <DetailCard title={t('notesSection')}>
-                  <DetailRow label={t('created')}>
-                    <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
-                  </DetailRow>
-                  <DetailRow label="Note" isLast>
-                    <span className={`text-sm font-medium ${entry.noteType ? 'text-[#E8913A]' : 'text-text-muted'}`}>
-                      {entry.noteType ? t('on') : t('off')}
-                    </span>
-                  </DetailRow>
-                </DetailCard>
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailCard title={t('notesSection')}>
+                    <DetailRow label={t('created')} isLast>
+                      <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
+                    </DetailRow>
+                  </DetailCard>
+                </div>
               </div>
             )}
           </div>
