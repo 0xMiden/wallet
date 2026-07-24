@@ -18,7 +18,14 @@ import {
  * crediting the fill and restoring the unfilled 6 SWPA.
  */
 test.describe('swap: partial fill + remainder', () => {
-  test.describe.configure({ mode: 'serial' });
+  // This is the only swap spec that has to sit through the fixed two-minute
+  // order expiry on top of the usual fund → create → fill → settle work the
+  // other specs do (they finish in ~3.3m). Its own settlement budgets already
+  // add up to 540s (90 + 90 + 180 + 90 + 90), so the shared 300s per-test cap
+  // from playwright.e2e.config.ts cut the expiry poll off mid-flight and the
+  // order was still reported `active`. The job budget is 45 min and the whole
+  // suite runs in ~26m, so there is ample room for this one long test.
+  test.describe.configure({ mode: 'serial', timeout: 720_000 });
 
   const OFFER_BASE = '1000000000'; // 10 SWPA
   const REQUEST_BASE = '1000000000'; // 10 SWPB
