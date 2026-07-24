@@ -517,6 +517,73 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   });
 });
 
+describe('HistoryView token-scoped swap rows', () => {
+  const swapEntry = makeEntry({
+    key: 'swap-scoped',
+    transactionIcon: 'SWAP',
+    txType: 'swap',
+    token: 'MDN',
+    faucetId: 'offered-faucet',
+    requestedToken: 'ETH',
+    requestedFaucetId: 'requested-faucet',
+    requestedAmount: '0.5',
+    amount: 10n,
+    txId: 'tx-swap-scoped'
+  });
+
+  const renderScoped = (tokenId?: string) =>
+    render(<HistoryView {...baseProps} entries={[swapEntry]} fullHistory tokenId={tokenId} />);
+
+  it('signs the offered side negative on the offered token page', () => {
+    renderScoped('offered-faucet');
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-amount-value', '-10');
+    expect(row).toHaveAttribute('data-amount-symbol', 'MDN');
+    expect(row).toHaveAttribute('data-amount-direction', 'negative');
+  });
+
+  it('signs the requested side positive on the requested token page', () => {
+    renderScoped('requested-faucet');
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-amount-value', '+0.5');
+    expect(row).toHaveAttribute('data-amount-symbol', 'ETH');
+    expect(row).toHaveAttribute('data-amount-direction', 'positive');
+  });
+
+  it('keeps the unsigned requested side on the unscoped activity list', () => {
+    renderScoped(undefined);
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-amount-value', '0.5');
+    expect(row).toHaveAttribute('data-amount-direction', 'neutral');
+  });
+
+  it('falls back to the unscoped rendering when the token matches neither side', () => {
+    renderScoped('unrelated-faucet');
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-amount-value', '0.5');
+    expect(row).toHaveAttribute('data-amount-direction', 'neutral');
+  });
+
+  it('falls through when the scoped side has no amount to show', () => {
+    const noOffered = makeEntry({
+      key: 'swap-no-offered',
+      transactionIcon: 'SWAP',
+      txType: 'swap',
+      token: 'MDN',
+      faucetId: 'offered-faucet',
+      requestedToken: 'ETH',
+      requestedFaucetId: 'requested-faucet',
+      requestedAmount: '0.5',
+      amount: undefined,
+      txId: 'tx-swap-no-offered'
+    });
+    render(<HistoryView {...baseProps} entries={[noOffered]} fullHistory tokenId="offered-faucet" />);
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-amount-value', '0.5');
+    expect(row).toHaveAttribute('data-amount-direction', 'neutral');
+  });
+});
+
 describe('HistoryView infinite scroll wiring', () => {
   const twoEntries = [
     makeEntry({ key: 'a', message: 'A', txId: 'txa', transactionIcon: 'SEND', amount: 1n, token: 'MDN' }),

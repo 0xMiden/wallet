@@ -132,6 +132,7 @@ const History = memo<HistoryProps>(
         loadMore={loadMore}
         hasMore={hasMore}
         scrollParentRef={scrollParentRef}
+        tokenId={tokenId}
         fullHistory={fullHistory}
         centerEmptyState={centerEmptyState}
         className={className}
@@ -170,6 +171,7 @@ async function fetchTransactionsAsHistoryEntries(
       token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
       requestedAmount: swapFields?.requestedAmount,
       requestedToken: swapFields?.requestedToken,
+      requestedFaucetId: swapFields?.requestedFaucetId,
       swapSettlement: swapSettlementOf(tx),
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
@@ -220,6 +222,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
       requestedAmount: swapFields?.requestedAmount,
       requestedToken: swapFields?.requestedToken,
+      requestedFaucetId: swapFields?.requestedFaucetId,
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,

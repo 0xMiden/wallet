@@ -22,6 +22,8 @@ export interface SwapHistoryFields {
   /** Requested side — what the activity row shows on the right. */
   requestedAmount?: string;
   requestedToken?: string;
+  /** Requested-side faucet, so a token-scoped view can tell which side it is. */
+  requestedFaucetId?: string;
 }
 
 /**
@@ -41,7 +43,8 @@ export const resolveSwapHistoryFields = async (tx: ITransaction): Promise<SwapHi
     token: offered.symbol,
     requestedAmount:
       extra.requestedAmount !== undefined ? formatAmount(extra.requestedAmount, requested.decimals) : undefined,
-    requestedToken: requested.symbol
+    requestedToken: requested.symbol,
+    requestedFaucetId: extra.requestedFaucetId
   };
 };
 

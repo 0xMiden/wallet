@@ -27,6 +27,8 @@ type HistoryViewProps = {
   loadMore: (page: number) => Promise<void>;
   hasMore: boolean;
   scrollParentRef?: RefObject<HTMLDivElement>;
+  /** Set on a token-scoped view (Token Detail); signs swap rows by side. */
+  tokenId?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
   className?: string;
@@ -59,7 +61,11 @@ const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
 // Map an IHistoryEntry to the visual props ActivityRow expects: icon glyph,
 // colored square background, amount string with sign, and status pill (dot +
 // label). Faucet requests get their own dark-blue glyph regardless of icon.
-function buildRowProps(entry: IHistoryEntry, t: (k: string, opts?: Record<string, unknown>) => string) {
+function buildRowProps(
+  entry: IHistoryEntry,
+  t: (k: string, opts?: Record<string, unknown>) => string,
+  tokenId?: string
+) {
   // Bridge rows get a dedicated swap-style layout: "Bridge IN → OUT" / "Via
   // <provider> → <network>" / output amount / status dot. The Miden-side icon
   // (SEND) and signed amount don't apply. Bridge-in consumes (auto-consumed
@@ -136,8 +142,26 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string, opts?: Record<string
       ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
       : undefined;
 
+  // A swap row shows up in BOTH sides' token-scoped histories. On such a page
+  // the row is read as a movement of *that* token, so show the matching side
+  // and sign it: the offered token left the wallet, the requested one arrived.
+  // The unscoped activity list has no side to privilege, so it keeps showing
+  // the requested amount unsigned.
+  const swapSide =
+    isSwap && tokenId
+      ? tokenId === entry.requestedFaucetId
+        ? 'requested'
+        : tokenId === entry.faucetId
+          ? 'offered'
+          : undefined
+      : undefined;
+
   let amount: { value: string; symbol?: string; direction: 'positive' | 'negative' | 'neutral' } | undefined;
-  if (isSwap && entry.requestedAmount) {
+  if (swapSide === 'requested' && entry.requestedAmount) {
+    amount = { value: `+${entry.requestedAmount}`, symbol: entry.requestedToken, direction: 'positive' };
+  } else if (swapSide === 'offered' && entry.amount !== undefined) {
+    amount = { value: `-${entry.amount.toString()}`, symbol: entry.token, direction: 'negative' };
+  } else if (isSwap && entry.requestedAmount) {
     amount = { value: entry.requestedAmount, symbol: entry.requestedToken, direction: 'neutral' };
   } else if (entry.amount !== undefined) {
     const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
@@ -183,7 +207,17 @@ function shortAddr(addr: string): string {
 }
 
 const HistoryView = memo<HistoryViewProps>(
-  ({ entries, initialLoading, loadMore, hasMore, scrollParentRef, fullHistory, centerEmptyState, className }) => {
+  ({
+    entries,
+    initialLoading,
+    loadMore,
+    hasMore,
+    scrollParentRef,
+    tokenId,
+    fullHistory,
+    centerEmptyState,
+    className
+  }) => {
     const { t } = useTranslation();
     const noEntries = entries.length === 0;
     const noOperationsClass = fullHistory
@@ -239,7 +273,7 @@ const HistoryView = memo<HistoryViewProps>(
             <DateSeparator dateMs={dateMs} />
             <div className="flex flex-col divide-y divide-rule-default dark:divide-pure-white">
               {dateEntries.map(entry => {
-                const props = buildRowProps(entry, t);
+                const props = buildRowProps(entry, t, tokenId);
                 return (
                   <ActivityRow
                     key={entry.key}
