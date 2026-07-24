@@ -117,12 +117,30 @@ const makeResult = () => ({
   serialize: () => new Uint8Array([9, 9, 9])
 });
 
-const makeTransactionsApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(async () => {})) => ({
-  executeRequest: jest.fn(async () => result),
-  prove: jest.fn(async () => ({ proved: true })),
-  submitProven: jest.fn(async (_proven?: unknown, _executed?: unknown) => ({ blockNumber: 1 })),
-  apply
-});
+const makeTransactionsApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(async () => {})) => {
+  const prove = jest.fn(async (..._args: unknown[]) => ({ proved: true }));
+  const submitProven = jest.fn(async (_proven?: unknown, _executed?: unknown) => ({ blockNumber: 1 }));
+  const executeRequest = jest.fn(async () => ({
+    id: result.executedTransaction().id(),
+    result,
+    prove: async (options?: unknown) => {
+      const proof = await prove(result, options);
+      return {
+        proof,
+        result,
+        submit: async () => {
+          const submission = await submitProven(proof, result);
+          return {
+            ...submission,
+            result,
+            apply
+          };
+        }
+      };
+    }
+  }));
+  return { executeRequest, prove, submitProven, apply };
+};
 
 const makeClientApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(async () => {})) => {
   const transactions = makeTransactionsApi(result, apply);

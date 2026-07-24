@@ -700,29 +700,23 @@ describe('generateTransaction execute + consume default switch arms', () => {
 
     const sdk = require('../sdk/miden-client');
     const origGetClient = sdk.getMidenClient;
+    const apply = jest.fn(async () => {});
     const guardianTxApi = {
-      executeRequest: jest.fn(async () => fullResult),
-      prove: jest.fn(async () => ({ proved: true })),
-      submitProven: jest.fn(async (_proven?: unknown, _executed?: unknown) => ({ blockNumber: 1 })),
-      apply: jest.fn(async () => {})
+      // Guardian submit drives the high-level SDK chain
+      // (executeRequest -> prove -> submit -> apply) and destructures
+      // `{ id, result }` off the executed transaction; mirror
+      // `makeTransactionsApi` in transactions.guardian.test.ts.
+      executeRequest: jest.fn(async () => ({
+        id: { toHex: () => 'guardian-consume-hash' },
+        result: fullResult,
+        prove: async () => ({
+          submit: async () => ({ blockNumber: 1, result: fullResult, apply })
+        })
+      }))
     };
     sdk.getMidenClient = async () => ({
       syncState: jest.fn(async () => {}),
-      client: {
-        transactions: guardianTxApi,
-        // Guardian submit runs through the manual `_withInnerWebClient` path
-        // (execute -> prove -> submit -> apply); mirror `makeClientApi` in
-        // transactions.guardian.test.ts so this consume completes.
-        _withInnerWebClient: jest.fn(async (fn: (inner: any) => Promise<unknown>) =>
-          fn({
-            executeTransaction: guardianTxApi.executeRequest,
-            proveTransaction: guardianTxApi.prove,
-            submitProvenTransaction: async (proven: unknown, executed: unknown) =>
-              (await guardianTxApi.submitProven(proven, executed)).blockNumber,
-            applyTransaction: guardianTxApi.apply
-          })
-        )
-      }
+      client: { transactions: guardianTxApi }
     });
     try {
       // A real GuardianAccountProvider always implements getAccounts (the
