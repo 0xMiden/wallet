@@ -1,5 +1,12 @@
 import { expect, test } from '../../fixtures/two-wallets';
-import { createSwapOrder, fillSwapOrder, fundSwapPair, readLineage, tokenBalance } from '../../helpers/swap';
+import {
+  createSwapOrder,
+  fillSwapOrder,
+  fundSwapPair,
+  readLineage,
+  tokenBalance,
+  triggerSwapAutoConsume
+} from '../../helpers/swap';
 
 /**
  * Scenario 3.3 — partial fill + remainder.
@@ -78,7 +85,13 @@ test.describe('swap: partial fill + remainder', () => {
 
     // Settlement 3: expiry reclaims the active remainder without Claim All.
     await expect
-      .poll(async () => (await readLineage(walletA, orderId)).state, { timeout: 180_000, intervals: [3000] })
+      .poll(
+        async () => {
+          await triggerSwapAutoConsume(walletA);
+          return (await readLineage(walletA, orderId)).state;
+        },
+        { timeout: 180_000, intervals: [3000] }
+      )
       .toBe('reclaimed');
 
     // The single expiry batch claims every accumulated payback...

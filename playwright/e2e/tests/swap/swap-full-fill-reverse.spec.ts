@@ -1,5 +1,12 @@
 import { expect, test } from '../../fixtures/two-wallets';
-import { createSwapOrder, fillSwapOrder, fundSwapPair, readLineage, tokenBalance } from '../../helpers/swap';
+import {
+  createSwapOrder,
+  fillSwapOrder,
+  fundSwapPair,
+  readLineage,
+  tokenBalance,
+  triggerSwapAutoConsume
+} from '../../helpers/swap';
 
 /**
  * Scenario 3.2 — full fill, maker B → taker A (the reverse direction of 3.1).
@@ -68,10 +75,13 @@ test.describe('swap: full fill B→A', () => {
 
     // Settlement 3: maker B's hidden payback is consumed by the swap lifecycle.
     await expect
-      .poll(async () => (await tokenBalance(walletB, b.address, pair.request.faucetId)).toString(), {
-        timeout: 90_000,
-        intervals: [3000]
-      })
+      .poll(
+        async () => {
+          await triggerSwapAutoConsume(walletB);
+          return (await tokenBalance(walletB, b.address, pair.request.faucetId)).toString();
+        },
+        { timeout: 90_000, intervals: [3000] }
+      )
       .toBe(REQUEST_BASE);
   });
 });

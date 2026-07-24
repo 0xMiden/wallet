@@ -1,5 +1,12 @@
 import { expect, test } from '../../fixtures/two-wallets';
-import { createSwapOrder, fillSwapOrder, fundSwapPair, readLineage, tokenBalance } from '../../helpers/swap';
+import {
+  createSwapOrder,
+  fillSwapOrder,
+  fundSwapPair,
+  readLineage,
+  tokenBalance,
+  triggerSwapAutoConsume
+} from '../../helpers/swap';
 
 // Endpoint of the guardian spawned by the CI job / local stack (--profile
 // guardian). Matches guardian-send-consume.spec.ts.
@@ -96,10 +103,13 @@ test.describe('swap: guardian maker full fill', () => {
     // Settlement 3: the swap lifecycle batches the hidden payback and the
     // guardian co-signs that background consume.
     await expect
-      .poll(async () => (await tokenBalance(walletA, a.address, pair.request.faucetId)).toString(), {
-        timeout: 120_000,
-        intervals: [4000]
-      })
+      .poll(
+        async () => {
+          await triggerSwapAutoConsume(walletA);
+          return (await tokenBalance(walletA, a.address, pair.request.faucetId)).toString();
+        },
+        { timeout: 120_000, intervals: [4000] }
+      )
       .toBe(REQUEST_BASE);
   });
 });
