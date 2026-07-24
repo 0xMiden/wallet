@@ -178,26 +178,6 @@
     "message": "No hay vista previa disponible",
     "englishSource": "No preview is available"
   },
-  "requirements": {
-    "message": "<b>Requisitos:</b>",
-    "englishSource": "<b>Requirements:</b>"
-  },
-  "atLeast8Characters": {
-    "message": "Al menos 8 caracteres: cuantos más caracteres, mejor.",
-    "englishSource": "At least 8 characters - the more characters, the better."
-  },
-  "mixtureOfUppercaseAndLowercaseLetters": {
-    "message": "Una mezcla de letras mayúsculas y minúsculas.",
-    "englishSource": "A mixture of both uppercase and lowercase letters."
-  },
-  "mixtureOfLettersAndNumbers": {
-    "message": "Una mezcla de letras y números.",
-    "englishSource": "A mixture of letters and numbers."
-  },
-  "atLeast1SpecialCharacter": {
-    "message": "Inclusión de al menos un carácter especial, por ejemplo, ! @",
-    "englishSource": "Inclusion of at least one special character, e.g., ! @ # ? ] - (optional, recommended)."
-  },
   "mnemonicWordsAmountConstraint": {
     "message": "12, 15, 18, 21 o 24 palabras en inglés",
     "englishSource": "12, 15, 18, 21 or 24 words in English"
@@ -289,19 +269,6 @@
         "content": "$1"
       }
     }
-  },
-  "encryptedFileImportedAccountsOmittedRestoreNotice": {
-    "message": "Este archivo cifrado fue exportado con $importedCount$ cuentas importadas que no forman parte de la copia de seguridad. Esas cuentas no aparecerán en su billetera restaurada; necesitará sus claves privadas originales para volver a agregarlas. Haga clic en Continuar importación para continuar.",
-    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
-  },
-  "continueImport": {
-    "message": "Continuar importando",
-    "englishSource": "Continue Import"
   },
   "editAccountName": {
     "message": "Editar nombre de cuenta",
@@ -542,10 +509,6 @@
   "about": {
     "message": "Acerca de",
     "englishSource": "About"
-  },
-  "aboutMidenWallet": {
-    "message": "Sobre el pan",
-    "englishSource": "About Bread"
   },
   "preferences": {
     "message": "Preferencias",
@@ -913,17 +876,9 @@
     "message": "Libreta de direcciones",
     "englishSource": "Address Book"
   },
-  "addressBookDescription": {
-    "message": "Gestiona tus contactos aquí",
-    "englishSource": "Manage your contacts here"
-  },
   "chooseRecipient": {
     "message": "Elige destinatario",
     "englishSource": "Choose recipient"
-  },
-  "enterMidenOrEthereumAddress": {
-    "message": "Ingrese la dirección de Miden o Ethereum",
-    "englishSource": "Enter Miden or Ethereum address"
   },
   "selectAmount": {
     "message": "Seleccionar cantidad",
@@ -965,10 +920,6 @@
   "reviewSwap": {
     "message": "Intercambio de reseñas",
     "englishSource": "Review Swap"
-  },
-  "reviewSwapDetails": {
-    "message": "Revisar los detalles del intercambio",
-    "englishSource": "Review Swap Details"
   },
   "youPay": {
     "message": "tu pagas",
@@ -1037,18 +988,6 @@
     "message": "Consumo automático",
     "englishSource": "Auto consume"
   },
-  "swapExpiresValue": {
-    "message": "en 7 dias",
-    "englishSource": "In 7 days"
-  },
-  "networkFee": {
-    "message": "Tarifa de red",
-    "englishSource": "Network fee"
-  },
-  "swapNetworkFeeValue": {
-    "message": "~$0.42",
-    "englishSource": "~$0.42"
-  },
   "swapSameToken": {
     "message": "Elija dos tokens diferentes para intercambiar.",
     "englishSource": "Pick two different tokens to swap."
@@ -1060,10 +999,6 @@
   "swapPriceUnavailable": {
     "message": "Precio no disponible. Vuelve a intentarlo en breve.",
     "englishSource": "Price unavailable. Try again shortly."
-  },
-  "swapFetchingPrice": {
-    "message": "Obteniendo precio...",
-    "englishSource": "Fetching price…"
   },
   "swapOrderReservedNote": {
     "message": "Su $amount$ permanece reservado para este pedido hasta que se complete.",
@@ -1268,37 +1203,13 @@
     "message": "Afirmar",
     "englishSource": "Claim"
   },
-  "availableToClaim": {
-    "message": "Disponible para reclamar",
-    "englishSource": "Available to claim"
-  },
-  "privateTransactionsAnytimeAnywhere": {
-    "message": "Transacciones privadas en cualquier momento y lugar.",
-    "englishSource": "Private transactions anytime, anywhere."
-  },
   "midenWallet": {
     "message": "¡Pan!",
     "englishSource": "Bread!"
   },
-  "privateTransactions": {
-    "message": "Transacciones privadas.",
-    "englishSource": "Private transactions."
-  },
-  "anytime": {
-    "message": "En cualquier momento.",
-    "englishSource": "Anytime."
-  },
   "anywhere": {
     "message": "En cualquier lugar.",
     "englishSource": "Anywhere."
-  },
-  "createANewWallet": {
-    "message": "Crear una nueva billetera",
-    "englishSource": "Create a new wallet"
-  },
-  "iAlreadyHaveAWallet": {
-    "message": "ya tengo una billetera",
-    "englishSource": "I already have a wallet"
   },
   "welcome": {
     "message": "Bienvenido",
@@ -1640,10 +1551,6 @@
     "message": "Generar transacciones\nLocalmente",
     "englishSource": "Generate Transactions\nLocally"
   },
-  "chooseFromDevice": {
-    "message": "Elige desde el dispositivo",
-    "englishSource": "Choose from device"
-  },
   "resetRequired": {
     "message": "Se requiere restablecer la billetera",
     "englishSource": "Wallet Reset Required"
@@ -1688,30 +1595,6 @@
     "message": "Desconectar",
     "englishSource": "Sign Out"
   },
-  "chooseImportType": {
-    "message": "Elija su tipo de importación",
-    "englishSource": "Choose Your Import Type"
-  },
-  "chooseImportTypeDescription": {
-    "message": "Restablece el equilibrio público con tu frase de 12 palabras. Para restaurar el saldo privado, cargue un archivo de copia de seguridad cifrado.",
-    "englishSource": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file."
-  },
-  "importWithSeedPhrase": {
-    "message": "Importar con Seed Phrase",
-    "englishSource": "Import with Seed Phrase"
-  },
-  "importWithSeedPhraseDescription": {
-    "message": "Utilice una frase de recuperación existente de 12 palabras. También puede importar billeteras de otros proveedores de billeteras.",
-    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
-  },
-  "importWithEncryptedWalletFile": {
-    "message": "Importar con archivo de billetera cifrado",
-    "englishSource": "Import with Encrypted Wallet File"
-  },
-  "importWithEncryptedWalletFileDescription": {
-    "message": "Cargue su archivo de billetera cifrado para importar su cuenta de forma segura. Sus datos permanecen privados y solo se almacena información hash en la cadena",
-    "englishSource": "Upload your encrypted wallet file to securely import your account. Your data remains private, with only hashed information stored on-chain"
-  },
   "twitter": {
     "message": "X (Twitter)",
     "englishSource": "X (Twitter)"
@@ -1728,10 +1611,6 @@
     "message": "Configuración del guardián",
     "englishSource": "Guardian Settings"
   },
-  "currentGuardianEndpoint": {
-    "message": "Tutor actual",
-    "englishSource": "Current Guardian"
-  },
   "currentLabel": {
     "message": "Actual",
     "englishSource": "Current"
@@ -1739,22 +1618,6 @@
   "newGuardianEndpoint": {
     "message": "Nuevo punto final de Guardian",
     "englishSource": "New Guardian Endpoint"
-  },
-  "switchGuardian": {
-    "message": "Cambiar guardián",
-    "englishSource": "Switch Guardian"
-  },
-  "switchGuardianConfirmation": {
-    "message": "Esto está firmado con su clave de recuperación (fría) y firmado conjuntamente por su tutor actual. Sus fondos y su cuenta permanecen igual. ¿Continuar?",
-    "englishSource": "This is signed with your recovery (cold) key and co-signed by your current guardian. Your funds and account stay the same. Continue?"
-  },
-  "confirmSwitchGuardian": {
-    "message": "Confirmar cambio",
-    "englishSource": "Confirm switch"
-  },
-  "guardianSwitched": {
-    "message": "Guardian cambió con éxito.",
-    "englishSource": "Guardian switched successfully."
   },
   "guardianEndpointUnchanged": {
     "message": "Ese ya es tu tutor actual.",
@@ -1768,10 +1631,6 @@
     "message": "Llaves",
     "englishSource": "Keys"
   },
-  "guardianAboutDescription": {
-    "message": "Guardian avala cada transacción desde esta billetera, brindándole una red de seguridad de segundo factor sin tomar la custodia de sus fondos. Puedes rotar o eliminar tu Guardián en cualquier momento con tu frase de recuperación.",
-    "englishSource": "Guardian cosigns every transaction from this wallet, giving you a second-factor safety net without taking custody of your funds. You can rotate or remove your Guardian anytime with your recovery phrase."
-  },
   "customGuardian": {
     "message": "Guardián personalizado",
     "englishSource": "Custom Guardian"
@@ -1779,26 +1638,6 @@
   "guardianProvider": {
     "message": "Proveedor",
     "englishSource": "Provider"
-  },
-  "guardianEndpointLabel": {
-    "message": "Punto final",
-    "englishSource": "Endpoint"
-  },
-  "guardianRegion": {
-    "message": "Región",
-    "englishSource": "Region"
-  },
-  "customEndpoint": {
-    "message": "Punto final personalizado",
-    "englishSource": "Custom endpoint"
-  },
-  "customEndpointDescription": {
-    "message": "Pega una URL de Guardian si estás ejecutando la tuya propia.",
-    "englishSource": "Paste a Guardian URL if you're running your own."
-  },
-  "customEndpointPlaceholder": {
-    "message": "https://guardián.ejemplo.com",
-    "englishSource": "https://guardian.example.com"
   },
   "reviewRotation": {
     "message": "Rotación de revisión",
@@ -1839,10 +1678,6 @@
   "confirmReplaceHotKey": {
     "message": "Confirmar rotación",
     "englishSource": "Confirm rotation"
-  },
-  "hotKeyRotated": {
-    "message": "La clave del dispositivo se giró correctamente.",
-    "englishSource": "Device key rotated successfully."
   },
   "hotKeyRotationOverlayTitle": {
     "message": "Girar la tecla de tu dispositivo",
@@ -2092,43 +1927,6 @@
     "message": "Ver detalles",
     "englishSource": "View Details"
   },
-  "multipleTransactionsFailed": {
-    "message": "Las transacciones de $count$ fallaron. Por favor inténtalo de nuevo.",
-    "englishSource": "$count$ transactions failed. Please try again.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "onChainAccountPublic": {
-    "message": "Cuenta en cadena (pública)",
-    "englishSource": "On-chain Account (Public)"
-  },
-  "onChainAccountDescription": {
-    "message": "Utilice una frase de recuperación existente de 12 palabras. También puede importar billeteras de otros proveedores de billeteras.",
-    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
-  },
-  "offChainAccountPrivate": {
-    "message": "Cuenta fuera de la cadena (privada)",
-    "englishSource": "Off-chain Account (Private)"
-  },
-  "offChainAccountDescription": {
-    "message": "Operaciones rápidas y privadas con tarifas mínimas, sin pasar por la interacción directa de blockchain.",
-    "englishSource": "Fast, private operations with minimal fees, bypassing direct blockchain interaction."
-  },
-  "chooseYourAccountType": {
-    "message": "Elija su tipo de cuenta",
-    "englishSource": "Choose Your Account Type"
-  },
-  "chooseAccountTypeDescription": {
-    "message": "Seleccione cómo desea interactuar con la cadena de bloques: dentro o fuera de la cadena.",
-    "englishSource": "Select how you want to interact with the blockchain -- on-chain or off-chain."
-  },
-  "canAddMultipleAccountsLater": {
-    "message": "Puede agregar y administrar varios tipos de cuentas más adelante dentro de la billetera.",
-    "englishSource": "You can add and manage multiple account types later within the wallet."
-  },
   "chooseRecoveryMethod": {
     "message": "Configurar la recuperación de la cuenta",
     "englishSource": "Set Up Account Recovery"
@@ -2217,15 +2015,6 @@
     "message": "(carga útil no válida)",
     "englishSource": "(invalid payload)"
   },
-  "signTheFollowingWord": {
-    "message": "Firma la siguiente palabra $word$ ?",
-    "englishSource": "Sign the following Word $word$?",
-    "placeholders": {
-      "word": {
-        "content": "$1"
-      }
-    }
-  },
   "sharePrivateNoteDataForAccount": {
     "message": "Compartir todos los datos de Note privadas para la cuenta",
     "englishSource": "Share all private note data for account"
@@ -2233,10 +2022,6 @@
   "downloadPrivateNoteData": {
     "message": "Descargar datos de Note privadas",
     "englishSource": "Download Private Note Data"
-  },
-  "transactionAffectsAccountStorage": {
-    "message": "Esta transacción afecta el almacenamiento de su cuenta. Revise el resumen sin procesar para verificar",
-    "englishSource": "This transaction affects your account storage. Review the raw summary to verify"
   },
   "failedToParseSigningPayload": {
     "message": "No se pudo analizar la carga útil de firma",
@@ -2346,34 +2131,6 @@
     "message": "Delegar transacción",
     "englishSource": "Delegate transaction"
   },
-  "shareTransactionPrivately": {
-    "message": "Compartir transacción de forma privada",
-    "englishSource": "Share transaction privately"
-  },
-  "privatePayment": {
-    "message": "Pago Privado",
-    "englishSource": "Private Payment"
-  },
-  "privatePaymentDescription": {
-    "message": "Mantenga privados los detalles de la transacción",
-    "englishSource": "Keep transaction details private"
-  },
-  "useDelegateProving": {
-    "message": "Utilice la prueba de delegado",
-    "englishSource": "Use Delegate Proving"
-  },
-  "delegateProving": {
-    "message": "Delegado demostrando",
-    "englishSource": "Delegate Proving"
-  },
-  "delegateProvingDescription": {
-    "message": "Subcontratar la generación de pruebas",
-    "englishSource": "Outsource proof generation"
-  },
-  "selectToken": {
-    "message": "Seleccionar ficha",
-    "englishSource": "Select Token"
-  },
   "arrives": {
     "message": "Llega",
     "englishSource": "Arrives"
@@ -2402,18 +2159,6 @@
     "message": "Dirección de Ethereum no válida",
     "englishSource": "Invalid Ethereum address"
   },
-  "oneToManyPayment": {
-    "message": "Pago uno a muchos",
-    "englishSource": "One to Many Payment"
-  },
-  "oneToManyPaymentDescription": {
-    "message": "Enviar a múltiples destinatarios",
-    "englishSource": "Send to multiple recipients"
-  },
-  "recallTransaction": {
-    "message": "Recuperar transacción",
-    "englishSource": "Recall Transaction"
-  },
   "sendPayment": {
     "message": "Enviar pago",
     "englishSource": "Send Payment"
@@ -2431,15 +2176,6 @@
       },
       "total": {
         "content": "$2"
-      }
-    }
-  },
-  "readyToClaim": {
-    "message": "Pendiente notes: $count$ ",
-    "englishSource": "Pending notes: $count$",
-    "placeholders": {
-      "count": {
-        "content": "$1"
       }
     }
   },
@@ -2468,29 +2204,13 @@
     "message": "Pendiente notes",
     "englishSource": "Pending notes"
   },
-  "addTokens": {
-    "message": "Agregar fichas",
-    "englishSource": "Add tokens"
-  },
   "getTokens": {
     "message": "Obtener fichas",
     "englishSource": "Get tokens"
   },
-  "getTokensDescription": {
-    "message": "Puedes obtener tokens del faucet o transferirlos desde otra billetera o cuenta.",
-    "englishSource": "You can get tokens from the faucet or transfer them from another wallet or account."
-  },
-  "transferTokens": {
-    "message": "Transferir fichas",
-    "englishSource": "Transfer tokens"
-  },
   "midenFaucet": {
     "message": "Medio Faucet",
     "englishSource": "Miden Faucet"
-  },
-  "midenFaucetDescription": {
-    "message": "Al hacer clic en el botón a continuación se copiará su dirección en el portapapeles y se lo llevará al Miden Faucet.",
-    "englishSource": "Clicking the button below will copy your address to the clipboard and navigate you to the Miden Faucet."
   },
   "accountPublicKey": {
     "message": "Clave pública de cuenta",
@@ -2511,22 +2231,6 @@
   "setNewFaucetIdDescription": {
     "message": "Ingrese el ID de un Faucet miden",
     "englishSource": "Enter the ID of a miden faucet"
-  },
-  "verifyingTransaction": {
-    "message": "Verificando transacción",
-    "englishSource": "Verifying transaction"
-  },
-  "transactionProcessingDescription": {
-    "message": "El archivo de transacción cargado se está procesando para verificar sus detalles. No actualice ni cierre la aplicación.",
-    "englishSource": "The uploaded transaction file is being processed to verify its details. Please do not refresh or close the app."
-  },
-  "yourAddress": {
-    "message": "Tu dirección",
-    "englishSource": "Your address"
-  },
-  "errorClaiming": {
-    "message": "Error al reclamar:",
-    "englishSource": "Error Claiming: "
   },
   "addAccount": {
     "message": "Agregar cuenta",
@@ -2580,14 +2284,6 @@
     "message": "Reintentar sincronización",
     "englishSource": "Retry sync"
   },
-  "dragAndDropFile": {
-    "message": "Arrastre y suelte el archivo o",
-    "englishSource": "Drag and drop file or"
-  },
-  "jsonFileType": {
-    "message": ".JSON",
-    "englishSource": ".JSON"
-  },
   "tomorrow": {
     "message": "Mañana",
     "englishSource": "Tomorrow"
@@ -2627,10 +2323,6 @@
   "andWord": {
     "message": "y",
     "englishSource": "and"
-  },
-  "enterDecryptionPassword": {
-    "message": "Ingrese la contraseña que estableció al exportar su billetera. Esto descifrará el archivo y restaurará el acceso.",
-    "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
   },
   "first": {
     "message": "Primero",
@@ -2942,25 +2634,13 @@
     "message": "Detalles avanzados",
     "englishSource": "Advanced details"
   },
-  "recallBy": {
-    "message": "Recordar por",
-    "englishSource": "Recall by"
-  },
   "options": {
     "message": "Opciones",
     "englishSource": "Options"
   },
-  "recallEnabled": {
-    "message": "Recuperación habilitada",
-    "englishSource": "Recall enabled"
-  },
   "on": {
     "message": "En",
     "englishSource": "On"
-  },
-  "onLowercase": {
-    "message": "en",
-    "englishSource": "on"
   },
   "off": {
     "message": "Apagado",
@@ -3070,14 +2750,6 @@
     "message": "Detalles",
     "englishSource": "Details"
   },
-  "addANote": {
-    "message": "Añade un note",
-    "englishSource": "Add a note"
-  },
-  "advancedOptions": {
-    "message": "Opciones avanzadas",
-    "englishSource": "Advanced Options"
-  },
   "pinExtensionTitle": {
     "message": "Cartera Pin Miden",
     "englishSource": "Pin Bread"
@@ -3098,6 +2770,10 @@
     "message": "Pendiente",
     "englishSource": "Pending"
   },
+  "reclaimed": {
+    "message": "Regenerado",
+    "englishSource": "Reclaimed"
+  },
   "faucetRequestTitle": {
     "message": "Faucet Solicitud",
     "englishSource": "Faucet Request"
@@ -3109,10 +2785,6 @@
   "copy": {
     "message": "Copiar",
     "englishSource": "Copy"
-  },
-  "receiveFromEvm": {
-    "message": "¿De otra cadena?",
-    "englishSource": "From another chain?"
   },
   "crossChain": {
     "message": "cadena cruzada",
@@ -3126,10 +2798,6 @@
     "message": "Puente Miden",
     "englishSource": "Miden Bridge"
   },
-  "evmWalletConnectedDescription": {
-    "message": "Ahora puede unir activos desde la billetera conectada.",
-    "englishSource": "You can now bridge assets from the connected wallet."
-  },
   "connectEvmWallet": {
     "message": "Conecte una billetera EVM",
     "englishSource": "Connect an EVM wallet"
@@ -3141,10 +2809,6 @@
   "onlyBridgeableTokenSupported": {
     "message": "La ruta Lenta (Agglayer) solo admite el token puenteable. Utilice Fast para enviar otros tokens.",
     "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
-  "connectEvmWalletFirst": {
-    "message": "Conecte una billetera EVM para usar la ruta rápida.",
-    "englishSource": "Connect an EVM wallet to use the Fast route."
   },
   "connectDestinationWalletToClaim": {
     "message": "Conecte la billetera de destino para reclamar.",
@@ -3286,29 +2950,9 @@
     "message": "Recibiendo Tx",
     "englishSource": "Receiving Tx"
   },
-  "openInYourWallet": {
-    "message": "Abre en tu billetera",
-    "englishSource": "Open in your wallet"
-  },
-  "openInYourWalletDescription": {
-    "message": "Elija una billetera instalada para aprobar la conexión.",
-    "englishSource": "Pick an installed wallet to approve the connection."
-  },
-  "scanWithYourWallet": {
-    "message": "Escanea con tu billetera",
-    "englishSource": "Scan with your wallet"
-  },
-  "scanWithYourWalletDescription": {
-    "message": "Abra WalletConnect en cualquier billetera EVM y escanee el código.",
-    "englishSource": "Open WalletConnect in any EVM wallet and scan the code."
-  },
   "preparing": {
     "message": "Preparando conexión…",
     "englishSource": "Preparing connection…"
-  },
-  "copyConnectionLink": {
-    "message": "Copiar enlace de conexión",
-    "englishSource": "Copy connection link"
   },
   "disconnect": {
     "message": "Desconectar",
