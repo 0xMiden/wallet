@@ -150,6 +150,7 @@ const makeMultisig = (overrides: Partial<Record<string, unknown>> = {}) => ({
   createProposal: jest.fn(async () => ({ kind: 'custom', id: 'proposal-id' })),
   createTransactionProposalRequest: jest.fn(async () => 'tx-req'),
   signProposal: jest.fn(async () => ({ signatures: [] })),
+  abandonCandidate: jest.fn(async () => ({ state: 'pending' })),
   executeProposal: jest.fn(async () => {}),
   syncState: jest.fn(async () => {}),
   getConsumableNotes: jest.fn(async () => ['note-a']),
@@ -286,6 +287,15 @@ describe('MultisigService', () => {
       await expect(service.signAndCreateTransactionRequest('p-custom')).rejects.toThrow(
         'Request Bytes are required for custom execution'
       );
+    });
+
+    it('abandonCandidate forwards the candidate nonce to the Guardian SDK', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await service.abandonCandidate(7);
+
+      expect(multisig.abandonCandidate).toHaveBeenCalledWith(7);
     });
 
     it('getConsumableNotes forwards to the wrapped Multisig', async () => {
@@ -695,9 +705,14 @@ describe('MultisigService', () => {
         expect.anything(),
         1,
         ['0xnewhotcommit', '0xcoldcommitnoprefix'],
-        { signatureScheme: 'ecdsa' }
+        { signatureScheme: 'ecdsa', midenRpcEndpoint: expect.any(String) }
       );
-      expect(mockExecuteForSummary).toHaveBeenCalledWith(expect.anything(), 'acc-id', { kind: 'request' });
+      expect(mockExecuteForSummary).toHaveBeenCalledWith(
+        expect.anything(),
+        'acc-id',
+        { kind: 'request' },
+        expect.any(String)
+      );
       // Proposal label is cosmetic; on-chain effect is dictated by targetSignerCommitments.
       expect(multisig.createProposal).toHaveBeenCalledWith(
         expect.any(Number),
@@ -736,7 +751,7 @@ describe('MultisigService', () => {
         expect.anything(),
         1,
         ['0xnewhotnoprefix', '0xcoldnoprefix'],
-        { signatureScheme: 'ecdsa' }
+        { signatureScheme: 'ecdsa', midenRpcEndpoint: expect.any(String) }
       );
     });
   });

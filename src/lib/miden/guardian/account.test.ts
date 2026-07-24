@@ -27,6 +27,8 @@ jest.mock('../front/storage', () => ({
 // is exercised against realistic data, not a fabricated fixture.
 jest.mock('lib/miden-chain/constants', () => ({
   DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test',
+  DEFAULT_NETWORK: 'testnet',
+  MIDEN_NETWORK_ENDPOINTS: new Map([['testnet', 'https://rpc.testnet.miden.io']]),
   GUARDIAN_OPTIONS: [
     {
       id: 'open-zeppelin',

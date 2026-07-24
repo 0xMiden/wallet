@@ -117,12 +117,30 @@ const makeResult = () => ({
   serialize: () => new Uint8Array([9, 9, 9])
 });
 
-const makeTransactionsApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(async () => {})) => ({
-  executeRequest: jest.fn(async () => result),
-  prove: jest.fn(async () => ({ proved: true })),
-  submitProven: jest.fn(async (_proven?: unknown, _executed?: unknown) => ({ blockNumber: 1 })),
-  apply
-});
+const makeTransactionsApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(async () => {})) => {
+  const prove = jest.fn(async (..._args: unknown[]) => ({ proved: true }));
+  const submitProven = jest.fn(async (_proven?: unknown, _executed?: unknown) => ({ blockNumber: 1 }));
+  const executeRequest = jest.fn(async () => ({
+    id: result.executedTransaction().id(),
+    result,
+    prove: async (options?: unknown) => {
+      const proof = await prove(result, options);
+      return {
+        proof,
+        result,
+        submit: async () => {
+          const submission = await submitProven(proof, result);
+          return {
+            ...submission,
+            result,
+            apply
+          };
+        }
+      };
+    }
+  }));
+  return { executeRequest, prove, submitProven, apply };
+};
 
 const makeClientApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(async () => {})) => {
   const transactions = makeTransactionsApi(result, apply);
@@ -292,6 +310,61 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.createSendProposal).toHaveBeenCalledWith('recipient', 'faucet', 1000n);
     expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-1', undefined);
     expect(multisigService.sync).toHaveBeenCalled();
+  });
+
+  it('Guardian send: requests candidate abandonment when transaction execution fails', async () => {
+    const txId = 'send-guardian-failed';
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const abandonCandidate = jest.fn(async () => {});
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-failed', nonce: 17 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const result = makeResult();
+    const client = makeClientApi(result);
+    client.transactions.executeRequest.mockRejectedValueOnce(new Error('execution failed'));
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(abandonCandidate).toHaveBeenCalledWith(17);
+    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
   });
 
   it('Guardian consume: builds a consume-notes proposal off the noteId', async () => {

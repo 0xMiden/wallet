@@ -472,18 +472,19 @@ const generateGuardianTransaction = async (
     await withGuardianConflictRetry(() => coldService.signProposal(proposalResult.id));
   }
 
-  const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
-  const options: MidenClientCreateOptions = {
-    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-      const keyString = Buffer.from(publicKey).toString('hex');
-      const signingInputsString = Buffer.from(signingInputs).toString('hex');
-      return await signCallback(keyString, signingInputsString);
-    }
-  };
+  let submittedTransaction;
+  try {
+    const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
+    const options: MidenClientCreateOptions = {
+      signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
+        const keyString = Buffer.from(publicKey).toString('hex');
+        const signingInputsString = Buffer.from(signingInputs).toString('hex');
+        return await signCallback(keyString, signingInputsString);
+      }
+    };
 
-  await setTransactionStage(transaction.id, 'sending');
-  const { id, result } = await withWasmClientLock(async () => {
-    try {
+    await setTransactionStage(transaction.id, 'sending');
+    submittedTransaction = await withWasmClientLock(async () => {
       const midenClient = await getMidenClient(options);
       await setTransactionStage(transaction.id, 'executing');
       const executedTx = await midenClient.client.transactions.executeRequest(transaction.accountId, tr);
@@ -495,11 +496,23 @@ const generateGuardianTransaction = async (
       const submittedTx = await provenTx.submit();
       await submittedTx.apply();
       return executedTx;
-    } catch (error) {
-      console.error('Error during transaction submission or execution', { error });
-      throw error;
+    });
+  } catch (error) {
+    console.error('Error during Guardian transaction submission or execution', { error });
+    try {
+      await service.abandonCandidate(proposalResult.nonce);
+    } catch (abandonError) {
+      // Cleanup must never mask the transaction failure. The abandonment call
+      // is idempotent, so a later recovery path can safely retry it.
+      console.error('Failed to request Guardian candidate abandonment', {
+        nonce: proposalResult.nonce,
+        error: abandonError
+      });
     }
-  });
+    throw error;
+  }
+
+  const { id, result } = submittedTransaction;
 
   // For switch-guardian, the new guardian must be seeded with the POST-switch
   // account state. submit() returns after submission, not after inclusion, so
