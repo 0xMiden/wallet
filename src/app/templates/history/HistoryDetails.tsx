@@ -8,7 +8,14 @@ import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { ScreenHeader } from 'components/ScreenHeader';
-import { getTransactionById, trackOrderId, SwapOrderState, SwapOrderTracking } from 'lib/miden/activity';
+import {
+  getSwapSettlementNotes,
+  getTransactionById,
+  trackOrderId,
+  SwapOrderState,
+  SwapOrderTracking,
+  SwapSettlementNotes
+} from 'lib/miden/activity';
 import { ITransaction } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
@@ -121,6 +128,15 @@ function formatFiatDisplayAmount(
   return `≈ $${fiatAmount.toFixed(2)} USD`;
 }
 
+/** Right-aligned stack of trimmed, copyable note ids. */
+const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId }) => (
+  <div data-testid={testId} className="flex min-w-0 flex-col items-end gap-1">
+    {noteIds.map(noteId => (
+      <HashChip key={noteId} hash={noteId} trimHash fill="#9E9E9E" copyIcon={false} />
+    ))}
+  </div>
+);
+
 const AccountDisplay: FC<{
   address: string | undefined;
   account: WalletAccount;
@@ -166,6 +182,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
   const [swapTracking, setSwapTracking] = useState<SwapOrderTracking | null>(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
+  // Notes claimed by this order's settlement consumes. Those consume rows are
+  // suppressed in the history list (the swap row is the order's single trace),
+  // so this page is where their notes stay visible.
+  const [settlementNotes, setSettlementNotes] = useState<SwapSettlementNotes | null>(null);
   const loadTransaction = useCallback(async () => {
     try {
       setLoadError(null);
@@ -207,6 +227,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           });
           setOrderId(extra.orderId);
         }
+      }
+
+      if (tx.type === 'swap') {
+        setSettlementNotes(await getSwapSettlementNotes(tx.id));
       }
 
       setTransaction(tx);
@@ -281,6 +305,44 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     };
   }, [orderId]);
 
+  // Settlement can land while this page is open (auto-consume runs on its own
+  // 3s cycle), and the lineage poll above stops at a terminal state — usually
+  // just *before* the settlement consume completes. So watch for the notes
+  // separately: cheap Dexie-only reads, stopping as soon as any arrive and
+  // giving up after a cap so a manual-claim order doesn't poll forever.
+  const settlementFound = Boolean(
+    settlementNotes && (settlementNotes.settled.length || settlementNotes.reclaimed.length)
+  );
+  useEffect(() => {
+    if (orderId == null || settlementFound || !transaction) return;
+    const swapTxId = transaction.id;
+    const POLL_INTERVAL_MS = 3000;
+    const MAX_POLLS = 20;
+    let polls = 0;
+    let cancelled = false;
+
+    const timer = setInterval(async () => {
+      polls += 1;
+      if (polls > MAX_POLLS) {
+        clearInterval(timer);
+        return;
+      }
+      try {
+        const notes = await getSwapSettlementNotes(swapTxId);
+        if (!cancelled && (notes.settled.length > 0 || notes.reclaimed.length > 0)) {
+          setSettlementNotes(notes);
+        }
+      } catch (error) {
+        console.error('[HistoryDetails] Failed to read swap settlement notes:', error);
+      }
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [orderId, settlementFound, transaction]);
+
   const orderStatusLabel = (state: SwapOrderState): string => {
     switch (state) {
       case 'filled':
@@ -307,7 +369,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isBridge = entry?.txType === 'bridged-send';
   const fromAddress = isBridge ? entry?.address : entry?.message === 'Sent' ? entry?.address : entry?.secondaryAddress;
   const toAddress = isBridge ? undefined : entry?.message === 'Sent' ? entry?.secondaryAddress : entry?.address;
-  const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
+  const settledNoteIds = settlementNotes?.settled ?? [];
+  const reclaimedNoteIds = settlementNotes?.reclaimed ?? [];
+  const hasNoteData =
+    entry?.noteId ||
+    (entry?.outputNoteIds && entry.outputNoteIds.length > 0) ||
+    settledNoteIds.length > 0 ||
+    reclaimedNoteIds.length > 0;
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
   const approximateUsdAmount =
     entry?.amount !== undefined && entry.token
@@ -469,9 +537,25 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
                   <DetailCard title={t('notesSection')}>
-                    <DetailRow label={t('created')} isLast>
+                    <DetailRow
+                      label={t('created')}
+                      isLast={settledNoteIds.length === 0 && reclaimedNoteIds.length === 0}
+                    >
                       <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
                     </DetailRow>
+
+                    {/* Swap settlement: the notes the suppressed consume rows claimed. */}
+                    {settledNoteIds.length > 0 && (
+                      <DetailRow label={t('claimed')} isLast={reclaimedNoteIds.length === 0}>
+                        <NoteIdList noteIds={settledNoteIds} testId="swap-settled-notes" />
+                      </DetailRow>
+                    )}
+
+                    {reclaimedNoteIds.length > 0 && (
+                      <DetailRow label={t('reclaimed')} isLast>
+                        <NoteIdList noteIds={reclaimedNoteIds} testId="swap-reclaimed-notes" />
+                      </DetailRow>
+                    )}
                   </DetailCard>
                 </div>
               </div>

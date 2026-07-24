@@ -84,6 +84,46 @@ export const getTransactionById = async (id: string) => {
   return tx;
 };
 
+/** Notes a swap order settled, grouped by how the settlement consume claimed them. */
+export interface SwapSettlementNotes {
+  /** Payback notes claimed on a fill — the requested funds arriving. */
+  settled: string[];
+  /** Remainder notes reclaimed after expiry — the unfilled tip coming back. */
+  reclaimed: string[];
+}
+
+/**
+ * Note ids claimed by the settlement consumes belonging to a swap order.
+ *
+ * Those consume rows are suppressed in the history list (`suppressLinkedConsumes`
+ * in `History.tsx`) so the order reads as a single swap row — which would
+ * otherwise make their notes invisible. The detail page surfaces them here
+ * instead. Rows are linked by `extraInputs.swapOrderTxId`, tagged at queue time
+ * by `reconcileSwapOrderNotes`; `swapSettleKind` splits payback claims from
+ * expiry reclaims. Only completed consumes count — a queued or failed one has
+ * claimed nothing yet.
+ */
+export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSettlementNotes> => {
+  const consumes = await Repo.transactions
+    .filter(
+      tx =>
+        tx.type === 'consume' &&
+        tx.status === ITransactionStatus.Completed &&
+        tx.extraInputs?.swapOrderTxId === swapTxId
+    )
+    .toArray();
+
+  const settled = new Set<string>();
+  const reclaimed = new Set<string>();
+  for (const tx of consumes) {
+    const noteIds = tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []);
+    const bucket = tx.extraInputs?.swapSettleKind === 'reclaim' ? reclaimed : settled;
+    for (const noteId of noteIds) bucket.add(noteId);
+  }
+
+  return { settled: [...settled], reclaimed: [...reclaimed] };
+};
+
 /**
  * Lifecycle state of a swap order's PSWAP-note lineage, surfaced to the UI as
  * a stable string so the activity layer doesn't leak the wasm

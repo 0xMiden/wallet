@@ -18,6 +18,7 @@ let mockPrice = 2;
 // ---------------------------------------------------------------------------
 const mockGetTransactionById = jest.fn();
 const mockTrackOrderId = jest.fn();
+const mockGetSwapSettlementNotes = jest.fn();
 const mockGetTokenMetadata = jest.fn();
 const mockGetSwapTokenByFaucetId = jest.fn();
 const mockGoBack = jest.fn();
@@ -28,7 +29,8 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('lib/miden/activity', () => ({
   getTransactionById: (...args: unknown[]) => mockGetTransactionById(...args),
-  trackOrderId: (...args: unknown[]) => mockTrackOrderId(...args)
+  trackOrderId: (...args: unknown[]) => mockTrackOrderId(...args),
+  getSwapSettlementNotes: (...args: unknown[]) => mockGetSwapSettlementNotes(...args)
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -186,6 +188,7 @@ beforeEach(() => {
   // cleanup hook can complete; only timer-based order polling needs faking.
   jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
 
+  mockGetSwapSettlementNotes.mockResolvedValue({ settled: [], reclaimed: [] });
   mockAccount = { publicKey: 'acct-A', name: 'Mine' };
   mockAllAccounts = [{ publicKey: 'acct-B', name: 'Other' }];
   mockTokenPrices = { MID: { price: 2 } };
@@ -539,6 +542,80 @@ describe('HistoryDetails', () => {
       mockGetTransactionById.mockResolvedValue({ ...swapTx({}), extraInputs: undefined });
       await renderAndLoad();
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('swap settlement notes', () => {
+    const swapTx = (extra: Record<string, unknown>): Tx => ({
+      ...baseSendTx,
+      type: 'swap',
+      amount: undefined,
+      faucetId: 'faucet-1',
+      outputNoteIds: undefined,
+      transactionId: undefined,
+      extraInputs: extra
+    });
+
+    it('lists the notes the suppressed settlement consumes claimed', async () => {
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-a', 'note-b'], reclaimed: ['note-c'] });
+      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+
+      await renderAndLoad();
+
+      expect(mockGetSwapSettlementNotes).toHaveBeenCalledWith('tx-1');
+      expect(screen.getByTestId('swap-settled-notes').textContent).toBe('note-anote-b');
+      expect(screen.getByTestId('swap-reclaimed-notes').textContent).toBe('note-c');
+      // The card renders even though the swap itself created no output notes.
+      expect(rowByLabel('claimed')).toBeDefined();
+      expect(rowByLabel('reclaimed')).toBeDefined();
+    });
+
+    it('omits the reclaimed row when the order only settled', async () => {
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-a'], reclaimed: [] });
+      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-settled-notes').textContent).toBe('note-a');
+      expect(screen.queryByTestId('swap-reclaimed-notes')).not.toBeInTheDocument();
+      // Last row in the card is the claimed one.
+      expect(rowByLabel('claimed')?.getAttribute('data-islast')).toBe('true');
+    });
+
+    it('renders no settlement rows when nothing has settled yet', async () => {
+      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+
+      await renderAndLoad();
+
+      expect(screen.queryByTestId('swap-settled-notes')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('swap-reclaimed-notes')).not.toBeInTheDocument();
+    });
+
+    it('picks the notes up when settlement lands while the page is open', async () => {
+      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+      await renderAndLoad();
+      expect(screen.queryByTestId('swap-settled-notes')).not.toBeInTheDocument();
+
+      // Auto-consume completes after the page mounted.
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-late'], reclaimed: [] });
+      await act(async () => {
+        jest.advanceTimersByTime(3000);
+      });
+      await flush();
+
+      expect(screen.getByTestId('swap-settled-notes').textContent).toBe('note-late');
+    });
+
+    it('does not poll for settlement notes on a swap with no order id', async () => {
+      mockGetTransactionById.mockResolvedValue(swapTx({ requestedFaucetId: 'req-faucet' }));
+      await renderAndLoad();
+      mockGetSwapSettlementNotes.mockClear();
+
+      await act(async () => {
+        jest.advanceTimersByTime(30_000);
+      });
+
+      expect(mockGetSwapSettlementNotes).not.toHaveBeenCalled();
     });
   });
 });
