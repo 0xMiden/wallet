@@ -29,7 +29,8 @@ describe('FEATURED_DAPPS', () => {
       'lumina',
       'qash',
       'playground',
-      'miden-name'
+      'miden-name',
+      'swap-faucet'
     ]);
   });
 
@@ -142,7 +143,7 @@ describe('EXPLORE_GRID_DAPPS', () => {
   it('contains the four curated apps in explicit display order', () => {
     // Exercises the `.flatMap` over the id list and the inner
     // `.filter(d => d.id === id)` predicate (matching + non-matching ids).
-    expect(EXPLORE_GRID_DAPPS.map(d => d.id)).toEqual(['zoro', 'qash', 'faucet', 'miden-name']);
+    expect(EXPLORE_GRID_DAPPS.map(d => d.id)).toEqual(['swap-faucet', 'qash', 'faucet', 'miden-name']);
     expect(EXPLORE_GRID_DAPPS).toHaveLength(4);
   });
 
@@ -155,10 +156,10 @@ describe('EXPLORE_GRID_DAPPS', () => {
   });
 
   it('preserves the requested order even when it differs from FEATURED_DAPPS order', () => {
-    // 'zoro' precedes 'faucet' in the grid, matching the id list — not the
-    // source-array order where faucet also appears before qash.
+    // 'swap-faucet' leads the grid, matching the id list — not the source-array
+    // order, where it is last and 'faucet' precedes 'qash'.
     const gridIds = EXPLORE_GRID_DAPPS.map(d => d.id);
-    expect(gridIds.indexOf('zoro')).toBeLessThan(gridIds.indexOf('faucet'));
+    expect(gridIds.indexOf('swap-faucet')).toBeLessThan(gridIds.indexOf('faucet'));
     expect(gridIds.indexOf('qash')).toBeLessThan(gridIds.indexOf('faucet'));
   });
 });
@@ -176,8 +177,9 @@ describe('getExploreGridDapps', () => {
   it('drops swap/exchange (DEX) dApps when swap is disabled', () => {
     mockSwapEnabled.value = false;
     const grid = getExploreGridDapps();
-    // 'zoro' (a DEX) is filtered out; the remaining curated apps keep their order.
+    // No curated grid app is currently an exchange, so nothing is dropped — but
+    // the predicate still holds, which is what guards a future DEX being added.
     expect(grid.some(d => d.isExchange)).toBe(false);
-    expect(grid.map(d => d.id)).toEqual(['qash', 'faucet', 'miden-name']);
+    expect(grid.map(d => d.id)).toEqual(['swap-faucet', 'qash', 'faucet', 'miden-name']);
   });
 });
