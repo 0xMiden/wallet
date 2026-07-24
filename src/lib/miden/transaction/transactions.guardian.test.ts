@@ -766,6 +766,32 @@ describe('generateTransaction — Guardian routing', () => {
     // background→cold-key routing existed only to dodge the iOS `.userPresence`
     // Face ID gate on the hot key, which has since been removed.
     expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+
+    const batchTxId = 'consume-guardian-batch';
+    txStore.push({
+      id: batchTxId,
+      type: 'consume',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      noteId: 'note-a',
+      noteIds: ['note-a', 'note-b']
+    });
+
+    await generateTransaction(
+      {
+        id: batchTxId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        noteId: 'note-a',
+        noteIds: ['note-a', 'note-b'],
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(multisigService.createConsumeNotesProposal).toHaveBeenLastCalledWith(['note-a', 'note-b']);
   });
 
   it('Guardian switch-guardian: cold co-signs before hot, waits for chain inclusion, finalizes switch', async () => {
