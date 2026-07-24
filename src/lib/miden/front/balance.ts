@@ -7,6 +7,7 @@ import { fetchBalances } from 'lib/store/utils/fetchBalances';
 
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
 import { isTestSyncPaused } from './test-sync-pause';
+import { isWasmClientBusy } from '../sdk/miden-client';
 
 export interface TokenBalanceData {
   tokenId: string;
@@ -86,6 +87,14 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     // Check global lock - prevents concurrent calls across all component instances
     if (fetchingAddresses.has(address)) return;
 
+    // Skip while a `withWasmClientLock` op (a transaction, sync, etc.) holds the
+    // WASM client. This poll deliberately bypasses `withWasmClientLock` for
+    // responsiveness, but during a transaction's `_withInnerWebClient` window
+    // the SDK runs our un-locked `getAccount` INLINE and it double-borrows the
+    // WASM RefCell — panicking the client (hangs guardian consumes on mobile).
+    // Skipping costs one delayed refresh; the next cycle picks it up once idle.
+    if (isWasmClientBusy()) return;
+
     // Read current value from store (not ref) to catch updates from prefetch
     const now = Date.now();
     const currentLastFetched = useWalletStore.getState().balancesLastFetched[address] ?? 0;
@@ -103,6 +112,10 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
         setAssetsMetadata,
         tokenPrices
       });
+
+      // `null` means the WASM client was busy (a tx/sync held the lock) and the
+      // read was skipped — keep the prior balances and let the next tick retry.
+      if (fetchedBalances === null) return;
 
       // Update store if still mounted
       if (mountedRef.current) {

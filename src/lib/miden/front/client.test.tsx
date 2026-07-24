@@ -121,6 +121,7 @@ const FullActionProbe: React.FC = () => {
     swallow(() => ctx.signTransaction?.('pk', 'payload'));
     swallow(() => ctx.getAuthSecretKey?.('k'));
     swallow(() => ctx.getDAppPayload?.('id'));
+    swallow(() => ctx.simulateCustomTransaction?.('id'));
     swallow(() => ctx.confirmDAppPermission?.('id', true, 'acc', 'AUTO', 1));
     swallow(() => ctx.confirmDAppSign?.('id', true));
     swallow(() => ctx.confirmDAppPrivateNotes?.('id', true));

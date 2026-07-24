@@ -110,6 +110,9 @@ export const useWalletStore = create<WalletStore>()(
         const address = state.currentAccount.publicKey;
         fetchBalances(address, get().assetsMetadata, { tokenPrices: get().tokenPrices })
           .then(balances => {
+            // `null` = WASM client was busy and the read was skipped; leave any
+            // prior balances in place and let a later poll refresh.
+            if (balances === null) return;
             set(s => ({
               balances: { ...s.balances, [address]: balances },
               balancesLoading: { ...s.balancesLoading, [address]: false },
@@ -424,6 +427,15 @@ export const useWalletStore = create<WalletStore>()(
       return res.payload;
     },
 
+    simulateCustomTransaction: async (id: string) => {
+      const res = await request({
+        type: MidenMessageType.DAppSimulateTransactionRequest,
+        id
+      });
+      assertResponse(res.type === MidenMessageType.DAppSimulateTransactionResponse);
+      return { summaryBytes: res.summaryBytes, error: res.error };
+    },
+
     confirmDAppPermission: async (id, confirmed, accountId, privateDataPermission, allowedPrivateData) => {
       const res = await request({
         type: MidenMessageType.DAppPermConfirmationRequest,
@@ -538,6 +550,14 @@ export const useWalletStore = create<WalletStore>()(
           setAssetsMetadata,
           tokenPrices: get().tokenPrices
         });
+        // `null` = WASM client was busy and the read was skipped; clear the
+        // loading flag but keep any prior balances and retry later.
+        if (balances === null) {
+          set(state => ({
+            balancesLoading: { ...state.balancesLoading, [accountAddress]: false }
+          }));
+          return;
+        }
         set(state => ({
           balances: { ...state.balances, [accountAddress]: balances },
           balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
@@ -688,7 +708,12 @@ export const useWalletStore = create<WalletStore>()(
       set({
         seenNoteIds: new Set<string>(),
         isNoteToastVisible: false,
-        noteToastShownAt: null
+        noteToastShownAt: null,
+        // Drop the previous account's cached consumable notes so they are never
+        // shown or auto-consumed under the newly selected account (#280). The
+        // account-scoped poll in useExtensionClaimableNotes repopulates this for
+        // the new account on its next tick.
+        extensionClaimableNotes: null
       });
 
       if (isExtension()) {

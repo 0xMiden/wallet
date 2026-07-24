@@ -77,6 +77,14 @@ export interface MidenDAppTransactionPayload extends MidenDAppPayloadBase {
   sourcePublicKey: string;
   preview: any;
   transactionMessages: string[];
+  // Custom-transaction decode support. Undefined for the `send` sub-flow, which
+  // keeps rendering via `transactionMessages`. For `custom`, the confirm UI
+  // decodes `requestBytes` client-side for an instant "declared" view, then
+  // requests a verified summary via `simulateCustomTransaction`.
+  txKind?: 'send' | 'custom';
+  requestBytes?: string; // base64 serialized Miden-SDK TransactionRequest
+  importNotes?: string[]; // base64 serialized notes carried by the request
+  recipientAddress?: string; // dApp-declared recipient (shown as "declared by site")
 }
 
 export interface MidenDAppConsumePayload extends MidenDAppPayloadBase {
@@ -159,7 +167,9 @@ export enum MidenMessageType {
   DAppImportPrivateNoteConfirmationRequest = 'MIDEN_DAPP_IMPORT_PRIVATE_NOTE_CONFIRMATION_REQUEST',
   DAppImportPrivateNoteConfirmationResponse = 'MIDEN_DAPP_IMPORT_PRIVATE_NOTE_CONFIRMATION_RESPONSE',
   DAppConsumableNotesConfirmationRequest = 'MIDEN_DAPP_CONSUMABLE_NOTES_CONFIRMATION_REQUEST',
-  DAppConsumableNotesConfirmationResponse = 'MIDEN_DAPP_CONSUMABLE_NOTES_CONFIRMATION_RESPONSE'
+  DAppConsumableNotesConfirmationResponse = 'MIDEN_DAPP_CONSUMABLE_NOTES_CONFIRMATION_RESPONSE',
+  DAppSimulateTransactionRequest = 'MIDEN_DAPP_SIMULATE_TRANSACTION_REQUEST',
+  DAppSimulateTransactionResponse = 'MIDEN_DAPP_SIMULATE_TRANSACTION_RESPONSE'
 }
 
 export type MidenRequest =
@@ -174,7 +184,8 @@ export type MidenRequest =
   | MidenDAppSignConfirmationRequest
   | MidenDAppAssetsConfirmationRequest
   | MidenDAppImportPrivateNoteConfirmationRequest
-  | MidenDAppConsumableNotesConfirmationRequest;
+  | MidenDAppConsumableNotesConfirmationRequest
+  | MidenDAppSimulateTransactionRequest;
 
 export type MidenResponse =
   | MidenPageResponse
@@ -188,7 +199,8 @@ export type MidenResponse =
   | MidenDAppSignConfirmationResponse
   | MidenDAppAssetsConfirmationResponse
   | MidenDAppImportPrivateNoteConfirmationResponse
-  | MidenDAppConsumableNotesConfirmationResponse;
+  | MidenDAppConsumableNotesConfirmationResponse
+  | MidenDAppSimulateTransactionResponse;
 
 export interface MidenPageRequest extends WalletMessageBase {
   type: MidenMessageType.PageRequest;
@@ -214,6 +226,17 @@ export interface MidenDAppGetPayloadResponse extends WalletMessageBase {
   type: MidenMessageType.DAppGetPayloadResponse;
   payload: MidenDAppPayload;
   privateDataPermission: PrivateDataPermission;
+}
+
+export interface MidenDAppSimulateTransactionRequest extends WalletMessageBase {
+  type: MidenMessageType.DAppSimulateTransactionRequest;
+  id: string;
+}
+
+export interface MidenDAppSimulateTransactionResponse extends WalletMessageBase {
+  type: MidenMessageType.DAppSimulateTransactionResponse;
+  summaryBytes?: string; // base64 serialized TransactionSummary
+  error?: string;
 }
 
 export interface MidenDAppPermConfirmationRequest extends WalletMessageBase {

@@ -3290,5 +3290,37 @@
   "disconnect": {
     "message": "Отключить",
     "englishSource": "Disconnect"
+  },
+  "declaredBySiteVerifying": {
+    "message": "Заявлено на месте — проверка с помощью моделирования…",
+    "englishSource": "Declared by site — verifying by simulation…"
+  },
+  "unverified": {
+    "message": "непроверенный",
+    "englishSource": "unverified"
+  },
+  "couldNotVerifyBySimulation": {
+    "message": "Не удалось проверить путем моделирования. Суммы ниже соответствуют заявленным на сайте.",
+    "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
+  },
+  "couldNotDecodeTransaction": {
+    "message": "Это dApp запрашивает пользовательскую транзакцию. Кошелек не смог расшифровать свои данные — продолжайте, только если вы точно знаете, что он делает.",
+    "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "advancedDetails": {
+    "message": "Дополнительные сведения",
+    "englishSource": "Advanced details"
+  },
+  "rawValue": {
+    "message": "Исходное значение",
+    "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "Непрозрачный запрос подписи",
+    "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureWarning": {
+    "message": "Этот сайт попросил вас подписать необработанное значение. Кошелек не может показать, что он авторизует. Продолжайте, только если вы полностью доверяете этому сайту.",
+    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
   }
 }

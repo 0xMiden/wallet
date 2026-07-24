@@ -423,6 +423,36 @@ describe('MidenClientInterface', () => {
     expect(fakeMidenClient.transactions.consume).toHaveBeenCalled();
   });
 
+  it('consumeNoteId consumes every noteId in one transaction when a batch is given', async () => {
+    const fakeMidenClient = buildFakeMidenClient();
+
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      TransactionProver: {
+        newLocalProver: jest.fn(() => 'local')
+      }
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await client.consumeNoteId({
+      accountId: 'acc-id',
+      noteId: 'note-1',
+      noteIds: ['note-1', 'note-2', 'note-3'],
+      type: 'consume'
+    } as any);
+
+    // Claim All batches into a single consume (one proof, one submit) rather
+    // than falling back to the singular `noteId`.
+    expect(fakeMidenClient.transactions.consume).toHaveBeenCalledWith(
+      expect.objectContaining({ account: 'acc-id', notes: ['note-1', 'note-2', 'note-3'] })
+    );
+  });
+
   describe('miscellaneous branches', () => {
     it('create() returns a mock-network client when MIDEN_USE_MOCK_CLIENT=true', async () => {
       const fakeMockClient = buildFakeMidenClient();
@@ -1216,28 +1246,73 @@ describe('MidenClientInterface', () => {
       expect(inner.executeTransaction).toHaveBeenCalledTimes(1);
     });
 
-    it('consumeNoteId delegates note consumption to the SDK transaction API', async () => {
-      const consume = jest.fn().mockResolvedValue({ result: fakeTransactionResult });
-      const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
+    it('consumeNoteId offscreen path: builds request from inner.getInputNote → toNote → array', async () => {
+      const fakeWasm = buildWasmStub();
+      const note = { kind: 'note' };
+      const inputNoteRecord = { toNote: jest.fn(() => note) };
+      const inner = {
+        getInputNote: jest.fn(async () => inputNoteRecord),
+        newConsumeTransactionRequest: jest.fn(async () => ({ kind: 'request' })),
+        executeTransaction: jest.fn(async () => fakeTransactionResult),
+        submitProvenTransaction: jest.fn(async () => 100),
+        applyTransaction: jest.fn(async () => undefined)
+      };
+      const stubs = buildOffscreenStubs({});
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-      await expect(
-        client.consumeNoteId({ accountId: 'mtst1acc', noteId: 'note-id-123', type: 'consume' } as any)
-      ).resolves.toBe(fakeTransactionResult);
-      expect(consume).toHaveBeenCalledWith(expect.objectContaining({ account: 'mtst1acc', notes: ['note-id-123'] }));
+      await client.consumeNoteId({
+        accountId: 'mtst1acc',
+        noteId: 'note-id-123',
+        type: 'consume'
+      } as any);
+
+      expect(inner.getInputNote).toHaveBeenCalledWith('note-id-123');
+      expect(inputNoteRecord.toNote).toHaveBeenCalledTimes(1);
+      // Plain JS array, NOT wasm.NoteArray.
+      expect(inner.newConsumeTransactionRequest).toHaveBeenCalledWith([note]);
+      // Then through the offscreen pipeline.
+      expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
+      expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
+      expect(inner.applyTransaction).toHaveBeenCalledTimes(1);
     });
 
-    it('consumeNoteId propagates SDK consumption failures', async () => {
-      const error = new Error('Note missing-note not found in store');
-      const consume = jest.fn().mockRejectedValue(error);
-      const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
+    it('consumeNoteId offscreen path: throws when getInputNote returns null', async () => {
+      const fakeWasm = buildWasmStub();
+      const inner = {
+        getInputNote: jest.fn(async () => null),
+        newConsumeTransactionRequest: jest.fn(),
+        executeTransaction: jest.fn(),
+        submitProvenTransaction: jest.fn(),
+        applyTransaction: jest.fn()
+      };
+      buildOffscreenStubs({});
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
       await expect(
-        client.consumeNoteId({ accountId: 'mtst1acc', noteId: 'missing-note', type: 'consume' } as any)
-      ).rejects.toBe(error);
+        client.consumeNoteId({
+          accountId: 'mtst1acc',
+          noteId: 'missing-note',
+          type: 'consume'
+        } as any)
+      ).rejects.toThrow(/Note missing-note not found in store/);
     });
 
     it('newTransaction offscreen path: deserializes a fresh request and runs the offscreen pipeline', async () => {

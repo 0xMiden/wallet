@@ -727,7 +727,6 @@
   "advancedOptions": "Advanced Options",
   "pinExtensionTitle": "Pin Bread",
   "pinExtensionDescription": "Click the puzzle icon and pin Bread for quick access from your toolbar.",
-  "gotIt": "Got it",
   "all": "All",
   "sent": "Sent",
   "pending": "Pending",
@@ -779,5 +778,13 @@
   "scanWithYourWalletDescription": "Open WalletConnect in any EVM wallet and scan the code.",
   "preparing": "Preparing connection…",
   "copyConnectionLink": "Copy connection link",
-  "disconnect": "Disconnect"
+  "disconnect": "Disconnect",
+  "declaredBySiteVerifying": "Declared by site — verifying by simulation…",
+  "unverified": "unverified",
+  "couldNotVerifyBySimulation": "Could not verify by simulation. Amounts below are as declared by the site.",
+  "couldNotDecodeTransaction": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does.",
+  "advancedDetails": "Advanced details",
+  "rawValue": "Raw value",
+  "opaqueSignatureTitle": "Opaque signature request",
+  "opaqueSignatureWarning": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
 }

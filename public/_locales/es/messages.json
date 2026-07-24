@@ -3219,5 +3219,37 @@
   "disconnect": {
     "message": "Desconectar",
     "englishSource": "Disconnect"
+  },
+  "declaredBySiteVerifying": {
+    "message": "Declarado por sitio - verificando por simulación...",
+    "englishSource": "Declared by site — verifying by simulation…"
+  },
+  "unverified": {
+    "message": "inconfirmado",
+    "englishSource": "unverified"
+  },
+  "couldNotVerifyBySimulation": {
+    "message": "No se pudo verificar mediante simulación. Las cantidades a continuación son las declaradas por el sitio.",
+    "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
+  },
+  "couldNotDecodeTransaction": {
+    "message": "Esta dApp solicita una transacción personalizada. La billetera no pudo decodificar sus detalles; solo continúa si sabes exactamente lo que hace.",
+    "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "advancedDetails": {
+    "message": "Detalles avanzados",
+    "englishSource": "Advanced details"
+  },
+  "rawValue": {
+    "message": "Valor bruto",
+    "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "Solicitud de firma opaca",
+    "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureWarning": {
+    "message": "Este sitio le pidió que firmara un valor bruto. La billetera no puede mostrar lo que autoriza. Continúe solo si confía plenamente en este sitio.",
+    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
   }
 }

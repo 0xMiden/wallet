@@ -1,5 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
+
 import {
   EMPTY_WALLET_PROMPT_STORAGE,
   WalletPromptStatus,
@@ -14,8 +16,6 @@ import {
   setWalletPromptStatus,
   useWalletPromptStorage
 } from './wallet-prompts';
-
-import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 
 jest.mock('lib/platform', () => ({
   isMobile: () => false,

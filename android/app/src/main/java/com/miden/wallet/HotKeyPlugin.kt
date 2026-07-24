@@ -62,6 +62,11 @@ class HotKeyPlugin : Plugin() {
         private const val KEY_ALIAS_PREFIX = "com.miden.wallet.hot."
         private const val OAEP_TRANSFORMATION = "RSA/ECB/OAEPWithSHA-256AndMGF1Padding"
 
+        // Rejection code for "the device's secure hardware (Keystore/StrongBox)
+        // genuinely could not be used" — distinct from user-cancel / key-not-found.
+        // The JS facade (secure-hot-key) matches on this to surface a report prompt.
+        private const val ERR_HARDWARE_UNAVAILABLE = "HARDWARE_UNAVAILABLE"
+
         // BC's secp256k1 domain parameters; reused by every sign call.
         private val SECP256K1 = SECNamedCurves.getByName("secp256k1")
         private val DOMAIN = ECDomainParameters(SECP256K1.curve, SECP256K1.g, SECP256K1.n, SECP256K1.h)
@@ -117,7 +122,11 @@ class HotKeyPlugin : Plugin() {
             Log.e(TAG, "generateHotKey failed: ${e.message}", e)
             // Best-effort cleanup of the orphan Keystore key we may have just created.
             alias?.let { deleteAliasQuietly(it) }
-            call.reject("Failed to generate hot key: ${e.message}")
+            if (isHardwareUnavailable(e)) {
+                call.reject("Secure hardware unavailable: ${e.message}", ERR_HARDWARE_UNAVAILABLE)
+            } else {
+                call.reject("Failed to generate hot key: ${e.message}")
+            }
         } finally {
             zero(secretBytes)
         }
@@ -196,7 +205,11 @@ class HotKeyPlugin : Plugin() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "signWithHotKey failed: ${e.message}", e)
-            call.reject("Hot-key sign failed: ${e.message}")
+            if (isHardwareUnavailable(e)) {
+                call.reject("Secure hardware unavailable: ${e.message}", ERR_HARDWARE_UNAVAILABLE)
+            } else {
+                call.reject("Hot-key sign failed: ${e.message}")
+            }
         }
     }
 
@@ -470,8 +483,23 @@ class HotKeyPlugin : Plugin() {
             KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
         )
             .setKeySize(2048)
-            .setDigests(KeyProperties.DIGEST_SHA256)
+            // SHA-1 MUST be authorized even though our OAEP main+MGF1 digest is
+            // SHA-256 (see oaepParams). Pre-Android-13 Keymaster has no separate
+            // MGF1-digest tag: it authorizes the MGF1 function against this same
+            // DIGEST list and defaults MGF1 to SHA-1, so it refuses ANY OAEP-MGF1
+            // op unless SHA-1 is present — hardware decrypt throws
+            // INCOMPATIBLE_MGF_DIGEST otherwise (public-key encrypt runs in
+            // software and never hits this, which is why generate "succeeds" but
+            // sign fails). Seen on TEE-only devices (e.g. tablets w/o biometric).
+            .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA1)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_RSA_OAEP)
+
+        // Android 15+ exposes the dedicated RSA_OAEP_MGF_DIGEST tag, which
+        // defaults to SHA-1 only; MGF1-SHA256 must be authorized explicitly or
+        // decrypt fails the same way.
+        if (Build.VERSION.SDK_INT >= 35) {
+            builder.setMgf1Digests(KeyProperties.DIGEST_SHA1, KeyProperties.DIGEST_SHA256)
+        }
 
         if (strongBox && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             builder.setIsStrongBoxBacked(true)
@@ -479,6 +507,39 @@ class HotKeyPlugin : Plugin() {
 
         gen.initialize(builder.build())
         return gen.generateKeyPair().public
+    }
+
+    /// Classify a caught exception as "secure hardware genuinely unusable"
+    /// (Keystore/Keymaster/StrongBox failure) vs an ordinary error. Walks the
+    /// cause chain because Keymaster errors surface wrapped — e.g. an
+    /// android.security.KeyStoreException (INCOMPATIBLE_MGF_DIGEST and friends)
+    /// arrives as the cause of a ProviderException / crypto exception thrown from
+    /// cipher.doFinal or key generation. Matches by class-name substring and
+    /// message so we don't have to import every vendor-specific exception type.
+    private fun isHardwareUnavailable(e: Throwable): Boolean {
+        var cause: Throwable? = e
+        while (cause != null) {
+            if (cause is StrongBoxUnavailableException) return true
+            val name = cause.javaClass.name
+            if (name.contains("KeyStoreException") ||
+                name.contains("ProviderException") ||
+                name.contains("StrongBox") ||
+                cause is java.security.NoSuchAlgorithmException ||
+                cause is java.security.NoSuchProviderException
+            ) {
+                return true
+            }
+            val msg = cause.message ?: ""
+            if (msg.contains("INCOMPATIBLE_MGF_DIGEST") ||
+                msg.contains("Keymaster") ||
+                msg.contains("Keystore") ||
+                msg.contains("StrongBox")
+            ) {
+                return true
+            }
+            cause = cause.cause
+        }
+        return false
     }
 
     private fun deleteAliasQuietly(alias: String) {

@@ -70,6 +70,10 @@ jest.mock('lib/miden/activity', () => ({
   getUncompletedTransactions: async () => (globalThis as any).__cnTest.uncompletedTxs
 }));
 
+jest.mock('lib/miden/note-quarantine', () => ({
+  getQuarantinedNoteIds: async () => (globalThis as any).__cnTest.quarantined ?? new Set()
+}));
+
 jest.mock('../assets', () => ({
   isMidenFaucet: jest.fn(async (id: string) => id === 'miden-faucet')
 }));
@@ -102,6 +106,7 @@ beforeEach(() => {
   _g.__cnTest.storage = {};
   _g.__cnTest.consumableNotes = [];
   _g.__cnTest.uncompletedTxs = [];
+  _g.__cnTest.quarantined = new Set();
   _g.__cnTest.walletState.extensionClaimableNotes = null;
   _g.__cnTest.walletState.extensionClaimingNoteIds = new Set();
   _g.__cnTest.walletState.assetsMetadata = {};
@@ -123,10 +128,8 @@ describe('useClaimableNotes (extension mode)', () => {
     (globalThis as any).chrome = {
       storage: {
         local: {
-          get: jest.fn((_key: string, cb: any) => {
-            cb({
-              miden_cached_consumable_notes: (globalThis as any).__cnTest.storage['miden_cached_consumable_notes']
-            });
+          get: jest.fn((key: string, cb: any) => {
+            cb({ [key]: (globalThis as any).__cnTest.storage[key] });
           })
         }
       }
@@ -214,6 +217,34 @@ describe('useClaimableNotes (extension mode)', () => {
     ];
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
     expect(result.current.data?.[0]?.type).toBe('unknown');
+  });
+
+  it('serves cached notes only for the matching account (account-scoped poll)', () => {
+    _g.__cnTest.storage['miden_sync_data'] = {
+      notes: [{ id: 'nX', faucetId: 'f1', amountBaseUnits: '5', senderAddress: 's', noteType: 'public' }],
+      vaultAssets: [],
+      accountPublicKey: 'A'
+    };
+    const setSpy = _g.__cnTest.walletState.setExtensionClaimableNotes as jest.Mock;
+
+    // Account B must NOT receive account A's cached notes.
+    setSpy.mockClear();
+    renderHook(() => useClaimableNotes('B'));
+    expect(setSpy).toHaveBeenLastCalledWith([]);
+
+    // Account A receives its own notes.
+    setSpy.mockClear();
+    renderHook(() => useClaimableNotes('A'));
+    expect(setSpy).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'nX' })]);
+  });
+
+  it('stays loading (does not overwrite) when no sync data has been cached yet', () => {
+    const setSpy = _g.__cnTest.walletState.setExtensionClaimableNotes as jest.Mock;
+    setSpy.mockClear();
+    renderHook(() => useClaimableNotes('A'));
+    // No miden_sync_data present → poll must not push an (empty) result that
+    // would flip isLoading off prematurely.
+    expect(setSpy).not.toHaveBeenCalled();
   });
 
   it('does nothing when chrome.storage.local is unavailable', () => {
@@ -320,6 +351,17 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     await waitFor(() => {
       expect(mockGetMidenClient).toHaveBeenCalled();
     });
+  });
+
+  it('excludes quarantined notes (simulation dry-run imports) from the result', async () => {
+    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'quarantined-note' }), makeMockNote({ id: 'visible-note' })];
+    _g.__cnTest.quarantined = new Set(['quarantined-note']);
+    mockGetMidenClient.mockResolvedValue({
+      getConsumableNotes: jest.fn(async () => _g.__cnTest.consumableNotes)
+    });
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    expect(_g.__cnTest.lastFetchData.map((n: any) => n.id)).toEqual(['visible-note']);
   });
 
   it('uses the in-progress consume transactions to mark notes as being claimed', async () => {

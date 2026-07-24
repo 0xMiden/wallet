@@ -3289,5 +3289,37 @@
   "disconnect": {
     "message": "切断する",
     "englishSource": "Disconnect"
+  },
+  "declaredBySiteVerifying": {
+    "message": "サイトごとに宣言 — シミュレーションで検証中…",
+    "englishSource": "Declared by site — verifying by simulation…"
+  },
+  "unverified": {
+    "message": "未確認",
+    "englishSource": "unverified"
+  },
+  "couldNotVerifyBySimulation": {
+    "message": "シミュレーションでは検証できませんでした。以下の金額はサイトで発表されているものです。",
+    "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
+  },
+  "couldNotDecodeTransaction": {
+    "message": "この dApp はカスタム トランザクションをリクエストしています。ウォレットはその詳細をデコードできませんでした。その動作を正確に知っている場合にのみ続行してください。",
+    "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "advancedDetails": {
+    "message": "高度な詳細",
+    "englishSource": "Advanced details"
+  },
+  "rawValue": {
+    "message": "生の値",
+    "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "不透明な署名リクエスト",
+    "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureWarning": {
+    "message": "このサイトでは、生の値に署名するように求められました。ウォレットは何を許可しているかを表示できません。このサイトを完全に信頼する場合にのみ続行してください。",
+    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
   }
 }

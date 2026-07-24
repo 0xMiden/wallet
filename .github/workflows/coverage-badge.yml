@@ -1,10 +1,11 @@
-name: Coverage Badge
+name: Badges
 
-# Publishes the Jest line-coverage % to coverage.json on the orphan `badges`
-# branch so shields.io renders a live badge in README.md. Runs only after a
-# push to main. No external service login required — shields.io reads the JSON
-# directly from raw.githubusercontent.com. The `badges` branch is an orphan
-# holding only the endpoint JSON; nothing merges back into main.
+# Publishes the Jest line-coverage % (coverage.json) and total test count
+# (tests.json) to the orphan `badges` branch so shields.io renders live badges
+# in README.md. Both are derived from a single `yarn test:coverage` run. Runs
+# only after a push to main. No external service login required — shields.io
+# reads the JSON directly from raw.githubusercontent.com. The `badges` branch
+# is an orphan holding only the endpoint JSON; nothing merges back into main.
 on:
   push:
     branches: [main]
@@ -28,7 +29,11 @@ jobs:
         # coverage job, tolerating any latent lockfile drift on a first run.
         run: yarn install --network-timeout 600000
       - name: Run coverage
-        run: yarn test:coverage
+        # `--json --outputFile` writes the run summary (incl. numTotalTests) to
+        # jest-results.json for the test-count badge; with --json Jest keeps its
+        # normal console output on stderr, so the CI log is unchanged. Coverage
+        # is still emitted to coverage/ by the json-summary reporter as before.
+        run: yarn test:coverage --json --outputFile=jest-results.json
       - name: Compose shields.io endpoint JSON
         id: badge
         run: |
@@ -42,6 +47,11 @@ jobs:
           printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' "$pct" "$color" > /tmp/coverage.json
           echo "Line coverage: ${pct}%"
           echo "pct=${pct}" >> "$GITHUB_OUTPUT"
+
+          count=$(node -e 'process.stdout.write(String(require("./jest-results.json").numTotalTests))')
+          printf '{"schemaVersion":1,"label":"tests","message":"%s","color":"blue"}\n' "$count" > /tmp/tests.json
+          echo "Total tests: ${count}"
+          echo "count=${count}" >> "$GITHUB_OUTPUT"
       - name: Publish to `badges` branch
         run: |
           set -euo pipefail
@@ -55,10 +65,11 @@ jobs:
             git rm -rf . > /dev/null 2>&1 || true
           fi
           cp /tmp/coverage.json coverage.json
-          git add coverage.json
+          cp /tmp/tests.json tests.json
+          git add coverage.json tests.json
           if git diff --cached --quiet; then
             echo "Badge JSON unchanged"
           else
-            git commit -m "chore: coverage badge -> ${{ steps.badge.outputs.pct }}%"
+            git commit -m "chore: badges -> coverage ${{ steps.badge.outputs.pct }}%, tests ${{ steps.badge.outputs.count }}"
             git push origin badges
           fi
