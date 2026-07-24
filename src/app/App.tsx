@@ -13,6 +13,7 @@ import Dialogs from 'app/layouts/Dialogs';
 import { MobileBackBridge } from 'app/MobileBackBridge';
 import PageRouter from 'app/PageRouter';
 import { DappBrowserProvider } from 'app/providers/DappBrowserProvider';
+import { HotKeyRotationGate } from 'app/templates/HotKeyRotationGate';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
 import { ExtensionMessageListener } from 'components/ConnectivityIssueBanner';
 import { MidenProvider } from 'lib/miden/front';
@@ -60,10 +61,14 @@ const App: FC<AppProps> = ({ env }) => {
                     // tab navigation — a parked dApp's bubble stays interactive even
                     // when the user moves to a different tab.
                     <DappBrowserProvider>
+                      <HotKeyRotationGate />
                       <PageRouter />
                     </DappBrowserProvider>
                   ) : (
-                    <PageRouter />
+                    <>
+                      <HotKeyRotationGate />
+                      <PageRouter />
+                    </>
                   )}
                 </div>
               </BootAnimation>

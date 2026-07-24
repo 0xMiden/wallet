@@ -24,6 +24,20 @@ import { fetchFromStorage } from '../front/storage';
 import { accountIdStringToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
+/**
+ * Structural GuardianHttpError auth-rejection check (401 /
+ * `authentication_failed` / `signer_not_authorized`). Duck-typed rather than
+ * `instanceof GuardianHttpError` so it survives test mocks of the multisig
+ * client and any duplicate-package instance of the error class (same
+ * convention as the 409 check in `./serialize.ts`).
+ */
+export const isGuardianAuthRejection = (err: unknown): boolean => {
+  if (typeof err !== 'object' || err === null) return false;
+  const status = 'status' in err ? err.status : undefined;
+  const code = 'code' in err ? err.code : undefined;
+  return status === 401 || code === 'authentication_failed' || code === 'signer_not_authorized';
+};
+
 const MAX_SYNC_RETRIES = 30;
 const SYNC_RETRY_DELAY_MS = 1000;
 // The guardian typically re-canonicalizes an accepted delta within ~2-10 ticks,
@@ -319,6 +333,13 @@ export class MultisigService {
           await delay(SYNC_RETRY_DELAY_MS);
           continue;
         }
+
+        // Auth rejections (401 / authentication_failed / signer_not_authorized)
+        // are NOT self-healed here: never push local state to a guardian that
+        // just refused our signer — if our binding is the stale side, the
+        // caller-level cache eviction (guardian-sync) rebuilds it; if the
+        // guardian is the stale side, that's an operator/registration problem
+        // to surface, not overwrite. Rethrow like any other error.
 
         // `multisig.syncState` refuses to overwrite local state while the guardian
         // is still canonicalizing a delta it just accepted: its stored blob lags the

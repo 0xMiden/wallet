@@ -139,18 +139,13 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   // TODO: track the created PSWAP note + payback note for richer activity
   // display (offered/requested asset breakdown). For now record the tx as
   // Completed with the output note ids so the swap shows up in history.
-  const completedAt = Math.floor(Date.now() / 1000);
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
     displayMessage: 'Swapped',
     transactionId: executedTx.id().toHex(),
     outputNoteIds: [outputNote.id().toString()],
-    completedAt,
+    completedAt: Math.floor(Date.now() / 1000), // seconds
     resultBytes: result.serialize(),
-    extraInputs: {
-      ...tx.extraInputs,
-      orderId,
-      expiresAt: completedAt + (tx.extraInputs.expirySeconds ?? 120)
-    }
+    extraInputs: { ...tx.extraInputs, orderId }
   });
 };
 

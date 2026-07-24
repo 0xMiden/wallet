@@ -54,10 +54,6 @@ jest.mock('components/ui', () => ({
   )
 }));
 
-jest.mock('app/templates/ActivateHotKeyBanner', () => ({
-  ActivateHotKeyBanner: () => <div>activate-hot-key</div>
-}));
-
 jest.mock('lib/wallet-prompts', () => {
   const actual = jest.requireActual('lib/wallet-prompts');
   return {
