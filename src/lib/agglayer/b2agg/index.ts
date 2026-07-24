@@ -1,5 +1,6 @@
 import {
   AccountId,
+  AssetCallbackFlag,
   EthAddress,
   FungibleAsset,
   Note,
@@ -28,10 +29,11 @@ export async function createB2AggNote(
   senderAddress: string,
   destinationNetwork: number
 ) {
+  const asset = new FungibleAsset(AccountId.fromHex(MIDEN_AGGLAYER_FAUCET_ID), amount);
   return Note.createB2AggNote(
     accountIdStringToSdk(senderAddress),
     AccountId.fromHex(MIDEN_BRIDGE_ID),
-    new NoteAssets([new FungibleAsset(AccountId.fromHex(MIDEN_AGGLAYER_FAUCET_ID), amount)]),
+    new NoteAssets([asset.withCallbacks(AssetCallbackFlag.Enabled)]),
     destinationNetwork,
     EthAddress.fromHex(destinationAddress)
   );
