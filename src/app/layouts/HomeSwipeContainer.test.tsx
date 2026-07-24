@@ -165,7 +165,7 @@ describe('HomeSwipeContainer', () => {
     expect(getByTestId('page-send')).toHaveAttribute('data-loading', 'false');
   });
 
-  it('drops the Swap pane when swap is disabled (iOS), keeping the other four', () => {
+  it('drops the Swap pane when swap is disabled, keeping the other four', () => {
     mockSwapEnabled.value = false;
     const { getByTestId, queryByTestId } = render(<HomeSwipeContainer />);
     expect(queryByTestId('page-swap')).toBeNull();

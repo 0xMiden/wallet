@@ -2,6 +2,10 @@
 
 ## 1.15.11 (TBD)
 
+### Changes
+
+* [CHANGE][ios] **In-app swap is now available on iOS.** The In-Protocol DEX swap — previously disabled on iOS under App Store Review Guideline 3.1.5(iii) — is re-enabled, so the swap tab, the home swipe pane, the `/swap` route, and the featured swap dApps are present on iOS just as on Android, the browser extension, and desktop. Availability stays gated by the single `isSwapEnabled()` flag.
+
 ### Fixes
 
 * [FIX][mobile] **Tapping a home action (Send/Receive/Overview) slides between the carousel pages more smoothly.** The horizontal track is now pre-promoted to its own compositor layer (`will-change: transform`), so a programmatic slide no longer pays for layer creation — a full repaint — on its first frame; a finger drag was already on a live layer, which is why swiping felt smoother than tapping.
