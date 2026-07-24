@@ -1038,6 +1038,52 @@
       }
     }
   },
+  "usuallyFillsIn": {
+    "message": "通常填写",
+    "englishSource": "Usually fills in"
+  },
+  "swapEtaSeconds": {
+    "message": "~ $seconds$ s",
+    "englishSource": "~$seconds$s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaMinutes": {
+    "message": "~ $minutes$ 分钟",
+    "englishSource": "~$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaFallback": {
+    "message": "〜30秒",
+    "englishSource": "~30s"
+  },
+  "expires": {
+    "message": "过期",
+    "englishSource": "Expires"
+  },
+  "swapAutoConsume": {
+    "message": "自动消耗",
+    "englishSource": "Auto consume"
+  },
+  "swapExpiresValue": {
+    "message": "7天内",
+    "englishSource": "In 7 days"
+  },
+  "networkFee": {
+    "message": "网络费",
+    "englishSource": "Network fee"
+  },
+  "swapNetworkFeeValue": {
+    "message": "~0.42 美元",
+    "englishSource": "~$0.42"
+  },
   "swapSameToken": {
     "message": "选择两个不同的代币进行交换。",
     "englishSource": "Pick two different tokens to swap."
@@ -1064,8 +1110,8 @@
     }
   },
   "swapSuccessSourcingLiquidity": {
-    "message": "我们正在为您的互换寻找流动性。",
-    "englishSource": "We're sourcing liquidity for your swap."
+    "message": "我们正在为您的互换寻找流动性。通常大约 30 秒即可充满。",
+    "englishSource": "We're sourcing liquidity for your swap. It usually fills in about 30 seconds."
   },
   "swapSuccessTrackProgress": {
     "message": "您可以在“活动”中跟踪其进度。",
@@ -1869,13 +1915,25 @@
     "message": "设备密钥轮换成功。",
     "englishSource": "Device key rotated successfully."
   },
-  "activateHotKeyBannerTitle": {
-    "message": "激活设备密钥",
-    "englishSource": "Activate device key"
+  "hotKeyRotationOverlayTitle": {
+    "message": "轮换您的设备密钥",
+    "englishSource": "Rotating your device key"
   },
-  "activateHotKeyBannerBody": {
-    "message": "为该恢复的帐户生成设备密钥。发送前需要。",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  "hotKeyRotationOverlayBody": {
+    "message": "您的设备（热）键正在轮换。设置恢复的帐户时需要这样做，以便它可以同步并进行交易。",
+    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+  },
+  "hotKeyRotationFailedTitle": {
+    "message": "设备密钥轮换失败",
+    "englishSource": "Device key rotation failed"
+  },
+  "hotKeyRotationFailedGeneric": {
+    "message": "旋转设备密钥时出现问题。",
+    "englishSource": "Something went wrong while rotating your device key."
+  },
+  "hotKeyRotationRetry": {
+    "message": "重试",
+    "englishSource": "Retry"
   },
   "guardianChangedTitle": {
     "message": "监护人变更",

@@ -1020,6 +1020,52 @@
       }
     }
   },
+  "usuallyFillsIn": {
+    "message": "通常は埋められます",
+    "englishSource": "Usually fills in"
+  },
+  "swapEtaSeconds": {
+    "message": "~ $seconds$ s",
+    "englishSource": "~$seconds$s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaMinutes": {
+    "message": "~ $minutes$ 分",
+    "englishSource": "~$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaFallback": {
+    "message": "～30代",
+    "englishSource": "~30s"
+  },
+  "expires": {
+    "message": "有効期限が切れます",
+    "englishSource": "Expires"
+  },
+  "swapAutoConsume": {
+    "message": "自動消費",
+    "englishSource": "Auto consume"
+  },
+  "swapExpiresValue": {
+    "message": "7日以内",
+    "englishSource": "In 7 days"
+  },
+  "networkFee": {
+    "message": "ネットワーク料金",
+    "englishSource": "Network fee"
+  },
+  "swapNetworkFeeValue": {
+    "message": "~0.42ドル",
+    "englishSource": "~$0.42"
+  },
   "swapSameToken": {
     "message": "交換する 2 つの異なるトークンを選択します。",
     "englishSource": "Pick two different tokens to swap."
@@ -1046,8 +1092,8 @@
     }
   },
   "swapSuccessSourcingLiquidity": {
-    "message": "私たちはあなたのスワップのために流動性を調達しています。",
-    "englishSource": "We're sourcing liquidity for your swap."
+    "message": "私たちはあなたのスワップのために流動性を調達しています。通常は約 30 秒で完了します。",
+    "englishSource": "We're sourcing liquidity for your swap. It usually fills in about 30 seconds."
   },
   "swapSuccessTrackProgress": {
     "message": "アクティビティで進捗状況を追跡できます。",
@@ -1851,13 +1897,25 @@
     "message": "デバイスキーが正常にローテーションされました。",
     "englishSource": "Device key rotated successfully."
   },
-  "activateHotKeyBannerTitle": {
-    "message": "デバイスキーをアクティブ化する",
-    "englishSource": "Activate device key"
+  "hotKeyRotationOverlayTitle": {
+    "message": "デバイスキーをローテーションする",
+    "englishSource": "Rotating your device key"
   },
-  "activateHotKeyBannerBody": {
-    "message": "この回復されたアカウントのデバイス キーを生成します。送信する前に必須です。",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  "hotKeyRotationOverlayBody": {
+    "message": "デバイスの (ホット) キーがローテーションされています。これは、復元されたアカウントを設定して同期してトランザクションを実行できるようにするときに必要です。",
+    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+  },
+  "hotKeyRotationFailedTitle": {
+    "message": "デバイスキーのローテーションに失敗しました",
+    "englishSource": "Device key rotation failed"
+  },
+  "hotKeyRotationFailedGeneric": {
+    "message": "デバイス キーの回転中に問題が発生しました。",
+    "englishSource": "Something went wrong while rotating your device key."
+  },
+  "hotKeyRotationRetry": {
+    "message": "リトライ",
+    "englishSource": "Retry"
   },
   "guardianChangedTitle": {
     "message": "保護者が変更されました",

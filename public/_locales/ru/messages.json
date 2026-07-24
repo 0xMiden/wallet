@@ -1020,6 +1020,52 @@
       }
     }
   },
+  "usuallyFillsIn": {
+    "message": "Обычно заполняет",
+    "englishSource": "Usually fills in"
+  },
+  "swapEtaSeconds": {
+    "message": "~ $seconds$ с",
+    "englishSource": "~$seconds$s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaMinutes": {
+    "message": "~ $minutes$ мин",
+    "englishSource": "~$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaFallback": {
+    "message": "~30 сек.",
+    "englishSource": "~30s"
+  },
+  "expires": {
+    "message": "Срок действия истекает",
+    "englishSource": "Expires"
+  },
+  "swapAutoConsume": {
+    "message": "Автоматическое потребление",
+    "englishSource": "Auto consume"
+  },
+  "swapExpiresValue": {
+    "message": "Через 7 дней",
+    "englishSource": "In 7 days"
+  },
+  "networkFee": {
+    "message": "Сетевая плата",
+    "englishSource": "Network fee"
+  },
+  "swapNetworkFeeValue": {
+    "message": "~$0,42",
+    "englishSource": "~$0.42"
+  },
   "swapSameToken": {
     "message": "Выберите два разных жетона для обмена.",
     "englishSource": "Pick two different tokens to swap."
@@ -1046,8 +1092,8 @@
     }
   },
   "swapSuccessSourcingLiquidity": {
-    "message": "Мы ищем ликвидность для вашего свопа.",
-    "englishSource": "We're sourcing liquidity for your swap."
+    "message": "Мы ищем ликвидность для вашего свопа. Обычно он заполняется примерно за 30 секунд.",
+    "englishSource": "We're sourcing liquidity for your swap. It usually fills in about 30 seconds."
   },
   "swapSuccessTrackProgress": {
     "message": "Вы можете отслеживать его прогресс в разделе «Действия».",
@@ -1852,13 +1898,25 @@
     "message": "Ключ устройства успешно поменялся.",
     "englishSource": "Device key rotated successfully."
   },
-  "activateHotKeyBannerTitle": {
-    "message": "Активировать ключ устройства",
-    "englishSource": "Activate device key"
+  "hotKeyRotationOverlayTitle": {
+    "message": "Поворот ключа устройства",
+    "englishSource": "Rotating your device key"
   },
-  "activateHotKeyBannerBody": {
-    "message": "Создайте ключ устройства для этой восстановленной учетной записи. Обязательно перед отправкой.",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  "hotKeyRotationOverlayBody": {
+    "message": "(Горячая) клавиша вашего устройства вращается. Это необходимо при настройке восстановленной учетной записи, чтобы она могла синхронизироваться и совершать транзакции.",
+    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+  },
+  "hotKeyRotationFailedTitle": {
+    "message": "Не удалось выполнить ротацию ключа устройства.",
+    "englishSource": "Device key rotation failed"
+  },
+  "hotKeyRotationFailedGeneric": {
+    "message": "При повороте ключа устройства что-то пошло не так.",
+    "englishSource": "Something went wrong while rotating your device key."
+  },
+  "hotKeyRotationRetry": {
+    "message": "Повторить попытку",
+    "englishSource": "Retry"
   },
   "guardianChangedTitle": {
     "message": "Хранитель изменен",

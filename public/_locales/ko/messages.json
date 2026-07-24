@@ -1029,6 +1029,52 @@
       }
     }
   },
+  "usuallyFillsIn": {
+    "message": "보통 채워준다",
+    "englishSource": "Usually fills in"
+  },
+  "swapEtaSeconds": {
+    "message": "~ $seconds$ 에스",
+    "englishSource": "~$seconds$s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaMinutes": {
+    "message": "~ $minutes$ 분",
+    "englishSource": "~$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaFallback": {
+    "message": "~30초",
+    "englishSource": "~30s"
+  },
+  "expires": {
+    "message": "만료",
+    "englishSource": "Expires"
+  },
+  "swapAutoConsume": {
+    "message": "자동 소비",
+    "englishSource": "Auto consume"
+  },
+  "swapExpiresValue": {
+    "message": "7일 후",
+    "englishSource": "In 7 days"
+  },
+  "networkFee": {
+    "message": "네트워크 수수료",
+    "englishSource": "Network fee"
+  },
+  "swapNetworkFeeValue": {
+    "message": "~$0.42",
+    "englishSource": "~$0.42"
+  },
   "swapSameToken": {
     "message": "교환할 두 개의 다른 토큰을 선택하세요.",
     "englishSource": "Pick two different tokens to swap."
@@ -1055,8 +1101,8 @@
     }
   },
   "swapSuccessSourcingLiquidity": {
-    "message": "우리는 귀하의 스왑을 위해 유동성을 공급하고 있습니다.",
-    "englishSource": "We're sourcing liquidity for your swap."
+    "message": "우리는 귀하의 스왑을 위해 유동성을 공급하고 있습니다. 보통 30초 정도 채워집니다.",
+    "englishSource": "We're sourcing liquidity for your swap. It usually fills in about 30 seconds."
   },
   "swapSuccessTrackProgress": {
     "message": "활동에서 진행 상황을 추적할 수 있습니다.",
@@ -1860,13 +1906,25 @@
     "message": "장치 키가 성공적으로 순환되었습니다.",
     "englishSource": "Device key rotated successfully."
   },
-  "activateHotKeyBannerTitle": {
-    "message": "장치 키 활성화",
-    "englishSource": "Activate device key"
+  "hotKeyRotationOverlayTitle": {
+    "message": "장치 키 순환",
+    "englishSource": "Rotating your device key"
   },
-  "activateHotKeyBannerBody": {
-    "message": "복구된 계정에 대한 장치 키를 생성하세요. 보내기 전에 필요합니다.",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  "hotKeyRotationOverlayBody": {
+    "message": "장치(핫) 키가 순환되고 있습니다. 이는 복구된 계정을 설정하여 동기화하고 거래할 수 있도록 하는 데 필요합니다.",
+    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+  },
+  "hotKeyRotationFailedTitle": {
+    "message": "기기 키 순환 실패",
+    "englishSource": "Device key rotation failed"
+  },
+  "hotKeyRotationFailedGeneric": {
+    "message": "기기 키를 순환하는 중에 문제가 발생했습니다.",
+    "englishSource": "Something went wrong while rotating your device key."
+  },
+  "hotKeyRotationRetry": {
+    "message": "다시 해 보다",
+    "englishSource": "Retry"
   },
   "guardianChangedTitle": {
     "message": "보호자가 변경되었습니다.",

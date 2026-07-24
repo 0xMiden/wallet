@@ -1003,6 +1003,52 @@
       }
     }
   },
+  "usuallyFillsIn": {
+    "message": "Zwykle wypełnia",
+    "englishSource": "Usually fills in"
+  },
+  "swapEtaSeconds": {
+    "message": "~ $seconds$ S",
+    "englishSource": "~$seconds$s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaMinutes": {
+    "message": "~ $minutes$ min",
+    "englishSource": "~$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaFallback": {
+    "message": "~30 s",
+    "englishSource": "~30s"
+  },
+  "expires": {
+    "message": "Wygasa",
+    "englishSource": "Expires"
+  },
+  "swapAutoConsume": {
+    "message": "Automatyczne zużycie",
+    "englishSource": "Auto consume"
+  },
+  "swapExpiresValue": {
+    "message": "Za 7 dni",
+    "englishSource": "In 7 days"
+  },
+  "networkFee": {
+    "message": "Opłata sieciowa",
+    "englishSource": "Network fee"
+  },
+  "swapNetworkFeeValue": {
+    "message": "~0,42 USD",
+    "englishSource": "~$0.42"
+  },
   "swapSameToken": {
     "message": "Wybierz dwa różne żetony do wymiany.",
     "englishSource": "Pick two different tokens to swap."
@@ -1029,8 +1075,8 @@
     }
   },
   "swapSuccessSourcingLiquidity": {
-    "message": "Pozyskujemy płynność dla Twojego swapu.",
-    "englishSource": "We're sourcing liquidity for your swap."
+    "message": "Pozyskujemy płynność dla Twojego swapu. Zwykle wypełnia się około 30 sekund.",
+    "englishSource": "We're sourcing liquidity for your swap. It usually fills in about 30 seconds."
   },
   "swapSuccessTrackProgress": {
     "message": "Możesz śledzić jego postęp w Aktywnościach.",
@@ -1798,13 +1844,25 @@
     "message": "Klucz urządzenia został pomyślnie obrócony.",
     "englishSource": "Device key rotated successfully."
   },
-  "activateHotKeyBannerTitle": {
-    "message": "Aktywuj klucz urządzenia",
-    "englishSource": "Activate device key"
+  "hotKeyRotationOverlayTitle": {
+    "message": "Obracanie klucza urządzenia",
+    "englishSource": "Rotating your device key"
   },
-  "activateHotKeyBannerBody": {
-    "message": "Wygeneruj klucz urządzenia dla tego odzyskanego konta. Wymagane przed wysłaniem.",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  "hotKeyRotationOverlayBody": {
+    "message": "Klucz Twojego urządzenia (gorący) jest obracany. Jest to wymagane podczas konfigurowania odzyskanego konta, aby mogło ono synchronizować i dokonywać transakcji.",
+    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+  },
+  "hotKeyRotationFailedTitle": {
+    "message": "Zmiana klucza urządzenia nie powiodła się",
+    "englishSource": "Device key rotation failed"
+  },
+  "hotKeyRotationFailedGeneric": {
+    "message": "Coś poszło nie tak podczas obracania klawisza urządzenia.",
+    "englishSource": "Something went wrong while rotating your device key."
+  },
+  "hotKeyRotationRetry": {
+    "message": "Spróbować ponownie",
+    "englishSource": "Retry"
   },
   "guardianChangedTitle": {
     "message": "Strażnik się zmienił",

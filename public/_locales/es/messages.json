@@ -1003,6 +1003,52 @@
       }
     }
   },
+  "usuallyFillsIn": {
+    "message": "Generalmente completa",
+    "englishSource": "Usually fills in"
+  },
+  "swapEtaSeconds": {
+    "message": "~ $seconds$ s",
+    "englishSource": "~$seconds$s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaMinutes": {
+    "message": "~ $minutes$ mín.",
+    "englishSource": "~$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaFallback": {
+    "message": "~30s",
+    "englishSource": "~30s"
+  },
+  "expires": {
+    "message": "Vence",
+    "englishSource": "Expires"
+  },
+  "swapAutoConsume": {
+    "message": "Consumo automático",
+    "englishSource": "Auto consume"
+  },
+  "swapExpiresValue": {
+    "message": "en 7 dias",
+    "englishSource": "In 7 days"
+  },
+  "networkFee": {
+    "message": "Tarifa de red",
+    "englishSource": "Network fee"
+  },
+  "swapNetworkFeeValue": {
+    "message": "~$0.42",
+    "englishSource": "~$0.42"
+  },
   "swapSameToken": {
     "message": "Elija dos tokens diferentes para intercambiar.",
     "englishSource": "Pick two different tokens to swap."
@@ -1029,8 +1075,8 @@
     }
   },
   "swapSuccessSourcingLiquidity": {
-    "message": "Estamos obteniendo liquidez para su swap.",
-    "englishSource": "We're sourcing liquidity for your swap."
+    "message": "Estamos obteniendo liquidez para su swap. Por lo general, se completa en unos 30 segundos.",
+    "englishSource": "We're sourcing liquidity for your swap. It usually fills in about 30 seconds."
   },
   "swapSuccessTrackProgress": {
     "message": "Puede seguir su progreso en Actividades.",
@@ -1798,13 +1844,25 @@
     "message": "La clave del dispositivo se giró correctamente.",
     "englishSource": "Device key rotated successfully."
   },
-  "activateHotKeyBannerTitle": {
-    "message": "Activar clave del dispositivo",
-    "englishSource": "Activate device key"
+  "hotKeyRotationOverlayTitle": {
+    "message": "Girar la tecla de tu dispositivo",
+    "englishSource": "Rotating your device key"
   },
-  "activateHotKeyBannerBody": {
-    "message": "Genere una clave de dispositivo para esta cuenta recuperada. Requerido antes de enviar.",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  "hotKeyRotationOverlayBody": {
+    "message": "La tecla (de acceso rápido) de su dispositivo se está girando. Esto es necesario al configurar una cuenta recuperada para que pueda sincronizarse y realizar transacciones.",
+    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+  },
+  "hotKeyRotationFailedTitle": {
+    "message": "Falló la rotación de la clave del dispositivo",
+    "englishSource": "Device key rotation failed"
+  },
+  "hotKeyRotationFailedGeneric": {
+    "message": "Algo salió mal al girar la tecla de tu dispositivo.",
+    "englishSource": "Something went wrong while rotating your device key."
+  },
+  "hotKeyRotationRetry": {
+    "message": "Rever",
+    "englishSource": "Retry"
   },
   "guardianChangedTitle": {
     "message": "Guardián cambiado",
