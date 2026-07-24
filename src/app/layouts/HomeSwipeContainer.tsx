@@ -22,8 +22,8 @@ import { SwapFlow } from 'screens/swap-flow/SwapManager';
  * SegmentedActionBar in TabLayout reads the same path and stays in sync
  * via its framer-motion layoutId pill.
  *
- * Swap is omitted from production iOS builds (App Store Guideline
- * 3.1.5(iii)); internal test builds may opt in via isSwapEnabled().
+ * Swap availability is owned entirely by isSwapEnabled(); the pane is omitted
+ * when it returns false.
  * Track length, page widths and the index math all derive from the same
  * filtered `pages` array, so the carousel stays consistent no matter how many
  * pages are present.
