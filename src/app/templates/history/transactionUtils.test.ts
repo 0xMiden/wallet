@@ -5,9 +5,16 @@ import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { formatAmount } from 'lib/shared/format';
 
+import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import {
+  bridgeInRowDisplay,
+  bridgeRowDisplay,
+  bridgeStatusOf,
   fontColorForType,
+  formatBridgeOutputAmount,
   formatDate,
+  isBridgeInEntry,
+  isCompletedTransaction,
   isFaucetRequest,
   resolveSwapHistoryFields,
   TRANSACTION_COLORS
@@ -234,5 +241,165 @@ describe('formatDate', () => {
     expect(formatDate(null as any)).toBe('Invalid Date');
     expect(formatDate(undefined as any)).toBe('Invalid Date');
     expect(formatDate({} as any)).toBe('Invalid Date');
+  });
+});
+
+// Bridge helpers work off plain `IHistoryEntry` fields, so a typed factory over
+// the required keys is enough — no SDK or store doubles needed.
+const bridgeEntry = (overrides: Partial<IHistoryEntry>): IHistoryEntry => ({
+  key: 'entry-key',
+  address: 'mtst1sender',
+  timestamp: 1_700_000_000,
+  message: 'Sent',
+  type: HistoryEntryType.CompletedTransaction,
+  txType: 'bridged-send',
+  ...overrides
+});
+
+describe('isCompletedTransaction', () => {
+  it.each(['Sent', 'Received', 'Reclaimed', 'Executed'])('treats %s as completed', message => {
+    expect(isCompletedTransaction(message)).toBe(true);
+  });
+
+  it.each(['Sending', 'Pending', '', 'sent'])('treats %s as not completed', message => {
+    expect(isCompletedTransaction(message)).toBe(false);
+  });
+});
+
+describe('formatBridgeOutputAmount', () => {
+  it('passes undefined through', () => {
+    expect(formatBridgeOutputAmount(undefined)).toBeUndefined();
+  });
+
+  it('rounds a full-precision value to 2 decimals', () => {
+    expect(formatBridgeOutputAmount('1.239999999999999999')).toBe('1.24');
+    expect(formatBridgeOutputAmount('0')).toBe('0.00');
+  });
+
+  it('pads a whole number to 2 decimals', () => {
+    expect(formatBridgeOutputAmount('12')).toBe('12.00');
+  });
+
+  it('passes non-numeric input through unchanged', () => {
+    expect(formatBridgeOutputAmount('not-a-number')).toBe('not-a-number');
+  });
+});
+
+describe('bridgeStatusOf', () => {
+  it('maps the agglayer claim lifecycle', () => {
+    expect(bridgeStatusOf(bridgeEntry({ bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' }))).toBe('confirmed');
+    expect(bridgeStatusOf(bridgeEntry({ bridgeProvider: 'agglayer', bridgeClaimStatus: 'failed' }))).toBe('failed');
+    expect(bridgeStatusOf(bridgeEntry({ bridgeProvider: 'agglayer', bridgeClaimStatus: 'pending' }))).toBe('pending');
+  });
+
+  it('defaults an agglayer row with no claim status to pending', () => {
+    expect(bridgeStatusOf(bridgeEntry({ bridgeProvider: 'agglayer' }))).toBe('pending');
+  });
+
+  it('uses the polled intent status for the epoch route', () => {
+    expect(bridgeStatusOf(bridgeEntry({ bridgeProvider: 'epoch', bridgeEpochStatus: 'confirmed' }))).toBe('confirmed');
+    expect(bridgeStatusOf(bridgeEntry({ bridgeProvider: 'epoch', bridgeEpochStatus: 'failed' }))).toBe('failed');
+  });
+
+  it('defaults an epoch row with no polled status to pending', () => {
+    expect(bridgeStatusOf(bridgeEntry({ bridgeProvider: 'epoch' }))).toBe('pending');
+  });
+});
+
+describe('bridgeRowDisplay', () => {
+  it('renders an epoch row from its quoted output', () => {
+    expect(
+      bridgeRowDisplay(
+        bridgeEntry({
+          token: 'MIDEN',
+          amount: 5n,
+          bridgeProvider: 'epoch',
+          bridgeOutputSymbol: 'USDC',
+          bridgeOutputAmount: '4.987654',
+          bridgeEpochStatus: 'confirmed'
+        })
+      )
+    ).toEqual({
+      inSymbol: 'MIDEN',
+      outSymbol: 'USDC',
+      outAmount: '4.99',
+      providerLabel: 'Epoch',
+      network: 'Sepolia',
+      status: 'confirmed'
+    });
+  });
+
+  it('defaults an agglayer row without an output symbol to ETH and falls back to the input amount', () => {
+    expect(
+      bridgeRowDisplay(
+        bridgeEntry({ token: 'MIDEN', amount: 7n, bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
+      )
+    ).toEqual({
+      inSymbol: 'MIDEN',
+      outSymbol: 'ETH',
+      outAmount: '7',
+      providerLabel: 'Agglayer',
+      network: 'Sepolia',
+      status: 'confirmed'
+    });
+  });
+
+  it('falls back to em dash / USDC / "Bridge" when the row carries no provider or token', () => {
+    expect(bridgeRowDisplay(bridgeEntry({}))).toEqual({
+      inSymbol: '—',
+      outSymbol: 'USDC',
+      outAmount: undefined,
+      providerLabel: 'Bridge',
+      network: 'Sepolia',
+      status: 'pending'
+    });
+  });
+});
+
+describe('isBridgeInEntry', () => {
+  it('is true only for a consume row tagged with a bridge-in provider', () => {
+    expect(isBridgeInEntry(bridgeEntry({ txType: 'consume', bridgeInProvider: 'epoch' }))).toBe(true);
+  });
+
+  it('is false for an untagged consume row', () => {
+    expect(isBridgeInEntry(bridgeEntry({ txType: 'consume' }))).toBe(false);
+  });
+
+  it('is false for a non-consume row even when tagged', () => {
+    expect(isBridgeInEntry(bridgeEntry({ txType: 'send', bridgeInProvider: 'agglayer' }))).toBe(false);
+  });
+});
+
+describe('bridgeInRowDisplay', () => {
+  it('flips the direction: EVM source token in, Miden token out, always confirmed', () => {
+    expect(
+      bridgeInRowDisplay(
+        bridgeEntry({
+          txType: 'consume',
+          token: 'MIDEN',
+          amount: 3n,
+          bridgeInProvider: 'agglayer',
+          bridgeInSourceSymbol: 'ETH'
+        })
+      )
+    ).toEqual({
+      inSymbol: 'ETH',
+      outSymbol: 'MIDEN',
+      outAmount: '3',
+      providerLabel: 'Agglayer',
+      network: 'Sepolia',
+      status: 'confirmed'
+    });
+  });
+
+  it('defaults the source symbol to USDC and labels a non-agglayer provider Epoch', () => {
+    expect(bridgeInRowDisplay(bridgeEntry({ txType: 'consume', bridgeInProvider: 'epoch' }))).toEqual({
+      inSymbol: 'USDC',
+      outSymbol: '—',
+      outAmount: undefined,
+      providerLabel: 'Epoch',
+      network: 'Sepolia',
+      status: 'confirmed'
+    });
   });
 });
