@@ -2836,6 +2836,10 @@
     "message": "Scan abgebrochen",
     "englishSource": "Scan cancelled"
   },
+  "scan": {
+    "message": "Scan",
+    "englishSource": "Scan"
+  },
   "theme": {
     "message": "Thema",
     "englishSource": "Theme"

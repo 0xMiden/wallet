@@ -2766,6 +2766,10 @@
     "message": "Escaneo cancelado",
     "englishSource": "Scan cancelled"
   },
+  "scan": {
+    "message": "Escanear",
+    "englishSource": "Scan"
+  },
   "theme": {
     "message": "Tema",
     "englishSource": "Theme"

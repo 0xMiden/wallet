@@ -2836,6 +2836,10 @@
     "message": "スキャンがキャンセルされました",
     "englishSource": "Scan cancelled"
   },
+  "scan": {
+    "message": "スキャン",
+    "englishSource": "Scan"
+  },
   "theme": {
     "message": "テーマ",
     "englishSource": "Theme"

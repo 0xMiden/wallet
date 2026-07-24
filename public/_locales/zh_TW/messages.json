@@ -2845,6 +2845,10 @@
     "message": "扫描已取消",
     "englishSource": "Scan cancelled"
   },
+  "scan": {
+    "message": "扫描",
+    "englishSource": "Scan"
+  },
   "theme": {
     "message": "主题",
     "englishSource": "Theme"

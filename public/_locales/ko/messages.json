@@ -2845,6 +2845,10 @@
     "message": "스캔이 취소되었습니다.",
     "englishSource": "Scan cancelled"
   },
+  "scan": {
+    "message": "주사",
+    "englishSource": "Scan"
+  },
   "theme": {
     "message": "주제",
     "englishSource": "Theme"

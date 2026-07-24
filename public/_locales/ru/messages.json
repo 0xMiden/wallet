@@ -2837,6 +2837,10 @@
     "message": "Сканирование отменено",
     "englishSource": "Scan cancelled"
   },
+  "scan": {
+    "message": "Сканировать",
+    "englishSource": "Scan"
+  },
   "theme": {
     "message": "Тема",
     "englishSource": "Theme"

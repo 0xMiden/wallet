@@ -2813,6 +2813,10 @@
     "message": "Verificação cancelada",
     "englishSource": "Scan cancelled"
   },
+  "scan": {
+    "message": "Digitalizar",
+    "englishSource": "Scan"
+  },
   "theme": {
     "message": "Tema",
     "englishSource": "Theme"

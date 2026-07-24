@@ -2823,6 +2823,10 @@
     "message": "Analyse annulée",
     "englishSource": "Scan cancelled"
   },
+  "scan": {
+    "message": "Balayage",
+    "englishSource": "Scan"
+  },
   "theme": {
     "message": "Thème",
     "englishSource": "Theme"

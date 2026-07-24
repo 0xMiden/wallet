@@ -2846,6 +2846,10 @@
     "message": "Сканування скасовано",
     "englishSource": "Scan cancelled"
   },
+  "scan": {
+    "message": "Сканувати",
+    "englishSource": "Scan"
+  },
   "theme": {
     "message": "Тема",
     "englishSource": "Theme"

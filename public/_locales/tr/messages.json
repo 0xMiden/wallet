@@ -2824,6 +2824,10 @@
     "message": "Tarama iptal edildi",
     "englishSource": "Scan cancelled"
   },
+  "scan": {
+    "message": "Tara",
+    "englishSource": "Scan"
+  },
   "theme": {
     "message": "Tema",
     "englishSource": "Theme"

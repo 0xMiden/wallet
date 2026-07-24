@@ -2873,6 +2873,10 @@
     "message": "Scan cancelled",
     "englishSource": "Scan cancelled"
   },
+  "scan": {
+    "message": "Scan",
+    "englishSource": "Scan"
+  },
   "theme": {
     "message": "Theme",
     "englishSource": "Theme"
