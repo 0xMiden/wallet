@@ -3009,5 +3009,170 @@
   "opaqueSignatureWarning": {
     "message": "Этот сайт попросил вас подписать необработанное значение. Кошелек не может показать, что он авторизует. Продолжайте, только если вы полностью доверяете этому сайту.",
     "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+  },
+  "agglayerBridgeInProgressSubtitle": {
+    "message": "Преодоление $amount$ из EVM через Agglayer. Это может занять некоторое время.",
+    "englishSource": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "agglayerBridgeInProgressSubtitleNoAmount": {
+    "message": "Входящий мост от EVM через Agglayer устанавливается. Это может занять некоторое время.",
+    "englishSource": "An incoming bridge from EVM via Agglayer is settling. This can take a while."
+  },
+  "agglayerBridgeInProgressTitle": {
+    "message": "Мост в процессе",
+    "englishSource": "Bridge in progress"
+  },
+  "bridgeDetails": {
+    "message": "Детали моста",
+    "englishSource": "Bridge details"
+  },
+  "bridgeFailed": {
+    "message": "Неуспешный",
+    "englishSource": "Failed"
+  },
+  "bridgeInProgress": {
+    "message": "В ходе выполнения",
+    "englishSource": "In progress"
+  },
+  "claimable": {
+    "message": "Готов предъявить претензии",
+    "englishSource": "Ready to claim"
+  },
+  "claimAsset": {
+    "message": "Заявить права на актив",
+    "englishSource": "Claim Asset"
+  },
+  "claimAssetSubmitted": {
+    "message": "Претензия подана — средства находятся на подключенном кошельке EVM.",
+    "englishSource": "Claim submitted — funds are on the connected EVM wallet."
+  },
+  "claimed": {
+    "message": "Заявлено",
+    "englishSource": "Claimed"
+  },
+  "claimFailedStatus": {
+    "message": "Заявка отклонена",
+    "englishSource": "Claim failed"
+  },
+  "claiming": {
+    "message": "Утверждение…",
+    "englishSource": "Claiming…"
+  },
+  "claimPending": {
+    "message": "Преодоление — заявка еще не готова",
+    "englishSource": "Bridging — claim not ready yet"
+  },
+  "claimStatus": {
+    "message": "Статус заявки",
+    "englishSource": "Claim status"
+  },
+  "confirmDeposit": {
+    "message": "Подтвердить депозит",
+    "englishSource": "Confirm Deposit"
+  },
+  "connectDestinationWalletToClaim": {
+    "message": "Подключите целевой кошелек для запроса.",
+    "englishSource": "Connect the destination wallet to claim."
+  },
+  "connectEvmWallet": {
+    "message": "Подключите кошелек EVM",
+    "englishSource": "Connect an EVM wallet"
+  },
+  "connectEvmWalletDescription": {
+    "message": "Подключите кошелек для передачи активов в/из Miden.",
+    "englishSource": "Connect a wallet to bridge assets to and from Miden."
+  },
+  "destinationNetwork": {
+    "message": "Сеть назначения",
+    "englishSource": "Destination network"
+  },
+  "evmWalletConnected": {
+    "message": "Кошелек EVM подключен",
+    "englishSource": "EVM wallet connected"
+  },
+  "fast": {
+    "message": "Быстрый",
+    "englishSource": "Fast"
+  },
+  "fastArrival": {
+    "message": "~30 секунд",
+    "englishSource": "~30 sec"
+  },
+  "fastEthWrapNotice": {
+    "message": "Соединение ETH по быстрому маршруту сначала переносит его в WETH, а затем соединяет WETH. Этот маршрут пока недоступен.",
+    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "fastRouteLabel": {
+    "message": "Быстрый (Эпоха)",
+    "englishSource": "Fast (Epoch)"
+  },
+  "midenBridge": {
+    "message": "Миденский мост",
+    "englishSource": "Miden Bridge"
+  },
+  "noFee": {
+    "message": "Без комиссии",
+    "englishSource": "No fee"
+  },
+  "noManualClaimRequired": {
+    "message": "Средства поступают автоматически — претензий не требуется.",
+    "englishSource": "Funds arrive automatically — no claim needed."
+  },
+  "onlyBridgeableTokenSupported": {
+    "message": "Маршрут Slow (Agglayer) поддерживает только мостовой токен. Используйте Fast для отправки других токенов.",
+    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
+  },
+  "preparing": {
+    "message": "Подготовка подключения…",
+    "englishSource": "Preparing connection…"
+  },
+  "receivingTx": {
+    "message": "Получение передачи",
+    "englishSource": "Receiving Tx"
+  },
+  "route": {
+    "message": "Маршрут",
+    "englishSource": "Route"
+  },
+  "slow": {
+    "message": "Медленный",
+    "englishSource": "Slow"
+  },
+  "slowArrival": {
+    "message": "~6 часов",
+    "englishSource": "~6 hours"
+  },
+  "slowNeedsNativeEth": {
+    "message": "Маршрут Slow (Agglayer) поддерживает только собственный ETH в тестовой сети. Выберите ETH, чтобы использовать его.",
+    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
+  },
+  "slowRouteLabel": {
+    "message": "Медленный (Агглер)",
+    "englishSource": "Slow (Agglayer)"
+  },
+  "youAreDepositing": {
+    "message": "Вы вносите депозит",
+    "englishSource": "You are depositing"
+  },
+  "receiveOnArrivesAs": {
+    "message": "Получите на $network$ · прибывает как $symbol$ ",
+    "englishSource": "Receive on $network$ · arrives as $symbol$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "selectNetwork": {
+    "message": "Выберите сеть",
+    "englishSource": "Select network"
   }
 }

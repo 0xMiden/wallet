@@ -2996,5 +2996,170 @@
   "opaqueSignatureWarning": {
     "message": "Bu site sizden ham bir değer imzalamanızı istedi. M-cüzdan neye yetki verdiğini gösteremez. Yalnızca bu siteye tamamen güveniyorsanız devam edin.",
     "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+  },
+  "agglayerBridgeInProgressSubtitle": {
+    "message": "Köprüleme $amount$ Agglayer aracılığıyla EVM'den. Bu biraz zaman alabilir.",
+    "englishSource": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "agglayerBridgeInProgressSubtitleNoAmount": {
+    "message": "EVM'den Agglayer aracılığıyla gelen bir köprü yerleşiyor. Bu biraz zaman alabilir.",
+    "englishSource": "An incoming bridge from EVM via Agglayer is settling. This can take a while."
+  },
+  "agglayerBridgeInProgressTitle": {
+    "message": "Köprü yapılıyor",
+    "englishSource": "Bridge in progress"
+  },
+  "bridgeDetails": {
+    "message": "Köprü ayrıntıları",
+    "englishSource": "Bridge details"
+  },
+  "bridgeFailed": {
+    "message": "Arızalı",
+    "englishSource": "Failed"
+  },
+  "bridgeInProgress": {
+    "message": "Devam etmekte",
+    "englishSource": "In progress"
+  },
+  "claimable": {
+    "message": "Hak talebinde bulunmaya hazır",
+    "englishSource": "Ready to claim"
+  },
+  "claimAsset": {
+    "message": "Varlık Talebi",
+    "englishSource": "Claim Asset"
+  },
+  "claimAssetSubmitted": {
+    "message": "Talep gönderildi — fonlar bağlı EVM cüzdanında.",
+    "englishSource": "Claim submitted — funds are on the connected EVM wallet."
+  },
+  "claimed": {
+    "message": "Hak talebinde bulunuldu",
+    "englishSource": "Claimed"
+  },
+  "claimFailedStatus": {
+    "message": "Hak talebi başarısız oldu",
+    "englishSource": "Claim failed"
+  },
+  "claiming": {
+    "message": "Hak talebinde bulunuluyor…",
+    "englishSource": "Claiming…"
+  },
+  "claimPending": {
+    "message": "Köprüleme — talep henüz hazır değil",
+    "englishSource": "Bridging — claim not ready yet"
+  },
+  "claimStatus": {
+    "message": "Talep durumu",
+    "englishSource": "Claim status"
+  },
+  "confirmDeposit": {
+    "message": "Para Yatırma İşlemini Onayla",
+    "englishSource": "Confirm Deposit"
+  },
+  "connectDestinationWalletToClaim": {
+    "message": "Talep etmek için hedef cüzdanı bağlayın.",
+    "englishSource": "Connect the destination wallet to claim."
+  },
+  "connectEvmWallet": {
+    "message": "EVM cüzdanını bağlayın",
+    "englishSource": "Connect an EVM wallet"
+  },
+  "connectEvmWalletDescription": {
+    "message": "Varlıkları Miden ile Miden arasında köprülemek için bir cüzdan bağlayın.",
+    "englishSource": "Connect a wallet to bridge assets to and from Miden."
+  },
+  "destinationNetwork": {
+    "message": "Hedef ağı",
+    "englishSource": "Destination network"
+  },
+  "evmWalletConnected": {
+    "message": "EVM cüzdanı bağlandı",
+    "englishSource": "EVM wallet connected"
+  },
+  "fast": {
+    "message": "Hızlı",
+    "englishSource": "Fast"
+  },
+  "fastArrival": {
+    "message": "~30 saniye",
+    "englishSource": "~30 sec"
+  },
+  "fastEthWrapNotice": {
+    "message": "ETH'yi Hızlı rotada köprülemek onu önce WETH'e sarar, ardından WETH'i köprüler. Bu rota henüz kullanılamıyor.",
+    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "fastRouteLabel": {
+    "message": "Hızlı (Dönem)",
+    "englishSource": "Fast (Epoch)"
+  },
+  "midenBridge": {
+    "message": "Miden Köprüsü",
+    "englishSource": "Miden Bridge"
+  },
+  "noFee": {
+    "message": "Ücret yok",
+    "englishSource": "No fee"
+  },
+  "noManualClaimRequired": {
+    "message": "Fonlar otomatik olarak gelir; herhangi bir talepte bulunulmasına gerek yoktur.",
+    "englishSource": "Funds arrive automatically — no claim needed."
+  },
+  "onlyBridgeableTokenSupported": {
+    "message": "Yavaş (Agglayer) rotası yalnızca köprülenebilir jetonu destekler. Diğer belirteçleri göndermek için Hızlı'yı kullanın.",
+    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
+  },
+  "preparing": {
+    "message": "Bağlantı hazırlanıyor…",
+    "englishSource": "Preparing connection…"
+  },
+  "receivingTx": {
+    "message": "Tx alma",
+    "englishSource": "Receiving Tx"
+  },
+  "route": {
+    "message": "Rota",
+    "englishSource": "Route"
+  },
+  "slow": {
+    "message": "Yavaş",
+    "englishSource": "Slow"
+  },
+  "slowArrival": {
+    "message": "~6 saat",
+    "englishSource": "~6 hours"
+  },
+  "slowNeedsNativeEth": {
+    "message": "Yavaş (Agglayer) rotası yalnızca test ağında yerel ETH'yi destekler. Kullanmak için ETH'yi seçin.",
+    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
+  },
+  "slowRouteLabel": {
+    "message": "Yavaş (Agglayer)",
+    "englishSource": "Slow (Agglayer)"
+  },
+  "youAreDepositing": {
+    "message": "Para yatırıyorsun",
+    "englishSource": "You are depositing"
+  },
+  "receiveOnArrivesAs": {
+    "message": "Şu tarihte alın: $network$ · olarak gelir $symbol$ ",
+    "englishSource": "Receive on $network$ · arrives as $symbol$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "selectNetwork": {
+    "message": "Ağ seçin",
+    "englishSource": "Select network"
   }
 }

@@ -3026,5 +3026,170 @@
   "opaqueSignatureWarning": {
     "message": "该网站要求您签署原始值。钱包无法显示其授权内容。仅当您完全信任该网站时才继续。",
     "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+  },
+  "agglayerBridgeInProgressSubtitle": {
+    "message": "桥接 $amount$ 通过 Agglayer 来自 EVM。这可能需要一段时间。",
+    "englishSource": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "agglayerBridgeInProgressSubtitleNoAmount": {
+    "message": "来自 EVM 通过 Agglayer 的传入桥正在建立。这可能需要一段时间。",
+    "englishSource": "An incoming bridge from EVM via Agglayer is settling. This can take a while."
+  },
+  "agglayerBridgeInProgressTitle": {
+    "message": "桥梁建设中",
+    "englishSource": "Bridge in progress"
+  },
+  "bridgeDetails": {
+    "message": "桥梁细节",
+    "englishSource": "Bridge details"
+  },
+  "bridgeFailed": {
+    "message": "失败的",
+    "englishSource": "Failed"
+  },
+  "bridgeInProgress": {
+    "message": "进行中",
+    "englishSource": "In progress"
+  },
+  "claimable": {
+    "message": "准备索赔",
+    "englishSource": "Ready to claim"
+  },
+  "claimAsset": {
+    "message": "索取资产",
+    "englishSource": "Claim Asset"
+  },
+  "claimAssetSubmitted": {
+    "message": "已提交索赔 — 资金位于连接的 EVM 钱包中。",
+    "englishSource": "Claim submitted — funds are on the connected EVM wallet."
+  },
+  "claimed": {
+    "message": "声称",
+    "englishSource": "Claimed"
+  },
+  "claimFailedStatus": {
+    "message": "索赔失败",
+    "englishSource": "Claim failed"
+  },
+  "claiming": {
+    "message": "声称…",
+    "englishSource": "Claiming…"
+  },
+  "claimPending": {
+    "message": "桥接——索赔尚未准备好",
+    "englishSource": "Bridging — claim not ready yet"
+  },
+  "claimStatus": {
+    "message": "索赔状态",
+    "englishSource": "Claim status"
+  },
+  "confirmDeposit": {
+    "message": "确认存款",
+    "englishSource": "Confirm Deposit"
+  },
+  "connectDestinationWalletToClaim": {
+    "message": "连接目标钱包进行领取。",
+    "englishSource": "Connect the destination wallet to claim."
+  },
+  "connectEvmWallet": {
+    "message": "连接 EVM 钱包",
+    "englishSource": "Connect an EVM wallet"
+  },
+  "connectEvmWalletDescription": {
+    "message": "连接钱包以桥接资产进出 Miden。",
+    "englishSource": "Connect a wallet to bridge assets to and from Miden."
+  },
+  "destinationNetwork": {
+    "message": "目的地网络",
+    "englishSource": "Destination network"
+  },
+  "evmWalletConnected": {
+    "message": "EVM钱包已连接",
+    "englishSource": "EVM wallet connected"
+  },
+  "fast": {
+    "message": "快速地",
+    "englishSource": "Fast"
+  },
+  "fastArrival": {
+    "message": "〜30秒",
+    "englishSource": "~30 sec"
+  },
+  "fastEthWrapNotice": {
+    "message": "在 Fast 路由上桥接 ETH 会先将其包装到 WETH，然后桥接 WETH。该路线尚不可用。",
+    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "fastRouteLabel": {
+    "message": "快（纪元）",
+    "englishSource": "Fast (Epoch)"
+  },
+  "midenBridge": {
+    "message": "米登桥",
+    "englishSource": "Miden Bridge"
+  },
+  "noFee": {
+    "message": "不收费",
+    "englishSource": "No fee"
+  },
+  "noManualClaimRequired": {
+    "message": "资金自动到达——无需索赔。",
+    "englishSource": "Funds arrive automatically — no claim needed."
+  },
+  "onlyBridgeableTokenSupported": {
+    "message": "Slow (Agglayer) 路由仅支持可桥接令牌。使用 Fast 发送其他令牌。",
+    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
+  },
+  "preparing": {
+    "message": "正在准备连接...",
+    "englishSource": "Preparing connection…"
+  },
+  "receivingTx": {
+    "message": "接收发送",
+    "englishSource": "Receiving Tx"
+  },
+  "route": {
+    "message": "路线",
+    "englishSource": "Route"
+  },
+  "slow": {
+    "message": "慢的",
+    "englishSource": "Slow"
+  },
+  "slowArrival": {
+    "message": "〜6小时",
+    "englishSource": "~6 hours"
+  },
+  "slowNeedsNativeEth": {
+    "message": "Slow (Agglayer) 路由仅支持测试网上的原生 ETH。选择 ETH 来使用它。",
+    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
+  },
+  "slowRouteLabel": {
+    "message": "缓慢（聚集者）",
+    "englishSource": "Slow (Agglayer)"
+  },
+  "youAreDepositing": {
+    "message": "您正在存款",
+    "englishSource": "You are depositing"
+  },
+  "receiveOnArrivesAs": {
+    "message": "接收时间 $network$ · 到达时为 $symbol$ ",
+    "englishSource": "Receive on $network$ · arrives as $symbol$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "selectNetwork": {
+    "message": "选择网络",
+    "englishSource": "Select network"
   }
 }
