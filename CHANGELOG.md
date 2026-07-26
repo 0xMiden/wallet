@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.16.0 (TBD)
+
+### Features
+
+* [FEATURE][all] **EVM ↔ Miden bridging.** Adds the in-app bridge: the Epoch fast bridge (any-token fast sends collapsed into a single P2IDE bridged send, USDC quote preview) and the AggLayer (slow) bridge in both directions with asset callbacks, an EVM→Miden deposit flow, and a native Reown WalletConnect connector for the EVM side (iOS + Android plugins). Bumps `@miden-sdk/miden-sdk` to 0.15.8 for the AggLayer asset-callback note API. Reachable at `/bridge/deposit`; the Receive-tab entry and activity bridge rows are follow-up wiring.
+
 ## 1.15.11 (2026-07-26)
 
 ### Changes

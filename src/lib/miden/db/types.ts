@@ -22,17 +22,72 @@ export enum ITransactionStatus {
 export type IBridgeProvider = 'epoch' | 'agglayer';
 
 /**
- * `extraInputs` payload carried by a bridged send (sending an asset out of
- * Miden to another network). Populated when the user routes a send through a
- * bridge; absent for plain in-network sends.
+ * Lifecycle of the EVM-side claim for a `bridged-send`. Epoch (Fast) auto-settles
+ * on the destination chain, so it is `'not-applicable'`. Agglayer (Slow) requires
+ * the recipient to claim on L1: it starts `'pending'`, flips to `'ready'` once the
+ * deposit is claimable, then `'claiming'` → `'claimed'` (or `'failed'`).
  */
+export type IBridgeClaimStatus = 'not-applicable' | 'pending' | 'ready' | 'claiming' | 'claimed' | 'failed';
+
+/** `extraInputs` shape for a `BridgedSendTransaction`. */
 export interface IBridgedSendExtraInputs {
-  /** Recipient address on the destination network. */
-  destinationAddress: string;
-  /** Destination network chain id. */
-  destinationNetwork: number;
-  /** Which bridge provider carries the transfer. */
   provider: IBridgeProvider;
+  /** 0x EVM recipient. */
+  destinationAddress: string;
+  /** EVM destination network: `EVM_AGGLAYER_NETWORK_ID` (agglayer) or chain id (epoch). */
+  destinationNetwork: number;
+  /** Miden faucet the bridged asset was sourced from. */
+  sourceFaucetId: string;
+  claimStatus: IBridgeClaimStatus;
+  /** agglayer: a deposit to `destinationAddress` is claimable on L1. */
+  depositReady?: boolean;
+  /** agglayer: L1 claim tx hash once claimed. */
+  claimTxHash?: string;
+  /** epoch: solver/intent hash (informational). */
+  evmTxHash?: string;
+  /**
+   * epoch: blocks-until-reclaim for the send-style P2IDE bridge note. Read by
+   * `sendTransaction` (its presence makes the note a recallable P2IDE).
+   */
+  recallBlocks?: number;
+  /**
+   * epoch: intent nonce (SIO `userAddress:intentNonce`) used to poll
+   * `getIntentStatus` for the receiving-chain fill, captured at send time.
+   */
+  intentNonce?: string;
+  /** epoch: quoted destination output amount (human-formatted) for the activity hero. */
+  outputAmount?: string;
+  /** epoch: destination output token symbol (e.g. `USDC`). */
+  outputSymbol?: string;
+  /** epoch: receiving-chain (destination EVM) settlement tx hash, once the intent fills. */
+  fillTxHash?: string;
+  /** epoch: chain id the fill tx landed on (drives the destination explorer link). */
+  fillChainId?: number;
+  /** epoch: settlement status derived from polling `getIntentStatus`. */
+  epochStatus?: 'pending' | 'confirmed' | 'failed';
+}
+
+/**
+ * Bridge-in (EVM → Miden) metadata attached to the `consume` row that claimed
+ * the bridged note. Epoch auto-consumes the note, so that consume row is the
+ * only Miden-side trace of the deposit — tagging it lets the activity views
+ * render it as a bridge row instead of a plain receive.
+ */
+export interface IBridgeInInfo {
+  provider: IBridgeProvider;
+  /** Human-readable EVM-side input amount the user deposited. */
+  sourceAmount?: string;
+  /** EVM-side input token symbol (e.g. USDC). */
+  sourceSymbol?: string;
+  /** epoch: intent nonce (SIO `userAddress:intentNonce`) of the originating intent. */
+  intentNonce?: string;
+  /** EVM-side deposit/fill tx hash, when known. */
+  evmTxHash?: string;
+}
+
+/** `extraInputs` shape for a `consume` row that claimed a bridged-in note. */
+export interface IConsumeBridgeInExtraInputs {
+  bridgeIn: IBridgeInInfo;
 }
 
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
@@ -40,6 +95,7 @@ export type ITransactionType =
   | 'send'
   | 'consume'
   | 'execute'
+  | 'bridged-send'
   | 'switch-guardian'
   | 'replace-hot-key'
   | 'swap'
@@ -305,6 +361,87 @@ export class SwapTransaction implements ITransaction {
     this.displayIcon = 'SWAP';
     this.displayMessage = 'Swapping';
     this.delegateTransaction = delegateTransaction;
+  }
+}
+
+/**
+ * Cross-chain Miden → EVM send. Two routes share this record:
+ *   - agglayer (Slow): built from a pre-built B2AGG `TransactionRequest` (own
+ *     output note) in `requestBytes`, so the standard pipeline proves + submits it
+ *     via `newTransaction` like a custom `execute` tx, then `completeBridgedSendTransaction`
+ *     records it. The EVM-side asset is claimed later by the recipient on L1.
+ *   - epoch (Fast): driven out-of-band by `bridgeEpochSend` (no `requestBytes`);
+ *     auto-settles on the destination chain, so there is no manual claim.
+ * `extraInputs` (`IBridgedSendExtraInputs`) carries the route/provider, EVM
+ * destination + network, and claim status for the activity detail view.
+ */
+/**
+ * Send-style fields for an Epoch `bridged-send`. Epoch bridges by sending a
+ * recallable P2IDE note to the solver's allocator account, so the row is
+ * processed by the normal send pipeline (`sendTransaction`) rather than a
+ * pre-built request. Absent for Agglayer, which carries `requestBytes`.
+ */
+export interface IBridgedSendNoteParams {
+  /** Allocator account the P2IDE note is sent to. */
+  recipientId: string;
+  noteType: NoteType;
+  recallBlocks: number;
+}
+
+export class BridgedSendTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  /** Set for the send-style (Epoch) path so `sendTransaction` can route the note. */
+  secondaryAccountId?: string;
+  noteType?: NoteType;
+  requestBytes?: Uint8Array;
+  transactionId?: string;
+  outputNoteIds?: string[];
+  status: ITransactionStatus;
+  initiatedAt: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  delegateTransaction?: boolean;
+  extraInputs: IBridgedSendExtraInputs;
+
+  constructor(
+    accountId: string,
+    amount: bigint,
+    destinationAddress: string,
+    destinationNetwork: number,
+    provider: IBridgeProvider,
+    faucetId: string,
+    requestBytes?: Uint8Array,
+    delegateTransaction?: boolean,
+    sendParams?: IBridgedSendNoteParams
+  ) {
+    this.id = uuid();
+    this.type = 'bridged-send';
+    this.accountId = accountId;
+    this.requestBytes = requestBytes;
+    this.amount = amount;
+    this.faucetId = faucetId;
+    this.secondaryAccountId = sendParams?.recipientId;
+    this.noteType = sendParams?.noteType;
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.displayIcon = 'SEND';
+    this.displayMessage = 'Bridging';
+    this.delegateTransaction = delegateTransaction;
+    this.extraInputs = {
+      provider,
+      destinationAddress,
+      destinationNetwork,
+      sourceFaucetId: faucetId,
+      // Agglayer needs a manual L1 claim; Epoch auto-settles.
+      claimStatus: provider === 'agglayer' ? 'pending' : 'not-applicable',
+      recallBlocks: sendParams?.recallBlocks
+    };
   }
 }
 

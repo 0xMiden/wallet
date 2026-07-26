@@ -97,6 +97,9 @@ jest.mock('app/layouts/TabLayout', () => ({
 
 // Leaf screens — identifiable stubs, echoing any route params they receive.
 jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div data-testid="explore" /> }));
+// BridgeDeposit pulls in the EVM/reown/epoch (viem) SDK chain; stub it so the
+// router test doesn't load those ESM-heavy native modules.
+jest.mock('app/pages/BridgeDeposit', () => ({ __esModule: true, default: () => <div data-testid="bridge-deposit" /> }));
 jest.mock('app/pages/OpenSidePanel', () => ({
   __esModule: true,
   default: () => <div data-testid="open-side-panel" />

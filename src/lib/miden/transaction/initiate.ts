@@ -11,7 +11,10 @@ import { getIntercom } from 'lib/store';
 import { queueNoteImport } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
 import {
+  BridgedSendTransaction,
   ConsumeTransaction,
+  IBridgedSendNoteParams,
+  IBridgeProvider,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
   SendTransaction,
@@ -222,6 +225,40 @@ export const initiateSendTransaction = async (
     noteType,
     recallBlocks,
     delegateTransaction
+  );
+  await Repo.transactions.add(dbTransaction);
+
+  return dbTransaction.id;
+};
+
+/**
+ * Queue a cross-chain Miden→EVM send (`bridged-send`). For the agglayer (Slow)
+ * route, `requestBytes` is a pre-built B2AGG `TransactionRequest` (own output
+ * note) and the standard pipeline proves + submits it via `newTransaction`, then
+ * `completeBridgedSendTransaction` records it. For the epoch (Fast) route there
+ * are no `requestBytes` — `bridgeEpochSend` drives the row out-of-band.
+ */
+export const initiateBridgedSendTransaction = async (
+  accountId: string,
+  amount: bigint,
+  faucetId: string,
+  destinationAddress: string,
+  destinationNetwork: number,
+  provider: IBridgeProvider,
+  requestBytes?: Uint8Array,
+  delegateTransaction?: boolean,
+  sendParams?: IBridgedSendNoteParams
+): Promise<string> => {
+  const dbTransaction = new BridgedSendTransaction(
+    accountId,
+    amount,
+    destinationAddress,
+    destinationNetwork,
+    provider,
+    faucetId,
+    requestBytes,
+    delegateTransaction,
+    sendParams
   );
   await Repo.transactions.add(dbTransaction);
 

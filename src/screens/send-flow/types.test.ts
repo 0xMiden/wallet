@@ -39,9 +39,9 @@ describe('send-flow/types', () => {
       expect(SendFlowStep.TransactionInitiated).toBe('TransactionInitiated');
     });
 
-    it('contains exactly three steps', () => {
-      expect(Object.keys(SendFlowStep)).toEqual(['SelectRecipient', 'SelectAmount', 'TransactionInitiated']);
-      expect(Object.values(SendFlowStep)).toEqual(['SelectRecipient', 'SelectAmount', 'TransactionInitiated']);
+    it('contains the send steps plus the cross-chain Route step', () => {
+      expect(Object.keys(SendFlowStep)).toEqual(['SelectRecipient', 'SelectAmount', 'TransactionInitiated', 'Route']);
+      expect(Object.values(SendFlowStep)).toEqual(['SelectRecipient', 'SelectAmount', 'TransactionInitiated', 'Route']);
     });
   });
 

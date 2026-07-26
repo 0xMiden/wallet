@@ -12,6 +12,10 @@ export interface ReviewAction {
   type?: 'button' | 'submit';
   /** Optional stable selector for E2E; set by the caller, not hardcoded here. */
   'data-testid'?: string;
+  /** Show a spinner and block interaction (e.g. the bridge review submitting async). */
+  loading?: boolean;
+  /** Disable the action. */
+  disabled?: boolean;
 }
 
 export interface ReviewLayoutProps {
@@ -25,6 +29,8 @@ export interface ReviewLayoutProps {
   children: React.ReactNode;
   primary: ReviewAction;
   secondary?: ReviewAction;
+  /** Optional error message rendered above the CTAs (e.g. a bridge submit failure). */
+  error?: React.ReactNode;
 }
 
 /**
@@ -41,7 +47,8 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   dividers = true,
   children,
   primary,
-  secondary
+  secondary,
+  error
 }) => {
   // Hide the bottom tab navbar while this review screen is mounted (no-op on
   // full-screen routes that render outside TabLayout).
@@ -58,11 +65,14 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
       </div>
 
       <div className="shrink-0 pt-6 flex flex-col gap-y-2">
+        {error && <p className="text-center text-sm text-red-500">{error}</p>}
         <Button
           type={primary.type ?? 'button'}
           title={primary.label}
           variant={ButtonVariant.Primary}
           onClick={primary.onPress}
+          isLoading={primary.loading}
+          disabled={primary.disabled || primary.loading}
           data-testid={primary['data-testid']}
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
@@ -72,6 +82,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
             title={secondary.label}
             variant={ButtonVariant.Secondary}
             onClick={secondary.onPress}
+            disabled={secondary.disabled}
             className="w-full max-w-none rounded-full text-base font-semibold"
           />
         )}

@@ -25,6 +25,7 @@ import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
 import AllHistory from './pages/AllHistory';
+import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
@@ -153,6 +154,14 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       <TabLayout>
         <Receive />
       </TabLayout>
+    ))
+  ],
+  [
+    '/bridge/deposit',
+    onlyReady(() => (
+      <FullScreenPage>
+        <BridgeDeposit />
+      </FullScreenPage>
     ))
   ],
   [

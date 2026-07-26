@@ -1,13 +1,24 @@
+import { BridgeNetworkId } from './bridge-networks';
+
+/** Cross-chain route. Fast = Epoch (any token → USDC, fee), Slow = Agglayer (bridgeable token only, no fee). */
+export type BridgeRoute = 'epoch' | 'agglayer';
+
 export enum SendFlowStep {
   SelectRecipient = 'SelectRecipient',
   SelectAmount = 'SelectAmount',
-  TransactionInitiated = 'TransactionInitiated'
+  TransactionInitiated = 'TransactionInitiated',
+  /** Cross-chain only: pick Fast (Epoch) vs Slow (Agglayer) before handing off to /send/review. */
+  Route = 'Route'
 }
 
 export type SendFlowForm = {
   amount: string;
   recipientAddress: string;
   token?: UIToken;
+  /** Destination network, only meaningful when the recipient is a 0x (Ethereum) address. */
+  bridgeNetwork?: BridgeNetworkId;
+  /** Cross-chain route, only meaningful when the recipient is a 0x (Ethereum) address. */
+  bridgeRoute?: BridgeRoute;
 };
 
 export enum SendFlowActionId {

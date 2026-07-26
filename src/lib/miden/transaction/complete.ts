@@ -9,6 +9,9 @@ import { ensureGuardianProcedureThresholds } from './initiate';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
 import {
+  BridgedSendTransaction,
+  IBridgeClaimStatus,
+  IBridgedSendExtraInputs,
   ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
@@ -369,4 +372,49 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       error
     });
   }
+};
+
+export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction, result: TransactionResult) => {
+  const executedTx = result.executedTransaction();
+  const note = extractFullNote(result);
+  const noteId = note?.id().toString();
+  const outputNoteIds = noteId ? [noteId] : [];
+
+  await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    displayMessage: 'Bridged to EVM',
+    transactionId: executedTx.id().toHex(),
+    outputNoteIds,
+    completedAt: Math.floor(Date.now() / 1000), // seconds
+    resultBytes: result.serialize()
+  });
+};
+
+/**
+ * Patch the EVM-side claim status of a `bridged-send` row. The L1 claim happens
+ * long after the Miden-side send has reached `Completed`, so this mutates ONLY
+ * `extraInputs` and never touches `status` (which `updateTransactionStatus`
+ * would reject as "already finalized"). Used by the activity-detail claim flow.
+ */
+export const updateBridgeClaimStatus = async (
+  id: string,
+  claimStatus: IBridgeClaimStatus,
+  extra?: Partial<
+    Pick<
+      IBridgedSendExtraInputs,
+      | 'depositReady'
+      | 'claimTxHash'
+      | 'evmTxHash'
+      | 'intentNonce'
+      | 'outputAmount'
+      | 'outputSymbol'
+      | 'fillTxHash'
+      | 'fillChainId'
+      | 'epochStatus'
+    >
+  >
+) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
+    tx.extraInputs = { ...ei, claimStatus, ...(extra ?? {}) };
+  });
 };

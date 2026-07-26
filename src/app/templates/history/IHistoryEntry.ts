@@ -1,4 +1,10 @@
-import { ITransactionIcon, ITransactionStatus, ITransactionType } from 'lib/miden/db/types';
+import {
+  IBridgeClaimStatus,
+  IBridgeProvider,
+  ITransactionIcon,
+  ITransactionStatus,
+  ITransactionType
+} from 'lib/miden/db/types';
 
 export interface IHistoryEntry {
   key: string;
@@ -29,6 +35,25 @@ export interface IHistoryEntry {
   faucetId?: string;
   blockNumber?: number;
   outputNoteIds?: string[];
+
+  // `bridged-send` metadata (from `extraInputs`) for the activity detail view.
+  bridgeProvider?: IBridgeProvider;
+  bridgeDestinationAddress?: string;
+  bridgeDestinationNetwork?: number;
+  bridgeClaimStatus?: IBridgeClaimStatus;
+  // Epoch (Fast) route: quoted destination output + intent-status tracking.
+  bridgeOutputAmount?: string;
+  bridgeOutputSymbol?: string;
+  bridgeIntentNonce?: string;
+  bridgeFillTxHash?: string;
+  bridgeEpochStatus?: 'pending' | 'confirmed' | 'failed';
+
+  // EVM→Miden deposit (a tagged `consume` row rendered as a bridge-in row —
+  // see `bridgeInRowDisplay`).
+  bridgeInProvider?: IBridgeProvider;
+  bridgeInSourceAmount?: string;
+  bridgeInSourceSymbol?: string;
+  bridgeInEvmTxHash?: string;
 }
 
 /// The history entry type. For sorting purposes, the order matters. In a given transaction

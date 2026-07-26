@@ -47,6 +47,14 @@ export default {
   //   this list so the gate demands proper tests.
   coveragePathIgnorePatterns: [
     '/node_modules/',
+    // EVM bridge: external wallet/intent SDK + native-provider orchestration,
+    // exercised by the bridge Playwright suites rather than unit tests.
+    '/src/app/pages/BridgeDeposit\\.tsx$',
+    '/src/app/templates/EvmConnectModal',
+    '/src/lib/epoch/',
+    '/src/lib/agglayer/',
+    '/src/lib/walletconnect/',
+    '/src/lib/miden/activity/bridge-in\\.ts$',
     '/src/lib/lock-up/run-checks\\.ts$',
     '/src/lib/miden/assets/stake\\.ts$',
     '/src/app/pages/Browser/',
@@ -80,6 +88,7 @@ export default {
     // stub instead of trying to execute the PNG bytes as JavaScript.
     '\\.svg$': '<rootDir>/__mocks__/svgMock.js',
     '\\.(png|jpg|jpeg|gif|webp)$': '<rootDir>/__mocks__/fileMock.js',
+    '\\.(css|less|scss|sass)$': '<rootDir>/__mocks__/styleMock.ts',
     '^lib/(.*)$': '<rootDir>/src/lib/$1',
     '^shared/(.*)$': '<rootDir>/src/shared/$1',
     '^app/(.*)$': '<rootDir>/src/app/$1',
@@ -96,13 +105,19 @@ export default {
     // underlying SDK's MT variants. Tests mock all four identically.
     '^@miden-sdk/react(/lazy|/mt|/mt/lazy)?$': '<rootDir>/__mocks__/@miden-sdk/react.ts',
     '^@openzeppelin/miden-multisig-client$': '<rootDir>/__mocks__/@openzeppelin/miden-multisig-client.ts',
-    '^@openzeppelin/guardian-client$': '<rootDir>/__mocks__/@openzeppelin/guardian-client.ts'
+    '^@openzeppelin/guardian-client$': '<rootDir>/__mocks__/@openzeppelin/guardian-client.ts',
+    // EVM bridge: reown/wagmi are ESM/native-heavy; tests mock them.
+    '^@reown/appkit/react$': '<rootDir>/__mocks__/reownAppKitReact.ts',
+    '^@reown/appkit/networks$': '<rootDir>/__mocks__/reownAppKitNetworks.ts',
+    '^@reown/appkit-adapter-wagmi$': '<rootDir>/__mocks__/reownWagmiAdapter.ts',
+    '^@wagmi/core$': '<rootDir>/__mocks__/wagmiCore.ts',
+    '^wagmi$': '<rootDir>/__mocks__/wagmi.ts'
   },
   testEnvironment: 'jsdom',
   transform: {
     '.+\\.(ts|tsx|js|mjs)$': '@swc/jest'
   },
-  transformIgnorePatterns: ['/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie)/)'],
+  transformIgnorePatterns: ['/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie|@wagmi|wagmi|@reown)/)'],
   moduleFileExtensions: ['ts', 'tsx', 'js'],
   // Exclude git worktrees: they hold full copies of the repo, so without this a
   // plain `jest` run discovers their stale test files and emits haste-map

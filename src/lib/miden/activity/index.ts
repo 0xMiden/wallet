@@ -5,6 +5,7 @@ import { getIntercom } from 'lib/store';
 export * from './helpers';
 export * from '../transaction';
 export * from './notes';
+export * from './bridge-in';
 
 /**
  * Tell the service worker to start processing queued transactions.

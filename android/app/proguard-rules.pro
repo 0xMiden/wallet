@@ -20,6 +20,21 @@
     native <methods>;
 }
 
+# Reown AppKit / WalletConnect native SDK
+-keepattributes *Annotation*
+-keep class com.sun.jna.** { *; }
+-keepclassmembers class com.sun.jna.** {
+    native <methods>;
+    *;
+}
+-keep class uniffi.** { *; }
+-keepclassmembers class ** {
+    public *;
+    protected *;
+}
+-dontwarn uniffi.**
+-dontwarn com.sun.jna.**
+
 # Keep Parcelable implementations
 -keepclassmembers class * implements android.os.Parcelable {
     static ** CREATOR;
