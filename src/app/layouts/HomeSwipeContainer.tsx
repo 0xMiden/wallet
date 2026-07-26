@@ -6,26 +6,26 @@ import Earn from 'app/pages/Earn';
 import Explore from 'app/pages/Explore';
 import { Receive } from 'app/pages/Receive';
 import { springs } from 'lib/animation';
-import { isSwapEnabled } from 'lib/feature-flags';
+import { isEarnEnabled, isSwapEnabled } from 'lib/feature-flags';
 import { navigate, useLocation } from 'lib/woozie';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
 /**
  * Carousel container that mounts the home-group pages (Overview / Send /
- * Receive / Earn / Swap) in a horizontal track and lets the user drag
- * between them with their finger. The page tracks the finger in real
- * time and snaps to the next/previous index on release if dragged or
- * flicked past a threshold; otherwise it snaps back.
+ * Receive / Swap) in a horizontal track and lets the user drag between
+ * them with their finger. The page tracks the finger in real time and
+ * snaps to the next/previous index on release if dragged or flicked past
+ * a threshold; otherwise it snaps back.
  *
  * Pathname is the source of truth for which page is centered — the
  * SegmentedActionBar in TabLayout reads the same path and stays in sync
  * via its framer-motion layoutId pill.
  *
- * Swap is omitted on iOS (App Store Guideline 3.1.5(iii) — see isSwapEnabled).
- * Track length, page widths and the index math all derive from the same
- * filtered `pages` array, so the carousel stays consistent no matter how many
- * pages are present.
+ * The Earn (isEarnEnabled) and Swap (isSwapEnabled) panes are feature-gated
+ * and can each be absent. Track length, page widths and the index math all
+ * derive from the same filtered `pages` array, so the carousel stays
+ * consistent no matter how many panes are present.
  */
 
 interface HomePage {
@@ -49,13 +49,14 @@ const HomeSwipeContainer: FC = () => {
   const x = useMotionValue(0);
   const [width, setWidth] = useState(0);
 
-  // The Swap pane is dropped on iOS; every downstream calculation reads
-  // `pages`, so removing it can't desync the track width / index math.
+  // Earn and Swap panes are feature-gated (isEarnEnabled / isSwapEnabled);
+  // every downstream calculation reads `pages`, so dropping a pane can't
+  // desync the track width / index math.
   const pages: HomePage[] = [
     { id: 'overview', path: '/', node: <Explore /> },
     { id: 'send', path: '/send', node: <SendFlow isLoading={false} /> },
     { id: 'receive', path: '/receive', node: <Receive /> },
-    { id: 'earn', path: '/earn', node: <Earn /> },
+    ...(isEarnEnabled() ? [{ id: 'earn', path: '/earn', node: <Earn /> }] : []),
     ...(isSwapEnabled() ? [{ id: 'swap', path: '/swap', node: <SwapFlow /> }] : [])
   ];
 

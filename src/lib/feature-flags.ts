@@ -14,3 +14,18 @@
 export function isSwapEnabled(): boolean {
   return true;
 }
+
+/**
+ * In-app Earn (the DeFi vaults / positions flow) availability.
+ *
+ * Earn is built but not yet exposed to users, so it is disabled here — most
+ * visibly it keeps the unfinished Earn pane out of the home swipe carousel,
+ * where it was reachable by swiping.
+ *
+ * This is the single source of truth for Earn visibility — the home swipe pane
+ * and the top action-bar segment both read it. To ship Earn, flip this to true
+ * (the `/earn` routes already exist).
+ */
+export function isEarnEnabled(): boolean {
+  return false;
+}
