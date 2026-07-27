@@ -21,6 +21,7 @@ const mockMotionValue = { set: mockMotionSet, get: () => 0 };
 // `onDragEnd` handler and `dragConstraints` so tests can drive the pan gesture
 // directly (framer-motion's real drag needs a pointer pipeline jsdom lacks).
 let mockLastDragEnd: ((e: unknown, info: unknown) => void) | null = null;
+let mockLastDragStart: (() => void) | null = null;
 let mockLastDragConstraints: unknown = null;
 
 // framer-motion: `motion.div` -> passthrough div (framer-only drag/style props
@@ -28,8 +29,19 @@ let mockLastDragConstraints: unknown = null;
 jest.mock('framer-motion', () => {
   const ReactActual = jest.requireActual('react');
   const passthrough = ReactActual.forwardRef((props: any, ref: React.Ref<HTMLDivElement>) => {
-    const { children, onDragEnd, dragConstraints, drag, dragDirectionLock, dragElastic, dragMomentum, style, ...rest } =
-      props;
+    const {
+      children,
+      onDragStart,
+      onDragEnd,
+      dragConstraints,
+      drag,
+      dragDirectionLock,
+      dragElastic,
+      dragMomentum,
+      style,
+      ...rest
+    } = props;
+    if (onDragStart) mockLastDragStart = onDragStart;
     if (onDragEnd) mockLastDragEnd = onDragEnd;
     if (dragConstraints !== undefined) mockLastDragConstraints = dragConstraints;
     return ReactActual.createElement('div', { ref, ...rest }, children);
@@ -87,6 +99,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   roCallback = null;
   mockLastDragEnd = null;
+  mockLastDragStart = null;
   mockLastDragConstraints = null;
   (global as any).ResizeObserver = MockResizeObserver;
 });
@@ -196,8 +209,8 @@ describe('PromptCarousel — width plumbing', () => {
 
     // width>0 branch: spring-animate x to -activeIndex(0) * width.
     expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -0, { type: 'spring', stiffness: 322 });
-    // Constraints now span the full track: -(n-1)*width .. 0.
-    expect(mockLastDragConstraints).toEqual({ left: -600, right: 0 });
+    // Constraints span the full track, stepping by width + the 12px gutter.
+    expect(mockLastDragConstraints).toEqual({ left: -624, right: 0 });
   });
 
   it('ignores resize entries with no width and empty entry lists', () => {
@@ -246,8 +259,8 @@ describe('PromptCarousel — dot navigation', () => {
     expect(mockHapticSelection).toHaveBeenCalledTimes(1);
     expect(getDot(3, 3)).toHaveClass('w-4', 'bg-accent-primary');
     expect(getDot(1, 3)).toHaveClass('w-1.5', 'bg-gray-50');
-    // Active index changed → width effect re-runs → animate to -2*300.
-    expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -600, { type: 'spring', stiffness: 322 });
+    // Active index changed → width effect re-runs → animate to -2*(300+12).
+    expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -624, { type: 'spring', stiffness: 322 });
   });
 
   it('is a no-op when tapping the already-active dot', () => {
@@ -319,7 +332,7 @@ describe('PromptCarousel — drag paging', () => {
     drag(-500);
 
     expect(mockHapticSelection).not.toHaveBeenCalled();
-    expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -600, { type: 'spring', stiffness: 322 });
+    expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -624, { type: 'spring', stiffness: 322 });
     expect(getDot(3, 3)).toHaveClass('w-4');
   });
 
@@ -392,5 +405,125 @@ describe('PromptCarousel — clamp when slides shrink', () => {
     // activeIndex clamped to the new last slide.
     expect(getDot(2, 2)).toHaveClass('w-4', 'bg-accent-primary');
     expect(getDot(1, 2)).toHaveClass('w-1.5');
+  });
+});
+
+describe('PromptCarousel — gesture isolation', () => {
+  const renderTwoButtons = () => {
+    const onClick = jest.fn();
+    render(
+      <PromptCarousel>
+        <button type="button" onClick={onClick}>
+          First prompt
+        </button>
+        <button type="button">Second prompt</button>
+      </PromptCarousel>
+    );
+    return onClick;
+  };
+
+  it('suppresses a card click emitted immediately after a drag, then restores it', () => {
+    jest.useFakeTimers();
+    const onClick = renderTwoButtons();
+
+    act(() => {
+      mockLastDragStart?.();
+      mockLastDragEnd?.(null, { offset: { x: -10 }, velocity: { x: 0 } });
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'First prompt' }));
+    expect(onClick).not.toHaveBeenCalled();
+
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'First prompt' }));
+    expect(onClick).toHaveBeenCalledTimes(1);
+
+    jest.useRealTimers();
+  });
+
+  it('clears a pending release timer when a new drag starts', () => {
+    jest.useFakeTimers();
+    const onClick = renderTwoButtons();
+
+    act(() => {
+      mockLastDragStart?.();
+      mockLastDragEnd?.(null, { offset: { x: -10 }, velocity: { x: 0 } });
+      // A second gesture begins before the queued release fires.
+      mockLastDragStart?.();
+      jest.runOnlyPendingTimers();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'First prompt' }));
+    expect(onClick).not.toHaveBeenCalled();
+
+    jest.useRealTimers();
+  });
+
+  it('clears a pending release timer on unmount', () => {
+    jest.useFakeTimers();
+    const clearSpy = jest.spyOn(window, 'clearTimeout');
+    const { unmount } = render(
+      <PromptCarousel>
+        <div>a</div>
+        <div>b</div>
+      </PromptCarousel>
+    );
+
+    act(() => {
+      mockLastDragStart?.();
+      mockLastDragEnd?.(null, { offset: { x: -10 }, velocity: { x: 0 } });
+    });
+    unmount();
+
+    expect(clearSpy).toHaveBeenCalled();
+    clearSpy.mockRestore();
+    jest.useRealTimers();
+  });
+
+  it('claims pointer gestures before they reach an outer page carousel', () => {
+    const outerPointerDown = jest.fn();
+    render(
+      <div data-testid="outer-carousel">
+        <PromptCarousel>
+          <button type="button">First prompt</button>
+          <button type="button">Second prompt</button>
+        </PromptCarousel>
+      </div>
+    );
+    screen.getByTestId('outer-carousel').addEventListener('pointerdown', outerPointerDown);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'First prompt' }));
+
+    expect(outerPointerDown).not.toHaveBeenCalled();
+  });
+
+  it('wires up the track when it mounts after starting with a single slide', () => {
+    const outerPointerDown = jest.fn();
+    const { rerender } = render(
+      <div data-testid="outer-carousel">
+        <PromptCarousel>
+          <button type="button">First prompt</button>
+        </PromptCarousel>
+      </div>
+    );
+    // One slide renders bare — no carousel chrome and no observed track.
+    expect(roObserve).not.toHaveBeenCalled();
+
+    rerender(
+      <div data-testid="outer-carousel">
+        <PromptCarousel>
+          <button type="button">First prompt</button>
+          <button type="button">Second prompt</button>
+        </PromptCarousel>
+      </div>
+    );
+    screen.getByTestId('outer-carousel').addEventListener('pointerdown', outerPointerDown);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Second prompt' }));
+
+    expect(roObserve).toHaveBeenCalledTimes(1);
+    expect(outerPointerDown).not.toHaveBeenCalled();
   });
 });

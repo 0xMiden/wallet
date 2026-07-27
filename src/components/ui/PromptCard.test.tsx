@@ -11,8 +11,10 @@ import PromptCardDefault, { PromptCard } from './PromptCard';
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
   IconName: {
+    Checkmark: 'Checkmark',
+    ChevronRight: 'ChevronRight',
     Close: 'Close',
-    ChevronRight: 'ChevronRight'
+    Loader: 'Loader'
   }
 }));
 
@@ -168,5 +170,83 @@ describe('PromptCard — onDismiss behaviour', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
     expect(onDismiss).not.toHaveBeenCalled();
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('PromptCard — inline CTA', () => {
+  it('runs the CTA exactly once without bubbling to the card action', () => {
+    const onClick = jest.fn();
+    const onAction = jest.fn();
+    renderCard({ onClick, actionLabel: 'Fund now', onAction });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fund now' }));
+
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onClick).not.toHaveBeenCalled();
+    expect(mockHapticLight).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not render a CTA without both a label and a handler', () => {
+    const { rerender } = renderCard({ actionLabel: 'Fund now' });
+    expect(screen.queryByRole('button', { name: 'Fund now' })).toBeNull();
+
+    rerender(<PromptCard title="Back up your wallet" onAction={jest.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Fund now' })).toBeNull();
+  });
+
+  it('does not invoke a disabled CTA', () => {
+    const onAction = jest.fn();
+    renderCard({ actionLabel: 'Fund now', onAction, actionDisabled: true });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fund now' }));
+
+    expect(onAction).not.toHaveBeenCalled();
+    expect(mockHapticLight).not.toHaveBeenCalled();
+  });
+
+  it('shields the dismiss button from the CTA handler', () => {
+    const onAction = jest.fn();
+    const onDismiss = jest.fn();
+    renderCard({ actionLabel: 'Fund now', onAction, onDismiss });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onAction).not.toHaveBeenCalled();
+  });
+});
+
+describe('PromptCard — status indicator', () => {
+  it.each([
+    ['loading', 'Loading', 'Loader'],
+    ['success', 'Success', 'Checkmark'],
+    ['failure', 'Failed', 'Close']
+  ] as const)('renders the %s status indicator', (status, label, icon) => {
+    renderCard({ status });
+
+    const indicator = screen.getByRole('status', { name: label });
+    expect(indicator.querySelector('[data-testid="icon"]')?.getAttribute('data-name')).toBe(icon);
+  });
+
+  it('renders no status element while idle', () => {
+    renderCard({ status: 'idle' });
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it.each(['loading', 'success'] as const)('hides and blocks the CTA while %s', status => {
+    const onAction = jest.fn();
+    renderCard({ status, actionLabel: 'Fund now', onAction });
+
+    expect(screen.queryByRole('button', { name: 'Fund now' })).toBeNull();
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it('keeps the action available after a failure so it can be retried', () => {
+    const onAction = jest.fn();
+    renderCard({ status: 'failure', actionLabel: 'Try again', onAction });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    expect(onAction).toHaveBeenCalledTimes(1);
   });
 });

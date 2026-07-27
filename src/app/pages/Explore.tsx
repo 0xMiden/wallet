@@ -30,6 +30,7 @@ import type { TokenPrices } from 'lib/prices';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import type { PendingNoteValue } from 'lib/wallet-prompts';
 import { navigate } from 'lib/woozie';
 import { isHexAddress } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
@@ -39,7 +40,10 @@ const Explore: FC = () => {
   const midenFaucetId = useMidenFaucetId();
   const { signTransaction } = useMidenContext();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
-  const { data: allTokenBalances = [] } = useAllBalances(account.publicKey, allTokensBaseMetadata);
+  const { data: allTokenBalances = [], isLoading: balancesLoading = false } = useAllBalances(
+    account.publicKey,
+    allTokensBaseMetadata
+  );
   const tokenPrices = useWalletStore(s => s.tokenPrices);
 
   const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(account.publicKey);
@@ -147,6 +151,9 @@ const Explore: FC = () => {
             address={address}
             tokenPrices={tokenPrices}
             filteredTokens={filteredTokens}
+            allTokenBalances={allTokenBalances}
+            balancesLoading={balancesLoading}
+            claimableNotes={claimableNotes}
             search={search}
             onSearchChange={setSearch}
             account={account}
@@ -163,6 +170,9 @@ interface HomeOverviewProps {
   address: string;
   tokenPrices: TokenPrices;
   filteredTokens: TokenBalanceData[];
+  allTokenBalances: TokenBalanceData[];
+  balancesLoading: boolean;
+  claimableNotes: readonly PendingNoteValue[] | undefined;
   search: string;
   onSearchChange: (v: string) => void;
   account: WalletAccount;
@@ -172,6 +182,9 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   address,
   tokenPrices,
   filteredTokens,
+  allTokenBalances,
+  balancesLoading,
+  claimableNotes,
   search,
   onSearchChange,
   account
@@ -195,7 +208,13 @@ const HomeOverview: FC<HomeOverviewProps> = ({
 
       <AccountsDrawer open={accountsOpen} onOpenChange={setAccountsOpen} />
 
-      <HomePrompts account={account} />
+      <HomePrompts
+        account={account}
+        balances={allTokenBalances}
+        balancesLoading={balancesLoading}
+        claimableNotes={claimableNotes}
+        tokenPrices={tokenPrices}
+      />
 
       <div className="flex items-center justify-between pt-2">
         <span className="text-2xl font-bold text-text-primary-token">{t('assets')}</span>
