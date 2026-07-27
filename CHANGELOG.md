@@ -5,6 +5,7 @@
 ### Changes
 
 * [FEATURE][all] **Swap orders auto-settle.** The wallet now tracks each swap order's PSWAP lineage and automatically consumes payback notes as fills land (and reclaims the remaining tip after an explicitly-stamped expiry), batching them into one consume per order. Settlement consumes are linked to their swap row and suppressed in history so the order reads as a single swap entry, swap-managed notes are hidden from the manual claim list, and batch consumes claim every note in one proof/submit.
+* [FEATURE][all] **The swap flow now quotes live and lets you set the order's expiry.** The two per-token USD price fetches are replaced by a single debounced call to the DEX `swap-eta` endpoint, which returns the oracle rate plus live fill signals — the receive field shows a skeleton while its quote is computed, and the review screen gains a "Usually fills in" row alongside the rate. Review also exposes the order expiry (in seconds) and an auto-consume toggle, both passed through to the swap transaction. The swap token list additionally picks up the network's discovered native asset.
 * [CHANGE][all] **The Explore screen now shows only the two testnet faucets.** The curated Explore grid is trimmed to the existing Miden faucet plus a new "Forkchoice Faucet" tile (`faucets.forkchoice.xyz`), giving users two sources of testnet MIDEN; the other curated tiles (Zoro, Qash, Miden Name) are no longer shown in the grid.
 
 ## 1.15.11 (2026-07-26)

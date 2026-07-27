@@ -40,6 +40,8 @@ export interface SelectAmountProps {
   embedded?: boolean;
   /** Token-logo symbol override (e.g. the DEX `logoSymbol`); defaults to `token.name`. */
   logoSymbol?: string;
+  /** Show a skeleton in place of the amount while it is being computed (e.g. the swap receive quote). */
+  loading?: boolean;
 }
 
 /** Trim trailing zeros so "200.000" renders as "200" but "200.5" stays intact. */
@@ -62,7 +64,8 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   onSelectToken,
   onConfirm,
   embedded = false,
-  logoSymbol
+  logoSymbol,
+  loading
 }) => {
   const { t } = useTranslation();
 
@@ -113,6 +116,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       helper={embedded ? undefined : helper}
       tokenSelector={tokenSelector}
       data-testid="send-amount-input"
+      loading={loading}
       onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
     />
   );
