@@ -148,8 +148,8 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
 export const CAROUSEL_DAPPS = FEATURED_DAPPS.filter(d => d.featured);
 
 /** The curated apps shown on the simplified Explore grid, in display order. */
-export const EXPLORE_GRID_DAPPS: FeaturedDapp[] = ['zoro', 'qash', 'faucet', 'miden-name', 'forkchoice-faucet'].flatMap(
-  id => FEATURED_DAPPS.filter(d => d.id === id)
+export const EXPLORE_GRID_DAPPS: FeaturedDapp[] = ['faucet', 'forkchoice-faucet'].flatMap(id =>
+  FEATURED_DAPPS.filter(d => d.id === id)
 );
 
 /**
