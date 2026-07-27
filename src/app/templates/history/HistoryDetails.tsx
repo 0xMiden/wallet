@@ -7,16 +7,23 @@ import { useTranslation } from 'react-i18next';
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
+import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
 import {
+  cancelTransactionById,
   getSwapSettlementNotes,
   getTransactionById,
+  isRequeueableTransaction,
+  isUserCancelledTransaction,
+  requestSWTransactionProcessing,
+  requeueFailedTransaction,
   trackOrderId,
   SwapOrderState,
   SwapOrderTracking,
-  SwapSettlementNotes
+  SwapSettlementNotes,
+  USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
-import { ITransaction } from 'lib/miden/db/types';
+import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
@@ -25,7 +32,7 @@ import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
-import { goBack } from 'lib/woozie';
+import { goBack, navigate } from 'lib/woozie';
 import {
   TransactionSummaryBadge,
   useTransactionSummaryBadgeContent
@@ -176,6 +183,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  // Failed txs persist a friendly `error` plus the untouched thrown `rawError`;
+  // this reveals the latter on demand.
+  const [showFullError, setShowFullError] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
   // Swap order tracking: the orderId is persisted on the swap tx's extraInputs
   // by `completeSwapTransaction`; the live lineage is fetched via `trackOrderId`.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
@@ -195,7 +209,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       const historyEntry = {
         address: tx.accountId,
         key: `completed-${tx.id}`,
-        timestamp: tx.completedAt,
+        timestamp: tx.completedAt ?? tx.initiatedAt,
         message: tx.displayMessage,
         status: tx.status,
         transactionIcon: tx.displayIcon,
@@ -208,7 +222,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         externalTxId: tx.transactionId,
         faucetId: tx.faucetId,
         outputNoteIds: tx.outputNoteIds,
-        txType: tx.type
+        txType: tx.type,
+        errorMessage: tx.error,
+        rawErrorMessage: tx.rawError,
+        isCancelled: isUserCancelledTransaction(tx.error)
       } as IHistoryEntry;
 
       if (tx.type === 'swap') {
@@ -245,12 +262,44 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     if (!entry && !loadError) loadTransaction();
   }, [loadTransaction, entry, loadError]);
 
+  const handleCancel = useCallback(async () => {
+    setIsCancelling(true);
+    setCancelError(null);
+
+    try {
+      await cancelTransactionById(transactionId, USER_CANCELLED_TRANSACTION_REASON);
+      await loadTransaction();
+    } catch (error) {
+      console.error('[HistoryDetails] Failed to cancel transaction:', error);
+      setCancelError(error instanceof Error ? error.message : t('smthWentWrong'));
+    } finally {
+      setIsCancelling(false);
+    }
+  }, [loadTransaction, t, transactionId]);
+
+  // Retry a failed transaction by re-queueing it through the FIFO loop, then
+  // hand off to the generating-transaction page which observes the row (and,
+  // on mobile/desktop, drives the loop).
+  const handleRetry = useCallback(async () => {
+    setIsRetrying(true);
+    setRetryError(null);
+    try {
+      await requeueFailedTransaction(transactionId);
+      requestSWTransactionProcessing();
+      navigate(`/generating-transaction/${encodeURIComponent(transactionId)}`);
+    } catch (error) {
+      console.error('[HistoryDetails] Failed to retry transaction:', error);
+      setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+      setIsRetrying(false);
+    }
+  }, [t, transactionId]);
+
   // Poll the swap order lineage until it reaches a terminal state (filled or
   // reclaimed). The orderId is persisted on the swap tx; the live lineage is
   // fetched via `trackOrderId`. Each poll takes the WASM client lock, so a
   // `null`/error result (not-yet-trackable or an order this client can't
   // resolve) backs off exponentially and gives up after a cap, rather than
-  // hammering the lock every 3s forever. A genuinely `active` order resets the
+  // hammering the lock every 2s forever. A genuinely `active` order resets the
   // backoff and keeps a steady watch at the base interval.
   useEffect(() => {
     if (orderId == null) return;
@@ -260,7 +309,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     const trackedOrderId = orderId;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const BASE_INTERVAL_MS = 3000;
+    const BASE_INTERVAL_MS = 2000;
     const MAX_INTERVAL_MS = 30_000;
     const MAX_UNRESOLVED_POLLS = 20;
     let unresolved = 0;
@@ -275,6 +324,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     };
 
     async function poll() {
+      if (cancelled) return;
+      setTrackingLoading(true);
       try {
         const result = await trackOrderId(trackedOrderId);
         if (cancelled) return;
@@ -296,7 +347,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       }
     }
 
-    setTrackingLoading(true);
     poll();
 
     return () => {
@@ -306,7 +356,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   }, [orderId]);
 
   // Settlement can land while this page is open (auto-consume runs on its own
-  // 3s cycle), and the lineage poll above stops at a terminal state — usually
+  // 2s cycle), and the lineage poll above stops at a terminal state — usually
   // just *before* the settlement consume completes. So watch for the notes
   // separately: cheap Dexie-only reads, stopping as soon as any arrive and
   // giving up after a cap so a manual-claim order doesn't poll forever.
@@ -316,7 +366,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   useEffect(() => {
     if (orderId == null || settlementFound || !transaction) return;
     const swapTxId = transaction.id;
-    const POLL_INTERVAL_MS = 3000;
+    const POLL_INTERVAL_MS = 2000;
     const MAX_POLLS = 20;
     let polls = 0;
     let cancelled = false;
@@ -366,7 +416,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // For a bridge the sender is always the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
   // "to" row is omitted here.
-  const isBridge = entry?.txType === 'bridged-send';
+  const isBridge = entry?.txType === 'bridged-send' && !entry.isCancelled;
   const fromAddress = isBridge ? entry?.address : entry?.message === 'Sent' ? entry?.address : entry?.secondaryAddress;
   const toAddress = isBridge ? undefined : entry?.message === 'Sent' ? entry?.secondaryAddress : entry?.address;
   const settledNoteIds = settlementNotes?.settled ?? [];
@@ -395,6 +445,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         }
       : transactionSummaryBadgeContent;
   const sectionDividerColor = entry ? getTransactionIconBackgroundColor(entry) : 'transparent';
+  const isPending =
+    entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
+  // Retry only for failed types the wallet can safely replay (structural
+  // Guardian ops are excluded — the user re-initiates those from Settings).
+  const canRetry =
+    entry !== null && !entry.isCancelled && isRequeueableTransaction({ status: entry.status, type: entry.txType });
 
   return (
     <PageLayout hideToolbar>
@@ -428,7 +484,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               )}
               {approximateUsdAmount && <p className="text-sm font-medium text-gray">{approximateUsdAmount}</p>}
               <div className="mt-2">
-                {isBridge ? <BridgeStatusPill entry={entry} /> : <StatusPill status={entry.status} />}
+                {isBridge ? (
+                  <BridgeStatusPill entry={entry} />
+                ) : (
+                  <StatusPill status={entry.status} isCancelled={entry.isCancelled} />
+                )}
               </div>
             </div>
 
@@ -483,6 +543,41 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </div>
             </div>
 
+            {/* Failure reason (persisted on `tx.error` by cancelTransaction) */}
+            {entry.status === ITransactionStatus.Failed && entry.errorMessage && (
+              <div className="mt-6">
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailCard title={entry.isCancelled ? t('cancelled') : t('error')}>
+                    <p
+                      className={clsx(
+                        'px-4 py-3 text-sm font-medium wrap-break-word select-text',
+                        entry.isCancelled ? 'text-gray-500' : 'text-status-negative'
+                      )}
+                    >
+                      {entry.errorMessage}
+                    </p>
+                    {entry.rawErrorMessage && (
+                      <div className="px-4 pb-3">
+                        <button
+                          type="button"
+                          className="text-sm font-medium text-text-muted underline"
+                          onClick={() => setShowFullError(v => !v)}
+                        >
+                          {showFullError ? t('hideFullError') : t('showFullError')}
+                        </button>
+                        {showFullError && (
+                          <p className="mt-2 text-xs font-medium text-text-muted wrap-break-word select-text">
+                            {entry.rawErrorMessage}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </DetailCard>
+                </div>
+              </div>
+            )}
+
             {/* Bridge route + EVM-side claim (bridged-send only) */}
             {isBridge && (
               <>
@@ -501,11 +596,25 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   <DetailCard title={t('orderTracking')}>
                     <DetailRow label={t('orderStatus')} isLast={!swapTracking}>
                       {swapTracking ? (
-                        <span data-testid="swap-order-status" className="text-sm text-heading-gray font-medium">
-                          {orderStatusLabel(swapTracking.state)}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span data-testid="swap-order-status" className="text-sm text-heading-gray font-medium">
+                            {orderStatusLabel(swapTracking.state)}
+                          </span>
+                          {trackingLoading && (
+                            <span
+                              data-testid="swap-order-polling"
+                              className="flex items-center gap-1.5 text-xs font-medium text-text-muted"
+                            >
+                              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary-500" />
+                              {t('loading')}
+                            </span>
+                          )}
+                        </div>
                       ) : (
-                        <span className="text-sm text-text-muted font-medium">
+                        <span
+                          data-testid={trackingLoading ? 'swap-order-polling' : undefined}
+                          className="text-sm text-text-muted font-medium"
+                        >
                           {trackingLoading ? t('loading') : t('trackingUnavailable')}
                         </span>
                       )}
@@ -560,6 +669,34 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {isPending && (
+          <div className="shrink-0 pt-3 pb-4">
+            {cancelError && <p className="mb-2 text-center text-sm text-status-negative">{cancelError}</p>}
+            <Button
+              variant={ButtonVariant.Primary}
+              title={t('cancel')}
+              isLoading={isCancelling}
+              disabled={isCancelling}
+              onClick={handleCancel}
+              className="max-w-none bg-status-negative hover:bg-status-negative focus:bg-status-negative"
+            />
+          </div>
+        )}
+
+        {canRetry && (
+          <div className="shrink-0 pt-3 pb-4">
+            {retryError && <p className="mb-2 text-center text-sm text-status-negative">{retryError}</p>}
+            <Button
+              variant={ButtonVariant.Primary}
+              title={t('retry')}
+              isLoading={isRetrying}
+              disabled={isRetrying}
+              onClick={handleRetry}
+              className="max-w-none"
+            />
           </div>
         )}
       </div>

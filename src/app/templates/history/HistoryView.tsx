@@ -7,6 +7,7 @@ import InfiniteScroll from 'react-infinite-scroller';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
+import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 import { ActivityRow, ActivityStatusTone } from 'components/ui';
 import { navigate } from 'lib/woozie';
@@ -70,7 +71,8 @@ function buildRowProps(
   // <provider> → <network>" / output amount / status dot. The Miden-side icon
   // (SEND) and signed amount don't apply. Bridge-in consumes (auto-consumed
   // EVM→Miden deposits) reuse the same layout with the direction flipped.
-  if (entry.txType === 'bridged-send' || isBridgeInEntry(entry)) {
+  // A user-cancelled bridge falls through to the plain cancelled row below.
+  if (!entry.isCancelled && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
     const bridgeIn = entry.txType !== 'bridged-send';
     const d = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
     const failed = d.status === 'failed';
@@ -91,7 +93,8 @@ function buildRowProps(
 
   const faucet = isFaucetRequest(entry);
   const icon = entry.transactionIcon ?? 'DEFAULT';
-  const isFailed = icon === 'FAILED' || entry.message === 'Transaction failed';
+  const isCancelled = entry.isCancelled === true;
+  const isFailed = !isCancelled && (icon === 'FAILED' || entry.message === 'Transaction failed');
 
   let iconNode: React.ReactNode;
   let iconBg = 'bg-gray-50';
@@ -100,13 +103,16 @@ function buildRowProps(
   // Glyphs mirror the home action-bar logos (Send / Receive / Earn / Swap),
   // rendered white over their own hue (set as `iconBg`). The source SVGs ship
   // with hardcoded fills/strokes, so force them white via `[&_path]:*` here.
-  if (faucet) {
+  if (isCancelled) {
+    iconNode = <FailedCrossIcon className="w-3.5 h-3.5" />;
+    iconBg = 'bg-gray-400';
+  } else if (faucet) {
     iconNode = <Icon name={IconName.Faucet} size="sm" className="[&_path]:fill-pure-white" fill="currentColor" />;
     iconBg = 'bg-tx-faucet';
     amountDirection = 'positive';
   } else if (isFailed) {
-    iconNode = <Icon name={IconName.Close} size="sm" fill="currentColor" />;
-    iconBg = 'bg-status-negative';
+    iconNode = <FailedCrossIcon className="w-3.5 h-3.5" />;
+    iconBg = 'bg-[#CC5D5D]';
   } else if (icon === 'RECEIVE') {
     iconNode = <Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />;
     iconBg = 'bg-tx-received';
@@ -129,13 +135,15 @@ function buildRowProps(
 
   // Swap rows read "Swap {offered} → {requested}" with the venue as the
   // subtitle, and show the requested side (what the user receives) on the right.
-  const isSwap = !faucet && !isFailed && entry.txType === 'swap';
+  const isSwap = !faucet && !isFailed && !isCancelled && entry.txType === 'swap';
 
-  const title = faucet
-    ? t('faucetRequestTitle')
-    : isSwap && entry.token && entry.requestedToken
-      ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
-      : entry.message || '';
+  const title = isCancelled
+    ? t('cancelled')
+    : faucet
+      ? t('faucetRequestTitle')
+      : isSwap && entry.token && entry.requestedToken
+        ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
+        : entry.message || '';
   const subtitle = isSwap
     ? t('viaInProtocolDex')
     : entry.secondaryAddress
@@ -170,7 +178,10 @@ function buildRowProps(
 
   let statusTone: ActivityStatusTone = 'confirmed';
   let statusLabel = t('confirmed');
-  if (isFailed) {
+  if (isCancelled) {
+    statusTone = 'cancelled';
+    statusLabel = t('cancelled');
+  } else if (isFailed) {
     statusTone = 'failed';
     statusLabel = t('failed');
   } else if (

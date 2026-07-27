@@ -408,8 +408,9 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   it('renders the failed-by-icon row with neutral amount and underscore address', () => {
     renderFull();
     const row = rowByTitle('Failed by icon');
-    expect(iconNameIn(row)).toBe('Close');
-    expect(row).toHaveAttribute('data-iconbg', 'bg-status-negative');
+    // Failed rows use the raw failed-cross SVG (not the Icon component).
+    expect(row.querySelector('svg')).not.toBeNull();
+    expect(row).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
     // Underscore address → slice(0,6)…slice(-7).
     expect(row).toHaveAttribute('data-subtitle', 'to: mtst1_…address');
     expect(row).toHaveAttribute('data-amount-value', '5');
@@ -421,10 +422,51 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   it('renders the failed-by-message row (no subtitle, no amount)', () => {
     renderFull();
     const row = rowByTitle('Transaction failed');
-    expect(iconNameIn(row)).toBe('Close');
+    expect(row.querySelector('svg')).not.toBeNull();
     expect(row).toHaveAttribute('data-subtitle', '');
     expect(row).toHaveAttribute('data-amount-value', '');
     expect(row).toHaveAttribute('data-status-tone', 'failed');
+  });
+
+  it('renders a user-cancelled row with grey styling and a cancelled status, even for a bridge', () => {
+    render(
+      <HistoryView
+        entries={[
+          makeEntry({
+            key: 'cancelled-send',
+            transactionIcon: 'FAILED',
+            isCancelled: true,
+            message: 'Cancelled',
+            txId: 'tx-cancelled',
+            timestamp: DAY_A
+          }),
+          makeEntry({
+            key: 'cancelled-bridge',
+            txType: 'bridged-send',
+            transactionIcon: 'FAILED',
+            isCancelled: true,
+            message: 'Cancelled',
+            txId: 'tx-cancelled-bridge',
+            timestamp: DAY_A
+          })
+        ]}
+        initialLoading={false}
+        loadMore={jest.fn()}
+        hasMore={false}
+        fullHistory
+      />
+    );
+    const rows = screen.getAllByTestId('activity-row');
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      // Cancelled rows (incl. cancelled bridges) drop the bridge layout and
+      // render the grey cancelled treatment.
+      expect(row).toHaveAttribute('data-title', 'cancelled');
+      expect(row).toHaveAttribute('data-iconbg', 'bg-gray-400');
+      expect(row).toHaveAttribute('data-status-tone', 'cancelled');
+      expect(row).toHaveAttribute('data-status-label', 'cancelled');
+      expect(row.querySelector('svg')).not.toBeNull();
+    }
   });
 
   it('renders the receive row with a short (<=12) address returned verbatim', () => {

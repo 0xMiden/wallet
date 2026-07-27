@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.15.12 (TBD)
+
+### Features
+
+- [FEATURE][all] **Failed transactions surface in Activity with friendly errors and retry.** The history list now includes failed rows (with user-cancelled ones rendered as grey "Cancelled" rows, and failed sends/receives kept under the Sent/Received filters); the details page shows the failure reason — opaque prover timeouts are rewritten to a friendly message with the raw error behind a "Show full error" disclosure — plus a Cancel button for still-queued rows and a Retry button that re-queues supported transaction types through the processing loop.
+
+### Changes
+
+- [CHANGE][all] **Swap asset selection and order tracking are more transparent.** The swap picker now includes the network-discovered native MIDEN asset with its actual decimals, while native-note auto-consume explicitly leaves swap-managed notes to their lineage-aware settlement path. Swap activity details now refresh active lineage and settlement-note state every 2 seconds and show a visible loading indicator during each lineage request.
+
 ## 1.15.11 (TBD)
 
 ### Features

@@ -5,7 +5,9 @@ import {
   cancelTransactionById,
   existingTransactionIds,
   getCompletedTransactions,
-  getUncompletedTransactions
+  getUncompletedTransactions,
+  isUserCancelledTransaction,
+  USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
 import {
   formatTransactionStatus,
@@ -69,7 +71,7 @@ const History = memo<HistoryProps>(
         latestPendingTransactions?.map(tx => {
           tx.cancel = async () => {
             if (tx.txId) {
-              await cancelTransactionById(tx.txId, 'Transaction was cancelled by user');
+              await cancelTransactionById(tx.txId, USER_CANCELLED_TRANSACTION_REASON);
               mutateTx();
             }
           };
@@ -113,9 +115,18 @@ const History = memo<HistoryProps>(
       );
     }
     if (filter && filter !== 'all') {
+      // Failed/cancelled rows lose their directional icon (it becomes FAILED),
+      // so the Sent/Received filters fall back to the underlying tx type.
       entries = entries.filter(e => {
-        if (filter === 'sent') return e.transactionIcon === 'SEND';
-        if (filter === 'received') return e.transactionIcon === 'RECEIVE' && !isFaucetEntry(e);
+        if (filter === 'sent') {
+          return e.transactionIcon === 'SEND' || (e.transactionIcon === 'FAILED' && isSendType(e.txType));
+        }
+        if (filter === 'received') {
+          return (
+            (e.transactionIcon === 'RECEIVE' || (e.transactionIcon === 'FAILED' && e.txType === 'consume')) &&
+            !isFaucetEntry(e)
+          );
+        }
         if (filter === 'faucet') return isFaucetEntry(e);
         return true;
       });
@@ -143,16 +154,26 @@ const History = memo<HistoryProps>(
 
 export default History;
 
+/** Types whose (non-failed) row would carry the SEND icon. */
+function isSendType(txType: IHistoryEntry['txType']): boolean {
+  return txType === 'send' || txType === 'bridged-send';
+}
+
 async function fetchTransactionsAsHistoryEntries(
   address: string,
   offset?: number,
   limit?: number,
   tokenId?: string
 ): Promise<IHistoryEntry[]> {
-  const transactions = await getCompletedTransactions(address, offset, limit, false, tokenId);
+  const transactions = await getCompletedTransactions(address, offset, limit, true, tokenId);
   const visibleTransactions = await suppressLinkedConsumes(transactions);
   const entries = visibleTransactions.map(async tx => {
-    const updateMessageForFailed = tx.status === ITransactionStatus.Failed ? 'Transaction failed' : tx.displayMessage;
+    const isCancelled = isUserCancelledTransaction(tx.error);
+    const updateMessageForFailed = isCancelled
+      ? 'Cancelled'
+      : tx.status === ITransactionStatus.Failed
+        ? 'Transaction failed'
+        : tx.displayMessage;
     const icon = tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.displayIcon;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
@@ -179,6 +200,8 @@ async function fetchTransactionsAsHistoryEntries(
       noteType: tx.noteType,
       faucetId: tx.faucetId,
       txType: tx.type,
+      errorMessage: tx.error,
+      isCancelled,
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,
