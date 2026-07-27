@@ -47,6 +47,10 @@ function stubIntercomPlatformAdapters(): Plugin {
 }
 
 export default defineConfig({
+  // Public assets (especially the vendor-prefixed manifest) are handled by
+  // vite.extension.config.ts. This partial build must not copy them verbatim.
+  publicDir: false,
+
   plugins: [
     stubIntercomPlatformAdapters(),
     nodePolyfills({

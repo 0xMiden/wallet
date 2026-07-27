@@ -7,6 +7,11 @@ const pkg = require('./package.json');
 const TARGET_BROWSER = process.env.TARGET_BROWSER ?? 'chrome';
 
 export default defineConfig({
+  // The extension build owns public assets because it transforms the
+  // cross-browser manifest keys before writing manifest.json. Copying public/
+  // here briefly exposes the raw manifest while development builds start.
+  publicDir: false,
+
   plugins: [
     // Stub SVG imports and CSS modules -- the background SW doesn't render UI.
     {
