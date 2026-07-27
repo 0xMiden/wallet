@@ -5,6 +5,7 @@
 ### Changes
 
 * [CHANGE][all] Upgraded the guardian and multisig client dependencies (`@openzeppelin/guardian-client` and `@openzeppelin/miden-multisig-client`) from `0.15.0-rc.0` to `0.16.0`. The multisig client no longer defaults its Miden RPC endpoint internally, so the wallet now passes the active network's RPC endpoint explicitly wherever it constructs a multisig client or builds a guardian/multisig transaction. No user-facing behavior change.
+* [CHANGE][all] **The Explore screen now shows only the two testnet faucets.** The curated Explore grid is trimmed to the existing Miden faucet plus a new "Forkchoice Faucet" tile (`faucets.forkchoice.xyz`), giving users two sources of testnet MIDEN; the other curated tiles (Zoro, Qash, Miden Name) are no longer shown in the grid.
 
 ## 1.15.11 (2026-07-26)
 
