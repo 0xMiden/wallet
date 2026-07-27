@@ -1782,14 +1782,6 @@
     "message": "Klucz urządzenia został pomyślnie obrócony.",
     "englishSource": "Device key rotated successfully."
   },
-  "activateHotKeyBannerTitle": {
-    "message": "Aktywuj klucz urządzenia",
-    "englishSource": "Activate device key"
-  },
-  "activateHotKeyBannerBody": {
-    "message": "Wygeneruj klucz urządzenia dla tego odzyskanego konta. Wymagane przed wysłaniem.",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
-  },
   "guardianChangedTitle": {
     "message": "Strażnik się zmienił",
     "englishSource": "Guardian changed"

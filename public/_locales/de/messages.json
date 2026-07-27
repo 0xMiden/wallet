@@ -1835,14 +1835,6 @@
     "message": "Geräteschlüssel erfolgreich gedreht.",
     "englishSource": "Device key rotated successfully."
   },
-  "activateHotKeyBannerTitle": {
-    "message": "Geräteschlüssel aktivieren",
-    "englishSource": "Activate device key"
-  },
-  "activateHotKeyBannerBody": {
-    "message": "Generieren Sie einen Geräteschlüssel für dieses wiederhergestellte Konto. Vor dem Senden erforderlich.",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
-  },
   "guardianChangedTitle": {
     "message": "Der Wächter hat sich geändert",
     "englishSource": "Guardian changed"

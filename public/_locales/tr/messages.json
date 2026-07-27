@@ -1835,14 +1835,6 @@
     "message": "Cihaz anahtarı başarıyla döndürüldü.",
     "englishSource": "Device key rotated successfully."
   },
-  "activateHotKeyBannerTitle": {
-    "message": "Cihaz anahtarını etkinleştir",
-    "englishSource": "Activate device key"
-  },
-  "activateHotKeyBannerBody": {
-    "message": "Kurtarılan bu hesap için bir cihaz anahtarı oluşturun. Göndermeden önce gereklidir.",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
-  },
   "guardianChangedTitle": {
     "message": "Gardiyan değişti",
     "englishSource": "Guardian changed"

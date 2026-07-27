@@ -1845,14 +1845,6 @@
     "message": "Ключ пристрою успішно повернуто.",
     "englishSource": "Device key rotated successfully."
   },
-  "activateHotKeyBannerTitle": {
-    "message": "Активуйте ключ пристрою",
-    "englishSource": "Activate device key"
-  },
-  "activateHotKeyBannerBody": {
-    "message": "Згенеруйте ключ пристрою для цього відновленого облікового запису. Обов'язково перед відправкою.",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
-  },
   "guardianChangedTitle": {
     "message": "Опікун змінився",
     "englishSource": "Guardian changed"

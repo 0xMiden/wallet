@@ -1853,14 +1853,6 @@
     "message": "设备密钥轮换成功。",
     "englishSource": "Device key rotated successfully."
   },
-  "activateHotKeyBannerTitle": {
-    "message": "激活设备密钥",
-    "englishSource": "Activate device key"
-  },
-  "activateHotKeyBannerBody": {
-    "message": "为该恢复的帐户生成设备密钥。发送前需要。",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
-  },
   "guardianChangedTitle": {
     "message": "监护人变更",
     "englishSource": "Guardian changed"

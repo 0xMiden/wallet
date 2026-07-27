@@ -1835,14 +1835,6 @@
     "message": "デバイスキーが正常にローテーションされました。",
     "englishSource": "Device key rotated successfully."
   },
-  "activateHotKeyBannerTitle": {
-    "message": "デバイスキーをアクティブ化する",
-    "englishSource": "Activate device key"
-  },
-  "activateHotKeyBannerBody": {
-    "message": "この回復されたアカウントのデバイス キーを生成します。送信する前に必須です。",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
-  },
   "guardianChangedTitle": {
     "message": "保護者が変更されました",
     "englishSource": "Guardian changed"

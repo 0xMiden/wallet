@@ -1833,14 +1833,6 @@
     "message": "Chave do dispositivo girada com sucesso.",
     "englishSource": "Device key rotated successfully."
   },
-  "activateHotKeyBannerTitle": {
-    "message": "Ativar chave do dispositivo",
-    "englishSource": "Activate device key"
-  },
-  "activateHotKeyBannerBody": {
-    "message": "Gere uma chave de dispositivo para esta conta recuperada. Obrigatório antes do envio.",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
-  },
   "guardianChangedTitle": {
     "message": "Guardião alterado",
     "englishSource": "Guardian changed"

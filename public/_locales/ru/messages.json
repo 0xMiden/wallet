@@ -1836,14 +1836,6 @@
     "message": "Ключ устройства успешно поменялся.",
     "englishSource": "Device key rotated successfully."
   },
-  "activateHotKeyBannerTitle": {
-    "message": "Активировать ключ устройства",
-    "englishSource": "Activate device key"
-  },
-  "activateHotKeyBannerBody": {
-    "message": "Создайте ключ устройства для этой восстановленной учетной записи. Обязательно перед отправкой.",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
-  },
   "guardianChangedTitle": {
     "message": "Хранитель изменен",
     "englishSource": "Guardian changed"

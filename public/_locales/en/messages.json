@@ -1818,14 +1818,6 @@
     "message": "Device key rotated successfully.",
     "englishSource": "Device key rotated successfully."
   },
-  "activateHotKeyBannerTitle": {
-    "message": "Activate device key",
-    "englishSource": "Activate device key"
-  },
-  "activateHotKeyBannerBody": {
-    "message": "Generate a device key for this recovered account. Required before sending.",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
-  },
   "guardianChangedTitle": {
     "message": "Guardian changed",
     "englishSource": "Guardian changed"

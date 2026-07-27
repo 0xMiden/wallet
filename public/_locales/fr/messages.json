@@ -1834,14 +1834,6 @@
     "message": "La clé de l'appareil a été pivotée avec succès.",
     "englishSource": "Device key rotated successfully."
   },
-  "activateHotKeyBannerTitle": {
-    "message": "Activer la clé de l'appareil",
-    "englishSource": "Activate device key"
-  },
-  "activateHotKeyBannerBody": {
-    "message": "Générez une clé de périphérique pour ce compte récupéré. Obligatoire avant l'envoi.",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
-  },
   "guardianChangedTitle": {
     "message": "Tuteur changé",
     "englishSource": "Guardian changed"
