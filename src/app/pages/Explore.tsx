@@ -143,7 +143,6 @@ const Explore: FC = () => {
     reconcileBridgedReceives().catch(err => console.warn('[bridge-receive] reconcile on mount failed', err));
   }, []);
 
-
   const fetchFaucetState = useCallback(async () => {
     fetch(`${MIDEN_FAUCET_ENDPOINTS.get(MIDEN_NETWORK_NAME.DEVNET)}/get_metadata`)
       .then(response => response.json())

@@ -633,32 +633,32 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <div className="mt-6">
                   <SectionDivider color={sectionDividerColor} />
                   <div className="mt-5">
-                  <DetailCard title={entry.isCancelled ? t('cancelled') : t('error')}>
-                    <p
-                      className={clsx(
-                        'px-4 py-3 text-sm font-medium wrap-break-word select-text',
-                        entry.isCancelled ? 'text-gray-500' : 'text-status-negative'
-                      )}
-                    >
-                      {entry.errorMessage}
-                    </p>
-                    {entry.rawErrorMessage && (
-                      <div className="px-4 pb-3">
-                        <button
-                          type="button"
-                          className="text-sm font-medium text-text-muted underline"
-                          onClick={() => setShowFullError(v => !v)}
-                        >
-                          {showFullError ? t('hideFullError') : t('showFullError')}
-                        </button>
-                        {showFullError && (
-                          <p className="mt-2 text-xs font-medium text-text-muted wrap-break-word select-text">
-                            {entry.rawErrorMessage}
-                          </p>
+                    <DetailCard title={entry.isCancelled ? t('cancelled') : t('error')}>
+                      <p
+                        className={clsx(
+                          'px-4 py-3 text-sm font-medium wrap-break-word select-text',
+                          entry.isCancelled ? 'text-gray-500' : 'text-status-negative'
                         )}
-                      </div>
-                    )}
-                  </DetailCard>
+                      >
+                        {entry.errorMessage}
+                      </p>
+                      {entry.rawErrorMessage && (
+                        <div className="px-4 pb-3">
+                          <button
+                            type="button"
+                            className="text-sm font-medium text-text-muted underline"
+                            onClick={() => setShowFullError(v => !v)}
+                          >
+                            {showFullError ? t('hideFullError') : t('showFullError')}
+                          </button>
+                          {showFullError && (
+                            <p className="mt-2 text-xs font-medium text-text-muted wrap-break-word select-text">
+                              {entry.rawErrorMessage}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </DetailCard>
                   </div>
                 </div>
               )}
