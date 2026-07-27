@@ -20,6 +20,7 @@ import {
   generateTransaction,
   MAX_WAIT_BEFORE_CANCEL,
   MAX_QUEUED_AGE,
+  REMOTE_PROVER_FAILED_ERROR,
   MAX_CONSECUTIVE_CONSUME_FAILURES,
   RECENT_FAILURE_WINDOW_SEC,
   RETRY_COOLDOWN_SEC
@@ -775,6 +776,49 @@ describe('transactions utilities', () => {
       modifyFn(dbTx);
 
       expect(dbTx.error).toBe('simple error string');
+    });
+
+    it('rewrites a proving-stage failure to the friendly prover message and keeps the raw error', async () => {
+      const mockModify = jest.fn();
+      mockTransactionsWhere
+        // Finalized-guard lookup returns the live row, exposing the stage it died in.
+        .mockReturnValueOnce({
+          first: jest.fn().mockResolvedValueOnce({ id: 'tx-1', status: ITransactionStatus.Queued, stage: 'proving' })
+        })
+        .mockReturnValueOnce({ modify: mockModify });
+
+      const tx = { id: 'tx-1' } as Transaction;
+      await cancelTransaction(tx, new Error('prover exploded'));
+
+      const modifyFn = mockModify.mock.calls[0]![0];
+      const dbTx: any = {};
+      modifyFn(dbTx);
+
+      expect(dbTx.error).toBe(REMOTE_PROVER_FAILED_ERROR);
+      expect(dbTx.rawError).toBe('Error: prover exploded');
+    });
+
+    it('rewrites a sending-stage timeout but passes through non-timeout sending failures raw', async () => {
+      const runCancel = async (message: string) => {
+        const mockModify = jest.fn();
+        mockTransactionsWhere
+          .mockReturnValueOnce({
+            first: jest.fn().mockResolvedValueOnce({ id: 'tx-1', status: ITransactionStatus.Queued, stage: 'sending' })
+          })
+          .mockReturnValueOnce({ modify: mockModify });
+        await cancelTransaction({ id: 'tx-1' } as Transaction, new Error(message));
+        const dbTx: any = {};
+        mockModify.mock.calls[0]![0](dbTx);
+        return dbTx;
+      };
+
+      const timedOut = await runCancel('request timeout hit');
+      expect(timedOut.error).toBe(REMOTE_PROVER_FAILED_ERROR);
+      expect(timedOut.rawError).toBe('Error: request timeout hit');
+
+      const other = await runCancel('insufficient balance');
+      expect(other.error).toBe('Error: insufficient balance');
+      expect(other.rawError).toBeUndefined();
     });
   });
 

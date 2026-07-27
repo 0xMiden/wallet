@@ -99,7 +99,10 @@ export interface ITransaction {
   inputNoteIds?: string[];
   outputNoteIds?: string[];
   extraInputs?: any;
+  /** User-facing failure reason (possibly a friendly rewrite — see `rawError`). */
   error?: string;
+  /** The untouched thrown error, kept when `error` was rewritten to a friendlier message. */
+  rawError?: string;
   resultBytes?: Uint8Array;
   /**
    * Current sub-phase during active processing. Readers should treat this
