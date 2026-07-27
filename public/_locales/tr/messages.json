@@ -2692,6 +2692,10 @@
     "message": "Biyometriyi Tekrar Deneyin",
     "englishSource": "Try Biometric Again"
   },
+  "faceId": {
+    "message": "Yüz Kimliği",
+    "englishSource": "Face ID"
+  },
   "fingerprint": {
     "message": "Parmak izi",
     "englishSource": "Fingerprint"

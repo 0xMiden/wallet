@@ -2705,6 +2705,10 @@
     "message": "Попробуйте биометрию еще раз",
     "englishSource": "Try Biometric Again"
   },
+  "faceId": {
+    "message": "Идентификатор лица",
+    "englishSource": "Face ID"
+  },
   "fingerprint": {
     "message": "Отпечаток пальца",
     "englishSource": "Fingerprint"

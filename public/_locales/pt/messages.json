@@ -2681,6 +2681,10 @@
     "message": "Tente biométrico novamente",
     "englishSource": "Try Biometric Again"
   },
+  "faceId": {
+    "message": "ID facial",
+    "englishSource": "Face ID"
+  },
   "fingerprint": {
     "message": "Impressão digital",
     "englishSource": "Fingerprint"

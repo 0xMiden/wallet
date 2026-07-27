@@ -2714,6 +2714,10 @@
     "message": "Спробуйте знову біометричні дані",
     "englishSource": "Try Biometric Again"
   },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
   "fingerprint": {
     "message": "Відбиток пальця",
     "englishSource": "Fingerprint"

@@ -2704,6 +2704,10 @@
     "message": "生体認証をもう一度試してください",
     "englishSource": "Try Biometric Again"
   },
+  "faceId": {
+    "message": "顔認証",
+    "englishSource": "Face ID"
+  },
   "fingerprint": {
     "message": "指紋",
     "englishSource": "Fingerprint"

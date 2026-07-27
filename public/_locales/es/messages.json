@@ -2634,6 +2634,10 @@
     "message": "Pruebe biométrico nuevamente",
     "englishSource": "Try Biometric Again"
   },
+  "faceId": {
+    "message": "identificación facial",
+    "englishSource": "Face ID"
+  },
   "fingerprint": {
     "message": "Huella dactilar",
     "englishSource": "Fingerprint"

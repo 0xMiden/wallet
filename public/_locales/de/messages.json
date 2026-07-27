@@ -2704,6 +2704,10 @@
     "message": "Versuchen Sie es erneut mit Biometrie",
     "englishSource": "Try Biometric Again"
   },
+  "faceId": {
+    "message": "Gesichtserkennung",
+    "englishSource": "Face ID"
+  },
   "fingerprint": {
     "message": "Fingerabdruck",
     "englishSource": "Fingerprint"

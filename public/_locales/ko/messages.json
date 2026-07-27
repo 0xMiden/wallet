@@ -2713,6 +2713,10 @@
     "message": "생체인식을 다시 시도해보세요",
     "englishSource": "Try Biometric Again"
   },
+  "faceId": {
+    "message": "페이스 아이디",
+    "englishSource": "Face ID"
+  },
   "fingerprint": {
     "message": "지문",
     "englishSource": "Fingerprint"

@@ -2682,6 +2682,10 @@
     "message": "Try Biometric Again",
     "englishSource": "Try Biometric Again"
   },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
   "fingerprint": {
     "message": "Fingerprint",
     "englishSource": "Fingerprint"

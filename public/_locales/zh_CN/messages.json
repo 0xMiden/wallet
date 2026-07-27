@@ -2722,6 +2722,10 @@
     "message": "再次尝试生物识别",
     "englishSource": "Try Biometric Again"
   },
+  "faceId": {
+    "message": "人脸识别",
+    "englishSource": "Face ID"
+  },
   "fingerprint": {
     "message": "指纹",
     "englishSource": "Fingerprint"
