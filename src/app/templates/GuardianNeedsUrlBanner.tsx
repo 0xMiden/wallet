@@ -24,8 +24,7 @@ interface Props {
  * Self-gates on `guardianSyncStatus === 'needs-user-input'`: once a verified
  * endpoint is applied, the backend flips status back to `'in-sync'`, the
  * reactive account selector picks that up, and this returns null on its own
- * (matching PromptCarousel's "falsy children are filtered out" contract, the
- * same way ActivateHotKeyBanner disappears once its rotation lands).
+ * (matching PromptCarousel's "falsy children are filtered out" contract).
  */
 export const GuardianNeedsUrlBanner: FC<Props> = ({ className }) => {
   const { t } = useTranslation();

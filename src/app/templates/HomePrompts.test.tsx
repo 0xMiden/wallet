@@ -19,13 +19,6 @@ jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
 
-// The real banner lazy-requires native Capacitor haptics + the miden front
-// barrel. Stub it to a marker so we can assert it renders (or not) based on
-// `account.requiresHotKeyRotation`.
-jest.mock('app/templates/ActivateHotKeyBanner', () => ({
-  ActivateHotKeyBanner: () => <div data-testid="hotkey-banner">hotkey-banner</div>
-}));
-
 // The real PromptCard/PromptCarousel drag in framer-motion, haptics and SVG
 // icons. Substitute thin stubs that faithfully forward the props HomePrompts
 // relies on (title/body/variant/onClick/onDismiss and the children list) so the
@@ -76,9 +69,8 @@ jest.mock('lib/wallet-prompts', () => ({
 
 const mockNavigate = navigate as jest.MockedFunction<typeof navigate>;
 
-// Minimal cast — HomePrompts only reads `requiresHotKeyRotation`.
-const makeAccount = (requiresHotKeyRotation?: boolean) =>
-  ({ requiresHotKeyRotation }) as Parameters<typeof HomePrompts>[0]['account'];
+// Minimal cast — HomePrompts only reads `guardianSyncStatus` off the account.
+const makeAccount = () => ({}) as Parameters<typeof HomePrompts>[0]['account'];
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -88,7 +80,7 @@ describe('HomePrompts', () => {
   it('renders the pending VerifySeedPhrase prompt inside the carousel', () => {
     mockIsPromptPending.mockReturnValue(true);
 
-    render(<HomePrompts account={makeAccount(false)} />);
+    render(<HomePrompts account={makeAccount()} />);
 
     expect(screen.getByTestId('prompt-carousel')).toBeInTheDocument();
 
@@ -107,7 +99,7 @@ describe('HomePrompts', () => {
   it('navigates to the prompt route when the card is clicked', () => {
     mockIsPromptPending.mockReturnValue(true);
 
-    render(<HomePrompts account={makeAccount(false)} />);
+    render(<HomePrompts account={makeAccount()} />);
 
     fireEvent.click(screen.getByTestId('card-click'));
 
@@ -118,7 +110,7 @@ describe('HomePrompts', () => {
   it('dismisses the prompt via the dismiss handler', () => {
     mockIsPromptPending.mockReturnValue(true);
 
-    render(<HomePrompts account={makeAccount(false)} />);
+    render(<HomePrompts account={makeAccount()} />);
 
     fireEvent.click(screen.getByTestId('card-dismiss'));
 
@@ -130,35 +122,10 @@ describe('HomePrompts', () => {
   it('renders no prompt cards when nothing is pending', () => {
     mockIsPromptPending.mockReturnValue(false);
 
-    render(<HomePrompts account={makeAccount(false)} />);
+    render(<HomePrompts account={makeAccount()} />);
 
     // Carousel still mounts, but the pending filter drops every definition.
     expect(screen.getByTestId('prompt-carousel')).toBeInTheDocument();
     expect(screen.queryByTestId('prompt-card')).not.toBeInTheDocument();
-  });
-
-  it('renders the ActivateHotKeyBanner when the account requires hot-key rotation', () => {
-    mockIsPromptPending.mockReturnValue(false);
-
-    render(<HomePrompts account={makeAccount(true)} />);
-
-    expect(screen.getByTestId('hotkey-banner')).toBeInTheDocument();
-  });
-
-  it('omits the ActivateHotKeyBanner when rotation is not required', () => {
-    mockIsPromptPending.mockReturnValue(false);
-
-    render(<HomePrompts account={makeAccount(false)} />);
-
-    expect(screen.queryByTestId('hotkey-banner')).not.toBeInTheDocument();
-  });
-
-  it('renders both the pending prompt and the hot-key banner together', () => {
-    mockIsPromptPending.mockReturnValue(true);
-
-    render(<HomePrompts account={makeAccount(true)} />);
-
-    expect(screen.getByTestId('prompt-card')).toBeInTheDocument();
-    expect(screen.getByTestId('hotkey-banner')).toBeInTheDocument();
   });
 });

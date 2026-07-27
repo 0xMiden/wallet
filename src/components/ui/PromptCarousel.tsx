@@ -34,7 +34,7 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
   const [index, setIndex] = useState(0);
 
   // Compute the visible index inline so a slide disappearing mid-flight
-  // (e.g. ActivateHotKeyBanner returning null once the rotation lands)
+  // (e.g. a self-gating banner returning null once its condition clears)
   // doesn't briefly leave the track translated off-screen waiting for the
   // clamp effect below to catch up.
   const activeIndex = Math.min(index, Math.max(0, slides.length - 1));
