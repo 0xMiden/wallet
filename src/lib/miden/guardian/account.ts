@@ -2,7 +2,7 @@ import { Account, AuthSecretKey, MidenClient, Word } from '@miden-sdk/miden-sdk/
 import { EcdsaSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
-import { DEFAULT_GUARDIAN_ENDPOINT, GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
+import { DEFAULT_GUARDIAN_ENDPOINT, GUARDIAN_OPTIONS, getRpcEndpointUrl } from 'lib/miden-chain/constants';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import type { GuardianProvider } from 'lib/shared/types';
@@ -193,7 +193,7 @@ export async function createGuardianAccount(
       DEFAULT_GUARDIAN_ENDPOINT;
 
     registerGuardianOrigin(guardianEndpoint);
-    const client = new MultisigClient(webClient, { guardianEndpoint });
+    const client = new MultisigClient(webClient, { guardianEndpoint, midenRpcEndpoint: getRpcEndpointUrl() });
     const { commitment: guardianCommitment, pubkey: guardianPubkey } = await client.guardianClient.getPubkey('ecdsa');
     // Signer order is [hot, cold] by convention — the migration plan diagrams
     // and downstream role-routing code assume this layout.

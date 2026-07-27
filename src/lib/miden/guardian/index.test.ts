@@ -695,9 +695,14 @@ describe('MultisigService', () => {
         expect.anything(),
         1,
         ['0xnewhotcommit', '0xcoldcommitnoprefix'],
-        { signatureScheme: 'ecdsa' }
+        { signatureScheme: 'ecdsa', midenRpcEndpoint: expect.any(String) }
       );
-      expect(mockExecuteForSummary).toHaveBeenCalledWith(expect.anything(), 'acc-id', { kind: 'request' });
+      expect(mockExecuteForSummary).toHaveBeenCalledWith(
+        expect.anything(),
+        'acc-id',
+        { kind: 'request' },
+        expect.any(String)
+      );
       // Proposal label is cosmetic; on-chain effect is dictated by targetSignerCommitments.
       expect(multisig.createProposal).toHaveBeenCalledWith(
         expect.any(Number),
@@ -736,7 +741,7 @@ describe('MultisigService', () => {
         expect.anything(),
         1,
         ['0xnewhotnoprefix', '0xcoldnoprefix'],
-        { signatureScheme: 'ecdsa' }
+        { signatureScheme: 'ecdsa', midenRpcEndpoint: expect.any(String) }
       );
     });
   });

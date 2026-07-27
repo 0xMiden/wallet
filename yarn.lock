@@ -2396,7 +2396,7 @@
     "@miden-sdk/node-darwin-x64" "0.15.2"
     "@miden-sdk/node-linux-x64-gnu" "0.15.2"
 
-"@miden-sdk/miden-sdk@0.15.5", "@miden-sdk/miden-sdk@^0.15.0":
+"@miden-sdk/miden-sdk@0.15.5", "@miden-sdk/miden-sdk@^0.15.8":
   version "0.15.5"
   resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.15.5.tgz#d2ed0c4cadb925576e194b3be2cbc8ab1ec8c554"
   integrity sha512-IBCI3zJ71OObTmhOyvMlxwnzj0ERJB8njS1fHdmjp1pU9nSVImoc/3ouzhAAn/Gt8LzP2GwKruQ5cGiVDSNg5g==
@@ -2523,20 +2523,20 @@
   resolved "https://registry.yarnpkg.com/@nolyfill/is-core-module/-/is-core-module-1.0.39.tgz#3dc35ba0f1e66b403c00b39344f870298ebb1c8e"
   integrity sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==
 
-"@openzeppelin/guardian-client@0.15.0-rc.0", "@openzeppelin/guardian-client@^0.15.0-rc.0":
-  version "0.15.0-rc.0"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.15.0-rc.0.tgz#a5d5100d2565bb4fa0f3431591b3941b44a5551a"
-  integrity sha512-WSq0mrDr2qRH+BX2X+wsHpF6x36xerT2r9vs1YnWlu3CMqft5240cnGMoLhR7scuJX/psuHSbg7GUCwZYNOavw==
+"@openzeppelin/guardian-client@0.16.0", "@openzeppelin/guardian-client@^0.16.0":
+  version "0.16.0"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.16.0.tgz#72f5d058d519d301f368b223064909aaf0fc2c76"
+  integrity sha512-/ixcnXpLA4bPXvHMiANMS6+GaFPSiJkJohPSHYyk+t/bc1GGykUq4ZMhZyDY/pqSEnz5/70LWBBGplQklMFFoQ==
 
-"@openzeppelin/miden-multisig-client@0.15.0-rc.0":
-  version "0.15.0-rc.0"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.15.0-rc.0.tgz#1cc4a411e62a6d9b973efa65b0c268533831cd1b"
-  integrity sha512-uYqiCDd9BpJIBIXCpsigKnwKNsHWj4pYlpGs0eKGRWveNx7gUN1cs3LQxtWH3pd31yPiW/lCaXJ3r8rcpjsNhw==
+"@openzeppelin/miden-multisig-client@0.16.0":
+  version "0.16.0"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.16.0.tgz#43d567cd049092edc4eed2c28bfa9e48b80d53c3"
+  integrity sha512-pXUO/nXg7cGOdd0gEC72DTZmeXRJu9GjsOoQ5xKiivA94JbVH+LtGQj5GQ8GmLUB7/tss+jFiUTksVwUWK53FQ==
   dependencies:
-    "@miden-sdk/miden-sdk" "^0.15.0"
+    "@miden-sdk/miden-sdk" "^0.15.8"
     "@noble/curves" "^1.9.7"
     "@noble/hashes" "^2.0.1"
-    "@openzeppelin/guardian-client" "^0.15.0-rc.0"
+    "@openzeppelin/guardian-client" "^0.16.0"
 
 "@oxc-project/types@=0.133.0":
   version "0.133.0"

@@ -28,7 +28,8 @@ import {
   DEFAULT_NETWORK,
   MIDEN_NETWORK_ENDPOINTS,
   MIDEN_PROVING_ENDPOINTS,
-  getNoteTransportUrl
+  getNoteTransportUrl,
+  getRpcEndpointUrl
 } from 'lib/miden-chain/constants';
 import { isMobile } from 'lib/platform';
 import type { AuthScheme } from 'lib/shared/types';
@@ -342,7 +343,10 @@ export class MidenClientInterface {
       const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');
       const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
 
-      const lookupClient = new MultisigClient(this.client, { guardianEndpoint });
+      const lookupClient = new MultisigClient(this.client, {
+        guardianEndpoint,
+        midenRpcEndpoint: getRpcEndpointUrl(this.network)
+      });
       const lookupSigner = new EcdsaSigner(coldSk);
       const matches = await lookupClient.recoverByKey(lookupSigner);
 

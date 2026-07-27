@@ -248,6 +248,16 @@ export function getRpcEndpoint(): Endpoint {
 }
 
 /**
+ * RPC endpoint URL string for `network` (defaults to the active network),
+ * matching what `getRpcEndpoint()` and client creation use. The guardian/
+ * multisig client (0.16+) no longer defaults the RPC endpoint internally, so
+ * callers must pass it explicitly; falls back to the active network for
+ * networks without a mapped endpoint (e.g. the mock client).
+ */
+export const getRpcEndpointUrl = (network: string = DEFAULT_NETWORK): string =>
+  MIDEN_NETWORK_ENDPOINTS.get(network) ?? MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!;
+
+/**
  * Resolves once the SDK's WASM module is initialized on the current thread,
  * so subsequent `new Endpoint(...)` / `new RpcClient(...)` calls are safe.
  *

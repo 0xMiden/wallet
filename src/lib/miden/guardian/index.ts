@@ -10,7 +10,7 @@ import {
   type Proposal
 } from '@openzeppelin/miden-multisig-client';
 
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
+import { DEFAULT_GUARDIAN_ENDPOINT, getRpcEndpointUrl } from 'lib/miden-chain/constants';
 import * as secureHotKey from 'lib/secure-hot-key';
 import type { GeneratedHotKey } from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
@@ -84,7 +84,7 @@ export class MultisigService {
       const webClient = (await getMidenClient()).client;
 
       registerGuardianOrigin(guardianEndpoint);
-      const client = new MultisigClient(webClient, { guardianEndpoint });
+      const client = new MultisigClient(webClient, { guardianEndpoint, midenRpcEndpoint: getRpcEndpointUrl() });
       // `load` drives the shared WASM web-client, so it must be serialized with
       // every other client operation via the global mutex.
       const multisig = await withWasmClientLock(() => client.load(account.id().toString(), signer));
@@ -423,9 +423,9 @@ export class MultisigService {
         webClient,
         targetThreshold,
         targetSignerCommitments,
-        { signatureScheme: 'ecdsa' }
+        { signatureScheme: 'ecdsa', midenRpcEndpoint: getRpcEndpointUrl() }
       );
-      const summary = await executeForSummary(webClient, this.accountId, request);
+      const summary = await executeForSummary(webClient, this.accountId, request, getRpcEndpointUrl());
       return { summaryBase64: u8ToB64(summary.serialize()), saltHex: salt.toHex() };
     });
     const metadata: ProposalMetadata = {
