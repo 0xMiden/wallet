@@ -31,6 +31,7 @@ import type { TokenPrices } from 'lib/prices';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import type { PendingNoteValue } from 'lib/wallet-prompts';
 import { navigate } from 'lib/woozie';
 import { isHexAddress } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
@@ -268,6 +269,7 @@ const Explore: FC = () => {
             onSearchChange={setSearch}
             account={account}
             balancesLoading={balancesLoading}
+            claimableNotes={claimableNotes}
           />
         </div>
       </div>
@@ -286,6 +288,7 @@ interface HomeOverviewProps {
   onSearchChange: (v: string) => void;
   account: WalletAccount;
   balancesLoading: boolean;
+  claimableNotes: readonly PendingNoteValue[] | undefined;
 }
 
 const HomeOverview: FC<HomeOverviewProps> = ({
@@ -296,7 +299,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   search,
   onSearchChange,
   account,
-  balancesLoading
+  balancesLoading,
+  claimableNotes
 }) => {
   const [accountsOpen, setAccountsOpen] = useState(false);
   const { t } = useTranslation();
@@ -317,7 +321,13 @@ const HomeOverview: FC<HomeOverviewProps> = ({
 
       <AccountsDrawer open={accountsOpen} onOpenChange={setAccountsOpen} />
 
-      <HomePrompts account={account} balances={balances} balancesLoading={balancesLoading} />
+      <HomePrompts
+        account={account}
+        balances={balances}
+        balancesLoading={balancesLoading}
+        claimableNotes={claimableNotes}
+        tokenPrices={tokenPrices}
+      />
 
       <div className="flex items-center justify-between pt-2">
         <span className="text-2xl font-bold text-text-primary-token">{t('assets')}</span>

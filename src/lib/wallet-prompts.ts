@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import BigNumber from 'bignumber.js';
+
 import { findClaimableMidenToEvmDeposit } from 'lib/agglayer';
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import type { AssetMetadata } from 'lib/miden/metadata';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
+import type { ConsumableNote } from 'lib/miden/types';
 import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
+import { getTokenPrice } from 'lib/prices';
+import type { TokenPrices } from 'lib/prices';
 
 export enum WalletPromptType {
   Bridge = 'bridge',
   Faucet = 'faucet',
+  PendingNotes = 'pendingNotes',
   VerifySeedPhrase = 'verifySeedPhrase',
   // Mobile-only: the native hot-key plugin could not use the device's secure
   // hardware (TEE / Secure Enclave), so transactions can't be signed. Surfaced
@@ -27,17 +34,38 @@ export enum WalletPromptStatus {
 export type WalletPromptStorage = {
   version: 1;
   prompts: Partial<Record<WalletPromptType, WalletPromptStatus>>;
+  pendingNotesDismissedIds: string[];
 };
 
 export const WALLET_PROMPTS_STORAGE_KEY = 'wallet_prompts_v1';
 
 export const EMPTY_WALLET_PROMPT_STORAGE: WalletPromptStorage = {
   version: 1,
-  prompts: {}
+  prompts: {},
+  pendingNotesDismissedIds: []
+};
+
+export type PendingNoteValue = Pick<ConsumableNote, 'id' | 'amount'> & {
+  metadata: Pick<AssetMetadata, 'decimals' | 'symbol'>;
 };
 
 const VALID_STATUSES = new Set<string>(Object.values(WalletPromptStatus));
 const VALID_TYPES = new Set<string>(Object.values(WalletPromptType));
+
+function normalizePendingNotesDismissedIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value.filter((id): id is string => typeof id === 'string' && id.length > 0)));
+}
+
+export function getPendingNotesUsdTotal(notes: readonly PendingNoteValue[], tokenPrices: TokenPrices): number {
+  return notes.reduce((total, note) => {
+    // `amount` is a base-units bigint string; BigNumber keeps full integer
+    // precision where Number(amount) would silently round above 2^53.
+    const amount = new BigNumber(note.amount).shiftedBy(-note.metadata.decimals).toNumber();
+    const { price } = getTokenPrice(tokenPrices, note.metadata.symbol);
+    return total + amount * price;
+  }, 0);
+}
 
 function isBridgePromptActive(tx: ITransaction): boolean {
   if (tx.status === ITransactionStatus.Failed) return false;
@@ -109,7 +137,8 @@ export function normalizeWalletPromptStorage(value: unknown): WalletPromptStorag
         acc[type as WalletPromptType] = status as WalletPromptStatus;
       }
       return acc;
-    }, {})
+    }, {}),
+    pendingNotesDismissedIds: normalizePendingNotesDismissedIds(Reflect.get(value, 'pendingNotesDismissedIds'))
   };
 }
 
@@ -136,7 +165,8 @@ export async function setWalletPromptStatus(
     prompts: {
       ...storage.prompts,
       [type]: status
-    }
+    },
+    pendingNotesDismissedIds: storage.pendingNotesDismissedIds
   });
 }
 
@@ -152,7 +182,8 @@ export async function seedWalletPrompt(type: WalletPromptType): Promise<WalletPr
     prompts: {
       ...storage.prompts,
       [type]: WalletPromptStatus.Pending
-    }
+    },
+    pendingNotesDismissedIds: storage.pendingNotesDismissedIds
   });
 }
 
@@ -256,7 +287,7 @@ export function useWalletPromptStorage() {
   }, []);
 
   const setPromptStatus = useCallback(
-    (type: WalletPromptType, status: WalletPromptStatus) => {
+    (type: WalletPromptType, status: WalletPromptStatus, dismissedNoteIds?: readonly string[]) => {
       setStorage(prev => {
         const current = normalizeWalletPromptStorage(prev);
         const next: WalletPromptStorage = {
@@ -264,7 +295,11 @@ export function useWalletPromptStorage() {
           prompts: {
             ...current.prompts,
             [type]: status
-          }
+          },
+          pendingNotesDismissedIds:
+            dismissedNoteIds === undefined
+              ? current.pendingNotesDismissedIds
+              : normalizePendingNotesDismissedIds(dismissedNoteIds)
         };
         putWalletPromptStorage(next).catch(error => {
           console.warn('[wallet-prompts] failed to persist prompt status:', error);

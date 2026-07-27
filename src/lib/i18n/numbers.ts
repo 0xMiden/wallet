@@ -74,6 +74,10 @@ export function getPluralKey(keyPrefix: string, amount: number) {
   return `${keyPrefix}_${rules.select(amount)}`;
 }
 
+export function formatUsd(value: number): string {
+  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export function formatBigInt(amount: bigint, decimals: number = MIDEN_METADATA.decimals): string {
   if (amount === BigInt(0)) {
     return '0';

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
@@ -30,13 +30,16 @@ let mockAccount: { publicKey: string } = { publicKey: 'mtst1account' };
 let mockAllBalances: any;
 let mockClaimableNotes: any;
 let mockIsExtension = true;
+let mockIsMobile = true;
 let mockAutoConsume = false;
 let mockDelegateProof = false;
 let mockTokenPrices: Record<string, unknown> = {};
 
 const mockSignTransaction = jest.fn();
+const mockMutateBalances = jest.fn();
 const mockMutateClaimableNotes = jest.fn();
 const mockInitiateConsumeTransaction = jest.fn();
+const mockReconcileBridgedReceives = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
 const mockStartBackgroundTransactionProcessing = jest.fn();
 const mockSetFaucetIdSetting = jest.fn();
@@ -61,8 +64,22 @@ jest.mock('app/templates/Balance', () => ({
 
 jest.mock('app/templates/HomePrompts', () => ({
   __esModule: true,
-  default: ({ account }: { account: { publicKey: string } }) => (
-    <div data-testid="home-prompts">{account?.publicKey}</div>
+  default: ({
+    account,
+    claimableNotes,
+    tokenPrices
+  }: {
+    account: { publicKey: string };
+    claimableNotes?: unknown[];
+    tokenPrices: Record<string, unknown>;
+  }) => (
+    <div
+      data-testid="home-prompts"
+      data-note-count={claimableNotes?.length ?? 0}
+      data-price-symbols={Object.keys(tokenPrices).join(',')}
+    >
+      {account?.publicKey}
+    </div>
   )
 }));
 
@@ -76,6 +93,10 @@ jest.mock('components/AssetRow', () => ({
 
 jest.mock('components/ConnectivityIssueBanner', () => ({
   ConnectivityIssueBanner: () => <div data-testid="connectivity-banner" />
+}));
+
+jest.mock('components/Loader', () => ({
+  Loader: (props: React.HTMLAttributes<HTMLDivElement>) => <div data-testid="refresh-loader" {...props} />
 }));
 
 jest.mock('components/ui', () => ({
@@ -131,14 +152,19 @@ jest.mock('lib/i18n/numbers', () => ({
 
 jest.mock('lib/miden/activity', () => ({
   initiateConsumeTransaction: (...args: any[]) => mockInitiateConsumeTransaction(...args),
+  reconcileBridgedReceives: (...args: any[]) => mockReconcileBridgedReceives(...args),
   requestSWTransactionProcessing: (...args: any[]) => mockRequestSWTransactionProcessing(...args),
   startBackgroundTransactionProcessing: (...args: any[]) => mockStartBackgroundTransactionProcessing(...args)
+}));
+
+jest.mock('lib/epoch', () => ({
+  reconcileEarnWithdrawals: jest.fn().mockResolvedValue(undefined)
 }));
 
 jest.mock('lib/miden/front', () => ({
   setFaucetIdSetting: (...args: any[]) => mockSetFaucetIdSetting(...args),
   useAccount: () => mockAccount,
-  useAllBalances: () => ({ data: mockAllBalances }),
+  useAllBalances: () => ({ data: mockAllBalances, mutate: mockMutateBalances }),
   useAllTokensBaseMetadata: () => ({}),
   useMidenContext: () => ({ signTransaction: mockSignTransaction })
 }));
@@ -157,7 +183,8 @@ jest.mock('lib/miden-chain/constants', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
-  isExtension: () => mockIsExtension
+  isExtension: () => mockIsExtension,
+  isMobile: () => mockIsMobile
 }));
 
 jest.mock('lib/settings/helpers', () => ({
@@ -208,15 +235,20 @@ describe('Explore', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    document.documentElement.classList.remove('dark');
     mockFaucetId = 'faucet-native';
     mockAccount = { publicKey: 'mtst1account' };
     mockAllBalances = [];
     mockClaimableNotes = undefined;
     mockIsExtension = true;
+    mockIsMobile = true;
     mockAutoConsume = false;
     mockDelegateProof = false;
     mockTokenPrices = {};
     mockInitiateConsumeTransaction.mockResolvedValue(undefined);
+    mockReconcileBridgedReceives.mockResolvedValue(undefined);
+    mockMutateBalances.mockResolvedValue(undefined);
+    mockMutateClaimableNotes.mockResolvedValue(undefined);
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -258,6 +290,16 @@ describe('Explore', () => {
 
       expect(screen.getByTestId('explore-page')).toBeInTheDocument();
       expect(screen.queryAllByTestId('asset-row')).toHaveLength(0);
+    });
+
+    it('passes the existing claimable notes and token prices to home prompts', async () => {
+      mockClaimableNotes = [makeNote('note-1', 'faucet-native')];
+      mockTokenPrices = { MIDEN: { price: 2 } };
+
+      await renderExplore();
+
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-price-symbols', 'MIDEN');
     });
   });
 
@@ -354,6 +396,65 @@ describe('Explore', () => {
       });
 
       expect(mockNavigate).toHaveBeenCalledWith('/token-detail/t-abc');
+    });
+  });
+
+  describe('pull to refresh', () => {
+    it('refreshes balances and claimable notes after a downward pull from the top', async () => {
+      await renderExplore();
+      const scroller = screen.getByTestId('explore-scroll-container');
+
+      fireEvent.touchStart(scroller, { touches: [{ clientX: 50, clientY: 0 }] });
+      fireEvent.touchMove(scroller, { touches: [{ clientX: 50, clientY: 180 }] });
+
+      expect(screen.getByTestId('pull-to-refresh-indicator').firstChild).toHaveClass('rotate-180');
+
+      fireEvent.touchEnd(scroller, { changedTouches: [{ clientX: 50, clientY: 180 }] });
+
+      await waitFor(() => {
+        expect(mockMutateBalances).toHaveBeenCalledTimes(1);
+        expect(mockMutateClaimableNotes).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('does not refresh for a short pull', async () => {
+      await renderExplore();
+      const scroller = screen.getByTestId('explore-scroll-container');
+
+      fireEvent.touchStart(scroller, { touches: [{ clientX: 50, clientY: 0 }] });
+      fireEvent.touchMove(scroller, { touches: [{ clientX: 50, clientY: 60 }] });
+      fireEvent.touchEnd(scroller, { changedTouches: [{ clientX: 50, clientY: 60 }] });
+
+      expect(mockMutateBalances).not.toHaveBeenCalled();
+      expect(mockMutateClaimableNotes).not.toHaveBeenCalled();
+    });
+
+    it('does not activate pull to refresh in dark mode', async () => {
+      document.documentElement.classList.add('dark');
+      await renderExplore();
+      const scroller = screen.getByTestId('explore-scroll-container');
+
+      fireEvent.touchStart(scroller, { touches: [{ clientX: 50, clientY: 0 }] });
+      fireEvent.touchMove(scroller, { touches: [{ clientX: 50, clientY: 180 }] });
+      fireEvent.touchEnd(scroller, { changedTouches: [{ clientX: 50, clientY: 180 }] });
+
+      expect(mockMutateBalances).not.toHaveBeenCalled();
+      expect(mockMutateClaimableNotes).not.toHaveBeenCalled();
+    });
+
+    it('is disabled outside the mobile app', async () => {
+      mockIsMobile = false;
+      await renderExplore();
+      const scroller = screen.getByTestId('explore-scroll-container');
+
+      expect(screen.queryByTestId('pull-to-refresh-indicator')).not.toBeInTheDocument();
+
+      fireEvent.touchStart(scroller, { touches: [{ clientX: 50, clientY: 0 }] });
+      fireEvent.touchMove(scroller, { touches: [{ clientX: 50, clientY: 180 }] });
+      fireEvent.touchEnd(scroller, { changedTouches: [{ clientX: 50, clientY: 180 }] });
+
+      expect(mockMutateBalances).not.toHaveBeenCalled();
+      expect(mockMutateClaimableNotes).not.toHaveBeenCalled();
     });
   });
 

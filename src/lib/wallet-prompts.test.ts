@@ -10,6 +10,7 @@ import {
   dismissWalletPrompt,
   faucet,
   fetchWalletPromptStorage,
+  getPendingNotesUsdTotal,
   isWalletPromptPending,
   normalizeWalletPromptStorage,
   seedWalletPrompt,
@@ -50,6 +51,37 @@ describe('wallet prompts', () => {
     expect(normalizeWalletPromptStorage({ version: 1, prompts: { verifySeedPhrase: 'bad-status' } })).toEqual(
       EMPTY_WALLET_PROMPT_STORAGE
     );
+  });
+
+  it('normalizes pending-note prompt state and valid unique dismissed note ids', () => {
+    expect(
+      normalizeWalletPromptStorage({
+        version: 1,
+        prompts: { pendingNotes: 'dismissed' },
+        pendingNotesDismissedIds: ['note-1', '', 7, 'note-1', 'note-2']
+      })
+    ).toEqual({
+      version: 1,
+      prompts: { [WalletPromptType.PendingNotes]: WalletPromptStatus.Dismissed },
+      pendingNotesDismissedIds: ['note-1', 'note-2']
+    });
+  });
+
+  it('calculates the aggregate pending-note USD value across token decimals and prices', () => {
+    expect(
+      getPendingNotesUsdTotal(
+        [
+          { id: 'note-1', amount: '1250000', metadata: { decimals: 6, symbol: 'MIDEN' } },
+          { id: 'note-2', amount: '200000000', metadata: { decimals: 8, symbol: 'IMIDEN' } },
+          { id: 'note-3', amount: '3000000', metadata: { decimals: 6, symbol: 'UNKNOWN' } }
+        ],
+        {
+          MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
+          IMIDEN: { price: 0.5, change24h: 0, percentageChange24h: 0 }
+        }
+      )
+    ).toBe(6.5);
+    expect(getPendingNotesUsdTotal([], {})).toBe(0);
   });
 
   it('seeds a pending prompt when no prompt state exists', async () => {
@@ -173,6 +205,28 @@ describe('wallet prompts', () => {
       expect((await fetchWalletPromptStorage()).prompts[WalletPromptType.VerifySeedPhrase]).toBe(
         WalletPromptStatus.Completed
       );
+    });
+  });
+
+  it('atomically stores a pending-note dismissal and its note ids', async () => {
+    const { result } = renderHook(() => useWalletPromptStorage());
+
+    act(() => {
+      result.current.setPromptStatus(WalletPromptType.PendingNotes, WalletPromptStatus.Dismissed, [
+        'note-1',
+        'note-1',
+        'note-2'
+      ]);
+    });
+
+    expect(result.current.storage).toEqual({
+      version: 1,
+      prompts: { [WalletPromptType.PendingNotes]: WalletPromptStatus.Dismissed },
+      pendingNotesDismissedIds: ['note-1', 'note-2']
+    });
+
+    await waitFor(async () => {
+      expect(await fetchWalletPromptStorage()).toEqual(result.current.storage);
     });
   });
 

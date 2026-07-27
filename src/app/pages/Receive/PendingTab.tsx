@@ -6,16 +6,15 @@ import { useTranslation } from 'react-i18next';
 import { useAppEnv } from 'app/env';
 import { ReactComponent as EyeClosedIcon } from 'app/icons/eye-closed.svg';
 import { ReactComponent as EyeOpenIcon } from 'app/icons/eye-open.svg';
-import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { SyncWaveBackground } from 'components/SyncWaveBackground';
 import { TokenLogo } from 'components/TokenLogo';
-import { formatBigInt } from 'lib/i18n/numbers';
+import { formatBigInt, formatUsd } from 'lib/i18n/numbers';
 import { initiateConsumeTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { AssetMetadata } from 'lib/miden/front';
 import { ConsumableNote, NoteTypeEnum } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
-import { isExtension, isMobile } from 'lib/platform';
+import { isExtension } from 'lib/platform';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { WalletAccount } from 'lib/shared/types';
@@ -44,10 +43,6 @@ interface PendingTabProps {
   onClaimAll: () => void;
   onClaimGroup?: (faucetId: string) => void;
 }
-
-const formatUsd = (value: number): string => {
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-};
 
 const groupNumber = (value: string): string => {
   const parts = value.split('.');
@@ -138,7 +133,6 @@ export const PendingTab: React.FC<PendingTabProps> = ({
     <PendingSummary
       groupedNotes={groupedNotes}
       tokenPrices={tokenPrices}
-      claimingNoteIds={claimingNoteIds}
       unclaimedNotesCount={unclaimedNotesCount}
       onSelectGroup={handleSelectGroup}
       onClaimAll={onClaimAll}
@@ -149,7 +143,6 @@ export const PendingTab: React.FC<PendingTabProps> = ({
 interface PendingSummaryProps {
   groupedNotes: AssetNoteGroup[];
   tokenPrices: TokenPrices;
-  claimingNoteIds: Set<string>;
   unclaimedNotesCount: number;
   onSelectGroup: (faucetId: string) => void;
   onClaimAll: () => void;
@@ -158,7 +151,6 @@ interface PendingSummaryProps {
 const PendingSummary: React.FC<PendingSummaryProps> = ({
   groupedNotes,
   tokenPrices,
-  claimingNoteIds,
   unclaimedNotesCount,
   onSelectGroup,
   onClaimAll
@@ -192,43 +184,43 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
-      <div className="w-full mx-auto py-4 px-4 flex flex-col min-h-full gap-3">
-        <div className="bg-surface-interactive rounded-10 px-4 py-4 flex items-center justify-between">
-          <div className="flex flex-col">
-            <span className="text-[10px] font-semibold text-accent-primary leading-none">{t('totalPending')}</span>
-            <span className="font-heading text-[32px] font-bold text-text-primary-token leading-none tracking-tight">
-              {formatUsd(totals.totalUsd)}
-            </span>
-          </div>
-          <div className="flex flex-col items-end gap-0.5 justify-center">
-            <div className="flex items-center gap-1.5 text-[10px]">
-              <span className="font-medium text-accent-primary flex gap-1">
-                <p className="font-bold text-black">{`${totals.notesCount} `}</p>
-                {t('pendingNotesCount')}
-              </span>
-            </div>
-            <span className="font-medium text-text-primary-token flex gap-1 text-[10px]">
-              <p className="font-bold text-black">{`${totals.assetsCount} `}</p> {t('pendingAssetsCount')}
-            </span>
-          </div>
+      <div className="w-full mx-auto py-2 px-4 flex flex-col min-h-full">
+        <div className="bg-surface-interactive rounded-10 px-4 py-3">
+          <p className="text-[10px] text-center text-black font-heading font-semibold leading-snug">
+            {t('pendingNotesInfo')}
+          </p>
         </div>
 
-        <div className="flex flex-col gap-3">
-          {groupedNotes.map(group => (
+        <div className="mt-5 flex flex-col gap-1 font-heading">
+          <span className="text-sm font-bold text-primary-500 leading-none">{t('totalPending')}</span>
+          <span className="font-heading text-5xl font-extrabold text-heading-gray leading-none tracking-tight">
+            {formatUsd(totals.totalUsd)}
+          </span>
+          <span className="mt-1 text-sm font-bold text-heading-gray font-heading">
+            <span className="mr-1.5">•</span>
+            {t('notesPendingAcrossAssets', { notes: totals.notesCount, assets: totals.assetsCount })}
+          </span>
+        </div>
+
+        <div className="mt-5 border-b-4 border-rule-default" />
+
+        <div className="flex flex-col">
+          {groupedNotes.map((group, index) => (
             <AssetSummaryRow
               key={group.faucetId}
               group={group}
-              claimingNoteIds={claimingNoteIds}
+              tokenPrices={tokenPrices}
+              showDivider={index !== groupedNotes.length - 1}
               onClick={() => onSelectGroup(group.faucetId)}
             />
           ))}
         </div>
 
-        {unclaimedNotesCount > 0 && !isMobile() && (
-          <div className="flex justify-center mt-2 pb-2">
+        {unclaimedNotesCount > 0 && (
+          <div className="flex justify-center mt-auto pt-4 pb-2">
             <Button
               data-testid="claim-all-button"
-              className="w-30 h-10 text-md"
+              className="w-full"
               variant={ButtonVariant.Primary}
               onClick={onClaimAll}
               title={t('claimAll')}
@@ -242,43 +234,44 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
 
 interface AssetSummaryRowProps {
   group: AssetNoteGroup;
-  claimingNoteIds: Set<string>;
+  tokenPrices: TokenPrices;
+  showDivider: boolean;
   onClick: () => void;
 }
 
-const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({ group, claimingNoteIds, onClick }) => {
+const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({ group, tokenPrices, showDivider, onClick }) => {
   const { t } = useTranslation();
   const { metadata, notes, totalAmount } = group;
   const symbol = metadata?.symbol || 'UNKNOWN';
   const decimals = metadata?.decimals ?? 6;
-  const formattedTotal = formatBigInt(totalAmount, decimals);
-  const claimingCount = notes.filter(n => n.isBeingClaimed || claimingNoteIds.has(n.id)).length;
+  const formattedTotal = groupNumber(formatBigInt(totalAmount, decimals));
+  const { price } = getTokenPrice(tokenPrices, symbol);
+  const usdValue = Number(formatBigInt(totalAmount, decimals)) * price;
 
   return (
     <button
       data-testid="pending-asset-row"
       type="button"
       onClick={onClick}
-      className={classNames(
-        'w-full flex items-center rounded-2xl border border-rule-default bg-white',
-        'px-4 py-3 hover:bg-surface-interactive transition-colors text-left'
-      )}
+      className={classNames('w-full py-4 text-left', showDivider && 'border-b border-rule-default')}
     >
-      <div className="flex items-center gap-2 flex-3 min-w-0">
-        <TokenLogo symbol={symbol} size="md" />
-        <div className="flex flex-col min-w-0">
-          <span className="text-base font-extrabold text-heading-gray dark:text-pure-white leading-tight truncate">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <TokenLogo symbol={symbol} size="md" />
+          <span className="text-lg font-heading font-extrabold text-heading-gray dark:text-pure-white leading-tight truncate">
             {metadata?.name || symbol}
           </span>
-          <span className="font-heading text-xs text-black opacity-50 leading-tight mt-0.5 font-semibold">
-            {formattedTotal} {symbol} <span className="italic">{t('pending')}</span>
+        </div>
+        <div className="flex flex-col items-end shrink-0">
+          <span className="font-heading text-base font-bold text-heading-gray leading-tight">
+            {formattedTotal} {symbol}
           </span>
+          <span className="font-heading text-sm text-black opacity-50 leading-tight">≈ {formatUsd(usdValue)}</span>
         </div>
       </div>
-      <span className="text-sm font-semibold text-black opacity-60 flex-1">
-        {claimingCount}/{notes.length}
-      </span>
-      <Icon name={IconName.ArrowRight} className="w-4 h-4 text-accent-primary shrink-0" fill="currentColor" />
+      <div className="mt-3 w-full rounded-full bg-surface-interactive py-2 text-center text-base font-heading font-semibold text-black opacity-60">
+        {t('incomingTransfersCount', { count: notes.length })}
+      </div>
     </button>
   );
 };
