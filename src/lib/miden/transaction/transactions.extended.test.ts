@@ -63,11 +63,18 @@ jest.mock('lib/miden/repo', () => ({
       if (typeof arg === 'string') {
         const field = arg;
         return {
-          equals: (val: any) => ({
-            filter: (fn: (tx: any) => boolean) => ({
-              toArray: async () => txStore.filter(t => t[field] === val).filter(fn)
-            })
-          })
+          equals: (val: any) => {
+            // `noteIds` is a multi-entry index: a row matches when the value is
+            // in the array. Scalar fields match by equality.
+            const matches = () =>
+              txStore.filter(t => (Array.isArray(t[field]) ? t[field].includes(val) : t[field] === val));
+            return {
+              toArray: async () => matches(),
+              filter: (fn: (tx: any) => boolean) => ({
+                toArray: async () => matches().filter(fn)
+              })
+            };
+          }
         };
       }
       // Primary-key path: where({ id }).first() / .modify()
@@ -389,7 +396,7 @@ describe('completeConsumeTransaction', () => {
     return label;
   }
 
-  function fakeNote(opts: { senderId: string; faucetId: string; amount: string; noteType?: number }) {
+  function fakeNote(opts: { senderId: string; faucetId: string; amount: bigint; noteType?: number }) {
     return {
       note: () => ({
         metadata: () => ({
@@ -420,7 +427,7 @@ describe('completeConsumeTransaction', () => {
       executedTransaction: () => ({
         id: () => ({ toHex: () => 'on-chain-hash' }),
         inputNotes: () => ({
-          notes: () => [fakeNote({ senderId: 'sender-1', faucetId: 'faucet-1', amount: '50' })]
+          notes: () => [fakeNote({ senderId: 'sender-1', faucetId: 'faucet-1', amount: 50n })]
         })
       }),
       serialize: () => new Uint8Array([1, 2, 3])
@@ -428,6 +435,32 @@ describe('completeConsumeTransaction', () => {
     await completeConsumeTransaction('tx-1', txResult);
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
     expect(txStore[0]!.faucetId).toBeDefined();
+  });
+
+  it('sums every consumed asset for the displayed faucet in a batch', async () => {
+    txStore.push({
+      id: 'tx-batch',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      type: 'consume'
+    });
+    const txResult = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'on-chain-hash' }),
+        inputNotes: () => ({
+          notes: () => [
+            fakeNote({ senderId: 'sender-1', faucetId: 'faucet-1', amount: 50n }),
+            fakeNote({ senderId: 'sender-1', faucetId: 'faucet-1', amount: 25n })
+          ]
+        })
+      }),
+      serialize: () => new Uint8Array([1, 2, 3])
+    } as any;
+
+    await completeConsumeTransaction('tx-batch', txResult);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.amount).toBe(75n);
   });
 
   it('throws when the executed transaction has no input notes', async () => {

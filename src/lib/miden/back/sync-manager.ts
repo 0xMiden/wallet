@@ -13,6 +13,9 @@ import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
+import { reconcileSwapOrderNotes } from '../swap/settlement';
+import { ConsumableNote, NoteTypeEnum } from '../types';
 
 // `init_vault` is the ESM module factory for `./vault`, injected by Vite's
 // SW bundle transform. We must NOT add a source-level binding (e.g.
@@ -147,6 +150,10 @@ async function runSync(): Promise<void> {
     const accountPubKey = await vault2.getCurrentAccountPublicKey();
 
     if (accountPubKey) {
+      // Loaded once per sync and threaded into classify + reconcile below —
+      // localSwapOrders is an unindexed full scan of the transactions table.
+      const swapOrderRows = await localSwapOrders(accountPubKey);
+
       // [Lock 2] Read notes + vault assets from warm WASM client
       const { parsedNotes, vaultAssets } = await withWasmClientLock(async () => {
         const client = await getMidenClient();
@@ -159,6 +166,7 @@ async function runSync(): Promise<void> {
         // custom transaction — hidden from the claimable UI until the user
         // confirms (or forever, if they cancel). See note-quarantine.ts.
         const quarantined = await getQuarantinedNoteIds();
+        const swapOrders = await classifySwapOrderNotes(rawNotes || [], accountPubKey, client, swapOrderRows);
         const notes: SerializedConsumableNote[] = (rawNotes || [])
           .map((note: any) => {
             try {
@@ -178,7 +186,8 @@ async function runSync(): Promise<void> {
                 faucetId: getBech32AddressFromAccountId(firstAsset.faucetId()),
                 amountBaseUnits: firstAsset.amount().toString(),
                 senderAddress: noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : '',
-                noteType: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown'
+                noteType: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown',
+                swapOrder: swapOrders.get(noteId)
               };
             } catch {
               return null;
@@ -236,9 +245,17 @@ async function runSync(): Promise<void> {
         }
       }
 
-      // Always update seenNoteIds for background dedup consistency
-      const noteIds = parsedNotes.map(n => n.id);
-      const newIds = await mergeAndPersistSeenNoteIds(noteIds);
+      // Always update seenNoteIds for background dedup consistency. Every
+      // note id goes into the seen set — including swap-managed ones —
+      // otherwise a transient classification failure (note untagged for one
+      // cycle) makes an already-known note look brand new. Swap-managed
+      // auto-consume notes are excluded only from the notification below.
+      const managedAutoConsumeIds = new Set(
+        parsedNotes.filter(n => n.swapOrder && n.swapOrder.autoConsume !== false).map(n => n.id)
+      );
+      const newIds = (await mergeAndPersistSeenNoteIds(parsedNotes.map(n => n.id))).filter(
+        id => !managedAutoConsumeIds.has(id)
+      );
 
       // Write sync data to chrome.storage.local — the reliable data channel.
       // Frontends read from here via chrome.storage.onChanged (works across all extension contexts).
@@ -268,6 +285,45 @@ async function runSync(): Promise<void> {
             : getMessage('noteReceivedMultiple', { count: String(newIds.length) }) ||
               `You have ${newIds.length} new notes to claim`;
         showBackgroundNotification(title, message);
+      }
+
+      // Reuse the notes classified above under Lock 2 — re-running
+      // settleSwapOrders here would repeat the consumable-notes read and all
+      // lineage lookups under a fresh WASM lock for no new information.
+      const managedNotes: ConsumableNote[] = parsedNotes.flatMap(n => {
+        if (!n.swapOrder) return [];
+        const type: ConsumableNote['type'] =
+          n.noteType === NoteTypeEnum.Public || n.noteType === NoteTypeEnum.Private ? n.noteType : 'unknown';
+        return [
+          {
+            id: n.id,
+            faucetId: n.faucetId,
+            amount: n.amountBaseUnits,
+            senderAddress: n.senderAddress,
+            isBeingClaimed: false,
+            type,
+            swapOrder: { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true }
+          }
+        ];
+      });
+      // Gate on orders, not notes: an order with no consumable notes left may
+      // still need its settlement stamp repaired inside reconcile.
+      if (swapOrderRows.length > 0) {
+        try {
+          const settlement = await reconcileSwapOrderNotes(
+            accountPubKey,
+            managedNotes,
+            undefined,
+            undefined,
+            swapOrderRows
+          );
+          if (settlement.queuedTransactionIds.length > 0) {
+            const { startTransactionProcessing } = await import('./transaction-processor');
+            startTransactionProcessing().catch(err => console.warn('[swap-settlement] processing failed', err));
+          }
+        } catch (err) {
+          console.warn('[swap-settlement] reconcile failed', err);
+        }
       }
     } else {
       // No account — broadcast bare SyncCompleted (just sync status)

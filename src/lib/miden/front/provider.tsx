@@ -20,6 +20,7 @@ import { PropsWithChildren } from 'lib/props-with-children';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
 import { TokensMetadataProvider } from './assets';
+import { SwapSettlementManager } from './SwapSettlementManager';
 import { useSyncTrigger } from './useSyncTrigger';
 import { getMidenClient } from '../sdk/miden-client';
 
@@ -152,6 +153,7 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
           <FiatCurrencyProvider>
             <PriceProvider />
             {children}
+            <SwapSettlementManager />
             {/* NoteToastProvider monitors for new notes and shows toast on mobile */}
             <NoteToastProvider />
           </FiatCurrencyProvider>

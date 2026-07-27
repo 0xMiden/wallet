@@ -35,6 +35,18 @@ export interface IBridgedSendExtraInputs {
   provider: IBridgeProvider;
 }
 
+/**
+ * `extraInputs` shape for a `consume` row queued by swap settlement
+ * (`reconcileSwapOrderNotes`). History suppresses these rows while the linked
+ * swap row exists — the swap row is the single trace of the whole order.
+ */
+export interface IConsumeSwapSettleExtraInputs {
+  /** The `SwapTransaction.id` whose order this consume settles. */
+  swapOrderTxId: string;
+  /** Payback claim on fill vs. expiry-driven reclaim of the remaining tip. */
+  swapSettleKind: 'settle' | 'reclaim';
+}
+
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
 export type ITransactionType =
   | 'send'
@@ -87,6 +99,8 @@ export interface ITransaction {
   secondaryAccountId?: string;
   faucetId?: string;
   noteId?: string;
+  /** All note ids for batch consume transactions (noteId is the first) */
+  noteIds?: string[];
   noteType?: NoteType;
   transactionId?: string;
   requestBytes?: Uint8Array;
@@ -218,7 +232,10 @@ export class ConsumeTransaction implements ITransaction {
   type: ITransactionType;
   accountId: string;
   amount?: bigint;
+  /** First note id — kept for back-compat (dedup index, single-note readers) */
   noteId: string;
+  /** Every note consumed by this transaction (batch claims consume many in one tx) */
+  noteIds: string[];
   secondaryAccountId?: string;
   faucetId: string;
   transactionId?: string;
@@ -235,14 +252,25 @@ export class ConsumeTransaction implements ITransaction {
   // hot key was Face-ID-gated (`.userPresence`). Hot signing is silent again, so
   // every consume signs the same way. Old persisted rows may still carry a stray
   // `background` property; it's ignored.
-  constructor(accountId: string, note: ConsumableNote, delegateTransaction?: boolean) {
+  constructor(accountId: string, notes: ConsumableNote | ConsumableNote[], delegateTransaction?: boolean) {
+    const list = Array.isArray(notes) ? notes : [notes];
+    const first = list[0];
+    if (!first) {
+      throw new Error('ConsumeTransaction requires at least one note');
+    }
     this.id = uuid();
     this.type = 'consume';
     this.accountId = accountId;
-    this.noteId = note.id;
-    this.faucetId = note.faucetId;
-    this.secondaryAccountId = note.senderAddress;
-    this.amount = note.amount !== '' ? BigInt(note.amount) : undefined;
+    this.noteId = first.id;
+    this.noteIds = list.map(n => n.id);
+    this.faucetId = first.faucetId;
+    this.secondaryAccountId = first.senderAddress;
+    // Display amount: sum of the notes sharing the first note's faucet. Notes
+    // of other faucets in a mixed batch aren't reflected here (display only).
+    this.amount =
+      first.amount !== ''
+        ? list.filter(n => n.faucetId === first.faucetId && n.amount !== '').reduce((s, n) => s + BigInt(n.amount), 0n)
+        : undefined;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'RECEIVE';
@@ -275,7 +303,19 @@ export class SwapTransaction implements ITransaction {
   // Requested side of the swap. `orderId` is strictly output info (the PSWAP
   // lineage id resolved by `completeSwapTransaction`) rather than an input, but
   // it rides here to avoid a Dexie schema change; it's absent until completion.
-  extraInputs: { requestedFaucetId: string; requestedAmount: bigint; orderId?: bigint };
+  extraInputs: {
+    requestedFaucetId: string;
+    requestedAmount: bigint;
+    orderId?: bigint | string;
+    expirySeconds?: number;
+    expiresAt?: number;
+    expiryTriggeredAt?: number;
+    autoConsume?: boolean;
+    /** Stamped when a payback-claim settlement consume completes. */
+    settledAt?: number;
+    /** Stamped when an expiry-reclaim settlement consume completes. */
+    reclaimedAt?: number;
+  };
   delegateTransaction?: boolean;
   /**
    * Serialized PSWAP-create `TransactionRequest`, populated lazily by the
@@ -292,14 +332,16 @@ export class SwapTransaction implements ITransaction {
     offeredAmount: bigint,
     requestedFaucetId: string,
     requestedAmount: bigint,
-    delegateTransaction?: boolean
+    delegateTransaction?: boolean,
+    expirySeconds: number = 120,
+    autoConsume: boolean = true
   ) {
     this.id = uuid();
     this.type = 'swap';
     this.accountId = accountId;
     this.faucetId = offeredFaucetId;
     this.amount = offeredAmount;
-    this.extraInputs = { requestedFaucetId, requestedAmount };
+    this.extraInputs = { requestedFaucetId, requestedAmount, expirySeconds, autoConsume };
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'SWAP';

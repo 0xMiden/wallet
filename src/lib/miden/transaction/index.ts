@@ -378,8 +378,9 @@ const generateGuardianTransaction = async (
       // popped Face ID on every attempt. That flag is gone (hot signing is
       // silent everywhere now), so the cold detour buys nothing and the cached
       // hot service is strictly cheaper than building a transient cold one.
+      const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      proposalResult = await withGuardianConflictRetry(() => service.createConsumeNotesProposal([consumeTx.noteId]));
+      proposalResult = await withGuardianConflictRetry(() => service.createConsumeNotesProposal(consumeNoteIds));
       break;
     }
     case 'switch-guardian': {

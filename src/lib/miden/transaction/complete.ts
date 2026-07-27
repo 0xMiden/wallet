@@ -9,6 +9,7 @@ import { ensureGuardianProcedureThresholds } from './initiate';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
 import {
+  IConsumeSwapSettleExtraInputs,
   ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
@@ -83,7 +84,8 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
 };
 
 export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
-  const firstInputNote = result.executedTransaction().inputNotes().notes()[0];
+  const inputNotes = result.executedTransaction().inputNotes().notes();
+  const firstInputNote = inputNotes[0];
   if (!firstInputNote) {
     throw new Error('completeConsumeTransaction: no input notes on executed transaction');
   }
@@ -100,7 +102,14 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     throw new Error('completeConsumeTransaction: note has no fungible assets');
   }
   const faucetId = getBech32AddressFromAccountId(asset.faucetId());
-  const amount = asset.amount();
+  let amount = 0n;
+  for (const inputNote of inputNotes) {
+    for (const noteAsset of inputNote.note().assets().fungibleAssets()) {
+      if (getBech32AddressFromAccountId(noteAsset.faucetId()) === faucetId) {
+        amount += noteAsset.amount();
+      }
+    }
+  }
 
   await updateTransactionStatus(id, ITransactionStatus.Completed, {
     displayMessage,
@@ -112,6 +121,28 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
     resultBytes: result.serialize()
   });
+
+  // Swap settlement: a consume queued by `reconcileSwapOrderNotes` carries a
+  // link to its swap order. Stamp the settlement on the swap row so history
+  // can flip the single swap row's chip (Pending → Confirmed / Reclaimed)
+  // while the linked consume row itself stays suppressed. Must never fail the
+  // consume itself.
+  try {
+    const settle: IConsumeSwapSettleExtraInputs | undefined =
+      dbTransaction?.extraInputs?.swapOrderTxId != null ? dbTransaction.extraInputs : undefined;
+    if (settle) {
+      const stampedAt = Math.floor(Date.now() / 1000);
+      await Repo.transactions.where({ id: settle.swapOrderTxId }).modify(tx => {
+        if (tx.type !== 'swap') return;
+        tx.extraInputs = {
+          ...(tx.extraInputs ?? {}),
+          ...(settle.swapSettleKind === 'reclaim' ? { reclaimedAt: stampedAt } : { settledAt: stampedAt })
+        };
+      });
+    }
+  } catch (err) {
+    console.warn('[swap-settlement] consume stamping failed (non-fatal)', err);
+  }
 };
 
 export const completeSwapTransaction = async (tx: SwapTransaction, result: TransactionResult) => {

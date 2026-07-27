@@ -316,14 +316,21 @@ describe('transactions utilities', () => {
       type: NoteTypeEnum.Private
     };
 
-    const mockDedupQuery = (rows: any[]) => {
-      mockTransactionsWhere.mockReturnValueOnce({
-        equals: jest.fn().mockReturnValueOnce({
-          filter: jest.fn().mockReturnValueOnce({
+    // The dedup reads two indexes per note: scalar `noteId` (legacy/single
+    // rows) and multi-entry `noteIds` (batch rows). Tests feed legacy rows
+    // through the scalar query; batch rows can be supplied separately.
+    const mockDedupQuery = (rows: any[], batchRows: any[] = []) => {
+      mockTransactionsWhere
+        .mockReturnValueOnce({
+          equals: jest.fn().mockReturnValueOnce({
             toArray: jest.fn().mockResolvedValueOnce(rows)
           })
         })
-      });
+        .mockReturnValueOnce({
+          equals: jest.fn().mockReturnValueOnce({
+            toArray: jest.fn().mockResolvedValueOnce(batchRows)
+          })
+        });
     };
 
     it('creates consume transaction when none exists', async () => {
@@ -593,6 +600,48 @@ describe('transactions utilities', () => {
       expect(result).toBe('b-no-completedat');
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
     });
+
+    it('queues a fresh attempt on a manual retry even while the cooldown has not elapsed', async () => {
+      // The bounded-retry gate throttles auto-consume's background polling, but
+      // an explicit user retry (manualRetry=true) must bypass it — otherwise the
+      // Retry button silently no-ops for up to RETRY_COOLDOWN_SEC.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const recentFailed = {
+        id: 'recent-failed-tx',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Failed,
+        initiatedAt: nowSec - 30,
+        completedAt: nowSec - 10
+      };
+      mockDedupQuery([recentFailed]);
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+
+      const result = await initiateConsumeTransaction('account-1', note, undefined, true);
+
+      expect(result).not.toBe('recent-failed-tx');
+      expect(mockTransactionsAdd).toHaveBeenCalled();
+    });
+
+    it('still dedups a manual retry against an in-flight consume for the same note', async () => {
+      // manualRetry only bypasses the Failed-row backoff — it must NOT double-queue
+      // when a Queued/Generating/Completed row is already in flight.
+      const existingTx = {
+        id: 'existing-tx',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100
+      };
+      mockDedupQuery([existingTx]);
+
+      const result = await initiateConsumeTransaction('account-1', note, undefined, true);
+
+      expect(result).toBe('existing-tx');
+      expect(mockTransactionsAdd).not.toHaveBeenCalled();
+    });
   });
 
   describe('initiateConsumeTransactionFromId', () => {
@@ -600,13 +649,18 @@ describe('transactions utilities', () => {
       mockGetInputNote.mockReturnValueOnce({
         metadata: () => ({ noteType: () => 'public' })
       });
-      mockTransactionsWhere.mockReturnValueOnce({
-        equals: jest.fn().mockReturnValueOnce({
-          filter: jest.fn().mockReturnValueOnce({
+      // Scalar `noteId` query + multi-entry `noteIds` query (batch rows).
+      mockTransactionsWhere
+        .mockReturnValueOnce({
+          equals: jest.fn().mockReturnValueOnce({
             toArray: jest.fn().mockResolvedValueOnce([])
           })
         })
-      });
+        .mockReturnValueOnce({
+          equals: jest.fn().mockReturnValueOnce({
+            toArray: jest.fn().mockResolvedValueOnce([])
+          })
+        });
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
 
       const result = await initiateConsumeTransactionFromId('account-1', 'note-456');
