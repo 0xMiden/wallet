@@ -183,10 +183,11 @@ const makeToken = (tokenId: string, symbol: string, name?: string) => ({
   metadata: { symbol, name }
 });
 
-const makeNote = (id: string, faucetId: string, isBeingClaimed = false) => ({
+const makeNote = (id: string, faucetId: string, isBeingClaimed = false, swapOrder?: { autoConsume: boolean }) => ({
   id,
   faucetId,
-  isBeingClaimed
+  isBeingClaimed,
+  swapOrder
 });
 
 // Render + flush the auto-consume effect's chained promises (initiate ->
@@ -384,6 +385,17 @@ describe('Explore', () => {
       await renderExplore();
 
       expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+    });
+
+    it('leaves native swap notes to the swap settlement path', async () => {
+      mockAutoConsume = true;
+      mockClaimableNotes = [makeNote('swap-note', 'faucet-native', false, { autoConsume: false })];
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
     });
 
     it('consumes matching, not-yet-claiming notes and dispatches via the SW on extension', async () => {

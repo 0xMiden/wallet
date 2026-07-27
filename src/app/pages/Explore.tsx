@@ -58,7 +58,11 @@ const Explore: FC = () => {
       return [];
     }
 
-    return claimableNotes.filter(note => note!.faucetId === midenFaucetId);
+    // Swap-managed notes have their own lineage-aware settlement path. This
+    // explicit guard also protects native-asset swap notes whose per-order
+    // auto-consume setting is off: they remain available for manual settlement
+    // without being picked up by the wallet-wide native-note auto-consumer.
+    return claimableNotes.filter(note => note!.faucetId === midenFaucetId && !note!.swapOrder);
   }, [claimableNotes, midenFaucetId, shouldAutoConsume]);
 
   const hasAutoConsumableNotes = useMemo(() => {

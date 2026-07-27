@@ -1,17 +1,18 @@
 import { toFixedRoundedDown } from 'lib/i18n/numbers';
+import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
+import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 
 /**
- * Swap currently supports only this fixed set of devnet DEX test tokens.
- * Every token uses 8 decimals (`SWAP_TOKEN_DECIMALS`): the user enters a
- * human-readable amount and `stringToBigInt(amount, 8)` converts it to base
- * units for the tx.
+ * Swap starts with this fixed set of devnet DEX test tokens and adds the
+ * network's discovered native asset at runtime. The fixed test tokens use
+ * 8 decimals (`SWAP_TOKEN_DECIMALS`): the user enters a human-readable amount
+ * and `stringToBigInt(amount, token.decimals)` converts it to base units.
  *
- * INVARIANT: `SWAP_TOKEN_DECIMALS` must match each faucet's real on-chain
- * decimals. Amounts are converted with this constant, so a mismatch would
- * scale the offered/requested amount by `10^(diff)`. These are controlled
- * devnet faucets minted at 8 decimals; revisit if the registry ever holds a
- * token whose real decimals differ.
+ * INVARIANT: `SWAP_TOKEN_DECIMALS` must match each fixed test faucet's real
+ * on-chain decimals. A mismatch would scale its offered/requested amount by
+ * `10^(diff)`. The native entry instead uses its discovered metadata (falling
+ * back to the wallet's native metadata).
  *
  * Shared between the swap flow (token picker + amount/quote logic) and the
  * Generating-transaction summary badge (resolving symbol/logo/decimals for a
@@ -55,21 +56,44 @@ export const TOKEN_IUSDT: SwapToken = {
 
 export const SWAP_TOKENS: SwapToken[] = [TOKEN_IMIDEN, TOKEN_IETH, TOKEN_IUSDT, TOKEN_IBTC];
 
-let _swapTokens: SwapToken[] = SWAP_TOKENS;
+let _swapTokensOverride: SwapToken[] | undefined;
 
-/** Live registry read — all consumers use this so an E2E override takes effect. */
-export const getSwapTokens = (): SwapToken[] => _swapTokens;
+/**
+ * Live registry read — all consumers use this so an E2E override takes effect.
+ *
+ * The native asset ID is network-derived and may not be available during the
+ * first render. Once discovery populates the synchronous cache, include MIDEN
+ * alongside the fixed DEX test tokens. Callers naturally re-read this accessor
+ * on their next render (for example, when opening the token drawer).
+ */
+export const getSwapTokens = (): SwapToken[] => {
+  if (_swapTokensOverride) return _swapTokensOverride;
+
+  const nativeAssetId = getNativeAssetIdSync();
+  if (!nativeAssetId || SWAP_TOKENS.some(token => token.faucetId === nativeAssetId)) return SWAP_TOKENS;
+
+  const nativeMetadata = getNativeAssetMetadataSync();
+  return [
+    ...SWAP_TOKENS,
+    {
+      symbol: nativeMetadata?.symbol ?? MIDEN_METADATA.symbol,
+      faucetId: nativeAssetId,
+      decimals: nativeMetadata?.decimals ?? MIDEN_METADATA.decimals,
+      logoSymbol: 'MIDEN'
+    }
+  ];
+};
 
 /** Test-only setter (also driven via the E2E window hook). Pass undefined to reset. */
 export const _setSwapTokensForTest = (tokens: SwapToken[] | undefined): void => {
-  _swapTokens = tokens ?? SWAP_TOKENS;
+  _swapTokensOverride = tokens;
 };
 
 export const getSwapTokenByFaucetId = (faucetId?: string): SwapToken | undefined =>
-  faucetId ? _swapTokens.find(token => token.faucetId === faucetId) : undefined;
+  faucetId ? getSwapTokens().find(token => token.faucetId === faucetId) : undefined;
 
 export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
-  _swapTokens.find(token => token.symbol === symbol);
+  getSwapTokens().find(token => token.symbol === symbol);
 
 /**
  * A single quote for an (offered, requested) pair from the DEX `swap-eta`

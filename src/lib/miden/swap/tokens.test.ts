@@ -1,3 +1,5 @@
+import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
+
 import {
   deriveRequestAmount,
   getSwapTokenByFaucetId,
@@ -8,6 +10,14 @@ import {
   SWAP_TOKEN_DECIMALS
 } from './tokens';
 
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: jest.fn(),
+  getNativeAssetMetadataSync: jest.fn()
+}));
+
+const mockGetNativeAssetIdSync = jest.mocked(getNativeAssetIdSync);
+const mockGetNativeAssetMetadataSync = jest.mocked(getNativeAssetMetadataSync);
+
 // The root `__mocks__/lib/i18n/numbers.ts` manual mock is auto-applied (the
 // mapped `lib/…` specifier reads as a package name to jest), and it only stubs
 // the three format helpers — `toFixedRoundedDown` would be undefined.
@@ -16,6 +26,11 @@ import {
 jest.unmock('lib/i18n/numbers');
 
 describe('swap token registry accessor', () => {
+  beforeEach(() => {
+    mockGetNativeAssetIdSync.mockReturnValue(null);
+    mockGetNativeAssetMetadataSync.mockReturnValue(null);
+  });
+
   afterEach(() => _setSwapTokensForTest(undefined)); // reset to default
 
   it('defaults to the built-in registry', () => {
@@ -23,8 +38,28 @@ describe('swap token registry accessor', () => {
     expect(getSwapTokenBySymbol('IMIDEN')).toBeDefined();
   });
 
+  it('adds the discovered native asset with its on-chain metadata', () => {
+    mockGetNativeAssetIdSync.mockReturnValue('mtst1native');
+    mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
+
+    expect(getSwapTokens()).toContainEqual({
+      symbol: 'MIDEN',
+      faucetId: 'mtst1native',
+      decimals: 6,
+      logoSymbol: 'MIDEN'
+    });
+    expect(getSwapTokenByFaucetId('mtst1native')).toEqual(expect.objectContaining({ symbol: 'MIDEN', decimals: 6 }));
+  });
+
+  it('does not duplicate a native asset already present in the built-in registry', () => {
+    mockGetNativeAssetIdSync.mockReturnValue(TOKEN_IMIDEN.faucetId);
+
+    expect(getSwapTokens().filter(token => token.faucetId === TOKEN_IMIDEN.faucetId)).toHaveLength(1);
+  });
+
   it('override replaces the registry for all readers', () => {
     const t = { symbol: 'SWPA', faucetId: 'mtst1local', decimals: SWAP_TOKEN_DECIMALS, logoSymbol: 'MIDEN' };
+    mockGetNativeAssetIdSync.mockReturnValue('mtst1native');
     _setSwapTokensForTest([t]);
     expect(getSwapTokens()).toEqual([t]);
     expect(getSwapTokenBySymbol('SWPA')).toEqual(t);
