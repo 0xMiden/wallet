@@ -1128,6 +1128,23 @@
     "message": "立即基金",
     "englishSource": "Fund now"
   },
+  "pendingNotesPromptTitle": {
+    "message": "您有待处理的 Notes",
+    "englishSource": "You have Pending Notes"
+  },
+  "pendingNotesPromptBody": {
+    "message": "您还有待处理的 notes 价值 $amount$ .",
+    "englishSource": "You have pending notes worth $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesPromptAction": {
+    "message": "立即查看",
+    "englishSource": "See Now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "验证您的恢复短语",
     "englishSource": "Verify your recovery phrase"
@@ -2274,6 +2291,31 @@
       }
     }
   },
+  "pendingNotesInfo": {
+    "message": "Miden 使用名为 notes 的独特系统。您可以在此处手动领取收入。这是保护您的钱包免受恶意行为者侵害的一种方法",
+    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
+  },
+  "notesPendingAcrossAssets": {
+    "message": "$notes$ notes 跨 $assets$ 资产待处理",
+    "englishSource": "$notes$ notes pending across $assets$ assets",
+    "placeholders": {
+      "notes": {
+        "content": "$1"
+      },
+      "assets": {
+        "content": "$2"
+      }
+    }
+  },
+  "incomingTransfersCount": {
+    "message": "$count$ 传入转账",
+    "englishSource": "$count$ incoming transfers",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "pendingNotes": {
     "message": "待处理 notes",
     "englishSource": "Pending notes"
@@ -2659,23 +2701,6 @@
     "message": "活动",
     "englishSource": "Activity"
   },
-  "agglayerBridgeInProgressTitle": {
-    "message": "桥梁建设中",
-    "englishSource": "Bridge in progress"
-  },
-  "agglayerBridgeInProgressSubtitle": {
-    "message": "桥接 $amount$ 通过 Agglayer 来自 EVM。这可能需要一段时间。",
-    "englishSource": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "agglayerBridgeInProgressSubtitleNoAmount": {
-    "message": "来自 EVM 通过 Agglayer 的传入桥正在建立。这可能需要一段时间。",
-    "englishSource": "An incoming bridge from EVM via Agglayer is settling. This can take a while."
-  },
   "explore": {
     "message": "探索",
     "englishSource": "Explore"
@@ -2868,6 +2893,22 @@
     "message": "EVM钱包已连接",
     "englishSource": "EVM wallet connected"
   },
+  "connectedWallet": {
+    "message": "连接钱包",
+    "englishSource": "Connected wallet"
+  },
+  "switchWallet": {
+    "message": "切换钱包",
+    "englishSource": "Switch wallet"
+  },
+  "current": {
+    "message": "当前的",
+    "englishSource": "Current"
+  },
+  "connectAnotherWallet": {
+    "message": "连接另一个钱包",
+    "englishSource": "Connect another wallet"
+  },
   "midenBridge": {
     "message": "米登桥",
     "englishSource": "Miden Bridge"
@@ -2931,6 +2972,34 @@
   "confirmDeposit": {
     "message": "确认存款",
     "englishSource": "Confirm Deposit"
+  },
+  "bridgeDepositProcessing": {
+    "message": "确认过桥存款",
+    "englishSource": "Confirming bridge deposit"
+  },
+  "bridgeDepositProcessingDescription": {
+    "message": "在您的钱包中批准该请求，并在 Sepolia 确认时保持此屏幕打开。",
+    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+  },
+  "bridgeDepositFailed": {
+    "message": "过桥存款失败",
+    "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositSubmitted": {
+    "message": "大桥启动！",
+    "englishSource": "Bridge initiated!"
+  },
+  "bridgeDepositDeliveryDescription": {
+    "message": "Sepolia 交易已确认。桥梁交付完成后，您的资金将出现在 Miden 上。",
+    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+  },
+  "viewOnEtherscan": {
+    "message": "在 Etherscan 上查看",
+    "englishSource": "View on Etherscan"
+  },
+  "delivering": {
+    "message": "交付",
+    "englishSource": "Delivering"
   },
   "slowNeedsNativeEth": {
     "message": "Slow (Agglayer) 路由仅支持测试网上的原生 ETH。选择 ETH 来使用它。",

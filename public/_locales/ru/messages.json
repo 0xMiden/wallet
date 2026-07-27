@@ -1128,6 +1128,23 @@
     "message": "Фонд сейчас",
     "englishSource": "Fund now"
   },
+  "pendingNotesPromptTitle": {
+    "message": "У вас есть ожидающие Notes",
+    "englishSource": "You have Pending Notes"
+  },
+  "pendingNotesPromptBody": {
+    "message": "У вас есть ожидающая стоимость notes $amount$ .",
+    "englishSource": "You have pending notes worth $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesPromptAction": {
+    "message": "Посмотреть сейчас",
+    "englishSource": "See Now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "Подтвердите свою фразу восстановления",
     "englishSource": "Verify your recovery phrase"
@@ -2275,6 +2292,31 @@
       }
     }
   },
+  "pendingNotesInfo": {
+    "message": "Miden использует уникальную систему под названием notes. Здесь вы вручную запрашиваете входящие деньги. Это способ защитить ваш кошелек от злоумышленников.",
+    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
+  },
+  "notesPendingAcrossAssets": {
+    "message": "$notes$ notes в ожидании для активов $assets$",
+    "englishSource": "$notes$ notes pending across $assets$ assets",
+    "placeholders": {
+      "notes": {
+        "content": "$1"
+      },
+      "assets": {
+        "content": "$2"
+      }
+    }
+  },
+  "incomingTransfersCount": {
+    "message": "$count$ входящие переводы",
+    "englishSource": "$count$ incoming transfers",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "pendingNotes": {
     "message": "Ожидание notes",
     "englishSource": "Pending notes"
@@ -2660,23 +2702,6 @@
     "message": "Активность",
     "englishSource": "Activity"
   },
-  "agglayerBridgeInProgressTitle": {
-    "message": "Мост в процессе",
-    "englishSource": "Bridge in progress"
-  },
-  "agglayerBridgeInProgressSubtitle": {
-    "message": "Преодоление $amount$ из EVM через Agglayer. Это может занять некоторое время.",
-    "englishSource": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "agglayerBridgeInProgressSubtitleNoAmount": {
-    "message": "Входящий мост от EVM через Agglayer устанавливается. Это может занять некоторое время.",
-    "englishSource": "An incoming bridge from EVM via Agglayer is settling. This can take a while."
-  },
   "explore": {
     "message": "Исследовать",
     "englishSource": "Explore"
@@ -2869,6 +2894,22 @@
     "message": "Кошелек EVM подключен",
     "englishSource": "EVM wallet connected"
   },
+  "connectedWallet": {
+    "message": "Подключенный кошелек",
+    "englishSource": "Connected wallet"
+  },
+  "switchWallet": {
+    "message": "Сменить кошелек",
+    "englishSource": "Switch wallet"
+  },
+  "current": {
+    "message": "Текущий",
+    "englishSource": "Current"
+  },
+  "connectAnotherWallet": {
+    "message": "Подключите другой кошелек",
+    "englishSource": "Connect another wallet"
+  },
   "midenBridge": {
     "message": "Миденский мост",
     "englishSource": "Miden Bridge"
@@ -2932,6 +2973,34 @@
   "confirmDeposit": {
     "message": "Подтвердить депозит",
     "englishSource": "Confirm Deposit"
+  },
+  "bridgeDepositProcessing": {
+    "message": "Подтверждение промежуточного депозита",
+    "englishSource": "Confirming bridge deposit"
+  },
+  "bridgeDepositProcessingDescription": {
+    "message": "Одобрите запрос в своем кошельке и оставьте этот эFaucet открытым, пока Сеполия его подтвердит.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+  },
+  "bridgeDepositFailed": {
+    "message": "Бридж-депозит не удался",
+    "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositSubmitted": {
+    "message": "Мост запущен!",
+    "englishSource": "Bridge initiated!"
+  },
+  "bridgeDepositDeliveryDescription": {
+    "message": "Сделка с Sepolia подтверждена. Ваши средства появятся на Miden после завершения доставки моста.",
+    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+  },
+  "viewOnEtherscan": {
+    "message": "Посмотреть на Etherscan",
+    "englishSource": "View on Etherscan"
+  },
+  "delivering": {
+    "message": "Доставка",
+    "englishSource": "Delivering"
   },
   "slowNeedsNativeEth": {
     "message": "Маршрут Slow (Agglayer) поддерживает только собственный ETH в тестовой сети. Выберите ETH, чтобы использовать его.",

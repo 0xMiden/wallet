@@ -1128,6 +1128,23 @@
     "message": "지금 자금을 조달하세요",
     "englishSource": "Fund now"
   },
+  "pendingNotesPromptTitle": {
+    "message": "보류 중인 Notes이 있습니다.",
+    "englishSource": "You have Pending Notes"
+  },
+  "pendingNotesPromptBody": {
+    "message": "보류 중인 notes 가치가 있습니다 $amount$ .",
+    "englishSource": "You have pending notes worth $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesPromptAction": {
+    "message": "지금 보기",
+    "englishSource": "See Now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "복구 문구를 확인하세요",
     "englishSource": "Verify your recovery phrase"
@@ -2274,6 +2291,31 @@
       }
     }
   },
+  "pendingNotesInfo": {
+    "message": "Miden은 notes이라는 고유한 시스템을 사용합니다. 이곳은 입금된 돈을 수동으로 청구하는 곳입니다. 악의적인 행위자로부터 지갑을 안전하게 보호할 수 있는 방법입니다.",
+    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
+  },
+  "notesPendingAcrossAssets": {
+    "message": "$notes$ notes $assets$ 자산에 대해 보류 중",
+    "englishSource": "$notes$ notes pending across $assets$ assets",
+    "placeholders": {
+      "notes": {
+        "content": "$1"
+      },
+      "assets": {
+        "content": "$2"
+      }
+    }
+  },
+  "incomingTransfersCount": {
+    "message": "$count$ 수신 이체",
+    "englishSource": "$count$ incoming transfers",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "pendingNotes": {
     "message": "notes 보류 중",
     "englishSource": "Pending notes"
@@ -2659,23 +2701,6 @@
     "message": "활동",
     "englishSource": "Activity"
   },
-  "agglayerBridgeInProgressTitle": {
-    "message": "브릿지 진행 중",
-    "englishSource": "Bridge in progress"
-  },
-  "agglayerBridgeInProgressSubtitle": {
-    "message": "브리징 $amount$ Agglayer를 통해 EVM에서. 시간이 좀 걸릴 수 있습니다.",
-    "englishSource": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "agglayerBridgeInProgressSubtitleNoAmount": {
-    "message": "Agglayer를 통해 EVM에서 들어오는 브리지가 정착되고 있습니다. 시간이 좀 걸릴 수 있습니다.",
-    "englishSource": "An incoming bridge from EVM via Agglayer is settling. This can take a while."
-  },
   "explore": {
     "message": "탐구하다",
     "englishSource": "Explore"
@@ -2868,6 +2893,22 @@
     "message": "EVM 지갑이 연결되었습니다",
     "englishSource": "EVM wallet connected"
   },
+  "connectedWallet": {
+    "message": "연결된 지갑",
+    "englishSource": "Connected wallet"
+  },
+  "switchWallet": {
+    "message": "지갑 전환",
+    "englishSource": "Switch wallet"
+  },
+  "current": {
+    "message": "현재의",
+    "englishSource": "Current"
+  },
+  "connectAnotherWallet": {
+    "message": "다른 지갑을 연결하세요",
+    "englishSource": "Connect another wallet"
+  },
   "midenBridge": {
     "message": "미덴 다리",
     "englishSource": "Miden Bridge"
@@ -2931,6 +2972,34 @@
   "confirmDeposit": {
     "message": "입금 확인",
     "englishSource": "Confirm Deposit"
+  },
+  "bridgeDepositProcessing": {
+    "message": "브릿지 입금 확인",
+    "englishSource": "Confirming bridge deposit"
+  },
+  "bridgeDepositProcessingDescription": {
+    "message": "지갑에서 요청을 승인하고 Seplia가 이를 확인하는 동안 이 화면을 열어두세요.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+  },
+  "bridgeDepositFailed": {
+    "message": "브릿지 입금 실패",
+    "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositSubmitted": {
+    "message": "브릿지 개시!",
+    "englishSource": "Bridge initiated!"
+  },
+  "bridgeDepositDeliveryDescription": {
+    "message": "세폴리아 거래가 확정되었습니다. 브릿지 배송이 완료되면 귀하의 자금이 Miden에 표시됩니다.",
+    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+  },
+  "viewOnEtherscan": {
+    "message": "Etherscan에서 보기",
+    "englishSource": "View on Etherscan"
+  },
+  "delivering": {
+    "message": "전달",
+    "englishSource": "Delivering"
   },
   "slowNeedsNativeEth": {
     "message": "느린(Agglayer) 경로는 테스트넷의 기본 ETH만 지원합니다. 사용하려면 ETH를 선택하세요.",

@@ -1128,6 +1128,23 @@
     "message": "Профінансуйте зараз",
     "englishSource": "Fund now"
   },
+  "pendingNotesPromptTitle": {
+    "message": "У вас є Notes",
+    "englishSource": "You have Pending Notes"
+  },
+  "pendingNotesPromptBody": {
+    "message": "Ви маєте на розгляді notes суму $amount$ .",
+    "englishSource": "You have pending notes worth $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesPromptAction": {
+    "message": "Дивіться зараз",
+    "englishSource": "See Now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "Перевірте фразу відновлення",
     "englishSource": "Verify your recovery phrase"
@@ -2275,6 +2292,31 @@
       }
     }
   },
+  "pendingNotesInfo": {
+    "message": "Miden використовує унікальну систему під назвою notes. Тут ви вручну вимагаєте надходження грошей. Це спосіб захистити свій гаманець від зловмисників",
+    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
+  },
+  "notesPendingAcrossAssets": {
+    "message": "$notes$ notes очікує на розгляд для активів $assets$",
+    "englishSource": "$notes$ notes pending across $assets$ assets",
+    "placeholders": {
+      "notes": {
+        "content": "$1"
+      },
+      "assets": {
+        "content": "$2"
+      }
+    }
+  },
+  "incomingTransfersCount": {
+    "message": "$count$ вхідних переказів",
+    "englishSource": "$count$ incoming transfers",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "pendingNotes": {
     "message": "Очікує notes",
     "englishSource": "Pending notes"
@@ -2660,23 +2702,6 @@
     "message": "діяльність",
     "englishSource": "Activity"
   },
-  "agglayerBridgeInProgressTitle": {
-    "message": "Міст у процесі",
-    "englishSource": "Bridge in progress"
-  },
-  "agglayerBridgeInProgressSubtitle": {
-    "message": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
-    "englishSource": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "agglayerBridgeInProgressSubtitleNoAmount": {
-    "message": "Вхідний міст від EVM через Agglayer встановлюється. Це може зайняти деякий час.",
-    "englishSource": "An incoming bridge from EVM via Agglayer is settling. This can take a while."
-  },
   "explore": {
     "message": "Досліджуйте",
     "englishSource": "Explore"
@@ -2869,6 +2894,22 @@
     "message": "Гаманець EVM підключено",
     "englishSource": "EVM wallet connected"
   },
+  "connectedWallet": {
+    "message": "Підключений гаманець",
+    "englishSource": "Connected wallet"
+  },
+  "switchWallet": {
+    "message": "Змінити гаманець",
+    "englishSource": "Switch wallet"
+  },
+  "current": {
+    "message": "поточний",
+    "englishSource": "Current"
+  },
+  "connectAnotherWallet": {
+    "message": "Підключіть інший гаманець",
+    "englishSource": "Connect another wallet"
+  },
   "midenBridge": {
     "message": "Міденський міст",
     "englishSource": "Miden Bridge"
@@ -2932,6 +2973,34 @@
   "confirmDeposit": {
     "message": "Підтвердити депозит",
     "englishSource": "Confirm Deposit"
+  },
+  "bridgeDepositProcessing": {
+    "message": "Підтвердження бриджового депозиту",
+    "englishSource": "Confirming bridge deposit"
+  },
+  "bridgeDepositProcessingDescription": {
+    "message": "Підтвердьте запит у своєму гаманці та тримайте цей еFaucet відкритим, поки Sepolia підтвердить його.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+  },
+  "bridgeDepositFailed": {
+    "message": "Перехідний депозит не вдалося",
+    "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositSubmitted": {
+    "message": "Міст розпочато!",
+    "englishSource": "Bridge initiated!"
+  },
+  "bridgeDepositDeliveryDescription": {
+    "message": "Транзакція Sepolia підтверджена. Ваші кошти з’являться на Miden, коли доставка мосту завершиться.",
+    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+  },
+  "viewOnEtherscan": {
+    "message": "Переглянути на Etherscan",
+    "englishSource": "View on Etherscan"
+  },
+  "delivering": {
+    "message": "Доставка",
+    "englishSource": "Delivering"
   },
   "slowNeedsNativeEth": {
     "message": "Повільний (Agglayer) маршрут підтримує лише нативний ETH у тестовій мережі. Щоб використовувати його, виберіть ETH.",

@@ -1155,6 +1155,23 @@
     "message": "Fund now",
     "englishSource": "Fund now"
   },
+  "pendingNotesPromptTitle": {
+    "message": "You have Pending Notes",
+    "englishSource": "You have Pending Notes"
+  },
+  "pendingNotesPromptBody": {
+    "message": "You have pending notes worth  $amount$ .",
+    "englishSource": "You have pending notes worth $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesPromptAction": {
+    "message": "See Now",
+    "englishSource": "See Now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "Verify your recovery phrase",
     "englishSource": "Verify your recovery phrase"
@@ -2302,6 +2319,31 @@
       }
     }
   },
+  "pendingNotesInfo": {
+    "message": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors",
+    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
+  },
+  "notesPendingAcrossAssets": {
+    "message": "$notes$ notes pending across $assets$ assets",
+    "englishSource": "$notes$ notes pending across $assets$ assets",
+    "placeholders": {
+      "notes": {
+        "content": "$1"
+      },
+      "assets": {
+        "content": "$2"
+      }
+    }
+  },
+  "incomingTransfersCount": {
+    "message": "$count$ incoming transfers",
+    "englishSource": "$count$ incoming transfers",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "pendingNotes": {
     "message": "Pending notes",
     "englishSource": "Pending notes"
@@ -2687,23 +2729,6 @@
     "message": "Activity",
     "englishSource": "Activity"
   },
-  "agglayerBridgeInProgressTitle": {
-    "message": "Bridge in progress",
-    "englishSource": "Bridge in progress"
-  },
-  "agglayerBridgeInProgressSubtitle": {
-    "message": "Bridging  $amount$  from EVM via Agglayer. This can take a while.",
-    "englishSource": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "agglayerBridgeInProgressSubtitleNoAmount": {
-    "message": "An incoming bridge from EVM via Agglayer is settling. This can take a while.",
-    "englishSource": "An incoming bridge from EVM via Agglayer is settling. This can take a while."
-  },
   "explore": {
     "message": "Explore",
     "englishSource": "Explore"
@@ -2896,6 +2921,22 @@
     "message": "EVM wallet connected",
     "englishSource": "EVM wallet connected"
   },
+  "connectedWallet": {
+    "message": "Connected wallet",
+    "englishSource": "Connected wallet"
+  },
+  "switchWallet": {
+    "message": "Switch wallet",
+    "englishSource": "Switch wallet"
+  },
+  "current": {
+    "message": "Current",
+    "englishSource": "Current"
+  },
+  "connectAnotherWallet": {
+    "message": "Connect another wallet",
+    "englishSource": "Connect another wallet"
+  },
   "midenBridge": {
     "message": "Miden Bridge",
     "englishSource": "Miden Bridge"
@@ -2959,6 +3000,34 @@
   "confirmDeposit": {
     "message": "Confirm Deposit",
     "englishSource": "Confirm Deposit"
+  },
+  "bridgeDepositProcessing": {
+    "message": "Confirming bridge deposit",
+    "englishSource": "Confirming bridge deposit"
+  },
+  "bridgeDepositProcessingDescription": {
+    "message": "Approve the request in your wallet and keep this screen open while Sepolia confirms it.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+  },
+  "bridgeDepositFailed": {
+    "message": "Bridge deposit failed",
+    "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositSubmitted": {
+    "message": "Bridge initiated!",
+    "englishSource": "Bridge initiated!"
+  },
+  "bridgeDepositDeliveryDescription": {
+    "message": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes.",
+    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+  },
+  "viewOnEtherscan": {
+    "message": "View on Etherscan",
+    "englishSource": "View on Etherscan"
+  },
+  "delivering": {
+    "message": "Delivering",
+    "englishSource": "Delivering"
   },
   "slowNeedsNativeEth": {
     "message": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it.",

@@ -1119,6 +1119,23 @@
     "message": "Şimdi fonla",
     "englishSource": "Fund now"
   },
+  "pendingNotesPromptTitle": {
+    "message": "Bekleyen Notes kimliğiniz var",
+    "englishSource": "You have Pending Notes"
+  },
+  "pendingNotesPromptBody": {
+    "message": "Bekleyen notes değeriniz var $amount$ .",
+    "englishSource": "You have pending notes worth $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesPromptAction": {
+    "message": "Şimdi Gör",
+    "englishSource": "See Now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "Kurtarma ifadenizi doğrulayın",
     "englishSource": "Verify your recovery phrase"
@@ -2265,6 +2282,31 @@
       }
     }
   },
+  "pendingNotesInfo": {
+    "message": "Miden, notes adı verilen benzersiz bir sistem kullanıyor. Gelen parayı manuel olarak talep edeceğiniz yer burasıdır. Bu, cüzdanınızı kötü niyetli aktörlerden korumanın bir yoludur",
+    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
+  },
+  "notesPendingAcrossAssets": {
+    "message": "$notes$ notes $assets$ öğelerinde beklemede",
+    "englishSource": "$notes$ notes pending across $assets$ assets",
+    "placeholders": {
+      "notes": {
+        "content": "$1"
+      },
+      "assets": {
+        "content": "$2"
+      }
+    }
+  },
+  "incomingTransfersCount": {
+    "message": "$count$ gelen transferler",
+    "englishSource": "$count$ incoming transfers",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "pendingNotes": {
     "message": "Beklemede notes",
     "englishSource": "Pending notes"
@@ -2650,23 +2692,6 @@
     "message": "Etkinlik",
     "englishSource": "Activity"
   },
-  "agglayerBridgeInProgressTitle": {
-    "message": "Köprü yapılıyor",
-    "englishSource": "Bridge in progress"
-  },
-  "agglayerBridgeInProgressSubtitle": {
-    "message": "Köprüleme $amount$ Agglayer aracılığıyla EVM'den. Bu biraz zaman alabilir.",
-    "englishSource": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "agglayerBridgeInProgressSubtitleNoAmount": {
-    "message": "EVM'den Agglayer aracılığıyla gelen bir köprü yerleşiyor. Bu biraz zaman alabilir.",
-    "englishSource": "An incoming bridge from EVM via Agglayer is settling. This can take a while."
-  },
   "explore": {
     "message": "Keşfetmek",
     "englishSource": "Explore"
@@ -2859,6 +2884,22 @@
     "message": "EVM cüzdanı bağlandı",
     "englishSource": "EVM wallet connected"
   },
+  "connectedWallet": {
+    "message": "Bağlı cüzdan",
+    "englishSource": "Connected wallet"
+  },
+  "switchWallet": {
+    "message": "Cüzdanı değiştir",
+    "englishSource": "Switch wallet"
+  },
+  "current": {
+    "message": "Akım",
+    "englishSource": "Current"
+  },
+  "connectAnotherWallet": {
+    "message": "Başka bir cüzdan bağlayın",
+    "englishSource": "Connect another wallet"
+  },
   "midenBridge": {
     "message": "Miden Köprüsü",
     "englishSource": "Miden Bridge"
@@ -2922,6 +2963,34 @@
   "confirmDeposit": {
     "message": "Para Yatırma İşlemini Onayla",
     "englishSource": "Confirm Deposit"
+  },
+  "bridgeDepositProcessing": {
+    "message": "Köprü depozitosu onaylanıyor",
+    "englishSource": "Confirming bridge deposit"
+  },
+  "bridgeDepositProcessingDescription": {
+    "message": "Cüzdanınızdaki isteği onaylayın ve Sepolia onaylayana kadar bu ekranı açık tutun.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+  },
+  "bridgeDepositFailed": {
+    "message": "Köprü yatırma işlemi başarısız oldu",
+    "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositSubmitted": {
+    "message": "Köprü başlatıldı!",
+    "englishSource": "Bridge initiated!"
+  },
+  "bridgeDepositDeliveryDescription": {
+    "message": "Sepolia işlemi onaylandı. Köprü teslimatı tamamlandığında paranız Miden'de görünecek.",
+    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+  },
+  "viewOnEtherscan": {
+    "message": "Etherscan'de görüntüle",
+    "englishSource": "View on Etherscan"
+  },
+  "delivering": {
+    "message": "Teslimat",
+    "englishSource": "Delivering"
   },
   "slowNeedsNativeEth": {
     "message": "Yavaş (Agglayer) rotası yalnızca test ağında yerel ETH'yi destekler. Kullanmak için ETH'yi seçin.",

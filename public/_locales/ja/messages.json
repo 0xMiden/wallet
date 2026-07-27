@@ -1119,6 +1119,23 @@
     "message": "今すぐ資金を投入",
     "englishSource": "Fund now"
   },
+  "pendingNotesPromptTitle": {
+    "message": "保留中Notesがあります",
+    "englishSource": "You have Pending Notes"
+  },
+  "pendingNotesPromptBody": {
+    "message": "保留中のnotes価値があります $amount$ .",
+    "englishSource": "You have pending notes worth $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesPromptAction": {
+    "message": "今すぐ見る",
+    "englishSource": "See Now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "リカバリフレーズを確認してください",
     "englishSource": "Verify your recovery phrase"
@@ -2265,6 +2282,31 @@
       }
     }
   },
+  "pendingNotesInfo": {
+    "message": "Miden は notes と呼ばれる独自のシステムを使用しています。ここで、入金を手動で請求します。ウォレットを悪意のある攻撃者から守る方法です",
+    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
+  },
+  "notesPendingAcrossAssets": {
+    "message": "$notes$ notes は $assets$ 資産全体で保留中です",
+    "englishSource": "$notes$ notes pending across $assets$ assets",
+    "placeholders": {
+      "notes": {
+        "content": "$1"
+      },
+      "assets": {
+        "content": "$2"
+      }
+    }
+  },
+  "incomingTransfersCount": {
+    "message": "$count$ 件の受信転送",
+    "englishSource": "$count$ incoming transfers",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "pendingNotes": {
     "message": "保留中 notes",
     "englishSource": "Pending notes"
@@ -2650,23 +2692,6 @@
     "message": "活動",
     "englishSource": "Activity"
   },
-  "agglayerBridgeInProgressTitle": {
-    "message": "橋が進行中",
-    "englishSource": "Bridge in progress"
-  },
-  "agglayerBridgeInProgressSubtitle": {
-    "message": "ブリッジング $amount$ EVM から Agglayer 経由で。これには時間がかかる場合があります。",
-    "englishSource": "Bridging $amount$ from EVM via Agglayer. This can take a while.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "agglayerBridgeInProgressSubtitleNoAmount": {
-    "message": "Agglayer を介した EVM からの受信ブリッジが安定しています。これには時間がかかる場合があります。",
-    "englishSource": "An incoming bridge from EVM via Agglayer is settling. This can take a while."
-  },
   "explore": {
     "message": "探検する",
     "englishSource": "Explore"
@@ -2859,6 +2884,22 @@
     "message": "EVMウォレットが接続されました",
     "englishSource": "EVM wallet connected"
   },
+  "connectedWallet": {
+    "message": "接続されたウォレット",
+    "englishSource": "Connected wallet"
+  },
+  "switchWallet": {
+    "message": "スイッチウォレット",
+    "englishSource": "Switch wallet"
+  },
+  "current": {
+    "message": "現在",
+    "englishSource": "Current"
+  },
+  "connectAnotherWallet": {
+    "message": "別のウォレットを接続する",
+    "englishSource": "Connect another wallet"
+  },
   "midenBridge": {
     "message": "ミデン橋",
     "englishSource": "Miden Bridge"
@@ -2922,6 +2963,34 @@
   "confirmDeposit": {
     "message": "入金の確認",
     "englishSource": "Confirm Deposit"
+  },
+  "bridgeDepositProcessing": {
+    "message": "ブリッジデポジットの確認",
+    "englishSource": "Confirming bridge deposit"
+  },
+  "bridgeDepositProcessingDescription": {
+    "message": "ウォレットでリクエストを承認し、Sepolia が確認するまでこの画面を開いたままにしてください。",
+    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+  },
+  "bridgeDepositFailed": {
+    "message": "ブリッジデポジットが失敗しました",
+    "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositSubmitted": {
+    "message": "ブリッジが始まりました！",
+    "englishSource": "Bridge initiated!"
+  },
+  "bridgeDepositDeliveryDescription": {
+    "message": "セポリアの取引が確認されました。ブリッジの配送が完了すると、資金がミデンに表示されます。",
+    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+  },
+  "viewOnEtherscan": {
+    "message": "イーサスキャンで見る",
+    "englishSource": "View on Etherscan"
+  },
+  "delivering": {
+    "message": "配達中",
+    "englishSource": "Delivering"
   },
   "slowNeedsNativeEth": {
     "message": "低速 (Agglayer) ルートは、テストネット上のネイティブ ETH のみをサポートします。 ETHを選択して使用します。",
