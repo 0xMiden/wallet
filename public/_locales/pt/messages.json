@@ -2337,13 +2337,30 @@
     "message": "Total Pendente",
     "englishSource": "Total Pending"
   },
-  "pendingNotesCount": {
-    "message": "notes pendente",
-    "englishSource": "notes pending"
+  "notesPendingAcrossAssets": {
+    "message": "$notes$ notes pendente em $assets$ ativos",
+    "englishSource": "$notes$ notes pending across $assets$ assets",
+    "placeholders": {
+      "notes": {
+        "content": "$1"
+      },
+      "assets": {
+        "content": "$2"
+      }
+    }
   },
-  "pendingAssetsCount": {
-    "message": "ativos",
-    "englishSource": "assets"
+  "incomingTransfersCount": {
+    "message": "$count$ transferências recebidas",
+    "englishSource": "$count$ incoming transfers",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesInfo": {
+    "message": "Miden usa um sistema exclusivo chamado notes. É aqui que você reivindica manualmente o dinheiro recebido. É uma maneira de manter sua carteira protegida contra atores mal-intencionados",
+    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
   },
   "addTokens": {
     "message": "Adicionar tokens",

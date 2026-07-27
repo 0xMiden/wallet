@@ -2338,13 +2338,30 @@
     "message": "Total en attente",
     "englishSource": "Total Pending"
   },
-  "pendingNotesCount": {
-    "message": "notes en attente",
-    "englishSource": "notes pending"
+  "notesPendingAcrossAssets": {
+    "message": "$notes$ notes en attente sur les actifs $assets$",
+    "englishSource": "$notes$ notes pending across $assets$ assets",
+    "placeholders": {
+      "notes": {
+        "content": "$1"
+      },
+      "assets": {
+        "content": "$2"
+      }
+    }
   },
-  "pendingAssetsCount": {
-    "message": "actifs",
-    "englishSource": "assets"
+  "incomingTransfersCount": {
+    "message": "$count$ transferts entrants",
+    "englishSource": "$count$ incoming transfers",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesInfo": {
+    "message": "Miden utilise un système unique appelé notes. C’est ici que vous réclamez manuellement l’argent entrant. C'est un moyen pour vous de protéger votre portefeuille des acteurs malveillants.",
+    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
   },
   "incomingCount": {
     "message": "$count$ Entrant",

@@ -2352,13 +2352,30 @@
     "message": "Всего в ожидании",
     "englishSource": "Total Pending"
   },
-  "pendingNotesCount": {
-    "message": "notes в ожидании",
-    "englishSource": "notes pending"
+  "notesPendingAcrossAssets": {
+    "message": "$notes$ notes в ожидании для активов $assets$",
+    "englishSource": "$notes$ notes pending across $assets$ assets",
+    "placeholders": {
+      "notes": {
+        "content": "$1"
+      },
+      "assets": {
+        "content": "$2"
+      }
+    }
   },
-  "pendingAssetsCount": {
-    "message": "ресурсы",
-    "englishSource": "assets"
+  "incomingTransfersCount": {
+    "message": "$count$ входящие переводы",
+    "englishSource": "$count$ incoming transfers",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesInfo": {
+    "message": "Miden использует уникальную систему под названием notes. Здесь вы вручную запрашиваете входящие деньги. Это способ защитить ваш кошелек от злоумышленников.",
+    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
   },
   "incomingCount": {
     "message": "$count$ Входящие",

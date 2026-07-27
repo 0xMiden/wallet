@@ -2339,13 +2339,30 @@
     "message": "Toplam Beklemede",
     "englishSource": "Total Pending"
   },
-  "pendingNotesCount": {
-    "message": "notes beklemede",
-    "englishSource": "notes pending"
+  "notesPendingAcrossAssets": {
+    "message": "$notes$ notes $assets$ öğelerinde beklemede",
+    "englishSource": "$notes$ notes pending across $assets$ assets",
+    "placeholders": {
+      "notes": {
+        "content": "$1"
+      },
+      "assets": {
+        "content": "$2"
+      }
+    }
   },
-  "pendingAssetsCount": {
-    "message": "varlıklar",
-    "englishSource": "assets"
+  "incomingTransfersCount": {
+    "message": "$count$ gelen transferler",
+    "englishSource": "$count$ incoming transfers",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesInfo": {
+    "message": "Miden, notes adı verilen benzersiz bir sistem kullanıyor. Gelen parayı manuel olarak talep edeceğiniz yer burasıdır. Bu, cüzdanınızı kötü niyetli aktörlerden korumanın bir yoludur",
+    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
   },
   "incomingCount": {
     "message": "$count$ Gelen",

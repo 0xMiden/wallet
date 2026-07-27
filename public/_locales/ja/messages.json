@@ -2351,13 +2351,30 @@
     "message": "合計保留中",
     "englishSource": "Total Pending"
   },
-  "pendingNotesCount": {
-    "message": "notes 保留中",
-    "englishSource": "notes pending"
+  "notesPendingAcrossAssets": {
+    "message": "$notes$ notes は $assets$ 資産全体で保留中です",
+    "englishSource": "$notes$ notes pending across $assets$ assets",
+    "placeholders": {
+      "notes": {
+        "content": "$1"
+      },
+      "assets": {
+        "content": "$2"
+      }
+    }
   },
-  "pendingAssetsCount": {
-    "message": "資産",
-    "englishSource": "assets"
+  "incomingTransfersCount": {
+    "message": "$count$ 件の受信転送",
+    "englishSource": "$count$ incoming transfers",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesInfo": {
+    "message": "Miden は notes と呼ばれる独自のシステムを使用しています。ここで、入金を手動で請求します。ウォレットを悪意のある攻撃者から守る方法です",
+    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
   },
   "incomingCount": {
     "message": "$count$ 受信",

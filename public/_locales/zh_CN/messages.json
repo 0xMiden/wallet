@@ -2369,13 +2369,30 @@
     "message": "待处理总数",
     "englishSource": "Total Pending"
   },
-  "pendingNotesCount": {
-    "message": "notes 待处理",
-    "englishSource": "notes pending"
+  "notesPendingAcrossAssets": {
+    "message": "$notes$ notes 跨 $assets$ 资产待处理",
+    "englishSource": "$notes$ notes pending across $assets$ assets",
+    "placeholders": {
+      "notes": {
+        "content": "$1"
+      },
+      "assets": {
+        "content": "$2"
+      }
+    }
   },
-  "pendingAssetsCount": {
-    "message": "资产",
-    "englishSource": "assets"
+  "incomingTransfersCount": {
+    "message": "$count$ 传入转账",
+    "englishSource": "$count$ incoming transfers",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesInfo": {
+    "message": "Miden 使用名为 notes 的独特系统。您可以在此处手动领取收入。这是保护您的钱包免受恶意行为者侵害的一种方法",
+    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
   },
   "incomingCount": {
     "message": "$count$ 传入",
