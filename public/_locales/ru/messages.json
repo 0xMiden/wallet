@@ -2934,6 +2934,14 @@
     "message": "Созданный",
     "englishSource": "Created"
   },
+  "claimed": {
+    "message": "Заявлено",
+    "englishSource": "Claimed"
+  },
+  "reclaimed": {
+    "message": "Восстановленный",
+    "englishSource": "Reclaimed"
+  },
   "confirmed": {
     "message": "Подтвержденный",
     "englishSource": "Confirmed"

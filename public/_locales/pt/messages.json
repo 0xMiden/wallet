@@ -2910,6 +2910,14 @@
     "message": "Criado",
     "englishSource": "Created"
   },
+  "claimed": {
+    "message": "Reivindicado",
+    "englishSource": "Claimed"
+  },
+  "reclaimed": {
+    "message": "Recuperado",
+    "englishSource": "Reclaimed"
+  },
   "confirmed": {
     "message": "Confirmado",
     "englishSource": "Confirmed"

@@ -2863,6 +2863,14 @@
     "message": "Stworzony",
     "englishSource": "Created"
   },
+  "claimed": {
+    "message": "Zgłoszono",
+    "englishSource": "Claimed"
+  },
+  "reclaimed": {
+    "message": "Odzyskany",
+    "englishSource": "Reclaimed"
+  },
   "confirmed": {
     "message": "Potwierdzony",
     "englishSource": "Confirmed"

@@ -2921,6 +2921,14 @@
     "message": "Oluşturuldu",
     "englishSource": "Created"
   },
+  "claimed": {
+    "message": "Hak talebinde bulunuldu",
+    "englishSource": "Claimed"
+  },
+  "reclaimed": {
+    "message": "Geri alındı",
+    "englishSource": "Reclaimed"
+  },
   "confirmed": {
     "message": "Onaylandı",
     "englishSource": "Confirmed"

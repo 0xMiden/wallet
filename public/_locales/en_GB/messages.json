@@ -2970,6 +2970,14 @@
     "message": "Created",
     "englishSource": "Created"
   },
+  "claimed": {
+    "message": "Claimed",
+    "englishSource": "Claimed"
+  },
+  "reclaimed": {
+    "message": "Reclaimed",
+    "englishSource": "Reclaimed"
+  },
   "confirmed": {
     "message": "Confirmed",
     "englishSource": "Confirmed"

@@ -2933,6 +2933,14 @@
     "message": "Erstellt",
     "englishSource": "Created"
   },
+  "claimed": {
+    "message": "Behauptet",
+    "englishSource": "Claimed"
+  },
+  "reclaimed": {
+    "message": "Zurückgewonnen",
+    "englishSource": "Reclaimed"
+  },
   "confirmed": {
     "message": "Bestätigt",
     "englishSource": "Confirmed"

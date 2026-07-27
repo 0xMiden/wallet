@@ -2933,6 +2933,14 @@
     "message": "作成されました",
     "englishSource": "Created"
   },
+  "claimed": {
+    "message": "主張した",
+    "englishSource": "Claimed"
+  },
+  "reclaimed": {
+    "message": "回収された",
+    "englishSource": "Reclaimed"
+  },
   "confirmed": {
     "message": "確認済み",
     "englishSource": "Confirmed"

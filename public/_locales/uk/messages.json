@@ -2943,6 +2943,14 @@
     "message": "Створено",
     "englishSource": "Created"
   },
+  "claimed": {
+    "message": "Заявлено",
+    "englishSource": "Claimed"
+  },
+  "reclaimed": {
+    "message": "Відновлено",
+    "englishSource": "Reclaimed"
+  },
   "confirmed": {
     "message": "Підтверджено",
     "englishSource": "Confirmed"

@@ -2951,6 +2951,14 @@
     "message": "已创建",
     "englishSource": "Created"
   },
+  "claimed": {
+    "message": "声称",
+    "englishSource": "Claimed"
+  },
+  "reclaimed": {
+    "message": "回收",
+    "englishSource": "Reclaimed"
+  },
   "confirmed": {
     "message": "确认的",
     "englishSource": "Confirmed"

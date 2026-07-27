@@ -2920,6 +2920,14 @@
     "message": "Créé",
     "englishSource": "Created"
   },
+  "claimed": {
+    "message": "Réclamé",
+    "englishSource": "Claimed"
+  },
+  "reclaimed": {
+    "message": "Récupéré",
+    "englishSource": "Reclaimed"
+  },
   "confirmed": {
     "message": "Confirmé",
     "englishSource": "Confirmed"

@@ -2942,6 +2942,14 @@
     "message": "생성됨",
     "englishSource": "Created"
   },
+  "claimed": {
+    "message": "청구됨",
+    "englishSource": "Claimed"
+  },
+  "reclaimed": {
+    "message": "매립됨",
+    "englishSource": "Reclaimed"
+  },
   "confirmed": {
     "message": "확인됨",
     "englishSource": "Confirmed"
