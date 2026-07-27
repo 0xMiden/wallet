@@ -1,5 +1,5 @@
-import { ITransaction, ITransactionStatus } from '../db/types';
 import { isRequeueableTransaction, requeueFailedTransaction } from './retry';
+import { ITransaction, ITransactionStatus } from '../db/types';
 
 const mockTransactionsWhere = jest.fn();
 

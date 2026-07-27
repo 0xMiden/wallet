@@ -1,7 +1,7 @@
 import { toFixedRoundedDown } from 'lib/i18n/numbers';
-import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 
 /**
  * Swap starts with this fixed set of devnet DEX test tokens and adds the
