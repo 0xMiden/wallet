@@ -1028,9 +1028,43 @@
     "message": "Preis nicht verfügbar. Versuchen Sie es in Kürze noch einmal.",
     "englishSource": "Price unavailable. Try again shortly."
   },
-  "swapFetchingPrice": {
-    "message": "Preis wird abgerufen…",
-    "englishSource": "Fetching price…"
+  "usuallyFillsIn": {
+    "message": "Wird normalerweise ausgefüllt",
+    "englishSource": "Usually fills in"
+  },
+  "swapEtaSeconds": {
+    "message": "~ $seconds$ S",
+    "englishSource": "~$seconds$s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaMinutes": {
+    "message": "~ $minutes$ min",
+    "englishSource": "~$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaFallback": {
+    "message": "~30s",
+    "englishSource": "~30s"
+  },
+  "expires": {
+    "message": "Läuft ab",
+    "englishSource": "Expires"
+  },
+  "seconds": {
+    "message": "Sekunden",
+    "englishSource": "Seconds"
+  },
+  "swapAutoConsume": {
+    "message": "Automatisch verbrauchen",
+    "englishSource": "Auto consume"
   },
   "swapOrderReservedNote": {
     "message": "Dein $amount$ bleibt für diese Bestellung reserviert, bis sie ausgeführt wird.",

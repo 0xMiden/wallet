@@ -1037,9 +1037,43 @@
     "message": "가격을 확인할 수 없습니다. 잠시 후 다시 시도하세요.",
     "englishSource": "Price unavailable. Try again shortly."
   },
-  "swapFetchingPrice": {
-    "message": "가격을 가져오는 중…",
-    "englishSource": "Fetching price…"
+  "usuallyFillsIn": {
+    "message": "보통 채워준다",
+    "englishSource": "Usually fills in"
+  },
+  "swapEtaSeconds": {
+    "message": "~ $seconds$ 에스",
+    "englishSource": "~$seconds$s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaMinutes": {
+    "message": "~ $minutes$ 분",
+    "englishSource": "~$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaFallback": {
+    "message": "~30초",
+    "englishSource": "~30s"
+  },
+  "expires": {
+    "message": "만료",
+    "englishSource": "Expires"
+  },
+  "seconds": {
+    "message": "초",
+    "englishSource": "Seconds"
+  },
+  "swapAutoConsume": {
+    "message": "자동 소비",
+    "englishSource": "Auto consume"
   },
   "swapOrderReservedNote": {
     "message": "당신의 $amount$ 이 주문이 채워질 때까지 예약된 상태로 유지됩니다.",

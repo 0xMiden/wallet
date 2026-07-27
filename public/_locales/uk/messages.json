@@ -1037,9 +1037,43 @@
     "message": "Ціна недоступна. Повторіть спробу незабаром.",
     "englishSource": "Price unavailable. Try again shortly."
   },
-  "swapFetchingPrice": {
-    "message": "Отримання ціни…",
-    "englishSource": "Fetching price…"
+  "usuallyFillsIn": {
+    "message": "Зазвичай заповнює",
+    "englishSource": "Usually fills in"
+  },
+  "swapEtaSeconds": {
+    "message": "~ $seconds$ с",
+    "englishSource": "~$seconds$s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaMinutes": {
+    "message": "~ $minutes$ хв",
+    "englishSource": "~$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaFallback": {
+    "message": "~30-ті роки",
+    "englishSource": "~30s"
+  },
+  "expires": {
+    "message": "Термін дії закінчується",
+    "englishSource": "Expires"
+  },
+  "seconds": {
+    "message": "секунд",
+    "englishSource": "Seconds"
+  },
+  "swapAutoConsume": {
+    "message": "Автоматичне споживання",
+    "englishSource": "Auto consume"
   },
   "swapOrderReservedNote": {
     "message": "ваш $amount$ залишається зарезервованим для цього замовлення, доки його не буде заповнено.",

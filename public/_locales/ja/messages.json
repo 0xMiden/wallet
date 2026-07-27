@@ -1028,9 +1028,43 @@
     "message": "価格は利用できません。しばらくしてからもう一度お試しください。",
     "englishSource": "Price unavailable. Try again shortly."
   },
-  "swapFetchingPrice": {
-    "message": "価格を取得中…",
-    "englishSource": "Fetching price…"
+  "usuallyFillsIn": {
+    "message": "通常は埋められます",
+    "englishSource": "Usually fills in"
+  },
+  "swapEtaSeconds": {
+    "message": "~ $seconds$ s",
+    "englishSource": "~$seconds$s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaMinutes": {
+    "message": "~ $minutes$ 分",
+    "englishSource": "~$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaFallback": {
+    "message": "～30代",
+    "englishSource": "~30s"
+  },
+  "expires": {
+    "message": "有効期限が切れます",
+    "englishSource": "Expires"
+  },
+  "seconds": {
+    "message": "秒",
+    "englishSource": "Seconds"
+  },
+  "swapAutoConsume": {
+    "message": "自動消費",
+    "englishSource": "Auto consume"
   },
   "swapOrderReservedNote": {
     "message": "あなたの $amount$ この注文は満たされるまで予約されたままになります。",

@@ -1028,9 +1028,43 @@
     "message": "Цена недоступна. Повторите попытку через некоторое время.",
     "englishSource": "Price unavailable. Try again shortly."
   },
-  "swapFetchingPrice": {
-    "message": "Получение цены…",
-    "englishSource": "Fetching price…"
+  "usuallyFillsIn": {
+    "message": "Обычно заполняет",
+    "englishSource": "Usually fills in"
+  },
+  "swapEtaSeconds": {
+    "message": "~ $seconds$ с",
+    "englishSource": "~$seconds$s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaMinutes": {
+    "message": "~ $minutes$ мин",
+    "englishSource": "~$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaFallback": {
+    "message": "~30 сек.",
+    "englishSource": "~30s"
+  },
+  "expires": {
+    "message": "Срок действия истекает",
+    "englishSource": "Expires"
+  },
+  "seconds": {
+    "message": "Секунды",
+    "englishSource": "Seconds"
+  },
+  "swapAutoConsume": {
+    "message": "Автоматическое потребление",
+    "englishSource": "Auto consume"
   },
   "swapOrderReservedNote": {
     "message": "Твой $amount$ остается зарезервированным для этого заказа до тех пор, пока он не будет выполнен.",

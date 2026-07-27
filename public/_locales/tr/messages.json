@@ -1028,9 +1028,43 @@
     "message": "Fiyat mevcut değil. Kısa süre sonra tekrar deneyin.",
     "englishSource": "Price unavailable. Try again shortly."
   },
-  "swapFetchingPrice": {
-    "message": "Fiyat getiriliyor…",
-    "englishSource": "Fetching price…"
+  "usuallyFillsIn": {
+    "message": "Genellikle doldurur",
+    "englishSource": "Usually fills in"
+  },
+  "swapEtaSeconds": {
+    "message": "~ $seconds$ S",
+    "englishSource": "~$seconds$s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaMinutes": {
+    "message": "~ $minutes$ dk.",
+    "englishSource": "~$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaFallback": {
+    "message": "~30s",
+    "englishSource": "~30s"
+  },
+  "expires": {
+    "message": "Süresi doluyor",
+    "englishSource": "Expires"
+  },
+  "seconds": {
+    "message": "Saniye",
+    "englishSource": "Seconds"
+  },
+  "swapAutoConsume": {
+    "message": "Otomatik tüketme",
+    "englishSource": "Auto consume"
   },
   "swapOrderReservedNote": {
     "message": "Senin $amount$ dolduruluncaya kadar bu sipariş için ayrılmış olarak kalır.",

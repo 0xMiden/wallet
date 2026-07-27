@@ -1037,9 +1037,43 @@
     "message": "价格不详。稍后再试。",
     "englishSource": "Price unavailable. Try again shortly."
   },
-  "swapFetchingPrice": {
-    "message": "正在获取价格...",
-    "englishSource": "Fetching price…"
+  "usuallyFillsIn": {
+    "message": "通常填写",
+    "englishSource": "Usually fills in"
+  },
+  "swapEtaSeconds": {
+    "message": "~ $seconds$ s",
+    "englishSource": "~$seconds$s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaMinutes": {
+    "message": "~ $minutes$ 分钟",
+    "englishSource": "~$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaFallback": {
+    "message": "〜30秒",
+    "englishSource": "~30s"
+  },
+  "expires": {
+    "message": "过期",
+    "englishSource": "Expires"
+  },
+  "seconds": {
+    "message": "秒数",
+    "englishSource": "Seconds"
+  },
+  "swapAutoConsume": {
+    "message": "自动消耗",
+    "englishSource": "Auto consume"
   },
   "swapOrderReservedNote": {
     "message": "你的 $amount$ 保留该订单直至其被填满。",
