@@ -1820,6 +1820,26 @@
     "message": "确认轮换",
     "englishSource": "Confirm rotation"
   },
+  "hotKeyRotationOverlayTitle": {
+    "message": "轮换您的设备密钥",
+    "englishSource": "Rotating your device key"
+  },
+  "hotKeyRotationOverlayBody": {
+    "message": "您的设备（热）键正在轮换。设置恢复的帐户时需要这样做，以便它可以同步并进行交易。",
+    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+  },
+  "hotKeyRotationFailedTitle": {
+    "message": "设备密钥轮换失败",
+    "englishSource": "Device key rotation failed"
+  },
+  "hotKeyRotationFailedGeneric": {
+    "message": "旋转设备密钥时出现问题。",
+    "englishSource": "Something went wrong while rotating your device key."
+  },
+  "hotKeyRotationRetry": {
+    "message": "重试",
+    "englishSource": "Retry"
+  },
   "hotKeyRotated": {
     "message": "设备密钥轮换成功。",
     "englishSource": "Device key rotated successfully."

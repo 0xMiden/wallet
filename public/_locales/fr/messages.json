@@ -1810,6 +1810,26 @@
     "message": "Confirmer la rotation",
     "englishSource": "Confirm rotation"
   },
+  "hotKeyRotationOverlayTitle": {
+    "message": "Rotation de la clé de votre appareil",
+    "englishSource": "Rotating your device key"
+  },
+  "hotKeyRotationOverlayBody": {
+    "message": "La touche (raccourci) de votre appareil est en cours de rotation. Ceci est requis lors de la configuration d'un compte récupéré afin qu'il puisse se synchroniser et effectuer des transactions.",
+    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+  },
+  "hotKeyRotationFailedTitle": {
+    "message": "Échec de la rotation de la clé de l'appareil",
+    "englishSource": "Device key rotation failed"
+  },
+  "hotKeyRotationFailedGeneric": {
+    "message": "Une erreur s'est produite lors de la rotation de la clé de votre appareil.",
+    "englishSource": "Something went wrong while rotating your device key."
+  },
+  "hotKeyRotationRetry": {
+    "message": "Réessayer",
+    "englishSource": "Retry"
+  },
   "hotKeyRotated": {
     "message": "La clé de l'appareil a été pivotée avec succès.",
     "englishSource": "Device key rotated successfully."

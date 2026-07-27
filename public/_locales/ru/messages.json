@@ -1812,6 +1812,26 @@
     "message": "Подтвердить ротацию",
     "englishSource": "Confirm rotation"
   },
+  "hotKeyRotationOverlayTitle": {
+    "message": "Поворот ключа устройства",
+    "englishSource": "Rotating your device key"
+  },
+  "hotKeyRotationOverlayBody": {
+    "message": "(Горячая) клавиша вашего устройства вращается. Это необходимо при настройке восстановленной учетной записи, чтобы она могла синхронизироваться и совершать транзакции.",
+    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+  },
+  "hotKeyRotationFailedTitle": {
+    "message": "Не удалось выполнить ротацию ключа устройства.",
+    "englishSource": "Device key rotation failed"
+  },
+  "hotKeyRotationFailedGeneric": {
+    "message": "При повороте ключа устройства что-то пошло не так.",
+    "englishSource": "Something went wrong while rotating your device key."
+  },
+  "hotKeyRotationRetry": {
+    "message": "Повторить попытку",
+    "englishSource": "Retry"
+  },
   "hotKeyRotated": {
     "message": "Ключ устройства успешно поменялся.",
     "englishSource": "Device key rotated successfully."

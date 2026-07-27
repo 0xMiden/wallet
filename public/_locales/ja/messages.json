@@ -1811,6 +1811,26 @@
     "message": "回転確認",
     "englishSource": "Confirm rotation"
   },
+  "hotKeyRotationOverlayTitle": {
+    "message": "デバイスキーをローテーションする",
+    "englishSource": "Rotating your device key"
+  },
+  "hotKeyRotationOverlayBody": {
+    "message": "デバイスの (ホット) キーがローテーションされています。これは、復元されたアカウントを設定して同期してトランザクションを実行できるようにするときに必要です。",
+    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+  },
+  "hotKeyRotationFailedTitle": {
+    "message": "デバイスキーのローテーションに失敗しました",
+    "englishSource": "Device key rotation failed"
+  },
+  "hotKeyRotationFailedGeneric": {
+    "message": "デバイス キーの回転中に問題が発生しました。",
+    "englishSource": "Something went wrong while rotating your device key."
+  },
+  "hotKeyRotationRetry": {
+    "message": "リトライ",
+    "englishSource": "Retry"
+  },
   "hotKeyRotated": {
     "message": "デバイスキーが正常にローテーションされました。",
     "englishSource": "Device key rotated successfully."

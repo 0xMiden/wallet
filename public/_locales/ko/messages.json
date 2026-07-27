@@ -1820,6 +1820,26 @@
     "message": "순환 확인",
     "englishSource": "Confirm rotation"
   },
+  "hotKeyRotationOverlayTitle": {
+    "message": "장치 키 순환",
+    "englishSource": "Rotating your device key"
+  },
+  "hotKeyRotationOverlayBody": {
+    "message": "장치(핫) 키가 순환되고 있습니다. 이는 복구된 계정을 설정하여 동기화하고 거래할 수 있도록 하는 데 필요합니다.",
+    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+  },
+  "hotKeyRotationFailedTitle": {
+    "message": "기기 키 순환 실패",
+    "englishSource": "Device key rotation failed"
+  },
+  "hotKeyRotationFailedGeneric": {
+    "message": "기기 키를 순환하는 중에 문제가 발생했습니다.",
+    "englishSource": "Something went wrong while rotating your device key."
+  },
+  "hotKeyRotationRetry": {
+    "message": "다시 해 보다",
+    "englishSource": "Retry"
+  },
   "hotKeyRotated": {
     "message": "장치 키가 성공적으로 순환되었습니다.",
     "englishSource": "Device key rotated successfully."

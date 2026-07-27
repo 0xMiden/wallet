@@ -1811,6 +1811,26 @@
     "message": "Döndürmeyi onayla",
     "englishSource": "Confirm rotation"
   },
+  "hotKeyRotationOverlayTitle": {
+    "message": "Cihazınızın anahtarını döndürme",
+    "englishSource": "Rotating your device key"
+  },
+  "hotKeyRotationOverlayBody": {
+    "message": "Cihazınızın (kısayol) tuşu döndürülüyor. Bu, kurtarılan bir hesabın senkronize edilebilmesi ve işlem yapabilmesi için ayarlarken gereklidir.",
+    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+  },
+  "hotKeyRotationFailedTitle": {
+    "message": "Cihaz anahtarı rotasyonu başarısız oldu",
+    "englishSource": "Device key rotation failed"
+  },
+  "hotKeyRotationFailedGeneric": {
+    "message": "Cihazınızın anahtarı döndürülürken bir şeyler ters gitti.",
+    "englishSource": "Something went wrong while rotating your device key."
+  },
+  "hotKeyRotationRetry": {
+    "message": "Yeniden dene",
+    "englishSource": "Retry"
+  },
   "hotKeyRotated": {
     "message": "Cihaz anahtarı başarıyla döndürüldü.",
     "englishSource": "Device key rotated successfully."

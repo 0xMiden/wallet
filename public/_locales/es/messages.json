@@ -1758,6 +1758,26 @@
     "message": "Confirmar rotación",
     "englishSource": "Confirm rotation"
   },
+  "hotKeyRotationOverlayTitle": {
+    "message": "Girar la tecla de tu dispositivo",
+    "englishSource": "Rotating your device key"
+  },
+  "hotKeyRotationOverlayBody": {
+    "message": "La tecla (de acceso rápido) de su dispositivo se está girando. Esto es necesario al configurar una cuenta recuperada para que pueda sincronizarse y realizar transacciones.",
+    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+  },
+  "hotKeyRotationFailedTitle": {
+    "message": "Falló la rotación de la clave del dispositivo",
+    "englishSource": "Device key rotation failed"
+  },
+  "hotKeyRotationFailedGeneric": {
+    "message": "Algo salió mal al girar la tecla de tu dispositivo.",
+    "englishSource": "Something went wrong while rotating your device key."
+  },
+  "hotKeyRotationRetry": {
+    "message": "Rever",
+    "englishSource": "Retry"
+  },
   "hotKeyRotated": {
     "message": "La clave del dispositivo se giró correctamente.",
     "englishSource": "Device key rotated successfully."

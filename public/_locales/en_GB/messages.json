@@ -1848,6 +1848,26 @@
     "message": "Confirm rotation",
     "englishSource": "Confirm rotation"
   },
+  "hotKeyRotationOverlayTitle": {
+    "message": "Rotating your device key",
+    "englishSource": "Rotating your device key"
+  },
+  "hotKeyRotationOverlayBody": {
+    "message": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions.",
+    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+  },
+  "hotKeyRotationFailedTitle": {
+    "message": "Device key rotation failed",
+    "englishSource": "Device key rotation failed"
+  },
+  "hotKeyRotationFailedGeneric": {
+    "message": "Something went wrong while rotating your device key.",
+    "englishSource": "Something went wrong while rotating your device key."
+  },
+  "hotKeyRotationRetry": {
+    "message": "Retry",
+    "englishSource": "Retry"
+  },
   "hotKeyRotated": {
     "message": "Device key rotated successfully.",
     "englishSource": "Device key rotated successfully."

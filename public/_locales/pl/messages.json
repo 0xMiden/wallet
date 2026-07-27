@@ -1758,6 +1758,26 @@
     "message": "Potwierdź obrót",
     "englishSource": "Confirm rotation"
   },
+  "hotKeyRotationOverlayTitle": {
+    "message": "Obracanie klucza urządzenia",
+    "englishSource": "Rotating your device key"
+  },
+  "hotKeyRotationOverlayBody": {
+    "message": "Klucz Twojego urządzenia (gorący) jest obracany. Jest to wymagane podczas konfigurowania odzyskanego konta, aby mogło ono synchronizować i dokonywać transakcji.",
+    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+  },
+  "hotKeyRotationFailedTitle": {
+    "message": "Zmiana klucza urządzenia nie powiodła się",
+    "englishSource": "Device key rotation failed"
+  },
+  "hotKeyRotationFailedGeneric": {
+    "message": "Coś poszło nie tak podczas obracania klawisza urządzenia.",
+    "englishSource": "Something went wrong while rotating your device key."
+  },
+  "hotKeyRotationRetry": {
+    "message": "Spróbować ponownie",
+    "englishSource": "Retry"
+  },
   "hotKeyRotated": {
     "message": "Klucz urządzenia został pomyślnie obrócony.",
     "englishSource": "Device key rotated successfully."
