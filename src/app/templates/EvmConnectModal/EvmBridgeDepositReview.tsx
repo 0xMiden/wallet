@@ -24,6 +24,8 @@ export interface EvmBridgeDepositReviewProps {
   isSubmitting?: boolean;
   /** Whether Confirm can be pressed (quote ready / not already submitting or submitted). */
   canConfirm?: boolean;
+  /** Primary-button label. Defaults to "Confirm Deposit"; pass "Retry" after a failed attempt. */
+  confirmLabel?: string;
   /** Bridge submit error, shown above the CTAs. */
   error?: string;
   onConfirm: () => void;
@@ -46,6 +48,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   youReceiveLoading = false,
   isSubmitting = false,
   canConfirm = false,
+  confirmLabel,
   error,
   onConfirm,
   onBack
@@ -61,7 +64,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
       hero={<ReviewAmount symbol={symbol} amount={amount} fiat={fiat} label={t('youAreDepositing')} />}
       error={error}
       primary={{
-        label: t('confirmDeposit'),
+        label: confirmLabel ?? t('confirmDeposit'),
         onPress: onConfirm,
         loading: isSubmitting,
         disabled: !canConfirm,

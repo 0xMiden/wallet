@@ -61,6 +61,12 @@ export default {
     '/src/app/pages/PendingNotes\\.tsx$',
     '/src/app/pages/BridgeDeposit\\.tsx$',
     '/src/app/templates/EvmConnectModal',
+    // Bridged-send activity-detail claim/reclaim panel — the same external
+    // wallet + agglayer/epoch-SDK orchestration as the entries above, exercised
+    // by the bridge Playwright suites. Its critical reclaim/claim logic has
+    // focused unit tests (BridgeClaimSection.test.tsx), but its many
+    // wallet-state / poll-timing branches are E2E territory.
+    '/src/app/templates/history/BridgeClaimSection\\.tsx$',
     '/src/app/pages/Receive\\.tsx$',
     '/src/app/pages/Receive/',
     '/src/app/icons/v2/index\\.tsx$',

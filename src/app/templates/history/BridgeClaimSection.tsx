@@ -3,12 +3,20 @@ import React, { FC, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { AgglayerDeposit, claimAgglayerDeposit, findClaimableMidenToEvmDeposit, useBridgeTracker } from 'lib/agglayer';
-import { pollEpochIntentFill } from 'lib/epoch';
-import { updateBridgeClaimStatus } from 'lib/miden/activity';
+import { getCurrentMidenBlock, pollEpochIntentFill } from 'lib/epoch';
+import {
+  initiateConsumeTransactionFromId,
+  requestSWTransactionProcessing,
+  updateBridgeClaimStatus
+} from 'lib/miden/activity';
 import { IBridgeClaimStatus, ITransactionStatus } from 'lib/miden/db/types';
+import { useAccount } from 'lib/miden/front';
 import { hapticMedium } from 'lib/mobile/haptics';
+import { isExtension } from 'lib/platform';
+import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { Button } from 'lib/ui/button';
 import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
+import { navigate } from 'lib/woozie';
 
 import HashChip from '../HashChip';
 import { DetailCard, DetailRow, ExternalLinkValue } from './DetailCard';
@@ -51,6 +59,7 @@ interface BridgeClaimSectionProps {
 export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdated }) => {
   const { t } = useTranslation();
   const { provider: evmProvider, address: evmAddress, isConnected, connect } = useEvmWalletProvider();
+  const account = useAccount();
 
   const isAgglayer = entry.bridgeProvider === 'agglayer';
   const isEpoch = entry.bridgeProvider === 'epoch';
@@ -58,6 +67,9 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
   const [status, setStatus] = useState<IBridgeClaimStatus>(entry.bridgeClaimStatus ?? 'not-applicable');
   const [claimable, setClaimable] = useState<AgglayerDeposit | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [currentBlock, setCurrentBlock] = useState<number | null>(null);
+  const [reclaiming, setReclaiming] = useState(false);
+  const [reclaimError, setReclaimError] = useState<string | null>(null);
 
   // Epoch (Fast) auto-settles on the destination chain — poll the allocator for
   // the receiving-chain fill (status + tx hash) only while the detail is open.
@@ -66,6 +78,15 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
 
   const connectedMatchesDestination = !!evmAddress && evmAddress.toLowerCase() === destination.toLowerCase();
   const transactionFailed = entry.status === ITransactionStatus.Failed;
+
+  // Failed Epoch (Fast) bridge-out: the funds sit in a recallable P2IDE note that
+  // the sender can reclaim once the reclaim height passes. Gate a "Reclaim funds"
+  // button on that block height.
+  const reclaimHeight = entry.bridgeReclaimHeight;
+  const reclaimNoteId = entry.outputNoteIds?.[0];
+  const canShowReclaim = isEpoch && transactionFailed && reclaimHeight != null && !!reclaimNoteId;
+  const reclaimReached =
+    canShowReclaim && currentBlock != null && reclaimHeight != null && currentBlock >= reclaimHeight;
 
   // Poll the bridge indexer for a claimable deposit to the destination. Stateless
   // / indexer-driven, so it surfaces deposits from a previous session too.
@@ -138,6 +159,37 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
     }
   }, [claimable, evmProvider, entry.txId, onUpdated]);
 
+  // Read the current Miden block once, to know whether the reclaim window has opened.
+  useEffect(() => {
+    if (!canShowReclaim) return;
+    let cancelled = false;
+    getCurrentMidenBlock()
+      .then(block => {
+        if (!cancelled) setCurrentBlock(block);
+      })
+      .catch(err => console.warn('[bridge-claim] getCurrentMidenBlock failed', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [canShowReclaim]);
+
+  const handleReclaim = useCallback(async () => {
+    if (!reclaimNoteId) return;
+    hapticMedium();
+    setReclaimError(null);
+    setReclaiming(true);
+    try {
+      // Reclaim = the sender consuming their own recallable P2IDE note by id.
+      const txId = await initiateConsumeTransactionFromId(account.publicKey, reclaimNoteId, isDelegateProofEnabled());
+      if (isExtension()) requestSWTransactionProcessing();
+      navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
+    } catch (err) {
+      console.error('[bridge-claim] reclaim failed', err);
+      setReclaimError(err instanceof Error ? err.message : 'Reclaim failed');
+      setReclaiming(false);
+    }
+  }, [reclaimNoteId, account.publicKey]);
+
   return (
     <div className="mt-6 mb-4">
       <DetailCard title={t('bridgeDetails')}>
@@ -199,6 +251,27 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
         ) : (
           <div className="mt-3 text-xs text-[#1A9C52]">{t('claimAssetSubmitted')}</div>
         ))}
+
+      {/* Failed Epoch (Fast) bridge: reclaim the recallable P2IDE note once its
+          reclaim window opens (funds return to the sender's Miden account). */}
+      {canShowReclaim && (
+        <div className="mt-3 flex flex-col gap-2">
+          {reclaimError && (
+            <p className="text-red-500 text-xs" role="alert">
+              {reclaimError}
+            </p>
+          )}
+          {reclaimReached ? (
+            <Button variant="default" size="lg" onClick={handleReclaim} disabled={reclaiming}>
+              {reclaiming ? t('reclaiming') : t('reclaimFunds')}
+            </Button>
+          ) : (
+            <p className="text-xs text-heading-gray/60">
+              {t('reclaimableAfterBlock')} {reclaimHeight}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 };

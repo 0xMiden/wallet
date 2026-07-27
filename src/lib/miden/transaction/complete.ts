@@ -543,7 +543,7 @@ export const updateBridgeClaimStatus = async (
  * `updateTransactionStatus` rejects re-finalizing a Completed tx; the send
  * pipeline is already done with this row, so there is no race.
  */
-export const markBridgedSendFailed = async (id: string, error: string) => {
+export const markBridgedSendFailed = async (id: string, error: string, reclaimHeight?: number) => {
   console.error('[epoch] bridged-send intent rejected after the P2IDE note committed; demoting row to Failed', {
     id,
     error
@@ -552,6 +552,11 @@ export const markBridgedSendFailed = async (id: string, error: string) => {
     tx.status = ITransactionStatus.Failed;
     tx.displayMessage = 'Bridge failed — funds reclaimable';
     const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
-    tx.extraInputs = { ...ei, claimStatus: 'failed', epochStatus: 'failed' };
+    tx.extraInputs = {
+      ...ei,
+      claimStatus: 'failed',
+      epochStatus: 'failed',
+      ...(reclaimHeight != null ? { reclaimHeight } : {})
+    };
   });
 };

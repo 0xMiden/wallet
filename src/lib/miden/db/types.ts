@@ -80,6 +80,12 @@ export interface IBridgedSendExtraInputs {
    */
   recallBlocks?: number;
   /**
+   * epoch: absolute Miden block after which the P2IDE bridge note becomes
+   * reclaimable by the sender. Recorded when the row is demoted to Failed so the
+   * activity detail can gate the "Reclaim funds" affordance.
+   */
+  reclaimHeight?: number;
+  /**
    * epoch: intent nonce (SIO `userAddress:intentNonce`) used to poll
    * `getIntentStatus` for the receiving-chain fill, captured at send time.
    */

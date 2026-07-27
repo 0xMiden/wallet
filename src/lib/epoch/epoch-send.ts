@@ -181,7 +181,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
     // Failed so the user isn't told the bridge succeeded while their funds sit in
     // an unconsumed, recallable note.
     if (bridgeTxId) {
-      await markBridgedSendFailed(bridgeTxId, intent.error);
+      await markBridgedSendFailed(bridgeTxId, intent.error, params.midenReclaimHeight);
     }
     throw new Error(intent.error);
   }

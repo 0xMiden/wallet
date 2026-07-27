@@ -216,6 +216,7 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeFillTxHash: bridge?.fillTxHash,
       bridgeFillChainId: bridge?.fillChainId,
       bridgeEpochStatus: bridge?.epochStatus,
+      bridgeReclaimHeight: bridge?.reclaimHeight,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
       bridgeInSourceAddress: bridgedReceive?.sourceAddress,
       bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,
@@ -272,7 +273,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeIntentNonce: bridge?.intentNonce,
       bridgeFillTxHash: bridge?.fillTxHash,
       bridgeFillChainId: bridge?.fillChainId,
-      bridgeEpochStatus: bridge?.epochStatus
+      bridgeEpochStatus: bridge?.epochStatus,
+      bridgeReclaimHeight: bridge?.reclaimHeight
     } as IHistoryEntry;
   });
   const entries = await Promise.all(entryPromises);

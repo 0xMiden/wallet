@@ -486,6 +486,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const fastRetryable =
     route === 'epoch' && token === 'USDC' && epochFlow === 'evm-to-miden' && epochStatus === 'failed';
   const reviewCanConfirm = (canConfirmRoute || fastRetryable) && !submitting && !submitted;
+  // Relabel Confirm → Retry after a failed Fast attempt (the tap re-quotes).
+  const reviewConfirmLabel = fastRetryable ? t('retry') : undefined;
 
   const handleContinue = useCallback(() => {
     if (!setupReady) return;
@@ -584,6 +586,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               youReceiveLoading={route === 'epoch' && epochStatus === 'quoting'}
               isSubmitting={submitting}
               canConfirm={reviewCanConfirm}
+              confirmLabel={reviewConfirmLabel}
               error={error ?? undefined}
               onConfirm={handleConfirm}
               onBack={goBack}
@@ -640,6 +643,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       networkName,
       submitting,
       reviewCanConfirm,
+      reviewConfirmLabel,
       goBack,
       onClose,
       setupToken,

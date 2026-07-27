@@ -36,6 +36,8 @@ interface EpochState {
    * only handle for tagging the resulting consume row as a bridge-in.
    */
   midenNoteId: string | null;
+  /** Wall-clock ms when polling began (status → 'pending'); bounds the poll loop. */
+  pollStartedAt: number | null;
   error: string | null;
   bridgeReceiveTxId: string | null;
 }
@@ -64,6 +66,7 @@ const INITIAL_STATE: EpochState = {
   intent: null,
   pollResults: null,
   midenNoteId: null,
+  pollStartedAt: null,
   error: null,
   bridgeReceiveTxId: null
 };
@@ -102,6 +105,10 @@ function isIntentDone(results: IntentTransactionStatus[], flow: EpochFlow | null
 }
 
 const EPOCH_FAILED_STATUSES = new Set(['failed', 'error', 'expired', 'reverted']);
+
+/** Give up polling a `pending` intent after this long, so a solver that never
+ *  reports a terminal status doesn't leave the deposit screen spinning forever. */
+const MAX_POLL_MS = 15 * 60 * 1000;
 
 function isLegFailed(result: IntentTransactionStatus): boolean {
   return EPOCH_FAILED_STATUSES.has(String(result.status ?? '').toLowerCase());
@@ -206,7 +213,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         }
         return;
       }
-      set({ status: 'pending', intent });
+      set({ status: 'pending', intent, pollStartedAt: Date.now() });
 
       // Park the intent metadata in storage NOW — if the user closes the
       // deposit screen before its polling loop ever reports the Miden note id,
@@ -276,7 +283,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         set({ status: 'failed', intent, error: intent.error });
         return;
       }
-      set({ status: 'pending', intent });
+      set({ status: 'pending', intent, pollStartedAt: Date.now() });
     } catch (err) {
       console.error('[epoch] executeMidenToEVM failed', err);
       set({ status: 'failed', error: errorMessage(err) });
@@ -305,13 +312,17 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         );
       }
       const failed = !allDone && isIntentFailed(results, get().flow);
+      const startedAt = get().pollStartedAt;
+      const timedOut = !allDone && !failed && startedAt != null && Date.now() - startedAt > MAX_POLL_MS;
       set({
         pollResults: results,
         midenNoteId: discoveredNoteId ?? get().midenNoteId,
-        status: allDone ? 'done' : failed ? 'failed' : 'pending',
+        status: allDone ? 'done' : failed || timedOut ? 'failed' : 'pending',
         error: failed
           ? 'The bridge intent failed on the destination chain. Your deposit can be reclaimed.'
-          : get().error
+          : timedOut
+            ? 'Timed out waiting for the bridge to settle. Your deposit can be reclaimed.'
+            : get().error
       });
     } catch (err) {
       console.error('[epoch] poll failed', err);

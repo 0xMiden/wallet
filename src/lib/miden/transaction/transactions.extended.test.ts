@@ -761,13 +761,14 @@ describe('initiateConsumeTransaction reuse path', () => {
         extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending' }
       });
 
-      await markBridgedSendFailed('bs-fail-1', 'P2IDE reclaim window too small');
+      await markBridgedSendFailed('bs-fail-1', 'P2IDE reclaim window too small', 12345);
 
       const row = txStore.find(t => t.id === 'bs-fail-1')!;
       expect(row.status).toBe(ITransactionStatus.Failed);
       expect(row.displayMessage).toBe('Bridge failed — funds reclaimable');
       expect(row.extraInputs.claimStatus).toBe('failed');
       expect(row.extraInputs.epochStatus).toBe('failed');
+      expect(row.extraInputs.reclaimHeight).toBe(12345);
     });
   });
 });
