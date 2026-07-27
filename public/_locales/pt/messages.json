@@ -1110,6 +1110,35 @@
     "message": "Verifique a frase-semente",
     "englishSource": "Verify Seed Phrase"
   },
+  "faucetPromptTitle": {
+    "message": "Financie sua carteira",
+    "englishSource": "Fund your wallet"
+  },
+  "faucetPromptBody": {
+    "message": "Adicione tokens à sua carteira para começar.",
+    "englishSource": "Add tokens to your wallet to get started."
+  },
+  "faucetPromptAction": {
+    "message": "Financie agora",
+    "englishSource": "Fund now"
+  },
+  "pendingNotesPromptTitle": {
+    "message": "Você tem pendência Notes",
+    "englishSource": "You have Pending Notes"
+  },
+  "pendingNotesPromptBody": {
+    "message": "Você tem valor notes pendente $amount$ .",
+    "englishSource": "You have pending notes worth $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesPromptAction": {
+    "message": "Veja agora",
+    "englishSource": "See Now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "Verifique sua frase de recuperação",
     "englishSource": "Verify your recovery phrase"

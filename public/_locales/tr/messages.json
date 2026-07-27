@@ -1110,6 +1110,35 @@
     "message": "Başlangıç ​​İfadesini Doğrulayın",
     "englishSource": "Verify Seed Phrase"
   },
+  "faucetPromptTitle": {
+    "message": "Cüzdanınıza fon sağlayın",
+    "englishSource": "Fund your wallet"
+  },
+  "faucetPromptBody": {
+    "message": "Başlamak için cüzdanınıza token ekleyin.",
+    "englishSource": "Add tokens to your wallet to get started."
+  },
+  "faucetPromptAction": {
+    "message": "Şimdi fonla",
+    "englishSource": "Fund now"
+  },
+  "pendingNotesPromptTitle": {
+    "message": "Bekleyen Notes kimliğiniz var",
+    "englishSource": "You have Pending Notes"
+  },
+  "pendingNotesPromptBody": {
+    "message": "Bekleyen notes değeriniz var $amount$ .",
+    "englishSource": "You have pending notes worth $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesPromptAction": {
+    "message": "Şimdi Gör",
+    "englishSource": "See Now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "Kurtarma ifadenizi doğrulayın",
     "englishSource": "Verify your recovery phrase"

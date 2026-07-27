@@ -1119,6 +1119,35 @@
     "message": "Seed Phrase 확인",
     "englishSource": "Verify Seed Phrase"
   },
+  "faucetPromptTitle": {
+    "message": "지갑에 자금을 조달하세요",
+    "englishSource": "Fund your wallet"
+  },
+  "faucetPromptBody": {
+    "message": "시작하려면 지갑에 토큰을 추가하세요.",
+    "englishSource": "Add tokens to your wallet to get started."
+  },
+  "faucetPromptAction": {
+    "message": "지금 자금을 조달하세요",
+    "englishSource": "Fund now"
+  },
+  "pendingNotesPromptTitle": {
+    "message": "보류 중인 Notes이 있습니다.",
+    "englishSource": "You have Pending Notes"
+  },
+  "pendingNotesPromptBody": {
+    "message": "보류 중인 notes 가치가 있습니다 $amount$ .",
+    "englishSource": "You have pending notes worth $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesPromptAction": {
+    "message": "지금 보기",
+    "englishSource": "See Now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "복구 문구를 확인하세요",
     "englishSource": "Verify your recovery phrase"

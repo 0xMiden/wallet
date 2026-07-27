@@ -1128,6 +1128,35 @@
     "message": "验证Seed Phrase",
     "englishSource": "Verify Seed Phrase"
   },
+  "faucetPromptTitle": {
+    "message": "为你的钱包充值",
+    "englishSource": "Fund your wallet"
+  },
+  "faucetPromptBody": {
+    "message": "将代币添加到您的钱包即可开始。",
+    "englishSource": "Add tokens to your wallet to get started."
+  },
+  "faucetPromptAction": {
+    "message": "立即基金",
+    "englishSource": "Fund now"
+  },
+  "pendingNotesPromptTitle": {
+    "message": "您有待处理的 Notes",
+    "englishSource": "You have Pending Notes"
+  },
+  "pendingNotesPromptBody": {
+    "message": "您还有待处理的 notes 价值 $amount$ .",
+    "englishSource": "You have pending notes worth $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesPromptAction": {
+    "message": "立即查看",
+    "englishSource": "See Now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "验证您的恢复短语",
     "englishSource": "Verify your recovery phrase"

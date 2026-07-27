@@ -1110,6 +1110,35 @@
     "message": "Seed Phraseの検証",
     "englishSource": "Verify Seed Phrase"
   },
+  "faucetPromptTitle": {
+    "message": "財布に資金を投入する",
+    "englishSource": "Fund your wallet"
+  },
+  "faucetPromptBody": {
+    "message": "開始するには、ウォレットにトークンを追加してください。",
+    "englishSource": "Add tokens to your wallet to get started."
+  },
+  "faucetPromptAction": {
+    "message": "今すぐ資金を投入",
+    "englishSource": "Fund now"
+  },
+  "pendingNotesPromptTitle": {
+    "message": "保留中Notesがあります",
+    "englishSource": "You have Pending Notes"
+  },
+  "pendingNotesPromptBody": {
+    "message": "保留中のnotes価値があります $amount$ .",
+    "englishSource": "You have pending notes worth $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesPromptAction": {
+    "message": "今すぐ見る",
+    "englishSource": "See Now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "リカバリフレーズを確認してください",
     "englishSource": "Verify your recovery phrase"
