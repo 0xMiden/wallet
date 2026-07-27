@@ -34,11 +34,13 @@ interface RouteCardProps {
   onSelect: () => void;
   fee: React.ReactNode;
   eta: string;
+  testId?: string;
 }
 
-const RouteCard: React.FC<RouteCardProps> = ({ label, selected, disabled, onSelect, fee, eta }) => (
+const RouteCard: React.FC<RouteCardProps> = ({ label, selected, disabled, onSelect, fee, eta, testId }) => (
   <button
     type="button"
+    data-testid={testId}
     disabled={disabled}
     onClick={onSelect}
     className={clsx(
@@ -102,6 +104,7 @@ export const Route: React.FC<RouteStepProps> = ({
             onSelect={() => select('epoch')}
             fee={fastFee}
             eta={t('fastArrival')}
+            testId="bridge-route-fast"
           />
           <RouteCard
             emoji="🕐"
@@ -111,6 +114,7 @@ export const Route: React.FC<RouteStepProps> = ({
             onSelect={() => select('agglayer')}
             fee={<span className="text-base font-bold text-heading-gray">{t('noFee')}</span>}
             eta={t('slowArrival')}
+            testId="bridge-route-slow"
           />
           {notice ? (
             <p className="text-xs text-heading-gray/60">{notice}</p>
@@ -126,6 +130,7 @@ export const Route: React.FC<RouteStepProps> = ({
           variant={ButtonVariant.Primary}
           onClick={onConfirm}
           disabled={confirmDisabled}
+          data-testid="bridge-route-confirm"
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
       </div>
