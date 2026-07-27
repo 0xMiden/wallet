@@ -88,6 +88,7 @@ import { ReactComponent as Settings } from './settings.svg';
 import { ReactComponent as Share } from './share.svg';
 import { ReactComponent as SuccessDevnet } from './success-devnet.svg';
 import { ReactComponent as Success } from './success.svg';
+import { ReactComponent as Switch } from './switch.svg';
 import { ReactComponent as Time } from './time.svg';
 import { ReactComponent as Tokens } from './tokens.svg';
 import { ReactComponent as UploadFile } from './upload-file.svg';
@@ -178,6 +179,7 @@ export enum IconName {
   Settings = 'settings',
   SettingsNew = 'settings-new',
   Share = 'share',
+  Switch = 'switch',
   Time = 'time',
   User = 'user',
   Users = 'users',
@@ -358,6 +360,8 @@ const IconSwitch = (props: IconProps) => {
       return <SettingsNew {...props} />;
     case IconName.Share:
       return <Share {...props} />;
+    case IconName.Switch:
+      return <Switch {...props} />;
     case IconName.Time:
       return <Time {...props} />;
     case IconName.User:
