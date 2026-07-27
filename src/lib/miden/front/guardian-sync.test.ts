@@ -32,8 +32,19 @@ jest.mock('lib/store', () => ({
 }));
 
 const mockGetOrCreateMultisigService = jest.fn();
+const mockClearGuardianServiceFor = jest.fn();
 jest.mock('./guardian-manager', () => ({
-  getOrCreateMultisigService: (...args: unknown[]) => mockGetOrCreateMultisigService(...args)
+  getOrCreateMultisigService: (...args: unknown[]) => mockGetOrCreateMultisigService(...args),
+  clearGuardianServiceFor: (...args: unknown[]) => mockClearGuardianServiceFor(...args)
+}));
+
+// Only the auth-rejection predicate is needed here; stubbing the module keeps
+// the WASM-backed guardian barrel out of this frontend-only suite.
+jest.mock('lib/miden/guardian', () => ({
+  isGuardianAuthRejection: (err: unknown) => {
+    if (typeof err !== 'object' || err === null) return false;
+    return ('status' in err ? err.status : undefined) === 401;
+  }
 }));
 
 // The self-heal hook dynamic-imports this; stub it so the sync test stays focused
@@ -136,6 +147,32 @@ describe('syncGuardianAccounts', () => {
 
     await expect(syncGuardianAccounts()).resolves.toBeUndefined();
     expect(goodSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('evicts the cached service when the guardian rejects our signer (auth failure)', async () => {
+    storeState.accounts = [{ publicKey: 'guardian-auth', type: WalletType.Guardian, hotPublicKey: 'hot-auth' }];
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw Object.assign(new Error('unauthorized'), { status: 401 });
+      })
+    });
+
+    await expect(syncGuardianAccounts()).resolves.toBeUndefined();
+
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('guardian-auth');
+  });
+
+  it('keeps the cached service for non-auth sync failures', async () => {
+    storeState.accounts = [{ publicKey: 'guardian-other', type: WalletType.Guardian, hotPublicKey: 'hot-other' }];
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw new Error('transient rpc blip');
+      })
+    });
+
+    await expect(syncGuardianAccounts()).resolves.toBeUndefined();
+
+    expect(mockClearGuardianServiceFor).not.toHaveBeenCalled();
   });
 
   it('skips Guardian accounts that still require hot-key rotation (post-recovery, pre-activation)', async () => {

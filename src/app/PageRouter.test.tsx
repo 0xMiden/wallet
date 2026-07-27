@@ -103,6 +103,14 @@ jest.mock('app/pages/OpenSidePanel', () => ({
 }));
 jest.mock('app/pages/Pending', () => ({ Pending: () => <div data-testid="pending" /> }));
 jest.mock('app/pages/Receive', () => ({ Receive: () => <div data-testid="receive" /> }));
+jest.mock('app/pages/RotateGuardian', () => ({
+  __esModule: true,
+  default: () => <div data-testid="rotate-guardian" />
+}));
+jest.mock('app/pages/RotateGuardianReview', () => ({
+  __esModule: true,
+  default: () => <div data-testid="rotate-guardian-review" />
+}));
 jest.mock('app/pages/Settings', () => ({
   __esModule: true,
   default: ({ tabSlug }: { tabSlug?: string }) => <div data-testid="settings" data-tab-slug={tabSlug ?? ''} />
@@ -363,6 +371,16 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
   it('/pending renders Pending inside FullScreenPage', () => {
     renderAt('/pending', ready);
     expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('pending'));
+  });
+
+  it('/rotate-guardian renders RotateGuardian inside FullScreenPage', () => {
+    renderAt('/rotate-guardian', ready);
+    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('rotate-guardian'));
+  });
+
+  it('/rotate-guardian/review renders RotateGuardianReview inside FullScreenPage', () => {
+    renderAt('/rotate-guardian/review', ready);
+    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('rotate-guardian-review'));
   });
 
   it('/history-details/:transactionId passes the id into HistoryDetails', () => {

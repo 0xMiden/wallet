@@ -4,6 +4,7 @@
 
 ### Changes
 
+* [CHANGE][all] **Switching Guardian is now a dedicated two-step flow.** Guardian settings shows the active operator with a single "Rotate Guardian" action that opens a full-screen picker (`/rotate-guardian`) and a review screen (`/rotate-guardian/review`) summarising current → new operator, which keys sign, and what the old Guardian can no longer do; confirming hands off to the transaction-progress page instead of an in-place modal. Hot-key replacement navigates to the same progress page. Guardian sync now evicts a cached multisig service when the Guardian rejects our signer (401 / `authentication_failed` / `signer_not_authorized`), so a stale mid-rotation binding is rebuilt on the next tick instead of re-signing with it forever.
 * [CHANGE][all] **The Explore screen now shows only the two testnet faucets.** The curated Explore grid is trimmed to the existing Miden faucet plus a new "Forkchoice Faucet" tile (`faucets.forkchoice.xyz`), giving users two sources of testnet MIDEN; the other curated tiles (Zoro, Qash, Miden Name) are no longer shown in the grid.
 
 ## 1.15.11 (2026-07-26)

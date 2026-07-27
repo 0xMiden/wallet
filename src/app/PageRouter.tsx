@@ -29,6 +29,8 @@ import Browser from './pages/Browser';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
 import ResetRequired from './pages/ResetRequired';
+import RotateGuardian from './pages/RotateGuardian';
+import RotateGuardianReview from './pages/RotateGuardianReview';
 import TokenDetail from './pages/TokenDetail';
 import { resolveRootView } from './root-view';
 import { HistoryDetails } from './templates/history/HistoryDetails';
@@ -160,6 +162,22 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(() => (
       <FullScreenPage>
         <Pending />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/rotate-guardian',
+    onlyReady(() => (
+      <FullScreenPage>
+        <RotateGuardian />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/rotate-guardian/review',
+    onlyReady(() => (
+      <FullScreenPage>
+        <RotateGuardianReview />
       </FullScreenPage>
     ))
   ],

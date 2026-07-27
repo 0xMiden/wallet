@@ -11,7 +11,7 @@
  * All external collaborators are stubbed to keep tests hermetic.
  */
 
-import { MultisigService } from './index';
+import { isGuardianAuthRejection, MultisigService } from './index';
 
 const mockFetchFromStorage = jest.fn();
 jest.mock('../front/storage', () => ({
@@ -162,6 +162,26 @@ const makeMultisig = (overrides: Partial<Record<string, unknown>> = {}) => ({
   registerOnGuardian: jest.fn(async () => {}),
   guardianPublicKey: 'old-pubkey',
   ...overrides
+});
+
+describe('isGuardianAuthRejection', () => {
+  it('recognises a 401 status', () => {
+    expect(isGuardianAuthRejection(Object.assign(new Error('nope'), { status: 401 }))).toBe(true);
+  });
+
+  it('recognises the guardian auth error codes', () => {
+    expect(isGuardianAuthRejection({ code: 'authentication_failed' })).toBe(true);
+    expect(isGuardianAuthRejection({ code: 'signer_not_authorized' })).toBe(true);
+  });
+
+  it('rejects non-auth errors and non-objects', () => {
+    expect(isGuardianAuthRejection(Object.assign(new Error('boom'), { status: 500 }))).toBe(false);
+    expect(isGuardianAuthRejection({ code: 'conflict' })).toBe(false);
+    expect(isGuardianAuthRejection(new Error('plain'))).toBe(false);
+    expect(isGuardianAuthRejection('401')).toBe(false);
+    expect(isGuardianAuthRejection(null)).toBe(false);
+    expect(isGuardianAuthRejection(undefined)).toBe(false);
+  });
 });
 
 describe('MultisigService', () => {

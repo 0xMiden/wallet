@@ -627,6 +627,7 @@
   "biometricAttemptsRemaining": "$count$ attempt(s) remaining",
   "continueWithPassword": "Continue with Password",
   "tryBiometricAgain": "Try Biometric Again",
+  "faceId": "Face ID",
   "fingerprint": "Fingerprint",
   "cameraPermissionDenied": "Camera permission denied",
   "noQrCodeFound": "No QR code found",
