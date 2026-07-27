@@ -23,6 +23,18 @@ export interface IHistoryEntry {
   requestedAmount?: string;
   /** Swap only: requested-side token symbol. */
   requestedToken?: string;
+  /**
+   * Swap only: requested-side faucet id. A swap row appears in BOTH sides'
+   * token-scoped histories (see `matchesTokenId` in `lib/miden/transaction/get.ts`),
+   * so the row needs this to tell which side the scoped token is on.
+   */
+  requestedFaucetId?: string;
+  /**
+   * Swap only: settlement state of the order, driving the single swap row's
+   * status chip. Absent (rendered Confirmed) once settled, and for legacy /
+   * manual-claim orders.
+   */
+  swapSettlement?: 'pending' | 'reclaimed';
   secondaryAddress?: string;
   cancel?: () => Promise<void>;
   explorerLink?: string;

@@ -87,6 +87,8 @@ export interface ITransaction {
   secondaryAccountId?: string;
   faucetId?: string;
   noteId?: string;
+  /** All note ids for batch consume transactions (noteId is the first) */
+  noteIds?: string[];
   noteType?: NoteType;
   transactionId?: string;
   requestBytes?: Uint8Array;

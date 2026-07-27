@@ -3,7 +3,7 @@ import React from 'react';
 import { render } from '@testing-library/react';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import TransactionIcon from './TransactionIcon';
+import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
 import { isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
 
 // `app/icons/v2` is the real barrel that switches an `IconName` onto one of
@@ -26,13 +26,7 @@ jest.mock('app/icons/v2', () => ({
 jest.mock('./transactionUtils', () => ({
   __esModule: true,
   isFaucetRequest: jest.fn(() => false),
-  TRANSACTION_COLORS: {
-    send: '#91ACC1',
-    receive: '#99AC94',
-    faucet: '#891DB1',
-    failed: '#CC5D5D',
-    cancelled: '#9E9E9E'
-  }
+  TRANSACTION_COLORS: { send: '#91ACC1', receive: '#99AC94', faucet: '#891DB1' }
 }));
 
 const mockIsFaucetRequest = isFaucetRequest as jest.MockedFunction<typeof isFaucetRequest>;
@@ -123,38 +117,66 @@ describe('TransactionIcon', () => {
   });
 
   describe('failed / cancelled branch', () => {
-    it('renders the red cross circle for a FAILED transaction', () => {
-      const { container, getByTestId } = render(<TransactionIcon entry={makeEntry({ transactionIcon: 'FAILED' })} />);
-
-      const wrapper = root(container);
-      expect(wrapper).toHaveClass('w-8.5', 'h-8.5', 'rounded-full');
-      expect(wrapper).toHaveStyle({ backgroundColor: TRANSACTION_COLORS.failed });
-      expect(getByTestId('v2-icon')).toHaveAttribute('data-name', 'close');
-      expect(getByTestId('v2-icon')).toHaveAttribute('data-size', 'sm');
-    });
-
-    it('takes precedence over a faucet request', () => {
-      mockIsFaucetRequest.mockReturnValue(true);
+    it('renders the red rounded square + failed-cross glyph for a FAILED transaction', () => {
       const { container } = render(<TransactionIcon entry={makeEntry({ transactionIcon: 'FAILED' })} />);
 
-      expect(root(container)).toHaveStyle({ backgroundColor: TRANSACTION_COLORS.failed });
+      const wrapper = root(container);
+      expect(wrapper).toHaveClass('w-8.5', 'h-8.5', 'rounded-10', 'bg-[#CC5D5D]');
+      // The cross is the raw failed-cross SVG, not the Icon component.
+      expect(wrapper.querySelector('svg')).toHaveClass('w-3.5', 'h-3.5');
     });
 
-    it('renders the grey cross circle (lg Icon sizing) for a user-cancelled transaction', () => {
-      const { container, getByTestId } = render(
+    it('renders the grey rounded square (lg sizing) for a user-cancelled transaction', () => {
+      const { container } = render(
         <TransactionIcon entry={makeEntry({ transactionIcon: 'SEND', isCancelled: true })} size="lg" />
       );
 
-      expect(root(container)).toHaveStyle({ backgroundColor: TRANSACTION_COLORS.cancelled });
-      expect(getByTestId('v2-icon')).toHaveAttribute('data-size', 'lg');
+      const wrapper = root(container);
+      expect(wrapper).toHaveClass('w-18', 'h-18', 'rounded-10', 'bg-gray-400');
+      expect(wrapper.querySelector('svg')).toHaveClass('w-8', 'h-8');
     });
 
-    it('keeps the pending spinner for a cancelled row that is still processing', () => {
+    it('cancelled wins over a still-processing row', () => {
       const { container } = render(
         <TransactionIcon entry={makeEntry({ type: HistoryEntryType.PendingTransaction, isCancelled: true })} />
       );
 
-      expect(root(container).tagName.toLowerCase()).toBe('svg');
+      expect(root(container)).toHaveClass('bg-gray-400');
+    });
+
+    it('lets a faucet request keep its own glyph even when the row failed', () => {
+      mockIsFaucetRequest.mockReturnValue(true);
+      const { container } = render(<TransactionIcon entry={makeEntry({ transactionIcon: 'FAILED' })} />);
+
+      expect(root(container)).toHaveStyle({ backgroundColor: TRANSACTION_COLORS.faucet });
+    });
+  });
+
+  describe('getTransactionIconBackgroundColor', () => {
+    it('returns the grey accent for a cancelled row, ahead of every other branch', () => {
+      expect(getTransactionIconBackgroundColor(makeEntry({ transactionIcon: 'FAILED', isCancelled: true }))).toBe(
+        '#9E9E9E'
+      );
+    });
+
+    it('returns the red accent for a failed row', () => {
+      expect(getTransactionIconBackgroundColor(makeEntry({ transactionIcon: 'FAILED' }))).toBe('#CC5D5D');
+    });
+
+    it('returns the faucet accent for a faucet request', () => {
+      mockIsFaucetRequest.mockReturnValue(true);
+      expect(getTransactionIconBackgroundColor(makeEntry({ transactionIcon: 'SEND' }))).toBe(TRANSACTION_COLORS.faucet);
+    });
+
+    it.each([
+      ['SEND', TRANSACTION_COLORS.send],
+      ['SWAP', 'var(--tx-swap)'],
+      ['RECEIVE', TRANSACTION_COLORS.receive],
+      [undefined, TRANSACTION_COLORS.receive]
+    ])('maps transactionIcon %s to its accent', (icon, expected) => {
+      expect(
+        getTransactionIconBackgroundColor(makeEntry({ transactionIcon: icon as IHistoryEntry['transactionIcon'] }))
+      ).toBe(expected);
     });
   });
 

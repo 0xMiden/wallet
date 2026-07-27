@@ -683,6 +683,8 @@
   "amountFilled": "Filled",
   "trackingUnavailable": "Not available",
   "created": "Created",
+  "claimed": "Claimed",
+  "reclaimed": "Reclaimed",
   "confirmed": "Confirmed",
   "date": "Date",
   "details": "Details",

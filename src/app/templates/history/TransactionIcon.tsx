@@ -3,6 +3,7 @@ import React, { FC } from 'react';
 import { ReactComponent as FaucetIcon } from 'app/icons/faucet-new.svg';
 import { ReactComponent as PendingIcon } from 'app/icons/rotate.svg';
 import { Icon, IconName } from 'app/icons/v2';
+import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 
@@ -23,25 +24,40 @@ const sizeConfig = {
 
 const whiteIconClass = 'text-pure-white [&_path]:fill-pure-white';
 
+/** Shared accent used by both the transaction glyph and detail-section dividers. */
+export const getTransactionIconBackgroundColor = (entry: IHistoryEntry): string => {
+  if (entry.isCancelled) return '#9E9E9E';
+  if (entry.transactionIcon === 'FAILED') return '#CC5D5D';
+
+  if (isFaucetRequest(entry)) return TRANSACTION_COLORS.faucet;
+
+  switch (entry.transactionIcon) {
+    case 'SEND':
+      return TRANSACTION_COLORS.send;
+    case 'SWAP':
+      return 'var(--tx-swap)';
+    case 'RECEIVE':
+    default:
+      return TRANSACTION_COLORS.receive;
+  }
+};
+
 const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
   const config = sizeConfig[size];
   const isPending =
     entry.type === HistoryEntryType.PendingTransaction || entry.type === HistoryEntryType.ProcessingTransaction;
 
-  if (isPending) {
-    return <PendingIcon className={`${config.pending} animate-spin ${whiteIconClass}`} />;
-  }
-
   // Cancelled reads as a neutral grey cross; a genuine failure gets the red one.
-  if (entry.isCancelled || entry.transactionIcon === 'FAILED') {
+  if (entry.isCancelled) {
     return (
-      <div
-        className={`${config.container} flex items-center justify-center rounded-full`}
-        style={{ backgroundColor: entry.isCancelled ? TRANSACTION_COLORS.cancelled : TRANSACTION_COLORS.failed }}
-      >
-        <Icon name={IconName.Close} size={size === 'lg' ? 'lg' : 'sm'} fill="currentColor" className={whiteIconClass} />
+      <div className={`${config.container} rounded-10 flex items-center justify-center bg-gray-400`}>
+        <FailedCrossIcon className={config.sendIcon} />
       </div>
     );
+  }
+
+  if (isPending) {
+    return <PendingIcon className={`${config.pending} animate-spin ${whiteIconClass}`} />;
   }
 
   if (isFaucetRequest(entry)) {
@@ -56,6 +72,12 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
   }
 
   switch (entry.transactionIcon) {
+    case 'FAILED':
+      return (
+        <div className={`${config.container} rounded-10 flex items-center justify-center bg-[#CC5D5D]`}>
+          <FailedCrossIcon className={config.sendIcon} />
+        </div>
+      );
     case 'SEND':
       return (
         <div

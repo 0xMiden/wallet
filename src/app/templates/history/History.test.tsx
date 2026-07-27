@@ -15,6 +15,7 @@ import { HistoryEntryType } from './IHistoryEntry';
 const mockGetCompletedTransactions = jest.fn();
 const mockGetUncompletedTransactions = jest.fn();
 const mockCancelTransactionById = jest.fn().mockResolvedValue(undefined);
+const mockExistingTransactionIds = jest.fn();
 const mockGetTokenMetadata = jest.fn();
 const mockFormatAmount = jest.fn();
 const mockResolveSwapHistoryFields = jest.fn();
@@ -66,6 +67,7 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('lib/miden/activity', () => ({
   cancelTransactionById: (...args: unknown[]) => mockCancelTransactionById(...args),
+  existingTransactionIds: (...args: unknown[]) => mockExistingTransactionIds(...args),
   getCompletedTransactions: (...args: unknown[]) => mockGetCompletedTransactions(...args),
   getUncompletedTransactions: (...args: unknown[]) => mockGetUncompletedTransactions(...args),
   // Real (pure) implementations so the cancelled-row mapping is exercised
@@ -278,6 +280,7 @@ beforeEach(() => {
     (entry: any) => entry.faucetId === 'NATIVE' && entry.transactionIcon === 'RECEIVE'
   );
   mockFormatTransactionStatus.mockImplementation((s: number) => `status-${s}`);
+  mockExistingTransactionIds.mockImplementation(async (ids: string[]) => new Set(ids.filter(id => id === 'SW-KEEP')));
 });
 
 afterEach(() => cleanup());
@@ -547,5 +550,95 @@ describe('History', () => {
     const keys = mockUseRetryableSWR.mock.calls.map(c => c[0]);
     expect(keys).toContainEqual(['latest-transactions', '0xme', 'tok-9']);
     expect(keys).toContainEqual(['latest-pending-transactions', '0xme', 'tok-9']);
+  });
+  it('suppresses settlement consumes of a live swap row and derives the settlement chip', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'SW-KEEP',
+              status: STATUS.Completed,
+              displayMessage: 'swap',
+              displayIcon: 'SWAP',
+              faucetId: 'fa2',
+              type: 'swap',
+              amount: 5n,
+              completedAt: 5000,
+              extraInputs: { orderId: 6n, expiresAt: 1, settledAt: 42 }
+            },
+            // Settlement consume linked to the still-existing swap row → suppressed.
+            {
+              id: 'CONS-LINKED',
+              status: STATUS.Completed,
+              displayMessage: 'Received',
+              displayIcon: 'RECEIVE',
+              faucetId: 'fa1',
+              type: 'consume',
+              amount: 4n,
+              completedAt: 4100,
+              extraInputs: { swapOrderTxId: 'SW-KEEP' }
+            },
+            // Settlement consume for a swap row that no longer exists → shown as receive.
+            {
+              id: 'CONS-SWAP-GONE',
+              status: STATUS.Completed,
+              displayMessage: 'Received',
+              displayIcon: 'RECEIVE',
+              faucetId: 'fa1',
+              type: 'consume',
+              amount: 2n,
+              completedAt: 3800,
+              extraInputs: { swapOrderTxId: 'SW-GONE' }
+            },
+            {
+              id: 'SWAP-RECLAIMED',
+              status: STATUS.Completed,
+              displayMessage: 'swap',
+              displayIcon: 'SWAP',
+              faucetId: 'fa2',
+              type: 'swap',
+              amount: 5n,
+              completedAt: 3700,
+              extraInputs: { orderId: 7n, expiresAt: 1, reclaimedAt: 99 }
+            },
+            {
+              id: 'SWAP-PENDING',
+              status: STATUS.Completed,
+              displayMessage: 'swap',
+              displayIcon: 'SWAP',
+              faucetId: 'fa2',
+              type: 'swap',
+              amount: 5n,
+              completedAt: 3600,
+              extraInputs: { orderId: 8n, expiresAt: 1 }
+            },
+            // Manual-claim order: never auto-consumed, so no settlement chip.
+            {
+              id: 'SWAP-MANUAL',
+              status: STATUS.Completed,
+              displayMessage: 'swap',
+              displayIcon: 'SWAP',
+              faucetId: 'fa2',
+              type: 'swap',
+              amount: 5n,
+              completedAt: 3500,
+              extraInputs: { orderId: 9n, expiresAt: 1, autoConsume: false }
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries.length).toBeGreaterThan(0));
+
+    const byKey = (key: string) => mockHistoryViewProps.entries.find((e: any) => e.key === key);
+
+    expect(byKey('completed-CONS-LINKED')).toBeUndefined();
+    expect(byKey('completed-CONS-SWAP-GONE')).toBeDefined();
+    expect(byKey('completed-SW-KEEP')).toMatchObject({ swapSettlement: undefined });
+    expect(byKey('completed-SWAP-RECLAIMED')).toMatchObject({ swapSettlement: 'reclaimed' });
+    expect(byKey('completed-SWAP-PENDING')).toMatchObject({ swapSettlement: 'pending' });
+    expect(byKey('completed-SWAP-MANUAL')).toMatchObject({ swapSettlement: undefined });
   });
 });

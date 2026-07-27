@@ -375,8 +375,9 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   it('renders the failed-by-icon row with neutral amount and underscore address', () => {
     renderFull();
     const row = rowByTitle('Failed by icon');
-    expect(iconNameIn(row)).toBe('Close');
-    expect(row).toHaveAttribute('data-iconbg', 'bg-status-negative');
+    // Failed rows use the raw failed-cross SVG (not the Icon component).
+    expect(row.querySelector('svg')).not.toBeNull();
+    expect(row).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
     // Underscore address → slice(0,6)…slice(-7).
     expect(row).toHaveAttribute('data-subtitle', 'to: mtst1_…address');
     expect(row).toHaveAttribute('data-amount-value', '5');
@@ -388,7 +389,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   it('renders the failed-by-message row (no subtitle, no amount)', () => {
     renderFull();
     const row = rowByTitle('Transaction failed');
-    expect(iconNameIn(row)).toBe('Close');
+    expect(row.querySelector('svg')).not.toBeNull();
     expect(row).toHaveAttribute('data-subtitle', '');
     expect(row).toHaveAttribute('data-amount-value', '');
     expect(row).toHaveAttribute('data-status-tone', 'failed');
@@ -431,7 +432,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       expect(row).toHaveAttribute('data-iconbg', 'bg-gray-400');
       expect(row).toHaveAttribute('data-status-tone', 'cancelled');
       expect(row).toHaveAttribute('data-status-label', 'cancelled');
-      expect(iconNameIn(row)).toBe('Close');
+      expect(row.querySelector('svg')).not.toBeNull();
     }
     // The cancelled swap shows no requested-side amount.
     expect(rows[1]).toHaveAttribute('data-amount-value', '');
@@ -524,6 +525,99 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     renderFull();
     fireEvent.click(rowByTitle('Received'));
     expect(navigate).toHaveBeenCalledWith('/history-details/tx-receive');
+  });
+});
+
+describe('HistoryView token-scoped swap rows', () => {
+  const swapEntry = makeEntry({
+    key: 'swap-scoped',
+    transactionIcon: 'SWAP',
+    txType: 'swap',
+    token: 'MDN',
+    faucetId: 'offered-faucet',
+    requestedToken: 'ETH',
+    requestedFaucetId: 'requested-faucet',
+    requestedAmount: '0.5',
+    amount: 10n,
+    txId: 'tx-swap-scoped'
+  });
+
+  const renderScoped = (tokenId?: string) =>
+    render(<HistoryView {...baseProps} entries={[swapEntry]} fullHistory tokenId={tokenId} />);
+
+  it('signs the offered side negative on the offered token page', () => {
+    renderScoped('offered-faucet');
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-amount-value', '-10');
+    expect(row).toHaveAttribute('data-amount-symbol', 'MDN');
+    expect(row).toHaveAttribute('data-amount-direction', 'negative');
+  });
+
+  it('signs the requested side positive on the requested token page', () => {
+    renderScoped('requested-faucet');
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-amount-value', '+0.5');
+    expect(row).toHaveAttribute('data-amount-symbol', 'ETH');
+    expect(row).toHaveAttribute('data-amount-direction', 'positive');
+  });
+
+  it('keeps the unsigned requested side on the unscoped activity list', () => {
+    renderScoped(undefined);
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-amount-value', '0.5');
+    expect(row).toHaveAttribute('data-amount-direction', 'neutral');
+  });
+
+  it('falls back to the unscoped rendering when the token matches neither side', () => {
+    renderScoped('unrelated-faucet');
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-amount-value', '0.5');
+    expect(row).toHaveAttribute('data-amount-direction', 'neutral');
+  });
+
+  it('falls through when the scoped side has no amount to show', () => {
+    const noOffered = makeEntry({
+      key: 'swap-no-offered',
+      transactionIcon: 'SWAP',
+      txType: 'swap',
+      token: 'MDN',
+      faucetId: 'offered-faucet',
+      requestedToken: 'ETH',
+      requestedFaucetId: 'requested-faucet',
+      requestedAmount: '0.5',
+      amount: undefined,
+      txId: 'tx-swap-no-offered'
+    });
+    render(<HistoryView {...baseProps} entries={[noOffered]} fullHistory tokenId="offered-faucet" />);
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-amount-value', '0.5');
+    expect(row).toHaveAttribute('data-amount-direction', 'neutral');
+  });
+
+  it('shows a pending chip for a swap order awaiting settlement', () => {
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[makeEntry({ ...swapEntry, key: 'swap-pending', swapSettlement: 'pending' })]}
+        fullHistory
+      />
+    );
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-status-tone', 'pending');
+    expect(row).toHaveAttribute('data-status-label', 'pending');
+  });
+
+  it('shows a reclaimed chip for a swap order whose remainder came back', () => {
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[makeEntry({ ...swapEntry, key: 'swap-reclaimed', swapSettlement: 'reclaimed' })]}
+        fullHistory
+      />
+    );
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-status-tone', 'cancelled');
+    expect(row).toHaveAttribute('data-status-label', 'reclaimed');
   });
 });
 

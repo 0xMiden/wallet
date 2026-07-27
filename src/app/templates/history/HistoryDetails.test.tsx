@@ -18,6 +18,7 @@ let mockPrice = 2;
 // ---------------------------------------------------------------------------
 const mockGetTransactionById = jest.fn();
 const mockTrackOrderId = jest.fn();
+const mockGetSwapSettlementNotes = jest.fn();
 const mockGetTokenMetadata = jest.fn();
 const mockGetSwapTokenByFaucetId = jest.fn();
 const mockGoBack = jest.fn();
@@ -34,6 +35,7 @@ jest.mock('react-i18next', () => ({
 jest.mock('lib/miden/activity', () => ({
   getTransactionById: (...args: unknown[]) => mockGetTransactionById(...args),
   trackOrderId: (...args: unknown[]) => mockTrackOrderId(...args),
+  getSwapSettlementNotes: (...args: unknown[]) => mockGetSwapSettlementNotes(...args),
   cancelTransactionById: (...args: unknown[]) => mockCancelTransactionById(...args),
   requeueFailedTransaction: (...args: unknown[]) => mockRequeueFailedTransaction(...args),
   requestSWTransactionProcessing: (...args: unknown[]) => mockRequestSWTransactionProcessing(...args),
@@ -137,7 +139,8 @@ jest.mock('./DetailCard', () => ({
 
 jest.mock('./TransactionIcon', () => ({
   __esModule: true,
-  default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />
+  default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />,
+  getTransactionIconBackgroundColor: () => '#91ACC1'
 }));
 
 jest.mock('./transactionUtils', () => ({
@@ -189,8 +192,11 @@ const rowByLabel = (label: string) =>
 
 beforeEach(() => {
   jest.clearAllMocks();
-  jest.useFakeTimers();
+  // Keep IndexedDB/Dexie's scheduling primitives real so the global database
+  // cleanup hook can complete; only timer-based order polling needs faking.
+  jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
 
+  mockGetSwapSettlementNotes.mockResolvedValue({ settled: [], reclaimed: [] });
   mockAccount = { publicKey: 'acct-A', name: 'Mine' };
   mockAllAccounts = [{ publicKey: 'acct-B', name: 'Other' }];
   mockTokenPrices = { MID: { price: 2 } };
@@ -267,9 +273,8 @@ describe('HistoryDetails', () => {
       mockGetTransactionById.mockResolvedValue({ ...baseSendTx });
       await renderAndLoad();
 
-      // Amount + token from the top section.
-      expect(screen.getByText('1000')).toBeInTheDocument();
-      expect(screen.getByText('MID')).toBeInTheDocument();
+      // Amount + token now share the summary badge's left side.
+      expect(screen.getByText('1000 MID')).toBeInTheDocument();
       // Fiat: |1000| * price(2) => 2000.00.
       expect(screen.getByText('≈ $2000.00 USD')).toBeInTheDocument();
 
@@ -295,9 +300,13 @@ describe('HistoryDetails', () => {
       expect(toChip).toHaveAttribute('data-address', 'acct-B');
       expect(toChip).toHaveAttribute('data-displayname', 'you (Other)');
 
-      // Notes section: created count = outputNoteIds length; noteType truthy => 'on'.
+      // Notes section: created count = outputNoteIds length.
       expect(rowByLabel('created')?.textContent).toBe('1');
-      expect(rowByLabel('Note')?.textContent).toBe('on');
+
+      // Transfer details and Notes are separated using the transaction icon accent.
+      const dividers = screen.getAllByTestId('history-section-divider');
+      expect(dividers).toHaveLength(2);
+      dividers.forEach(divider => expect(divider).toHaveStyle({ backgroundColor: '#91ACC1' }));
 
       // Not a swap → no order-tracking card.
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
@@ -318,7 +327,6 @@ describe('HistoryDetails', () => {
         transactionId: undefined, // no external tx id row
         amount: 0n, // falsy → amount undefined → no amount span / no fiat
         faucetId: undefined, // no metadata → token undefined
-        noteType: undefined, // notes 'off' branch
         outputNoteIds: ['note-x'] // still has note data
       });
       await renderAndLoad();
@@ -334,15 +342,12 @@ describe('HistoryDetails', () => {
       expect(rowByLabel('txIdLabel')).toBeUndefined();
       // No amount span (amount undefined) → fiat also absent.
       expect(screen.queryByText('≈ $2000.00 USD')).not.toBeInTheDocument();
-      // noteType falsy → 'off'.
-      expect(rowByLabel('Note')?.textContent).toBe('off');
     });
 
     it('hides the notes section entirely when there is no note data', async () => {
       mockGetTransactionById.mockResolvedValue({ ...baseSendTx, outputNoteIds: undefined });
       await renderAndLoad();
       expect(rowByLabel('created')).toBeUndefined();
-      expect(rowByLabel('Note')).toBeUndefined();
     });
 
     it('treats a present-but-empty-first note id as note data via the outputNoteIds branch', async () => {
@@ -359,8 +364,8 @@ describe('HistoryDetails', () => {
       mockGetTransactionById.mockResolvedValue({ ...baseSendTx });
       await renderAndLoad();
 
-      // formatDisplayAmount('NaN') → non-finite → returns 'NaN' verbatim.
-      expect(screen.getByText('NaN')).toBeInTheDocument();
+      // The shared summary badge preserves the formatter's non-finite output.
+      expect(screen.getByText('NaN MID')).toBeInTheDocument();
       // formatFiatDisplayAmount → non-finite → undefined → no fiat line.
       expect(screen.queryByText(/USD/)).not.toBeInTheDocument();
     });
@@ -460,9 +465,9 @@ describe('HistoryDetails', () => {
       // First poll → active.
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusActive');
 
-      // Active schedules another poll at the base interval (3s).
+      // Active schedules another poll at the base interval (2s).
       await act(async () => {
-        jest.advanceTimersByTime(3000);
+        jest.advanceTimersByTime(2000);
       });
       await flush();
 
@@ -547,10 +552,134 @@ describe('HistoryDetails', () => {
       expect(mockTrackOrderId).not.toHaveBeenCalled();
     });
 
+    it('shows a polling indicator while refreshing an active order', async () => {
+      let resolveRefresh!: (tracking: {
+        orderId: string;
+        state: string;
+        currentDepth: number;
+        remainingOffered: bigint;
+        remainingRequested: bigint;
+      }) => void;
+      const refresh = new Promise(resolve => {
+        resolveRefresh = resolve;
+      });
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId
+        .mockResolvedValueOnce({
+          orderId: '10',
+          state: 'active',
+          currentDepth: 1,
+          remainingOffered: 0n,
+          remainingRequested: 700n
+        })
+        .mockReturnValueOnce(refresh);
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 10n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+      await renderAndLoad();
+
+      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusActive');
+      expect(screen.getByTestId('swap-order-polling')).toHaveTextContent('loading');
+
+      await act(async () => {
+        resolveRefresh({
+          orderId: '10',
+          state: 'filled',
+          currentDepth: 2,
+          remainingOffered: 0n,
+          remainingRequested: 0n
+        });
+        await Promise.resolve();
+      });
+
+      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
+    });
+
     it('handles a swap tx with entirely absent extraInputs', async () => {
       mockGetTransactionById.mockResolvedValue({ ...swapTx({}), extraInputs: undefined });
       await renderAndLoad();
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('swap settlement notes', () => {
+    const swapTx = (extra: Record<string, unknown>): Tx => ({
+      ...baseSendTx,
+      type: 'swap',
+      amount: undefined,
+      faucetId: 'faucet-1',
+      outputNoteIds: undefined,
+      transactionId: undefined,
+      extraInputs: extra
+    });
+
+    it('lists the notes the suppressed settlement consumes claimed', async () => {
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-a', 'note-b'], reclaimed: ['note-c'] });
+      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+
+      await renderAndLoad();
+
+      expect(mockGetSwapSettlementNotes).toHaveBeenCalledWith('tx-1');
+      expect(screen.getByTestId('swap-settled-notes').textContent).toBe('note-anote-b');
+      expect(screen.getByTestId('swap-reclaimed-notes').textContent).toBe('note-c');
+      // The card renders even though the swap itself created no output notes.
+      expect(rowByLabel('claimed')).toBeDefined();
+      expect(rowByLabel('reclaimed')).toBeDefined();
+    });
+
+    it('omits the reclaimed row when the order only settled', async () => {
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-a'], reclaimed: [] });
+      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-settled-notes').textContent).toBe('note-a');
+      expect(screen.queryByTestId('swap-reclaimed-notes')).not.toBeInTheDocument();
+      // Last row in the card is the claimed one.
+      expect(rowByLabel('claimed')?.getAttribute('data-islast')).toBe('true');
+    });
+
+    it('renders no settlement rows when nothing has settled yet', async () => {
+      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+
+      await renderAndLoad();
+
+      expect(screen.queryByTestId('swap-settled-notes')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('swap-reclaimed-notes')).not.toBeInTheDocument();
+    });
+
+    it('picks the notes up when settlement lands while the page is open', async () => {
+      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+      await renderAndLoad();
+      expect(screen.queryByTestId('swap-settled-notes')).not.toBeInTheDocument();
+
+      // Auto-consume completes after the page mounted.
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-late'], reclaimed: [] });
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      await flush();
+
+      expect(screen.getByTestId('swap-settled-notes').textContent).toBe('note-late');
+    });
+
+    it('does not poll for settlement notes on a swap with no order id', async () => {
+      mockGetTransactionById.mockResolvedValue(swapTx({ requestedFaucetId: 'req-faucet' }));
+      await renderAndLoad();
+      mockGetSwapSettlementNotes.mockClear();
+
+      await act(async () => {
+        jest.advanceTimersByTime(30_000);
+      });
+
+      expect(mockGetSwapSettlementNotes).not.toHaveBeenCalled();
     });
   });
 

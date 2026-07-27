@@ -5,8 +5,11 @@ import {
   hasQueuedTransactions,
   getTransactionsInProgress,
   getAllUncompletedTransactions,
+  getUncompletedTransactions,
   getFailedTransactions,
   getCompletedTransactions,
+  existingTransactionIds,
+  getSwapSettlementNotes,
   getTransactionById,
   cancelTransactionById,
   cancelTransaction,
@@ -168,6 +171,134 @@ describe('transactions utilities', () => {
       const result = await getCompletedTransactions('acc-1', undefined, undefined, true);
 
       expect(result).toHaveLength(2);
+    });
+  });
+
+  describe('token-scoped filtering (matchesTokenId)', () => {
+    it('matches a swap row on BOTH the offered and the requested faucet', async () => {
+      const txs = [
+        { id: 'plain', status: ITransactionStatus.Completed, accountId: 'acc-1', completedAt: 100, faucetId: 'tok-a' },
+        {
+          id: 'swap',
+          status: ITransactionStatus.Completed,
+          accountId: 'acc-1',
+          completedAt: 200,
+          type: 'swap',
+          faucetId: 'tok-a',
+          extraInputs: { requestedFaucetId: 'tok-b' }
+        },
+        { id: 'other', status: ITransactionStatus.Completed, accountId: 'acc-1', completedAt: 300, faucetId: 'tok-c' }
+      ];
+      mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce(txs) });
+
+      const offeredSide = await getCompletedTransactions('acc-1', undefined, undefined, false, 'tok-a');
+      expect(offeredSide.map(tx => tx.id)).toEqual(['plain', 'swap']);
+
+      mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce(txs) });
+      const requestedSide = await getCompletedTransactions('acc-1', undefined, undefined, false, 'tok-b');
+      expect(requestedSide.map(tx => tx.id)).toEqual(['swap']);
+    });
+
+    it('applies the same rule to the uncompleted list', async () => {
+      const txs = [
+        {
+          id: 'swap',
+          status: ITransactionStatus.Queued,
+          accountId: 'acc-1',
+          initiatedAt: 1,
+          type: 'swap',
+          faucetId: 'tok-a',
+          extraInputs: { requestedFaucetId: 'tok-b' }
+        },
+        { id: 'other', status: ITransactionStatus.Queued, accountId: 'acc-1', initiatedAt: 2, faucetId: 'tok-c' }
+      ];
+      mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce(txs) });
+
+      const result = await getUncompletedTransactions('acc-1', 'tok-b');
+      expect(result.map(tx => tx.id)).toEqual(['swap']);
+    });
+  });
+
+  describe('existingTransactionIds', () => {
+    it('returns an empty set without hitting the table for an empty / falsy id list', async () => {
+      await expect(existingTransactionIds([])).resolves.toEqual(new Set());
+      await expect(existingTransactionIds(['', ''])).resolves.toEqual(new Set());
+      expect(mockTransactionsWhere).not.toHaveBeenCalled();
+    });
+
+    it('dedupes the ids and returns the primary keys that exist', async () => {
+      const primaryKeys = jest.fn().mockResolvedValueOnce(['a']);
+      const anyOf = jest.fn().mockReturnValueOnce({ primaryKeys });
+      mockTransactionsWhere.mockReturnValueOnce({ anyOf });
+
+      const result = await existingTransactionIds(['a', 'a', 'b']);
+
+      expect(mockTransactionsWhere).toHaveBeenCalledWith('id');
+      expect(anyOf).toHaveBeenCalledWith(['a', 'b']);
+      expect(result).toEqual(new Set(['a']));
+    });
+  });
+
+  describe('getSwapSettlementNotes', () => {
+    const runFilter = (rows: unknown[]) => {
+      mockTransactionsFilter.mockImplementationOnce((predicate: (tx: unknown) => boolean) => ({
+        toArray: jest.fn().mockResolvedValue(rows.filter(predicate))
+      }));
+    };
+
+    it('splits payback claims from expiry reclaims and ignores unrelated rows', async () => {
+      runFilter([
+        {
+          type: 'consume',
+          status: ITransactionStatus.Completed,
+          noteIds: ['n1', 'n2'],
+          extraInputs: { swapOrderTxId: 'swap-1' }
+        },
+        {
+          type: 'consume',
+          status: ITransactionStatus.Completed,
+          noteId: 'n3',
+          extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim' }
+        },
+        // Same note twice → deduped.
+        {
+          type: 'consume',
+          status: ITransactionStatus.Completed,
+          noteIds: ['n1'],
+          extraInputs: { swapOrderTxId: 'swap-1' }
+        },
+        // No note ids at all → contributes nothing.
+        { type: 'consume', status: ITransactionStatus.Completed, extraInputs: { swapOrderTxId: 'swap-1' } },
+        // Wrong order / wrong status / wrong type → filtered out by the predicate.
+        {
+          type: 'consume',
+          status: ITransactionStatus.Completed,
+          noteIds: ['nx'],
+          extraInputs: { swapOrderTxId: 'swap-2' }
+        },
+        {
+          type: 'consume',
+          status: ITransactionStatus.Queued,
+          noteIds: ['ny'],
+          extraInputs: { swapOrderTxId: 'swap-1' }
+        },
+        {
+          type: 'send',
+          status: ITransactionStatus.Completed,
+          noteIds: ['nz'],
+          extraInputs: { swapOrderTxId: 'swap-1' }
+        }
+      ]);
+
+      await expect(getSwapSettlementNotes('swap-1')).resolves.toEqual({
+        settled: ['n1', 'n2'],
+        reclaimed: ['n3']
+      });
+    });
+
+    it('returns empty buckets when nothing settled the order', async () => {
+      runFilter([]);
+      await expect(getSwapSettlementNotes('swap-1')).resolves.toEqual({ settled: [], reclaimed: [] });
     });
   });
 

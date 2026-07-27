@@ -40,30 +40,44 @@ jest.mock('lib/miden/db/types', () => ({
   }
 }));
 
-// `lib/ui/DetailCard` is re-exported verbatim by the target module. Stub it with
-// identifiable markers so the `export { … } from` line is exercised in isolation
-// and we can assert the symbols pass straight through.
-jest.mock('lib/ui/DetailCard', () => ({
-  __esModule: true,
-  DetailCard: function MockDetailCard() {
-    return <div data-testid="lib-detail-card" />;
-  },
-  DetailRow: function MockDetailRow() {
-    return <div data-testid="lib-detail-row" />;
-  }
-}));
+describe('DetailCard and DetailRow', () => {
+  it('renders a compact pill title without a bordered card shell', () => {
+    const { container } = render(
+      <DetailCard title="Transfer Details">
+        <span>content</span>
+      </DetailCard>
+    );
 
-describe('DetailCard module re-exports', () => {
-  it('re-exports DetailCard and DetailRow from lib/ui/DetailCard', () => {
-    // The `export { DetailCard, DetailRow } from 'lib/ui/DetailCard'` line must
-    // pass the (mocked) symbols straight through.
-    expect(typeof DetailCard).toBe('function');
-    expect(typeof DetailRow).toBe('function');
+    const section = container.querySelector('section')!;
+    expect(section).toHaveClass('font-heading');
+    expect(section).not.toHaveClass('border', 'rounded-10', 'bg-white');
+    expect(screen.getByText('Transfer Details')).toHaveClass('inline-flex', 'rounded-full', 'bg-[#F1F1F1]');
+    expect(screen.getByText('content').parentElement).toHaveClass('mt-2');
+  });
 
-    render(<DetailCard>{null}</DetailCard>);
-    render(<DetailRow label="" />);
-    expect(screen.getByTestId('lib-detail-card')).toBeInTheDocument();
-    expect(screen.getByTestId('lib-detail-row')).toBeInTheDocument();
+  it('renders simple key/value rows with only an inter-row rule', () => {
+    const { container } = render(
+      <>
+        <DetailRow label="Date" value="20 Jan 2026" />
+        <DetailRow label="From" isLast>
+          <span>Account 1</span>
+        </DetailRow>
+      </>
+    );
+
+    const rows = Array.from(container.children) as HTMLElement[];
+    expect(rows[0]).toHaveClass('border-b', 'border-border-light', 'px-2', 'py-5');
+    expect(rows[1]).not.toHaveClass('border-b');
+    expect(screen.getByText('Date')).toHaveClass('font-semibold');
+    expect(screen.getByText('20 Jan 2026')).toHaveClass('text-right');
+    expect(screen.getByText('Account 1').parentElement).toHaveClass('justify-end', 'text-right');
+  });
+
+  it('supports the existing icon and badge row variants', () => {
+    render(<DetailRow label="Status" icon={<span data-testid="row-icon" />} badge="Active" isLast />);
+
+    expect(screen.getByTestId('row-icon')).toBeInTheDocument();
+    expect(screen.getByText('Active')).toHaveClass('rounded-full', 'bg-[#FFF3EB]');
   });
 });
 

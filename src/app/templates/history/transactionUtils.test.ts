@@ -78,7 +78,8 @@ describe('resolveSwapHistoryFields', () => {
       amount: 'fmt(100,8)',
       token: 'OFF',
       requestedAmount: 'fmt(250,6)',
-      requestedToken: 'REQ'
+      requestedToken: 'REQ',
+      requestedFaucetId: 'requested-faucet'
     });
     // Registry hit on both sides => wallet-metadata fallback never consulted.
     expect(mockGetTokenMetadata).not.toHaveBeenCalled();
@@ -103,7 +104,8 @@ describe('resolveSwapHistoryFields', () => {
       amount: undefined,
       token: 'NATIVE',
       requestedAmount: undefined,
-      requestedToken: 'NATIVE'
+      requestedToken: 'NATIVE',
+      requestedFaucetId: undefined
     });
     // Both faucet ids were undefined => coalesced to null for the metadata lookup.
     expect(mockGetTokenMetadata).toHaveBeenNthCalledWith(1, null);
@@ -129,7 +131,8 @@ describe('resolveSwapHistoryFields', () => {
       amount: undefined, // offered amount absent
       token: 'OFF',
       requestedAmount: 'fmt(7,2)',
-      requestedToken: 'WALLET'
+      requestedToken: 'WALLET',
+      requestedFaucetId: 'unknown-faucet'
     });
     // Only the requested side fell through to metadata, keyed by its faucet id.
     expect(mockGetTokenMetadata).toHaveBeenCalledTimes(1);
@@ -193,9 +196,7 @@ describe('TRANSACTION_COLORS', () => {
     expect(TRANSACTION_COLORS).toEqual({
       send: '#91ACC1',
       receive: '#99AC94',
-      faucet: '#891DB1',
-      failed: '#CC5D5D',
-      cancelled: '#9E9E9E'
+      faucet: '#891DB1'
     });
   });
 });

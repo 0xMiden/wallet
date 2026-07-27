@@ -10,6 +10,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
 import {
   cancelTransactionById,
+  getSwapSettlementNotes,
   getTransactionById,
   isRequeueableTransaction,
   isUserCancelledTransaction,
@@ -18,9 +19,10 @@ import {
   trackOrderId,
   SwapOrderState,
   SwapOrderTracking,
+  SwapSettlementNotes,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
-import { ITransactionStatus } from 'lib/miden/db/types';
+import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
@@ -31,12 +33,16 @@ import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { goBack, navigate } from 'lib/woozie';
+import {
+  TransactionSummaryBadge,
+  useTransactionSummaryBadgeContent
+} from 'screens/generating-transaction/TransactionSummaryBadge';
 
 import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
 import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
 import { IHistoryEntry } from './IHistoryEntry';
-import TransactionIcon from './TransactionIcon';
+import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
 import { formatDate } from './transactionUtils';
 
 interface HistoryDetailsProps {
@@ -58,6 +64,14 @@ interface RequestedTokenInfo {
 }
 
 const DISPLAY_DECIMAL_PLACES = 3;
+
+const SectionDivider: FC<{ color: string }> = ({ color }) => (
+  <div
+    data-testid="history-section-divider"
+    className="h-1 w-full shrink-0 rounded-full"
+    style={{ backgroundColor: color }}
+  />
+);
 
 function formatDisplayAmount(amount: string | number | bigint): string {
   const amountString = amount.toString();
@@ -86,6 +100,15 @@ function formatFiatDisplayAmount(
 
   return `≈ $${fiatAmount.toFixed(2)} USD`;
 }
+
+/** Right-aligned stack of trimmed, copyable note ids. */
+const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId }) => (
+  <div data-testid={testId} className="flex min-w-0 flex-col items-end gap-1">
+    {noteIds.map(noteId => (
+      <HashChip key={noteId} hash={noteId} trimHash fill="#9E9E9E" copyIcon={false} />
+    ))}
+  </div>
+);
 
 const AccountDisplay: FC<{
   address: string | undefined;
@@ -123,6 +146,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const account = useAccount();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
+  const [transaction, setTransaction] = useState<ITransaction | undefined>();
+  const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -137,6 +162,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
   const [swapTracking, setSwapTracking] = useState<SwapOrderTracking | null>(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
+  // Notes claimed by this order's settlement consumes. Those consume rows are
+  // suppressed in the history list (the swap row is the order's single trace),
+  // so this page is where their notes stay visible.
+  const [settlementNotes, setSettlementNotes] = useState<SwapSettlementNotes | null>(null);
   const loadTransaction = useCallback(async () => {
     try {
       setLoadError(null);
@@ -184,6 +213,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         }
       }
 
+      if (tx.type === 'swap') {
+        setSettlementNotes(await getSwapSettlementNotes(tx.id));
+      }
+
+      setTransaction(tx);
       setEntry(historyEntry);
     } catch (error) {
       console.error('[HistoryDetails] Failed to load transaction:', error);
@@ -232,7 +266,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // fetched via `trackOrderId`. Each poll takes the WASM client lock, so a
   // `null`/error result (not-yet-trackable or an order this client can't
   // resolve) backs off exponentially and gives up after a cap, rather than
-  // hammering the lock every 3s forever. A genuinely `active` order resets the
+  // hammering the lock every 2s forever. A genuinely `active` order resets the
   // backoff and keeps a steady watch at the base interval.
   useEffect(() => {
     if (orderId == null) return;
@@ -242,7 +276,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     const trackedOrderId = orderId;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const BASE_INTERVAL_MS = 3000;
+    const BASE_INTERVAL_MS = 2000;
     const MAX_INTERVAL_MS = 30_000;
     const MAX_UNRESOLVED_POLLS = 20;
     let unresolved = 0;
@@ -257,6 +291,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     };
 
     async function poll() {
+      if (cancelled) return;
+      setTrackingLoading(true);
       try {
         const result = await trackOrderId(trackedOrderId);
         if (cancelled) return;
@@ -278,7 +314,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       }
     }
 
-    setTrackingLoading(true);
     poll();
 
     return () => {
@@ -286,6 +321,44 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       if (timer) clearTimeout(timer);
     };
   }, [orderId]);
+
+  // Settlement can land while this page is open (auto-consume runs on its own
+  // 2s cycle), and the lineage poll above stops at a terminal state — usually
+  // just *before* the settlement consume completes. So watch for the notes
+  // separately: cheap Dexie-only reads, stopping as soon as any arrive and
+  // giving up after a cap so a manual-claim order doesn't poll forever.
+  const settlementFound = Boolean(
+    settlementNotes && (settlementNotes.settled.length || settlementNotes.reclaimed.length)
+  );
+  useEffect(() => {
+    if (orderId == null || settlementFound || !transaction) return;
+    const swapTxId = transaction.id;
+    const POLL_INTERVAL_MS = 2000;
+    const MAX_POLLS = 20;
+    let polls = 0;
+    let cancelled = false;
+
+    const timer = setInterval(async () => {
+      polls += 1;
+      if (polls > MAX_POLLS) {
+        clearInterval(timer);
+        return;
+      }
+      try {
+        const notes = await getSwapSettlementNotes(swapTxId);
+        if (!cancelled && (notes.settled.length > 0 || notes.reclaimed.length > 0)) {
+          setSettlementNotes(notes);
+        }
+      } catch (error) {
+        console.error('[HistoryDetails] Failed to read swap settlement notes:', error);
+      }
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [orderId, settlementFound, transaction]);
 
   const orderStatusLabel = (state: SwapOrderState): string => {
     switch (state) {
@@ -309,12 +382,29 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   const fromAddress = entry?.message === 'Sent' ? entry?.address : entry?.secondaryAddress;
   const toAddress = entry?.message === 'Sent' ? entry?.secondaryAddress : entry?.address;
-  const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
+  const settledNoteIds = settlementNotes?.settled ?? [];
+  const reclaimedNoteIds = settlementNotes?.reclaimed ?? [];
+  const hasNoteData =
+    entry?.noteId ||
+    (entry?.outputNoteIds && entry.outputNoteIds.length > 0) ||
+    settledNoteIds.length > 0 ||
+    reclaimedNoteIds.length > 0;
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
   const approximateUsdAmount =
     entry?.amount !== undefined && entry.token
       ? formatFiatDisplayAmount(entry.amount, entry.token, tokenPrices)
       : undefined;
+  // The shared badge resolves its own amounts from the raw tx; for the types
+  // whose hero already reads as "amount token → recipient" we override the left
+  // side with the formatted history amount so both views agree.
+  const historySummaryBadgeContent =
+    transactionSummaryBadgeContent && entry?.amount !== undefined && entry.token && entry.txType === 'send'
+      ? {
+          ...transactionSummaryBadgeContent,
+          lhs: `${formatDisplayAmount(entry.amount)} ${entry.token}`
+        }
+      : transactionSummaryBadgeContent;
+  const sectionDividerColor = entry ? getTransactionIconBackgroundColor(entry) : 'transparent';
   const isPending =
     entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
   // Retry only for failed types the wallet can safely replay (structural
@@ -340,12 +430,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             {/* Top Section */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
               <TransactionIcon entry={entry} size="lg" />
-              <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
-                {entry.amount !== undefined && (
-                  <span className="text-heading-gray">{formatDisplayAmount(entry.amount)}</span>
-                )}
-                {entry.token && <span className="text-text-muted">{entry.token}</span>}
-              </div>
+              {historySummaryBadgeContent ? (
+                <TransactionSummaryBadge {...historySummaryBadgeContent} className="mt-2" />
+              ) : (
+                <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
+                  {entry.amount !== undefined && (
+                    <span className="text-heading-gray">{formatDisplayAmount(entry.amount)}</span>
+                  )}
+                  {entry.token && <span className="text-text-muted">{entry.token}</span>}
+                </div>
+              )}
               {approximateUsdAmount && <p className="text-sm font-medium text-gray">{approximateUsdAmount}</p>}
               <div className="mt-2">
                 <StatusPill status={entry.status} isCancelled={entry.isCancelled} />
@@ -354,127 +448,172 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
             {/* Transfer Details */}
             <div className="mt-4">
-              <DetailCard title={t('transferDetails')}>
-                <DetailRow label={t('date')}>
-                  <span className="text-sm text-heading-gray font-medium">{formatDate(entry.timestamp)}</span>
-                </DetailRow>
-
-                {entry.externalTxId && (
-                  <DetailRow label={t('txIdLabel')}>
-                    <ExternalLinkValue
-                      displayValue={
-                        <HashChip hash={entry.externalTxId} trimHash fill="#9E9E9E" className="ml-2" copyIcon={false} />
-                      }
-                      href={`https://testnet.midenscan.com/tx/${entry.externalTxId}`}
-                    />
+              <SectionDivider color={sectionDividerColor} />
+              <div className="mt-5">
+                <DetailCard title={t('transferDetails')}>
+                  <DetailRow label={t('date')}>
+                    <span className="text-sm text-heading-gray font-medium">{formatDate(entry.timestamp)}</span>
                   </DetailRow>
-                )}
 
-                {fromAddress && (
-                  <DetailRow label={t('from')}>
-                    <ExternalLinkValue
-                      displayValue={
-                        <AccountDisplay address={fromAddress} account={account} allAccounts={allAccounts} />
-                      }
-                      href={`https://testnet.midenscan.com/account/${fromAddress}`}
-                    />
-                  </DetailRow>
-                )}
+                  {entry.externalTxId && (
+                    <DetailRow label={t('txIdLabel')}>
+                      <ExternalLinkValue
+                        displayValue={
+                          <HashChip
+                            hash={entry.externalTxId}
+                            trimHash
+                            fill="#9E9E9E"
+                            className="ml-2"
+                            copyIcon={false}
+                          />
+                        }
+                        href={`https://testnet.midenscan.com/tx/${entry.externalTxId}`}
+                      />
+                    </DetailRow>
+                  )}
 
-                {toAddress && (
-                  <DetailRow label={t('to')} isLast>
-                    <ExternalLinkValue
-                      displayValue={<AccountDisplay address={toAddress} account={account} allAccounts={allAccounts} />}
-                      href={`https://testnet.midenscan.com/account/${toAddress}`}
-                    />
-                  </DetailRow>
-                )}
-              </DetailCard>
+                  {fromAddress && (
+                    <DetailRow label={t('from')}>
+                      <ExternalLinkValue
+                        displayValue={
+                          <AccountDisplay address={fromAddress} account={account} allAccounts={allAccounts} />
+                        }
+                        href={`https://testnet.midenscan.com/account/${fromAddress}`}
+                      />
+                    </DetailRow>
+                  )}
+
+                  {toAddress && (
+                    <DetailRow label={t('to')} isLast>
+                      <ExternalLinkValue
+                        displayValue={
+                          <AccountDisplay address={toAddress} account={account} allAccounts={allAccounts} />
+                        }
+                        href={`https://testnet.midenscan.com/account/${toAddress}`}
+                      />
+                    </DetailRow>
+                  )}
+                </DetailCard>
+              </div>
             </div>
 
             {/* Failure reason (persisted on `tx.error` by cancelTransaction) */}
             {entry.status === ITransactionStatus.Failed && entry.errorMessage && (
               <div className="mt-6">
-                <DetailCard title={entry.isCancelled ? t('cancelled') : t('error')}>
-                  <p
-                    className={classNames(
-                      'px-4 py-3 text-sm font-medium break-words select-text',
-                      entry.isCancelled ? 'text-gray-500' : 'text-status-negative'
-                    )}
-                  >
-                    {entry.errorMessage}
-                  </p>
-                  {entry.rawErrorMessage && (
-                    <div className="px-4 pb-3">
-                      <button
-                        type="button"
-                        className="text-sm font-medium text-text-muted underline"
-                        onClick={() => {
-                          hapticLight();
-                          setShowFullError(v => !v);
-                        }}
-                      >
-                        {showFullError ? t('hideFullError') : t('showFullError')}
-                      </button>
-                      {showFullError && (
-                        <p className="mt-2 text-xs font-medium text-text-muted break-words select-text">
-                          {entry.rawErrorMessage}
-                        </p>
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailCard title={entry.isCancelled ? t('cancelled') : t('error')}>
+                    <p
+                      className={classNames(
+                        'px-4 py-3 text-sm font-medium wrap-break-word select-text',
+                        entry.isCancelled ? 'text-gray-500' : 'text-status-negative'
                       )}
-                    </div>
-                  )}
-                </DetailCard>
+                    >
+                      {entry.errorMessage}
+                    </p>
+                    {entry.rawErrorMessage && (
+                      <div className="px-4 pb-3">
+                        <button
+                          type="button"
+                          className="text-sm font-medium text-text-muted underline"
+                          onClick={() => {
+                            hapticLight();
+                            setShowFullError(v => !v);
+                          }}
+                        >
+                          {showFullError ? t('hideFullError') : t('showFullError')}
+                        </button>
+                        {showFullError && (
+                          <p className="mt-2 text-xs font-medium text-text-muted wrap-break-word select-text">
+                            {entry.rawErrorMessage}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </DetailCard>
+                </div>
               </div>
             )}
 
             {/* Swap order tracking */}
             {entry.txType === 'swap' && orderId != null && (
               <div className="mt-6" data-testid="swap-order-card">
-                <DetailCard title={t('orderTracking')}>
-                  <DetailRow label={t('orderStatus')} isLast={!swapTracking}>
-                    {swapTracking ? (
-                      <span data-testid="swap-order-status" className="text-sm text-heading-gray font-medium">
-                        {orderStatusLabel(swapTracking.state)}
-                      </span>
-                    ) : (
-                      <span className="text-sm text-text-muted font-medium">
-                        {trackingLoading ? t('loading') : t('trackingUnavailable')}
-                      </span>
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailCard title={t('orderTracking')}>
+                    <DetailRow label={t('orderStatus')} isLast={!swapTracking}>
+                      {swapTracking ? (
+                        <div className="flex items-center gap-2">
+                          <span data-testid="swap-order-status" className="text-sm text-heading-gray font-medium">
+                            {orderStatusLabel(swapTracking.state)}
+                          </span>
+                          {trackingLoading && (
+                            <span
+                              data-testid="swap-order-polling"
+                              className="flex items-center gap-1.5 text-xs font-medium text-text-muted"
+                            >
+                              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary-500" />
+                              {t('loading')}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span
+                          data-testid={trackingLoading ? 'swap-order-polling' : undefined}
+                          className="text-sm text-text-muted font-medium"
+                        >
+                          {trackingLoading ? t('loading') : t('trackingUnavailable')}
+                        </span>
+                      )}
+                    </DetailRow>
+                    {swapTracking && (
+                      <DetailRow label={t('fillRounds')} isLast={!requestedToken}>
+                        <span data-testid="swap-order-fill-rounds" className="text-sm text-heading-gray font-medium">
+                          {swapTracking.currentDepth}
+                        </span>
+                      </DetailRow>
                     )}
-                  </DetailRow>
-                  {swapTracking && (
-                    <DetailRow label={t('fillRounds')} isLast={!requestedToken}>
-                      <span data-testid="swap-order-fill-rounds" className="text-sm text-heading-gray font-medium">
-                        {swapTracking.currentDepth}
-                      </span>
-                    </DetailRow>
-                  )}
-                  {swapTracking && requestedToken && (
-                    <DetailRow label={t('amountFilled')} isLast>
-                      <span data-testid="swap-order-amount-filled" className="text-sm text-heading-gray font-medium">
-                        {formatAmount(filledRequested ?? 0n, requestedToken.decimals)} /{' '}
-                        {formatAmount(requestedToken.amount, requestedToken.decimals)}
-                        {requestedToken.symbol ? ` ${requestedToken.symbol}` : ''}
-                      </span>
-                    </DetailRow>
-                  )}
-                </DetailCard>
+                    {swapTracking && requestedToken && (
+                      <DetailRow label={t('amountFilled')} isLast>
+                        <span data-testid="swap-order-amount-filled" className="text-sm text-heading-gray font-medium">
+                          {formatAmount(filledRequested ?? 0n, requestedToken.decimals)} /{' '}
+                          {formatAmount(requestedToken.amount, requestedToken.decimals)}
+                          {requestedToken.symbol ? ` ${requestedToken.symbol}` : ''}
+                        </span>
+                      </DetailRow>
+                    )}
+                  </DetailCard>
+                </div>
               </div>
             )}
 
             {/* Notes */}
             {hasNoteData && (
               <div className="mt-6 mb-4">
-                <DetailCard title={t('notesSection')}>
-                  <DetailRow label={t('created')}>
-                    <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
-                  </DetailRow>
-                  <DetailRow label="Note" isLast>
-                    <span className={`text-sm font-medium ${entry.noteType ? 'text-[#E8913A]' : 'text-text-muted'}`}>
-                      {entry.noteType ? t('on') : t('off')}
-                    </span>
-                  </DetailRow>
-                </DetailCard>
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailCard title={t('notesSection')}>
+                    <DetailRow
+                      label={t('created')}
+                      isLast={settledNoteIds.length === 0 && reclaimedNoteIds.length === 0}
+                    >
+                      <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
+                    </DetailRow>
+
+                    {/* Swap settlement: the notes the suppressed consume rows claimed. */}
+                    {settledNoteIds.length > 0 && (
+                      <DetailRow label={t('claimed')} isLast={reclaimedNoteIds.length === 0}>
+                        <NoteIdList noteIds={settledNoteIds} testId="swap-settled-notes" />
+                      </DetailRow>
+                    )}
+
+                    {reclaimedNoteIds.length > 0 && (
+                      <DetailRow label={t('reclaimed')} isLast>
+                        <NoteIdList noteIds={reclaimedNoteIds} testId="swap-reclaimed-notes" />
+                      </DetailRow>
+                    )}
+                  </DetailCard>
+                </div>
               </div>
             )}
           </div>

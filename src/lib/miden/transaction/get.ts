@@ -3,8 +3,18 @@ import { PswapLineageState } from '@miden-sdk/miden-sdk/lazy';
 import * as Repo from 'lib/miden/repo';
 
 import { compareAccountIds } from '../activity/utils';
-import { ITransactionStatus, Transaction } from '../db/types';
+import { ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+
+/**
+ * Token-scoped history filter. A swap row belongs to BOTH sides' token views:
+ * it is filed under the offered `faucetId`, but it also delivers the requested
+ * faucet — and the consume that settles that delivery is suppressed in history
+ * (the swap row is the order's single trace), so without the requested-side
+ * match the received funds would appear in no row of that token's history.
+ */
+const matchesTokenId = (tx: ITransaction, tokenId: string): boolean =>
+  tx.faucetId === tokenId || (tx.type === 'swap' && tx.extraInputs?.requestedFaucetId === tokenId);
 
 export const hasQueuedTransactions = async () => {
   const tx = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
@@ -21,7 +31,7 @@ const getTransactionsInStatuses = async (statuses: ITransactionStatus[], account
   txs.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt);
   txs = txs.filter(tx => compareAccountIds(tx.accountId, accountId));
   if (tokenId) {
-    txs = txs.filter(tx => tx.faucetId === tokenId);
+    txs = txs.filter(tx => matchesTokenId(tx, tokenId));
   }
 
   return txs;
@@ -63,7 +73,7 @@ export const getCompletedTransactions = async (
   // Compare ignoring note tag suffix since stored vs queried account IDs may differ
   transactions = transactions.filter(tx => compareAccountIds(tx.accountId, accountId));
   if (tokenId) {
-    transactions = transactions.filter(tx => tx.faucetId === tokenId);
+    transactions = transactions.filter(tx => matchesTokenId(tx, tokenId));
   }
   return transactions.slice(offset, limit);
 };
@@ -72,6 +82,54 @@ export const getTransactionById = async (id: string) => {
   const tx = await Repo.transactions.where({ id }).first();
   if (!tx) throw new Error('Transaction not found');
   return tx;
+};
+
+/** Which of the given transaction ids exist as rows in the transactions table. */
+export async function existingTransactionIds(ids: string[]): Promise<Set<string>> {
+  const unique = [...new Set(ids)].filter(Boolean);
+  if (unique.length === 0) return new Set();
+  const rows = await Repo.transactions.where('id').anyOf(unique).primaryKeys();
+  return new Set(rows);
+}
+
+/** Notes a swap order settled, grouped by how the settlement consume claimed them. */
+export interface SwapSettlementNotes {
+  /** Payback notes claimed on a fill — the requested funds arriving. */
+  settled: string[];
+  /** Remainder notes reclaimed after expiry — the unfilled tip coming back. */
+  reclaimed: string[];
+}
+
+/**
+ * Note ids claimed by the settlement consumes belonging to a swap order.
+ *
+ * Those consume rows are suppressed in the history list (`suppressLinkedConsumes`
+ * in `History.tsx`) so the order reads as a single swap row — which would
+ * otherwise make their notes invisible. The detail page surfaces them here
+ * instead. Rows are linked by `extraInputs.swapOrderTxId`, tagged at queue time
+ * by `reconcileSwapOrderNotes`; `swapSettleKind` splits payback claims from
+ * expiry reclaims. Only completed consumes count — a queued or failed one has
+ * claimed nothing yet.
+ */
+export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSettlementNotes> => {
+  const consumes = await Repo.transactions
+    .filter(
+      tx =>
+        tx.type === 'consume' &&
+        tx.status === ITransactionStatus.Completed &&
+        tx.extraInputs?.swapOrderTxId === swapTxId
+    )
+    .toArray();
+
+  const settled = new Set<string>();
+  const reclaimed = new Set<string>();
+  for (const tx of consumes) {
+    const noteIds = tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []);
+    const bucket = tx.extraInputs?.swapSettleKind === 'reclaim' ? reclaimed : settled;
+    for (const noteId of noteIds) bucket.add(noteId);
+  }
+
+  return { settled: [...settled], reclaimed: [...reclaimed] };
 };
 
 /**

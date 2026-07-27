@@ -22,6 +22,8 @@ export interface SwapHistoryFields {
   /** Requested side — what the activity row shows on the right. */
   requestedAmount?: string;
   requestedToken?: string;
+  /** Requested-side faucet, so a token-scoped view can tell which side it is. */
+  requestedFaucetId?: string;
 }
 
 /**
@@ -41,7 +43,8 @@ export const resolveSwapHistoryFields = async (tx: ITransaction): Promise<SwapHi
     token: offered.symbol,
     requestedAmount:
       extra.requestedAmount !== undefined ? formatAmount(extra.requestedAmount, requested.decimals) : undefined,
-    requestedToken: requested.symbol
+    requestedToken: requested.symbol,
+    requestedFaucetId: extra.requestedFaucetId
   };
 };
 
@@ -60,9 +63,7 @@ export const fontColorForType = (type: ITransactionType): string => {
 export const TRANSACTION_COLORS = {
   send: '#91ACC1',
   receive: '#99AC94',
-  faucet: '#891DB1',
-  failed: '#CC5D5D',
-  cancelled: '#9E9E9E'
+  faucet: '#891DB1'
 } as const;
 
 export const formatDate = (timestamp: number | string): string => {
