@@ -137,6 +137,18 @@
     "message": "Cancelar",
     "englishSource": "Cancel"
   },
+  "cancelled": {
+    "message": "Cancelado",
+    "englishSource": "Cancelled"
+  },
+  "showFullError": {
+    "message": "Mostrar erro completo",
+    "englishSource": "Show full error"
+  },
+  "hideFullError": {
+    "message": "Ocultar erro completo",
+    "englishSource": "Hide full error"
+  },
   "faucet": {
     "message": "<xid=\"0\"/>",
     "englishSource": "Faucet"

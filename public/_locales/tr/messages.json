@@ -137,6 +137,18 @@
     "message": "İptal",
     "englishSource": "Cancel"
   },
+  "cancelled": {
+    "message": "İptal edildi",
+    "englishSource": "Cancelled"
+  },
+  "showFullError": {
+    "message": "Tam hatayı göster",
+    "englishSource": "Show full error"
+  },
+  "hideFullError": {
+    "message": "Tam hatayı gizle",
+    "englishSource": "Hide full error"
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"

@@ -137,6 +137,18 @@
     "message": "Annuler",
     "englishSource": "Cancel"
   },
+  "cancelled": {
+    "message": "Annulé",
+    "englishSource": "Cancelled"
+  },
+  "showFullError": {
+    "message": "Afficher l'erreur complète",
+    "englishSource": "Show full error"
+  },
+  "hideFullError": {
+    "message": "Masquer l'erreur complète",
+    "englishSource": "Hide full error"
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"
