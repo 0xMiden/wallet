@@ -199,13 +199,20 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   // TODO: track the created PSWAP note + payback note for richer activity
   // display (offered/requested asset breakdown). For now record the tx as
   // Completed with the output note ids so the swap shows up in history.
+  const completedAt = Math.floor(Date.now() / 1000); // seconds
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
     displayMessage: 'Swapped',
     transactionId: executedTx.id().toHex(),
     outputNoteIds: [outputNote.id().toString()],
-    completedAt: Math.floor(Date.now() / 1000), // seconds
+    completedAt,
     resultBytes: result.serialize(),
-    extraInputs: { ...tx.extraInputs, orderId }
+    // Stamp the absolute expiry so `reconcileSwapOrderNotes` can expiry-reclaim
+    // the unfilled remainder of a partial fill. This is load-bearing: the
+    // reconcile gate requires an explicit `expiresAt` (no fallback since the
+    // "explicit expiry" review change), and an earlier hot-key-rotation commit
+    // accidentally reverted this stamp — leaving `expiresAt` undefined so active
+    // orders were never reclaimed (swap-partial-fill lineage stuck `active`).
+    extraInputs: { ...tx.extraInputs, orderId, expiresAt: completedAt + (tx.extraInputs.expirySeconds ?? 120) }
   });
 };
 

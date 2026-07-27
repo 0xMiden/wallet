@@ -772,3 +772,58 @@ describe('initiateConsumeTransaction reuse path', () => {
     });
   });
 });
+
+describe('completeSwapTransaction', () => {
+  // Regression guard: the maker-side expiry reclaim (reconcileSwapOrderNotes)
+  // gates on `extraInputs.expiresAt`, so completion MUST stamp it. A hot-key
+  // commit once accidentally reverted this stamp, leaving `expiresAt` undefined
+  // → partially-filled orders were never reclaimed (swap-partial-fill e2e stuck
+  // `active`). settlement.test.ts hand-sets expiresAt on its mocks, so only a
+  // test on completion itself catches the missing stamp.
+  const swapResult = () => {
+    const outputNote = {
+      id: () => ({ toString: () => 'out-note-1' }),
+      intoFull: () => ({
+        recipient: () => ({ serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] }) })
+      })
+    };
+    return {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'swap-hash' }),
+        outputNotes: () => ({ notes: () => [outputNote] })
+      }),
+      serialize: () => new Uint8Array()
+    } as any;
+  };
+
+  it('stamps an absolute expiresAt (completedAt + expirySeconds) so the remainder can be reclaimed', async () => {
+    txStore.push({
+      id: 'swap-1',
+      type: 'swap',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { expirySeconds: 100, requestedFaucetId: 'f', requestedAmount: 1n }
+    });
+    const { completeSwapTransaction } = require('./index');
+    await completeSwapTransaction(
+      txStore.find(t => t.id === 'swap-1'),
+      swapResult()
+    );
+
+    const row = txStore.find(t => t.id === 'swap-1')!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+  });
+
+  it('defaults expirySeconds to 120 when absent', async () => {
+    txStore.push({ id: 'swap-2', type: 'swap', status: ITransactionStatus.GeneratingTransaction, extraInputs: {} });
+    const { completeSwapTransaction } = require('./index');
+    await completeSwapTransaction(
+      txStore.find(t => t.id === 'swap-2'),
+      swapResult()
+    );
+
+    const row = txStore.find(t => t.id === 'swap-2')!;
+    expect(row.extraInputs.expiresAt).toBe(row.completedAt + 120);
+  });
+});
