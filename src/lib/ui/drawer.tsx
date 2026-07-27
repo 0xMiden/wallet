@@ -6,7 +6,7 @@ import { Drawer as VaulDrawer } from 'vaul';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
-import { isMobile } from 'lib/platform';
+import { isExtension } from 'lib/platform';
 
 import { cn } from './util';
 
@@ -29,7 +29,7 @@ function Drawer({ open = false, onOpenChange, children }: DrawerProps) {
   useHideNavbarWhileOpen(open);
   return (
     <DrawerContext.Provider value={{ open, onClose }}>
-      <VaulDrawer.Root open={open} onOpenChange={onOpenChange} shouldScaleBackground={isMobile()} direction="bottom">
+      <VaulDrawer.Root open={open} onOpenChange={onOpenChange} shouldScaleBackground={isExtension()} direction="bottom">
         {children}
       </VaulDrawer.Root>
     </DrawerContext.Provider>
