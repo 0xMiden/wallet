@@ -4,6 +4,7 @@
 
 ### Changes
 
+* [CHANGE][all] **A recovered Guardian account now rotates its device key automatically behind a full-screen blocking overlay.** Accounts adopted via seed-phrase recovery (or migrated on unlock) have no usable local hot key, so the wallet auto-initiates the rotation and blocks all wallet interaction until it lands, with an inline retry on failure. Completion also re-registers the POST-rotation signer set on the guardian, fixing a bug where the guardian kept the old hot key in its cosigner allowlist and every request signed by the new key failed with a permanent 401 ("session expired").
 * [CHANGE][all] **The Explore screen now shows only the two testnet faucets.** The curated Explore grid is trimmed to the existing Miden faucet plus a new "Forkchoice Faucet" tile (`faucets.forkchoice.xyz`), giving users two sources of testnet MIDEN; the other curated tiles (Zoro, Qash, Miden Name) are no longer shown in the grid.
 
 ## 1.15.11 (2026-07-26)

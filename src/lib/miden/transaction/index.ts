@@ -644,8 +644,7 @@ const generateGuardianTransaction = async (
       await completeReplaceHotKeyTransaction(
         transaction as ReplaceHotKeyTransaction,
         transactionResult,
-        guardianProvider,
-        service
+        guardianProvider
       );
       break;
     case 'update-procedure-threshold':
