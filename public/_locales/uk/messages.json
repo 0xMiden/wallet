@@ -137,6 +137,18 @@
     "message": "Відмінити",
     "englishSource": "Cancel"
   },
+  "cancelled": {
+    "message": "Скасовано",
+    "englishSource": "Cancelled"
+  },
+  "showFullError": {
+    "message": "Показати повну помилку",
+    "englishSource": "Show full error"
+  },
+  "hideFullError": {
+    "message": "Приховати повну помилку",
+    "englishSource": "Hide full error"
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"

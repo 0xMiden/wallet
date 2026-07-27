@@ -137,6 +137,18 @@
     "message": "キャンセル",
     "englishSource": "Cancel"
   },
+  "cancelled": {
+    "message": "キャンセル",
+    "englishSource": "Cancelled"
+  },
+  "showFullError": {
+    "message": "エラー全体を表示",
+    "englishSource": "Show full error"
+  },
+  "hideFullError": {
+    "message": "エラー全体を非表示にする",
+    "englishSource": "Hide full error"
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"

@@ -137,6 +137,18 @@
     "message": "취소",
     "englishSource": "Cancel"
   },
+  "cancelled": {
+    "message": "취소",
+    "englishSource": "Cancelled"
+  },
+  "showFullError": {
+    "message": "전체 오류 표시",
+    "englishSource": "Show full error"
+  },
+  "hideFullError": {
+    "message": "전체 오류 숨기기",
+    "englishSource": "Hide full error"
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"

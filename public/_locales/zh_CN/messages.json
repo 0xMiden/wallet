@@ -137,6 +137,18 @@
     "message": "取消",
     "englishSource": "Cancel"
   },
+  "cancelled": {
+    "message": "取消",
+    "englishSource": "Cancelled"
+  },
+  "showFullError": {
+    "message": "显示完整错误",
+    "englishSource": "Show full error"
+  },
+  "hideFullError": {
+    "message": "隐藏完整错误",
+    "englishSource": "Hide full error"
+  },
   "faucet": {
     "message": "龙头",
     "englishSource": "Faucet"

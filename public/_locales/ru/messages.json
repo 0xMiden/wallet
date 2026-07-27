@@ -137,6 +137,18 @@
     "message": "Отмена",
     "englishSource": "Cancel"
   },
+  "cancelled": {
+    "message": "Отменено",
+    "englishSource": "Cancelled"
+  },
+  "showFullError": {
+    "message": "Показать полную ошибку",
+    "englishSource": "Show full error"
+  },
+  "hideFullError": {
+    "message": "Скрыть полную ошибку",
+    "englishSource": "Hide full error"
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"
