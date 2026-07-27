@@ -3069,6 +3069,18 @@
     "message": "Fracassado",
     "englishSource": "Failed"
   },
+  "reclaimFunds": {
+    "message": "Recuperar fundos",
+    "englishSource": "Reclaim funds"
+  },
+  "reclaiming": {
+    "message": "Recuperando…",
+    "englishSource": "Reclaiming…"
+  },
+  "reclaimableAfterBlock": {
+    "message": "Fundos recuperáveis ​​após bloqueio",
+    "englishSource": "Funds reclaimable after block"
+  },
   "receivingTx": {
     "message": "Recebendo Tx",
     "englishSource": "Receiving Tx"

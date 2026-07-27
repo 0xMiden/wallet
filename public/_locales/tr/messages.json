@@ -3080,6 +3080,18 @@
     "message": "Arızalı",
     "englishSource": "Failed"
   },
+  "reclaimFunds": {
+    "message": "Fonları geri alın",
+    "englishSource": "Reclaim funds"
+  },
+  "reclaiming": {
+    "message": "Geri alınıyor…",
+    "englishSource": "Reclaiming…"
+  },
+  "reclaimableAfterBlock": {
+    "message": "Blokajdan sonra geri alınabilecek fonlar",
+    "englishSource": "Funds reclaimable after block"
+  },
   "receivingTx": {
     "message": "Tx alma",
     "englishSource": "Receiving Tx"

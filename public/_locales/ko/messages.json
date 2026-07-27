@@ -3089,6 +3089,18 @@
     "message": "실패한",
     "englishSource": "Failed"
   },
+  "reclaimFunds": {
+    "message": "자금 회수",
+    "englishSource": "Reclaim funds"
+  },
+  "reclaiming": {
+    "message": "회수 중…",
+    "englishSource": "Reclaiming…"
+  },
+  "reclaimableAfterBlock": {
+    "message": "차단 후 회수 가능한 자금",
+    "englishSource": "Funds reclaimable after block"
+  },
   "receivingTx": {
     "message": "송신 수신",
     "englishSource": "Receiving Tx"

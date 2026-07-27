@@ -3090,6 +3090,18 @@
     "message": "Не вдалося",
     "englishSource": "Failed"
   },
+  "reclaimFunds": {
+    "message": "Повернути кошти",
+    "englishSource": "Reclaim funds"
+  },
+  "reclaiming": {
+    "message": "Відновлення…",
+    "englishSource": "Reclaiming…"
+  },
+  "reclaimableAfterBlock": {
+    "message": "Кошти повертаються після блокування",
+    "englishSource": "Funds reclaimable after block"
+  },
   "receivingTx": {
     "message": "Отримання Tx",
     "englishSource": "Receiving Tx"

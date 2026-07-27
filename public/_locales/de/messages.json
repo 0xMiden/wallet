@@ -3080,6 +3080,18 @@
     "message": "Fehlgeschlagen",
     "englishSource": "Failed"
   },
+  "reclaimFunds": {
+    "message": "Gelder zurückfordern",
+    "englishSource": "Reclaim funds"
+  },
+  "reclaiming": {
+    "message": "Zurückgewinnen…",
+    "englishSource": "Reclaiming…"
+  },
+  "reclaimableAfterBlock": {
+    "message": "Nach der Sperrung rückforderbare Mittel",
+    "englishSource": "Funds reclaimable after block"
+  },
   "receivingTx": {
     "message": "Empfang von Tx",
     "englishSource": "Receiving Tx"

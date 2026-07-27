@@ -3080,6 +3080,18 @@
     "message": "失敗した",
     "englishSource": "Failed"
   },
+  "reclaimFunds": {
+    "message": "資金を回収する",
+    "englishSource": "Reclaim funds"
+  },
+  "reclaiming": {
+    "message": "回収中…",
+    "englishSource": "Reclaiming…"
+  },
+  "reclaimableAfterBlock": {
+    "message": "ブロック後に資金を回収可能",
+    "englishSource": "Funds reclaimable after block"
+  },
   "receivingTx": {
     "message": "Txを受信中",
     "englishSource": "Receiving Tx"

@@ -3063,6 +3063,18 @@
     "message": "Failed",
     "englishSource": "Failed"
   },
+  "reclaimFunds": {
+    "message": "Reclaim funds",
+    "englishSource": "Reclaim funds"
+  },
+  "reclaiming": {
+    "message": "Reclaiming…",
+    "englishSource": "Reclaiming…"
+  },
+  "reclaimableAfterBlock": {
+    "message": "Funds reclaimable after block",
+    "englishSource": "Funds reclaimable after block"
+  },
   "receivingTx": {
     "message": "Receiving Tx",
     "englishSource": "Receiving Tx"

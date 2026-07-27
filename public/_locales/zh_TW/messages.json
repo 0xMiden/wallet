@@ -3089,6 +3089,18 @@
     "message": "失败的",
     "englishSource": "Failed"
   },
+  "reclaimFunds": {
+    "message": "收回资金",
+    "englishSource": "Reclaim funds"
+  },
+  "reclaiming": {
+    "message": "回收…",
+    "englishSource": "Reclaiming…"
+  },
+  "reclaimableAfterBlock": {
+    "message": "区块后可收回资金",
+    "englishSource": "Funds reclaimable after block"
+  },
   "receivingTx": {
     "message": "接收发送",
     "englishSource": "Receiving Tx"

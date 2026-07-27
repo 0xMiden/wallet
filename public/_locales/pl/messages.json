@@ -3027,6 +3027,18 @@
     "message": "Przegrany",
     "englishSource": "Failed"
   },
+  "reclaimFunds": {
+    "message": "Odzyskaj środki",
+    "englishSource": "Reclaim funds"
+  },
+  "reclaiming": {
+    "message": "Odzyskiwanie…",
+    "englishSource": "Reclaiming…"
+  },
+  "reclaimableAfterBlock": {
+    "message": "Możliwość odzyskania środków po zablokowaniu",
+    "englishSource": "Funds reclaimable after block"
+  },
   "receivingTx": {
     "message": "Odbieranie Tx",
     "englishSource": "Receiving Tx"
