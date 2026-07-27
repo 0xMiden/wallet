@@ -1,7 +1,7 @@
 import { CollateralType } from '@epoch-protocol/epoch-intents-sdk';
 import { formatUnits } from 'viem';
 
-import { updateBridgeClaimStatus } from 'lib/miden/activity';
+import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
 
 import { buildCrossChainIntent, getCrossChainQuote } from './bridge';
 import {
@@ -175,6 +175,14 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
     }
   });
   if (intent.error) {
+    // The `createMidenP2IDNote` callback already committed the P2IDE note and the
+    // send pipeline marked its `bridged-send` row Completed / 'Bridged to EVM'
+    // BEFORE the allocator rejected the intent here. Demote that false success to
+    // Failed so the user isn't told the bridge succeeded while their funds sit in
+    // an unconsumed, recallable note.
+    if (bridgeTxId) {
+      await markBridgedSendFailed(bridgeTxId, intent.error);
+    }
     throw new Error(intent.error);
   }
 
@@ -236,9 +244,14 @@ export async function pollEpochIntentFill(args: {
     const results = await sdk.getIntentStatus(args.destinationAddress, args.intentNonce);
     if (!results || results.length === 0) return { status: 'pending' };
 
+    // Only the destination (Sepolia) leg decides the fill. Falling back to an
+    // arbitrary last entry would let a done status on the Miden *source* leg flip
+    // the row to Confirmed before the EVM leg settles — and surface a non-Sepolia
+    // tx hash under a sepolia.etherscan.io link. When no destination entry exists
+    // yet, stay pending.
     const onDest = results.find(r => r.chainId === EPOCH_DESTINATION_CHAIN_ID);
-    const fill = onDest ?? results[results.length - 1]!;
-    const normalized = (fill.status ?? '').toLowerCase();
+    if (!onDest) return { status: 'pending' };
+    const normalized = (onDest.status ?? '').toLowerCase();
 
     let status: EpochIntentFill['status'] = 'pending';
     if (EPOCH_DONE_STATUSES.has(normalized)) status = 'confirmed';
@@ -246,8 +259,8 @@ export async function pollEpochIntentFill(args: {
 
     return {
       status,
-      fillTxHash: fill.transactionHash || undefined,
-      fillChainId: fill.chainId
+      fillTxHash: onDest.transactionHash || undefined,
+      fillChainId: onDest.chainId
     };
   } catch (err) {
     console.error('[epoch] pollEpochIntentFill failed', err);

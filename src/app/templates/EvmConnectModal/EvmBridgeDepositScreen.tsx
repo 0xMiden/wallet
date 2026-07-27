@@ -245,14 +245,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
     };
   }, [evmAddress]);
 
-  useEffect(() => {
-    if (route !== 'epoch' || token !== 'USDC') return;
-    if (!debouncedAmount) {
-      resetEpoch();
-      return;
-    }
-
-    quoteEVMToMiden(
+  // A fresh EVM→Miden forward-quote for the current amount. Extracted so a failed
+  // deposit can re-quote to recover (executeEVMToMiden requires status 'quoted',
+  // so without this a failed attempt dead-ends until the amount is edited).
+  const requote = useCallback(() => {
+    if (!debouncedAmount) return undefined;
+    return quoteEVMToMiden(
       {
         sourceChainId: DEFAULT_CHAIN_ID,
         destinationChainId: MIDEN_DESTINATION_CHAIN_ID,
@@ -266,7 +264,16 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
       },
       evmAddress
     ).catch(err => console.error('[EvmBridgeDepositScreen] quote failed', err));
-  }, [debouncedAmount, evmAddress, midenAccount.publicKey, quoteEVMToMiden, resetEpoch, route, token]);
+  }, [debouncedAmount, evmAddress, midenAccount.publicKey, quoteEVMToMiden]);
+
+  useEffect(() => {
+    if (route !== 'epoch' || token !== 'USDC') return;
+    if (!debouncedAmount) {
+      resetEpoch();
+      return;
+    }
+    void requote();
+  }, [debouncedAmount, requote, resetEpoch, route, token]);
 
   useEffect(() => {
     if (epochStatus !== 'pending' || epochFlow !== 'evm-to-miden') return;
@@ -339,7 +346,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
           data
         });
       } else {
+        // Pin the target chain so wagmi/viem assert the wallet's ACTIVE chain is
+        // Sepolia before broadcasting. The WC session namespace declares Sepolia,
+        // but the wallet's active chain can be anything (often mainnet); without
+        // this a payable `bridgeAsset` would broadcast real ETH on the wrong chain
+        // to a Sepolia-only address. The Fast/Epoch path guards this same case in
+        // executeEVMToMiden; the native branch above already pins DEFAULT_CHAIN_ID.
         await writeContract.mutateAsync({
+          chainId: DEFAULT_CHAIN_ID,
           abi: AGGLAYER_BRIDGE_ABI,
           address: contractAddress,
           functionName: 'bridgeAsset',
@@ -429,7 +443,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
   const submitting = route === 'epoch' ? epochStatus === 'signing' : slowStatus === 'signing';
   const submitted =
     route === 'epoch' ? epochStatus === 'pending' || epochStatus === 'done' : slowStatus === 'submitted';
-  const reviewCanConfirm = canConfirmRoute && !submitting && !submitted;
+  // Allow a retry tap after a failed Fast attempt (wrong chain / reject / intent
+  // error) so the Review isn't a dead-end — handleConfirm re-quotes to recover.
+  const fastRetryable =
+    route === 'epoch' && token === 'USDC' && epochFlow === 'evm-to-miden' && epochStatus === 'failed';
+  const reviewCanConfirm = (canConfirmRoute || fastRetryable) && !submitting && !submitted;
 
   const handleContinue = useCallback(() => {
     if (!setupReady) return;
@@ -446,14 +464,23 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
   }, [canConfirmRoute, navigateTo]);
 
   const handleConfirm = useCallback(() => {
-    if (!canConfirmRoute) return;
     if (route === 'agglayer') {
+      if (!canConfirmRoute) return;
       handleSlowBridge();
       return;
     }
+    // Fast (Epoch): after a failed attempt the store is 'failed' and
+    // executeEVMToMiden requires 'quoted', so re-quote to recover instead of
+    // dead-ending until the amount changes. Once re-quoted, the next tap submits.
+    if (epochStatus === 'failed') {
+      hapticMedium();
+      void requote();
+      return;
+    }
+    if (!canConfirmRoute) return;
     hapticMedium();
     executeEVMToMiden().catch(err => console.error('[EvmBridgeDepositScreen] execute failed', err));
-  }, [canConfirmRoute, executeEVMToMiden, handleSlowBridge, route]);
+  }, [canConfirmRoute, epochStatus, executeEVMToMiden, handleSlowBridge, requote, route]);
 
   const renderStep = useCallback(
     (activeRoute: Route) => {

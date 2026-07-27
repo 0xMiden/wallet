@@ -20,6 +20,7 @@ import {
   completeConsumeTransaction,
   forceCaneclAllInProgressTransactions,
   initiateConsumeTransaction,
+  markBridgedSendFailed,
   requestCustomTransaction,
   safeGenerateTransactionsLoop,
   startBackgroundTransactionProcessing,
@@ -746,5 +747,27 @@ describe('initiateConsumeTransaction reuse path', () => {
     ]);
     expect(idA).toBe(idB);
     expect(txStore.filter(t => t.type === 'consume' && t.noteId === 'note-1')).toHaveLength(1);
+  });
+
+  describe('markBridgedSendFailed', () => {
+    it('demotes a completed bridged-send row to Failed and records the reclaimable state', async () => {
+      // A `bridged-send` row is Completed / 'Bridged to EVM' as soon as its P2IDE
+      // note commits — but the allocator can still reject the intent afterwards.
+      txStore.push({
+        id: 'bs-fail-1',
+        type: 'bridged-send',
+        status: ITransactionStatus.Completed,
+        displayMessage: 'Bridged to EVM',
+        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending' }
+      });
+
+      await markBridgedSendFailed('bs-fail-1', 'P2IDE reclaim window too small');
+
+      const row = txStore.find(t => t.id === 'bs-fail-1')!;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.displayMessage).toBe('Bridge failed — funds reclaimable');
+      expect(row.extraInputs.claimStatus).toBe('failed');
+      expect(row.extraInputs.epochStatus).toBe('failed');
+    });
   });
 });

@@ -6,6 +6,7 @@ import * as Repo from 'lib/miden/repo';
 
 import { setTransactionStage, updateTransactionStatus } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
+import { takeBridgeInInfoForNotes } from '../activity/bridge-in';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
 import {
@@ -145,6 +146,24 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     }
   } catch (err) {
     console.warn('[swap-settlement] consume stamping failed (non-fatal)', err);
+  }
+
+  // Bridge-in (EVM→Miden): a bridged P2ID note is claimed by auto-consume as a
+  // plain `consume` row. If a pending bridge-in intent matches one of the
+  // consumed notes, tag the row so it reads "Bridged from EVM" with the source
+  // metadata — this covers the common case where the user closed the deposit
+  // screen before its poll learned the note id. Must never fail the consume.
+  try {
+    const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
+    const bridgeIn = await takeBridgeInInfoForNotes(consumedNoteIds);
+    if (bridgeIn) {
+      await Repo.transactions.where({ id }).modify(tx => {
+        tx.extraInputs = { ...(tx.extraInputs ?? {}), bridgeIn };
+        tx.displayMessage = 'Bridged from EVM';
+      });
+    }
+  } catch (err) {
+    console.warn('[bridge-in] consume tagging failed (non-fatal)', err);
   }
 };
 
@@ -468,5 +487,28 @@ export const updateBridgeClaimStatus = async (
   await Repo.transactions.where({ id }).modify(tx => {
     const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
     tx.extraInputs = { ...ei, claimStatus, ...(extra ?? {}) };
+  });
+};
+
+/**
+ * A `bridged-send` (Epoch) row reaches Completed / 'Bridged to EVM' the instant
+ * its P2IDE note commits — but the SDK submits the intent to the allocator AFTER
+ * that, so a post-commit rejection (reclaim window, solver liquidity, quote
+ * drift, allocator downtime) means the bridge did NOT succeed and the funds sit
+ * in a recallable P2IDE note. Demote the false success to Failed and record it so
+ * the activity view stops claiming success. Modifies the row directly because
+ * `updateTransactionStatus` rejects re-finalizing a Completed tx; the send
+ * pipeline is already done with this row, so there is no race.
+ */
+export const markBridgedSendFailed = async (id: string, error: string) => {
+  console.error('[epoch] bridged-send intent rejected after the P2IDE note committed; demoting row to Failed', {
+    id,
+    error
+  });
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.status = ITransactionStatus.Failed;
+    tx.displayMessage = 'Bridge failed — funds reclaimable';
+    const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
+    tx.extraInputs = { ...ei, claimStatus: 'failed', epochStatus: 'failed' };
   });
 };

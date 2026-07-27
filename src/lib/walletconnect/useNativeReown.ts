@@ -15,6 +15,10 @@ let configurePromise: Promise<void> | null = null;
 
 function configureNativeReown(): Promise<void> {
   if (!configurePromise) {
+    // Reset the cache on rejection: a rejected promise is truthy and would be
+    // returned by every later call, permanently poisoning EVM/bridge connect
+    // after a single transient boot failure (native plugin not yet ready /
+    // relay offline). Nulling it on failure lets the next call retry cleanly.
     configurePromise = NativeReown.configure({
       projectId: WC_PROJECT_ID,
       appName: APP_METADATA.name,
@@ -27,6 +31,9 @@ function configureNativeReown(): Promise<void> {
       chainIds: SUPPORTED_CHAINS.map(chain => chain.id),
       methods: ['eth_sendTransaction', 'personal_sign', 'eth_signTypedData'],
       events: ['chainChanged', 'accountsChanged']
+    }).catch(err => {
+      configurePromise = null;
+      throw err;
     });
   }
   return configurePromise;

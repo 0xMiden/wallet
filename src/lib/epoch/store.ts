@@ -98,6 +98,29 @@ function isIntentDone(results: IntentTransactionStatus[], flow: EpochFlow | null
   return results.every(isLegDone);
 }
 
+const EPOCH_FAILED_STATUSES = new Set(['failed', 'error', 'expired', 'reverted']);
+
+function isLegFailed(result: IntentTransactionStatus): boolean {
+  return EPOCH_FAILED_STATUSES.has(String(result.status ?? '').toLowerCase());
+}
+
+/**
+ * Terminal-failure detection, mirroring isIntentDone. For evm-to-miden ONLY the
+ * Miden destination leg is decisive — the source Sepolia leg can spuriously read
+ * `failed` with a null hash even when the deposit landed (see isIntentDone), so a
+ * failed source leg must NOT mark the whole intent failed. Without this the
+ * deposit screen spins `pending` forever on an expired/reverted intent after the
+ * user has signed a real on-chain deposit, with no signal to reclaim.
+ */
+function isIntentFailed(results: IntentTransactionStatus[], flow: EpochFlow | null): boolean {
+  if (results.length === 0) return false;
+  if (flow === 'evm-to-miden') {
+    const midenLeg = results.find(r => r.chainId === MIDEN_DESTINATION_CHAIN_ID);
+    return midenLeg ? isLegFailed(midenLeg) : false;
+  }
+  return results.some(isLegFailed);
+}
+
 function errorMessage(err: unknown): string {
   if (err && typeof err === 'object') {
     // viem buries the wallet/RPC's real error several layers deep and shows a
@@ -255,10 +278,14 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
           console.warn('[epoch] resolveBridgeInNoteId failed', err)
         );
       }
+      const failed = !allDone && isIntentFailed(results, get().flow);
       set({
         pollResults: results,
         midenNoteId: discoveredNoteId ?? get().midenNoteId,
-        status: allDone ? 'done' : 'pending'
+        status: allDone ? 'done' : failed ? 'failed' : 'pending',
+        error: failed
+          ? 'The bridge intent failed on the destination chain. Your deposit can be reclaimed.'
+          : get().error
       });
     } catch (err) {
       console.error('[epoch] poll failed', err);
