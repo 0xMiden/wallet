@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.12 (TBD)
+
+### Changes
+
+* [CHANGE][all] **Added a "Forkchoice Faucet" tile to the Explore screen.** The curated Explore grid now shows `faucets.forkchoice.xyz` directly below the existing Miden faucet, giving users a second source of testnet MIDEN.
+
 ## 1.15.11 (2026-07-26)
 
 ### Changes

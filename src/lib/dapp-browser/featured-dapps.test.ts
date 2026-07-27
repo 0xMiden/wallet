@@ -26,6 +26,7 @@ describe('FEATURED_DAPPS', () => {
       'miden',
       'zoro',
       'faucet',
+      'forkchoice-faucet',
       'lumina',
       'qash',
       'playground',
@@ -139,11 +140,11 @@ describe('CAROUSEL_DAPPS', () => {
 });
 
 describe('EXPLORE_GRID_DAPPS', () => {
-  it('contains the four curated apps in explicit display order', () => {
+  it('contains the curated apps in explicit display order', () => {
     // Exercises the `.flatMap` over the id list and the inner
     // `.filter(d => d.id === id)` predicate (matching + non-matching ids).
-    expect(EXPLORE_GRID_DAPPS.map(d => d.id)).toEqual(['zoro', 'qash', 'faucet', 'miden-name']);
-    expect(EXPLORE_GRID_DAPPS).toHaveLength(4);
+    expect(EXPLORE_GRID_DAPPS.map(d => d.id)).toEqual(['zoro', 'qash', 'faucet', 'miden-name', 'forkchoice-faucet']);
+    expect(EXPLORE_GRID_DAPPS).toHaveLength(5);
   });
 
   it('resolves each id to the corresponding FEATURED_DAPPS entry by identity', () => {
@@ -178,6 +179,6 @@ describe('getExploreGridDapps', () => {
     const grid = getExploreGridDapps();
     // 'zoro' (a DEX) is filtered out; the remaining curated apps keep their order.
     expect(grid.some(d => d.isExchange)).toBe(false);
-    expect(grid.map(d => d.id)).toEqual(['qash', 'faucet', 'miden-name']);
+    expect(grid.map(d => d.id)).toEqual(['qash', 'faucet', 'miden-name', 'forkchoice-faucet']);
   });
 });
