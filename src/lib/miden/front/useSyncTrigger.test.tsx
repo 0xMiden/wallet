@@ -17,7 +17,7 @@ import { act, render, waitFor } from '@testing-library/react';
 import { WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import { useSyncTrigger } from './useSyncTrigger';
+import { requestImmediateSync, useSyncTrigger } from './useSyncTrigger';
 
 const storeState: {
   status: WalletStatus;
@@ -128,6 +128,16 @@ describe('useSyncTrigger', () => {
     // Flips sync status on and off around the call.
     expect(storeState.setSyncStatus).toHaveBeenCalledWith(true);
     await waitFor(() => expect(storeState.setSyncStatus).toHaveBeenCalledWith(false));
+    unmount();
+  });
+
+  it('mobile/desktop: runs immediately when the banner requests a retry', async () => {
+    const { unmount } = render(<HookHost />);
+
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalledTimes(1));
+    act(() => requestImmediateSync());
+
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalledTimes(2));
     unmount();
   });
 

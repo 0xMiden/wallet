@@ -44,6 +44,7 @@ const BACKOFF_MS = 30_000;
 // The previous boolean-guard silently no-op'd concurrent calls, so a single stuck
 // sync made every triggerSync() during that window return without having synced.
 let inFlight: Promise<void> | null = null;
+let queuedForcedSync: Promise<void> | null = null;
 
 // Circuit-breaker state. Module-level is fine — the SW process is the only
 // doSync caller in the extension path; mobile/desktop runs have one sync loop.
@@ -63,12 +64,23 @@ async function getVault() {
   return _vault;
 }
 
-export function doSync(): Promise<void> {
-  if (inFlight) return inFlight;
+export function doSync(force = false): Promise<void> {
+  if (inFlight) {
+    if (!force) return inFlight;
+    if (!queuedForcedSync) {
+      queuedForcedSync = inFlight
+        .catch(() => {})
+        .then(() => {
+          queuedForcedSync = null;
+          return doSync(true);
+        });
+    }
+    return queuedForcedSync;
+  }
   // Circuit-breaker: short-circuit if recent syncs failed and we're waiting out
   // the backoff window. Returning resolved-void here keeps the existing contract
   // for callers (triggerSync, alarm) that don't distinguish success from skip.
-  if (Date.now() < syncBackoffUntilMs) {
+  if (!force && Date.now() < syncBackoffUntilMs) {
     return Promise.resolve();
   }
   inFlight = runSync().finally(() => {
@@ -105,6 +117,7 @@ async function runSync(): Promise<void> {
         await withTimeout(client.syncState(), SYNC_TIMEOUT_MS);
       });
       consecutiveSyncFailures = 0;
+      syncBackoffUntilMs = 0;
       // Sync went through end-to-end: the user has connectivity AND the
       // node is responding. Clear any active reachability category. We
       // don't touch `prover` — that's a separate service with separate

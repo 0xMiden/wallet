@@ -13,6 +13,12 @@ import { isTestSyncPaused } from './test-sync-pause';
 
 const SYNC_INTERVAL_MS = 3_000;
 
+const immediateSyncListeners = new Set<() => void>();
+
+export function requestImmediateSync(): void {
+  for (const listener of immediateSyncListeners) listener();
+}
+
 function triggerSync(intercom: ReturnType<typeof getIntercom>) {
   if (isInsideSendFlow() || isTestSyncPaused()) return;
   intercom
@@ -85,60 +91,80 @@ export function useSyncTrigger() {
 
     // Mobile / desktop: direct in-process sync (restored from old AutoSync).
     let cancelled = false;
+    let isRunning = false;
+    let retryAfterCurrentRun = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const runAndSchedule = async () => {
       if (cancelled) return;
+      if (isRunning) {
+        retryAfterCurrentRun = true;
+        return;
+      }
 
-      // Same guards the old AutoSync had: skip (don't wait for the lock) when
-      // a tx is being generated, to avoid queuing sync behind a long prove.
-      const storeState = useWalletStore.getState();
-      const onGeneratingTxPage =
-        typeof window !== 'undefined' && window.location.href.includes('generating-transaction');
-      const mobileTxModalOpen = isMobile() && storeState.isTransactionModalOpen;
-      const inSendFlow = isInsideSendFlow();
+      isRunning = true;
+      try {
+        // Same guards the old AutoSync had: skip (don't wait for the lock) when
+        // a tx is being generated, to avoid queuing sync behind a long prove.
+        const storeState = useWalletStore.getState();
+        const onGeneratingTxPage =
+          typeof window !== 'undefined' && window.location.href.includes('generating-transaction');
+        const mobileTxModalOpen = isMobile() && storeState.isTransactionModalOpen;
+        const inSendFlow = isInsideSendFlow();
 
-      if (!onGeneratingTxPage && !mobileTxModalOpen && !inSendFlow && !isTestSyncPaused()) {
-        useWalletStore.getState().setSyncStatus(true);
-        try {
-          await withWasmClientLock(async () => {
-            const client = await getMidenClient();
-            if (!client || cancelled) return;
-            await client.syncState();
-          });
-          // Sync succeeded on mobile/desktop — clear any active
-          // network/node/resolving categories. Mirrors the SW path in
-          // sync-manager.doSync.
-          clearReachabilityIssues();
+        if (!onGeneratingTxPage && !mobileTxModalOpen && !inSendFlow && !isTestSyncPaused()) {
+          useWalletStore.getState().setSyncStatus(true);
+          try {
+            await withWasmClientLock(async () => {
+              const client = await getMidenClient();
+              if (!client || cancelled) return;
+              await client.syncState();
+            });
+            clearReachabilityIssues();
 
-          // Guardian sync runs outside the WASM lock — HTTP calls only.
-          const guardianAccountKeys = useWalletStore
-            .getState()
-            .accounts.filter(acc => acc.type === WalletType.Guardian)
-            .map(acc => acc.publicKey);
-          if (guardianAccountKeys.length > 0) {
-            await syncGuardianAccounts().catch(() => {});
+            const guardianAccountKeys = useWalletStore
+              .getState()
+              .accounts.filter(acc => acc.type === WalletType.Guardian)
+              .map(acc => acc.publicKey);
+            if (guardianAccountKeys.length > 0) {
+              await syncGuardianAccounts().catch(() => {});
+            }
+          } catch (error) {
+            console.warn('[useSyncTrigger] sync error:', error);
+            if (isLikelyNetworkError(error)) {
+              markConnectivityIssue(classifySyncError(error));
+            }
+          } finally {
+            useWalletStore.getState().setSyncStatus(false);
           }
-        } catch (error) {
-          console.warn('[useSyncTrigger] sync error:', error);
-          if (isLikelyNetworkError(error)) {
-            markConnectivityIssue(classifySyncError(error));
-          }
-        } finally {
-          // Mirrors the old AutoSync: flipping isSyncing false also sets
-          // hasCompletedInitialSync=true, which the header spinner watches.
-          useWalletStore.getState().setSyncStatus(false);
+        }
+      } finally {
+        isRunning = false;
+        if (!cancelled) {
+          const delay = retryAfterCurrentRun ? 0 : SYNC_INTERVAL_MS;
+          retryAfterCurrentRun = false;
+          timer = setTimeout(runAndSchedule, delay);
         }
       }
-
-      if (!cancelled) {
-        timer = setTimeout(runAndSchedule, SYNC_INTERVAL_MS);
-      }
     };
+
+    const retryNow = () => {
+      if (cancelled) return;
+      if (isRunning) {
+        retryAfterCurrentRun = true;
+        return;
+      }
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      void runAndSchedule();
+    };
+
+    immediateSyncListeners.add(retryNow);
     runAndSchedule();
 
     return () => {
       cancelled = true;
+      immediateSyncListeners.delete(retryNow);
       if (timer) clearTimeout(timer);
     };
   }, [status]);

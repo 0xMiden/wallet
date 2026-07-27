@@ -30,12 +30,14 @@ let mockAccount: { publicKey: string } = { publicKey: 'mtst1account' };
 let mockAllBalances: any;
 let mockClaimableNotes: any;
 let mockIsExtension = true;
+let mockIsMobile = false;
 let mockAutoConsume = false;
 let mockDelegateProof = false;
 let mockTokenPrices: Record<string, unknown> = {};
 
 const mockSignTransaction = jest.fn();
 const mockMutateClaimableNotes = jest.fn();
+const mockMutateBalances = jest.fn();
 const mockInitiateConsumeTransaction = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
 const mockStartBackgroundTransactionProcessing = jest.fn();
@@ -138,7 +140,7 @@ jest.mock('lib/miden/activity', () => ({
 jest.mock('lib/miden/front', () => ({
   setFaucetIdSetting: (...args: any[]) => mockSetFaucetIdSetting(...args),
   useAccount: () => mockAccount,
-  useAllBalances: () => ({ data: mockAllBalances }),
+  useAllBalances: () => ({ data: mockAllBalances, mutate: mockMutateBalances }),
   useAllTokensBaseMetadata: () => ({}),
   useMidenContext: () => ({ signTransaction: mockSignTransaction })
 }));
@@ -157,7 +159,8 @@ jest.mock('lib/miden-chain/constants', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
-  isExtension: () => mockIsExtension
+  isExtension: () => mockIsExtension,
+  isMobile: () => mockIsMobile
 }));
 
 jest.mock('lib/settings/helpers', () => ({
@@ -212,6 +215,7 @@ describe('Explore', () => {
     mockAllBalances = [];
     mockClaimableNotes = undefined;
     mockIsExtension = true;
+    mockIsMobile = false;
     mockAutoConsume = false;
     mockDelegateProof = false;
     mockTokenPrices = {};
@@ -455,6 +459,145 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(2);
       const ids = mockInitiateConsumeTransaction.mock.calls.map(c => c[1].id);
       expect(ids).toEqual(expect.arrayContaining(['n1', 'n2']));
+    });
+  });
+
+  describe('pull to refresh (mobile only)', () => {
+    const touch = (clientY: number, clientX = 0) => ({ touches: [{ clientX, clientY }] });
+
+    const scroller = () => screen.getByTestId('explore-scroll-container');
+
+    it('does not mount the indicator or bind touch handlers off mobile', async () => {
+      await renderExplore();
+
+      expect(screen.queryByTestId('pull-to-refresh-indicator')).not.toBeInTheDocument();
+
+      // Handlers are undefined on non-mobile, so a full pull gesture is inert.
+      fireEvent.touchStart(scroller(), touch(0));
+      fireEvent.touchMove(scroller(), touch(300));
+      fireEvent.touchEnd(scroller());
+
+      expect(mockMutateBalances).not.toHaveBeenCalled();
+    });
+
+    it('refreshes balances and claimable notes once the pull passes the threshold', async () => {
+      mockIsMobile = true;
+      await renderExplore();
+
+      expect(screen.getByTestId('pull-to-refresh-indicator')).toBeInTheDocument();
+
+      fireEvent.touchStart(scroller(), touch(0));
+      // deltaY 300 * 0.5 is clamped to MAX_PULL_DISTANCE (104) — well past the
+      // 72px threshold, so the arrow flips and the release triggers a refresh.
+      fireEvent.touchMove(scroller(), touch(300));
+
+      await act(async () => {
+        fireEvent.touchEnd(scroller());
+      });
+
+      expect(mockMutateBalances).toHaveBeenCalledTimes(1);
+      expect(mockMutateClaimableNotes).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not refresh when the pull is released below the threshold', async () => {
+      mockIsMobile = true;
+      await renderExplore();
+
+      fireEvent.touchStart(scroller(), touch(0));
+      // 40 * 0.5 = 20px, below the 72px threshold.
+      fireEvent.touchMove(scroller(), touch(40));
+
+      await act(async () => {
+        fireEvent.touchEnd(scroller());
+      });
+
+      expect(mockMutateBalances).not.toHaveBeenCalled();
+    });
+
+    it('yields horizontal and upward gestures instead of taking over the scroll', async () => {
+      mockIsMobile = true;
+      await renderExplore();
+
+      // Mostly-horizontal drag: deltaX > deltaY cancels the gesture.
+      fireEvent.touchStart(scroller(), touch(0, 0));
+      fireEvent.touchMove(scroller(), touch(20, 200));
+      await act(async () => {
+        fireEvent.touchEnd(scroller());
+      });
+
+      // Upward drag: deltaY <= 0 cancels the gesture.
+      fireEvent.touchStart(scroller(), touch(100));
+      fireEvent.touchMove(scroller(), touch(20));
+      await act(async () => {
+        fireEvent.touchCancel(scroller());
+      });
+
+      expect(mockMutateBalances).not.toHaveBeenCalled();
+    });
+
+    it('ignores multi-touch gestures and moves without a live gesture', async () => {
+      mockIsMobile = true;
+      await renderExplore();
+
+      // Two fingers down — no gesture is recorded.
+      fireEvent.touchStart(scroller(), {
+        touches: [
+          { clientX: 0, clientY: 0 },
+          { clientX: 10, clientY: 0 }
+        ]
+      });
+      fireEvent.touchMove(scroller(), touch(300));
+
+      // A single-finger move with no gesture in flight is a no-op too.
+      fireEvent.touchMove(scroller(), touch(300));
+      // As is a two-finger move after a valid start.
+      fireEvent.touchStart(scroller(), touch(0));
+      fireEvent.touchMove(scroller(), {
+        touches: [
+          { clientX: 0, clientY: 300 },
+          { clientX: 10, clientY: 300 }
+        ]
+      });
+
+      await act(async () => {
+        fireEvent.touchEnd(scroller());
+      });
+
+      expect(mockMutateBalances).not.toHaveBeenCalled();
+    });
+
+    it('logs and recovers when a refresh rejects, and ignores a re-pull while refreshing', async () => {
+      mockIsMobile = true;
+      let releaseRefresh!: () => void;
+      mockMutateBalances.mockImplementation(
+        () =>
+          new Promise((_resolve, reject) => {
+            releaseRefresh = () => reject(new Error('offline'));
+          })
+      );
+
+      await renderExplore();
+
+      fireEvent.touchStart(scroller(), touch(0));
+      fireEvent.touchMove(scroller(), touch(300));
+      await act(async () => {
+        fireEvent.touchEnd(scroller());
+      });
+
+      // While refreshing, touchStart bails so a second gesture cannot stack.
+      fireEvent.touchStart(scroller(), touch(0));
+      fireEvent.touchMove(scroller(), touch(300));
+      await act(async () => {
+        fireEvent.touchEnd(scroller());
+      });
+      expect(mockMutateBalances).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        releaseRefresh();
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to refresh Explore:', expect.any(Error));
     });
   });
 });

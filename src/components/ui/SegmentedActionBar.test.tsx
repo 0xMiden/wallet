@@ -103,15 +103,17 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
   it('applies the active layout classes to the selected tab and the fill classes to the rest', () => {
     renderBar({ activeId: 'send' });
 
-    // Active: shrinks to content, shows the gap + label padding.
-    expect(getTab('Send').className).toContain('shrink-0');
+    // Active: uses a fixed width so long labels cannot collide with adjacent icons.
+    expect(getTab('Send').className).toContain('w-28');
+    expect(getTab('Send').className).toContain('max-[359px]:w-24');
+    expect(getTab('Send').className).toContain('flex-none');
     expect(getTab('Send').className).toContain('gap-1.5');
     expect(getTab('Send').className).toContain('px-2.5');
 
     // Inactive: stretches to fill the row with no horizontal padding.
     expect(getTab('Receive').className).toContain('flex-1');
     expect(getTab('Receive').className).toContain('px-0');
-    expect(getTab('Receive').className).not.toContain('shrink-0');
+    expect(getTab('Receive').className).not.toContain('w-28');
   });
 
   it('renders the pill and the label only inside the active tab', () => {

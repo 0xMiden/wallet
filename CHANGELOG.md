@@ -6,6 +6,10 @@
 
 * [CHANGE][all] **The Explore screen now shows only the two testnet faucets.** The curated Explore grid is trimmed to the existing Miden faucet plus a new "Forkchoice Faucet" tile (`faucets.forkchoice.xyz`), giving users two sources of testnet MIDEN; the other curated tiles (Zoro, Qash, Miden Name) are no longer shown in the grid.
 
+### Fixes
+
+* [FIX][all] **A bundle of small UI and sync fixes.** Explore gains pull-to-refresh on mobile; the segmented Send/Receive action bar keeps its label readable on narrow screens; the iOS bottom safe-area strip is repainted on full-screen routes so a stale navbar shadow can't survive the route change; the connectivity banner's Retry now forces an immediate sync (bypassing the backoff window) and its dismissal sticks per issue-activation instead of being re-raised by the next sync tick; and wallet recovery is seed-phrase only — the encrypted-wallet-file import step is removed from onboarding and Forgot Password, which now go straight from "Recover" to seed entry (and to passcode setup on mobile).
+
 ## 1.15.11 (2026-07-26)
 
 ### Changes

@@ -191,6 +191,7 @@ export interface SyncCompleted extends WalletMessageBase {
 
 export interface SyncRequest extends WalletMessageBase {
   type: WalletMessageType.SyncRequest;
+  force?: boolean;
 }
 
 export interface SyncResponse extends WalletMessageBase {

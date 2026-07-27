@@ -61,7 +61,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
   console.log('[processRequest] type:', req?.type);
   switch (req?.type) {
     case WalletMessageType.SyncRequest:
-      doSync().catch(err => console.warn('[SyncManager] Error:', err));
+      doSync(req.force).catch(err => console.warn('[SyncManager] Error:', err));
       return { type: WalletMessageType.SyncResponse };
     case WalletMessageType.NoteClaimStarted:
       intercom.broadcast({ type: WalletMessageType.NoteClaimStarted, noteId: req.noteId });

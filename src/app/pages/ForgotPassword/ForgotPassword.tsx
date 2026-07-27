@@ -7,7 +7,7 @@ import { formatMnemonic } from 'app/defaults';
 import { useMidenContext } from 'lib/miden/front';
 import { clearClientStorage } from 'lib/miden/reset';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import type { WalletAccount } from 'lib/shared/types';
+import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import { OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
@@ -17,45 +17,27 @@ const ForgotPassword: FC = () => {
   const [seedPhrase, setSeedPhrase] = useState<string[]>([]);
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
   const [password, setPassword] = useState<string | null>(null);
-  const [importedWithFile, setImportedWithFile] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [importedWalletAccounts, setImportedWalletAccounts] = useState<WalletAccount[]>([]);
 
-  const { registerWallet, importWalletFromClient } = useMidenContext();
+  const { registerWallet } = useMidenContext();
 
   const register = useCallback(async () => {
     if (password && seedPhrase) {
       clearClientStorage();
 
       const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
-      if (!importedWithFile) {
-        try {
-          await registerWallet(
-            WalletType.Guardian,
-            password,
-            seedPhraseFormatted,
-            onboardingType === OnboardingType.Import // might be able to leverage ownMnemonic to determine whther to attempt imports in general
-          );
-        } catch (e) {
-          console.error(e);
-        }
-      } else {
-        try {
-          await importWalletFromClient(password, seedPhraseFormatted, importedWalletAccounts);
-        } catch (e) {
-          console.error(e);
-        }
+      try {
+        await registerWallet(
+          WalletType.Guardian,
+          password,
+          seedPhraseFormatted,
+          onboardingType === OnboardingType.Import // might be able to leverage ownMnemonic to determine whther to attempt imports in general
+        );
+      } catch (e) {
+        console.error(e);
       }
     }
-  }, [
-    password,
-    seedPhrase,
-    importedWithFile,
-    registerWallet,
-    onboardingType,
-    importWalletFromClient,
-    importedWalletAccounts
-  ]);
+  }, [password, seedPhrase, registerWallet, onboardingType]);
 
   const onAction = useCallback(
     async (action: OnboardingAction) => {
@@ -66,25 +48,17 @@ const ForgotPassword: FC = () => {
           setStep(OnboardingStep.BackupSeedPhrase);
           break;
         case 'select-import-type':
+          // Recovery is seed-phrase only — jump straight to the seed entry screen.
           setOnboardingType(OnboardingType.Import);
-          setStep(OnboardingStep.SelectImportType);
-          break;
-        case 'import-from-file':
-          setStep(OnboardingStep.ImportFromFile);
-          break;
-        case 'import-wallet-file-submit':
-          const seedPhrase = action.payload.split(' ');
-          setSeedPhrase(seedPhrase);
-          setImportedWalletAccounts(action.walletAccounts);
-          setImportedWithFile(true);
-          setStep(OnboardingStep.CreatePassword);
+          setStep(OnboardingStep.ImportFromSeed);
           break;
         case 'import-from-seed':
           setStep(OnboardingStep.ImportFromSeed);
           break;
         case 'import-seed-phrase-submit':
           setSeedPhrase(action.payload.split(' '));
-          setStep(OnboardingStep.CreatePassword);
+          // Mobile protection is a passcode; the full password is extension/desktop-only.
+          setStep(isMobile() ? OnboardingStep.SetupPasscode : OnboardingStep.CreatePassword);
           break;
         case 'backup-seed-phrase':
           setSeedPhrase(generateMnemonic(128).split(' '));
@@ -100,6 +74,11 @@ const ForgotPassword: FC = () => {
           setPassword(action.payload.password);
           setStep(OnboardingStep.Confirmation);
           break;
+        case 'setup-passcode-submit':
+          // Passcode IS the vault password (mobile import path).
+          setPassword(action.payload);
+          setStep(OnboardingStep.Confirmation);
+          break;
         case 'confirmation':
           setIsLoading(true);
           await register();
@@ -107,9 +86,7 @@ const ForgotPassword: FC = () => {
           navigate('/');
           break;
         case 'back':
-          if (step === OnboardingStep.SelectImportType) {
-            setStep(OnboardingStep.Welcome);
-          } else if (step === OnboardingStep.VerifySeedPhrase) {
+          if (step === OnboardingStep.VerifySeedPhrase) {
             setStep(OnboardingStep.BackupSeedPhrase);
           } else if (step === OnboardingStep.BackupSeedPhrase) {
             setStep(OnboardingStep.Welcome);
@@ -119,8 +96,10 @@ const ForgotPassword: FC = () => {
             } else {
               setStep(OnboardingStep.ImportFromSeed);
             }
-          } else if (step === OnboardingStep.ImportFromFile || step === OnboardingStep.ImportFromSeed) {
-            setStep(OnboardingStep.SelectImportType);
+          } else if (step === OnboardingStep.SetupPasscode) {
+            setStep(OnboardingStep.ImportFromSeed);
+          } else if (step === OnboardingStep.ImportFromSeed) {
+            setStep(OnboardingStep.Welcome);
           }
           break;
         default:
