@@ -1201,6 +1201,72 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row.status).toBe(ITransactionStatus.Failed);
   });
 
+  it('update-procedure-threshold apply-after-submit-failure re-registers on the guardian instead of cancelling', async () => {
+    const txId = 'upt-apply-fail';
+    const coldService = {
+      createUpdateProcedureThresholdProposal: jest.fn(async () => ({ id: 'prop-upt', nonce: 3 })),
+      abandonCandidate: jest.fn(async () => {}),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      }))
+    };
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+    // The reconcile completion re-registers via a service from getOrCreateMultisigService.
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({ reRegisterCurrentStateOnGuardian });
+
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig'
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+
+    // The submit lands on chain but the LOCAL apply throws — the threshold change is real.
+    const applyErr: Error & { errorCode?: string } = new Error('apply failed');
+    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      client: makeClientApi(
+        makeResult(),
+        jest.fn(async () => {
+          throw applyErr;
+        })
+      )
+    });
+
+    txStore.push({
+      id: txId,
+      type: 'update-procedure-threshold',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { procedure: 'update_signers', threshold: 2 }
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'update-procedure-threshold',
+        accountId: 'guardian-acc',
+        extraInputs: { procedure: 'update_signers', threshold: 2 },
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    // The reconcile re-registered the post-threshold state; the tx is Completed,
+    // not cancelled/Failed, and the stale cached service was dropped.
+    expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('guardian-acc');
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+
   it('Guardian consume apply-after-submit-failure marks Completed (sync reconciles) instead of cancelling', async () => {
     const txId = 'consume-apply-fail';
     const multisigService = {

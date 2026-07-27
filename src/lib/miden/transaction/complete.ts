@@ -208,17 +208,20 @@ export const completeReplaceHotKeyTransaction = async (
 
 export const completeUpdateProcedureThresholdTransaction = async (
   tx: UpdateProcedureThresholdTransaction,
-  result: TransactionResult,
+  // Absent on the apply-after-submit-failed reconcile path: the threshold
+  // change is already on chain, we just lack the local TransactionResult.
+  result: TransactionResult | undefined,
   // The cold MultisigService used to drive the threshold change, so we can push
   // the new state to the guardian (the OZ lib doesn't re-register it).
   service?: MultisigService
 ) => {
-  const executedTx = result.executedTransaction();
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
     displayMessage: 'Account secured',
-    transactionId: executedTx.id().toHex(),
     completedAt: Math.floor(Date.now() / 1000),
-    resultBytes: result.serialize()
+    ...(result && {
+      transactionId: result.executedTransaction().id().toHex(),
+      resultBytes: result.serialize()
+    })
   });
   // The cached service's procedureThresholds are now stale — drop it.
   clearGuardianServiceFor(tx.accountId);

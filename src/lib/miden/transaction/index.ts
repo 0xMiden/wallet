@@ -94,7 +94,11 @@ const PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC = 15;
  * replace-hot-key → swap the vault hot pointer (idempotent).
  * switch-guardian → rebuild a service to drive `finalizeGuardianSwitch` (which
  *   re-syncs the post-switch account state itself) + persist the per-account
- *   endpoint. Both completion handlers tolerate a missing TransactionResult.
+ *   endpoint.
+ * update-procedure-threshold → mark Completed, drop the stale cached service and
+ *   re-register the post-threshold state on the guardian (best-effort inside the
+ *   completion handler; runSync self-heals if it slips).
+ * All three completion handlers tolerate a missing TransactionResult.
  */
 async function reconcileStructuralApplyFailure(
   tx: ITransaction,
@@ -105,6 +109,10 @@ async function reconcileStructuralApplyFailure(
     return;
   }
   const service = await getOrCreateMultisigService(tx.accountId, guardianProvider);
+  if (tx.type === 'update-procedure-threshold') {
+    await completeUpdateProcedureThresholdTransaction(tx as UpdateProcedureThresholdTransaction, undefined, service);
+    return;
+  }
   await completeSwitchGuardianTransaction(tx as SwitchGuardianTransaction, undefined, service, guardianProvider);
 }
 
@@ -146,15 +154,18 @@ export const generateTransaction = async (
       );
     } catch (error) {
       // Submit-succeeded-but-local-apply-failed on a structural op (replace-hot-key
-      // / switch-guardian) is special: the change IS on chain, but the failure
-      // happened before generateGuardianTransaction's completion handler ran, so
-      // the vault hot pointer / guardian re-registration are un-reconciled. Cancelling
-      // would strand the account (signing with a rotated-out key, or talking to the
-      // old guardian). Run the same finalization the happy path would; only cancel if
-      // that reconcile itself fails.
+      // / switch-guardian / update-procedure-threshold) is special: the change IS on
+      // chain, but the failure happened before generateGuardianTransaction's
+      // completion handler ran, so the vault hot pointer / guardian re-registration
+      // are un-reconciled. Cancelling would strand the account (signing with a
+      // rotated-out key, talking to the old guardian, or a guardian blob that lags
+      // the on-chain thresholds). Run the same finalization the happy path would;
+      // only cancel if that reconcile itself fails.
       if (
         extractSdkErrorCode(error) === 'ApplyTransactionAfterSubmitFailed' &&
-        (transaction.type === 'replace-hot-key' || transaction.type === 'switch-guardian')
+        (transaction.type === 'replace-hot-key' ||
+          transaction.type === 'switch-guardian' ||
+          transaction.type === 'update-procedure-threshold')
       ) {
         try {
           await reconcileStructuralApplyFailure(transaction, guardianProvider);
@@ -732,11 +743,10 @@ export const generateTransactionsLoop = async (
         // Guardian ops never reach here — they're routed through the guardian branch
         // of `generateTransaction`, whose own catch handles apply-after-submit-failed
         // for value-moving ops (send/consume/swap/execute) by marking Completed, and
-        // for replace-hot-key/switch-guardian via `reconcileStructuralApplyFailure`.
-        // (update-procedure-threshold is currently handled by neither and still falls
-        // through to cancel there — a separate, pre-existing gap.) This generic path
-        // covers non-guardian send/consume, whose note states the next sync reconciles
-        // via ConsumedExternal.
+        // for the structural ops (replace-hot-key / switch-guardian /
+        // update-procedure-threshold) via `reconcileStructuralApplyFailure`. This
+        // generic path covers non-guardian send/consume, whose note states the next
+        // sync reconciles via ConsumedExternal.
         await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
           displayMessage: 'Completed',
           completedAt: Math.floor(Date.now() / 1000)
