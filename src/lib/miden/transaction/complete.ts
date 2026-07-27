@@ -6,12 +6,14 @@ import * as Repo from 'lib/miden/repo';
 
 import { setTransactionStage, updateTransactionStatus } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
-import { takeBridgeInInfoForNotes } from '../activity/bridge-in';
+import { takeAgglayerBridgeInInfo, takeBridgeInInfoForNotes } from '../activity/bridge-in';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
 import {
   BridgedSendTransaction,
   IBridgeClaimStatus,
+  IBridgedReceiveExtraInputs,
+  IBridgedReceivePhase,
   IBridgedSendExtraInputs,
   IConsumeSwapSettleExtraInputs,
   ITransaction,
@@ -126,6 +128,40 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     resultBytes: result.serialize()
   });
 
+  // Best-effort bridge-in tagging: if this consume claimed a note parked by an
+  // EVM→Miden intent, tag the row as "Bridged from EVM". A bridge-in with a
+  // `bridgeReceiveTxId` also flips that tracking row to `received`. Must never
+  // fail the consume itself.
+  try {
+    const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
+    const bridgeIn =
+      (await takeBridgeInInfoForNotes(consumedNoteIds)) ??
+      (await takeAgglayerBridgeInInfo({
+        accountId: dbTransaction?.accountId ?? '',
+        senderAccountId: sender,
+        amount
+      }));
+    if (bridgeIn) {
+      await Repo.transactions.where({ id }).modify(tx => {
+        tx.extraInputs = { ...(tx.extraInputs ?? {}), bridgeIn };
+        tx.displayMessage = 'Bridged from EVM';
+      });
+      if (bridgeIn.bridgeReceiveTxId) {
+        await updateBridgedReceivePhase(
+          bridgeIn.bridgeReceiveTxId,
+          'received',
+          {
+            midenNoteId: bridgeIn.midenNoteId ?? consumedNoteIds[0],
+            outputSymbol: bridgeIn.sourceSymbol
+          },
+          { amount, faucetId, transactionId: executedTransaction.id().toHex() }
+        );
+      }
+    }
+  } catch (err) {
+    console.warn('[bridge-in] consume tagging failed (non-fatal)', err);
+  }
+
   // Swap settlement: a consume queued by `reconcileSwapOrderNotes` carries a
   // link to its swap order. Stamp the settlement on the swap row so history
   // can flip the single swap row's chip (Pending → Confirmed / Reclaimed)
@@ -146,24 +182,6 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     }
   } catch (err) {
     console.warn('[swap-settlement] consume stamping failed (non-fatal)', err);
-  }
-
-  // Bridge-in (EVM→Miden): a bridged P2ID note is claimed by auto-consume as a
-  // plain `consume` row. If a pending bridge-in intent matches one of the
-  // consumed notes, tag the row so it reads "Bridged from EVM" with the source
-  // metadata — this covers the common case where the user closed the deposit
-  // screen before its poll learned the note id. Must never fail the consume.
-  try {
-    const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
-    const bridgeIn = await takeBridgeInInfoForNotes(consumedNoteIds);
-    if (bridgeIn) {
-      await Repo.transactions.where({ id }).modify(tx => {
-        tx.extraInputs = { ...(tx.extraInputs ?? {}), bridgeIn };
-        tx.displayMessage = 'Bridged from EVM';
-      });
-    }
-  } catch (err) {
-    console.warn('[bridge-in] consume tagging failed (non-fatal)', err);
   }
 };
 
@@ -457,6 +475,31 @@ export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction,
     outputNoteIds,
     completedAt: Math.floor(Date.now() / 1000), // seconds
     resultBytes: result.serialize()
+  });
+};
+
+/** Advance a tracking-only EVM → Miden bridge row without touching its terminal DB status. */
+export const updateBridgedReceivePhase = async (
+  id: string,
+  phase: IBridgedReceivePhase,
+  extra?: Partial<
+    Pick<
+      IBridgedReceiveExtraInputs,
+      'evmTxHash' | 'intentNonce' | 'midenNoteId' | 'outputAmount' | 'outputSymbol' | 'error'
+    >
+  >,
+  received?: { amount: bigint; faucetId: string; transactionId?: string }
+) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const inputs = tx.extraInputs as IBridgedReceiveExtraInputs;
+    tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
+    if (received) {
+      tx.amount = received.amount;
+      tx.faucetId = received.faucetId;
+      if (received.transactionId) tx.transactionId = received.transactionId;
+      tx.displayMessage = 'Bridged from EVM';
+    }
+    if (phase === 'failed' && extra?.error) tx.error = extra.error;
   });
 };
 

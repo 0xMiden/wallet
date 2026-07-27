@@ -1,6 +1,7 @@
 import {
   IBridgeClaimStatus,
   IBridgeProvider,
+  IBridgedReceivePhase,
   ITransactionIcon,
   ITransactionStatus,
   ITransactionType
@@ -70,9 +71,14 @@ export interface IHistoryEntry {
   // `consume` rows that claimed a bridged-in (EVM → Miden) note render as
   // bridge rows instead of plain receives (see `bridgeInRowDisplay`).
   bridgeInProvider?: IBridgeProvider;
+  bridgeInSourceAddress?: string;
   bridgeInSourceAmount?: string;
   bridgeInSourceSymbol?: string;
   bridgeInEvmTxHash?: string;
+  bridgeInPhase?: IBridgedReceivePhase;
+  bridgeInOutputAmount?: string;
+  bridgeInOutputSymbol?: string;
+  bridgeInMidenNoteId?: string;
 }
 
 /// The history entry type. For sorting purposes, the order matters. In a given transaction

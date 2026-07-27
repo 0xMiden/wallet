@@ -1,13 +1,13 @@
-import React, { FC, useMemo, useRef, useState } from 'react';
+import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
-import { AgglayerBridgeBanner } from 'app/templates/history/AgglayerBridgeBanner';
 import History from 'app/templates/history/History';
 import { SearchInput, TabHeader } from 'components/ui';
+import { reconcileAgglayerBridgedReceives } from 'lib/miden/activity';
 import { useAccount } from 'lib/miden/front';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
@@ -25,6 +25,30 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const scrollParentRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterId>('all');
+
+  useEffect(() => {
+    let cancelled = false;
+    let running = false;
+
+    const poll = async () => {
+      if (cancelled || running) return;
+      running = true;
+      try {
+        await reconcileAgglayerBridgedReceives();
+      } catch (error) {
+        console.warn('[activity] AggLayer bridge poll failed', error);
+      } finally {
+        running = false;
+      }
+    };
+
+    void poll();
+    const timer = setInterval(poll, 8_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   const filters = useMemo<Array<{ id: FilterId; label: string }>>(
     () => [
@@ -92,7 +116,6 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
 
       <div ref={scrollParentRef} className="flex-1 min-h-0 overflow-y-auto pb-28">
         <div className="px-4">
-          <AgglayerBridgeBanner />
           <History
             address={account.publicKey}
             programId={programId}

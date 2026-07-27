@@ -1,6 +1,8 @@
+import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID } from 'lib/agglayer/constant';
 import * as Repo from 'lib/miden/repo';
 
-import { IBridgeInInfo, ITransactionStatus } from '../db/types';
+import { compareAccountIds } from './utils';
+import { IBridgeInInfo, IBridgedReceiveExtraInputs, ITransactionStatus } from '../db/types';
 import { fetchFromStorage, putToStorage } from '../front/storage';
 
 /**
@@ -54,6 +56,15 @@ function isEvmAddress(value: string): value is `0x${string}` {
   return /^0x[0-9a-fA-F]{40}$/.test(value);
 }
 
+/**
+ * Normalize a note id for cross-source comparison. The Epoch allocator and the
+ * Miden SDK both emit hex note ids, but may differ in `0x` prefix and casing —
+ * matching on the raw strings silently misses. Strip prefix + lowercase.
+ */
+function noteIdKey(id: string): string {
+  return id.trim().toLowerCase().replace(/^0x/, '');
+}
+
 /** Read the untyped `midenNoteId` field the allocator includes on EVM→Miden status entries. */
 function extractMidenNoteId(results: unknown[]): string | undefined {
   for (const result of results) {
@@ -94,7 +105,58 @@ async function tagConsumeRow(noteId: string, info: IBridgeInInfo): Promise<boole
     tx.extraInputs = { ...(tx.extraInputs ?? {}), bridgeIn: info };
     tx.displayMessage = 'Bridged from EVM';
   });
+  if (info.bridgeReceiveTxId && row.amount !== undefined && row.faucetId) {
+    try {
+      const { updateBridgedReceivePhase } = await import('../transaction/complete');
+      await updateBridgedReceivePhase(
+        info.bridgeReceiveTxId,
+        'received',
+        { midenNoteId: noteId, outputSymbol: info.sourceSymbol },
+        { amount: row.amount, faucetId: row.faucetId, transactionId: row.transactionId }
+      );
+    } catch (err) {
+      console.warn('[bridge-in] bridge receive patch (resolve path) failed', err);
+    }
+  }
   return true;
+}
+
+/**
+ * Match an AggLayer-delivered note to the oldest compatible tracking row.
+ * The fixed sender is authoritative; amount + recipient prevent two deposits
+ * to the same wallet from being paired in the wrong order.
+ */
+export async function takeAgglayerBridgeInInfo(args: {
+  accountId: string;
+  senderAccountId: string;
+  amount: bigint;
+}): Promise<IBridgeInInfo | undefined> {
+  const configuredSender = AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID.trim();
+  if (!configuredSender || !compareAccountIds(configuredSender, args.senderAccountId)) return undefined;
+
+  const matches = await Repo.transactions
+    .filter(tx => {
+      if (tx.type !== 'bridged-receive' || !compareAccountIds(tx.accountId, args.accountId)) return false;
+      const inputs = tx.extraInputs as IBridgedReceiveExtraInputs | undefined;
+      return (
+        inputs?.provider === 'agglayer' &&
+        inputs.phase !== 'received' &&
+        inputs.phase !== 'failed' &&
+        tx.amount === args.amount
+      );
+    })
+    .toArray();
+  matches.sort((a, b) => a.initiatedAt - b.initiatedAt);
+  const match = matches[0];
+  if (!match) return undefined;
+  const inputs = match.extraInputs as IBridgedReceiveExtraInputs;
+  return {
+    provider: 'agglayer',
+    sourceAmount: inputs.sourceAmount,
+    sourceSymbol: inputs.sourceSymbol,
+    evmTxHash: inputs.evmTxHash,
+    bridgeReceiveTxId: match.id
+  };
 }
 
 /**
@@ -143,6 +205,7 @@ export async function takeBridgeInInfoForNotes(noteIds: string[]): Promise<IBrid
   if (noteIds.length === 0) return undefined;
   const registry = await readRegistry();
   if (registry.length === 0) return undefined;
+  const consumedKeys = new Set(noteIds.map(noteIdKey));
 
   let matched: PendingBridgeInIntent | undefined;
   let registryChanged = false;
@@ -157,7 +220,7 @@ export async function takeBridgeInInfoForNotes(noteIds: string[]): Promise<IBrid
         registryChanged = true;
       }
     }
-    if (!matched && noteId && noteIds.includes(noteId)) {
+    if (!matched && noteId && consumedKeys.has(noteIdKey(noteId))) {
       matched = intent;
       registryChanged = true;
       continue; // matched intents leave the registry
@@ -166,7 +229,10 @@ export async function takeBridgeInInfoForNotes(noteIds: string[]): Promise<IBrid
   }
 
   if (registryChanged) await writeRegistry(next);
-  return matched?.info;
+  // Copy the resolved note id onto the returned info so the consume side can
+  // patch the linked `bridged-receive` row's `midenNoteId` without another lookup.
+  if (!matched) return undefined;
+  return matched.midenNoteId ? { ...matched.info, midenNoteId: matched.midenNoteId } : matched.info;
 }
 
 /**

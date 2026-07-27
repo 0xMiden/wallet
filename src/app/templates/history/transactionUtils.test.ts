@@ -371,7 +371,7 @@ describe('isBridgeInEntry', () => {
 });
 
 describe('bridgeInRowDisplay', () => {
-  it('flips the direction: EVM source token in, Miden token out, always confirmed', () => {
+  it('flips the direction: EVM source token in, Miden token out', () => {
     expect(
       bridgeInRowDisplay(
         bridgeEntry({
@@ -387,7 +387,7 @@ describe('bridgeInRowDisplay', () => {
       outSymbol: 'MIDEN',
       outAmount: '3',
       providerLabel: 'Agglayer',
-      network: 'Sepolia',
+      network: 'Miden',
       status: 'confirmed'
     });
   });
@@ -398,7 +398,7 @@ describe('bridgeInRowDisplay', () => {
       outSymbol: '—',
       outAmount: undefined,
       providerLabel: 'Epoch',
-      network: 'Sepolia',
+      network: 'Miden',
       status: 'confirmed'
     });
   });

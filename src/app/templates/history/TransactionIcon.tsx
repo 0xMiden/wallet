@@ -63,7 +63,7 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
     );
   }
 
-  if (entry.txType === 'bridged-send' || entry.bridgeInProvider) {
+  if (entry.txType === 'bridged-send' || entry.txType === 'bridged-receive' || entry.bridgeInProvider) {
     if (bridgeStatusOf(entry) === 'failed') {
       return (
         <div className={`${config.container} rounded-10 flex items-center justify-center bg-status-negative`}>

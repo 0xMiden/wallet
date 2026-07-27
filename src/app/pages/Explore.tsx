@@ -12,6 +12,7 @@ import { AccountsDrawer, BalanceCard, SearchInput } from 'components/ui';
 import { toLocalFormat } from 'lib/i18n/numbers';
 import {
   initiateConsumeTransaction,
+  reconcileBridgedReceives,
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
@@ -45,6 +46,11 @@ interface PullGesture {
   startY: number;
   distance: number;
 }
+
+// Resume bridge-receive tracking orphaned by an app kill exactly once per
+// session (post-unlock, when Explore first mounts). Module-level so it
+// survives remounts.
+let bridgeReceivesReconciled = false;
 
 const Explore: FC = () => {
   const { t } = useTranslation();
@@ -130,6 +136,13 @@ const Explore: FC = () => {
       navigate('/reset-required');
     }
   }, [address]);
+
+  useEffect(() => {
+    if (bridgeReceivesReconciled) return;
+    bridgeReceivesReconciled = true;
+    reconcileBridgedReceives().catch(err => console.warn('[bridge-receive] reconcile on mount failed', err));
+  }, []);
+
 
   const fetchFaucetState = useCallback(async () => {
     fetch(`${MIDEN_FAUCET_ENDPOINTS.get(MIDEN_NETWORK_NAME.DEVNET)}/get_metadata`)

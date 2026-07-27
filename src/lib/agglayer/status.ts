@@ -15,7 +15,30 @@ export interface AgglayerDeposit {
   claim_tx_hash: string;
   metadata: string;
   ready_for_claim: boolean;
+  /** Newer bridge indexers expose the same terminal signal under this name. */
+  ready_to_claim?: boolean;
+  /** Some deployments expose finality separately from claim readiness. */
+  finalized?: boolean;
+  finalised?: boolean;
+  status?: string;
   global_index: string;
+}
+
+const TERMINAL_DEPOSIT_STATUSES = new Set(['finalized', 'finalised', 'ready_to_claim', 'ready_for_claim', 'claimed']);
+
+/** True once AggLayer says the destination-side bridge may be completed. */
+export function isAgglayerDepositReady(deposit: AgglayerDeposit): boolean {
+  const normalizedStatus = deposit.status
+    ?.trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  return Boolean(
+    deposit.ready_for_claim ||
+    deposit.ready_to_claim ||
+    deposit.finalized ||
+    deposit.finalised ||
+    (normalizedStatus && TERMINAL_DEPOSIT_STATUSES.has(normalizedStatus))
+  );
 }
 
 interface BridgesResponse {

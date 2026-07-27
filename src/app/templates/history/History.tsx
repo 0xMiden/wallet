@@ -11,6 +11,7 @@ import {
 } from 'lib/miden/activity';
 import {
   formatTransactionStatus,
+  IBridgedReceiveExtraInputs,
   IBridgedSendExtraInputs,
   IBridgeInInfo,
   ITransaction,
@@ -178,6 +179,8 @@ async function fetchTransactionsAsHistoryEntries(
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
     const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
+    const bridgedReceive =
+      tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
     // Swap faucets are usually absent from wallet metadata — resolve both
     // sides through the DEX registry instead of the generic path.
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
@@ -186,6 +189,7 @@ async function fetchTransactionsAsHistoryEntries(
       key: `completed-${tx.id}`,
       timestamp: tx.completedAt,
       message: updateMessageForFailed,
+      status: tx.status,
       type: HistoryEntryType.CompletedTransaction,
       transactionIcon: icon,
       amount: swapFields ? swapFields.amount : tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
@@ -212,10 +216,15 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeFillTxHash: bridge?.fillTxHash,
       bridgeFillChainId: bridge?.fillChainId,
       bridgeEpochStatus: bridge?.epochStatus,
-      bridgeInProvider: bridgeIn?.provider,
-      bridgeInSourceAmount: bridgeIn?.sourceAmount,
-      bridgeInSourceSymbol: bridgeIn?.sourceSymbol,
-      bridgeInEvmTxHash: bridgeIn?.evmTxHash
+      bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
+      bridgeInSourceAddress: bridgedReceive?.sourceAddress,
+      bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,
+      bridgeInSourceSymbol: bridgedReceive?.sourceSymbol ?? bridgeIn?.sourceSymbol,
+      bridgeInEvmTxHash: bridgedReceive?.evmTxHash ?? bridgeIn?.evmTxHash,
+      bridgeInPhase: bridgedReceive?.phase,
+      bridgeInOutputAmount: bridgedReceive?.outputAmount,
+      bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
+      bridgeInMidenNoteId: bridgedReceive?.midenNoteId
     } as IHistoryEntry;
 
     return entry;
@@ -241,6 +250,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       secondaryMessage: formatTransactionStatus(tx.status),
       timestamp: tx.initiatedAt,
       message: tx.displayMessage || 'Generating transaction',
+      status: tx.status,
       amount: swapFields ? swapFields.amount : tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
       token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
       requestedAmount: swapFields?.requestedAmount,
@@ -291,12 +301,14 @@ async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[])
 
 /**
  * The primary row a `consume` transaction is the lifecycle tail of, if any —
- * currently only swap-order settlement consumes, linked via
- * `extraInputs.swapOrderTxId` by `reconcileSwapOrderNotes`.
+ * swap-order settlement consumes (linked via `extraInputs.swapOrderTxId` by
+ * `reconcileSwapOrderNotes`) and bridged-receive delivery consumes (linked via
+ * `extraInputs.bridgeIn.bridgeReceiveTxId`). While the primary row exists it is
+ * the single trace; a dangling reference falls through to a normal receive row.
  */
 function linkedPrimaryTxId(tx: ITransaction): string | undefined {
   if (tx.type !== 'consume') return undefined;
-  return tx.extraInputs?.swapOrderTxId;
+  return tx.extraInputs?.swapOrderTxId ?? tx.extraInputs?.bridgeIn?.bridgeReceiveTxId;
 }
 
 /**

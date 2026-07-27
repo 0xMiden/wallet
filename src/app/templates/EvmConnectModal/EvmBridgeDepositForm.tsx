@@ -30,13 +30,10 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   const { t } = useTranslation();
 
   const title = (
-    <div className="flex flex-col gap-2">
-      <span className="flex items-center gap-1 text-xl font-heading font-bold text-[#80808080]">
-        <Icon name={IconName.CheckboxCircleFill} className="h-6 w-6 text-status-positive" fill="currentColor" />
-        {t('evmWalletConnected')}
-      </span>
-      <span className="font-heading text-2xl font-bold text-[#808080]">{t('midenBridge')}</span>
-    </div>
+    <span className="flex items-center gap-1 text-xl font-heading font-bold text-[#80808080]">
+      <Icon name={IconName.CheckboxCircleFill} className="h-6 w-6 text-status-positive" fill="currentColor" />
+      {t('evmWalletConnected')}
+    </span>
   );
 
   return (

@@ -1,7 +1,7 @@
 import { format } from 'date-fns';
 
 import { getDateFnsLocale } from 'lib/i18n';
-import { ITransaction, ITransactionType } from 'lib/miden/db/types';
+import { ITransaction, ITransactionStatus, ITransactionType } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
@@ -79,6 +79,17 @@ export type BridgeStatus = 'pending' | 'confirmed' | 'failed';
  * the polled intent fill status.
  */
 export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
+  // A failed Miden transaction never created a bridge deposit. Its terminal
+  // transaction status must win over the initial route metadata (Agglayer
+  // rows are born with `claimStatus: pending`).
+  if (entry.status === ITransactionStatus.Failed) return 'failed';
+
+  if (entry.txType === 'bridged-receive') {
+    if (entry.bridgeInPhase === 'ready' || entry.bridgeInPhase === 'received') return 'confirmed';
+    if (entry.bridgeInPhase === 'failed') return 'failed';
+    return 'pending';
+  }
+  if (entry.txType === 'consume' && entry.bridgeInProvider) return 'confirmed';
   if (entry.bridgeProvider === 'agglayer') {
     if (entry.bridgeClaimStatus === 'claimed') return 'confirmed';
     if (entry.bridgeClaimStatus === 'failed') return 'failed';
@@ -120,7 +131,7 @@ export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
 
 /** `consume` rows that claimed a bridged-in (EVM → Miden) note render as bridge rows. */
 export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
-  entry.txType === 'consume' && entry.bridgeInProvider !== undefined;
+  entry.txType === 'bridged-receive' || (entry.txType === 'consume' && entry.bridgeInProvider !== undefined);
 
 /**
  * Display fields for a bridge-in `consume` entry, mirroring `bridgeRowDisplay`
@@ -130,10 +141,13 @@ export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
  */
 export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = entry.bridgeInSourceSymbol ?? 'USDC';
-  const outSymbol = entry.token ?? '—';
-  const outAmount = entry.amount?.toString();
+  const outSymbol = entry.bridgeInOutputSymbol ?? entry.token ?? '—';
+  const outAmount =
+    entry.bridgeInPhase === 'received' || entry.txType === 'consume'
+      ? entry.amount?.toString()
+      : (formatBridgeOutputAmount(entry.bridgeInOutputAmount) ?? entry.amount?.toString());
   const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
-  return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Sepolia', status: 'confirmed' };
+  return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
 };
 export const fontColorForType = (type: ITransactionType): string => {
   return type === 'send' ? 'text-send-blue' : type === 'consume' ? 'text-receive-green' : TRANSACTION_COLORS.faucet;

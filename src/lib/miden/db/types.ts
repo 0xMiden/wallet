@@ -20,6 +20,7 @@ export type ITransactionType =
   | 'consume'
   | 'execute'
   | 'bridged-send'
+  | 'bridged-receive'
   | 'switch-guardian'
   | 'replace-hot-key'
   | 'swap'
@@ -27,6 +28,27 @@ export type ITransactionType =
 
 /** Which cross-chain bridge route a `bridged-send` used. */
 export type IBridgeProvider = 'epoch' | 'agglayer';
+
+/** Lifecycle of a tracking-only EVM → Miden bridge row. */
+export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
+
+/** Metadata persisted on a tracking-only EVM → Miden bridge row. */
+export interface IBridgedReceiveExtraInputs {
+  provider: IBridgeProvider;
+  /** Connected EVM account that funded the bridge. */
+  sourceAddress: string;
+  /** Human-readable source-chain input, retained even if the Miden output differs. */
+  sourceAmount: string;
+  sourceSymbol: string;
+  phase: IBridgedReceivePhase;
+  /** Expected destination output shown until the real note is consumed. */
+  outputAmount?: string;
+  outputSymbol?: string;
+  evmTxHash?: string;
+  intentNonce?: string;
+  midenNoteId?: string;
+  error?: string;
+}
 
 /**
  * Lifecycle of the EVM-side claim for a `bridged-send`. Epoch (Fast) auto-settles
@@ -90,6 +112,10 @@ export interface IBridgeInInfo {
   intentNonce?: string;
   /** EVM-side deposit/fill tx hash, when known. */
   evmTxHash?: string;
+  /** Miden-side note id the bridge-in resolved to, copied on by `takeBridgeInInfoForNotes`. */
+  midenNoteId?: string;
+  /** Tracking-only `bridged-receive` row this consumed note completes. */
+  bridgeReceiveTxId?: string;
 }
 
 /** `extraInputs` shape for a `consume` row that claimed a bridged-in note. */
@@ -482,6 +508,57 @@ export class BridgedSendTransaction implements ITransaction {
       // Agglayer needs a manual L1 claim; Epoch auto-settles.
       claimStatus: provider === 'agglayer' ? 'pending' : 'not-applicable',
       recallBlocks: sendParams?.recallBlocks
+    };
+  }
+}
+
+/**
+ * Tracking-only EVM → Miden bridge row. It is born Completed so the Miden
+ * prove/submit FIFO never sees it; `extraInputs.phase` owns its live state.
+ */
+export class BridgedReceiveTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  completedAt: number;
+  displayMessage: string;
+  displayIcon: ITransactionIcon;
+  extraInputs: IBridgedReceiveExtraInputs;
+
+  constructor(
+    accountId: string,
+    amount: bigint,
+    faucetId: string,
+    provider: IBridgeProvider,
+    sourceAddress: string,
+    sourceAmount: string,
+    sourceSymbol: string,
+    outputAmount?: string,
+    outputSymbol?: string
+  ) {
+    const now = Math.floor(Date.now() / 1000);
+    this.id = uuid();
+    this.type = 'bridged-receive';
+    this.accountId = accountId;
+    this.amount = amount;
+    this.faucetId = faucetId;
+    this.status = ITransactionStatus.Completed;
+    this.initiatedAt = now;
+    this.completedAt = now;
+    this.displayMessage = 'Bridging from EVM';
+    this.displayIcon = 'RECEIVE';
+    this.extraInputs = {
+      provider,
+      sourceAddress,
+      sourceAmount,
+      sourceSymbol,
+      outputAmount,
+      outputSymbol,
+      phase: 'submitting'
     };
   }
 }

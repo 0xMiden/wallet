@@ -3,6 +3,7 @@ import { sepolia } from 'viem/chains';
 import { create } from 'zustand';
 
 import { registerPendingBridgeIn, resolveBridgeInNoteId } from 'lib/miden/activity/bridge-in';
+import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 
 import {
   type CrossChainQuote,
@@ -36,6 +37,7 @@ interface EpochState {
    */
   midenNoteId: string | null;
   error: string | null;
+  bridgeReceiveTxId: string | null;
 }
 
 interface MidenExecuteOpts {
@@ -46,7 +48,7 @@ interface MidenExecuteOpts {
 
 interface EpochActions {
   quoteEVMToMiden(params: EVMToMidenIntentParams, sponsorAddress: string): Promise<void>;
-  executeEVMToMiden(): Promise<void>;
+  executeEVMToMiden(bridgeReceiveTxId?: string): Promise<void>;
   quoteMidenToEVM(params: CrossChainIntentParams, sponsorAddress: string): Promise<void>;
   executeMidenToEVM(opts?: MidenExecuteOpts): Promise<void>;
   poll(): Promise<void>;
@@ -62,7 +64,8 @@ const INITIAL_STATE: EpochState = {
   intent: null,
   pollResults: null,
   midenNoteId: null,
-  error: null
+  error: null,
+  bridgeReceiveTxId: null
 };
 
 function firstString(source: unknown, keys: string[]): string | undefined {
@@ -145,7 +148,15 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
   ...INITIAL_STATE,
 
   async quoteEVMToMiden(params, sponsorAddress) {
-    set({ status: 'quoting', flow: 'evm-to-miden', error: null, intent: null, pollResults: null, midenNoteId: null });
+    set({
+      status: 'quoting',
+      flow: 'evm-to-miden',
+      error: null,
+      intent: null,
+      pollResults: null,
+      midenNoteId: null,
+      bridgeReceiveTxId: null
+    });
     try {
       const sdk = await getEpochSdk();
       if (!sdk) throw new Error('Connect an EVM wallet first');
@@ -158,12 +169,12 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
     }
   },
 
-  async executeEVMToMiden() {
+  async executeEVMToMiden(bridgeReceiveTxId) {
     const { status, flow, quote } = get();
     if (flow !== 'evm-to-miden' || status !== 'quoted' || !quote) {
       throw new Error('executeEVMToMiden requires a quoted EVM→Miden flow');
     }
-    set({ status: 'signing', error: null });
+    set({ status: 'signing', error: null, bridgeReceiveTxId: bridgeReceiveTxId ?? null });
     try {
       // viem's writeContract rejects when walletClient.chain.id (Sepolia)
       // doesn't match the wallet's currently-selected chain. The WC session
@@ -190,6 +201,9 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       console.log('[epoch] EVM→Miden intent', intent);
       if (intent.error) {
         set({ status: 'failed', intent, error: intent.error });
+        if (bridgeReceiveTxId) {
+          await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', { error: intent.error });
+        }
         return;
       }
       set({ status: 'pending', intent });
@@ -199,19 +213,31 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       // the consume-completion hook does a one-shot poll against this record
       // and still tags the auto-consumed note as a bridge-in.
       const nonce = intent.intentNonce ?? intent.solveResult?.nonce;
+      const evmTxHash = intent.solveResult?.depositResult?.transactionHash ?? intent.solveResult?.hash;
+      if (bridgeReceiveTxId) {
+        await updateBridgedReceivePhase(bridgeReceiveTxId, 'delivering', {
+          intentNonce: nonce,
+          evmTxHash
+        });
+      }
       if (nonce) {
         const evmParams = (quote as EVMToMidenQuote).params;
-        registerPendingBridgeIn(connection.address, nonce, {
+        await registerPendingBridgeIn(connection.address, nonce, {
           provider: 'epoch',
           sourceAmount: evmParams.evmAmount,
           sourceSymbol: quote.quoteResult.tokenInSymbol,
           intentNonce: nonce,
-          evmTxHash: intent.solveResult?.hash
+          evmTxHash,
+          bridgeReceiveTxId
         }).catch(err => console.warn('[epoch] registerPendingBridgeIn failed', err));
       }
     } catch (err) {
       console.error('[epoch] executeEVMToMiden failed', err);
-      set({ status: 'failed', error: errorMessage(err) });
+      const message = errorMessage(err);
+      set({ status: 'failed', error: message });
+      if (bridgeReceiveTxId) {
+        await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', { error: message }).catch(() => undefined);
+      }
     }
   },
 

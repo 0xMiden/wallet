@@ -125,7 +125,7 @@ function txField(tx: object, key: string): string | undefined {
  * `waitForTransactionReceipt` → `eth_getTransactionByHash` rejects a quoted
  * hash). A value that is already raw hex is returned untouched.
  */
-function unwrapNativeResult(value: unknown): string {
+export function unwrapNativeResult(value: unknown): string {
   if (typeof value !== 'string') return '';
   if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
     try {

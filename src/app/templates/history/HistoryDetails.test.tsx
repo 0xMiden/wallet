@@ -150,6 +150,7 @@ jest.mock('./BridgeClaimSection', () => ({
 }));
 
 jest.mock('./transactionUtils', () => ({
+  ...jest.requireActual('./transactionUtils'),
   formatDate: (timestamp: number | string) => `formatted:${timestamp}`
 }));
 
