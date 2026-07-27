@@ -1,26 +1,28 @@
-# Bridge-IN e2e harness — REAL WalletConnect on iOS simulator (user-chosen)
+# Bridge-IN e2e harness — REAL WalletConnect on iOS simulator
 
-Philosophy: production path. iOS simulator + native Reown real WalletConnect + real signing
-by a headless WC counterparty wallet. Cross-chain DELIVERY stays a local solver double (CLI
-note delivery to real localnet Miden) — the one thing that can't be real cheaply.
+## ✅ PROVEN (both make-or-break unknowns resolved)
+- [x] Real Miden receipt path on iOS (commit 5e8b5b4d5): CLI solver delivers real note ->
+      real sync -> real Claim-All consume -> real takeAgglayerBridgeInInfo reconcile ->
+      bridged-receive row -> received / "Bridged from EVM". GREEN on the sim.
+- [x] Real WalletConnect handshake on iOS (commit 73b65a90d): connectUri native hook ->
+      real wc: URI -> headless counterparty pairs over the PUBLIC relay -> session approved ->
+      app reports connected {0xf39F..., chainId 11155111}. GREEN on the sim.
+- [x] 403 diagnosed: RATE-LIMITING (not allowlist/attestation). com.miden.bread IS allowlisted
+      for projectId b54ef53; spaced connections connect 6/6. NOTE: bursts (app+counterparty+
+      reown reconnects on one IP) can trip it -> CI may need retry/spacing or a dedicated projectId.
 
-## Make-or-break de-risk (do FIRST)
-- [ ] Can a headless WC counterparty wallet (@reown/walletkit) pair with the app's native
-      Reown plugin on the iOS sim, and can the test extract the `wc:` pairing URI?
-      (URI lives in the native Capacitor sheet — may need a test-only native hook.)
-- [ ] Does the mobile in-page backend load the bridge-in reconciliation + test hooks?
-      (No SW on iOS — verify installBridgeInTestHooks path works in the Capacitor context.)
-- [ ] iOS buildable on this branch's SDK? (memory: guardian consume RefCell panic on 0.15.5 — check.)
+## Remaining — the deposit half (unknowns resolved; mechanical build)
+- [ ] Anvil (chain 11155111) bring-up in the harness; counterparty broadcasts here.
+- [ ] client.ts rpcUrl E2E override so app EVM reads (gas/nonce/receipt) hit Anvil.
+- [ ] Deposit contracts on Anvil: AggLayer bridgeAsset target (+ Compact/USDC for Epoch) —
+      minimal-real or permissive-with-calldata-assert (avoid the "green on any calldata" trap).
+- [ ] AggLayer/Epoch doubles as needed (AggLayer receipt path can skip the indexer via pre-set phase).
+- [ ] data-testids on bridge-in UI (Cross Chain, token drawer, route, review) for real-UI nav.
+- [ ] Full spec: Receive -> Cross Chain -> connect (proven) -> ETH+Slow -> deposit -> confirm
+      (real sign via counterparty -> Anvil) -> row created -> solver delivers note -> received.
+- [ ] CI gate (mobile job + Anvil; handle relay rate-limit reliability).
 
-## Then build
-- [ ] Headless WC counterparty wallet (Node): pair off URI, approve eip155:11155111, sign eth_sendTransaction against Anvil.
-- [ ] Test hook to surface the `wc:` URI from native Reown (if not already exposed).
-- [ ] Anvil (chain 11155111) + Epoch/AggLayer doubles + CLI solver-double note delivery.
-- [ ] iOS Playwright spec: Receive -> Cross Chain -> connect (real WC) -> deposit (real sign) -> real note -> received.
-- [ ] Config plumbing: AggLayer sender override (done), AGGLAYER_BRIDGE_API + allocator URL for doubles.
-- [ ] CI: iOS bridge-in gate.
-
-## Already done (platform-agnostic, keep)
-- [x] AggLayer sender runtime E2E override (bridge-in.ts) — for pointing at the CLI solver account.
-- [x] bridge-in test hooks scaffold (bridge-in-test-hooks.ts) — verify it loads in mobile context.
-- Foundation up: real localnet Miden node + prover + note-transport verified; miden-client CLI works.
+## Findings to report to the team
+- WALLETCONNECT_PROJECT_ID is NOT set anywhere (repo/CI/release) -> builds fall back to b54ef53.
+  Fragile: any build not manually setting it ships the fallback. Verify the release process sets it.
+- Relay rate-limits bursts of connections on the same projectId/IP (intermittent 403).
