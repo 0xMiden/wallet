@@ -1,6 +1,7 @@
 import { toFixedRoundedDown } from 'lib/i18n/numbers';
 import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME, MIDEN_SWAP_ETA_ENDPOINTS } from 'lib/miden-chain/constants';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 
 /**
@@ -119,10 +120,12 @@ export interface SwapEta {
  * oracle `marketPrice` is amount-independent, so passing `0n` for
  * `requestAmountRaw` still returns a usable rate to seed the receive field.
  *
- * TODO: hardcoded devnet host — move to per-network config before any
- * non-devnet use so quotes point at the correct feed for the active network.
+ * Resolved per network from `MIDEN_SWAP_ETA_ENDPOINTS`; networks without their
+ * own feed fall back to the devnet deployment (quote-only — a wrong-network
+ * quote degrades the ETA display, it can never touch funds).
  */
-const SWAP_ETA_BASE_URL = 'https://35-175-40-181.sslip.io';
+const SWAP_ETA_BASE_URL =
+  MIDEN_SWAP_ETA_ENDPOINTS.get(DEFAULT_NETWORK) ?? MIDEN_SWAP_ETA_ENDPOINTS.get(MIDEN_NETWORK_NAME.DEVNET)!;
 
 /** Abort a quote request that hasn't responded within this window. */
 const SWAP_ETA_FETCH_TIMEOUT_MS = 10_000;

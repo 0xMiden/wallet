@@ -18,6 +18,7 @@ import { NoteTypeEnum } from '../types';
 import {
   cancelTransaction,
   completeConsumeTransaction,
+  completeSwapTransaction,
   forceCaneclAllInProgressTransactions,
   initiateConsumeTransaction,
   requestCustomTransaction,
@@ -461,6 +462,76 @@ describe('completeConsumeTransaction', () => {
     await completeConsumeTransaction('tx-batch', txResult);
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
     expect(txStore[0]!.amount).toBe(75n);
+  });
+
+  it('stamps the explicit expiresAt (completedAt + expirySeconds) on swap completion', async () => {
+    // The settlement engine's expiry-reclaim only fires on an EXPLICIT
+    // `extraInputs.expiresAt` — this stamp is what arms it for new orders.
+    txStore.push({
+      id: 'tx-swap',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      type: 'swap',
+      extraInputs: { requestedFaucetId: 'faucet-2', requestedAmount: 5n, expirySeconds: 120, autoConsume: true }
+    });
+    const txResult = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'swap-hash' }),
+        outputNotes: () => ({
+          notes: () => [
+            {
+              id: () => ({ toString: () => 'pswap-note-1' }),
+              intoFull: () => ({
+                recipient: () => ({ serialNum: () => ({ toFelts: () => [null, { asInt: () => 42n }] }) })
+              })
+            }
+          ]
+        })
+      }),
+      serialize: () => new Uint8Array([1, 2, 3])
+    } as any;
+
+    const before = Math.floor(Date.now() / 1000);
+    await completeSwapTransaction(txStore[0] as any, txResult);
+    const after = Math.floor(Date.now() / 1000);
+
+    const row = txStore[0]!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.extraInputs.expiresAt).toBeGreaterThanOrEqual(before + 120);
+    expect(row.extraInputs.expiresAt).toBeLessThanOrEqual(after + 120);
+    expect(row.extraInputs.expiresAt - row.completedAt).toBe(120);
+  });
+
+  it('leaves expiresAt unset when the swap row has no expirySeconds (legacy order)', async () => {
+    txStore.push({
+      id: 'tx-swap-legacy',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      type: 'swap',
+      extraInputs: { requestedFaucetId: 'faucet-2', requestedAmount: 5n }
+    });
+    const txResult = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'swap-hash' }),
+        outputNotes: () => ({
+          notes: () => [
+            {
+              id: () => ({ toString: () => 'pswap-note-2' }),
+              intoFull: () => ({
+                recipient: () => ({ serialNum: () => ({ toFelts: () => [null, { asInt: () => 7n }] }) })
+              })
+            }
+          ]
+        })
+      }),
+      serialize: () => new Uint8Array([1, 2, 3])
+    } as any;
+
+    await completeSwapTransaction(txStore[0] as any, txResult);
+    expect(txStore[0]!.extraInputs.expiresAt).toBeUndefined();
   });
 
   it('throws when the executed transaction has no input notes', async () => {

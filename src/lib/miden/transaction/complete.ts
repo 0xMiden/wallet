@@ -156,6 +156,16 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   // orderId for tracking the swap note through the lineage
   const orderId = outputNote.intoFull()?.recipient().serialNum().toFelts()[1]?.asInt();
 
+  const completedAt = Math.floor(Date.now() / 1000); // seconds
+  // Stamp the EXPLICIT expiry deadline the settlement engine requires:
+  // `reconcileSwapOrderNotes` only reclaims an expired order when
+  // `extraInputs.expiresAt` is set (a fabricated deadline would instantly
+  // reclaim pre-upgrade orders), so without this stamp the expiry path never
+  // fires. Anchored at completion — the order only becomes fillable once the
+  // PSWAP note is on chain, so counting from initiation would shorten the
+  // user's chosen window by the proving/submission time.
+  const expirySeconds = tx.extraInputs.expirySeconds;
+
   // TODO: track the created PSWAP note + payback note for richer activity
   // display (offered/requested asset breakdown). For now record the tx as
   // Completed with the output note ids so the swap shows up in history.
@@ -163,9 +173,13 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
     displayMessage: 'Swapped',
     transactionId: executedTx.id().toHex(),
     outputNoteIds: [outputNote.id().toString()],
-    completedAt: Math.floor(Date.now() / 1000), // seconds
+    completedAt,
     resultBytes: result.serialize(),
-    extraInputs: { ...tx.extraInputs, orderId }
+    extraInputs: {
+      ...tx.extraInputs,
+      orderId,
+      ...(expirySeconds != null ? { expiresAt: completedAt + expirySeconds } : {})
+    }
   });
 };
 

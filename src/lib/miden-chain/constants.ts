@@ -57,6 +57,13 @@ export const MIDEN_FAUCET_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:8080']
 ]);
 
+// DEX swap-eta quote feed. Only the devnet deployment exists today; other
+// networks fall back to it (the endpoint is quote-only — a wrong-network quote
+// degrades the ETA display, it can never touch funds).
+export const MIDEN_SWAP_ETA_ENDPOINTS = new Map<string, string>([
+  [MIDEN_NETWORK_NAME.DEVNET, 'https://35-175-40-181.sslip.io']
+]);
+
 export const MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.TESTNET, 'https://transport.miden.io'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://transport.devnet.miden.io'],
