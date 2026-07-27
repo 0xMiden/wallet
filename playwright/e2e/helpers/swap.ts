@@ -28,7 +28,7 @@ type Wallet = ChromeWalletPageApi;
 const PRICE_FEED_GLOB = '**/35-175-40-181.sslip.io/**';
 
 /** Default base-unit amount minted to each side's faucet. */
-const DEFAULT_FUND_AMOUNT = 100_000_000_000;
+export const DEFAULT_FUND_AMOUNT = 100_000_000_000;
 
 export interface SwapTokenDescriptor {
   symbol: string;

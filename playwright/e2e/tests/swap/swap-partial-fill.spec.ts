@@ -1,6 +1,7 @@
 import { expect, test } from '../../fixtures/two-wallets';
 import {
   createSwapOrder,
+  DEFAULT_FUND_AMOUNT,
   fillSwapOrder,
   fundSwapPair,
   readLineage,
@@ -31,7 +32,12 @@ test.describe('swap: partial fill + remainder', () => {
   const REQUEST_BASE = '1000000000'; // 10 SWPB
   const FILL_BASE = '400000000'; // 4 SWPB
   const PROP_OFFER_BASE = '400000000'; // 4 SWPA (4/10 * 10)
-  const REMAIN_BASE = '600000000'; // 6 of each
+  const REMAIN_BASE = '600000000'; // 6 of each (on-chain lineage remainder)
+  // The maker was funded DEFAULT_FUND_AMOUNT of the offer token, not the offered
+  // 10, so its final offer-token balance is `funded − proportional-delivered`
+  // (the taker's 4). The unfilled 6-remainder is reclaimed back into that balance
+  // on expiry, so the net is funded − 4, NOT the bare 6-remainder.
+  const MAKER_OFFER_BALANCE = (BigInt(DEFAULT_FUND_AMOUNT) - BigInt(PROP_OFFER_BASE)).toString(); // 99_600_000_000
 
   test('A offers 10 SWPA for 10 SWPB, B fills 4; expiry settles payback + remainder', async ({
     walletA,
@@ -109,13 +115,13 @@ test.describe('swap: partial fill + remainder', () => {
       })
       .toBe(FILL_BASE);
 
-    // ...and restores the unfilled offered remainder (the original funded 10
-    // minus the proportional 4 delivered to the taker).
+    // ...and restores the unfilled offered remainder into the maker's balance
+    // (funded − the proportional 4 delivered to the taker).
     await expect
       .poll(async () => (await tokenBalance(walletA, a.address, pair.offer.faucetId)).toString(), {
         timeout: 90_000,
         intervals: [3000]
       })
-      .toBe(REMAIN_BASE);
+      .toBe(MAKER_OFFER_BALANCE);
   });
 });
