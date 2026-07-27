@@ -61,6 +61,85 @@ export class IosWalletPage implements WalletPage {
     return this.cdp.evaluate(fn);
   }
 
+  // ── Bridge-IN test hooks (installed page-side on mobile via mobile-adapter) ──
+  // The hooks return Promises, and this RWI bridge's async eval is broken, so
+  // async hooks use the stash-and-poll pattern (start the promise + stash the
+  // result on a global, poll a sync eval for it). Runtime args are interpolated
+  // into the raw eval body via JSON (`evaluate(fn)` closures can't capture vars).
+
+  /** Point the AggLayer sender-match at the runtime "solver" account. Sync hook. */
+  async setAgglayerSender(senderAccountId: string): Promise<void> {
+    await this.cdp.eval(`window.__TEST_SET_AGGLAYER_SENDER__(${JSON.stringify(senderAccountId)}); return null;`);
+  }
+
+  /**
+   * Convert a CLI faucet hex id to the wallet's bech32 form via the installed
+   * `__TEST_HEX_TO_BECH32_FAUCET__` hook — the AggLayer sender-match compares
+   * bech32 prefixes, and a minted note's on-chain sender is the faucet. Polls
+   * for the hook (it's installed after an async SDK import at wallet init).
+   */
+  async hexToBech32Faucet(hex: string, network: 'testnet' | 'devnet' = 'testnet', timeoutMs = 30_000): Promise<string> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const res = await this.cdp.eval<string | null>(
+        `return (typeof window.__TEST_HEX_TO_BECH32_FAUCET__ === 'function') ` +
+          `? window.__TEST_HEX_TO_BECH32_FAUCET__(${JSON.stringify(hex)}, ${JSON.stringify(network)}) : null;`
+      );
+      if (res) return res;
+      if (Date.now() > deadline) throw new Error('hexToBech32Faucet: hook not ready within timeout');
+      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+    }
+  }
+
+  /** Create a `bridged-receive` tracking row; returns its txId. */
+  async createBridgeReceive(args: {
+    accountId: string;
+    amount: string;
+    faucetId: string;
+    provider: 'epoch' | 'agglayer';
+    sourceAddress: string;
+    sourceAmount: string;
+    sourceSymbol: string;
+    outputAmount?: string;
+    outputSymbol?: string;
+  }): Promise<string> {
+    return this.stashAndPoll<string>('__bi_create', `window.__TEST_CREATE_BRIDGE_RECEIVE__(${JSON.stringify(args)})`);
+  }
+
+  /** Read a `bridged-receive` row's current phase/displayMessage for assertions. */
+  async getBridgeReceiveState(txId: string): Promise<{
+    found: boolean;
+    phase?: string;
+    displayMessage?: string;
+    amount?: string;
+    faucetId?: string;
+  }> {
+    return this.stashAndPoll('__bi_state', `window.__TEST_BRIDGE_RECEIVE_STATE__(${JSON.stringify(txId)})`);
+  }
+
+  /** Run a Promise-returning hook expression and poll its stashed result. */
+  private async stashAndPoll<T>(prefix: string, promiseExpr: string, timeoutMs = 30_000): Promise<T> {
+    const key = `${prefix}_${Date.now()}`;
+    const k = JSON.stringify(key);
+    await this.cdp.eval(
+      `window[${k}] = undefined; ` +
+        `Promise.resolve(${promiseExpr})` +
+        `.then(function (v) { window[${k}] = { ok: true, v: v }; })` +
+        `.catch(function (e) { window[${k}] = { ok: false, e: String((e && e.message) || e) }; }); ` +
+        `return null;`
+    );
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const r = await this.cdp.eval<{ ok: boolean; v?: T; e?: string } | null>(`return window[${k}] || null;`);
+      if (r) {
+        if (r.ok) return r.v as T;
+        throw new Error(`stashAndPoll(${prefix}): ${r.e}`);
+      }
+      if (Date.now() > deadline) throw new Error(`stashAndPoll(${prefix}): timed out after ${timeoutMs}ms`);
+      await new Promise(res => setTimeout(res, POLL_INTERVAL_MS));
+    }
+  }
+
   // ── iOS-only helpers (used inline by .ios.spec.ts where Chrome reaches
   //    into Playwright internals) ─────────────────────────────────────────
 

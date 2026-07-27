@@ -122,6 +122,17 @@ async function tagConsumeRow(noteId: string, info: IBridgeInInfo): Promise<boole
 }
 
 /**
+ * E2E-only override for the AggLayer delivery sender. Production leaves this
+ * null (the hook that sets it is installed only under MIDEN_E2E_TEST), so the
+ * hardcoded testnet sender is used. The bridge-in localnet harness sets it to a
+ * runtime-created "solver" account whose id isn't known until test time.
+ */
+let e2eAgglayerSenderOverride: string | null = null;
+export function setAgglayerSenderForE2E(senderAccountId: string): void {
+  e2eAgglayerSenderOverride = senderAccountId;
+}
+
+/**
  * Match an AggLayer-delivered note to the oldest compatible tracking row.
  * The fixed sender is authoritative; amount + recipient prevent two deposits
  * to the same wallet from being paired in the wrong order.
@@ -131,7 +142,7 @@ export async function takeAgglayerBridgeInInfo(args: {
   senderAccountId: string;
   amount: bigint;
 }): Promise<IBridgeInInfo | undefined> {
-  const configuredSender = AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID.trim();
+  const configuredSender = (e2eAgglayerSenderOverride ?? AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID).trim();
   if (!configuredSender || !compareAccountIds(configuredSender, args.senderAccountId)) return undefined;
 
   const matches = await Repo.transactions
