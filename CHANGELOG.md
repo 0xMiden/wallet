@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.12 (TBD)
+
+### Changes
+
+* [CHANGE][all] **The Explore screen now shows only the two testnet faucets.** The curated Explore grid is trimmed to the existing Miden faucet plus a new "Forkchoice Faucet" tile (`faucets.forkchoice.xyz`), giving users two sources of testnet MIDEN; the other curated tiles (Zoro, Qash, Miden Name) are no longer shown in the grid.
+
 ## 1.15.11 (2026-07-26)
 
 ### Changes
