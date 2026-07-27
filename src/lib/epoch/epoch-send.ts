@@ -11,7 +11,7 @@ import {
   EPOCH_DESTINATION_CHAIN_ID,
   isBridgeableEvmTokenConfigured
 } from './bridgeable-token';
-import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS } from './chain';
+import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
 import { createBridgeP2IDNote, type BridgeNoteDeps } from './miden-note';
 import { getEpochReadOnlySdk } from './sdk';
 import type { CrossChainIntentParams } from './types';
@@ -62,7 +62,9 @@ function buildEpochSendParams(
     outputTokenAddress: BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
     outputTokenDecimals: BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
     minTokenOut: '0',
-    midenReclaimHeight: currentBlock + MIDEN_MIN_RECLAIM_BLOCKS
+    // Minimum window + headroom for blocks that elapse while the note is proved
+    // and submitted (the allocator validates against its later chain head).
+    midenReclaimHeight: currentBlock + MIDEN_MIN_RECLAIM_BLOCKS + MIDEN_RECLAIM_BUFFER_BLOCKS
   };
 }
 

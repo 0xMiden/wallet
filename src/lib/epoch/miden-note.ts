@@ -11,7 +11,7 @@ import * as Repo from 'lib/miden/repo';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 
-import { MIDEN_MIN_RECLAIM_BLOCKS } from './chain';
+import { MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
 
 export interface BridgeNoteDeps {
   /**
@@ -55,9 +55,13 @@ export interface CreateBridgeP2IDNoteArgs {
  *
  * - SDK passes the faucet, amount, and the allocator's Miden account id.
  * - We queue a single `bridged-send` (Epoch) transaction with `recallBlocks =
- *   MIDEN_MIN_RECLAIM_BLOCKS` so the resulting note is a recallable P2IDE
- *   (the Miden SDK uses presence of `reclaimAfter` to choose P2IDE over
- *   P2ID). This row IS the bridge — the send pipeline proves + submits it and
+ *   MIDEN_MIN_RECLAIM_BLOCKS + MIDEN_RECLAIM_BUFFER_BLOCKS` so the resulting note
+ *   is a recallable P2IDE (the Miden SDK uses presence of `reclaimAfter` to
+ *   choose P2IDE over P2ID). The buffer is essential: the allocator validates the
+ *   note's remaining recall window against ITS (later) chain head, so a bare
+ *   `MIDEN_MIN_RECLAIM_BLOCKS` leaves <1000 blocks by validation time and the
+ *   solve is rejected ("P2IDE reclaim window too small"). This row IS the bridge
+ *   — the send pipeline proves + submits it and
  *   `completeBridgedSendTransaction` marks it "Bridged to EVM". There is no
  *   separate outer row.
  * - Service worker (extension) or in-page background processor
@@ -86,7 +90,7 @@ export async function createBridgeP2IDNote(
       {
         recipientId: ifHextoBech32(allocatorId),
         noteType: NoteTypeEnum.Public,
-        recallBlocks: MIDEN_MIN_RECLAIM_BLOCKS
+        recallBlocks: MIDEN_MIN_RECLAIM_BLOCKS + MIDEN_RECLAIM_BUFFER_BLOCKS
       }
     );
 
