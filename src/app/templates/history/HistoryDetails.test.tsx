@@ -807,4 +807,100 @@ describe('HistoryDetails', () => {
       expect(screen.getByText('cancel exploded')).toBeInTheDocument();
     });
   });
+
+  describe('bridge details', () => {
+    const bridgedSendTx: Tx = {
+      ...baseSendTx,
+      id: 'bridge-out',
+      type: 'bridged-send',
+      displayMessage: 'Bridged to EVM',
+      extraInputs: {
+        provider: 'epoch',
+        destinationAddress: '0xdest',
+        destinationNetwork: 8453,
+        claimStatus: 'not-applicable',
+        outputAmount: '8.99',
+        outputSymbol: 'USDC',
+        epochStatus: 'confirmed'
+      }
+    };
+
+    const bridgedReceiveTx: Tx = {
+      ...baseSendTx,
+      id: 'bridge-in',
+      type: 'bridged-receive',
+      secondaryAccountId: undefined,
+      displayMessage: 'Bridging from EVM',
+      extraInputs: {
+        provider: 'epoch',
+        sourceAddress: '0xffffffffffffffffffffffffffffffffffffffff',
+        sourceAmount: '10',
+        sourceSymbol: 'USDC',
+        evmTxHash: '0xevmhash',
+        phase: 'delivering',
+        outputAmount: '9.98',
+        outputSymbol: 'USDC'
+      }
+    };
+
+    it('shows the claim section and bridge status pill for an outbound bridge', async () => {
+      mockGetTransactionById.mockResolvedValue(bridgedSendTx);
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(screen.getByTestId('bridge-claim-section')).toBeInTheDocument();
+      expect(screen.getByText('confirmed')).toBeInTheDocument();
+      // The bridged "to" is the EVM destination — no Miden to-row.
+      expect(rowByLabel('to')).toBeUndefined();
+    });
+
+    it('renders an in-flight inbound bridge with EVM source, route and pending note', async () => {
+      mockGetTransactionById.mockResolvedValue(bridgedReceiveTx);
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      // From = the EVM source address (Sepolia link), to = our Miden account.
+      const fromRow = rowByLabel('from');
+      expect(fromRow?.textContent).toContain('0xffffffffffffffffffffffffffffffffffffffff');
+      expect(rowByLabel('to')?.textContent).toContain('you (Mine)');
+
+      // Inbound bridge details card: Fast route, EVM tx hash, note still pending.
+      expect(screen.getByText('fastRouteLabel')).toBeInTheDocument();
+      expect(screen.getByText('0xevmhash')).toBeInTheDocument();
+      expect(rowByLabel('noteId')?.textContent).toContain('pending');
+      // Outbound-only claim section stays hidden.
+      expect(screen.queryByTestId('bridge-claim-section')).not.toBeInTheDocument();
+    });
+
+    it('renders a delivered inbound bridge with its Miden note id and slow-route label', async () => {
+      mockGetTransactionById.mockResolvedValue({
+        ...bridgedReceiveTx,
+        extraInputs: {
+          ...(bridgedReceiveTx.extraInputs as Record<string, unknown>),
+          provider: 'agglayer',
+          phase: 'received',
+          midenNoteId: '0xminednote'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('slowRouteLabel')).toBeInTheDocument();
+      expect(screen.getByText('0xminednote')).toBeInTheDocument();
+      expect(screen.getByText('confirmed')).toBeInTheDocument();
+    });
+
+    it('surfaces the failure reason for a failed inbound bridge', async () => {
+      mockGetTransactionById.mockResolvedValue({
+        ...bridgedReceiveTx,
+        error: 'The Epoch bridge intent failed.',
+        extraInputs: {
+          ...(bridgedReceiveTx.extraInputs as Record<string, unknown>),
+          phase: 'failed',
+          error: 'The Epoch bridge intent failed.'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('bridgeFailed')).toBeInTheDocument();
+      expect(screen.getByText('The Epoch bridge intent failed.')).toBeInTheDocument();
+    });
+  });
 });

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { TokenBalanceData } from 'lib/miden/front';
 import type { WalletAccount } from 'lib/shared/types';
@@ -13,6 +13,7 @@ const mockFaucet = jest.fn();
 const mockFetchActiveBridgePrompts = jest.fn();
 const mockPollActiveBridgePrompts = jest.fn();
 const mockUseWalletPromptStorage = jest.fn();
+const mockFetchHotKeyHardwareError = jest.fn();
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -66,6 +67,7 @@ jest.mock('lib/wallet-prompts', () => {
     ...actual,
     faucet: (address: string) => mockFaucet(address),
     fetchActiveBridgePrompts: (address: string) => mockFetchActiveBridgePrompts(address),
+    fetchHotKeyHardwareError: () => mockFetchHotKeyHardwareError(),
     pollActiveBridgePrompts: (transactions: unknown[]) => mockPollActiveBridgePrompts(transactions),
     useWalletPromptStorage: () => mockUseWalletPromptStorage()
   };
@@ -107,6 +109,7 @@ describe('HomePrompts', () => {
     mockFaucet.mockResolvedValue(undefined);
     mockFetchActiveBridgePrompts.mockResolvedValue([]);
     mockPollActiveBridgePrompts.mockResolvedValue(undefined);
+    mockFetchHotKeyHardwareError.mockResolvedValue(null);
   });
 
   it('polls and dismisses a pending bridge through the wallet prompt type', async () => {
@@ -405,5 +408,165 @@ describe('HomePrompts', () => {
 
     expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
     expect(setPromptStatus).not.toHaveBeenCalled();
+  });
+
+  it('completes the bridge prompt when no active bridge remains at fetch time', async () => {
+    const completePrompt = jest.fn();
+    mockFetchActiveBridgePrompts.mockResolvedValue([]);
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        completePrompt,
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.Bridge]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        },
+        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.Bridge
+      })
+    );
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Bridge));
+    expect(mockPollActiveBridgePrompts).not.toHaveBeenCalled();
+    expect(screen.queryByText('bridgePromptTitle')).not.toBeInTheDocument();
+  });
+
+  it('completes the bridge prompt once the poll settles the last bridge', async () => {
+    const completePrompt = jest.fn();
+    const bridgeTransaction = { id: 'bridge-1', type: 'bridged-send' };
+    mockFetchActiveBridgePrompts.mockResolvedValueOnce([bridgeTransaction]).mockResolvedValueOnce([]);
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        completePrompt,
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.Bridge]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        },
+        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.Bridge
+      })
+    );
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    await waitFor(() => expect(mockPollActiveBridgePrompts).toHaveBeenCalledWith([bridgeTransaction]));
+    await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Bridge));
+  });
+
+  it('survives a bridge poll failure without completing the prompt', async () => {
+    const completePrompt = jest.fn();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockFetchActiveBridgePrompts.mockRejectedValue(new Error('indexer down'));
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        completePrompt,
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.Bridge]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        },
+        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.Bridge
+      })
+    );
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    await waitFor(() =>
+      expect(warnSpy).toHaveBeenCalledWith('[wallet-prompts] bridge poll failed:', expect.any(Error))
+    );
+    expect(completePrompt).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('shows the stored hot-key hardware error and copies it on the report action', async () => {
+    mockFetchHotKeyHardwareError.mockResolvedValue({ message: 'TEE unavailable (code 7)' });
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        },
+        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
+      })
+    );
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    await waitFor(() => expect(mockFetchHotKeyHardwareError).toHaveBeenCalled());
+    // Flush the microtask that lands the fetched error in component state.
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('TEE unavailable (code 7)'));
+    await waitFor(() => {
+      expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'success');
+    });
+  });
+
+  it('marks the copy action failed when the clipboard rejects', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const writeText = jest.fn().mockRejectedValue(new Error('denied'));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        },
+        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
+      })
+    );
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
+    });
+    errorSpy.mockRestore();
   });
 });

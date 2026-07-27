@@ -15,6 +15,7 @@ import { HistoryEntryType } from './IHistoryEntry';
 const mockGetCompletedTransactions = jest.fn();
 const mockGetUncompletedTransactions = jest.fn();
 const mockCancelTransactionById = jest.fn().mockResolvedValue(undefined);
+const mockExistingTransactionIds = jest.fn();
 const mockGetTokenMetadata = jest.fn();
 const mockFormatAmount = jest.fn();
 const mockResolveSwapHistoryFields = jest.fn();
@@ -66,6 +67,7 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('lib/miden/activity', () => ({
   cancelTransactionById: (...args: unknown[]) => mockCancelTransactionById(...args),
+  existingTransactionIds: (...args: unknown[]) => mockExistingTransactionIds(...args),
   getCompletedTransactions: (...args: unknown[]) => mockGetCompletedTransactions(...args),
   getUncompletedTransactions: (...args: unknown[]) => mockGetUncompletedTransactions(...args),
   // Real (pure) implementations so the cancelled-row mapping is exercised
@@ -278,6 +280,7 @@ beforeEach(() => {
     (entry: any) => entry.faucetId === 'NATIVE' && entry.transactionIcon === 'RECEIVE'
   );
   mockFormatTransactionStatus.mockImplementation((s: number) => `status-${s}`);
+  mockExistingTransactionIds.mockImplementation(async (ids: string[]) => new Set(ids.filter(id => id === 'BR-KEEP')));
 });
 
 afterEach(() => cleanup());
@@ -547,5 +550,199 @@ describe('History', () => {
     const keys = mockUseRetryableSWR.mock.calls.map(c => c[0]);
     expect(keys).toContainEqual(['latest-transactions', '0xme', 'tok-9']);
     expect(keys).toContainEqual(['latest-pending-transactions', '0xme', 'tok-9']);
+  });
+
+  it('maps bridge rows, suppresses lifecycle-tail consumes, and derives swap settlement chips', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'BOUT',
+              status: STATUS.Completed,
+              displayMessage: 'Bridged to EVM',
+              displayIcon: 'SEND',
+              faucetId: 'fa1',
+              type: 'bridged-send',
+              amount: 9n,
+              completedAt: 5000,
+              extraInputs: {
+                provider: 'epoch',
+                destinationAddress: '0xdest',
+                destinationNetwork: 8453,
+                claimStatus: 'not-applicable',
+                outputAmount: '8.99',
+                outputSymbol: 'USDC',
+                intentNonce: 'n1',
+                fillTxHash: '0xfill',
+                fillChainId: 8453,
+                epochStatus: 'confirmed'
+              }
+            },
+            {
+              id: 'BR-KEEP',
+              status: STATUS.Completed,
+              displayMessage: 'Bridging from EVM',
+              displayIcon: 'RECEIVE',
+              faucetId: 'fa1',
+              type: 'bridged-receive',
+              amount: 4n,
+              completedAt: 4000,
+              extraInputs: {
+                provider: 'agglayer',
+                sourceAddress: '0xsrc',
+                sourceAmount: '4',
+                sourceSymbol: 'ETH',
+                evmTxHash: '0xhash',
+                phase: 'delivering',
+                outputAmount: '4',
+                outputSymbol: 'ETH',
+                midenNoteId: '0xnote'
+              }
+            },
+            // Delivery consume linked to the still-existing tracking row above → suppressed.
+            {
+              id: 'CONS-LINKED',
+              status: STATUS.Completed,
+              displayMessage: 'Received',
+              displayIcon: 'RECEIVE',
+              faucetId: 'fa1',
+              type: 'consume',
+              amount: 4n,
+              completedAt: 4100,
+              extraInputs: { bridgeIn: { provider: 'agglayer', bridgeReceiveTxId: 'BR-KEEP' } }
+            },
+            // Dangling tracking reference → shown, with bridgeIn display fallbacks.
+            {
+              id: 'CONS-DANGLING',
+              status: STATUS.Completed,
+              displayMessage: 'Bridged from EVM',
+              displayIcon: 'RECEIVE',
+              faucetId: 'fa1',
+              type: 'consume',
+              amount: 3n,
+              completedAt: 3900,
+              extraInputs: {
+                bridgeIn: {
+                  provider: 'epoch',
+                  sourceAmount: '3',
+                  sourceSymbol: 'USDC',
+                  evmTxHash: '0xebd',
+                  bridgeReceiveTxId: 'BR-GONE'
+                }
+              }
+            },
+            // Settlement consume for a swap row that no longer exists → shown as receive.
+            {
+              id: 'CONS-SWAP-GONE',
+              status: STATUS.Completed,
+              displayMessage: 'Received',
+              displayIcon: 'RECEIVE',
+              faucetId: 'fa1',
+              type: 'consume',
+              amount: 2n,
+              completedAt: 3800,
+              extraInputs: { swapOrderTxId: 'SW-GONE' }
+            },
+            {
+              id: 'SWAP-RECLAIMED',
+              status: STATUS.Completed,
+              displayMessage: 'swap',
+              displayIcon: 'SWAP',
+              faucetId: 'fa2',
+              type: 'swap',
+              amount: 5n,
+              completedAt: 3700,
+              extraInputs: { orderId: 7n, expiresAt: 1, reclaimedAt: 99 }
+            },
+            {
+              id: 'SWAP-PENDING',
+              status: STATUS.Completed,
+              displayMessage: 'swap',
+              displayIcon: 'SWAP',
+              faucetId: 'fa2',
+              type: 'swap',
+              amount: 5n,
+              completedAt: 3600,
+              extraInputs: { orderId: 8n, expiresAt: 1 }
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([
+      {
+        id: 'PB',
+        status: STATUS.GeneratingTransaction,
+        displayMessage: 'Bridging',
+        faucetId: 'fa1',
+        type: 'bridged-send',
+        amount: 6n,
+        initiatedAt: 700,
+        extraInputs: {
+          provider: 'agglayer',
+          destinationAddress: '0xpend',
+          destinationNetwork: 1,
+          claimStatus: 'pending',
+          outputAmount: '5.5',
+          outputSymbol: 'ETH',
+          intentNonce: 'n2',
+          fillTxHash: '0xf2',
+          fillChainId: 1,
+          epochStatus: 'pending'
+        }
+      }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries.length).toBeGreaterThan(0));
+
+    const byKey = (key: string) => mockHistoryViewProps.entries.find((e: any) => e.key === key);
+
+    expect(byKey('completed-CONS-LINKED')).toBeUndefined();
+
+    const out = byKey('completed-BOUT');
+    expect(out).toMatchObject({
+      bridgeProvider: 'epoch',
+      bridgeDestinationAddress: '0xdest',
+      bridgeClaimStatus: 'not-applicable',
+      bridgeOutputAmount: '8.99',
+      bridgeFillTxHash: '0xfill',
+      bridgeEpochStatus: 'confirmed',
+      secondaryAddress: '0xdest'
+    });
+
+    const receive = byKey('completed-BR-KEEP');
+    expect(receive).toMatchObject({
+      txType: 'bridged-receive',
+      bridgeInProvider: 'agglayer',
+      bridgeInSourceAddress: '0xsrc',
+      bridgeInSourceAmount: '4',
+      bridgeInEvmTxHash: '0xhash',
+      bridgeInPhase: 'delivering',
+      bridgeInOutputAmount: '4',
+      bridgeInMidenNoteId: '0xnote'
+    });
+
+    const dangling = byKey('completed-CONS-DANGLING');
+    expect(dangling).toMatchObject({
+      txType: 'consume',
+      bridgeInProvider: 'epoch',
+      bridgeInSourceAmount: '3',
+      bridgeInSourceSymbol: 'USDC',
+      bridgeInEvmTxHash: '0xebd'
+    });
+    expect(byKey('completed-CONS-SWAP-GONE')).toBeDefined();
+
+    expect(byKey('completed-SWAP-RECLAIMED')).toMatchObject({ swapSettlement: 'reclaimed' });
+    expect(byKey('completed-SWAP-PENDING')).toMatchObject({ swapSettlement: 'pending' });
+
+    const pendingBridge = byKey('pending-PB');
+    expect(pendingBridge).toMatchObject({
+      bridgeProvider: 'agglayer',
+      bridgeDestinationAddress: '0xpend',
+      bridgeClaimStatus: 'pending',
+      bridgeOutputAmount: '5.5',
+      bridgeIntentNonce: 'n2',
+      secondaryAddress: '0xpend'
+    });
   });
 });
