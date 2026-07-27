@@ -31,7 +31,10 @@ const ERC20_BALANCE_OF_ABI = [
 
 /** A read-only Sepolia client (HTTP transport, no account). */
 export function sepoliaPublicClient(): PublicClient {
-  return createPublicClient({ chain: sepolia, transport: http(SEPOLIA_RPC_URL) });
+  // retryCount above viem's default (3), so a transient 429/5xx from a shared-IP
+  // public RPC — notably on the first, baseline balance read — backs off and
+  // retries instead of hard-failing the run.
+  return createPublicClient({ chain: sepolia, transport: http(SEPOLIA_RPC_URL, { retryCount: 5 }) });
 }
 
 /**

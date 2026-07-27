@@ -30,9 +30,17 @@ jobs:
   chrome-bridge-testnet:
     name: Bridge E2E (Chrome, testnet)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Headroom for a cold cache (yarn + `cargo install --git --locked` + playwright
+    # + the extension build ~20 min) PLUS two 15-min test attempts under
+    # `--retries=1`, so the retry that absorbs a transient blip can't itself
+    # wall-clock-timeout and red main.
+    timeout-minutes: 70
     env:
       E2E_NETWORK: testnet
+      # Optional: pin a keyed / higher-rate-limit Sepolia RPC so the EVM-side read
+      # doesn't hit a 429 from the shared runner IP. Falls back to the public node
+      # in playwright/e2e/helpers/sepolia.ts when this secret is unset.
+      E2E_SEPOLIA_RPC_URL: ${{ secrets.E2E_SEPOLIA_RPC_URL }}
     steps:
       - uses: actions/checkout@v4
 

@@ -110,11 +110,14 @@ export async function bridgeOutFast(wallet: Wallet, opts: BridgeOutFastOptions):
   await flow.getByTestId('send-amount-input').fill(opts.amount);
   await flow.getByTestId('send-amount-confirm').click({ timeout: step });
 
-  // Route: Fast (Epoch) is the default; confirm becomes enabled once the live
-  // quote resolves. Selecting Fast explicitly guards against a default change.
+  // Route: Fast (Epoch) is the default. Selecting it explicitly guards against a
+  // default change. The confirm button is never disabled, so gate on the real
+  // signal instead: the Fast card renders a live Epoch forward-quote fee ("$X.XX")
+  // once the quote resolves (a "—"/skeleton until then), so wait for that dollar
+  // value — that genuinely exercises the forward-quote before we submit.
   await expect(flow.getByTestId('bridge-route-fast')).toBeVisible({ timeout: step });
   await flow.getByTestId('bridge-route-fast').click();
-  await expect(flow.getByTestId('bridge-route-confirm')).toBeEnabled({ timeout: opts.quoteTimeoutMs ?? 60_000 });
+  await expect(flow.getByTestId('bridge-route-fast')).toContainText('$', { timeout: opts.quoteTimeoutMs ?? 60_000 });
   await flow.getByTestId('bridge-route-confirm').click();
 
   // Review -> submit -> generating-transaction.
