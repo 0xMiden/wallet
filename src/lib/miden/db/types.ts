@@ -224,6 +224,8 @@ export class ConsumeTransaction implements ITransaction {
   accountId: string;
   amount?: bigint;
   noteId: string;
+  /** Every note consumed by this transaction (batch claims consume many in one tx) */
+  noteIds?: string[];
   secondaryAccountId?: string;
   faucetId: string;
   transactionId?: string;

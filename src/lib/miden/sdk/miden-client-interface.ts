@@ -342,7 +342,10 @@ export class MidenClientInterface {
       const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');
       const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
 
-      const lookupClient = new MultisigClient(this.client, { guardianEndpoint });
+      const lookupClient = new MultisigClient(this.client, {
+        guardianEndpoint,
+        midenRpcEndpoint: MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!
+      });
       const lookupSigner = new EcdsaSigner(coldSk);
       const matches = await lookupClient.recoverByKey(lookupSigner);
 

@@ -10,7 +10,7 @@ import {
   type Proposal
 } from '@openzeppelin/miden-multisig-client';
 
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
+import { DEFAULT_GUARDIAN_ENDPOINT, DEFAULT_NETWORK, MIDEN_NETWORK_ENDPOINTS } from 'lib/miden-chain/constants';
 import * as secureHotKey from 'lib/secure-hot-key';
 import type { GeneratedHotKey } from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
@@ -36,6 +36,7 @@ const SYNC_RETRY_DELAY_MS = 1000;
 const MAX_GUARDIAN_CANONICALIZE_RETRIES = 30;
 const MAX_GUARDIAN_REGISTER_RETRIES = 5;
 const GUARDIAN_REGISTER_RETRY_DELAY_MS = 2000;
+const MIDEN_RPC_ENDPOINT = MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -84,7 +85,10 @@ export class MultisigService {
       const webClient = (await getMidenClient()).client;
 
       registerGuardianOrigin(guardianEndpoint);
-      const client = new MultisigClient(webClient, { guardianEndpoint });
+      const client = new MultisigClient(webClient, {
+        guardianEndpoint,
+        midenRpcEndpoint: MIDEN_RPC_ENDPOINT
+      });
       // `load` drives the shared WASM web-client, so it must be serialized with
       // every other client operation via the global mutex.
       const multisig = await withWasmClientLock(() => client.load(account.id().toString(), signer));
@@ -245,6 +249,17 @@ export class MultisigService {
    */
   async signProposal(id: string): Promise<void> {
     await this.multisig.signProposal(id);
+  }
+
+  /**
+   * Tell the Guardian that a canonicalization candidate will not be submitted.
+   *
+   * This records an abandonment intent rather than immediately discarding the
+   * candidate. The Guardian first checks that the transaction did not land, so
+   * this is safe to call after ambiguous prover/RPC/submit failures.
+   */
+  async abandonCandidate(nonce: number): Promise<void> {
+    await this.multisig.abandonCandidate(nonce);
   }
 
   async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
@@ -423,9 +438,9 @@ export class MultisigService {
         webClient,
         targetThreshold,
         targetSignerCommitments,
-        { signatureScheme: 'ecdsa' }
+        { signatureScheme: 'ecdsa', midenRpcEndpoint: MIDEN_RPC_ENDPOINT }
       );
-      const summary = await executeForSummary(webClient, this.accountId, request);
+      const summary = await executeForSummary(webClient, this.accountId, request, MIDEN_RPC_ENDPOINT);
       return { summaryBase64: u8ToB64(summary.serialize()), saltHex: salt.toHex() };
     });
     const metadata: ProposalMetadata = {

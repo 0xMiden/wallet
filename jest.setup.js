@@ -31,6 +31,9 @@ Object.defineProperty(globalThis, 'CryptoKey', {
 });
 
 global.afterEach(async () => {
+  // Some suites leave fake timers enabled. Dexie's IndexedDB cleanup relies on
+  // real scheduling and otherwise waits until Jest's hook timeout.
+  jest.useRealTimers();
   // clear fake indexeddb database
   await Promise.all(db.tables.map(t => t.clear()));
 });
