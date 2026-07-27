@@ -394,6 +394,49 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-status-tone', 'failed');
   });
 
+  it('renders a user-cancelled row with grey styling and a cancelled status', () => {
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({
+            key: 'cancelled-send',
+            transactionIcon: 'FAILED',
+            isCancelled: true,
+            message: 'Cancelled',
+            txId: 'tx-cancelled',
+            timestamp: DAY_A
+          }),
+          // A cancelled swap drops the swap title/amount treatment too.
+          makeEntry({
+            key: 'cancelled-swap',
+            txType: 'swap',
+            transactionIcon: 'FAILED',
+            isCancelled: true,
+            message: 'Cancelled',
+            token: 'AAA',
+            requestedToken: 'BBB',
+            requestedAmount: '9',
+            txId: 'tx-cancelled-swap',
+            timestamp: DAY_A
+          })
+        ]}
+        fullHistory
+      />
+    );
+    const rows = screen.getAllByTestId('activity-row');
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row).toHaveAttribute('data-title', 'cancelled');
+      expect(row).toHaveAttribute('data-iconbg', 'bg-gray-400');
+      expect(row).toHaveAttribute('data-status-tone', 'cancelled');
+      expect(row).toHaveAttribute('data-status-label', 'cancelled');
+      expect(iconNameIn(row)).toBe('Close');
+    }
+    // The cancelled swap shows no requested-side amount.
+    expect(rows[1]).toHaveAttribute('data-amount-value', '');
+  });
+
   it('renders the receive row with a short (<=12) address returned verbatim', () => {
     renderFull();
     const row = rowByTitle('Received');

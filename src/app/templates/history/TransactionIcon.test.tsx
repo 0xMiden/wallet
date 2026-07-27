@@ -13,7 +13,7 @@ import { isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
 // without the barrel's heavy dependency graph.
 jest.mock('app/icons/v2', () => ({
   __esModule: true,
-  IconName: { Convert: 'convert' },
+  IconName: { Convert: 'convert', Close: 'close' },
   Icon: ({ name, size, className }: { name: string; size?: string; className?: string }) => (
     <div data-testid="v2-icon" data-name={name} data-size={size} className={className} />
   )
@@ -26,7 +26,13 @@ jest.mock('app/icons/v2', () => ({
 jest.mock('./transactionUtils', () => ({
   __esModule: true,
   isFaucetRequest: jest.fn(() => false),
-  TRANSACTION_COLORS: { send: '#91ACC1', receive: '#99AC94', faucet: '#891DB1' }
+  TRANSACTION_COLORS: {
+    send: '#91ACC1',
+    receive: '#99AC94',
+    faucet: '#891DB1',
+    failed: '#CC5D5D',
+    cancelled: '#9E9E9E'
+  }
 }));
 
 const mockIsFaucetRequest = isFaucetRequest as jest.MockedFunction<typeof isFaucetRequest>;
@@ -113,6 +119,42 @@ describe('TransactionIcon', () => {
       // Faucet color, not the send color.
       expect(root(container)).toHaveStyle({ backgroundColor: TRANSACTION_COLORS.faucet });
       expect(root(container)).not.toHaveStyle({ backgroundColor: TRANSACTION_COLORS.send });
+    });
+  });
+
+  describe('failed / cancelled branch', () => {
+    it('renders the red cross circle for a FAILED transaction', () => {
+      const { container, getByTestId } = render(<TransactionIcon entry={makeEntry({ transactionIcon: 'FAILED' })} />);
+
+      const wrapper = root(container);
+      expect(wrapper).toHaveClass('w-8.5', 'h-8.5', 'rounded-full');
+      expect(wrapper).toHaveStyle({ backgroundColor: TRANSACTION_COLORS.failed });
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-name', 'close');
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-size', 'sm');
+    });
+
+    it('takes precedence over a faucet request', () => {
+      mockIsFaucetRequest.mockReturnValue(true);
+      const { container } = render(<TransactionIcon entry={makeEntry({ transactionIcon: 'FAILED' })} />);
+
+      expect(root(container)).toHaveStyle({ backgroundColor: TRANSACTION_COLORS.failed });
+    });
+
+    it('renders the grey cross circle (lg Icon sizing) for a user-cancelled transaction', () => {
+      const { container, getByTestId } = render(
+        <TransactionIcon entry={makeEntry({ transactionIcon: 'SEND', isCancelled: true })} size="lg" />
+      );
+
+      expect(root(container)).toHaveStyle({ backgroundColor: TRANSACTION_COLORS.cancelled });
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-size', 'lg');
+    });
+
+    it('keeps the pending spinner for a cancelled row that is still processing', () => {
+      const { container } = render(
+        <TransactionIcon entry={makeEntry({ type: HistoryEntryType.PendingTransaction, isCancelled: true })} />
+      );
+
+      expect(root(container).tagName.toLowerCase()).toBe('svg');
     });
   });
 

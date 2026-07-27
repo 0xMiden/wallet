@@ -1,21 +1,36 @@
 import React, { FC, useCallback, useEffect, useState, memo } from 'react';
 
 import BigNumber from 'bignumber.js';
+import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import PageLayout from 'app/layouts/PageLayout';
+import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
-import { getTransactionById, trackOrderId, SwapOrderState, SwapOrderTracking } from 'lib/miden/activity';
+import {
+  cancelTransactionById,
+  getTransactionById,
+  isRequeueableTransaction,
+  isUserCancelledTransaction,
+  requestSWTransactionProcessing,
+  requeueFailedTransaction,
+  trackOrderId,
+  SwapOrderState,
+  SwapOrderTracking,
+  USER_CANCELLED_TRANSACTION_REASON
+} from 'lib/miden/activity';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
+import { hapticLight } from 'lib/mobile/haptics';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
-import { goBack } from 'lib/woozie';
+import { goBack, navigate } from 'lib/woozie';
 
 import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
@@ -109,6 +124,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  // Failed txs persist a friendly `error` plus the untouched thrown `rawError`;
+  // this reveals the latter on demand.
+  const [showFullError, setShowFullError] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
   // Swap order tracking: the orderId is persisted on the swap tx's extraInputs
   // by `completeSwapTransaction`; the live lineage is fetched via `trackOrderId`.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
@@ -124,7 +146,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       const historyEntry = {
         address: tx.accountId,
         key: `completed-${tx.id}`,
-        timestamp: tx.completedAt,
+        // A queued/failed row may never have completed — fall back to its start.
+        timestamp: tx.completedAt ?? tx.initiatedAt,
         message: tx.displayMessage,
         status: tx.status,
         transactionIcon: tx.displayIcon,
@@ -137,7 +160,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         externalTxId: tx.transactionId,
         faucetId: tx.faucetId,
         outputNoteIds: tx.outputNoteIds,
-        txType: tx.type
+        txType: tx.type,
+        errorMessage: tx.error,
+        rawErrorMessage: tx.rawError,
+        isCancelled: isUserCancelledTransaction(tx.error)
       } as IHistoryEntry;
 
       if (tx.type === 'swap') {
@@ -168,6 +194,38 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   useEffect(() => {
     if (!entry && !loadError) loadTransaction();
   }, [loadTransaction, entry, loadError]);
+
+  const handleCancel = useCallback(async () => {
+    setIsCancelling(true);
+    setCancelError(null);
+
+    try {
+      await cancelTransactionById(transactionId, USER_CANCELLED_TRANSACTION_REASON);
+      await loadTransaction();
+    } catch (error) {
+      console.error('[HistoryDetails] Failed to cancel transaction:', error);
+      setCancelError(error instanceof Error ? error.message : t('smthWentWrong'));
+    } finally {
+      setIsCancelling(false);
+    }
+  }, [loadTransaction, t, transactionId]);
+
+  // Retry a failed transaction by re-queueing it through the FIFO loop, then
+  // hand off to the generating-transaction page which observes the row (and,
+  // on mobile/desktop, drives the loop).
+  const handleRetry = useCallback(async () => {
+    setIsRetrying(true);
+    setRetryError(null);
+    try {
+      await requeueFailedTransaction(transactionId);
+      requestSWTransactionProcessing();
+      navigate(`/generating-transaction/${encodeURIComponent(transactionId)}`);
+    } catch (error) {
+      console.error('[HistoryDetails] Failed to retry transaction:', error);
+      setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+      setIsRetrying(false);
+    }
+  }, [t, transactionId]);
 
   // Poll the swap order lineage until it reaches a terminal state (filled or
   // reclaimed). The orderId is persisted on the swap tx; the live lineage is
@@ -257,6 +315,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     entry?.amount !== undefined && entry.token
       ? formatFiatDisplayAmount(entry.amount, entry.token, tokenPrices)
       : undefined;
+  const isPending =
+    entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
+  // Retry only for failed types the wallet can safely replay (structural
+  // Guardian ops are excluded — the user re-initiates those from Settings).
+  const canRetry =
+    entry !== null && !entry.isCancelled && isRequeueableTransaction({ status: entry.status, type: entry.txType });
 
   return (
     <PageLayout hideToolbar>
@@ -284,7 +348,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </div>
               {approximateUsdAmount && <p className="text-sm font-medium text-gray">{approximateUsdAmount}</p>}
               <div className="mt-2">
-                <StatusPill status={entry.status} />
+                <StatusPill status={entry.status} isCancelled={entry.isCancelled} />
               </div>
             </div>
 
@@ -327,6 +391,41 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 )}
               </DetailCard>
             </div>
+
+            {/* Failure reason (persisted on `tx.error` by cancelTransaction) */}
+            {entry.status === ITransactionStatus.Failed && entry.errorMessage && (
+              <div className="mt-6">
+                <DetailCard title={entry.isCancelled ? t('cancelled') : t('error')}>
+                  <p
+                    className={classNames(
+                      'px-4 py-3 text-sm font-medium break-words select-text',
+                      entry.isCancelled ? 'text-gray-500' : 'text-status-negative'
+                    )}
+                  >
+                    {entry.errorMessage}
+                  </p>
+                  {entry.rawErrorMessage && (
+                    <div className="px-4 pb-3">
+                      <button
+                        type="button"
+                        className="text-sm font-medium text-text-muted underline"
+                        onClick={() => {
+                          hapticLight();
+                          setShowFullError(v => !v);
+                        }}
+                      >
+                        {showFullError ? t('hideFullError') : t('showFullError')}
+                      </button>
+                      {showFullError && (
+                        <p className="mt-2 text-xs font-medium text-text-muted break-words select-text">
+                          {entry.rawErrorMessage}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </DetailCard>
+              </div>
+            )}
 
             {/* Swap order tracking */}
             {entry.txType === 'swap' && orderId != null && (
@@ -378,6 +477,34 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 </DetailCard>
               </div>
             )}
+          </div>
+        )}
+
+        {isPending && (
+          <div className="shrink-0 pt-3 pb-4">
+            {cancelError && <p className="mb-2 text-center text-sm text-status-negative">{cancelError}</p>}
+            <Button
+              variant={ButtonVariant.Primary}
+              title={t('cancel')}
+              isLoading={isCancelling}
+              disabled={isCancelling}
+              onClick={handleCancel}
+              className="max-w-none bg-status-negative hover:bg-status-negative focus:bg-status-negative"
+            />
+          </div>
+        )}
+
+        {canRetry && (
+          <div className="shrink-0 pt-3 pb-4">
+            {retryError && <p className="mb-2 text-center text-sm text-status-negative">{retryError}</p>}
+            <Button
+              variant={ButtonVariant.Primary}
+              title={t('retry')}
+              isLoading={isRetrying}
+              disabled={isRetrying}
+              onClick={handleRetry}
+              className="max-w-none"
+            />
           </div>
         )}
       </div>

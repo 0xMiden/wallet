@@ -32,6 +32,18 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
     return <PendingIcon className={`${config.pending} animate-spin ${whiteIconClass}`} />;
   }
 
+  // Cancelled reads as a neutral grey cross; a genuine failure gets the red one.
+  if (entry.isCancelled || entry.transactionIcon === 'FAILED') {
+    return (
+      <div
+        className={`${config.container} flex items-center justify-center rounded-full`}
+        style={{ backgroundColor: entry.isCancelled ? TRANSACTION_COLORS.cancelled : TRANSACTION_COLORS.failed }}
+      >
+        <Icon name={IconName.Close} size={size === 'lg' ? 'lg' : 'sm'} fill="currentColor" className={whiteIconClass} />
+      </div>
+    );
+  }
+
   if (isFaucetRequest(entry)) {
     return (
       <div

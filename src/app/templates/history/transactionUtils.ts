@@ -60,7 +60,9 @@ export const fontColorForType = (type: ITransactionType): string => {
 export const TRANSACTION_COLORS = {
   send: '#91ACC1',
   receive: '#99AC94',
-  faucet: '#891DB1'
+  faucet: '#891DB1',
+  failed: '#CC5D5D',
+  cancelled: '#9E9E9E'
 } as const;
 
 export const formatDate = (timestamp: number | string): string => {

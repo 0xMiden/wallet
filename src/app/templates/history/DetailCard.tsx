@@ -25,19 +25,44 @@ export const ExternalLinkValue: FC<{
  * `status` (message-string sniffing broke for types whose completion message
  * wasn't in the known list — e.g. a completed swap's "Swapped").
  */
-export const StatusPill: FC<{ status?: ITransactionStatus }> = memo(({ status }) => {
-  const { t } = useTranslation();
-  const isCompleted = status === ITransactionStatus.Completed;
-  const isFailed = status === ITransactionStatus.Failed;
+export const StatusPill: FC<{ status?: ITransactionStatus; isCancelled?: boolean }> = memo(
+  ({ status, isCancelled }) => {
+    const { t } = useTranslation();
+    const isCompleted = status === ITransactionStatus.Completed;
+    const isFailed = status === ITransactionStatus.Failed;
 
-  const dotColor = isCompleted ? 'bg-[#1A9C52]' : isFailed ? 'bg-status-negative' : 'bg-blue-500';
-  const textColor = isCompleted ? 'text-[#1A9C52]' : isFailed ? 'text-status-negative' : 'text-blue-500';
-  const label = isCompleted ? t('confirmed') : isFailed ? t('failed') : t('inProgress');
+    const dotColor = isCancelled
+      ? 'bg-gray-400'
+      : isCompleted
+        ? 'bg-[#1A9C52]'
+        : isFailed
+          ? 'bg-status-negative'
+          : 'bg-blue-500';
+    const textColor = isCancelled
+      ? 'text-gray-500'
+      : isCompleted
+        ? 'text-[#1A9C52]'
+        : isFailed
+          ? 'text-status-negative'
+          : 'text-blue-500';
+    const label = isCancelled
+      ? t('cancelled')
+      : isCompleted
+        ? t('confirmed')
+        : isFailed
+          ? t('failed')
+          : t('inProgress');
 
-  return (
-    <div className="flex items-center gap-1 px-4 py-0.5 rounded-full bg-green-600/20">
-      <div className={classNames('w-2 h-2 rounded-full', dotColor)} />
-      <span className={classNames('text-[10px] font-medium text-heading-gray', textColor)}>{label}</span>
-    </div>
-  );
-});
+    return (
+      <div
+        className={classNames(
+          'flex items-center gap-1 px-4 py-0.5 rounded-full',
+          isCancelled ? 'bg-gray-100' : 'bg-green-600/20'
+        )}
+      >
+        <div className={classNames('w-2 h-2 rounded-full', dotColor)} />
+        <span className={classNames('text-[10px] font-medium text-heading-gray', textColor)}>{label}</span>
+      </div>
+    );
+  }
+);

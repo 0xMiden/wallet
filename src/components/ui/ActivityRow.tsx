@@ -6,7 +6,7 @@ import classNames from 'clsx';
 import { hapticLight } from 'lib/mobile/haptics';
 
 export type ActivityAmountDirection = 'positive' | 'negative' | 'neutral';
-export type ActivityStatusTone = 'confirmed' | 'pending' | 'failed';
+export type ActivityStatusTone = 'confirmed' | 'pending' | 'failed' | 'cancelled';
 
 export interface ActivityRowProps {
   /** Glyph rendered inside the colored square. Pass a white-stroked SVG; it is forced to 16x16. */
@@ -41,13 +41,15 @@ const AMOUNT_COLOR: Record<ActivityAmountDirection, string> = {
 const STATUS_DOT: Record<ActivityStatusTone, string> = {
   confirmed: 'bg-status-positive',
   pending: 'bg-status-pending',
-  failed: 'bg-status-negative'
+  failed: 'bg-status-negative',
+  cancelled: 'bg-gray-400'
 };
 
 const STATUS_TEXT: Record<ActivityStatusTone, string> = {
   confirmed: 'text-status-positive',
   pending: 'text-status-pending',
-  failed: 'text-status-negative'
+  failed: 'text-status-negative',
+  cancelled: 'text-gray-500'
 };
 
 const DISPLAY_DECIMAL_PLACES = 3;

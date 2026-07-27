@@ -193,7 +193,9 @@ describe('TRANSACTION_COLORS', () => {
     expect(TRANSACTION_COLORS).toEqual({
       send: '#91ACC1',
       receive: '#99AC94',
-      faucet: '#891DB1'
+      faucet: '#891DB1',
+      failed: '#CC5D5D',
+      cancelled: '#9E9E9E'
     });
   });
 });

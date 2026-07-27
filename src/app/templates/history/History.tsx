@@ -1,7 +1,13 @@
 import React, { memo, RefObject, useMemo, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
-import { cancelTransactionById, getCompletedTransactions, getUncompletedTransactions } from 'lib/miden/activity';
+import {
+  cancelTransactionById,
+  getCompletedTransactions,
+  getUncompletedTransactions,
+  isUserCancelledTransaction,
+  USER_CANCELLED_TRANSACTION_REASON
+} from 'lib/miden/activity';
 import { formatTransactionStatus, ITransactionStatus } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
@@ -58,7 +64,7 @@ const History = memo<HistoryProps>(
         latestPendingTransactions?.map(tx => {
           tx.cancel = async () => {
             if (tx.txId) {
-              await cancelTransactionById(tx.txId, 'Transaction was cancelled by user');
+              await cancelTransactionById(tx.txId, USER_CANCELLED_TRANSACTION_REASON);
               mutateTx();
             }
           };
@@ -102,9 +108,18 @@ const History = memo<HistoryProps>(
       );
     }
     if (filter && filter !== 'all') {
+      // Failed/cancelled rows lose their directional icon (it becomes FAILED),
+      // so the Sent/Received filters fall back to the underlying tx type.
       entries = entries.filter(e => {
-        if (filter === 'sent') return e.transactionIcon === 'SEND';
-        if (filter === 'received') return e.transactionIcon === 'RECEIVE' && !isFaucetEntry(e);
+        if (filter === 'sent') {
+          return e.transactionIcon === 'SEND' || (e.transactionIcon === 'FAILED' && e.txType === 'send');
+        }
+        if (filter === 'received') {
+          return (
+            (e.transactionIcon === 'RECEIVE' || (e.transactionIcon === 'FAILED' && e.txType === 'consume')) &&
+            !isFaucetEntry(e)
+          );
+        }
         if (filter === 'faucet') return isFaucetEntry(e);
         return true;
       });
@@ -137,9 +152,14 @@ async function fetchTransactionsAsHistoryEntries(
   limit?: number,
   tokenId?: string
 ): Promise<IHistoryEntry[]> {
-  const transactions = await getCompletedTransactions(address, offset, limit, false, tokenId);
+  const transactions = await getCompletedTransactions(address, offset, limit, true, tokenId);
   const entries = transactions.map(async tx => {
-    const updateMessageForFailed = tx.status === ITransactionStatus.Failed ? 'Transaction failed' : tx.displayMessage;
+    const isCancelled = isUserCancelledTransaction(tx.error);
+    const updateMessageForFailed = isCancelled
+      ? 'Cancelled'
+      : tx.status === ITransactionStatus.Failed
+        ? 'Transaction failed'
+        : tx.displayMessage;
     const icon = tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.displayIcon;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     // Swap faucets are usually absent from wallet metadata — resolve both
@@ -160,7 +180,9 @@ async function fetchTransactionsAsHistoryEntries(
       txId: tx.id,
       noteType: tx.noteType,
       faucetId: tx.faucetId,
-      txType: tx.type
+      txType: tx.type,
+      errorMessage: tx.error,
+      isCancelled
     } as IHistoryEntry;
 
     return entry;

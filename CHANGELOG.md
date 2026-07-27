@@ -4,7 +4,7 @@
 
 ### Changes
 
-* [CHANGE][all] **Failed transactions now record a friendly reason and can be re-queued.** A transaction that dies while proving — or times out mid-send — is stored with a plain-English "Remote prover failed" message instead of a raw SDK error, with the untouched error kept alongside it for debugging, and a failed send/claim/swap row can be reset back into the processing queue to be retried.
+* [CHANGE][all] **Failed transactions now record a friendly reason and can be re-queued.** A transaction that dies while proving — or times out mid-send — is stored with a plain-English "Remote prover failed" message instead of a raw SDK error, with the untouched error kept alongside it for debugging, and a failed send/claim/swap row can be reset back into the processing queue to be retried. Activity now lists those failed rows — user-cancelled ones as neutral grey "Cancelled" entries, and the Sent/Received filters still find them — and the transaction details page shows the failure reason with the raw error behind a "Show full error" disclosure, a Cancel button while the row is still queued, and a Retry button for the types that can safely be replayed.
 * [CHANGE][all] **The Explore screen now shows only the two testnet faucets.** The curated Explore grid is trimmed to the existing Miden faucet plus a new "Forkchoice Faucet" tile (`faucets.forkchoice.xyz`), giving users two sources of testnet MIDEN; the other curated tiles (Zoro, Qash, Miden Name) are no longer shown in the grid.
 
 ## 1.15.11 (2026-07-26)

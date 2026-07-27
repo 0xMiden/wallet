@@ -67,7 +67,11 @@ jest.mock('react-i18next', () => ({
 jest.mock('lib/miden/activity', () => ({
   cancelTransactionById: (...args: unknown[]) => mockCancelTransactionById(...args),
   getCompletedTransactions: (...args: unknown[]) => mockGetCompletedTransactions(...args),
-  getUncompletedTransactions: (...args: unknown[]) => mockGetUncompletedTransactions(...args)
+  getUncompletedTransactions: (...args: unknown[]) => mockGetUncompletedTransactions(...args),
+  // Real (pure) implementations so the cancelled-row mapping is exercised
+  // against the production sentinel string.
+  USER_CANCELLED_TRANSACTION_REASON: 'Transaction was cancelled by user',
+  isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user'
 }));
 
 jest.mock('lib/miden/db/types', () => ({
@@ -170,6 +174,19 @@ function makeCompleted() {
       amount: 20n,
       completedAt: 2500,
       secondaryAccountId: '0xEEE'
+    },
+    // User-cancelled send → Failed status + the cancellation sentinel on `error`.
+    {
+      id: 'C',
+      status: STATUS.Failed,
+      displayMessage: 'Failed',
+      displayIcon: 'FAILED',
+      faucetId: 'fa1',
+      type: 'send',
+      amount: 7n,
+      completedAt: 900,
+      secondaryAccountId: '0xFFF',
+      error: 'Transaction was cancelled by user'
     },
     // Faucet drip → isFaucetRequest true; metadata + amount; ties timestamp w/ swap.
     {
@@ -279,7 +296,8 @@ describe('History', () => {
         'completed-SD', // ts 2500
         'completed-S', // ts 2000 (tie w/ FC, order by type diff → 0)
         'completed-FC', // ts 2000
-        'completed-F' // ts 1000
+        'completed-F', // ts 1000
+        'completed-C' // ts 900
       ])
     );
 
@@ -288,6 +306,16 @@ describe('History', () => {
 
     // Completed: Failed → message/icon override, metadata symbol + formatAmount.
     expect(rowText('completed-F')).toContain('completed-F|Transaction failed|TKF|fmt(100,6)|FAILED|');
+    // Completed: user-cancelled → 'Cancelled' message + isCancelled/errorMessage on the entry.
+    expect(rowText('completed-C')).toContain('completed-C|Cancelled|TKF|fmt(7,6)|FAILED|');
+    const cancelledEntry = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-C');
+    expect(cancelledEntry.isCancelled).toBe(true);
+    expect(cancelledEntry.errorMessage).toBe('Transaction was cancelled by user');
+    const failedEntry = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-F');
+    expect(failedEntry.isCancelled).toBe(false);
+
+    // Failed rows are fetched at all: the completed fetch runs with includeFailed=true.
+    expect(mockGetCompletedTransactions).toHaveBeenCalledWith('0xme', undefined, undefined, true, undefined);
     // Completed: Swap → swapFields drive amount/token/requested*, icon from displayIcon.
     expect(rowText('completed-S')).toContain('completed-S|swap msg|S-tok|S-amt|SWAP|');
     expect(rowText('completed-S')).toContain('|S-req|S-reqtok');
@@ -356,7 +384,7 @@ describe('History', () => {
 
     // Whitespace-only query → filter skipped (all entries retained).
     await doRerender({ searchQuery: '   ' });
-    expect(entryKeys().length).toBe(8);
+    expect(entryKeys().length).toBe(9);
   });
 
   it('filters by sent / received / faucet / all and tolerates an unknown filter value', async () => {
@@ -367,10 +395,10 @@ describe('History', () => {
       });
     };
 
-    // sent → transactionIcon === 'SEND' (the non-failed send; the failed send
-    // carries the 'FAILED' icon and is excluded).
+    // sent → SEND icon, plus failed/cancelled sends (their icon becomes
+    // 'FAILED', so the filter falls back to the underlying tx type).
     await doRerender({ filter: 'sent' });
-    expect(entryKeys()).toEqual(['completed-SD']);
+    expect(entryKeys()).toEqual(['completed-SD', 'completed-F', 'completed-C']);
 
     // received → RECEIVE and not a faucet request.
     await doRerender({ filter: 'received' });
@@ -382,11 +410,11 @@ describe('History', () => {
 
     // all → filter block skipped, everything retained.
     await doRerender({ filter: 'all' });
-    expect(entryKeys().length).toBe(8);
+    expect(entryKeys().length).toBe(9);
 
     // unknown filter → inner default `return true`, everything retained.
     await doRerender({ filter: 'weird' });
-    expect(entryKeys().length).toBe(8);
+    expect(entryKeys().length).toBe(9);
   });
 
   it('limits the number of rendered entries with numItems (and ignores falsy 0)', async () => {
@@ -401,13 +429,13 @@ describe('History', () => {
     await act(async () => {
       rerender(<History address="0xme" numItems={999} />);
     });
-    expect(entryKeys().length).toBe(8);
+    expect(entryKeys().length).toBe(9);
 
     // numItems 0 is falsy → slicing skipped.
     await act(async () => {
       rerender(<History address="0xme" numItems={0} />);
     });
-    expect(entryKeys().length).toBe(8);
+    expect(entryKeys().length).toBe(9);
   });
 
   it('loadMore appends de-duplicated older transactions and keeps hasMore true', async () => {
@@ -445,7 +473,7 @@ describe('History', () => {
     });
 
     // Called with the paged offset/limit (page 0 → offset 0, limit HISTORY_PAGE_SIZE).
-    expect(mockGetCompletedTransactions).toHaveBeenCalledWith('0xme', 0, 1000, false, undefined);
+    expect(mockGetCompletedTransactions).toHaveBeenCalledWith('0xme', 0, 1000, true, undefined);
     await waitFor(() => expect(entryKeys()).toContain('completed-OLD'));
     // Duplicate `completed-P` appears exactly once.
     expect(entryKeys().filter(k => k === 'completed-P')).toHaveLength(1);
@@ -514,7 +542,7 @@ describe('History', () => {
   it('threads tokenId into the SWR keys and both fetchers', async () => {
     await renderHistory({ tokenId: 'tok-9' });
 
-    expect(mockGetCompletedTransactions).toHaveBeenCalledWith('0xme', undefined, undefined, false, 'tok-9');
+    expect(mockGetCompletedTransactions).toHaveBeenCalledWith('0xme', undefined, undefined, true, 'tok-9');
     expect(mockGetUncompletedTransactions).toHaveBeenCalledWith('0xme', 'tok-9');
     const keys = mockUseRetryableSWR.mock.calls.map(c => c[0]);
     expect(keys).toContainEqual(['latest-transactions', '0xme', 'tok-9']);

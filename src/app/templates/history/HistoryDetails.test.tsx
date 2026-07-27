@@ -21,6 +21,11 @@ const mockTrackOrderId = jest.fn();
 const mockGetTokenMetadata = jest.fn();
 const mockGetSwapTokenByFaucetId = jest.fn();
 const mockGoBack = jest.fn();
+const mockNavigate = jest.fn();
+const mockCancelTransactionById = jest.fn();
+const mockRequeueFailedTransaction = jest.fn();
+const mockRequestSWTransactionProcessing = jest.fn();
+const mockIsRequeueableTransaction = jest.fn();
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -28,7 +33,13 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('lib/miden/activity', () => ({
   getTransactionById: (...args: unknown[]) => mockGetTransactionById(...args),
-  trackOrderId: (...args: unknown[]) => mockTrackOrderId(...args)
+  trackOrderId: (...args: unknown[]) => mockTrackOrderId(...args),
+  cancelTransactionById: (...args: unknown[]) => mockCancelTransactionById(...args),
+  requeueFailedTransaction: (...args: unknown[]) => mockRequeueFailedTransaction(...args),
+  requestSWTransactionProcessing: (...args: unknown[]) => mockRequestSWTransactionProcessing(...args),
+  isRequeueableTransaction: (...args: unknown[]) => mockIsRequeueableTransaction(...args),
+  USER_CANCELLED_TRANSACTION_REASON: 'Transaction was cancelled by user',
+  isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user'
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -61,7 +72,8 @@ jest.mock('lib/store', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  goBack: () => mockGoBack()
+  goBack: () => mockGoBack(),
+  navigate: (...args: unknown[]) => mockNavigate(...args)
 }));
 
 // ---------------------------------------------------------------------------
@@ -118,7 +130,9 @@ jest.mock('./DetailCard', () => ({
       {displayValue}
     </a>
   ),
-  StatusPill: ({ status }: { status?: number }) => <div data-testid="status-pill" data-status={String(status)} />
+  StatusPill: ({ status, isCancelled }: { status?: number; isCancelled?: boolean }) => (
+    <div data-testid="status-pill" data-status={String(status)} data-cancelled={String(!!isCancelled)} />
+  )
 }));
 
 jest.mock('./TransactionIcon', () => ({
@@ -189,6 +203,13 @@ beforeEach(() => {
   );
   mockGetSwapTokenByFaucetId.mockReturnValue(undefined);
   mockTrackOrderId.mockResolvedValue(null);
+  // Mirror the production predicate: Failed + a re-queueable type.
+  mockIsRequeueableTransaction.mockImplementation(
+    (tx: { status?: number; type: string }) =>
+      tx.status === 3 && ['send', 'consume', 'swap', 'execute'].includes(tx.type)
+  );
+  mockCancelTransactionById.mockResolvedValue(undefined);
+  mockRequeueFailedTransaction.mockResolvedValue(undefined);
 
   // Reset the deterministic formatAmount default (a test may override it).
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -530,6 +551,145 @@ describe('HistoryDetails', () => {
       mockGetTransactionById.mockResolvedValue({ ...swapTx({}), extraInputs: undefined });
       await renderAndLoad();
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('failed transactions: error card, retry & cancel', () => {
+    const STATUS_FAILED = 3;
+    const STATUS_QUEUED = 0;
+
+    const failedSendTx = (overrides: Tx = {}): Tx => ({
+      ...baseSendTx,
+      status: STATUS_FAILED,
+      displayMessage: 'Failed',
+      displayIcon: 'FAILED',
+      error: 'Remote prover failed — this is most often caused by a timeout. Please try again.',
+      rawError: 'Error: fetch timeout after 30000ms',
+      ...overrides
+    });
+
+    const cardByTitle = (title: string) =>
+      Array.from(document.querySelectorAll('[data-testid="detail-card"]')).find(
+        el => el.getAttribute('data-title') === title
+      );
+
+    it('shows the friendly failure reason with a toggleable raw-error disclosure', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx());
+      await renderAndLoad();
+
+      const errorCard = cardByTitle('error')!;
+      expect(errorCard).toBeTruthy();
+      expect(errorCard.textContent).toContain('Remote prover failed');
+
+      // Raw error hidden until the disclosure is toggled.
+      expect(errorCard.textContent).not.toContain('fetch timeout');
+      fireEvent.click(screen.getByText('showFullError'));
+      expect(errorCard.textContent).toContain('Error: fetch timeout after 30000ms');
+      fireEvent.click(screen.getByText('hideFullError'));
+      expect(errorCard.textContent).not.toContain('fetch timeout');
+    });
+
+    it('omits the raw-error disclosure when no rawError was persisted', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx({ rawError: undefined, error: 'Note is invalid' }));
+      await renderAndLoad();
+
+      expect(screen.queryByText('showFullError')).toBeNull();
+      expect(screen.getByText('Note is invalid')).toBeInTheDocument();
+    });
+
+    it('retries a failed send: re-queues the row, nudges the SW and navigates to the progress page', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx());
+      await renderAndLoad();
+
+      fireEvent.click(screen.getByText('retry'));
+      await flush();
+
+      expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('tx-1');
+      expect(mockRequestSWTransactionProcessing).toHaveBeenCalled();
+      expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx-1');
+    });
+
+    it('surfaces a retry failure inline and does not navigate', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx());
+      mockRequeueFailedTransaction.mockRejectedValue(new Error('row is gone'));
+      await renderAndLoad();
+
+      fireEvent.click(screen.getByText('retry'));
+      await flush();
+
+      expect(screen.getByText('row is gone')).toBeInTheDocument();
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the generic message when the retry rejects with a non-Error', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx());
+      mockRequeueFailedTransaction.mockRejectedValue('plain string');
+      await renderAndLoad();
+
+      fireEvent.click(screen.getByText('retry'));
+      await flush();
+
+      expect(screen.getByText('smthWentWrong')).toBeInTheDocument();
+    });
+
+    it('offers no retry for a failed structural Guardian op', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx({ type: 'replace-hot-key' }));
+      await renderAndLoad();
+
+      expect(screen.queryByText('retry')).toBeNull();
+    });
+
+    it('renders a user-cancelled tx with the cancelled pill and no retry button', async () => {
+      mockGetTransactionById.mockResolvedValue(
+        failedSendTx({ error: 'Transaction was cancelled by user', rawError: undefined })
+      );
+      await renderAndLoad();
+
+      expect(screen.getByTestId('status-pill').getAttribute('data-cancelled')).toBe('true');
+      // The failure card is titled "cancelled" and retry is suppressed.
+      expect(cardByTitle('cancelled')).toBeTruthy();
+      expect(screen.queryByText('retry')).toBeNull();
+    });
+
+    it('falls back to initiatedAt for the date of a row that never completed', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx({ completedAt: undefined, initiatedAt: 1_600_000_000 }));
+      await renderAndLoad();
+
+      expect(rowByLabel('date')!.textContent).toContain('formatted:1600000000');
+    });
+
+    it('cancels a still-queued tx with the user-cancelled sentinel and reloads the row', async () => {
+      mockGetTransactionById.mockResolvedValue({ ...baseSendTx, status: STATUS_QUEUED, error: undefined });
+      await renderAndLoad();
+
+      fireEvent.click(screen.getByText('cancel'));
+      await flush();
+
+      expect(mockCancelTransactionById).toHaveBeenCalledWith('tx-1', 'Transaction was cancelled by user');
+      // The row is re-fetched after the cancel lands.
+      expect(mockGetTransactionById.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('shows the cancel failure inline when cancelling throws', async () => {
+      mockGetTransactionById.mockResolvedValue({ ...baseSendTx, status: STATUS_QUEUED, error: undefined });
+      mockCancelTransactionById.mockRejectedValue(new Error('cancel exploded'));
+      await renderAndLoad();
+
+      fireEvent.click(screen.getByText('cancel'));
+      await flush();
+
+      expect(screen.getByText('cancel exploded')).toBeInTheDocument();
+    });
+
+    it('falls back to the generic message when the cancel rejects with a non-Error', async () => {
+      mockGetTransactionById.mockResolvedValue({ ...baseSendTx, status: STATUS_QUEUED, error: undefined });
+      mockCancelTransactionById.mockRejectedValue('plain string');
+      await renderAndLoad();
+
+      fireEvent.click(screen.getByText('cancel'));
+      await flush();
+
+      expect(screen.getByText('smthWentWrong')).toBeInTheDocument();
     });
   });
 });

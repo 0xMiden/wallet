@@ -143,6 +143,18 @@ describe('StatusPill', () => {
     expect(text).toHaveTextContent('t:inProgress');
   });
 
+  it('renders the grey cancelled variant, overriding the Failed status', () => {
+    const { container } = render(<StatusPill status={ITransactionStatus.Failed} isCancelled />);
+
+    expect(pill(container)).toHaveClass('bg-gray-100');
+    expect(pill(container)).not.toHaveClass('bg-green-600/20');
+    expect(dot(container)).toHaveClass('bg-gray-400');
+
+    const text = label(container);
+    expect(text).toHaveClass('text-gray-500');
+    expect(text).toHaveTextContent('t:cancelled');
+  });
+
   it('treats non-terminal statuses (Queued / GeneratingTransaction) as in-progress', () => {
     const { container: queued } = render(<StatusPill status={ITransactionStatus.Queued} />);
     expect(queued.querySelector('span')).toHaveTextContent('t:inProgress');

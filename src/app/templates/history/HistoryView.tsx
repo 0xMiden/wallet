@@ -55,7 +55,10 @@ const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
 function buildRowProps(entry: IHistoryEntry, t: (k: string) => string) {
   const faucet = isFaucetRequest(entry);
   const icon = entry.transactionIcon ?? 'DEFAULT';
-  const isFailed = icon === 'FAILED' || entry.message === 'Transaction failed';
+  // A user-cancelled transaction is persisted as Failed, but reads as a neutral
+  // "Cancelled" row rather than an error the user should worry about.
+  const isCancelled = entry.isCancelled === true;
+  const isFailed = !isCancelled && (icon === 'FAILED' || entry.message === 'Transaction failed');
 
   let iconNode: React.ReactNode;
   let iconBg = 'bg-gray-50';
@@ -64,7 +67,10 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string) => string) {
   // Glyphs mirror the home action-bar logos (Send / Receive / Earn / Swap),
   // rendered white over their own hue (set as `iconBg`). The source SVGs ship
   // with hardcoded fills/strokes, so force them white via `[&_path]:*` here.
-  if (faucet) {
+  if (isCancelled) {
+    iconNode = <Icon name={IconName.Close} size="sm" fill="currentColor" />;
+    iconBg = 'bg-gray-400';
+  } else if (faucet) {
     iconNode = <Icon name={IconName.Faucet} size="sm" className="[&_path]:fill-pure-white" fill="currentColor" />;
     iconBg = 'bg-tx-faucet';
     amountDirection = 'positive';
@@ -93,13 +99,15 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string) => string) {
 
   // Swap rows read "Swap {offered} → {requested}" with the venue as the
   // subtitle, and show the requested side (what the user receives) on the right.
-  const isSwap = !faucet && !isFailed && entry.txType === 'swap';
+  const isSwap = !faucet && !isFailed && !isCancelled && entry.txType === 'swap';
 
-  const title = faucet
-    ? t('faucetRequestTitle')
-    : isSwap && entry.token && entry.requestedToken
-      ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
-      : entry.message || '';
+  const title = isCancelled
+    ? t('cancelled')
+    : faucet
+      ? t('faucetRequestTitle')
+      : isSwap && entry.token && entry.requestedToken
+        ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
+        : entry.message || '';
   const subtitle = isSwap
     ? t('viaInProtocolDex')
     : entry.secondaryAddress
@@ -116,7 +124,10 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string) => string) {
 
   let statusTone: ActivityStatusTone = 'confirmed';
   let statusLabel = t('confirmed');
-  if (isFailed) {
+  if (isCancelled) {
+    statusTone = 'cancelled';
+    statusLabel = t('cancelled');
+  } else if (isFailed) {
     statusTone = 'failed';
     statusLabel = t('failed');
   } else if (
