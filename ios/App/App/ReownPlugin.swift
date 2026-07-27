@@ -167,6 +167,7 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "configure", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "present", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "connectUri", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getState", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getSessions", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "selectChain", returnType: CAPPluginReturnPromise),
@@ -181,6 +182,9 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
     private var subscriptions = Set<AnyCancellable>()
     private var pendingRequests: [PendingReownRequest] = []
     private var socketStatus: String?
+    // Proposal namespaces built in configure(); reused by connectUri() (E2E) to
+    // create a pairing directly and hand the wc: URI to JS, bypassing the modal.
+    private var proposalNamespaces: [String: ProposalNamespace] = [:]
 
     public static func handleDeeplink(_ url: URL) {
         guard appKitConfigured else {
@@ -248,6 +252,7 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
                 events: events
             )
         ]
+        self.proposalNamespaces = namespaces
 
         Networking.configure(
             groupIdentifier: "group.com.miden.wallet",
@@ -279,6 +284,32 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
             DispatchQueue.main.async {
                 AppKit.present(from: nil)
                 call.resolve()
+            }
+        }
+    }
+
+    /// E2E-only: create a WalletConnect pairing directly (bypassing the AppKit QR
+    /// modal) and hand the `wc:` URI to JS, so a headless counterparty can pair.
+    /// Call this INSTEAD of present() (calling both would create two pairings).
+    /// Session settlement afterward flows through the existing sessionSettle
+    /// publisher → stateChanged, so no extra wiring is needed.
+    @objc func connectUri(_ call: CAPPluginCall) {
+        guardConfigured(call) {
+            let namespaces = self.proposalNamespaces
+            guard !namespaces.isEmpty else {
+                call.reject("connectUri: no proposal namespaces (configure not completed)")
+                return
+            }
+            Task {
+                do {
+                    let uri = try await Sign.instance.connect(namespaces: namespaces)
+                    await MainActor.run {
+                        self.notifyListeners("displayUri", data: ["uri": uri.absoluteString])
+                        call.resolve(["uri": uri.absoluteString])
+                    }
+                } catch {
+                    await MainActor.run { call.reject(error.localizedDescription) }
+                }
             }
         }
     }

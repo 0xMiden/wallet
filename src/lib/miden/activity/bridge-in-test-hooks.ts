@@ -46,6 +46,10 @@ declare global {
   var __TEST_SET_AGGLAYER_SENDER__: (senderAccountId: string) => void;
   // eslint-disable-next-line no-var
   var __TEST_BRIDGE_RECEIVE_STATE__: (txId: string) => Promise<BridgeReceiveState>;
+  // eslint-disable-next-line no-var
+  var __TEST_REOWN_CONNECT_URI__: () => Promise<string>;
+  // eslint-disable-next-line no-var
+  var __TEST_REOWN_STATE__: () => Promise<{ connected: boolean; address?: string; chainId?: number }>;
 }
 
 export function installBridgeInTestHooks(): void {
@@ -68,5 +72,43 @@ export function installBridgeInTestHooks(): void {
       amount: row.amount != null ? row.amount.toString() : undefined,
       faucetId: row.faucetId
     };
+  };
+
+  // Create a real WalletConnect pairing and return its `wc:` URI so a headless
+  // test counterparty can pair — used instead of tapping the QR-modal "Open
+  // Wallet" button. Ensures the native plugin is configured first (mirroring the
+  // real UI's useNativeReown mount). The native imports are deferred to call time
+  // so this is inert in the extension service-worker context (mobile-only).
+  globalThis.__TEST_REOWN_CONNECT_URI__ = async (): Promise<string> => {
+    console.log('[bridge-in-e2e] connectUri: configuring');
+    const { configureNativeReown } = await import('lib/walletconnect/useNativeReown');
+    await configureNativeReown();
+    const { NativeReown } = await import('lib/walletconnect/native');
+    // Sign.connect publishes the session proposal to the relay and hangs if the
+    // relay socket isn't up yet — wait for it (best-effort; proceed after 20s).
+    const deadline = Date.now() + 20_000;
+    for (;;) {
+      const st = await NativeReown.getState();
+      console.log('[bridge-in-e2e] connectUri: socketStatus=', st.socketStatus, 'configured=', st.configured);
+      if (st.socketStatus === 'connected') break;
+      if (Date.now() > deadline) break;
+      await new Promise(r => setTimeout(r, 750));
+    }
+    console.log('[bridge-in-e2e] connectUri: calling NativeReown.connectUri()');
+    const { uri } = await NativeReown.connectUri();
+    console.log('[bridge-in-e2e] connectUri: got uri len=', uri.length);
+    return uri;
+  };
+
+  // Read the native EVM (Reown) connection state, for asserting the pairing
+  // settled (connected === true after the counterparty approves).
+  globalThis.__TEST_REOWN_STATE__ = async (): Promise<{
+    connected: boolean;
+    address?: string;
+    chainId?: number;
+  }> => {
+    const { NativeReown } = await import('lib/walletconnect/native');
+    const state = await NativeReown.getState();
+    return { connected: state.connected, address: state.address, chainId: state.chainId };
   };
 }

@@ -117,6 +117,16 @@ export class IosWalletPage implements WalletPage {
     return this.stashAndPoll('__bi_state', `window.__TEST_BRIDGE_RECEIVE_STATE__(${JSON.stringify(txId)})`);
   }
 
+  /** Create a real WalletConnect pairing; returns the `wc:` URI for the counterparty. */
+  async reownConnectUri(): Promise<string> {
+    return this.stashAndPoll<string>('__wc_uri', `window.__TEST_REOWN_CONNECT_URI__()`, 60_000);
+  }
+
+  /** Read the native EVM (Reown) connection state. */
+  async reownState(): Promise<{ connected: boolean; address?: string; chainId?: number }> {
+    return this.stashAndPoll('__wc_state', `window.__TEST_REOWN_STATE__()`);
+  }
+
   /** Run a Promise-returning hook expression and poll its stashed result. */
   private async stashAndPoll<T>(prefix: string, promiseExpr: string, timeoutMs = 30_000): Promise<T> {
     const key = `${prefix}_${Date.now()}`;

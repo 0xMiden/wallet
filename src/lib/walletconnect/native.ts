@@ -66,6 +66,12 @@ export interface ReownRequestOptions {
 export interface ReownPlugin {
   configure(options: ReownConfigureOptions): Promise<void>;
   present(): Promise<void>;
+  /**
+   * E2E-only: create a WalletConnect pairing directly and return its `wc:` URI
+   * (bypassing the QR modal) so a headless test counterparty can pair. Call
+   * INSTEAD of present(). Production connects via present().
+   */
+  connectUri(): Promise<{ uri: string }>;
   getState(): Promise<ReownState>;
   getSessions(): Promise<{ sessions: ReownSession[] }>;
   selectChain(options: { chainId: number }): Promise<void>;
