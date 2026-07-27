@@ -6,7 +6,6 @@ import FullScreenPage from 'app/layouts/FullScreenPage';
 import TabLayout from 'app/layouts/TabLayout';
 import Explore from 'app/pages/Explore';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
-import { Pending } from 'app/pages/Pending';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock from 'app/pages/Unlock';
@@ -28,6 +27,7 @@ import AllHistory from './pages/AllHistory';
 import Browser from './pages/Browser';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
+import PendingNotes from './pages/PendingNotes';
 import ResetRequired from './pages/ResetRequired';
 import TokenDetail from './pages/TokenDetail';
 import { resolveRootView } from './root-view';
@@ -156,10 +156,20 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
+    '/pending-notes',
+    onlyReady(() => (
+      <FullScreenPage>
+        <PendingNotes />
+      </FullScreenPage>
+    ))
+  ],
+  // Legacy alias — kept so existing `navigate('/pending')` call sites (and the
+  // E2E helpers) land on the same screen.
+  [
     '/pending',
     onlyReady(() => (
       <FullScreenPage>
-        <Pending />
+        <PendingNotes />
       </FullScreenPage>
     ))
   ],

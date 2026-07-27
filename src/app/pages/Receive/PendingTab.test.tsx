@@ -11,7 +11,14 @@ import { PendingTab, NoteWithMetadata } from './PendingTab';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key
+    // Surface interpolation params so count-bearing keys stay assertable.
+    t: (key: string, opts?: Record<string, unknown>) => {
+      if (!opts) return key;
+      const { defaultValue, ...params } = opts;
+      const values = Object.values(params);
+      if (values.length === 0) return typeof defaultValue === 'string' ? defaultValue : key;
+      return `${key}(${values.join(',')})`;
+    }
   })
 }));
 
@@ -65,7 +72,8 @@ jest.mock('lib/i18n/numbers', () => ({
     const fracStr = frac.toString().padStart(decimals, '0').replace(/0+$/, '');
     const value = fracStr ? `${whole}.${fracStr}` : `${whole}`;
     return negative ? `-${value}` : value;
-  }
+  },
+  formatUsd: (value: number) => `$${value.toFixed(2)}`
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -133,8 +141,9 @@ const makeNote = (overrides: Partial<NoteWithMetadata> = {}): NoteWithMetadata =
   }) as NoteWithMetadata;
 
 type Props = React.ComponentProps<typeof PendingTab>;
+type HarnessProps = Omit<Props, 'selectedFaucetId' | 'onSelectFaucetId'>;
 
-const baseProps = (overrides: Partial<Props> = {}): Props => ({
+const baseProps = (overrides: Partial<HarnessProps> = {}): HarnessProps => ({
   safeClaimableNotes: [makeNote()],
   unclaimedNotesCount: 1,
   account,
@@ -148,6 +157,24 @@ const baseProps = (overrides: Partial<Props> = {}): Props => ({
   onClaimGroup: undefined,
   ...overrides
 });
+
+/**
+ * `PendingTab`'s asset selection is controlled by its host page (`PendingNotes`,
+ * which wires the header back arrow to it). This harness plays that host: it owns
+ * the selection and renders the same `pending-detail-back` affordance the page's
+ * `ScreenHeader` renders while a group is open.
+ */
+const Harness: React.FC<HarnessProps> = props => {
+  const [selectedFaucetId, setSelectedFaucetId] = React.useState<string | null>(null);
+  return (
+    <>
+      {selectedFaucetId && (
+        <button type="button" data-testid="pending-detail-back" onClick={() => setSelectedFaucetId(null)} />
+      )}
+      <PendingTab {...props} selectedFaucetId={selectedFaucetId} onSelectFaucetId={setSelectedFaucetId} />
+    </>
+  );
+};
 
 describe('PendingTab', () => {
   beforeAll(() => {
@@ -189,7 +216,7 @@ describe('PendingTab', () => {
 
   it('groups notes from the same faucet into one row and distinct faucets into separate rows', async () => {
     const { container, root } = await renderInto(
-      <PendingTab
+      <Harness
         {...baseProps({
           safeClaimableNotes: [
             makeNote({ id: 'n1', faucetId: 'faucet-1' }),
@@ -203,15 +230,15 @@ describe('PendingTab', () => {
 
     const rows = Array.from(container.querySelectorAll('[data-testid="pending-asset-row"]'));
     expect(rows).toHaveLength(2);
-    // First group has 2 notes → 0/2.
-    expect(rows[0]?.textContent).toContain('0/2');
-    expect(rows[1]?.textContent).toContain('0/1');
+    // First group has 2 notes, second has 1 — each row shows its incoming-transfer count.
+    expect(rows[0]?.textContent).toContain('incomingTransfersCount(2)');
+    expect(rows[1]?.textContent).toContain('incomingTransfersCount(1)');
     act(() => root.unmount());
   });
 
   it('renders the empty state when there are no grouped notes', async () => {
     const { container, root } = await renderInto(
-      <PendingTab {...baseProps({ safeClaimableNotes: [], unclaimedNotesCount: 0 })} />
+      <Harness {...baseProps({ safeClaimableNotes: [], unclaimedNotesCount: 0 })} />
     );
     expect(container.textContent).toContain('noNotesToClaim');
     expect(container.querySelectorAll('[data-testid="pending-asset-row"]')).toHaveLength(0);
@@ -220,7 +247,7 @@ describe('PendingTab', () => {
 
   it('shows the claim-all button on desktop and fires onClaimAll', async () => {
     const onClaimAll = jest.fn();
-    const { container, root } = await renderInto(<PendingTab {...baseProps({ onClaimAll })} />);
+    const { container, root } = await renderInto(<Harness {...baseProps({ onClaimAll })} />);
     const claimAll = container.querySelector('[data-testid="claim-all-button"]');
     expect(claimAll).not.toBeNull();
     click(claimAll);
@@ -231,7 +258,7 @@ describe('PendingTab', () => {
   it('shows the claim-all button on mobile and fires onClaimAll', async () => {
     isMobileMock.mockReturnValue(true);
     const onClaimAll = jest.fn();
-    const { container, root } = await renderInto(<PendingTab {...baseProps({ onClaimAll })} />);
+    const { container, root } = await renderInto(<Harness {...baseProps({ onClaimAll })} />);
     const claimAll = container.querySelector('[data-testid="claim-all-button"]');
     expect(claimAll).not.toBeNull();
     click(claimAll);
@@ -240,13 +267,13 @@ describe('PendingTab', () => {
   });
 
   it('hides the claim-all button when unclaimedNotesCount is 0', async () => {
-    const { container, root } = await renderInto(<PendingTab {...baseProps({ unclaimedNotesCount: 0 })} />);
+    const { container, root } = await renderInto(<Harness {...baseProps({ unclaimedNotesCount: 0 })} />);
     expect(container.querySelector('[data-testid="claim-all-button"]')).toBeNull();
     act(() => root.unmount());
   });
 
   it('navigates into a group detail and back to the summary', async () => {
-    const { container, root } = await renderInto(<PendingTab {...baseProps()} />);
+    const { container, root } = await renderInto(<Harness {...baseProps()} />);
 
     const row = container.querySelector('[data-testid="pending-asset-row"]');
     click(row);
@@ -265,7 +292,7 @@ describe('PendingTab', () => {
   });
 
   it('returns to the summary via the registered back handler while in detail view', async () => {
-    const { container, root } = await renderInto(<PendingTab {...baseProps()} />);
+    const { container, root } = await renderInto(<Harness {...baseProps()} />);
     click(container.querySelector('[data-testid="pending-asset-row"]'));
     expect(container.querySelector('[data-testid="pending-detail-back"]')).not.toBeNull();
     expect(registeredBackHandlers).toHaveLength(1);
@@ -282,7 +309,7 @@ describe('PendingTab', () => {
 
   it('clears a stale selection when the selected group disappears from the claimable notes', async () => {
     const { container, root } = await renderInto(
-      <PendingTab
+      <Harness
         {...baseProps({
           safeClaimableNotes: [
             makeNote({ id: 'n1', faucetId: 'faucet-1' }),
@@ -301,7 +328,7 @@ describe('PendingTab', () => {
     // Re-render without faucet-1 → selectedGroup becomes null → effect resets selection.
     await act(async () => {
       root.render(
-        <PendingTab
+        <Harness
           {...baseProps({
             safeClaimableNotes: [
               makeNote({ id: 'n2', faucetId: 'faucet-2', metadata: { symbol: 'AAA', name: 'Alpha', decimals: 6 } })
@@ -318,9 +345,9 @@ describe('PendingTab', () => {
     act(() => root.unmount());
   });
 
-  it('renders UNKNOWN symbol / symbol-name fallbacks and counts claiming notes in the summary row', async () => {
+  it('renders UNKNOWN symbol / symbol-name fallbacks and counts the notes in the summary row', async () => {
     const { container, root } = await renderInto(
-      <PendingTab
+      <Harness
         {...baseProps({
           safeClaimableNotes: [
             makeNote({ id: 'n1', isBeingClaimed: true, metadata: { decimals: 6 } as any }),
@@ -332,8 +359,8 @@ describe('PendingTab', () => {
       />
     );
     const row = container.querySelector('[data-testid="pending-asset-row"]');
-    // Both notes counted as claiming → 2/2.
-    expect(row?.textContent).toContain('2/2');
+    // Both notes belong to the same faucet → one row counting 2 incoming transfers.
+    expect(row?.textContent).toContain('incomingTransfersCount(2)');
     // First note metadata has neither symbol nor name → UNKNOWN displayed.
     expect(row?.textContent).toContain('UNKNOWN');
     act(() => root.unmount());
@@ -341,7 +368,7 @@ describe('PendingTab', () => {
 
   it('renders the claim-group button when onClaimGroup is provided and fires it when enabled', async () => {
     const onClaimGroup = jest.fn();
-    const { container, root } = await renderInto(<PendingTab {...baseProps({ onClaimGroup })} />);
+    const { container, root } = await renderInto(<Harness {...baseProps({ onClaimGroup })} />);
     click(container.querySelector('[data-testid="pending-asset-row"]'));
 
     const groupButton = container.querySelector('[data-testid="claim-group-button"]') as HTMLButtonElement;
@@ -355,7 +382,7 @@ describe('PendingTab', () => {
   it('disables the claim-group button when all notes in the group are being claimed (early return)', async () => {
     const onClaimGroup = jest.fn();
     const { container, root } = await renderInto(
-      <PendingTab
+      <Harness
         {...baseProps({
           safeClaimableNotes: [makeNote({ id: 'n1', isBeingClaimed: true })],
           claimingNoteIds: new Set<string>(),
@@ -373,7 +400,7 @@ describe('PendingTab', () => {
   });
 
   it('omits the claim-group button entirely when onClaimGroup is undefined', async () => {
-    const { container, root } = await renderInto(<PendingTab {...baseProps({ onClaimGroup: undefined })} />);
+    const { container, root } = await renderInto(<Harness {...baseProps({ onClaimGroup: undefined })} />);
     click(container.querySelector('[data-testid="pending-asset-row"]'));
     expect(container.querySelector('[data-testid="claim-group-button"]')).toBeNull();
     act(() => root.unmount());
@@ -381,7 +408,7 @@ describe('PendingTab', () => {
 
   it('shows a claim button for unclaimed notes and a spinner for notes already being claimed', async () => {
     const { container, root } = await renderInto(
-      <PendingTab
+      <Harness
         {...baseProps({
           safeClaimableNotes: [
             makeNote({ id: 'n1', isBeingClaimed: false }),
@@ -400,7 +427,7 @@ describe('PendingTab', () => {
 
   it('shows a spinner when the note is claiming or checking from the parent', async () => {
     const { container, root } = await renderInto(
-      <PendingTab
+      <Harness
         {...baseProps({
           safeClaimableNotes: [makeNote({ id: 'n1' }), makeNote({ id: 'n2' }), makeNote({ id: 'n3' })],
           claimingNoteIds: new Set<string>(['n1']),
@@ -417,7 +444,7 @@ describe('PendingTab', () => {
 
   it('labels the claim button "retry" when the note has failed from the parent', async () => {
     const { container, root } = await renderInto(
-      <PendingTab
+      <Harness
         {...baseProps({
           safeClaimableNotes: [makeNote({ id: 'n1' })],
           failedNoteIds: new Set<string>(['n1'])
@@ -432,7 +459,7 @@ describe('PendingTab', () => {
 
   it('labels the claim button "claim" and renders an unknown sender for a public note without a sender address', async () => {
     const { container, root } = await renderInto(
-      <PendingTab
+      <Harness
         {...baseProps({
           safeClaimableNotes: [makeNote({ id: 'n1', type: NoteTypeEnum.Public, senderAddress: '' as any })]
         })}
@@ -448,7 +475,7 @@ describe('PendingTab', () => {
 
   it('treats type "unknown" as a public note and renders the eye-open icon', async () => {
     const { container, root } = await renderInto(
-      <PendingTab {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1', type: 'unknown' })] })} />
+      <Harness {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1', type: 'unknown' })] })} />
     );
     click(container.querySelector('[data-testid="pending-asset-row"]'));
     // Eye-open svg is rendered for public/unknown notes (svgs auto-mock to a component).
@@ -464,7 +491,7 @@ describe('PendingTab', () => {
       isExtensionMock.mockReturnValue(true);
 
       const { container, root } = await renderInto(
-        <PendingTab {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1' })], mutateClaimableNotes })} />
+        <Harness {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1' })], mutateClaimableNotes })} />
       );
       click(container.querySelector('[data-testid="pending-asset-row"]'));
       await clickAsync(container.querySelector('[data-testid="claim-button"]'));
@@ -482,7 +509,7 @@ describe('PendingTab', () => {
       isExtensionMock.mockReturnValue(true);
 
       const { container, root } = await renderInto(
-        <PendingTab {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1' })] })} />
+        <Harness {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1' })] })} />
       );
       click(container.querySelector('[data-testid="pending-asset-row"]'));
       await clickAsync(container.querySelector('[data-testid="claim-button"]'));
@@ -501,7 +528,7 @@ describe('PendingTab', () => {
       isExtensionMock.mockReturnValue(true);
 
       const { container, root } = await renderInto(
-        <PendingTab {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1' })], mutateClaimableNotes })} />
+        <Harness {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1' })], mutateClaimableNotes })} />
       );
       click(container.querySelector('[data-testid="pending-asset-row"]'));
       await clickAsync(container.querySelector('[data-testid="claim-button"]'));
@@ -520,7 +547,7 @@ describe('PendingTab', () => {
       isMobileMock.mockReturnValue(false);
 
       const { container, root } = await renderInto(
-        <PendingTab {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1' })], mutateClaimableNotes })} />
+        <Harness {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1' })], mutateClaimableNotes })} />
       );
       click(container.querySelector('[data-testid="pending-asset-row"]'));
       await clickAsync(container.querySelector('[data-testid="claim-button"]'));
@@ -541,7 +568,7 @@ describe('PendingTab', () => {
       isMobileMock.mockReturnValue(false);
 
       const { container, root } = await renderInto(
-        <PendingTab {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1' })], mutateClaimableNotes })} />
+        <Harness {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1' })], mutateClaimableNotes })} />
       );
       click(container.querySelector('[data-testid="pending-asset-row"]'));
 
@@ -558,7 +585,7 @@ describe('PendingTab', () => {
       const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
       const { container, root } = await renderInto(
-        <PendingTab {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1' })] })} />
+        <Harness {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1' })] })} />
       );
       click(container.querySelector('[data-testid="pending-asset-row"]'));
       await clickAsync(container.querySelector('[data-testid="claim-button"]'));
@@ -574,7 +601,7 @@ describe('PendingTab', () => {
       isExtensionMock.mockReturnValue(false);
 
       const { container, root } = await renderInto(
-        <PendingTab {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1' })] })} />
+        <Harness {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1' })] })} />
       );
       click(container.querySelector('[data-testid="pending-asset-row"]'));
       await clickAsync(container.querySelector('[data-testid="claim-button"]'));
@@ -589,7 +616,7 @@ describe('PendingTab', () => {
   it('falls back to default decimals/symbol/name when a group has no metadata (summary + detail)', async () => {
     const onClaimGroup = jest.fn();
     const { container, root } = await renderInto(
-      <PendingTab
+      <Harness
         {...baseProps({
           // metadata undefined exercises every `metadata?.x ?? fallback` / `|| fallback` branch.
           safeClaimableNotes: [makeNote({ id: 'n1', metadata: undefined as any })],
@@ -612,7 +639,7 @@ describe('PendingTab', () => {
 
   it('formats a fractional group total with grouped thousands and a decimal part in the detail header', async () => {
     const { container, root } = await renderInto(
-      <PendingTab
+      <Harness
         {...baseProps({
           // 1234567500000 / 1e6 = 1,234,567.5 → exercises the decimal branch of groupNumber.
           safeClaimableNotes: [makeNote({ id: 'n1', amount: '1234567500000' })],
@@ -633,7 +660,7 @@ describe('PendingTab', () => {
     isMobileMock.mockReturnValue(false);
 
     const { container, root } = await renderInto(
-      <PendingTab {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1' })], mutateClaimableNotes })} />
+      <Harness {...baseProps({ safeClaimableNotes: [makeNote({ id: 'n1' })], mutateClaimableNotes })} />
     );
     click(container.querySelector('[data-testid="pending-asset-row"]'));
 
@@ -648,7 +675,7 @@ describe('PendingTab', () => {
 
   it('renders the divider between notes but not after the last note', async () => {
     const { container, root } = await renderInto(
-      <PendingTab
+      <Harness
         {...baseProps({
           safeClaimableNotes: [makeNote({ id: 'n1' }), makeNote({ id: 'n2' })]
         })}

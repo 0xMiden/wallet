@@ -51,7 +51,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
             aria-label={t('pendingNotes')}
             onClick={() => {
               hapticLight();
-              navigate('/pending');
+              navigate('/pending-notes');
             }}
             className="relative flex items-center justify-center w-9 h-9 rounded-full bg-gray-25 text-text-primary-token"
           >

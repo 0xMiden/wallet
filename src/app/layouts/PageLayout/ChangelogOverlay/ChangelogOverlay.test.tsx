@@ -25,7 +25,7 @@ import { ChangelogOverlaySelectors } from './ChangelogOverlay.selectors';
  *      — the persisted "last dismissed version" and the popup/full-page flag.
  *      Both are mocked with mutable module-scoped state read lazily inside the
  *      mock factories (the same lazy-reference pattern sibling tests such as
- *      `app/pages/Pending.test.tsx` use for `registerBackHandler`).
+ *      `app/pages/PendingNotes.test.tsx` use for `registerBackHandler`).
  *
  * External/heavy deps are stubbed:
  *   - `./ChangelogOverlay.module.css` — jest has no css transform (importing it

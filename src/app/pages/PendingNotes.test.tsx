@@ -3,7 +3,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
-import { Pending } from './Pending';
+import PendingNotes from './PendingNotes';
 
 // The imported `act` from react-dom/test-utils is an overloaded function that
 // does not structurally satisfy a hand-written `(cb) => Promise<void>` type.
@@ -25,9 +25,12 @@ jest.mock('app/layouts/PageLayout', () => ({
 // hardware/swipe "back" gesture (which is how the per-asset detail view returns
 // to the pending summary on mobile).
 const backHandlerRef: { current: (() => void) | null } = { current: null };
+// Mutable so layout tests can flip the extension popup / full-page / side-panel shapes.
+const appEnv = { fullPage: false, sidePanel: false };
 jest.mock('app/env', () => ({
   useAppEnv: () => ({
-    fullPage: false,
+    fullPage: appEnv.fullPage,
+    sidePanel: appEnv.sidePanel,
     registerBackHandler: (handler: () => void) => {
       backHandlerRef.current = handler;
       return () => {
@@ -107,7 +110,8 @@ jest.mock('framer-motion', () => ({
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
-  formatBigInt: (value: bigint) => value.toString()
+  formatBigInt: (value: bigint) => value.toString(),
+  formatUsd: (value: number) => `$${value.toFixed(2)}`
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -129,9 +133,10 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
+const platformFlags = { isMobile: false, isExtension: false };
 jest.mock('lib/platform', () => ({
-  isMobile: () => false,
-  isExtension: () => false
+  isMobile: () => platformFlags.isMobile,
+  isExtension: () => platformFlags.isExtension
 }));
 
 jest.mock('lib/settings/helpers', () => ({
@@ -232,7 +237,7 @@ const goBackToSummary = async (act: ActFn): Promise<void> => {
   });
 };
 
-describe('Pending - Single Note Claiming', () => {
+describe('PendingNotes - Single Note Claiming', () => {
   let testRoot: ReturnType<typeof createRoot> | null = null;
   let testContainer: HTMLDivElement | null = null;
   let consoleErrorSpy: jest.SpyInstance;
@@ -276,7 +281,7 @@ describe('Pending - Single Note Claiming', () => {
     currentClaimableNotes = [note];
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
     await openFirstAssetGroup(testContainer, act);
 
@@ -293,7 +298,7 @@ describe('Pending - Single Note Claiming', () => {
     currentClaimableNotes = [note];
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
     await openFirstAssetGroup(testContainer, act);
 
@@ -309,7 +314,7 @@ describe('Pending - Single Note Claiming', () => {
     currentClaimableNotes = [note];
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
     await openFirstAssetGroup(testContainer, act);
 
@@ -339,7 +344,7 @@ describe('Pending - Single Note Claiming', () => {
     currentClaimableNotes = [note];
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
     await openFirstAssetGroup(testContainer, act);
 
@@ -375,7 +380,7 @@ describe('Pending - Single Note Claiming', () => {
     currentClaimableNotes = [note];
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
     await openFirstAssetGroup(testContainer, act);
 
@@ -399,7 +404,7 @@ describe('Pending - Single Note Claiming', () => {
   });
 });
 
-describe('Pending - Claim All', () => {
+describe('PendingNotes - Claim All', () => {
   let testRoot: ReturnType<typeof createRoot> | null = null;
   let testContainer: HTMLDivElement | null = null;
   let consoleErrorSpy: jest.SpyInstance;
@@ -442,7 +447,7 @@ describe('Pending - Claim All', () => {
     currentClaimableNotes = [];
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
@@ -458,7 +463,7 @@ describe('Pending - Claim All', () => {
     currentClaimableNotes = notes;
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
@@ -477,7 +482,7 @@ describe('Pending - Claim All', () => {
     mockInitiateConsumeTransaction.mockImplementation(() => Promise.resolve(`tx-id-${++txIdCounter}`));
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
@@ -515,7 +520,7 @@ describe('Pending - Claim All', () => {
     });
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
@@ -547,7 +552,7 @@ describe('Pending - Claim All', () => {
     currentClaimableNotes = notes;
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
@@ -579,7 +584,7 @@ describe('Pending - Claim All', () => {
     mockWaitForConsumeTx.mockReturnValue(new Promise(() => {}));
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
@@ -603,7 +608,7 @@ describe('Pending - Claim All', () => {
   });
 });
 
-describe('Pending - Dynamic Note Arrivals', () => {
+describe('PendingNotes - Dynamic Note Arrivals', () => {
   let testRoot: ReturnType<typeof createRoot> | null = null;
   let testContainer: HTMLDivElement | null = null;
   let consoleErrorSpy: jest.SpyInstance;
@@ -657,7 +662,7 @@ describe('Pending - Dynamic Note Arrivals', () => {
     );
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     // Click Claim All (summary level)
@@ -684,7 +689,7 @@ describe('Pending - Dynamic Note Arrivals', () => {
 
     // Re-render to simulate SWR update
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
@@ -715,7 +720,7 @@ describe('Pending - Dynamic Note Arrivals', () => {
     currentClaimableNotes = notes;
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     // Click Claim All
@@ -747,7 +752,7 @@ describe('Pending - Dynamic Note Arrivals', () => {
     mockWaitForConsumeTx.mockReturnValue(new Promise(() => {}));
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
     await openFirstAssetGroup(testContainer, act);
 
@@ -796,7 +801,7 @@ describe('Pending - Dynamic Note Arrivals', () => {
     currentClaimableNotes = notes;
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     // Wait for effects to run
@@ -825,7 +830,7 @@ describe('Pending - Dynamic Note Arrivals', () => {
     mockWaitForConsumeTx.mockReturnValue(new Promise(() => {}));
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
@@ -859,7 +864,7 @@ describe('Pending - Dynamic Note Arrivals', () => {
     mockWaitForConsumeTx.mockReturnValue(new Promise(() => {}));
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     // Click Claim All (summary)
@@ -882,7 +887,7 @@ describe('Pending - Dynamic Note Arrivals', () => {
     currentClaimableNotes = notesWithNewArrivals;
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
@@ -914,7 +919,7 @@ describe('Pending - Dynamic Note Arrivals', () => {
     currentClaimableNotes = notes;
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
@@ -934,7 +939,7 @@ describe('Pending - Dynamic Note Arrivals', () => {
   });
 });
 
-describe('Pending - Claiming State Reporting', () => {
+describe('PendingNotes - Claiming State Reporting', () => {
   let testRoot: ReturnType<typeof createRoot> | null = null;
   let testContainer: HTMLDivElement | null = null;
   let consoleErrorSpy: jest.SpyInstance;
@@ -981,7 +986,7 @@ describe('Pending - Claiming State Reporting', () => {
     mockWaitForConsumeTx.mockReturnValue(new Promise(() => {}));
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
     await openFirstAssetGroup(testContainer, act);
 
@@ -1025,7 +1030,7 @@ describe('Pending - Claiming State Reporting', () => {
     );
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
     await openFirstAssetGroup(testContainer, act);
 
@@ -1065,7 +1070,7 @@ describe('Pending - Claiming State Reporting', () => {
     mockWaitForConsumeTx.mockRejectedValueOnce(new Error('Transaction failed'));
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
     await openFirstAssetGroup(testContainer, act);
 
@@ -1102,7 +1107,7 @@ describe('Pending - Claiming State Reporting', () => {
     mockWaitForConsumeTx.mockRejectedValueOnce(new Error('Transaction failed'));
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
     await openFirstAssetGroup(testContainer, act);
 
@@ -1153,7 +1158,7 @@ describe('Pending - Claiming State Reporting', () => {
     mockWaitForConsumeTx.mockRejectedValueOnce(new Error('Transaction failed'));
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
     await openFirstAssetGroup(testContainer, act);
 
@@ -1189,7 +1194,7 @@ describe('Pending - Claiming State Reporting', () => {
     mockWaitForConsumeTx.mockRejectedValueOnce(new Error('Transaction failed')).mockResolvedValue('tx-hash');
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
     await openFirstAssetGroup(testContainer, act);
 
@@ -1221,7 +1226,7 @@ describe('Pending - Claiming State Reporting', () => {
   });
 });
 
-describe('Pending - Edge Cases', () => {
+describe('PendingNotes - Edge Cases', () => {
   let testRoot: ReturnType<typeof createRoot> | null = null;
   let testContainer: HTMLDivElement | null = null;
   let consoleErrorSpy: jest.SpyInstance;
@@ -1264,7 +1269,7 @@ describe('Pending - Edge Cases', () => {
     currentClaimableNotes = [];
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     // No Claim buttons or spinners should be present
@@ -1281,7 +1286,7 @@ describe('Pending - Edge Cases', () => {
     currentClaimableNotes = undefined as any;
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     // Should not crash, no Claim All button should be present
@@ -1298,7 +1303,7 @@ describe('Pending - Edge Cases', () => {
     currentClaimableNotes = notes;
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
     await openFirstAssetGroup(testContainer, act);
 
@@ -1316,7 +1321,7 @@ describe('Pending - Edge Cases', () => {
     currentClaimableNotes = notes;
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     // Claim All button should be visible at the summary
@@ -1338,7 +1343,7 @@ describe('Pending - Edge Cases', () => {
     currentClaimableNotes = notes;
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     // Claim All should be available at the summary
@@ -1362,7 +1367,7 @@ describe('Pending - Edge Cases', () => {
     mockWaitForConsumeTx.mockReturnValue(new Promise(() => {}));
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     // Click Claim All (summary)
@@ -1401,7 +1406,7 @@ describe('Pending - Edge Cases', () => {
     mockWaitForConsumeTx.mockReturnValue(new Promise(() => {}));
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
     await openFirstAssetGroup(testContainer, act);
 
@@ -1449,7 +1454,7 @@ describe('Pending - Edge Cases', () => {
     currentClaimableNotes = notes;
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
@@ -1483,7 +1488,7 @@ describe('Pending - Edge Cases', () => {
     currentClaimableNotes = notes;
 
     await act(async () => {
-      testRoot!.render(<Pending />);
+      testRoot!.render(<PendingNotes />);
     });
 
     // On the pending summary the group is collapsed, so individual claim buttons are
@@ -1494,5 +1499,121 @@ describe('Pending - Edge Cases', () => {
 
     const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll');
     expect(claimAllButton).toBeTruthy();
+  });
+});
+
+describe('PendingNotes - header and layout', () => {
+  let testRoot: ReturnType<typeof createRoot> | null = null;
+  let testContainer: HTMLDivElement | null = null;
+
+  beforeAll(() => {
+    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+  });
+
+  afterAll(() => {
+    delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    currentClaimableNotes = [];
+    mockGetFailedTransactions.mockResolvedValue([]);
+    appEnv.fullPage = false;
+    appEnv.sidePanel = false;
+    platformFlags.isMobile = false;
+    platformFlags.isExtension = false;
+  });
+
+  afterEach(async () => {
+    if (testRoot) {
+      await act(async () => {
+        testRoot!.unmount();
+      });
+      testRoot = null;
+    }
+    if (testContainer) {
+      testContainer.remove();
+      testContainer = null;
+    }
+  });
+
+  const render = async () => {
+    testContainer = document.createElement('div');
+    testRoot = createRoot(testContainer);
+    await act(async () => {
+      testRoot!.render(<PendingNotes />);
+    });
+    return testContainer;
+  };
+
+  it('leaves the page via goBack when no asset group is open', async () => {
+    const container = await render();
+
+    const back = container.querySelector('button[aria-label="back"]') as HTMLButtonElement;
+    expect(back).toBeTruthy();
+    // No group open → no detail-back testid on the header affordance.
+    expect(back.getAttribute('data-testid')).toBeNull();
+
+    await act(async () => {
+      back.click();
+    });
+
+    expect(jest.requireMock('lib/woozie').goBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('steps back from the asset detail view to the summary before leaving the page', async () => {
+    currentClaimableNotes = [createMockNote('note-1'), createMockNote('note-2')];
+    const container = await render();
+
+    await openFirstAssetGroup(container, act);
+    // Detail view open → the header back affordance carries the detail-back testid.
+    const back = container.querySelector('[data-testid="pending-detail-back"]') as HTMLButtonElement;
+    expect(back).toBeTruthy();
+    expect(getAssetGroupRows(container)).toHaveLength(0);
+
+    await act(async () => {
+      back.click();
+    });
+
+    // Back to the summary, and the page itself was not popped.
+    expect(getAssetGroupRows(container)).toHaveLength(1);
+    expect(container.querySelector('[data-testid="pending-detail-back"]')).toBeNull();
+    expect(jest.requireMock('lib/woozie').goBack).not.toHaveBeenCalled();
+  });
+
+  it('sizes the container for the extension popup, full page, side panel and mobile', async () => {
+    const shell = (container: HTMLElement) => container.firstElementChild as HTMLElement;
+
+    let container = await render();
+    expect(shell(container).className).toContain('w-[360px]');
+
+    await act(async () => {
+      testRoot!.unmount();
+    });
+    testRoot = null;
+    testContainer!.remove();
+    appEnv.fullPage = true;
+    container = await render();
+    expect(shell(container).className).toContain('w-[600px]');
+
+    await act(async () => {
+      testRoot!.unmount();
+    });
+    testRoot = null;
+    testContainer!.remove();
+    appEnv.sidePanel = true;
+    container = await render();
+    expect(shell(container).className).toContain('h-full w-full');
+
+    await act(async () => {
+      testRoot!.unmount();
+    });
+    testRoot = null;
+    testContainer!.remove();
+    appEnv.fullPage = false;
+    appEnv.sidePanel = false;
+    platformFlags.isMobile = true;
+    container = await render();
+    expect(shell(container).className).toContain('h-full w-full');
   });
 });

@@ -4,6 +4,7 @@
 
 ### Changes
 
+* [CHANGE][all] **The pending-notes screen has been redesigned and now lives at `/pending-notes`.** The claimable-notes summary leads with the total pending value plus a notes/assets line and an explainer, and every asset row shows its total, USD value and incoming-transfer count; claim orchestration moved out of the page into a reusable `useClaimNotes` hook, and the "note received" notification now opens this screen directly (the old `/pending` path still resolves to it).
 * [CHANGE][all] **The Explore screen now shows only the two testnet faucets.** The curated Explore grid is trimmed to the existing Miden faucet plus a new "Forkchoice Faucet" tile (`faucets.forkchoice.xyz`), giving users two sources of testnet MIDEN; the other curated tiles (Zoro, Qash, Miden Name) are no longer shown in the grid.
 
 ## 1.15.11 (2026-07-26)

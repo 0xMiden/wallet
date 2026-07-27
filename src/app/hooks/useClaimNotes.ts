@@ -1,11 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
-import { useTranslation } from 'react-i18next';
 
-import PageLayout from 'app/layouts/PageLayout';
-import { PendingTab } from 'app/pages/Receive/PendingTab';
-import { ScreenHeader } from 'components/ScreenHeader';
+import { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import {
   getFailedTransactions,
   initiateConsumeTransaction,
@@ -18,20 +15,33 @@ import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
-import { WalletMessageType } from 'lib/shared/types';
+import { WalletAccount, WalletMessageType } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
-import { goBack, HistoryAction, navigate } from 'lib/woozie';
+import { HistoryAction, navigate } from 'lib/woozie';
 
-export interface PendingProps {}
+export interface ClaimNotesState {
+  account: WalletAccount;
+  safeClaimableNotes: NoteWithMetadata[];
+  unclaimedNotes: NoteWithMetadata[];
+  mutateClaimableNotes: ReturnType<typeof useClaimableNotes>['mutate'];
+  isDelegatedProvingEnabled: boolean;
+  claimingNoteIds: Set<string>;
+  failedNoteIds: Set<string>;
+  checkingNoteIds: Set<string>;
+  handleClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
+  handleClaimAll: () => Promise<void>;
+  handleClaimGroup: (faucetId: string) => Promise<void>;
+}
 
 /**
- * Standalone pending-notes (claimable notes) screen. Reached via the pending
- * icon in the Activity header. Owns all claimable-notes orchestration (claim
- * all / claim group / stuck-tx recovery) and renders the shared `PendingTab`
- * presentation. Lifted out of `Receive` so the receive surface is address-only.
+ * Claim plumbing for the pending-notes surface: claimable-notes fetching, batch
+ * claiming (Claim All / per-asset group), per-note claiming state, and a
+ * one-shot failed-notes check against local IndexedDB + node state.
+ *
+ * Extracted from the old `Pending` page so any page can host the pending-notes
+ * UI — `PendingNotes` renders the presentation (`PendingTab`) on top of it.
  */
-export const Pending: React.FC<PendingProps> = () => {
-  const { t } = useTranslation();
+export function useClaimNotes(): ClaimNotesState {
   const account = useAccount();
   const address = account.publicKey;
 
@@ -119,8 +129,8 @@ export const Pending: React.FC<PendingProps> = () => {
               type: WalletMessageType.GetInputNoteDetailsRequest,
               noteIds: safeClaimableNotes.map(n => n.id)
             });
-            if (res && 'notes' in res) {
-              for (const note of (res as { notes: { noteId: string; state: string }[] }).notes) {
+            if (res && 'type' in res && res.type === WalletMessageType.GetInputNoteDetailsResponse) {
+              for (const note of res.notes) {
                 if (note.state === 'Invalid') {
                   failedIds.add(note.noteId);
                 }
@@ -140,7 +150,7 @@ export const Pending: React.FC<PendingProps> = () => {
             }
           }
         } catch (err) {
-          console.error('[Pending] Error checking node state for notes:', err);
+          console.error('[useClaimNotes] Error checking node state for notes:', err);
         }
 
         const claimableNoteIds = new Set(safeClaimableNotes.map(n => n.id));
@@ -158,7 +168,7 @@ export const Pending: React.FC<PendingProps> = () => {
   }, [safeClaimableNotes]);
 
   const claimNotesBatch = useCallback(
-    async (filter?: (note: NonNullable<(typeof safeClaimableNotes)[number]>) => boolean) => {
+    async (filter?: (note: NoteWithMetadata) => boolean) => {
       claimAllAbortRef.current?.abort();
       claimAllAbortRef.current = new AbortController();
       const signal = claimAllAbortRef.current.signal;
@@ -180,23 +190,24 @@ export const Pending: React.FC<PendingProps> = () => {
         return;
       }
 
-      const noteIds = freshUnclaimedNotes.map(n => n!.id);
+      const notesToClaim = freshUnclaimedNotes.filter((n): n is NonNullable<typeof n> => n != null);
+      const noteIds = notesToClaim.map(n => n.id);
       setClaimingNoteIds(prev => new Set([...prev, ...noteIds]));
 
       setFailedNoteIds(new Set());
 
       try {
         const transactionIds: { noteId: string; txId: string }[] = [];
-        for (const note of freshUnclaimedNotes) {
+        for (const note of notesToClaim) {
           try {
-            const id = await initiateConsumeTransaction(account.publicKey, note!, isDelegatedProvingEnabled);
-            transactionIds.push({ noteId: note!.id, txId: id });
+            const id = await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
+            transactionIds.push({ noteId: note.id, txId: id });
           } catch (err) {
-            console.error('Error queuing note for claim:', note!.id, err);
-            setFailedNoteIds(prev => new Set(prev).add(note!.id));
+            console.error('Error queuing note for claim:', note.id, err);
+            setFailedNoteIds(prev => new Set(prev).add(note.id));
             setClaimingNoteIds(prev => {
               const next = new Set(prev);
-              next.delete(note!.id);
+              next.delete(note.id);
               return next;
             });
           }
@@ -258,26 +269,17 @@ export const Pending: React.FC<PendingProps> = () => {
     [claimNotesBatch]
   );
 
-  return (
-    <PageLayout hideToolbar>
-      <div className="flex flex-col flex-1 min-h-0 px-4">
-        <ScreenHeader title={t('pendingNotes')} backLabel={t('back')} onBack={goBack} />
-        <PendingTab
-          safeClaimableNotes={safeClaimableNotes}
-          unclaimedNotesCount={unclaimedNotes.length}
-          account={account}
-          mutateClaimableNotes={mutateClaimableNotes}
-          isDelegatedProvingEnabled={isDelegatedProvingEnabled}
-          claimingNoteIds={claimingNoteIds}
-          failedNoteIds={failedNoteIds}
-          checkingNoteIds={checkingNoteIds}
-          onClaimingStateChange={handleClaimingStateChange}
-          onClaimAll={handleClaimAll}
-          onClaimGroup={handleClaimGroup}
-        />
-      </div>
-    </PageLayout>
-  );
-};
-
-export default Pending;
+  return {
+    account,
+    safeClaimableNotes,
+    unclaimedNotes,
+    mutateClaimableNotes,
+    isDelegatedProvingEnabled,
+    claimingNoteIds,
+    failedNoteIds,
+    checkingNoteIds,
+    handleClaimingStateChange,
+    handleClaimAll,
+    handleClaimGroup
+  };
+}

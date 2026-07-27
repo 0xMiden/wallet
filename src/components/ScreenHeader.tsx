@@ -10,6 +10,8 @@ export interface ScreenHeaderProps {
   /** Leading back affordance (orange circular arrow). Omit for a back-less header. */
   onBack?: () => void;
   backLabel?: string;
+  /** Optional `data-testid` on the back affordance (used by E2E selectors). */
+  backTestId?: string;
   /** Trailing close (X) affordance. Omit for a close-less header. */
   onClose?: () => void;
   closeLabel?: string;
@@ -20,6 +22,7 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
   title,
   onBack,
   backLabel,
+  backTestId,
   onClose,
   closeLabel,
   className
@@ -32,6 +35,7 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
         size="sm"
         onClick={onBack}
         aria-label={backLabel}
+        data-testid={backTestId}
         className="shrink-0 border border-border-card text-primary-500"
       />
     )}
