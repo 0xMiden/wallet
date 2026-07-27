@@ -892,6 +892,15 @@
     "message": "Другой",
     "englishSource": "Other"
   },
+  "millionFormat": {
+    "message": "$million$M",
+    "englishSource": "$million$M",
+    "placeholders": {
+      "million": {
+        "content": "$1"
+      }
+    }
+  },
   "download": {
     "message": "Скачать",
     "englishSource": "Download"
