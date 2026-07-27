@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { TokenBalanceData } from 'lib/miden/front';
 import type { WalletAccount } from 'lib/shared/types';
@@ -11,6 +11,7 @@ import { HomePrompts } from './HomePrompts';
 
 const mockFaucet = jest.fn();
 const mockUseWalletPromptStorage = jest.fn();
+const mockFetchHotKeyHardwareError = jest.fn();
 
 // `t` is never `init()`-ed in the unit env; echo the key back (with the
 // interpolated amount appended) so the rendered copy is directly assertable.
@@ -80,6 +81,7 @@ jest.mock('lib/wallet-prompts', () => {
   return {
     ...actual,
     faucet: (address: string) => mockFaucet(address),
+    fetchHotKeyHardwareError: () => mockFetchHotKeyHardwareError(),
     useWalletPromptStorage: () => mockUseWalletPromptStorage()
   };
 });
@@ -120,6 +122,7 @@ describe('HomePrompts', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFaucet.mockResolvedValue(undefined);
+    mockFetchHotKeyHardwareError.mockResolvedValue(null);
   });
 
   it('renders the pending VerifySeedPhrase prompt inside the carousel', () => {
@@ -521,5 +524,105 @@ describe('HomePrompts', () => {
 
     expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
     expect(setPromptStatus).not.toHaveBeenCalled();
+  });
+
+  const hotKeyPromptState = () =>
+    makePromptState({
+      storage: {
+        version: 1,
+        prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
+        pendingNotesDismissedIds: []
+      },
+      isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
+    });
+
+  it('shows the stored hot-key hardware error and copies it on the report action', async () => {
+    mockFetchHotKeyHardwareError.mockResolvedValue({ message: 'TEE unavailable (code 7)' });
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    mockUseWalletPromptStorage.mockReturnValue(hotKeyPromptState());
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    const card = screen.getByTestId('prompt-card');
+    expect(card).toHaveAttribute('data-title', 'hotKeyHardwareErrorPromptTitle');
+    expect(card).toHaveAttribute('data-variant', 'critical');
+    await waitFor(() => expect(mockFetchHotKeyHardwareError).toHaveBeenCalled());
+    // Flush the microtask that lands the fetched error in component state.
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('TEE unavailable (code 7)'));
+    await waitFor(() => expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'success'));
+  });
+
+  it('copies a generic message when no native error was recorded', async () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    mockUseWalletPromptStorage.mockReturnValue(hotKeyPromptState());
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('Hot-key secure hardware unavailable'));
+  });
+
+  it('warns without rendering an error when the stored hot-key error cannot be read', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mockFetchHotKeyHardwareError.mockRejectedValue(new Error('storage down'));
+    mockUseWalletPromptStorage.mockReturnValue(hotKeyPromptState());
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    await waitFor(() =>
+      expect(warnSpy).toHaveBeenCalledWith('[wallet-prompts] failed to load hot-key hardware error:', expect.any(Error))
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('marks the copy action failed when the clipboard rejects', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const writeText = jest.fn().mockRejectedValue(new Error('denied'));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    mockUseWalletPromptStorage.mockReturnValue(hotKeyPromptState());
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
+
+    await waitFor(() => expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure'));
+    errorSpy.mockRestore();
   });
 });

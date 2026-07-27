@@ -4,15 +4,18 @@ import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 
 import {
   EMPTY_WALLET_PROMPT_STORAGE,
+  HOT_KEY_HARDWARE_ERROR_STORAGE_KEY,
   WalletPromptStatus,
   WalletPromptType,
   completeWalletPrompt,
   dismissWalletPrompt,
   faucet,
+  fetchHotKeyHardwareError,
   fetchWalletPromptStorage,
   getPendingNotesUsdTotal,
   isWalletPromptPending,
   normalizeWalletPromptStorage,
+  reportHotKeyHardwareFailure,
   seedWalletPrompt,
   setWalletPromptStatus,
   useWalletPromptStorage
@@ -272,5 +275,34 @@ describe('wallet prompts', () => {
 
     setItemSpy.mockRestore();
     warnSpy.mockRestore();
+  });
+});
+
+describe('hot-key hardware failure report', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('returns null while no failure has been recorded or the record is malformed', async () => {
+    expect(await fetchHotKeyHardwareError()).toBeNull();
+    localStorage.setItem(HOT_KEY_HARDWARE_ERROR_STORAGE_KEY, JSON.stringify({ message: 42 }));
+    expect(await fetchHotKeyHardwareError()).toBeNull();
+  });
+
+  it('stores the native error and seeds the report prompt', async () => {
+    await reportHotKeyHardwareFailure('SecureEnclave unavailable');
+
+    expect(await fetchHotKeyHardwareError()).toEqual({ message: 'SecureEnclave unavailable' });
+    const storage = await fetchWalletPromptStorage();
+    expect(storage.prompts[WalletPromptType.HotKeyHardwareUnavailable]).toBe(WalletPromptStatus.Pending);
+  });
+
+  it('does not re-seed the prompt after the user dismissed it', async () => {
+    await dismissWalletPrompt(WalletPromptType.HotKeyHardwareUnavailable);
+    await reportHotKeyHardwareFailure('still broken');
+
+    const storage = await fetchWalletPromptStorage();
+    expect(storage.prompts[WalletPromptType.HotKeyHardwareUnavailable]).toBe(WalletPromptStatus.Dismissed);
+    expect(await fetchHotKeyHardwareError()).toEqual({ message: 'still broken' });
   });
 });

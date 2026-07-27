@@ -4,7 +4,7 @@
 
 ### Changes
 
-* [CHANGE][all] **The home screen now prompts you to fund an empty wallet and to claim pending notes.** A "Fund your wallet" card appears while the account holds no balance and mints test tokens in place (Forkchoice plus the official Miden faucet, with inline loading/success/failure states); a "You have Pending Notes" card shows the USD value of your claimable notes and opens the pending-notes screen, and dismissing it hides only that batch — it returns when new notes arrive.
+* [CHANGE][all] **The home screen now prompts you to fund an empty wallet and to claim pending notes.** A "Fund your wallet" card appears while the account holds no balance and mints test tokens in place (Forkchoice plus the official Miden faucet, with inline loading/success/failure states); a "You have Pending Notes" card shows the USD value of your claimable notes and opens the pending-notes screen, and dismissing it hides only that batch — it returns when new notes arrive. On mobile, a "Secure signing unavailable" card also appears when the device's secure hardware (TEE / Secure Enclave) fails a hot-key operation, letting you copy the raw native error and send it to the Miden team.
 * [CHANGE][all] **The Explore screen now shows only the two testnet faucets.** The curated Explore grid is trimmed to the existing Miden faucet plus a new "Forkchoice Faucet" tile (`faucets.forkchoice.xyz`), giving users two sources of testnet MIDEN; the other curated tiles (Zoro, Qash, Miden Name) are no longer shown in the grid.
 
 ## 1.15.11 (2026-07-26)

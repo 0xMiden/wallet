@@ -11,6 +11,7 @@ import type { TokenPrices } from 'lib/prices';
 import { WalletAccount } from 'lib/shared/types';
 import {
   faucet,
+  fetchHotKeyHardwareError,
   getPendingNotesUsdTotal,
   type PendingNoteValue,
   useWalletPromptStorage,
@@ -56,11 +57,19 @@ const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition
     route: '/settings/verify-seed-phrase',
     variant: 'warning',
     dismissible: true
+  },
+  [WalletPromptType.HotKeyHardwareUnavailable]: {
+    titleKey: 'hotKeyHardwareErrorPromptTitle',
+    bodyKey: 'hotKeyHardwareErrorPromptBody',
+    actionKey: 'hotKeyHardwareErrorPromptAction',
+    variant: 'critical',
+    dismissible: true
   }
 };
 
 const WALLET_PROMPT_ORDER = [
   WalletPromptType.PendingNotes,
+  WalletPromptType.HotKeyHardwareUnavailable,
   WalletPromptType.Faucet,
   WalletPromptType.VerifySeedPhrase
 ] as const;
@@ -86,6 +95,11 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const [faucetStatusIndicator, setFaucetStatusIndicator] = useState<PromptCardStatus>('idle');
   const fundingRef = useRef(false);
   const successTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const [hotKeyError, setHotKeyError] = useState<string | null>(null);
+  const [copyStatusIndicator, setCopyStatusIndicator] = useState<PromptCardStatus>('idle');
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const hotKeyPromptPending = isPromptPending(WalletPromptType.HotKeyHardwareUnavailable);
 
   const pendingNotesStatus = storage.prompts[WalletPromptType.PendingNotes];
   const pendingNoteIds = useMemo(() => claimableNotes?.map(note => note.id) ?? [], [claimableNotes]);
@@ -113,9 +127,40 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   useEffect(
     () => () => {
       if (successTimerRef.current) clearTimeout(successTimerRef.current);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     },
     []
   );
+
+  useEffect(() => {
+    if (!hotKeyPromptPending) return;
+    let cancelled = false;
+    fetchHotKeyHardwareError()
+      .then(record => {
+        if (!cancelled) setHotKeyError(record?.message ?? null);
+      })
+      .catch(error => {
+        console.warn('[wallet-prompts] failed to load hot-key hardware error:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hotKeyPromptPending]);
+
+  const copyHotKeyError = useCallback(() => {
+    const text = hotKeyError ?? 'Hot-key secure hardware unavailable';
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopyStatusIndicator('success');
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = setTimeout(() => setCopyStatusIndicator('idle'), 1500);
+      })
+      .catch(error => {
+        console.error('[wallet-prompts] failed to copy hot-key error:', error);
+        setCopyStatusIndicator('failure');
+      });
+  }, [hotKeyError]);
 
   useEffect(() => {
     if (!isLoaded || balancesLoading) return;
@@ -169,11 +214,25 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             body: t(WALLET_PROMPT_DEFINITIONS[type].bodyKey, { amount: formattedPendingNotesUsdTotal }),
             onDismiss: () => setPromptStatus(type, WalletPromptStatus.Dismissed, pendingNoteIds)
           };
+        case WalletPromptType.HotKeyHardwareUnavailable:
+          return {
+            onAction: copyHotKeyError,
+            status: copyStatusIndicator
+          };
         default:
           return {};
       }
     },
-    [faucetStatusIndicator, formattedPendingNotesUsdTotal, fundWallet, pendingNoteIds, setPromptStatus, t]
+    [
+      copyHotKeyError,
+      copyStatusIndicator,
+      faucetStatusIndicator,
+      formattedPendingNotesUsdTotal,
+      fundWallet,
+      pendingNoteIds,
+      setPromptStatus,
+      t
+    ]
   );
 
   return (
