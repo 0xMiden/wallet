@@ -1139,6 +1139,18 @@
     "message": "Посмотреть сейчас",
     "englishSource": "See Now"
   },
+  "hotKeyHardwareErrorPromptTitle": {
+    "message": "Безопасная подпись недоступна",
+    "englishSource": "Secure signing unavailable"
+  },
+  "hotKeyHardwareErrorPromptBody": {
+    "message": "Это устройство не могло использовать свое защищенное оборудование для подписи транзакций. Скопируйте ошибку и отправьте ее команде Miden.",
+    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+  },
+  "hotKeyHardwareErrorPromptAction": {
+    "message": "Ошибка копирования",
+    "englishSource": "Copy error"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "Подтвердите свою фразу восстановления",
     "englishSource": "Verify your recovery phrase"

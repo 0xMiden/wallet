@@ -1148,6 +1148,18 @@
     "message": "지금 보기",
     "englishSource": "See Now"
   },
+  "hotKeyHardwareErrorPromptTitle": {
+    "message": "보안 서명을 사용할 수 없음",
+    "englishSource": "Secure signing unavailable"
+  },
+  "hotKeyHardwareErrorPromptBody": {
+    "message": "이 기기는 보안 하드웨어를 사용하여 거래에 서명할 수 없습니다. 오류를 복사하여 Miden 팀에 보내세요.",
+    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+  },
+  "hotKeyHardwareErrorPromptAction": {
+    "message": "복사 오류",
+    "englishSource": "Copy error"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "복구 문구를 확인하세요",
     "englishSource": "Verify your recovery phrase"

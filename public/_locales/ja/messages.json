@@ -1139,6 +1139,18 @@
     "message": "今すぐ見る",
     "englishSource": "See Now"
   },
+  "hotKeyHardwareErrorPromptTitle": {
+    "message": "安全な署名は利用できません",
+    "englishSource": "Secure signing unavailable"
+  },
+  "hotKeyHardwareErrorPromptBody": {
+    "message": "このデバイスは、安全なハードウェアを使用してトランザクションに署名できませんでした。エラーをコピーして、Miden チームに送信します。",
+    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+  },
+  "hotKeyHardwareErrorPromptAction": {
+    "message": "コピーエラー",
+    "englishSource": "Copy error"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "リカバリフレーズを確認してください",
     "englishSource": "Verify your recovery phrase"

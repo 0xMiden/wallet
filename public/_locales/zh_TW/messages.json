@@ -1148,6 +1148,18 @@
     "message": "立即查看",
     "englishSource": "See Now"
   },
+  "hotKeyHardwareErrorPromptTitle": {
+    "message": "安全签名不可用",
+    "englishSource": "Secure signing unavailable"
+  },
+  "hotKeyHardwareErrorPromptBody": {
+    "message": "该设备无法使用其安全硬件来签署交易。复制错误并将其发送给 Miden 团队。",
+    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+  },
+  "hotKeyHardwareErrorPromptAction": {
+    "message": "复制错误",
+    "englishSource": "Copy error"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "验证您的恢复短语",
     "englishSource": "Verify your recovery phrase"
