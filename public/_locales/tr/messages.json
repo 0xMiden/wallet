@@ -1,4 +1,350 @@
 {
+  "payload": {
+    "message": "Yük",
+    "englishSource": "Payload"
+  },
+  "bridgeDepositTitle": {
+    "message": "Miden Köprüsü",
+    "englishSource": "Miden Bridge"
+  },
+  "bridgeDepositHeading": {
+    "message": "Para yatırma işleminizi onaylayın",
+    "englishSource": "Confirm your deposit"
+  },
+  "bridgeDepositSubheading": {
+    "message": "Cüzdanınız tam tutarı onaylamak ve Sepolia'da oturum açmak için açılacaktır.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+  },
+  "bridgeDepositYouReceive": {
+    "message": "Alırsın",
+    "englishSource": "You receive"
+  },
+  "bridgeDepositBridgeOption": {
+    "message": "Köprü seçeneği",
+    "englishSource": "Bridge option"
+  },
+  "bridgeDepositApprovingTitle": {
+    "message": "Neyi onaylıyorsunuz",
+    "englishSource": "What you're approving"
+  },
+  "bridgeDepositApprovingBody": {
+    "message": "Cüzdanınız {{tokenSymbol}}'u onaylamanızı ve Sepolia'daki para yatırma işlemini imzalamanızı isteyecek. Fonlar onaylandıktan sonra Miden'e ulaşıyor.",
+    "englishSource": "Your wallet will ask to approve {{tokenSymbol}} and sign the deposit on Sepolia. Funds arrive on Miden after confirmation."
+  },
+  "balanceCardTotalBalance": {
+    "message": "Toplam Bakiye",
+    "englishSource": "Total Balance"
+  },
+  "balanceCardDeltaPill": {
+    "message": "{{mutlak}} ({{yüzde}})",
+    "englishSource": "{{absolute}} ({{percentage}})"
+  },
+  "balanceCardAccount": {
+    "message": "Hesap No: {{number}}",
+    "englishSource": "Account #: {{number}}"
+  },
+  "balanceCardAccountOptions": {
+    "message": "Hesap seçenekleri",
+    "englishSource": "Account options"
+  },
+  "dappSwitcherLoading": {
+    "message": "Yükleniyor…",
+    "englishSource": "Loading…"
+  },
+  "dappSwitcherCardActivate": {
+    "message": "{{isim}}. Bu dApp'e geçmek için etkinleştirin.",
+    "englishSource": "{{name}}. Activate to switch to this dApp."
+  },
+  "dappSwitcherCloseCard": {
+    "message": "{{name}}'yi kapat",
+    "englishSource": "Close {{name}}"
+  },
+  "promptCardDismiss": {
+    "message": "Azletmek",
+    "englishSource": "Dismiss"
+  },
+  "promptCardLoading": {
+    "message": "Yükleniyor",
+    "englishSource": "Loading"
+  },
+  "priceChangeAmountNeutral": {
+    "message": "${{miktar}}",
+    "englishSource": "${{amount}}"
+  },
+  "priceChangeAmountPositive": {
+    "message": "+${{miktar}}",
+    "englishSource": "+${{amount}}"
+  },
+  "priceChangeAmountNegative": {
+    "message": "-${{miktar}}",
+    "englishSource": "-${{amount}}"
+  },
+  "priceChangePercent": {
+    "message": "{{değer}}%",
+    "englishSource": "{{value}}%"
+  },
+  "pendingTabApproxUsd": {
+    "message": "≈  $value$ ",
+    "englishSource": "≈ $value$",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailChange24h": {
+    "message": "{{değiştirmek}}%",
+    "englishSource": "{{change}}%"
+  },
+  "historyDetailsIdLabel": {
+    "message": "Yaptım}}",
+    "englishSource": "ID: {{id}}"
+  },
+  "historyDetailsAmountFilledValue": {
+    "message": "{{dolu}} / {{toplam}}{{symbol}}",
+    "englishSource": "{{filled}} / {{total}}{{symbol}}"
+  },
+  "historyDetailsLoadError": {
+    "message": "İşlem yüklenemedi",
+    "englishSource": "Failed to load transaction"
+  },
+  "historyDetailsFiatApprox": {
+    "message": "≈ ${{amount}} ABD Doları",
+    "englishSource": "≈ ${{amount}} USD"
+  },
+  "dappTileVerifiedLabel": {
+    "message": "{{name}}, doğrulanmış dApp",
+    "englishSource": "{{name}}, verified dApp"
+  },
+  "dappPeekCardOverflowBadge": {
+    "message": "+ $count$ ",
+    "englishSource": "+$count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "settingsVersion": {
+    "message": "Sürüm {{sürüm}}",
+    "englishSource": "Version {{version}}"
+  },
+  "unlockBrandName": {
+    "message": "Ekmek",
+    "englishSource": "Bread"
+  },
+  "earnPositionHeaderTitle": {
+    "message": "{{protokol}} • {{asset}} konumum",
+    "englishSource": "My {{protocol}} • {{asset}} position"
+  },
+  "earnAssetOnNetwork": {
+    "message": "{{network}} üzerinde {{asset}}",
+    "englishSource": "{{asset}} on {{network}}"
+  },
+  "earnMetricDeposited": {
+    "message": "Yatırılan",
+    "englishSource": "Deposited"
+  },
+  "earnMetricTotalEarned": {
+    "message": "Toplam Kazanılan",
+    "englishSource": "Total Earned"
+  },
+  "earnMetricDailyAvg": {
+    "message": "Günlük Ortalama",
+    "englishSource": "Daily Avg"
+  },
+  "earnMetricTimeActive": {
+    "message": "Aktif Zaman",
+    "englishSource": "Time Active"
+  },
+  "earnMetricStarted": {
+    "message": "Başlatıldı",
+    "englishSource": "Started"
+  },
+  "earnProjectedEarnings": {
+    "message": "~ {{estimate}} · {{apy}} APY'de",
+    "englishSource": "~ {{estimate}} · at {{apy}} APY"
+  },
+  "protocol": {
+    "message": "Protokol",
+    "englishSource": "Protocol"
+  },
+  "position": {
+    "message": "Konum",
+    "englishSource": "Position"
+  },
+  "withdraw": {
+    "message": "Geri çekilmek",
+    "englishSource": "Withdraw"
+  },
+  "earnDepositMore": {
+    "message": "Daha fazla para yatırın",
+    "englishSource": "Deposit more"
+  },
+  "earnWithdrawAmount": {
+    "message": "Para Çekme Tutarı",
+    "englishSource": "Withdraw Amount"
+  },
+  "earnWithdrawalLabel": {
+    "message": "Para çekme",
+    "englishSource": "Withdrawal"
+  },
+  "earnFullPositionGasless": {
+    "message": "Tam konum (gazsız)",
+    "englishSource": "Full position (gasless)"
+  },
+  "earnEstimatedTimeLabel": {
+    "message": "Tahmini süre",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeOneMinute": {
+    "message": "~1 dakika",
+    "englishSource": "~1 minute"
+  },
+  "withdrawing": {
+    "message": "Geri çekiliyor…",
+    "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "Bu pozisyon mevcut cüzdandan türetilen EVM hesabına ait değildir.",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
+  },
+  "earnGaslessWithdrawalFailed": {
+    "message": "Gazsız çekilme başarısız oldu.",
+    "englishSource": "Gasless withdrawal failed."
+  },
+  "earnCurrentApy": {
+    "message": "Mevcut APY",
+    "englishSource": "Current APY"
+  },
+  "earnDeposit": {
+    "message": "Mevduat",
+    "englishSource": "Deposit"
+  },
+  "earnTvlLabel": {
+    "message": "TVL",
+    "englishSource": "TVL"
+  },
+  "earnRiskLabel": {
+    "message": "Risk",
+    "englishSource": "Risk"
+  },
+  "earnAuditedLabel": {
+    "message": "Denetlendi",
+    "englishSource": "Audited"
+  },
+  "earnDepositAmountTitle": {
+    "message": "Yatırma Tutarı",
+    "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "Açık pozisyon",
+    "englishSource": "Open position"
+  },
+  "earnProjection1Month": {
+    "message": "1 Ay",
+    "englishSource": "1 Month"
+  },
+  "earnProjection6Months": {
+    "message": "6 Ay",
+    "englishSource": "6 Months"
+  },
+  "earnProjection1Year": {
+    "message": "1 Yıl",
+    "englishSource": "1 Year"
+  },
+  "earnProjectionNow": {
+    "message": "Şimdi",
+    "englishSource": "Now"
+  },
+  "earnProjectedRewardAmount": {
+    "message": "+${{miktar}}",
+    "englishSource": "+${{amount}}"
+  },
+  "earnCollateralLabel": {
+    "message": "Teminat",
+    "englishSource": "Collateral"
+  },
+  "earnCollateralValue": {
+    "message": "Miden P2IDE (gazsız)",
+    "englishSource": "Miden P2IDE (gasless)"
+  },
+  "earnDepositRoute": {
+    "message": "Miden -> {{protokol}} ({{ağ}})",
+    "englishSource": "Miden -> {{protocol}} ({{network}})"
+  },
+  "earnEstimatedTime": {
+    "message": "Tahmini süre",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeValue": {
+    "message": "~30 saniye",
+    "englishSource": "~30 seconds"
+  },
+  "earnNoEvmAddress": {
+    "message": "Bu hesap için EVM adresi yok.",
+    "englishSource": "No EVM address available for this account."
+  },
+  "earnFailedToOpenPosition": {
+    "message": "Pozisyon açılamadı",
+    "englishSource": "Failed to open position"
+  },
+  "earnTotalEarnedRewards": {
+    "message": "Kazanılan Toplam Ödüller",
+    "englishSource": "Total Earned Rewards"
+  },
+  "earnEarningBlendedApy": {
+    "message": "{{apy}} karma APY kazanma",
+    "englishSource": "Earning {{apy}} blended APY"
+  },
+  "earnTotalDeposited": {
+    "message": "Toplam Yatırılan",
+    "englishSource": "Total Deposited"
+  },
+  "earnEstimatedRewards": {
+    "message": "Tahmini Ödüller",
+    "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "Pozisyonlarım",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "Pozisyonlar",
+    "englishSource": "Positions"
+  },
+  "earnPositionsApy": {
+    "message": "{{apy}} APY",
+    "englishSource": "{{apy}} APY"
+  },
+  "earnDeposited": {
+    "message": "Yatırılan",
+    "englishSource": "Deposited"
+  },
+  "earnDepositAmountLabel": {
+    "message": "Yatırma Tutarı",
+    "englishSource": "Deposit Amount"
+  },
+  "earnSeeAll": {
+    "message": "Tümünü Gör",
+    "englishSource": "See All"
+  },
+  "earnVaultsTitle": {
+    "message": "Öne Çıkan Kasalar",
+    "englishSource": "Featured Vaults"
+  },
+  "earnApyLabel": {
+    "message": "APY",
+    "englishSource": "APY"
+  },
+  "earnVaultAssetOnNetwork": {
+    "message": "{{network}} üzerinde {{asset}}",
+    "englishSource": "{{asset}} on {{network}}"
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "Mevcut Pozisyonlar",
+    "englishSource": "Current Positions"
+  },
   "advanced": {
     "message": "Gelişmiş",
     "englishSource": "Advanced"

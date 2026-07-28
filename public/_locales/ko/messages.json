@@ -1,4 +1,350 @@
 {
+  "payload": {
+    "message": "유효 탑재량",
+    "englishSource": "Payload"
+  },
+  "bridgeDepositTitle": {
+    "message": "미덴 다리",
+    "englishSource": "Miden Bridge"
+  },
+  "bridgeDepositHeading": {
+    "message": "입금 확인",
+    "englishSource": "Confirm your deposit"
+  },
+  "bridgeDepositSubheading": {
+    "message": "지갑이 열려 정확한 금액을 승인하고 Sepolia에 서명합니다.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+  },
+  "bridgeDepositYouReceive": {
+    "message": "당신은 받는다",
+    "englishSource": "You receive"
+  },
+  "bridgeDepositBridgeOption": {
+    "message": "브릿지 옵션",
+    "englishSource": "Bridge option"
+  },
+  "bridgeDepositApprovingTitle": {
+    "message": "승인 내용",
+    "englishSource": "What you're approving"
+  },
+  "bridgeDepositApprovingBody": {
+    "message": "귀하의 지갑은 {{tokenSymbol}} 승인과 Sepolia 입금 서명을 요청합니다. 자금은 확인 후 Miden에 도착합니다.",
+    "englishSource": "Your wallet will ask to approve {{tokenSymbol}} and sign the deposit on Sepolia. Funds arrive on Miden after confirmation."
+  },
+  "balanceCardTotalBalance": {
+    "message": "총 잔액",
+    "englishSource": "Total Balance"
+  },
+  "balanceCardDeltaPill": {
+    "message": "{{절대}}({{퍼센트}})",
+    "englishSource": "{{absolute}} ({{percentage}})"
+  },
+  "balanceCardAccount": {
+    "message": "계좌 번호: {{번호}}",
+    "englishSource": "Account #: {{number}}"
+  },
+  "balanceCardAccountOptions": {
+    "message": "계정 옵션",
+    "englishSource": "Account options"
+  },
+  "dappSwitcherLoading": {
+    "message": "로드 중…",
+    "englishSource": "Loading…"
+  },
+  "dappSwitcherCardActivate": {
+    "message": "{{이름}}. 이 dApp으로 전환하려면 활성화하세요.",
+    "englishSource": "{{name}}. Activate to switch to this dApp."
+  },
+  "dappSwitcherCloseCard": {
+    "message": "{{name}} 닫기",
+    "englishSource": "Close {{name}}"
+  },
+  "promptCardDismiss": {
+    "message": "해고하다",
+    "englishSource": "Dismiss"
+  },
+  "promptCardLoading": {
+    "message": "로드 중",
+    "englishSource": "Loading"
+  },
+  "priceChangeAmountNeutral": {
+    "message": "${{금액}}",
+    "englishSource": "${{amount}}"
+  },
+  "priceChangeAmountPositive": {
+    "message": "+${{금액}}",
+    "englishSource": "+${{amount}}"
+  },
+  "priceChangeAmountNegative": {
+    "message": "-${{금액}}",
+    "englishSource": "-${{amount}}"
+  },
+  "priceChangePercent": {
+    "message": "{{값}}%",
+    "englishSource": "{{value}}%"
+  },
+  "pendingTabApproxUsd": {
+    "message": "≈  $value$ ",
+    "englishSource": "≈ $value$",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailChange24h": {
+    "message": "{{변화}}%",
+    "englishSource": "{{change}}%"
+  },
+  "historyDetailsIdLabel": {
+    "message": "ID: {{id}}",
+    "englishSource": "ID: {{id}}"
+  },
+  "historyDetailsAmountFilledValue": {
+    "message": "{{채워짐}} / {{총계}}{{symbol}}",
+    "englishSource": "{{filled}} / {{total}}{{symbol}}"
+  },
+  "historyDetailsLoadError": {
+    "message": "거래를 로드하지 못했습니다.",
+    "englishSource": "Failed to load transaction"
+  },
+  "historyDetailsFiatApprox": {
+    "message": "≒ ${{금액}} USD",
+    "englishSource": "≈ ${{amount}} USD"
+  },
+  "dappTileVerifiedLabel": {
+    "message": "{{name}}님, 검증된 dApp",
+    "englishSource": "{{name}}, verified dApp"
+  },
+  "dappPeekCardOverflowBadge": {
+    "message": "+ $count$ ",
+    "englishSource": "+$count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "settingsVersion": {
+    "message": "버전 {{버전}}",
+    "englishSource": "Version {{version}}"
+  },
+  "unlockBrandName": {
+    "message": "빵",
+    "englishSource": "Bread"
+  },
+  "earnPositionHeaderTitle": {
+    "message": "내 {{프로토콜}} • {{자산}} 위치",
+    "englishSource": "My {{protocol}} • {{asset}} position"
+  },
+  "earnAssetOnNetwork": {
+    "message": "{{네트워크}}의 {{자산}}",
+    "englishSource": "{{asset}} on {{network}}"
+  },
+  "earnMetricDeposited": {
+    "message": "입금됨",
+    "englishSource": "Deposited"
+  },
+  "earnMetricTotalEarned": {
+    "message": "총 수익",
+    "englishSource": "Total Earned"
+  },
+  "earnMetricDailyAvg": {
+    "message": "일일 평균",
+    "englishSource": "Daily Avg"
+  },
+  "earnMetricTimeActive": {
+    "message": "활동 시간",
+    "englishSource": "Time Active"
+  },
+  "earnMetricStarted": {
+    "message": "시작됨",
+    "englishSource": "Started"
+  },
+  "earnProjectedEarnings": {
+    "message": "~ {{추정}} · {{apy}} APY",
+    "englishSource": "~ {{estimate}} · at {{apy}} APY"
+  },
+  "protocol": {
+    "message": "규약",
+    "englishSource": "Protocol"
+  },
+  "position": {
+    "message": "위치",
+    "englishSource": "Position"
+  },
+  "withdraw": {
+    "message": "철회하다",
+    "englishSource": "Withdraw"
+  },
+  "earnDepositMore": {
+    "message": "더 입금하세요",
+    "englishSource": "Deposit more"
+  },
+  "earnWithdrawAmount": {
+    "message": "인출금액",
+    "englishSource": "Withdraw Amount"
+  },
+  "earnWithdrawalLabel": {
+    "message": "철수",
+    "englishSource": "Withdrawal"
+  },
+  "earnFullPositionGasless": {
+    "message": "전체 위치(가스 없음)",
+    "englishSource": "Full position (gasless)"
+  },
+  "earnEstimatedTimeLabel": {
+    "message": "예상 시간",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeOneMinute": {
+    "message": "~1분",
+    "englishSource": "~1 minute"
+  },
+  "withdrawing": {
+    "message": "철수…",
+    "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "이 포지션은 현재 지갑에서 파생된 EVM 계정이 소유하지 않습니다.",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
+  },
+  "earnGaslessWithdrawalFailed": {
+    "message": "무가스 인출에 실패했습니다.",
+    "englishSource": "Gasless withdrawal failed."
+  },
+  "earnCurrentApy": {
+    "message": "현재 APY",
+    "englishSource": "Current APY"
+  },
+  "earnDeposit": {
+    "message": "보증금",
+    "englishSource": "Deposit"
+  },
+  "earnTvlLabel": {
+    "message": "TVL",
+    "englishSource": "TVL"
+  },
+  "earnRiskLabel": {
+    "message": "위험",
+    "englishSource": "Risk"
+  },
+  "earnAuditedLabel": {
+    "message": "감사됨",
+    "englishSource": "Audited"
+  },
+  "earnDepositAmountTitle": {
+    "message": "입금액",
+    "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "오픈 포지션",
+    "englishSource": "Open position"
+  },
+  "earnProjection1Month": {
+    "message": "1개월",
+    "englishSource": "1 Month"
+  },
+  "earnProjection6Months": {
+    "message": "6개월",
+    "englishSource": "6 Months"
+  },
+  "earnProjection1Year": {
+    "message": "1년",
+    "englishSource": "1 Year"
+  },
+  "earnProjectionNow": {
+    "message": "지금",
+    "englishSource": "Now"
+  },
+  "earnProjectedRewardAmount": {
+    "message": "+${{금액}}",
+    "englishSource": "+${{amount}}"
+  },
+  "earnCollateralLabel": {
+    "message": "방계친",
+    "englishSource": "Collateral"
+  },
+  "earnCollateralValue": {
+    "message": "Miden P2IDE(가스리스)",
+    "englishSource": "Miden P2IDE (gasless)"
+  },
+  "earnDepositRoute": {
+    "message": "Miden -> {{프로토콜}} ({{네트워크}})",
+    "englishSource": "Miden -> {{protocol}} ({{network}})"
+  },
+  "earnEstimatedTime": {
+    "message": "예상 시간",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeValue": {
+    "message": "~30초",
+    "englishSource": "~30 seconds"
+  },
+  "earnNoEvmAddress": {
+    "message": "이 계정에 사용할 수 있는 EVM 주소가 없습니다.",
+    "englishSource": "No EVM address available for this account."
+  },
+  "earnFailedToOpenPosition": {
+    "message": "포지션을 오픈하지 못했습니다.",
+    "englishSource": "Failed to open position"
+  },
+  "earnTotalEarnedRewards": {
+    "message": "총 획득 보상",
+    "englishSource": "Total Earned Rewards"
+  },
+  "earnEarningBlendedApy": {
+    "message": "{{apy}} 혼합 APY 획득",
+    "englishSource": "Earning {{apy}} blended APY"
+  },
+  "earnTotalDeposited": {
+    "message": "총 입금",
+    "englishSource": "Total Deposited"
+  },
+  "earnEstimatedRewards": {
+    "message": "예상 보상",
+    "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "내 직위",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "직위",
+    "englishSource": "Positions"
+  },
+  "earnPositionsApy": {
+    "message": "{{apy}} APY",
+    "englishSource": "{{apy}} APY"
+  },
+  "earnDeposited": {
+    "message": "입금됨",
+    "englishSource": "Deposited"
+  },
+  "earnDepositAmountLabel": {
+    "message": "입금액",
+    "englishSource": "Deposit Amount"
+  },
+  "earnSeeAll": {
+    "message": "모두 보기",
+    "englishSource": "See All"
+  },
+  "earnVaultsTitle": {
+    "message": "주요 금고",
+    "englishSource": "Featured Vaults"
+  },
+  "earnApyLabel": {
+    "message": "APY",
+    "englishSource": "APY"
+  },
+  "earnVaultAssetOnNetwork": {
+    "message": "{{네트워크}}의 {{자산}}",
+    "englishSource": "{{asset}} on {{network}}"
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "현재 직위",
+    "englishSource": "Current Positions"
+  },
   "advanced": {
     "message": "고급의",
     "englishSource": "Advanced"

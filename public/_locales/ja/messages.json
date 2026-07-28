@@ -1,4 +1,350 @@
 {
+  "payload": {
+    "message": "ペイロード",
+    "englishSource": "Payload"
+  },
+  "bridgeDepositTitle": {
+    "message": "ミデン橋",
+    "englishSource": "Miden Bridge"
+  },
+  "bridgeDepositHeading": {
+    "message": "入金を確認する",
+    "englishSource": "Confirm your deposit"
+  },
+  "bridgeDepositSubheading": {
+    "message": "ウォレットが開き、正確な金額を承認し、Sepolia に署名します。",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+  },
+  "bridgeDepositYouReceive": {
+    "message": "あなたは受け取ります",
+    "englishSource": "You receive"
+  },
+  "bridgeDepositBridgeOption": {
+    "message": "ブリッジオプション",
+    "englishSource": "Bridge option"
+  },
+  "bridgeDepositApprovingTitle": {
+    "message": "承認しているもの",
+    "englishSource": "What you're approving"
+  },
+  "bridgeDepositApprovingBody": {
+    "message": "ウォレットは {{tokenSymbol}} を承認し、Sepolia でデポジットに署名するように求めます。確認後、資金がミデンに到着します。",
+    "englishSource": "Your wallet will ask to approve {{tokenSymbol}} and sign the deposit on Sepolia. Funds arrive on Miden after confirmation."
+  },
+  "balanceCardTotalBalance": {
+    "message": "合計残高",
+    "englishSource": "Total Balance"
+  },
+  "balanceCardDeltaPill": {
+    "message": "{{絶対}} ({{パーセント}})",
+    "englishSource": "{{absolute}} ({{percentage}})"
+  },
+  "balanceCardAccount": {
+    "message": "口座番号}}",
+    "englishSource": "Account #: {{number}}"
+  },
+  "balanceCardAccountOptions": {
+    "message": "アカウントオプション",
+    "englishSource": "Account options"
+  },
+  "dappSwitcherLoading": {
+    "message": "読み込み中…",
+    "englishSource": "Loading…"
+  },
+  "dappSwitcherCardActivate": {
+    "message": "{{名前}}。この dApp に切り替えるにはアクティベートしてください。",
+    "englishSource": "{{name}}. Activate to switch to this dApp."
+  },
+  "dappSwitcherCloseCard": {
+    "message": "{{名前}}を閉じる",
+    "englishSource": "Close {{name}}"
+  },
+  "promptCardDismiss": {
+    "message": "却下する",
+    "englishSource": "Dismiss"
+  },
+  "promptCardLoading": {
+    "message": "読み込み中",
+    "englishSource": "Loading"
+  },
+  "priceChangeAmountNeutral": {
+    "message": "${{金額}}",
+    "englishSource": "${{amount}}"
+  },
+  "priceChangeAmountPositive": {
+    "message": "+${{金額}}",
+    "englishSource": "+${{amount}}"
+  },
+  "priceChangeAmountNegative": {
+    "message": "-${{金額}}",
+    "englishSource": "-${{amount}}"
+  },
+  "priceChangePercent": {
+    "message": "{{価値}}％",
+    "englishSource": "{{value}}%"
+  },
+  "pendingTabApproxUsd": {
+    "message": "≈  $value$ ",
+    "englishSource": "≈ $value$",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailChange24h": {
+    "message": "{{変化}}％",
+    "englishSource": "{{change}}%"
+  },
+  "historyDetailsIdLabel": {
+    "message": "ID: {{id}}",
+    "englishSource": "ID: {{id}}"
+  },
+  "historyDetailsAmountFilledValue": {
+    "message": "{{塗りつぶし}} / {{合計}}{{シンボル}}",
+    "englishSource": "{{filled}} / {{total}}{{symbol}}"
+  },
+  "historyDetailsLoadError": {
+    "message": "トランザクションのロードに失敗しました",
+    "englishSource": "Failed to load transaction"
+  },
+  "historyDetailsFiatApprox": {
+    "message": "≈ ${{金額}} 米ドル",
+    "englishSource": "≈ ${{amount}} USD"
+  },
+  "dappTileVerifiedLabel": {
+    "message": "{{name}}、確認済みの dApp",
+    "englishSource": "{{name}}, verified dApp"
+  },
+  "dappPeekCardOverflowBadge": {
+    "message": "+ $count$ ",
+    "englishSource": "+$count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "settingsVersion": {
+    "message": "バージョン {{バージョン}}",
+    "englishSource": "Version {{version}}"
+  },
+  "unlockBrandName": {
+    "message": "パン",
+    "englishSource": "Bread"
+  },
+  "earnPositionHeaderTitle": {
+    "message": "私の {{プロトコル}} • {{アセット}} のポジション",
+    "englishSource": "My {{protocol}} • {{asset}} position"
+  },
+  "earnAssetOnNetwork": {
+    "message": "{{ネットワーク}}の{{アセット}}",
+    "englishSource": "{{asset}} on {{network}}"
+  },
+  "earnMetricDeposited": {
+    "message": "入金済み",
+    "englishSource": "Deposited"
+  },
+  "earnMetricTotalEarned": {
+    "message": "獲得総額",
+    "englishSource": "Total Earned"
+  },
+  "earnMetricDailyAvg": {
+    "message": "毎日の平均",
+    "englishSource": "Daily Avg"
+  },
+  "earnMetricTimeActive": {
+    "message": "アクティブな時間",
+    "englishSource": "Time Active"
+  },
+  "earnMetricStarted": {
+    "message": "開始しました",
+    "englishSource": "Started"
+  },
+  "earnProjectedEarnings": {
+    "message": "~ {{estimate}} · APY {{apy}} にて",
+    "englishSource": "~ {{estimate}} · at {{apy}} APY"
+  },
+  "protocol": {
+    "message": "プロトコル",
+    "englishSource": "Protocol"
+  },
+  "position": {
+    "message": "位置",
+    "englishSource": "Position"
+  },
+  "withdraw": {
+    "message": "撤回する",
+    "englishSource": "Withdraw"
+  },
+  "earnDepositMore": {
+    "message": "さらに入金する",
+    "englishSource": "Deposit more"
+  },
+  "earnWithdrawAmount": {
+    "message": "出金金額",
+    "englishSource": "Withdraw Amount"
+  },
+  "earnWithdrawalLabel": {
+    "message": "出金",
+    "englishSource": "Withdrawal"
+  },
+  "earnFullPositionGasless": {
+    "message": "フルポジション（ガスレス）",
+    "englishSource": "Full position (gasless)"
+  },
+  "earnEstimatedTimeLabel": {
+    "message": "推定所要時間",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeOneMinute": {
+    "message": "～1分",
+    "englishSource": "~1 minute"
+  },
+  "withdrawing": {
+    "message": "撤退中…",
+    "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "このポジションは、現在のウォレットから派生した EVM アカウントによって所有されていません。",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
+  },
+  "earnGaslessWithdrawalFailed": {
+    "message": "ガスレス引き出しに失敗しました。",
+    "englishSource": "Gasless withdrawal failed."
+  },
+  "earnCurrentApy": {
+    "message": "現在のAPY",
+    "englishSource": "Current APY"
+  },
+  "earnDeposit": {
+    "message": "デポジット",
+    "englishSource": "Deposit"
+  },
+  "earnTvlLabel": {
+    "message": "TVL",
+    "englishSource": "TVL"
+  },
+  "earnRiskLabel": {
+    "message": "リスク",
+    "englishSource": "Risk"
+  },
+  "earnAuditedLabel": {
+    "message": "監査済み",
+    "englishSource": "Audited"
+  },
+  "earnDepositAmountTitle": {
+    "message": "入金額",
+    "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "オープンポジション",
+    "englishSource": "Open position"
+  },
+  "earnProjection1Month": {
+    "message": "1ヶ月",
+    "englishSource": "1 Month"
+  },
+  "earnProjection6Months": {
+    "message": "6ヶ月",
+    "englishSource": "6 Months"
+  },
+  "earnProjection1Year": {
+    "message": "1年",
+    "englishSource": "1 Year"
+  },
+  "earnProjectionNow": {
+    "message": "今",
+    "englishSource": "Now"
+  },
+  "earnProjectedRewardAmount": {
+    "message": "+${{金額}}",
+    "englishSource": "+${{amount}}"
+  },
+  "earnCollateralLabel": {
+    "message": "担保",
+    "englishSource": "Collateral"
+  },
+  "earnCollateralValue": {
+    "message": "ミデン P2IDE (ガスレス)",
+    "englishSource": "Miden P2IDE (gasless)"
+  },
+  "earnDepositRoute": {
+    "message": "ミデン -> {{プロトコル}} ({{ネットワーク}})",
+    "englishSource": "Miden -> {{protocol}} ({{network}})"
+  },
+  "earnEstimatedTime": {
+    "message": "推定所要時間",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeValue": {
+    "message": "～30秒",
+    "englishSource": "~30 seconds"
+  },
+  "earnNoEvmAddress": {
+    "message": "このアカウントには使用可能な EVM アドレスがありません。",
+    "englishSource": "No EVM address available for this account."
+  },
+  "earnFailedToOpenPosition": {
+    "message": "ポジションをオープンできませんでした",
+    "englishSource": "Failed to open position"
+  },
+  "earnTotalEarnedRewards": {
+    "message": "獲得した報酬の合計",
+    "englishSource": "Total Earned Rewards"
+  },
+  "earnEarningBlendedApy": {
+    "message": "{{apy}} ブレンド APY を獲得",
+    "englishSource": "Earning {{apy}} blended APY"
+  },
+  "earnTotalDeposited": {
+    "message": "合計入金額",
+    "englishSource": "Total Deposited"
+  },
+  "earnEstimatedRewards": {
+    "message": "推定報酬",
+    "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "私の立場",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "ポジション",
+    "englishSource": "Positions"
+  },
+  "earnPositionsApy": {
+    "message": "{{apy}} APY",
+    "englishSource": "{{apy}} APY"
+  },
+  "earnDeposited": {
+    "message": "入金済み",
+    "englishSource": "Deposited"
+  },
+  "earnDepositAmountLabel": {
+    "message": "入金額",
+    "englishSource": "Deposit Amount"
+  },
+  "earnSeeAll": {
+    "message": "すべて見る",
+    "englishSource": "See All"
+  },
+  "earnVaultsTitle": {
+    "message": "注目の保管庫",
+    "englishSource": "Featured Vaults"
+  },
+  "earnApyLabel": {
+    "message": "エイピー",
+    "englishSource": "APY"
+  },
+  "earnVaultAssetOnNetwork": {
+    "message": "{{ネットワーク}}の{{アセット}}",
+    "englishSource": "{{asset}} on {{network}}"
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "現在のポジション",
+    "englishSource": "Current Positions"
+  },
   "advanced": {
     "message": "高度な",
     "englishSource": "Advanced"
