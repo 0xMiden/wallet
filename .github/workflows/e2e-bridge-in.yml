@@ -1,16 +1,19 @@
 name: E2E Bridge-IN
 
-# Runs the cross-chain bridge-IN deposit E2E (EVM -> Miden, AggLayer "Slow"/ETH
-# route) on every push to main. This is a full, UI-only, end-to-end deposit:
-# the wallet pairs a REAL WalletConnect session with a headless counterparty,
-# drives the real deposit UI, the app builds `bridgeAsset` calldata that the
-# counterparty signs + broadcasts, and the wallet then consumes a REAL Miden
-# note delivered by the miden-client CLI "solver" and reconciles it to
-# "Bridged from EVM".
+# Runs the cross-chain bridge-IN deposit E2E (EVM -> Miden) on every push to
+# main, covering BOTH routes (two specs):
+#   - AggLayer "Slow"/ETH: the app builds `bridgeAsset` calldata a headless WC
+#     counterparty signs + broadcasts to a local Anvil bridge stub.
+#   - Epoch "Fast"/USDC: the Epoch SDK reads a stubbed Compact + USDC on Anvil,
+#     builds a real `depositERC20AndRegister` the counterparty signs+broadcasts,
+#     and registers the allocation with a local FAKE allocator.
+# Both drive the real deposit UI through a REAL WalletConnect pairing, then the
+# wallet consumes a REAL Miden note delivered by the miden-client CLI "solver"
+# and reconciles it to "Bridged from EVM".
 #
 # HYBRID by necessity: the EVM leg is HERMETIC on a local Anvil (chain 11155111)
-# with a minimal AggLayer bridge stub + a MockUsdc balance double (the real L1
-# bridge can't run locally), while the Miden leg runs against LIVE testnet (the
+# with on-chain doubles (the real L1 AggLayer bridge + the hosted Epoch solver
+# can't run locally), while the Miden leg runs against LIVE testnet (the
 # mobile harness has no local Miden node — same as every other iOS spec and the
 # bridge-OUT gate). The only non-local transport is the WalletConnect relay, so
 # the connect step is retry-guarded and the run uses `--retries=2`.
@@ -40,15 +43,20 @@ jobs:
     # shared macos-26 runners were intermittently too degraded for two-sim setup.
     runs-on: macos-26-xlarge
     # Setup dominates: miden-client-cli compile on cache miss (~7-15 min) + iOS
-    # build (~25 min) + simulator cold boot (overlapped). The suite itself is a
-    # single test (~2 min), but --retries=2 gives up to three fresh attempts.
-    timeout-minutes: 100
+    # build (~25 min) + simulator cold boot (overlapped). The suite is two tests
+    # (~2 min each, serial), and --retries=2 gives up to three fresh attempts each.
+    timeout-minutes: 110
     env:
       E2E_NETWORK: testnet
       # Redirect the app's EVM reads (balance, receipt) AND the counterparty's
       # broadcasts at the local Anvil the spec starts. Baked into the app bundle
       # at build time (config.ts override) and read by the counterparty at run.
       E2E_EVM_RPC_URL: http://127.0.0.1:8545
+      # Point the Epoch SDK's allocator calls (quote / createAllocation /
+      # intentStatus) at the local FAKE allocator the Epoch spec starts. Baked at
+      # build time (config.ts EPOCH_ALLOCATOR_URL define); inert for the AggLayer
+      # spec (which never calls the allocator).
+      EPOCH_ALLOCATOR_URL: http://127.0.0.1:8548
       # Optional: give the headless counterparty its OWN relay projectId so it
       # doesn't double the app projectId's load on the shared free-tier relay
       # (reduces rate-limit trips). Falls back to the baked-in default if unset.
@@ -178,9 +186,11 @@ jobs:
 
       - name: Run bridge-IN deposit E2E (mobile, testnet + local Anvil)
         id: e2e
-        # --retries=2 absorbs flaky CDP setup on macos-26 AND transient relay
-        # rate-limit trips on the connect step; each attempt is a fresh
-        # wallet + pairing + Anvil (the spec boots/tears down its own Anvil).
+        # The `bridge-in-deposit` filter matches BOTH deposit specs (AggLayer +
+        # Epoch); they run serially (workers:1), each booting/tearing down its own
+        # Anvil (+ the Epoch spec its own fake allocator). --retries=2 absorbs
+        # flaky CDP setup on macos-26 AND transient relay rate-limit trips on the
+        # connect step; each attempt is a fresh wallet + pairing + Anvil.
         run: yarn playwright test --config playwright.ios.config.ts bridge-in-deposit --retries=2
 
       - name: Upload artifacts
