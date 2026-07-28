@@ -6,6 +6,9 @@
 
 - [FEATURE][all] **Earn: Epoch lending positions, end to end.** Opening a position (`earn-deposit`) sends a recallable collateral note to the solver's allocator and tracks the solver-fulfilled lending leg; Smart Withdraw (`earn-withdraw`) redeems the position and bridges the underlying back to Miden as one gasless intent, tracked through a Redeeming → Delivering → Received lifecycle (Failed is retryable by re-submitting the redeem intent). Both types render throughout the wallet: the earn deposit/withdraw screens, an in-progress summary badge (`{amount} {token} ↑ {protocol}-USDC`), dedicated Activity rows (the withdraw row is the single trace — its delivery consume is suppressed), and Deposit/Withdrawal detail cards with market, position owner, intent nonce and Sepolia/Miden links.
 
+### Changes
+
+- [CHANGE][extension] **Dropped the `tabs` permission from the extension manifest.** Nothing in the wallet reads other tabs' URLs/titles — `tabs.create/query/update/remove` and matching our own extension-page URLs work without it — so the permission was pure over-privilege (its "Read your browsing history" install warning was already subsumed by the content-script warning).
 
 ## 1.15.12 (2026-07-28)
 
