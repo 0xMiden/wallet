@@ -16,7 +16,7 @@ import { newEvmDestination, sepoliaPublicClient, usdcBalanceOf, waitForUsdcAbove
  * reachability (Miden testnet + the hosted Epoch allocator/solver + a Sepolia
  * RPC), so this suite is testnet/nightly, not a per-PR gate.
  */
-test.describe('bridge-out: Miden -> Sepolia (Fast / Epoch)', () => {
+test.describe('bridge-out Miden to Sepolia (Fast Epoch)', () => {
   test.describe.configure({ mode: 'serial' });
 
   const TOKEN_SYMBOL = 'BRDG';
