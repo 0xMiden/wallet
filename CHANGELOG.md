@@ -1,10 +1,16 @@
 # Changelog
 
-## 1.15.12 (2026-07-28)
+## 1.15.13 (TBD)
 
 ### Features
 
 - [FEATURE][all] **Earn: Epoch lending positions, end to end.** Opening a position (`earn-deposit`) sends a recallable collateral note to the solver's allocator and tracks the solver-fulfilled lending leg; Smart Withdraw (`earn-withdraw`) redeems the position and bridges the underlying back to Miden as one gasless intent, tracked through a Redeeming → Delivering → Received lifecycle (Failed is retryable by re-submitting the redeem intent). Both types render throughout the wallet: the earn deposit/withdraw screens, an in-progress summary badge (`{amount} {token} ↑ {protocol}-USDC`), dedicated Activity rows (the withdraw row is the single trace — its delivery consume is suppressed), and Deposit/Withdrawal detail cards with market, position owner, intent nonce and Sepolia/Miden links.
+
+
+## 1.15.12 (2026-07-28)
+
+### Features
+
 - [FEATURE][all] **Failed transactions surface in Activity with friendly errors and retry.** The history list now includes failed rows (with user-cancelled ones rendered as grey "Cancelled" rows, and failed sends/receives kept under the Sent/Received filters); the details page shows the failure reason — opaque prover timeouts are rewritten to a friendly message with the raw error behind a "Show full error" disclosure — plus a Cancel button for still-queued rows and a Retry button that re-queues supported transaction types through the processing loop.
 - [FEATURE][all] **Auto-settle swap order notes.** A settled order stays a single swap activity row (its settlement consume is suppressed) whose chip tracks settlement (Pending → Confirmed / Reclaimed), with the claimed and reclaimed note ids listed on its details page. Swap paybacks and expired-order remainders are consumed automatically by the swap lifecycle (per-order expiry + auto-consume controls on the swap review screen); swap-managed notes are hidden from the generic Pending Notes / Claim All flow. Swap quotes now come from the DEX `swap-eta` endpoint, seeding the receive field and driving the review Rate / fill-ETA rows.
 - [FEATURE][all] **Wallet prompt system on Home ported from the earn branch.** `lib/wallet-prompts` now drives every Home prompt type: fund-wallet faucet prompt (mints from forkchoice + the official Miden faucet API in parallel, with PoW solving in `lib/miden-chain/faucet-api`), an active-bridge prompt that polls in-flight `bridged-send` transactions (Agglayer claim readiness / Epoch intent fills) and links to the newest one's history details, the verify-seed-phrase prompt, and a mobile-only hot-key hardware-failure report prompt (native hot-key op failures are recorded via `secure-hot-key` and surfaced with a copy-error action). `PromptCard` gains an inline action CTA with loading/success/failure status; `PromptCarousel` gains a drag-vs-click guard and late-mount track measurement.
