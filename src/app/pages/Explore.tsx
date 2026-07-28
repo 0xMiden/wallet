@@ -47,10 +47,11 @@ interface PullGesture {
   distance: number;
 }
 
-// Resume bridge-receive tracking orphaned by an app kill exactly once per
-// session (post-unlock, when Explore first mounts). Module-level so it
-// survives remounts.
+// Resume bridge-receive tracking and Smart Withdraw rows orphaned by an app
+// kill exactly once per session (post-unlock, when Explore first mounts).
+// Module-level so they survive remounts.
 let bridgeReceivesReconciled = false;
+let earnWithdrawReconciled = false;
 
 const Explore: FC = () => {
   const { t } = useTranslation();
@@ -136,6 +137,14 @@ const Explore: FC = () => {
       navigate('/reset-required');
     }
   }, [address]);
+
+  useEffect(() => {
+    if (earnWithdrawReconciled) return;
+    earnWithdrawReconciled = true;
+    import('lib/epoch')
+      .then(({ reconcileEarnWithdrawals }) => reconcileEarnWithdrawals())
+      .catch(err => console.warn('[earn-withdraw] reconcile on mount failed', err));
+  }, []);
 
   useEffect(() => {
     if (bridgeReceivesReconciled) return;

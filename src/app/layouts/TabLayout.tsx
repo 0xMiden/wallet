@@ -9,7 +9,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import { BottomNav, SegmentedActionBar } from 'components/ui';
 import { springs } from 'lib/animation';
-import { isEarnEnabled, isSwapEnabled } from 'lib/feature-flags';
+import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
@@ -116,16 +116,12 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       label: 'Receive',
       icon: <Icon name={IconName.Receive} className="w-5 h-5" />
     },
-    // Earn and Swap segments are feature-gated (isEarnEnabled / isSwapEnabled).
-    ...(isEarnEnabled()
-      ? [
-          {
-            id: 'earn',
-            label: 'Earn',
-            icon: <Icon name={IconName.Earn} className="w-5 h-5" />
-          }
-        ]
-      : []),
+    {
+      id: 'earn',
+      label: 'Earn',
+      icon: <Icon name={IconName.Earn} className="w-5 h-5" />
+    },
+    // Only the Swap segment is feature-gated (isSwapEnabled); Earn ships unconditionally.
     ...(isSwapEnabled()
       ? [
           {

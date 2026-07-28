@@ -11,12 +11,12 @@ import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
 import { MetricCard } from './components';
-import { EARN_DATA } from './data';
+import { placeholderVault } from './earn-mapping';
 import { EarnVault } from './types';
+import { useEarnPositions } from './useEarnPositions';
 
 const TIMEFRAMES = ['1D', '1W', '1M', 'All'];
 const CHART_GREEN = '#90BA89';
-const DEFAULT_VAULT = EARN_DATA.vaults[0]!;
 
 interface EarnVaultDetailProps {
   vaultId: string;
@@ -24,7 +24,8 @@ interface EarnVaultDetailProps {
 
 const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
   const [timeframe, setTimeframe] = useState('1M');
-  const vault = useMemo(() => EARN_DATA.vaults.find(item => item.id === vaultId) ?? DEFAULT_VAULT, [vaultId]);
+  const { vaults } = useEarnPositions();
+  const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-vault-detail-page">
@@ -89,7 +90,8 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
             <Button
               title="Deposit"
               variant={ButtonVariant.Primary}
-              onClick={() => navigate(`/earn/vaults/${vault.id}/deposit`)}
+              disabled={!vault.id}
+              onClick={() => navigate(`/earn/vaults/${vaultId}/deposit`)}
               className="h-14 max-w-none rounded-full text-lg font-bold"
             />
           </div>

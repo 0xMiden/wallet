@@ -6,17 +6,17 @@ import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { CircleButton } from 'components/CircleButton';
-import { hapticSelection } from 'lib/mobile/haptics';
+import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { ChartContainer } from 'lib/ui/charts';
-import { goBack } from 'lib/woozie';
+import { goBack, navigate } from 'lib/woozie';
 
 import { EarnSummaryPanel, MetricCard, PositionLogo } from './components';
-import { EARN_DATA } from './data';
+import { placeholderPosition } from './earn-mapping';
 import { EarnPosition } from './types';
+import { useEarnPositions } from './useEarnPositions';
 
 const TIMEFRAMES = ['1D', '1W', '1M', 'All'];
 const CHART_GREEN = '#90BA89';
-const DEFAULT_POSITION = EARN_DATA.positions[0]!;
 
 interface EarnPositionDetailProps {
   positionId: string;
@@ -24,9 +24,10 @@ interface EarnPositionDetailProps {
 
 const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
   const [timeframe, setTimeframe] = useState('1M');
+  const { summary, positions } = useEarnPositions();
   const position = useMemo(
-    () => EARN_DATA.positions.find(item => item.id === positionId) ?? DEFAULT_POSITION,
-    [positionId]
+    () => positions.find(item => item.id === positionId) ?? placeholderPosition(),
+    [positions, positionId]
   );
 
   return (
@@ -48,7 +49,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col px-4 pb-8 pt-6">
-          <EarnSummaryPanel summary={EARN_DATA.summary} titleId="earn-position-summary-title" showMetrics={false} />
+          <EarnSummaryPanel summary={summary} titleId="earn-position-summary-title" showMetrics={false} />
 
           <PositionAreaChart position={position} />
 
@@ -75,7 +76,10 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
           <PositionStats position={position} />
           <ProjectedEarnings position={position} />
           <PositionDetails position={position} />
-          <PositionActions />
+          <PositionActions
+            position={position}
+            onWithdraw={() => navigate(`/earn/positions/${encodeURIComponent(position.id)}/withdraw/review`)}
+          />
         </div>
       </div>
     </div>
@@ -209,18 +213,33 @@ const PositionDetails: FC<{ position: EarnPosition }> = ({ position }) => {
   );
 };
 
-const PositionActions: FC = () => (
-  <div className="mt-16 grid grid-cols-2 gap-3">
-    <Button
-      title="Deposit more"
-      variant={ButtonVariant.Secondary}
-      className="h-14 max-w-none rounded-full border-rule-strong bg-white text-base font-bold text-accent-primary hover:bg-white focus:bg-white"
-    />
-    <Button
-      title="Withdraw"
-      variant={ButtonVariant.Primary}
-      className="h-14 max-w-none rounded-full text-base font-bold"
-    />
+const PositionActions: FC<{
+  position: EarnPosition;
+  onWithdraw: () => void;
+}> = ({ position, onWithdraw }) => (
+  <div className="mt-16">
+    <div className="grid grid-cols-2 gap-3">
+      <Button
+        title="Deposit more"
+        variant={ButtonVariant.Secondary}
+        disabled={!position.vaultId}
+        onClick={() => {
+          hapticLight();
+          navigate(`/earn/vaults/${position.vaultId}/deposit`);
+        }}
+        className="h-14 max-w-none rounded-full border-rule-strong bg-white text-base font-bold text-accent-primary hover:bg-white focus:bg-white"
+      />
+      <Button
+        title="Withdraw"
+        variant={ButtonVariant.Primary}
+        disabled={!position.id || Number(position.withdrawable) <= 0}
+        onClick={() => {
+          hapticLight();
+          onWithdraw();
+        }}
+        className="h-14 max-w-none rounded-full text-base font-bold"
+      />
+    </div>
   </div>
 );
 

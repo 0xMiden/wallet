@@ -6,11 +6,11 @@ import { Icon, IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 import { EarnSummaryPanel, ProviderLogo } from 'screens/earn-flow/components';
-import { EARN_DATA } from 'screens/earn-flow/data';
 import { EarnPosition, EarnVault } from 'screens/earn-flow/types';
+import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 
 const Earn: FC = () => {
-  const { summary, positions, vaults } = EARN_DATA;
+  const { summary, positions, vaults } = useEarnPositions();
   const handleSeeAllClick = () => {
     hapticLight();
     navigate('/earn/positions');
@@ -77,7 +77,7 @@ const PositionCard: FC<{ position: EarnPosition }> = ({ position }) => (
     <div className="flex items-center gap-10">
       <div className="flex min-w-0 items-center gap-2">
         <ProviderLogo protocol={position.protocol} className="h-4 w-4" />
-        <div className="text-base font-bold leading-none text-pure-black">
+        <div className="text-base font-bold leading-none text-black">
           {position.protocol} &bull; {position.asset}
         </div>
       </div>
@@ -86,7 +86,7 @@ const PositionCard: FC<{ position: EarnPosition }> = ({ position }) => (
       </div>
     </div>
 
-    <div className="mt-3 text-[22px] font-bold font-heading leading-none text-pure-black">{position.amount}</div>
+    <div className="mt-3 text-[22px] font-bold font-heading leading-none text-black">{position.amount}</div>
     <div className="mt-2 text-xs font-bold leading-none text-green-500">
       {position.rewards} &bull; {position.age}
     </div>
@@ -108,7 +108,7 @@ const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => (
 
     <div className="min-w-0 flex-1">
       <div className="flex min-w-0 items-baseline gap-2">
-        <span className="shrink-0 text-base font-bold leading-tight text-pure-black">{vault.protocol}</span>
+        <span className="shrink-0 text-base font-bold leading-tight text-black">{vault.protocol}</span>
         <span className="truncate text-xs font-regular leading-tight text-text-secondary-token">
           {vault.asset} on {vault.network}
         </span>

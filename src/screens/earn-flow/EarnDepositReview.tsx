@@ -1,27 +1,32 @@
-import React, { FC, useMemo } from 'react';
+import React, { FC, useMemo, useState } from 'react';
 
 import clsx from 'clsx';
 import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { TokenLogo } from 'components/TokenLogo';
+import { MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
+import { stringToBigInt } from 'lib/i18n/numbers';
+import { useAccount } from 'lib/miden/front';
+import { useMidenContext } from 'lib/miden/front/client';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { ChartContainer } from 'lib/ui/charts';
 import { navigate, useLocation } from 'lib/woozie';
 
 import { EarnFlowHeader } from './components';
-import { EARN_DATA } from './data';
+import { placeholderVault } from './earn-mapping';
 import { EarnVault } from './types';
+import { useEarnPositions } from './useEarnPositions';
 
 const CHART_GREEN = '#90BA89';
-const DEFAULT_VAULT = EARN_DATA.vaults[0]!;
-const DEFAULT_POSITION_ID = EARN_DATA.positions[0]?.id ?? 'aave-usdc-1';
 
-const projectionFactors = [
-  { label: '1 MONTH', factor: 0.0164 },
-  { label: '6 MONTHS', factor: 0.09825 },
-  { label: '1 YEAR', factor: 0.1965 }
+// Fractions of a year for the projection columns; rewards = amount × APY × fraction.
+const projectionPeriods = [
+  { label: '1 MONTH', yearFraction: 1 / 12 },
+  { label: '6 MONTHS', yearFraction: 1 / 2 },
+  { label: '1 YEAR', yearFraction: 1 }
 ];
 
 const parseAmount = (value: string): number => Number(value.replace(/,/g, '')) || 0;
@@ -34,11 +39,37 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const { search } = useLocation();
   const amount = useMemo(() => new URLSearchParams(search).get('amount') ?? '0', [search]);
   const amountValue = parseAmount(amount);
-  const vault = useMemo(() => EARN_DATA.vaults.find(item => item.id === vaultId) ?? DEFAULT_VAULT, [vaultId]);
+  const { vaults } = useEarnPositions();
+  const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
 
-  const handleOpenPosition = () => {
+  const account = useAccount();
+  const depositSymbol = 'USDC';
+  const { signTransaction } = useMidenContext();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const handleOpenPosition = async () => {
     hapticLight();
-    navigate(`/earn/positions/${DEFAULT_POSITION_ID}`);
+    if (isSubmitting) return;
+    if (!account.evmAddress) {
+      setSubmitError('No EVM address available for this account.');
+      return;
+    }
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      await openEarnPosition({
+        amount: stringToBigInt(amount.replace(/,/g, ''), MIDEN_USDC_DECIMALS),
+        evmAddress: account.evmAddress,
+        senderPublicKey: account.publicKey,
+        deps: { signTransaction, guardianProvider: zustandProvider },
+        onRowCreated: txId => navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`)
+      });
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : 'Failed to open position');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -52,8 +83,8 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
             {amountValue.toFixed(2)}
           </div>
           <div className="flex items-center gap-1">
-            <TokenLogo symbol={vault.asset} size="md" />
-            <span className="font-heading text-2xl font-bold text-heading-gray">{vault.asset}</span>
+            <TokenLogo symbol={depositSymbol} size="md" />
+            <span className="font-heading text-2xl font-bold text-heading-gray">{depositSymbol}</span>
           </div>
 
           <DepositProjection vault={vault} amount={amountValue} />
@@ -61,10 +92,14 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       </div>
 
       <div className={clsx('shrink-0 pt-4 pb-6', isMobile() ? 'px-8' : 'px-6')}>
+        {submitError && (
+          <div className="mb-2 text-center text-sm leading-tight text-status-negative">{submitError}</div>
+        )}
         <Button
           title="Open position"
           variant={ButtonVariant.Primary}
           onClick={handleOpenPosition}
+          disabled={isSubmitting || amountValue <= 0 || !vault.id}
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
       </div>
@@ -73,9 +108,11 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
 };
 
 const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, amount }) => {
-  const projections = projectionFactors.map(item => ({
+  // `apy` is a pre-formatted display string ("2.00%", or "—" while loading).
+  const apyFraction = (Number.parseFloat(vault.apy) || 0) / 100;
+  const projections = projectionPeriods.map(item => ({
     ...item,
-    reward: amount * item.factor
+    reward: amount * apyFraction * item.yearFraction
   }));
   const chartData = [
     { label: 'Now', value: amount },
@@ -129,10 +166,9 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
       </div>
 
       <div className="mt-4 space-y-6">
-        <DetailRow label="Solver fee" value="0.30%" />
-        <DetailRow label="Network fee" value="~$0.42" />
+        <DetailRow label="Collateral" value="Miden P2IDE (gasless)" />
         <DetailRow label="Route" value={`Miden -> ${vault.protocol} (${vault.network})`} />
-        <DetailRow label="Network fee" value="~30 seconds" />
+        <DetailRow label="Estimated time" value="~30 seconds" />
       </div>
     </div>
   );

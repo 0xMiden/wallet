@@ -1,13 +1,14 @@
 import React, { FC, useMemo, useState } from 'react';
 
+import { MIDEN_USDC_DECIMALS, MIDEN_USDC_FAUCET, normalizeMidenIdToHex } from 'lib/epoch';
+import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { navigate } from 'lib/woozie';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
 import { UIToken } from 'screens/send-flow/types';
 
 import { EarnFlowHeader } from './components';
-import { EARN_DATA } from './data';
-
-const DEFAULT_VAULT = EARN_DATA.vaults[0]!;
+import { placeholderVault } from './earn-mapping';
+import { useEarnPositions } from './useEarnPositions';
 
 interface EarnDepositAmountProps {
   vaultId: string;
@@ -17,16 +18,26 @@ const parseAmount = (value: string): number => Number(value.replace(/,/g, '')) |
 
 const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const [amount, setAmount] = useState('');
-  const vault = useMemo(() => EARN_DATA.vaults.find(item => item.id === vaultId) ?? DEFAULT_VAULT, [vaultId]);
+  const { vaults } = useEarnPositions();
+  const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
+  const { publicKey } = useAccount();
+  const allTokensBaseMetadata = useAllTokensBaseMetadata();
+  const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  // Epoch Earn is USDC-only. Balance rows use bech32 faucet ids while the
+  // allocator configuration uses hex, so compare their normalized account ids.
+  const depositBalance = useMemo(
+    () => balanceData?.find(item => normalizeMidenIdToHex(item.tokenId) === normalizeMidenIdToHex(MIDEN_USDC_FAUCET)),
+    [balanceData]
+  );
   const token = useMemo<UIToken>(
     () => ({
-      id: vault.asset.toLowerCase(),
-      name: vault.asset,
-      decimals: 6,
-      balance: 200,
-      fiatPrice: 1
+      id: depositBalance?.tokenId ?? MIDEN_USDC_FAUCET,
+      name: depositBalance?.metadata.symbol ?? 'USDC',
+      decimals: depositBalance?.metadata.decimals ?? MIDEN_USDC_DECIMALS,
+      balance: depositBalance?.balance ?? 0,
+      fiatPrice: depositBalance?.fiatPrice ?? 1
     }),
-    [vault.asset]
+    [depositBalance]
   );
 
   const amountValue = parseAmount(amount);
@@ -51,7 +62,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
           onSelectToken={() => undefined}
           onConfirm={() => {
             if (isValidAmount) {
-              navigate(`/earn/vaults/${vault.id}/deposit/review?amount=${encodeURIComponent(amount)}`);
+              navigate(`/earn/vaults/${vaultId}/deposit/review?amount=${encodeURIComponent(amount)}`);
             }
           }}
         />

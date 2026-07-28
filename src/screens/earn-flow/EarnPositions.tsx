@@ -8,11 +8,11 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnSummaryPanel, ProviderLogo } from './components';
-import { EARN_DATA } from './data';
 import { EarnPosition } from './types';
+import { useEarnPositions } from './useEarnPositions';
 
 const EarnPositions: FC = () => {
-  const { summary, positions } = EARN_DATA;
+  const { summary, positions } = useEarnPositions();
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-positions-page">
