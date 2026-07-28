@@ -112,7 +112,8 @@ jest.mock('lib/agglayer/b2agg', () => ({
 
 jest.mock('lib/agglayer/b2agg/constant', () => ({
   EVM_AGGLAYER_NETWORK_ID: 11155111,
-  MIDEN_AGGLAYER_FAUCET_ID: 'agglayer-faucet'
+  MIDEN_AGGLAYER_FAUCET_ID: 'agglayer-faucet',
+  getAgglayerFaucetId: () => 'agglayer-faucet'
 }));
 
 jest.mock('lib/epoch', () => ({
