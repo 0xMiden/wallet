@@ -23,6 +23,7 @@ import {
   completeBridgedSendTransaction,
   completeConsumeTransaction,
   completeCustomTransaction,
+  completeEarnDepositTransaction,
   completeReplaceHotKeyTransaction,
   completeSendTransaction,
   completeSwapTransaction,
@@ -42,6 +43,7 @@ import { importAllNotes } from '../activity/notes';
 import {
   BridgedSendTransaction,
   ConsumeTransaction,
+  EarnDepositTransaction,
   ITransaction,
   ITransactionStatus,
   ITransactionType,
@@ -77,6 +79,7 @@ const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<I
   'send',
   'consume',
   'swap',
+  'earn-deposit',
   'execute'
 ]);
 
@@ -188,6 +191,7 @@ export const generateTransaction = async (
         (transaction.type === 'consume' ||
           transaction.type === 'send' ||
           transaction.type === 'swap' ||
+          transaction.type === 'earn-deposit' ||
           transaction.type === 'execute')
       ) {
         console.warn(
@@ -292,6 +296,9 @@ export const generateTransaction = async (
           transaction.requestBytes,
           transaction.delegateTransaction
         );
+      case 'earn-deposit':
+        // Always send-style (recallable P2IDE note to the Epoch allocator).
+        return midenClient.sendTransaction(transaction as SendTransaction);
       case 'execute':
       default:
         return await midenClient.newTransaction(
@@ -314,6 +321,9 @@ export const generateTransaction = async (
       break;
     case 'bridged-send':
       await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
+      break;
+    case 'earn-deposit':
+      await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
       break;
     case 'execute':
     default:
@@ -476,6 +486,18 @@ const generateGuardianTransaction = async (
           BigInt(bridgeTx.amount)
         );
       }
+      break;
+    }
+    case 'earn-deposit': {
+      const earnTx = transaction as EarnDepositTransaction;
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      // Same shape as the Epoch bridged-send: a P2IDE note to the allocator,
+      // proposed as a multisig send.
+      proposalResult = await service.createSendProposal(
+        earnTx.secondaryAccountId!,
+        earnTx.faucetId,
+        BigInt(earnTx.amount)
+      );
       break;
     }
     case 'swap': {
@@ -723,6 +745,9 @@ const generateGuardianTransaction = async (
       break;
     case 'bridged-send':
       await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
+      break;
+    case 'earn-deposit':
+      await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
       break;
     case 'execute':
     default:

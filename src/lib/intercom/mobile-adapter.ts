@@ -176,6 +176,14 @@ export class MobileIntercomAdapter {
         };
       }
 
+      case WalletMessageType.SignEvmRequest: {
+        const evmSignResult = await Actions.signEvm(req.accountPublicKey, req.operation);
+        return {
+          type: WalletMessageType.SignEvmResponse,
+          result: evmSignResult
+        };
+      }
+
       case WalletMessageType.PersistNewHotKeyRequest: {
         await Actions.persistNewHotKey(req.newHotPubKey, req.newHotCiphertext);
         return {

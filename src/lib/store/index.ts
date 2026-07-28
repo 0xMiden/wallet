@@ -336,6 +336,16 @@ export const useWalletStore = create<WalletStore>()(
       return res.signature;
     },
 
+    signEvm: async (accountPublicKey, operation) => {
+      const res = await request({
+        type: WalletMessageType.SignEvmRequest,
+        accountPublicKey,
+        operation
+      });
+      assertResponse(res.type === WalletMessageType.SignEvmResponse);
+      return res.result;
+    },
+
     persistNewHotKey: async (newHotPubKey, newHotCiphertext) => {
       const res = await request({
         type: WalletMessageType.PersistNewHotKeyRequest,

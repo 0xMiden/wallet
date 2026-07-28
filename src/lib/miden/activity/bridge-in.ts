@@ -118,6 +118,22 @@ async function tagConsumeRow(noteId: string, info: IBridgeInInfo): Promise<boole
       console.warn('[bridge-in] bridge receive patch (resolve path) failed', err);
     }
   }
+  // Race cover: if the consume already completed before this intent was resolved,
+  // `completeConsumeTransaction` never saw the bridge-in, so flip the linked
+  // Smart Withdraw row to `received` here instead. Lazy import avoids a cycle.
+  if (info.earnWithdrawTxId) {
+    try {
+      const { updateEarnWithdrawPhase } = await import('../transaction/complete');
+      await updateEarnWithdrawPhase(
+        info.earnWithdrawTxId,
+        'received',
+        { midenNoteId: noteId, outputSymbol: info.sourceSymbol },
+        row.amount
+      );
+    } catch (err) {
+      console.warn('[bridge-in] earn-withdraw received patch (resolve path) failed', err);
+    }
+  }
   return true;
 }
 

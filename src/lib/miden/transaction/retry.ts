@@ -1,6 +1,12 @@
 import * as Repo from 'lib/miden/repo';
 
-import { ITransaction, ITransactionIcon, ITransactionStatus, ITransactionType } from '../db/types';
+import {
+  IEarnWithdrawExtraInputs,
+  ITransaction,
+  ITransactionIcon,
+  ITransactionStatus,
+  ITransactionType
+} from '../db/types';
 
 /**
  * Types whose failed row can simply be re-queued through the FIFO loop.
@@ -9,7 +15,7 @@ import { ITransaction, ITransactionIcon, ITransactionStatus, ITransactionType } 
  * blind can mint orphan hardware keys or re-register a stale guardian; the
  * user re-initiates those from Settings instead.
  */
-const REQUEUEABLE_TYPES: ITransactionType[] = ['send', 'consume', 'swap', 'bridged-send', 'execute'];
+const REQUEUEABLE_TYPES: ITransactionType[] = ['send', 'consume', 'swap', 'bridged-send', 'earn-deposit', 'execute'];
 
 /** Pre-failure display icon per type (mirrors the Transaction subclass constructors). */
 const ICON_BY_TYPE: Partial<Record<ITransactionType, ITransactionIcon>> = {
@@ -17,6 +23,7 @@ const ICON_BY_TYPE: Partial<Record<ITransactionType, ITransactionIcon>> = {
   consume: 'RECEIVE',
   swap: 'SWAP',
   'bridged-send': 'SEND',
+  'earn-deposit': 'DEFAULT',
   execute: 'DEFAULT'
 };
 
@@ -57,3 +64,32 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
 // `requeueFailedTransaction` — the Miden-side claim is ours to re-run. What the
 // wallet cannot replay are EVM-side failures (reverted source tx, failed Epoch
 // intent); those never produce a Failed Miden row in the first place.
+
+/**
+ * Retry the RECEIVE side of a failed Smart Withdraw: the redeem intent is
+ * already on Epoch (nonce recorded), so flip the row back to non-terminal and
+ * let `resumeEarnWithdrawal` re-register the bridge-in and restart delivery
+ * polling. Only meaningful when the intent nonce exists — a row that failed
+ * before submission has nothing on the EVM side to wait for.
+ */
+export const retryEarnWithdrawReceive = async (txId: string): Promise<void> => {
+  const tx = await Repo.transactions.where({ id: txId }).first();
+  if (!tx || tx.type !== 'earn-withdraw') throw new Error(`Transaction ${txId} is not an earn-withdraw`);
+  const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
+  if (inputs.phase !== 'failed') return;
+  if (!inputs.withdrawIntentNonce) {
+    throw new Error('The withdrawal never reached Epoch — retry is not possible; start a new withdrawal.');
+  }
+
+  await Repo.transactions.where({ id: txId }).modify((dbTx: ITransaction) => {
+    const ei: IEarnWithdrawExtraInputs = dbTx.extraInputs;
+    dbTx.extraInputs = { ...ei, phase: 'redeeming', error: undefined };
+    dbTx.error = undefined;
+  });
+
+  // Re-registers the bridge-in (idempotent) and restarts the delivery poll.
+  // Dynamic import: lib/epoch statically imports lib/miden/activity, which
+  // re-exports this module — a static import here would be circular.
+  const { resumeEarnWithdrawal } = await import('lib/epoch');
+  await resumeEarnWithdrawal(txId);
+};

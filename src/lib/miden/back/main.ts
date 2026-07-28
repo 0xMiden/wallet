@@ -271,6 +271,12 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         type: WalletMessageType.SignWordResponse,
         signature: wordSignature
       };
+    case WalletMessageType.SignEvmRequest:
+      const evmSignResult = await Actions.signEvm(req.accountPublicKey, req.operation);
+      return {
+        type: WalletMessageType.SignEvmResponse,
+        result: evmSignResult
+      };
     case WalletMessageType.PersistNewHotKeyRequest:
       await Actions.persistNewHotKey(req.newHotPubKey, req.newHotCiphertext);
       return {
