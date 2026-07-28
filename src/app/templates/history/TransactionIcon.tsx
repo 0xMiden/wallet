@@ -88,9 +88,11 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
   }
 
   // Earn transactions keep the Earn glyph across states even when their underlying
-  // transaction icon is RECEIVE/SEND. Withdraw failures retain the failed cross.
+  // transaction icon is RECEIVE/SEND. A hard Miden-side failure (transactionIcon
+  // === 'FAILED') or a failed withdraw phase retains the failed cross, so the
+  // summary/hero glyph agrees with the full Activity list and the divider accent.
   if (entry.txType === 'earn-deposit' || entry.txType === 'earn-withdraw') {
-    if (entry.earnWithdrawPhase === 'failed') {
+    if (entry.transactionIcon === 'FAILED' || entry.earnWithdrawPhase === 'failed') {
       return (
         <div className={`${config.container} rounded-10 flex items-center justify-center bg-status-negative`}>
           <FailedCrossIcon className={config.sendIcon} />

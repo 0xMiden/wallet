@@ -488,7 +488,7 @@ export class Vault {
       // persisted encrypted in the loop below.
       const evmKeys = new Map<number, { address: Hex; privateKeyHex: Hex }>();
       for (const c of createdAccounts) {
-        evmKeys.set(c.hdIndex, deriveEvmKeyPair(mnemonic, c.hdIndex));
+        evmKeys.set(c.hdIndex, deriveEvmKeyPair(mnemonic, walletType, c.hdIndex));
       }
 
       const initialAccounts: WalletAccount[] = createdAccounts.map((c, idx) => ({
@@ -645,7 +645,7 @@ export class Vault {
             accountsToSave.push(wa);
             continue;
           }
-          const evmKey = deriveEvmKeyPair(mnemonic, wa.hdIndex);
+          const evmKey = deriveEvmKeyPair(mnemonic, wa.type, wa.hdIndex);
           await persistEvmKey(vaultKey, evmKey.address, evmKey.privateKeyHex);
           accountsToSave.push({ ...wa, evmAddress: evmKey.address });
         }
@@ -759,7 +759,7 @@ export class Vault {
 
       // Wallet-derived EVM identity. Skipped when the vault has no real
       // mnemonic (encrypted-file imports may store '').
-      const evmKey = mnemonic ? deriveEvmKeyPair(mnemonic, hdAccIndex) : undefined;
+      const evmKey = mnemonic ? deriveEvmKeyPair(mnemonic, walletType, hdAccIndex) : undefined;
 
       const newAccount: WalletAccount = {
         type: walletType,
@@ -1177,7 +1177,7 @@ export class Vault {
           nextAccounts.push(acc);
           continue;
         }
-        const evmKey = deriveEvmKeyPair(mnemonic, acc.hdIndex);
+        const evmKey = deriveEvmKeyPair(mnemonic, acc.type, acc.hdIndex);
         await persistEvmKey(this.vaultKey, evmKey.address, evmKey.privateKeyHex);
         nextAccounts.push({ ...acc, evmAddress: evmKey.address });
       }
@@ -1582,30 +1582,45 @@ function isValidHex(s: string): boolean {
   return /^[0-9a-fA-F]+$/.test(s);
 }
 
-function getMainDerivationPath(walletType: WalletType, accIndex: number) {
-  let walletTypeIndex = 0;
-  if (walletType === WalletType.OnChain) {
-    walletTypeIndex = 0;
-  } else if (walletType === WalletType.OffChain) {
-    walletTypeIndex = 1;
-  } else if (walletType === WalletType.Guardian) {
-    walletTypeIndex = 2;
-  } else {
-    throw new Error('Invalid wallet type');
+// Maps a wallet type to its BIP-44 namespace index. hdIndex/accIndex is allocated
+// PER privacy bucket (public vs non-public), so distinct wallet types can share
+// an index; both the Miden and the EVM derivation must namespace by this to keep
+// their keys distinct across wallet types.
+function walletTypeIndex(walletType: WalletType): number {
+  switch (walletType) {
+    case WalletType.OnChain:
+      return 0;
+    case WalletType.OffChain:
+      return 1;
+    case WalletType.Guardian:
+      return 2;
+    default:
+      throw new Error('Invalid wallet type');
   }
-  return `m/44'/0'/${walletTypeIndex}'/${accIndex}'`;
+}
+
+function getMainDerivationPath(walletType: WalletType, accIndex: number) {
+  return `m/44'/0'/${walletTypeIndex(walletType)}'/${accIndex}'`;
 }
 
 /**
  * One-time derivation of the wallet's EVM identity for a Miden HD account,
- * at account creation / unlock backfill. Standard BIP-44 Ethereum path
- * m/44'/60'/0'/0/{hdIndex} — deliberately independent of the bls12_377
- * SLIP-0010 branch used by `deriveClientSeed`, so the Miden and EVM key
- * families can never collide. Nothing key-bearing escapes except the
+ * at account creation / unlock backfill. BIP-44 Ethereum path
+ * m/44'/60'/{walletTypeIndex}'/0/{hdIndex}, deliberately independent of the
+ * bls12_377 SLIP-0010 branch used by `deriveClientSeed` (coin type 60 vs 0), so
+ * the Miden and EVM key families can never collide. The walletTypeIndex segment
+ * mirrors getMainDerivationPath: hdIndex is allocated per privacy bucket, so
+ * without it an OnChain and an OffChain account at the same bucket index would
+ * derive the SAME EVM key/address — commingling Epoch positions and breaking
+ * public/private account isolation. Nothing key-bearing escapes except the
  * returned pair, which callers persist encrypted and drop.
  */
-function deriveEvmKeyPair(mnemonic: string, hdIndex: number): { address: Hex; privateKeyHex: Hex } {
-  const hdAccount = mnemonicToAccount(mnemonic, { addressIndex: hdIndex });
+function deriveEvmKeyPair(
+  mnemonic: string,
+  walletType: WalletType,
+  hdIndex: number
+): { address: Hex; privateKeyHex: Hex } {
+  const hdAccount = mnemonicToAccount(mnemonic, { accountIndex: walletTypeIndex(walletType), addressIndex: hdIndex });
   const privateKey = hdAccount.getHdKey().privateKey;
   if (!privateKey) {
     throw new PublicError('EVM key derivation failed');

@@ -133,6 +133,15 @@ export async function buildEarnIntent(
     createMidenP2IDNote?: SolveIntentParams['createMidenP2IDNote'];
     /** Pre-fetched quote from `getEarnQuote` — skips the getTaskData step. */
     preFetchedQuote?: EarnQuote;
+    /**
+     * Persist the intent nonce onto the activity row the instant it is known,
+     * before this function returns. The collateral note is already on-chain and
+     * the intent already submitted by the time `solveIntent` resolves, so waiting
+     * to record the nonce until the caller resumes leaves a window where a
+     * process teardown strands the row un-reconcilable (see the `reconcile` bail
+     * on a missing `intentNonce`). Errors are the callback's responsibility.
+     */
+    persistIntentNonce?: (intentNonce: string) => Promise<void>;
   }
 ): Promise<IntentResult> {
   const midenFaucetHex = normalizeMidenIdToHex(params.midenFaucetId);
@@ -164,12 +173,17 @@ export async function buildEarnIntent(
     // The nonce lands on one of several fields depending on the solve path.
     const nonce =
       solveResult?.nonce ?? solveResult?.submittedIntentData?.nonce ?? solveResult?.allocationResponse?.nonce;
-    return {
-      taskTypeString,
-      intentData,
-      solveResult,
-      intentNonce: nonce != null ? String(nonce) : undefined
-    };
+    const intentNonce = nonce != null ? String(nonce) : undefined;
+    // Record the nonce before returning: the intent is already submitted, so a
+    // torn-down process must still leave a row the reconciler can query. A
+    // persistence failure must NOT be mistaken for a solve failure — the intent
+    // has landed — so swallow it here rather than let it hit the catch below.
+    if (intentNonce && params.persistIntentNonce) {
+      await params
+        .persistIntentNonce(intentNonce)
+        .catch((err: unknown) => console.warn('[epoch] persistIntentNonce failed', err));
+    }
+    return { taskTypeString, intentData, solveResult, intentNonce };
   } catch (err) {
     console.error('[epoch] earn solveIntent failed:', err);
     return {
@@ -358,6 +372,16 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   const intent = await buildEarnIntent(sdk, {
     ...params,
     preFetchedQuote: quote,
+    // Persist the nonce onto the row the moment `solveIntent` yields it — before
+    // control returns here — so a WebView teardown in that window still leaves a
+    // reconcilable row. `earnTxId` is already set by then (the collateral-note
+    // callback below runs during `solveIntent`).
+    persistIntentNonce: async intentNonce => {
+      if (!earnTxId) return;
+      await updateEarnDepositStatus(earnTxId, 'pending', { intentNonce }).catch((err: unknown) =>
+        console.warn('[epoch] updateEarnDepositStatus(pending) failed', err)
+      );
+    },
     createMidenP2IDNote: async (faucet, amount, allocatorId) => {
       const res = await createEarnP2IDNote({
         senderAccountId: args.senderPublicKey,
@@ -394,12 +418,10 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
     throw new Error('Epoch accepted the collateral note but did not return an intent nonce.');
   }
 
-  // Record the intent nonce on the row and poll the lending leg in the background;
-  // the row's `epochStatus` flips pending → confirmed/failed as it settles.
+  // The intent nonce was already persisted inside `buildEarnIntent`
+  // (`persistIntentNonce`) the instant it was known. Here we only kick off the
+  // background poll that flips `epochStatus` pending → confirmed/failed.
   if (earnTxId && intent.intentNonce) {
-    await updateEarnDepositStatus(earnTxId, 'pending', { intentNonce: intent.intentNonce }).catch((err: unknown) =>
-      console.warn('[epoch] updateEarnDepositStatus(pending) failed', err)
-    );
     pollEarnIntentStatus({ sponsorAddress: evmRecipient, nonce: intent.intentNonce, txId: earnTxId });
   }
 

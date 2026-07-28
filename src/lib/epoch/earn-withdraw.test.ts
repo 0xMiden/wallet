@@ -294,6 +294,72 @@ describe('pollEarnWithdrawDelivery', () => {
     // Ordering is what keeps a `received` flip from being downgraded to `delivering`.
     expect(deps.updatePhase.mock.invocationCallOrder[0]!).toBeLessThan(deps.resolveNoteId.mock.invocationCallOrder[0]!);
   });
+
+  /** Advance one interval and drain the tick's microtasks (mirrors `runTick`). */
+  const stepTick = async () => {
+    jest.advanceTimersByTime(10);
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+  };
+
+  it('stops polling after maxAttempts and leaves the row non-terminal for the reconciler', async () => {
+    // A withdrawal that never delivers must NOT loop forever, and the give-up is
+    // intentionally silent: the row stays `redeeming` so the session reconciler
+    // (or the 7-day TTL) owns the terminal decision, not this poller.
+    const getIntentStatus = jest.fn().mockResolvedValue([
+      { chainId: SEPOLIA_CHAIN_ID, status: 'pending' },
+      { chainId: MIDEN_CHAIN_ID, status: 'pending' }
+    ]);
+    const deps = {
+      getSdk: jest.fn().mockResolvedValue({ getIntentStatus }),
+      updatePhase: jest.fn().mockResolvedValue(undefined),
+      resolveNoteId: jest.fn().mockResolvedValue(undefined)
+    };
+    const maxAttempts = 3;
+    pollEarnWithdrawDelivery({
+      sponsorAddress: EVM_OWNER,
+      nonce: 'NONCE1',
+      txId: 'TX1',
+      intervalMs: 10,
+      maxAttempts,
+      deps
+    });
+
+    for (let t = 0; t < maxAttempts; t += 1) await stepTick();
+    expect(getIntentStatus).toHaveBeenCalledTimes(maxAttempts);
+
+    // Interval is cleared on the maxAttempts-th tick: more time does not poll again.
+    await stepTick();
+    expect(getIntentStatus).toHaveBeenCalledTimes(maxAttempts);
+    // No terminal phase was written on timeout — the row is deliberately left for the reconciler.
+    expect(deps.updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('survives a transient getIntentStatus error and completes on a later tick', async () => {
+    // The per-tick try/catch must swallow a flaky RPC/SDK reject and keep the
+    // interval alive — a thrown error must NOT clear the poll or fail the row.
+    const getIntentStatus = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('rpc flake'))
+      .mockResolvedValueOnce([
+        { chainId: SEPOLIA_CHAIN_ID, status: 'completed', transactionHash: '0xsource' },
+        { chainId: MIDEN_CHAIN_ID, status: 'completed', transactionHash: '0xdest' }
+      ]);
+    const deps = {
+      getSdk: jest.fn().mockResolvedValue({ getIntentStatus }),
+      updatePhase: jest.fn().mockResolvedValue(undefined),
+      resolveNoteId: jest.fn().mockResolvedValue(undefined)
+    };
+    pollEarnWithdrawDelivery({ sponsorAddress: EVM_OWNER, nonce: 'NONCE1', txId: 'TX1', intervalMs: 10, deps });
+
+    // First tick rejects; the error is swallowed and nothing terminal is written.
+    await stepTick();
+    expect(deps.updatePhase).not.toHaveBeenCalled();
+
+    // Second tick sees a terminal result — proving the interval was never cleared.
+    await stepTick();
+    expect(getIntentStatus).toHaveBeenCalledTimes(2);
+    expect(deps.updatePhase).toHaveBeenCalledWith('TX1', 'delivering', { evmTxHash: '0xsource' });
+  });
 });
 
 describe('resubmitEarnWithdrawal', () => {

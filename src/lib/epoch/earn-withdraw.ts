@@ -122,7 +122,13 @@ export function buildEarnWithdrawTaskDataParams(args: {
  * `earn-withdraw` row is created up front (phase `redeeming`); the returned nonce
  * is polled in the background to advance the row to `delivering`, and the bridged
  * note's auto-consume flips it to `received` (see `completeConsumeTransaction`).
- * Any failure after the row exists marks it `failed` before rethrowing.
+ *
+ * A failure up to and including the (irreversible) intent submit marks the row
+ * `failed` before rethrowing. A failure in the POST-submit bookkeeping (nonce
+ * persistence / bridge-in registration) is swallowed and the row is left
+ * non-terminal `redeeming` — the intent is already in flight, so
+ * `reconcileEarnWithdrawals` and the auto-consume path heal it rather than
+ * falsely marking a live withdrawal `failed` (which is terminal and unrecoverable).
  */
 export async function gaslessEarnWithdrawalToMiden(
   args: GaslessEarnWithdrawalArgs,
@@ -165,6 +171,10 @@ export async function gaslessEarnWithdrawalToMiden(
   );
   args.onRowCreated?.(txId);
 
+  // --- Pre-submit + submit (reversible up to `executeActions` resolving) ---
+  // Any failure in here means nothing durable was submitted (or there is no nonce
+  // to track it), so the row is safely marked terminal `failed` and rethrown.
+  let nonceString: string;
   try {
     const ensureSmartAccount = deps.ensureSmartAccount ?? ensureEpochSmartAccount;
     await ensureSmartAccount(args.midenAccountPublicKey, sponsorAddress);
@@ -187,6 +197,8 @@ export async function gaslessEarnWithdrawalToMiden(
     }
 
     const native = await getNativeAssetId();
+    // Point of no return: once this resolves with a nonce the Epoch intent is
+    // submitted and the lending position is being redeemed — it must not be re-run.
     const { nonce } = await sdk.helpers.executeActions({
       action: ActionType.Withdraw,
       underlying: underlyingAddress,
@@ -199,8 +211,23 @@ export async function gaslessEarnWithdrawalToMiden(
       },
       gasless: true
     });
-    const nonceString = String(nonce);
+    nonceString = String(nonce);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await updatePhase(txId, 'failed', { error: message }).catch((err: unknown) =>
+      console.warn('[earn-withdraw] failed-phase patch failed', err)
+    );
+    throw error;
+  }
 
+  // --- Post-submit bookkeeping (intent already in flight — DO NOT mark failed) ---
+  // The nonce is persisted first so `resumeEarnWithdrawal` can recover THIS intent
+  // without re-submitting. A storage failure here leaves the row non-terminal
+  // `redeeming` (its birth phase), so `reconcileEarnWithdrawals` resumes it and
+  // re-registers the bridge-in next session, and auto-consume still drives the
+  // authoritative `received` flip independently. Flipping it to terminal `failed`
+  // would permanently mismark a withdrawal that genuinely succeeded.
+  try {
     await updatePhase(txId, 'redeeming', { withdrawIntentNonce: nonceString });
     await registerBridgeIn(sponsorAddress, nonceString, {
       provider: 'epoch',
@@ -209,17 +236,15 @@ export async function gaslessEarnWithdrawalToMiden(
       intentNonce: nonceString,
       earnWithdrawTxId: txId
     });
-
     startDeliveryPoll({ sponsorAddress, nonce: nonceString, txId });
-
-    return { txId, nonce: nonceString, gaslessUsed: true };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await updatePhase(txId, 'failed', { error: message }).catch((err: unknown) =>
-      console.warn('[earn-withdraw] failed-phase patch failed', err)
+  } catch (bookkeepingError) {
+    console.warn(
+      '[earn-withdraw] post-submit bookkeeping failed; row left `redeeming` for reconcile',
+      bookkeepingError
     );
-    throw error;
   }
+
+  return { txId, nonce: nonceString, gaslessUsed: true };
 }
 
 interface DeliveryPollDeps {
@@ -234,6 +259,13 @@ interface DeliveryPollDeps {
  * `received` flip happens on auto-consume); a terminal `failed` status marks the row
  * `failed`. Fire-and-forget, read-only SDK, self-terminating — mirrors
  * `pollEarnIntentStatus`.
+ *
+ * Polling is best-effort and bounded (`maxAttempts × intervalMs`, ~5 min by
+ * default). On give-up it stops with the row left non-terminal ON PURPOSE and
+ * leaves a breadcrumb: `reconcileEarnWithdrawals` restarts a fresh poll next
+ * session, and the auto-consume path drives the authoritative terminal `received`
+ * flip regardless — so a bridge slower than the poll window still heals; only the
+ * cosmetic `delivering` phase and in-session late-failure detection are best-effort.
  *
  * Terminality is gated on the MIDEN (destination) leg via `resolveEarnIntentOutcome`.
  * This is the mirror image of the deposit poll: here the SEPOLIA leg is the SOURCE,
@@ -265,6 +297,7 @@ export function pollEarnWithdrawDelivery(args: {
 
   async function tick(): Promise<void> {
     attempts += 1;
+    let resolvedTerminally = false;
     try {
       if (!isEvmAddress(sponsorAddress)) {
         clearInterval(interval);
@@ -276,6 +309,7 @@ export function pollEarnWithdrawDelivery(args: {
 
       if (outcome !== 'pending') {
         clearInterval(interval);
+        resolvedTerminally = true;
         // The EVM (source) leg carries the redeem/bridge tx hash.
         const evmTxHash = source?.transactionHash || undefined;
         if (outcome === 'done') {
@@ -293,7 +327,18 @@ export function pollEarnWithdrawDelivery(args: {
     } catch (err) {
       console.warn('[earn-withdraw] delivery poll failed', err);
     }
-    if (attempts >= maxAttempts) clearInterval(interval);
+    // Best-effort give-up: stop polling once the attempt budget is spent. The row is
+    // deliberately left non-terminal (`redeeming`/`delivering`) — `reconcileEarnWithdrawals`
+    // restarts a fresh poll next session and auto-consume drives the terminal `received`
+    // flip regardless. Breadcrumb only when we stopped WITHOUT resolving this tick.
+    if (!resolvedTerminally && attempts >= maxAttempts) {
+      clearInterval(interval);
+      console.warn('[earn-withdraw] delivery poll gave up after max attempts; row left non-terminal for reconcile', {
+        txId,
+        nonce,
+        attempts
+      });
+    }
   }
 }
 

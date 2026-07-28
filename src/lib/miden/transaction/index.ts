@@ -826,8 +826,29 @@ export const generateTransactionsLoop = async (
     // ConsumedExternal. Retrying would hit the node's nullifier check
     // and produce a misleading "already consumed" error.
     if (errorCode === 'ApplyTransactionAfterSubmitFailed') {
-      logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
       const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
+
+      // `earn-deposit` is the one type whose caller (`createEarnP2IDNote` via
+      // `waitForTransactionCompletion`) reads `resultBytes`/`outputNoteIds` back off
+      // the completed row. This generic post-submit path has no `TransactionResult`
+      // to repopulate them from (the apply threw before we could capture it), so
+      // marking the row Completed here would leave the caller to
+      // `TransactionResult.deserialize(undefined)` — which throws *after* cleanup()
+      // fires, settling the wait promise as neither success nor timeout and hanging
+      // the Epoch solve callback (and `openEarnPosition`) forever. Fail the row
+      // instead so the caller resolves via the error branch and gives up cleanly;
+      // the on-chain P2IDE collateral note reclaims itself at its recall height.
+      // `earn-deposit` is excluded from `REQUEUEABLE_TYPES`, so a Failed row is never
+      // blindly re-queued into a duplicate collateral note.
+      if (tx && tx.type === 'earn-deposit') {
+        logger.warning(
+          'Earn-deposit submitted but local apply failed; marking Failed so the awaiting caller stops waiting'
+        );
+        if (tx.status !== ITransactionStatus.Failed) await cancelTransaction(tx, e);
+        return false;
+      }
+
+      logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
       if (tx && tx.status !== ITransactionStatus.Completed) {
         // Guardian ops never reach here — they're routed through the guardian branch
         // of `generateTransaction`, whose own catch handles apply-after-submit-failed
