@@ -1,4 +1,350 @@
 {
+  "payload": {
+    "message": "Полезная нагрузка",
+    "englishSource": "Payload"
+  },
+  "bridgeDepositTitle": {
+    "message": "Миденский мост",
+    "englishSource": "Miden Bridge"
+  },
+  "bridgeDepositHeading": {
+    "message": "Подтвердите свой депозит",
+    "englishSource": "Confirm your deposit"
+  },
+  "bridgeDepositSubheading": {
+    "message": "Ваш кошелек откроется, чтобы утвердить точную сумму и войти в Sepolia.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+  },
+  "bridgeDepositYouReceive": {
+    "message": "Вы получаете",
+    "englishSource": "You receive"
+  },
+  "bridgeDepositBridgeOption": {
+    "message": "Вариант моста",
+    "englishSource": "Bridge option"
+  },
+  "bridgeDepositApprovingTitle": {
+    "message": "Что вы одобряете",
+    "englishSource": "What you're approving"
+  },
+  "bridgeDepositApprovingBody": {
+    "message": "Ваш кошелек попросит одобрить {{tokenSymbol}} и подписать депозит на Sepolia. Средства поступают на Miden после подтверждения.",
+    "englishSource": "Your wallet will ask to approve {{tokenSymbol}} and sign the deposit on Sepolia. Funds arrive on Miden after confirmation."
+  },
+  "balanceCardTotalBalance": {
+    "message": "Общий баланс",
+    "englishSource": "Total Balance"
+  },
+  "balanceCardDeltaPill": {
+    "message": "{{абсолютный}} ({{процент}})",
+    "englishSource": "{{absolute}} ({{percentage}})"
+  },
+  "balanceCardAccount": {
+    "message": "Номер счета}}",
+    "englishSource": "Account #: {{number}}"
+  },
+  "balanceCardAccountOptions": {
+    "message": "Параметры учетной записи",
+    "englishSource": "Account options"
+  },
+  "dappSwitcherLoading": {
+    "message": "Загрузка…",
+    "englishSource": "Loading…"
+  },
+  "dappSwitcherCardActivate": {
+    "message": "{{имя}}. Активируйте, чтобы переключиться на это приложение.",
+    "englishSource": "{{name}}. Activate to switch to this dApp."
+  },
+  "dappSwitcherCloseCard": {
+    "message": "Закрыть {{name}}",
+    "englishSource": "Close {{name}}"
+  },
+  "promptCardDismiss": {
+    "message": "Увольнять",
+    "englishSource": "Dismiss"
+  },
+  "promptCardLoading": {
+    "message": "Загрузка",
+    "englishSource": "Loading"
+  },
+  "priceChangeAmountNeutral": {
+    "message": "${{сумма}}",
+    "englishSource": "${{amount}}"
+  },
+  "priceChangeAmountPositive": {
+    "message": "+${{сумма}}",
+    "englishSource": "+${{amount}}"
+  },
+  "priceChangeAmountNegative": {
+    "message": "-${{сумма}}",
+    "englishSource": "-${{amount}}"
+  },
+  "priceChangePercent": {
+    "message": "{{ценить}}%",
+    "englishSource": "{{value}}%"
+  },
+  "pendingTabApproxUsd": {
+    "message": "≈  $value$ ",
+    "englishSource": "≈ $value$",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailChange24h": {
+    "message": "{{изменять}}%",
+    "englishSource": "{{change}}%"
+  },
+  "historyDetailsIdLabel": {
+    "message": "Я сделал}}",
+    "englishSource": "ID: {{id}}"
+  },
+  "historyDetailsAmountFilledValue": {
+    "message": "{{заполнено}} / {{всего}}{{символ}}",
+    "englishSource": "{{filled}} / {{total}}{{symbol}}"
+  },
+  "historyDetailsLoadError": {
+    "message": "Не удалось загрузить транзакцию",
+    "englishSource": "Failed to load transaction"
+  },
+  "historyDetailsFiatApprox": {
+    "message": "≈ ${{amount}} долл. США",
+    "englishSource": "≈ ${{amount}} USD"
+  },
+  "dappTileVerifiedLabel": {
+    "message": "{{name}}, проверенное децентрализованное приложение",
+    "englishSource": "{{name}}, verified dApp"
+  },
+  "dappPeekCardOverflowBadge": {
+    "message": "+ $count$ ",
+    "englishSource": "+$count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "settingsVersion": {
+    "message": "Версия {{версия}}",
+    "englishSource": "Version {{version}}"
+  },
+  "unlockBrandName": {
+    "message": "Хлеб",
+    "englishSource": "Bread"
+  },
+  "earnPositionHeaderTitle": {
+    "message": "Моя позиция по {{протокол}} • {{актив}}",
+    "englishSource": "My {{protocol}} • {{asset}} position"
+  },
+  "earnAssetOnNetwork": {
+    "message": "{{актив}} в {{сети}}",
+    "englishSource": "{{asset}} on {{network}}"
+  },
+  "earnMetricDeposited": {
+    "message": "Депонированный",
+    "englishSource": "Deposited"
+  },
+  "earnMetricTotalEarned": {
+    "message": "Всего заработано",
+    "englishSource": "Total Earned"
+  },
+  "earnMetricDailyAvg": {
+    "message": "Среднее значение за день",
+    "englishSource": "Daily Avg"
+  },
+  "earnMetricTimeActive": {
+    "message": "Время активности",
+    "englishSource": "Time Active"
+  },
+  "earnMetricStarted": {
+    "message": "Началось",
+    "englishSource": "Started"
+  },
+  "earnProjectedEarnings": {
+    "message": "~ {{оценка}} · по цене {{apy}} в год",
+    "englishSource": "~ {{estimate}} · at {{apy}} APY"
+  },
+  "protocol": {
+    "message": "Протокол",
+    "englishSource": "Protocol"
+  },
+  "position": {
+    "message": "Позиция",
+    "englishSource": "Position"
+  },
+  "withdraw": {
+    "message": "Отзывать",
+    "englishSource": "Withdraw"
+  },
+  "earnDepositMore": {
+    "message": "Внесите больше",
+    "englishSource": "Deposit more"
+  },
+  "earnWithdrawAmount": {
+    "message": "Сумма вывода",
+    "englishSource": "Withdraw Amount"
+  },
+  "earnWithdrawalLabel": {
+    "message": "Снятие",
+    "englishSource": "Withdrawal"
+  },
+  "earnFullPositionGasless": {
+    "message": "Полное положение (без газа)",
+    "englishSource": "Full position (gasless)"
+  },
+  "earnEstimatedTimeLabel": {
+    "message": "Расчетное время",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeOneMinute": {
+    "message": "~1 минута",
+    "englishSource": "~1 minute"
+  },
+  "withdrawing": {
+    "message": "Снятие…",
+    "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "Эта позиция не принадлежит текущей учетной записи EVM, основанной на кошельке.",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
+  },
+  "earnGaslessWithdrawalFailed": {
+    "message": "Безгазовый вывод не удался.",
+    "englishSource": "Gasless withdrawal failed."
+  },
+  "earnCurrentApy": {
+    "message": "Текущая годовая доходность",
+    "englishSource": "Current APY"
+  },
+  "earnDeposit": {
+    "message": "Депозит",
+    "englishSource": "Deposit"
+  },
+  "earnTvlLabel": {
+    "message": "ТВЛ",
+    "englishSource": "TVL"
+  },
+  "earnRiskLabel": {
+    "message": "Риск",
+    "englishSource": "Risk"
+  },
+  "earnAuditedLabel": {
+    "message": "Проверено",
+    "englishSource": "Audited"
+  },
+  "earnDepositAmountTitle": {
+    "message": "Сумма депозита",
+    "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "Открытая позиция",
+    "englishSource": "Open position"
+  },
+  "earnProjection1Month": {
+    "message": "1 месяц",
+    "englishSource": "1 Month"
+  },
+  "earnProjection6Months": {
+    "message": "6 месяцев",
+    "englishSource": "6 Months"
+  },
+  "earnProjection1Year": {
+    "message": "1 год",
+    "englishSource": "1 Year"
+  },
+  "earnProjectionNow": {
+    "message": "Сейчас",
+    "englishSource": "Now"
+  },
+  "earnProjectedRewardAmount": {
+    "message": "+${{сумма}}",
+    "englishSource": "+${{amount}}"
+  },
+  "earnCollateralLabel": {
+    "message": "Залог",
+    "englishSource": "Collateral"
+  },
+  "earnCollateralValue": {
+    "message": "Miden P2IDE (безгазовый)",
+    "englishSource": "Miden P2IDE (gasless)"
+  },
+  "earnDepositRoute": {
+    "message": "Миден -> {{протокол}} ({{сеть}})",
+    "englishSource": "Miden -> {{protocol}} ({{network}})"
+  },
+  "earnEstimatedTime": {
+    "message": "Расчетное время",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeValue": {
+    "message": "~30 секунд",
+    "englishSource": "~30 seconds"
+  },
+  "earnNoEvmAddress": {
+    "message": "Для этой учетной записи нет адреса EVM.",
+    "englishSource": "No EVM address available for this account."
+  },
+  "earnFailedToOpenPosition": {
+    "message": "Не удалось открыть позицию",
+    "englishSource": "Failed to open position"
+  },
+  "earnTotalEarnedRewards": {
+    "message": "Всего заработанных наград",
+    "englishSource": "Total Earned Rewards"
+  },
+  "earnEarningBlendedApy": {
+    "message": "Заработок {{apy}} смешанного APY",
+    "englishSource": "Earning {{apy}} blended APY"
+  },
+  "earnTotalDeposited": {
+    "message": "Всего внесено",
+    "englishSource": "Total Deposited"
+  },
+  "earnEstimatedRewards": {
+    "message": "Предполагаемые награды",
+    "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "Мои позиции",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "Позиции",
+    "englishSource": "Positions"
+  },
+  "earnPositionsApy": {
+    "message": "{{apy}} APY",
+    "englishSource": "{{apy}} APY"
+  },
+  "earnDeposited": {
+    "message": "Депонированный",
+    "englishSource": "Deposited"
+  },
+  "earnDepositAmountLabel": {
+    "message": "Сумма депозита",
+    "englishSource": "Deposit Amount"
+  },
+  "earnSeeAll": {
+    "message": "Посмотреть все",
+    "englishSource": "See All"
+  },
+  "earnVaultsTitle": {
+    "message": "Рекомендуемые хранилища",
+    "englishSource": "Featured Vaults"
+  },
+  "earnApyLabel": {
+    "message": "APY",
+    "englishSource": "APY"
+  },
+  "earnVaultAssetOnNetwork": {
+    "message": "{{актив}} в {{сети}}",
+    "englishSource": "{{asset}} on {{network}}"
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "Текущие позиции",
+    "englishSource": "Current Positions"
+  },
   "advanced": {
     "message": "Передовой",
     "englishSource": "Advanced"

@@ -1,4 +1,350 @@
 {
+  "payload": {
+    "message": "Carga útil",
+    "englishSource": "Payload"
+  },
+  "bridgeDepositTitle": {
+    "message": "Ponte Miden",
+    "englishSource": "Miden Bridge"
+  },
+  "bridgeDepositHeading": {
+    "message": "Confirme seu depósito",
+    "englishSource": "Confirm your deposit"
+  },
+  "bridgeDepositSubheading": {
+    "message": "Sua carteira será aberta para aprovar o valor exato e assinar na Sepolia.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+  },
+  "bridgeDepositYouReceive": {
+    "message": "Você recebe",
+    "englishSource": "You receive"
+  },
+  "bridgeDepositBridgeOption": {
+    "message": "Opção de ponte",
+    "englishSource": "Bridge option"
+  },
+  "bridgeDepositApprovingTitle": {
+    "message": "O que você está aprovando",
+    "englishSource": "What you're approving"
+  },
+  "bridgeDepositApprovingBody": {
+    "message": "Sua carteira solicitará a aprovação de {{tokenSymbol}} e a assinatura do depósito na Sepolia. Os fundos chegam ao Miden após confirmação.",
+    "englishSource": "Your wallet will ask to approve {{tokenSymbol}} and sign the deposit on Sepolia. Funds arrive on Miden after confirmation."
+  },
+  "balanceCardTotalBalance": {
+    "message": "Saldo total",
+    "englishSource": "Total Balance"
+  },
+  "balanceCardDeltaPill": {
+    "message": "{{absoluto}} ({{porcentagem}})",
+    "englishSource": "{{absolute}} ({{percentage}})"
+  },
+  "balanceCardAccount": {
+    "message": "Número de conta}}",
+    "englishSource": "Account #: {{number}}"
+  },
+  "balanceCardAccountOptions": {
+    "message": "Opções de conta",
+    "englishSource": "Account options"
+  },
+  "dappSwitcherLoading": {
+    "message": "Carregando…",
+    "englishSource": "Loading…"
+  },
+  "dappSwitcherCardActivate": {
+    "message": "{{nome}}. Ative para mudar para este dApp.",
+    "englishSource": "{{name}}. Activate to switch to this dApp."
+  },
+  "dappSwitcherCloseCard": {
+    "message": "Fechar {{nome}}",
+    "englishSource": "Close {{name}}"
+  },
+  "promptCardDismiss": {
+    "message": "Liberar",
+    "englishSource": "Dismiss"
+  },
+  "promptCardLoading": {
+    "message": "Carregando",
+    "englishSource": "Loading"
+  },
+  "priceChangeAmountNeutral": {
+    "message": "${{valor}}",
+    "englishSource": "${{amount}}"
+  },
+  "priceChangeAmountPositive": {
+    "message": "+${{valor}}",
+    "englishSource": "+${{amount}}"
+  },
+  "priceChangeAmountNegative": {
+    "message": "-${{valor}}",
+    "englishSource": "-${{amount}}"
+  },
+  "priceChangePercent": {
+    "message": "{{valor}}%",
+    "englishSource": "{{value}}%"
+  },
+  "pendingTabApproxUsd": {
+    "message": "≈  $value$ ",
+    "englishSource": "≈ $value$",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailChange24h": {
+    "message": "{{mudar}}%",
+    "englishSource": "{{change}}%"
+  },
+  "historyDetailsIdLabel": {
+    "message": "Eu fiz}}",
+    "englishSource": "ID: {{id}}"
+  },
+  "historyDetailsAmountFilledValue": {
+    "message": "{{preenchido}} / {{total}}{{símbolo}}",
+    "englishSource": "{{filled}} / {{total}}{{symbol}}"
+  },
+  "historyDetailsLoadError": {
+    "message": "Falha ao carregar transação",
+    "englishSource": "Failed to load transaction"
+  },
+  "historyDetailsFiatApprox": {
+    "message": "≈ ${{valor}} USD",
+    "englishSource": "≈ ${{amount}} USD"
+  },
+  "dappTileVerifiedLabel": {
+    "message": "{{nome}}, dApp verificado",
+    "englishSource": "{{name}}, verified dApp"
+  },
+  "dappPeekCardOverflowBadge": {
+    "message": "+ $count$ ",
+    "englishSource": "+$count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "settingsVersion": {
+    "message": "Versão {{versão}}",
+    "englishSource": "Version {{version}}"
+  },
+  "unlockBrandName": {
+    "message": "Pão",
+    "englishSource": "Bread"
+  },
+  "earnPositionHeaderTitle": {
+    "message": "Minha posição de {{protocolo}} • {{ativo}}",
+    "englishSource": "My {{protocol}} • {{asset}} position"
+  },
+  "earnAssetOnNetwork": {
+    "message": "{{ativo}} em {{rede}}",
+    "englishSource": "{{asset}} on {{network}}"
+  },
+  "earnMetricDeposited": {
+    "message": "Depositado",
+    "englishSource": "Deposited"
+  },
+  "earnMetricTotalEarned": {
+    "message": "Total ganho",
+    "englishSource": "Total Earned"
+  },
+  "earnMetricDailyAvg": {
+    "message": "Média diária",
+    "englishSource": "Daily Avg"
+  },
+  "earnMetricTimeActive": {
+    "message": "Tempo ativo",
+    "englishSource": "Time Active"
+  },
+  "earnMetricStarted": {
+    "message": "Iniciado",
+    "englishSource": "Started"
+  },
+  "earnProjectedEarnings": {
+    "message": "~ {{estimativa}} · em {{apy}} APY",
+    "englishSource": "~ {{estimate}} · at {{apy}} APY"
+  },
+  "protocol": {
+    "message": "Protocolo",
+    "englishSource": "Protocol"
+  },
+  "position": {
+    "message": "Posição",
+    "englishSource": "Position"
+  },
+  "withdraw": {
+    "message": "Retirar",
+    "englishSource": "Withdraw"
+  },
+  "earnDepositMore": {
+    "message": "Deposite mais",
+    "englishSource": "Deposit more"
+  },
+  "earnWithdrawAmount": {
+    "message": "Valor de retirada",
+    "englishSource": "Withdraw Amount"
+  },
+  "earnWithdrawalLabel": {
+    "message": "Cancelamento",
+    "englishSource": "Withdrawal"
+  },
+  "earnFullPositionGasless": {
+    "message": "Posição completa (sem gás)",
+    "englishSource": "Full position (gasless)"
+  },
+  "earnEstimatedTimeLabel": {
+    "message": "Tempo estimado",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeOneMinute": {
+    "message": "~1 minuto",
+    "englishSource": "~1 minute"
+  },
+  "withdrawing": {
+    "message": "Retirando…",
+    "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "Esta posição não pertence à conta EVM derivada da carteira atual.",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
+  },
+  "earnGaslessWithdrawalFailed": {
+    "message": "A retirada sem gás falhou.",
+    "englishSource": "Gasless withdrawal failed."
+  },
+  "earnCurrentApy": {
+    "message": "APY atual",
+    "englishSource": "Current APY"
+  },
+  "earnDeposit": {
+    "message": "Depósito",
+    "englishSource": "Deposit"
+  },
+  "earnTvlLabel": {
+    "message": "televisão",
+    "englishSource": "TVL"
+  },
+  "earnRiskLabel": {
+    "message": "Risco",
+    "englishSource": "Risk"
+  },
+  "earnAuditedLabel": {
+    "message": "Auditado",
+    "englishSource": "Audited"
+  },
+  "earnDepositAmountTitle": {
+    "message": "Valor do depósito",
+    "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "Posição aberta",
+    "englishSource": "Open position"
+  },
+  "earnProjection1Month": {
+    "message": "1 mês",
+    "englishSource": "1 Month"
+  },
+  "earnProjection6Months": {
+    "message": "6 meses",
+    "englishSource": "6 Months"
+  },
+  "earnProjection1Year": {
+    "message": "1 ano",
+    "englishSource": "1 Year"
+  },
+  "earnProjectionNow": {
+    "message": "Agora",
+    "englishSource": "Now"
+  },
+  "earnProjectedRewardAmount": {
+    "message": "+${{valor}}",
+    "englishSource": "+${{amount}}"
+  },
+  "earnCollateralLabel": {
+    "message": "Garantia",
+    "englishSource": "Collateral"
+  },
+  "earnCollateralValue": {
+    "message": "Miden P2IDE (sem gás)",
+    "englishSource": "Miden P2IDE (gasless)"
+  },
+  "earnDepositRoute": {
+    "message": "Miden -> {{protocolo}} ({{rede}})",
+    "englishSource": "Miden -> {{protocol}} ({{network}})"
+  },
+  "earnEstimatedTime": {
+    "message": "Tempo estimado",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeValue": {
+    "message": "~30 segundos",
+    "englishSource": "~30 seconds"
+  },
+  "earnNoEvmAddress": {
+    "message": "Nenhum endereço EVM disponível para esta conta.",
+    "englishSource": "No EVM address available for this account."
+  },
+  "earnFailedToOpenPosition": {
+    "message": "Falha ao abrir posição",
+    "englishSource": "Failed to open position"
+  },
+  "earnTotalEarnedRewards": {
+    "message": "Total de recompensas ganhas",
+    "englishSource": "Total Earned Rewards"
+  },
+  "earnEarningBlendedApy": {
+    "message": "Ganhando {{apy}} APY combinado",
+    "englishSource": "Earning {{apy}} blended APY"
+  },
+  "earnTotalDeposited": {
+    "message": "Total Depositado",
+    "englishSource": "Total Deposited"
+  },
+  "earnEstimatedRewards": {
+    "message": "Recompensas estimadas",
+    "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "Minhas posições",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "Posições",
+    "englishSource": "Positions"
+  },
+  "earnPositionsApy": {
+    "message": "{{apy}} APY",
+    "englishSource": "{{apy}} APY"
+  },
+  "earnDeposited": {
+    "message": "Depositado",
+    "englishSource": "Deposited"
+  },
+  "earnDepositAmountLabel": {
+    "message": "Valor do depósito",
+    "englishSource": "Deposit Amount"
+  },
+  "earnSeeAll": {
+    "message": "Ver tudo",
+    "englishSource": "See All"
+  },
+  "earnVaultsTitle": {
+    "message": "Cofres em destaque",
+    "englishSource": "Featured Vaults"
+  },
+  "earnApyLabel": {
+    "message": "APY",
+    "englishSource": "APY"
+  },
+  "earnVaultAssetOnNetwork": {
+    "message": "{{ativo}} em {{rede}}",
+    "englishSource": "{{asset}} on {{network}}"
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "Posições Atuais",
+    "englishSource": "Current Positions"
+  },
   "advanced": {
     "message": "Avançado",
     "englishSource": "Advanced"

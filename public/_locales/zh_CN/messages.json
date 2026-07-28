@@ -1,4 +1,350 @@
 {
+  "payload": {
+    "message": "有效载荷",
+    "englishSource": "Payload"
+  },
+  "bridgeDepositTitle": {
+    "message": "米登桥",
+    "englishSource": "Miden Bridge"
+  },
+  "bridgeDepositHeading": {
+    "message": "确认您的存款",
+    "englishSource": "Confirm your deposit"
+  },
+  "bridgeDepositSubheading": {
+    "message": "您的钱包将打开以批准确切的金额并在 Sepolia 上签名。",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+  },
+  "bridgeDepositYouReceive": {
+    "message": "您收到",
+    "englishSource": "You receive"
+  },
+  "bridgeDepositBridgeOption": {
+    "message": "桥接选项",
+    "englishSource": "Bridge option"
+  },
+  "bridgeDepositApprovingTitle": {
+    "message": "您批准的内容",
+    "englishSource": "What you're approving"
+  },
+  "bridgeDepositApprovingBody": {
+    "message": "您的钱包将要求批准 {{tokenSymbol}} 并在 Sepolia 上签署存款。确认后资金到达Miden。",
+    "englishSource": "Your wallet will ask to approve {{tokenSymbol}} and sign the deposit on Sepolia. Funds arrive on Miden after confirmation."
+  },
+  "balanceCardTotalBalance": {
+    "message": "总余额",
+    "englishSource": "Total Balance"
+  },
+  "balanceCardDeltaPill": {
+    "message": "{{绝对}}（{{百分比}}）",
+    "englishSource": "{{absolute}} ({{percentage}})"
+  },
+  "balanceCardAccount": {
+    "message": "帐号}}",
+    "englishSource": "Account #: {{number}}"
+  },
+  "balanceCardAccountOptions": {
+    "message": "账户选项",
+    "englishSource": "Account options"
+  },
+  "dappSwitcherLoading": {
+    "message": "加载中…",
+    "englishSource": "Loading…"
+  },
+  "dappSwitcherCardActivate": {
+    "message": "{{姓名}}。激活以切换到此 dApp。",
+    "englishSource": "{{name}}. Activate to switch to this dApp."
+  },
+  "dappSwitcherCloseCard": {
+    "message": "关闭{{name}}",
+    "englishSource": "Close {{name}}"
+  },
+  "promptCardDismiss": {
+    "message": "解雇",
+    "englishSource": "Dismiss"
+  },
+  "promptCardLoading": {
+    "message": "加载中",
+    "englishSource": "Loading"
+  },
+  "priceChangeAmountNeutral": {
+    "message": "${{金额}}",
+    "englishSource": "${{amount}}"
+  },
+  "priceChangeAmountPositive": {
+    "message": "+${{金额}}",
+    "englishSource": "+${{amount}}"
+  },
+  "priceChangeAmountNegative": {
+    "message": "-${{金额}}",
+    "englishSource": "-${{amount}}"
+  },
+  "priceChangePercent": {
+    "message": "{{价值}}​​％",
+    "englishSource": "{{value}}%"
+  },
+  "pendingTabApproxUsd": {
+    "message": "≈  $value$ ",
+    "englishSource": "≈ $value$",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailChange24h": {
+    "message": "{{改变}}％",
+    "englishSource": "{{change}}%"
+  },
+  "historyDetailsIdLabel": {
+    "message": "身份证号：{{id}}",
+    "englishSource": "ID: {{id}}"
+  },
+  "historyDetailsAmountFilledValue": {
+    "message": "{{填充}} / {{总计}}{{符号}}",
+    "englishSource": "{{filled}} / {{total}}{{symbol}}"
+  },
+  "historyDetailsLoadError": {
+    "message": "加载交易失败",
+    "englishSource": "Failed to load transaction"
+  },
+  "historyDetailsFiatApprox": {
+    "message": "≈ ${{金额}} 美元",
+    "englishSource": "≈ ${{amount}} USD"
+  },
+  "dappTileVerifiedLabel": {
+    "message": "{{name}}，经过验证的 dApp",
+    "englishSource": "{{name}}, verified dApp"
+  },
+  "dappPeekCardOverflowBadge": {
+    "message": "+ $count$ ",
+    "englishSource": "+$count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "settingsVersion": {
+    "message": "版本 {{版本}}",
+    "englishSource": "Version {{version}}"
+  },
+  "unlockBrandName": {
+    "message": "面包",
+    "englishSource": "Bread"
+  },
+  "earnPositionHeaderTitle": {
+    "message": "我的{{协议}} • {{资产}} 位置",
+    "englishSource": "My {{protocol}} • {{asset}} position"
+  },
+  "earnAssetOnNetwork": {
+    "message": "{{network}} 上的 {{asset}}",
+    "englishSource": "{{asset}} on {{network}}"
+  },
+  "earnMetricDeposited": {
+    "message": "已存入",
+    "englishSource": "Deposited"
+  },
+  "earnMetricTotalEarned": {
+    "message": "总收入",
+    "englishSource": "Total Earned"
+  },
+  "earnMetricDailyAvg": {
+    "message": "每日平均",
+    "englishSource": "Daily Avg"
+  },
+  "earnMetricTimeActive": {
+    "message": "活跃时间",
+    "englishSource": "Time Active"
+  },
+  "earnMetricStarted": {
+    "message": "开始",
+    "englishSource": "Started"
+  },
+  "earnProjectedEarnings": {
+    "message": "~ {{估计}} · 在 {{apy}} APY",
+    "englishSource": "~ {{estimate}} · at {{apy}} APY"
+  },
+  "protocol": {
+    "message": "协议",
+    "englishSource": "Protocol"
+  },
+  "position": {
+    "message": "位置",
+    "englishSource": "Position"
+  },
+  "withdraw": {
+    "message": "提取",
+    "englishSource": "Withdraw"
+  },
+  "earnDepositMore": {
+    "message": "存入更多",
+    "englishSource": "Deposit more"
+  },
+  "earnWithdrawAmount": {
+    "message": "提款金额",
+    "englishSource": "Withdraw Amount"
+  },
+  "earnWithdrawalLabel": {
+    "message": "提款",
+    "englishSource": "Withdrawal"
+  },
+  "earnFullPositionGasless": {
+    "message": "全位（无气）",
+    "englishSource": "Full position (gasless)"
+  },
+  "earnEstimatedTimeLabel": {
+    "message": "预计时间",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeOneMinute": {
+    "message": "〜1分钟",
+    "englishSource": "~1 minute"
+  },
+  "withdrawing": {
+    "message": "撤回…",
+    "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "该头寸不属于当前钱包衍生的 EVM 账户。",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
+  },
+  "earnGaslessWithdrawalFailed": {
+    "message": "无气提款失败。",
+    "englishSource": "Gasless withdrawal failed."
+  },
+  "earnCurrentApy": {
+    "message": "当前年利率",
+    "englishSource": "Current APY"
+  },
+  "earnDeposit": {
+    "message": "订金",
+    "englishSource": "Deposit"
+  },
+  "earnTvlLabel": {
+    "message": "TVL",
+    "englishSource": "TVL"
+  },
+  "earnRiskLabel": {
+    "message": "风险",
+    "englishSource": "Risk"
+  },
+  "earnAuditedLabel": {
+    "message": "已审核",
+    "englishSource": "Audited"
+  },
+  "earnDepositAmountTitle": {
+    "message": "存款金额",
+    "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "持仓",
+    "englishSource": "Open position"
+  },
+  "earnProjection1Month": {
+    "message": "1个月",
+    "englishSource": "1 Month"
+  },
+  "earnProjection6Months": {
+    "message": "6个月",
+    "englishSource": "6 Months"
+  },
+  "earnProjection1Year": {
+    "message": "1年",
+    "englishSource": "1 Year"
+  },
+  "earnProjectionNow": {
+    "message": "现在",
+    "englishSource": "Now"
+  },
+  "earnProjectedRewardAmount": {
+    "message": "+${{金额}}",
+    "englishSource": "+${{amount}}"
+  },
+  "earnCollateralLabel": {
+    "message": "抵押品",
+    "englishSource": "Collateral"
+  },
+  "earnCollateralValue": {
+    "message": "Miden P2IDE（无气）",
+    "englishSource": "Miden P2IDE (gasless)"
+  },
+  "earnDepositRoute": {
+    "message": "Miden -> {{协议}} ({{网络}})",
+    "englishSource": "Miden -> {{protocol}} ({{network}})"
+  },
+  "earnEstimatedTime": {
+    "message": "预计时间",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeValue": {
+    "message": "〜30秒",
+    "englishSource": "~30 seconds"
+  },
+  "earnNoEvmAddress": {
+    "message": "此帐户没有可用的 EVM 地址。",
+    "englishSource": "No EVM address available for this account."
+  },
+  "earnFailedToOpenPosition": {
+    "message": "建仓失败",
+    "englishSource": "Failed to open position"
+  },
+  "earnTotalEarnedRewards": {
+    "message": "获得的总奖励",
+    "englishSource": "Total Earned Rewards"
+  },
+  "earnEarningBlendedApy": {
+    "message": "赚取 {{apy}} 混合 APY",
+    "englishSource": "Earning {{apy}} blended APY"
+  },
+  "earnTotalDeposited": {
+    "message": "存入总额",
+    "englishSource": "Total Deposited"
+  },
+  "earnEstimatedRewards": {
+    "message": "预计奖励",
+    "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "我的职位",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "职位",
+    "englishSource": "Positions"
+  },
+  "earnPositionsApy": {
+    "message": "{{apy}} APY",
+    "englishSource": "{{apy}} APY"
+  },
+  "earnDeposited": {
+    "message": "已存入",
+    "englishSource": "Deposited"
+  },
+  "earnDepositAmountLabel": {
+    "message": "存款金额",
+    "englishSource": "Deposit Amount"
+  },
+  "earnSeeAll": {
+    "message": "查看全部",
+    "englishSource": "See All"
+  },
+  "earnVaultsTitle": {
+    "message": "特色金库",
+    "englishSource": "Featured Vaults"
+  },
+  "earnApyLabel": {
+    "message": "平均年产量",
+    "englishSource": "APY"
+  },
+  "earnVaultAssetOnNetwork": {
+    "message": "{{network}} 上的 {{asset}}",
+    "englishSource": "{{asset}} on {{network}}"
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "目前职位",
+    "englishSource": "Current Positions"
+  },
   "advanced": {
     "message": "先进的",
     "englishSource": "Advanced"
