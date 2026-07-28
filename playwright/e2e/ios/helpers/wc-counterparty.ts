@@ -24,9 +24,7 @@ const RELAY_URL = process.env.WC_RELAY_URL ?? 'wss://relay.walletconnect.org';
 // (WC_COUNTERPARTY_PROJECT_ID) so CI can halve per-projectId relay load and cut
 // the chance of tripping the free-tier rate limit that connection bursts hit.
 const PROJECT_ID =
-  process.env.WC_COUNTERPARTY_PROJECT_ID ??
-  process.env.WALLETCONNECT_PROJECT_ID ??
-  'b54ef53f878d160bf63c6eae3a567e67';
+  process.env.WC_COUNTERPARTY_PROJECT_ID ?? process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67';
 const ANVIL_RPC = process.env.E2E_EVM_RPC_URL ?? 'http://127.0.0.1:8545';
 const CHAIN_ID = 11155111;
 // Anvil's first deterministic dev account (pre-funded with 10000 ETH).
@@ -74,6 +72,7 @@ export class WcCounterparty {
   }
 
   async start(): Promise<void> {
+    if (this.client) return; // idempotent — connectWithRetry may call this too
     this.client = await SignClient.init({
       projectId: PROJECT_ID,
       relayUrl: RELAY_URL,
@@ -118,6 +117,65 @@ export class WcCounterparty {
 
   async pair(uri: string): Promise<void> {
     await this.client.pair({ uri });
+  }
+
+  /**
+   * Robust connect: run the full WalletConnect handshake — fetch a fresh `wc:`
+   * URI from the app, pair, wait for the session to be approved, and confirm the
+   * app reports connected — retrying the WHOLE handshake with backoff.
+   *
+   * The public relay rate-limits connection bursts and its subscribe can time out
+   * ("Subscribing to <topic> failed, please try again"), which can hit the URI
+   * fetch OR the pair/approve step. Retrying only the URI fetch (as the specs did
+   * inline) left the subscribe timeout fatal — the cause of the intermittent
+   * Bridge-IN E2E failures. A dedicated `WC_COUNTERPARTY_PROJECT_ID` (see the note
+   * at the top of this file) halves per-projectId relay load and is the durable
+   * infra-side fix; this keeps the handshake resilient in the meantime.
+   */
+  async connectWithRetry(
+    getUri: () => Promise<string>,
+    verifyAppConnected: () => Promise<boolean>,
+    opts: { attempts?: number; backoffMs?: number; sessionTimeoutMs?: number } = {}
+  ): Promise<void> {
+    const { attempts = 5, backoffMs = 15_000, sessionTimeoutMs = 45_000 } = opts;
+    await this.start();
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        const uri = await getUri();
+        if (!uri.startsWith('wc:')) throw new Error(`expected a wc: pairing URI, got "${uri}"`);
+        await this.pair(uri);
+        // The relay subscribe inside pair/approve can stall without erroring;
+        // bound the wait so a stall triggers a retry instead of hanging.
+        await Promise.race([
+          this.connected,
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(new Error(`WC session not approved within ${sessionTimeoutMs}ms (relay subscribe timeout?)`)),
+              sessionTimeoutMs
+            )
+          )
+        ]);
+        for (let poll = 0; poll < 30; poll++) {
+          if (await verifyAppConnected()) return;
+          await this.sleep(2000);
+        }
+        throw new Error('WC session approved but the app never reported connected');
+      } catch (err) {
+        lastErr = err;
+        if (attempt === attempts) {
+          throw new Error(
+            `WalletConnect handshake failed after ${attempts} attempts (public relay subscribe/rate-limit): ${String(lastErr)}`
+          );
+        }
+        await this.sleep(backoffMs);
+      }
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   private async handleRequest(event: {
