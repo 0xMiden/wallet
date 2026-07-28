@@ -130,7 +130,7 @@ export default {
     '.+\\.(ts|tsx|js|mjs)$': '@swc/jest'
   },
   transformIgnorePatterns: [
-    '/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie|@wagmi|wagmi|@reown)/)'
+    '/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie|@epoch-protocol|@wagmi|wagmi|@reown)/)'
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js'],
   // Exclude git worktrees: they hold full copies of the repo, so without this a
