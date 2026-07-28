@@ -110,10 +110,9 @@ test.describe('Fullpage UI', () => {
     }
     await page.locator('#import-link').click();
 
-    const importType = page.getByTestId('import-select-type');
-    await importType.waitFor({ timeout: 15000 });
-
-    await importType.getByText(/import with seed phrase/i).click();
+    // Recovery is seed-phrase only — the old "select import type" screen is gone
+    // and the welcome link lands directly on the seed entry form.
+    await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15000 });
 
     const words = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(
       ' '
@@ -141,8 +140,6 @@ test.describe('Fullpage UI', () => {
     await page.getByTestId('onboarding-confirmation-submit').click();
     await expect(page.getByTestId('explore-page')).toBeVisible({ timeout: 30000 });
   });
-
-
   test('import seed phrase enforces valid words before continue', async ({ extensionContext, extensionId }) => {
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const page = await extensionContext.newPage();
@@ -155,10 +152,6 @@ test.describe('Fullpage UI', () => {
       throw new Error('Page closed before onboarding');
     }
     await page.locator('#import-link').click();
-
-    const importType = page.getByTestId('import-select-type');
-    await importType.waitFor({ timeout: 15000 });
-    await importType.getByText(/import with seed phrase/i).click();
 
     const seedForm = page.getByTestId('import-seed-phrase');
     await seedForm.waitFor({ timeout: 15000 });
