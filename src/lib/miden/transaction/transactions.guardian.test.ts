@@ -11,6 +11,8 @@
  *     → submit → completeSendTransaction).
  */
 
+import { TransactionProver } from '@miden-sdk/miden-sdk/lazy';
+
 import {
   completeReplaceHotKeyTransaction,
   completeSwitchGuardianTransaction,
@@ -100,9 +102,16 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
     ...actual,
-    TransactionProver: { newLocalProver: jest.fn(() => 'local-prover') }
+    TransactionProver: {
+      newLocalProver: jest.fn(() => 'local-prover'),
+      newCallbackProver: jest.fn(() => 'callback-prover')
+    }
   };
 });
+
+jest.mock('../sdk/native-prover-mobile', () => ({
+  buildNativeProverCallback: jest.fn(() => async () => new Uint8Array())
+}));
 
 jest.mock('shared/logger', () => ({
   logger: { warning: jest.fn(), error: jest.fn(), info: jest.fn() }
@@ -310,6 +319,80 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.createSendProposal).toHaveBeenCalledWith('recipient', 'faucet', 1000n);
     expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-1', undefined);
     expect(multisigService.sync).toHaveBeenCalled();
+  });
+
+  it('Guardian send (delegated): a remote-prover timeout falls back to the local prover and completes', async () => {
+    // The guardian pipeline delegates proving to the remote prover, which has a
+    // ~10s gRPC deadline. A heavyweight guardian multisig proof under load can
+    // exceed it ("Deadline expired"). Unlike the non-guardian path, the guardian
+    // pipeline used to have no fallback, so a single timeout killed the co-signed
+    // tx (→ 409 canonicalize-conflict loop → claim timeout). It must now re-prove
+    // the SAME executed tx locally and still complete, without abandoning the
+    // guardian candidate.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const txId = 'send-guardian-delegated';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const abandonCandidate = jest.fn(async () => {});
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const client = makeClientApi(result);
+    // First (delegated/remote) prove times out; the local re-prove succeeds.
+    client.transactions.prove.mockRejectedValueOnce(
+      new Error('failed to prove transaction: Deadline expired before operation could complete')
+    );
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: true
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // Proved twice: once delegated (no explicit prover), then locally on retry
+    // with the desktop/extension WASM local prover (the test env is non-mobile).
+    expect(client.transactions.prove).toHaveBeenCalledTimes(2);
+    expect(client.transactions.prove).toHaveBeenNthCalledWith(1, result, {});
+    expect(client.transactions.prove).toHaveBeenNthCalledWith(2, result, { prover: 'local-prover' });
+    expect(TransactionProver.newLocalProver).toHaveBeenCalledTimes(1);
+    expect(TransactionProver.newCallbackProver).not.toHaveBeenCalled();
+    // The fallback recovered the tx, so the candidate is NOT abandoned and the
+    // row lands Completed rather than Failed.
+    expect(abandonCandidate).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Completed);
+    warnSpy.mockRestore();
   });
 
   it('Guardian send: a still-pending 409 (delta not yet canonicalized) requeues instead of failing', async () => {

@@ -15,6 +15,7 @@ import {
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { DEFAULT_NETWORK, MIDEN_NETWORK_ENDPOINTS } from 'lib/miden-chain/constants';
+import { isMobile } from 'lib/platform';
 import { logger } from 'shared/logger';
 
 import { cancelStaleQueuedTransactions, cancelStuckTransactions, cancelTransaction } from './cancel';
@@ -53,6 +54,7 @@ import {
 import { accountIdStringToSdk, canonicalWalletAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
+import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 
 export * from './cancel';
 export * from './complete';
@@ -582,9 +584,33 @@ const generateGuardianTransaction = async (
       await setTransactionStage(transaction.id, 'executing');
       const executedTx = await midenClient.client.transactions.executeRequest(transaction.accountId, tr);
       await setTransactionStage(transaction.id, 'proving');
-      const provenTx = await executedTx.prove({
-        prover: !transaction.delegateTransaction ? TransactionProver.newLocalProver() : undefined
-      });
+      let provenTx;
+      if (!transaction.delegateTransaction) {
+        provenTx = await executedTx.prove({ prover: TransactionProver.newLocalProver() });
+      } else {
+        // Delegated (remote) proving. The client's default prover is the remote
+        // gRPC prover on every platform, and its ~10s deadline is too tight for a
+        // heavyweight guardian multisig proof when the machine is under load — a
+        // single "Deadline expired" used to kill the whole co-signed transaction
+        // (surfacing as the guardian 409 canonicalize-conflict retry loop and a
+        // claim timeout), because the guardian pipeline drives the raw client
+        // directly and had none of the local fallback the non-guardian path gets
+        // for free from `proveWithFallback`. Give it that resilience: on remote
+        // failure, re-prove the SAME executed tx locally. Re-proving is safe
+        // because `proveTransaction` borrows the executed result (only the prover
+        // is consumed, and each attempt passes a fresh one). The local prover
+        // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
+        // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
+        try {
+          provenTx = await executedTx.prove({});
+        } catch (proveError) {
+          console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
+          const fallbackProver = isMobile()
+            ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+            : TransactionProver.newLocalProver();
+          provenTx = await executedTx.prove({ prover: fallbackProver });
+        }
+      }
       await setTransactionStage(transaction.id, 'submitting');
       const submittedTx = await provenTx.submit();
       await submittedTx.apply();
