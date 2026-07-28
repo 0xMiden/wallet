@@ -78,7 +78,6 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
     const cp = new WcCounterparty();
     let addressA: string;
     let faucetHex: string;
-    let uri: string;
 
     await steps.step('create_wallet', async () => {
       const a = await walletA.createNewWallet();
@@ -95,29 +94,14 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
 
     try {
       await steps.step('connect_evm', async () => {
-        await cp.start();
         // The public relay rate-limits connection bursts on the shared free-tier
-        // projectId; the app's relay socket can fail to come up (`Web socket is
-        // not connected`). reown reconnects every 5s in the background, so retry
-        // the socket-dependent connectUri a few times before giving up — this is
-        // the CI-reliability guard for the relay dependency.
-        let lastErr: unknown;
-        for (let attempt = 1; attempt <= 5; attempt++) {
-          try {
-            uri = await walletA.reownConnectUri();
-            break;
-          } catch (err) {
-            lastErr = err;
-            if (attempt === 5) throw err;
-            await walletA.delay(15_000);
-          }
-        }
-        expect(uri, `wc: pairing URI (last error: ${String(lastErr)})`).toContain('wc:');
-        await cp.pair(uri!);
-        await cp.connected;
-        await expect
-          .poll(async () => (await walletA.reownState()).connected, { timeout: 60_000, intervals: [2000] })
-          .toBe(true);
+        // projectId and its subscribe can time out mid-handshake, so retry the
+        // WHOLE handshake (URI fetch + pair + approve) with backoff — the
+        // CI-reliability guard for the relay dependency.
+        await cp.connectWithRetry(
+          () => walletA.reownConnectUri(),
+          async () => (await walletA.reownState()).connected
+        );
       });
 
       await steps.step('deposit_via_ui', async () => {

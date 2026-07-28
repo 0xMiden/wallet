@@ -16,7 +16,6 @@ test.describe('Bridge-IN WalletConnect pairing (real relay handshake)', () => {
 
   test('the app pairs with a headless WC counterparty and reports connected', async ({ walletA, walletB, steps }) => {
     const cp = new WcCounterparty();
-    let uri: string;
 
     await steps.step('create_wallet', async () => {
       await walletA.createNewWallet();
@@ -24,25 +23,18 @@ test.describe('Bridge-IN WalletConnect pairing (real relay handshake)', () => {
     });
 
     try {
-      await steps.step('start_counterparty', async () => {
-        await cp.start();
-      });
-
-      await steps.step('app_creates_pairing', async () => {
-        uri = await walletA.reownConnectUri();
-        expect(uri, 'wc: pairing URI').toContain('wc:');
-      });
-
-      await steps.step('counterparty_pairs_and_approves', async () => {
-        await cp.pair(uri!);
-        await cp.connected; // resolves once the session is approved
+      await steps.step('connect', async () => {
+        // Full WC handshake with retry — the public relay's subscribe can time out
+        // mid-handshake on the shared free-tier projectId.
+        await cp.connectWithRetry(
+          () => walletA.reownConnectUri(),
+          async () => (await walletA.reownState()).connected
+        );
       });
 
       await steps.step('app_reports_connected', async () => {
-        await expect
-          .poll(async () => (await walletA.reownState()).connected, { timeout: 60_000, intervals: [2000] })
-          .toBe(true);
         const state = await walletA.reownState();
+        expect(state.connected, 'app reports connected').toBe(true);
         expect(state.address?.toLowerCase(), 'connected account').toBe(cp.address.toLowerCase());
         expect(state.chainId, 'connected chain').toBe(11155111);
       });

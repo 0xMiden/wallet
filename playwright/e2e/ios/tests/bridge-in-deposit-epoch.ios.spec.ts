@@ -2,7 +2,13 @@ import { decodeFunctionData } from 'viem';
 
 import { expect, test } from '../fixtures/two-simulators';
 import { AnvilInstance } from '../helpers/anvil';
-import { MOCK_COMPACT_ADDRESS, MOCK_USDC_ADDRESS, installMockCompact, installMockUsdc, readCompactDepositCount } from '../helpers/evm-doubles';
+import {
+  MOCK_COMPACT_ADDRESS,
+  MOCK_USDC_ADDRESS,
+  installMockCompact,
+  installMockUsdc,
+  readCompactDepositCount
+} from '../helpers/evm-doubles';
 import { FakeEpochAllocator } from '../helpers/fake-epoch-allocator';
 import { WcCounterparty } from '../helpers/wc-counterparty';
 
@@ -78,7 +84,6 @@ test.describe('Bridge-IN deposit (Epoch/USDC, full real UI)', () => {
     const cp = new WcCounterparty();
     let addressA: string;
     let faucetHex: string;
-    let uri: string;
     let bridgeTxId: string;
 
     await steps.step('create_wallet', async () => {
@@ -94,25 +99,12 @@ test.describe('Bridge-IN deposit (Epoch/USDC, full real UI)', () => {
 
     try {
       await steps.step('connect_evm', async () => {
-        await cp.start();
-        // Retry-guarded connect (public relay rate-limits connection bursts).
-        let lastErr: unknown;
-        for (let attempt = 1; attempt <= 5; attempt++) {
-          try {
-            uri = await walletA.reownConnectUri();
-            break;
-          } catch (err) {
-            lastErr = err;
-            if (attempt === 5) throw err;
-            await walletA.delay(15_000);
-          }
-        }
-        expect(uri, `wc: pairing URI (last error: ${String(lastErr)})`).toContain('wc:');
-        await cp.pair(uri!);
-        await cp.connected;
-        await expect
-          .poll(async () => (await walletA.reownState()).connected, { timeout: 60_000, intervals: [2000] })
-          .toBe(true);
+        // Retries the whole WC handshake (URI fetch + pair + approve) with backoff
+        // — the public relay's subscribe intermittently times out mid-handshake.
+        await cp.connectWithRetry(
+          () => walletA.reownConnectUri(),
+          async () => (await walletA.reownState()).connected
+        );
       });
 
       await steps.step('deposit_via_ui', async () => {
