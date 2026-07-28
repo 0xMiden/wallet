@@ -92,7 +92,51 @@ Build plan:
 - [x] CI: extended e2e-bridge-in.yml — added EPOCH_ALLOCATOR_URL; the `bridge-in-deposit` filter runs BOTH
       deposit specs serially (workers:1), each with its own Anvil (+ Epoch's fake allocator).
 
-## Both bridge-in deposit routes GREEN. AggLayer (ETH/Slow) + Epoch (USDC/Fast). Committing + pushing.
+## Both bridge-in deposit routes GREEN + committed + pushed. AggLayer (ETH/Slow) + Epoch (USDC/Fast).
+Branch wiktor/bridge-in-e2e: d8ff8699c/f277263fa (agglayer feat+ci), e686dbe22/5178e8025 (epoch feat+ci).
+CI e2e-bridge-in.yml runs BOTH deposit specs on main. AggLayer re-verified green vs the Epoch build (1.2m).
+
+## Coverage matrix (2x2): bridge-OUT AggLayer is the ONLY uncovered quadrant
+| dir | Epoch/Fast | AggLayer/Slow |
+| IN  | ✅ new hermetic | ✅ new (Anvil stub) |
+| OUT | ✅ existing (real testnet + hosted solver) | ❌ building now |
+
+## Bridge-OUT AggLayer (Miden->EVM "Slow") e2e — IN PROGRESS
+Flow: initiateB2AggBridge builds a B2AGG note (MIDEN_AGGLAYER_FAUCET_ID -> MIDEN_BRIDGE_ID, destNetwork 0 +
+0x addr) -> proved+submitted on Miden as a bridged-send(agglayer) row; the AggLayer infra claims on EVM
+(claimAsset), tracked via the indexer (AGGLAYER_BRIDGE_API). Complications: wallet must HOLD the real
+AggLayer faucet token (test can't mint it → needs a faucet override like bridge-in), and the EVM claim
+is external/~hours (not gateable) → hermetic doubling needed for the EVM leg.
+Investigation (4-facet workflow) done. Decisive finding: the wallet's REAL work for bridge-OUT AggLayer
+is the MIDEN leg only (build+prove+submit the B2AGG note → bridged-send row Completed/"Bridged to EVM").
+The EVM claimAsset is signed by an EXTERNAL EVM wallet vs real AggLayer L1 infra — NO out-direction double
+(midenToEvm.ts is empty) — so faking it = green-on-nothing (row is Completed before any EVM interaction).
+Approach: assert the real Miden leg; leave the EVM claim uncovered. Chrome test (no EVM signing needed;
+reuses the bridge-out-epoch harness; faster CI).
+Two blockers solved via an E2E override (mirrors setAgglayerSenderForE2E): (1) faucet-id gate, (2) a
+callback-flag vault-slot mismatch (B2AGG forces Enabled; CLI faucet mints Disabled → 0 balance).
+- [x] Wallet-source (E2E-gated): b2agg/constant.ts getAgglayerFaucetId/setAgglayerFaucetForE2E/
+      hasAgglayerFaucetOverride; b2agg/index.ts uses them + flips callback flag; SendManager+ReviewTransaction
+      route gate uses getAgglayerFaucetId(); store/index.ts installs __TEST_SET_AGGLAYER_FAUCET__ (front hook).
+- [x] Chrome harness: bridge.ts bridgeOutSlow (+ faucet-override set after page load, before route gate;
+      toBeEnabled guard on bridge-route-slow) + readBridgedSendRows extended (provider/claimStatus/
+      outputNoteIds/transactionId).
+- [x] Spec bridge-out-agglayer.spec.ts: fund AGG → bridgeOutSlow → assert agglayer row Completed/"Bridged
+      to EVM" + 1 output note + real tx id + provider=agglayer (not epoch fallback) + claimStatus pending.
+      EVM claim deliberately NOT asserted (external, no double). tsc clean.
+- [x] ✅ GREEN on Chrome/testnet (1.4m), FIRST real attempt. Real Send UI (0x recipient → Sepolia →
+      AGG token → amount → Slow route → submit) → real B2AGG note create+prove(delegated)+submit →
+      bridged-send(agglayer) row Completed/"Bridged to EVM", 1 output note, real tx id, provider=agglayer
+      (not epoch fallback), claimStatus pending. The #1 risk (B2AGG note with a Disabled-flag test faucet)
+      is RESOLVED — the callback-flag flip works.
+- [x] CI: e2e-bridge.yml runs ALL tests/bridge specs (no filter) → auto-covers bridge-out-agglayer.
+      Updated the gate header to document both routes. No new job needed.
+
+## 🎉 FULL 2x2 MATRIX COVERED
+| dir | Epoch/Fast | AggLayer/Slow |
+| IN  | ✅ hermetic (fake allocator + Anvil doubles) | ✅ Anvil bridge stub |
+| OUT | ✅ real testnet + hosted solver | ✅ real Miden leg (EVM claim external, uncovered by design) |
+Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-merge on main.
 
 ## Findings to report to the team
 - WALLETCONNECT_PROJECT_ID is NOT set anywhere (repo/CI/release) -> builds fall back to b54ef53.

@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import * as yup from 'yup';
 
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
-import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { getAgglayerFaucetId } from 'lib/agglayer/b2agg/constant';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { requestSpeculateInvalidate, requestSpeculateSend } from 'lib/miden/activity';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
@@ -246,7 +246,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // Cross-chain sends over the Slow (Agglayer) route are restricted to the single
   // bridgeable faucet token; Fast (Epoch) bridges any token.
   const isBridgeableToken =
-    !!token && accountIdStringToSdk(token.id.toLowerCase()).toString() === MIDEN_AGGLAYER_FAUCET_ID.toLowerCase();
+    !!token && accountIdStringToSdk(token.id.toLowerCase()).toString() === getAgglayerFaucetId().toLowerCase();
 
   // A destination selected before typing can carry into an EVM address. Once a
   // non-empty Miden address is entered, the EVM destination is no longer meaningful.
