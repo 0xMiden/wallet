@@ -15,7 +15,7 @@ import { HistoryEntryType } from './IHistoryEntry';
 const mockGetCompletedTransactions = jest.fn();
 const mockGetUncompletedTransactions = jest.fn();
 const mockCancelTransactionById = jest.fn().mockResolvedValue(undefined);
-const mockExistingTransactionIds = jest.fn();
+const mockSuppressingLinkedTxIds = jest.fn();
 const mockGetTokenMetadata = jest.fn();
 const mockFormatAmount = jest.fn();
 const mockResolveSwapHistoryFields = jest.fn();
@@ -68,7 +68,7 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('lib/miden/activity', () => ({
   cancelTransactionById: (...args: unknown[]) => mockCancelTransactionById(...args),
-  existingTransactionIds: (...args: unknown[]) => mockExistingTransactionIds(...args),
+  suppressingLinkedTxIds: (...args: unknown[]) => mockSuppressingLinkedTxIds(...args),
   getCompletedTransactions: (...args: unknown[]) => mockGetCompletedTransactions(...args),
   getUncompletedTransactions: (...args: unknown[]) => mockGetUncompletedTransactions(...args),
   // Real (pure) implementations so the cancelled-row mapping is exercised
@@ -282,7 +282,7 @@ beforeEach(() => {
     (entry: any) => entry.faucetId === 'NATIVE' && entry.transactionIcon === 'RECEIVE'
   );
   mockFormatTransactionStatus.mockImplementation((s: number) => `status-${s}`);
-  mockExistingTransactionIds.mockImplementation(async (ids: string[]) => new Set(ids.filter(id => id === 'BR-KEEP')));
+  mockSuppressingLinkedTxIds.mockImplementation(async (ids: string[]) => new Set(ids.filter(id => id === 'BR-KEEP')));
 });
 
 afterEach(() => cleanup());

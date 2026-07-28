@@ -1,7 +1,7 @@
 import {
-  existingTransactionIds,
   findPendingBridgeInByEarnWithdrawTxId,
   registerPendingBridgeIn,
+  suppressingLinkedTxIds,
   takeAgglayerBridgeInInfo,
   takeBridgeInInfoForNotes
 } from './bridge-in';
@@ -16,12 +16,12 @@ jest.mock('../front/storage', () => ({
   })
 }));
 
-const mockPrimaryKeys = jest.fn();
+const mockAnyOfToArray = jest.fn();
 const mockTransactions: any[] = [];
 jest.mock('lib/agglayer/constant', () => ({ AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID: 'agg-sender' }));
 jest.mock('lib/miden/repo', () => ({
   transactions: {
-    where: jest.fn(() => ({ anyOf: jest.fn(() => ({ primaryKeys: mockPrimaryKeys })) })),
+    where: jest.fn(() => ({ anyOf: jest.fn(() => ({ toArray: mockAnyOfToArray })) })),
     filter: jest.fn((predicate: (tx: any) => boolean) => ({
       toArray: jest.fn(async () => mockTransactions.filter(predicate))
     }))
@@ -161,18 +161,26 @@ describe('findPendingBridgeInByEarnWithdrawTxId', () => {
   });
 });
 
-describe('existingTransactionIds', () => {
-  it('returns the subset of ids that exist as rows', async () => {
-    mockPrimaryKeys.mockResolvedValue(['TX1']);
+describe('suppressingLinkedTxIds', () => {
+  it('suppresses existing linked primaries but NOT a terminal-failed earn-withdraw row', async () => {
+    // A live withdraw row is the single trace (suppress its consume). A FAILED withdraw
+    // row is not — its delivered note must fall through to a visible receive — so it is
+    // excluded even though it exists. Non-earn-withdraw primaries suppress on existence.
+    // 'MISSING' has no row (the query returns only existing rows) so it is absent.
+    mockAnyOfToArray.mockResolvedValue([
+      { id: 'LIVE', type: 'earn-withdraw', extraInputs: { phase: 'delivering' } },
+      { id: 'FAILED', type: 'earn-withdraw', extraInputs: { phase: 'failed' } },
+      { id: 'SWAP', type: 'swap', extraInputs: {} }
+    ]);
 
-    const result = await existingTransactionIds(['TX1', 'TX2', 'TX1']);
+    const result = await suppressingLinkedTxIds(['LIVE', 'FAILED', 'SWAP', 'MISSING']);
 
-    expect(result).toEqual(new Set(['TX1']));
+    expect(result).toEqual(new Set(['LIVE', 'SWAP']));
   });
 
   it('short-circuits on an empty id list', async () => {
-    const result = await existingTransactionIds([]);
+    const result = await suppressingLinkedTxIds([]);
     expect(result).toEqual(new Set());
-    expect(mockPrimaryKeys).not.toHaveBeenCalled();
+    expect(mockAnyOfToArray).not.toHaveBeenCalled();
   });
 });

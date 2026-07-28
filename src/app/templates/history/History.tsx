@@ -3,10 +3,10 @@ import React, { memo, RefObject, useMemo, useState } from 'react';
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import {
   cancelTransactionById,
-  existingTransactionIds,
   getCompletedTransactions,
   getUncompletedTransactions,
   isUserCancelledTransaction,
+  suppressingLinkedTxIds,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
 import {
@@ -325,10 +325,10 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
 async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
   const linkedTrackingIds = transactions.map(linkedPrimaryTxId).filter((id): id is string => Boolean(id));
   if (linkedTrackingIds.length === 0) return transactions;
-  const existingTrackingIds = await existingTransactionIds(linkedTrackingIds);
+  const suppressingIds = await suppressingLinkedTxIds(linkedTrackingIds);
   return transactions.filter(tx => {
     const linkedId = linkedPrimaryTxId(tx);
-    return !(linkedId && existingTrackingIds.has(linkedId));
+    return !(linkedId && suppressingIds.has(linkedId));
   });
 }
 
@@ -338,8 +338,9 @@ async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[])
  * `reconcileSwapOrderNotes`), Smart Withdraw delivery consumes (linked via
  * `extraInputs.bridgeIn.earnWithdrawTxId`) and bridged-receive delivery consumes
  * (linked via `extraInputs.bridgeIn.bridgeReceiveTxId`). While the primary row
- * exists it is the single trace; a dangling reference falls through to a normal
- * receive row.
+ * exists AND is a valid trace it is the single trace; a dangling reference — or a
+ * terminal-`failed` earn-withdraw primary (see `suppressingLinkedTxIds`) — falls
+ * through to a normal receive row so the delivered funds stay visible.
  */
 function linkedPrimaryTxId(tx: ITransaction): string | undefined {
   if (tx.type !== 'consume') return undefined;
