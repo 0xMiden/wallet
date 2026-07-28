@@ -1,17 +1,21 @@
 name: E2E Bridge
 
-# Runs the cross-chain bridge E2E (Miden testnet -> Sepolia via the hosted Epoch
-# allocator/solver) on every push to main. This is a real, UI-only, end-to-end
-# bridge: the wallet mints a real P2IDE note on Miden testnet, the hosted solver
-# settles the EVM leg, and the test asserts real USDC lands at the destination on
-# Sepolia (read via a public RPC).
+# Runs the cross-chain bridge-OUT E2E suite (playwright/e2e/tests/bridge, all
+# specs) on every push to main. UI-only, real Miden testnet. Two routes:
+#   - Fast/Epoch (bridge-out-epoch): the wallet mints a real P2IDE note; the
+#     hosted solver settles the EVM leg; the test asserts real USDC lands at the
+#     Sepolia destination (read via a public RPC).
+#   - Slow/AggLayer (bridge-out-agglayer): the wallet's real work is the Miden
+#     leg — build + prove + submit the B2AGG note → the bridged-send row reaches
+#     Completed ("Bridged to EVM"). The EVM claim is external AggLayer L1 infra
+#     with no hermetic double, so it is deliberately not asserted.
 #
 # Testnet-only by nature — it depends on LIVE external services (Miden testnet,
-# the Epoch allocator/solver, and a public Sepolia RPC), so it is a post-merge
+# the Epoch allocator/solver, a public Sepolia RPC), so it is a post-merge
 # signal on main, not a per-PR gate. It needs NO secrets: bridge-out is
-# solver-fulfilled, so the test signs nothing on EVM and only reads a public
-# Sepolia RPC — there is no funded key to inject. `--retries=1` absorbs transient
-# testnet/RPC hiccups so a one-off external blip doesn't red main.
+# solver-fulfilled / Miden-side, so the test signs nothing on EVM and only reads
+# a public Sepolia RPC — there is no funded key to inject. `--retries=1` absorbs
+# transient testnet/RPC hiccups so a one-off external blip doesn't red main.
 
 on:
   push:
