@@ -26,9 +26,9 @@ const CHART_GREEN = '#90BA89';
 
 // Fractions of a year for the projection columns; rewards = amount × APY × fraction.
 const projectionPeriods = [
-  { label: '1 MONTH', yearFraction: 1 / 12 },
-  { label: '6 MONTHS', yearFraction: 1 / 2 },
-  { label: '1 YEAR', yearFraction: 1 }
+  { labelKey: 'earnProjection1Month', yearFraction: 1 / 12 },
+  { labelKey: 'earnProjection6Months', yearFraction: 1 / 2 },
+  { labelKey: 'earnProjection1Year', yearFraction: 1 }
 ];
 
 const parseAmount = (value: string): number => Number(value.replace(/,/g, '')) || 0;
@@ -60,7 +60,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     hapticLight();
     if (isSubmitting || isGuardian) return;
     if (!account.evmAddress) {
-      setSubmitError('No EVM address available for this account.');
+      setSubmitError(t('earnNoEvmAddress'));
       return;
     }
     setIsSubmitting(true);
@@ -74,7 +74,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         onRowCreated: txId => navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`)
       });
     } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : 'Failed to open position');
+      setSubmitError(e instanceof Error ? e.message : t('earnFailedToOpenPosition'));
     } finally {
       setIsSubmitting(false);
     }
@@ -86,7 +86,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
 
       <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
         <div className={clsx('flex flex-col px-6 pt-6')}>
-          <span className="font-heading text-2xl font-bold leading-none text-gray">Deposit Amount</span>
+          <span className="font-heading text-2xl font-bold leading-none text-gray">{t('earnDepositAmountTitle')}</span>
           <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-heading-gray">
             {amountValue.toFixed(2)}
           </div>
@@ -109,7 +109,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
           <div className="mb-2 text-center text-sm leading-tight text-status-negative">{submitError}</div>
         )}
         <Button
-          title="Open position"
+          title={t('earnOpenPosition')}
           variant={ButtonVariant.Primary}
           onClick={handleOpenPosition}
           disabled={isSubmitting || amountValue <= 0 || !vault.id || isGuardian}
@@ -121,14 +121,16 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
 };
 
 const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, amount }) => {
+  const { t } = useTranslation();
   // `apy` is a pre-formatted display string ("2.00%", or "—" while loading).
   const apyFraction = (Number.parseFloat(vault.apy) || 0) / 100;
   const projections = projectionPeriods.map(item => ({
-    ...item,
+    label: t(item.labelKey),
+    yearFraction: item.yearFraction,
     reward: amount * apyFraction * item.yearFraction
   }));
   const chartData = [
-    { label: 'Now', value: amount },
+    { label: t('earnProjectionNow'), value: amount },
     ...projections.map(item => ({
       label: item.label,
       value: amount + item.reward
@@ -170,7 +172,7 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
               <div key={item.label}>
                 <div className="text-xs font-semibold uppercase leading-none text-gray-secondary">{item.label}</div>
                 <div className="mt-1 font-heading text-sm font-bold leading-none text-status-positive">
-                  +${item.reward.toFixed(2)}
+                  {t('earnProjectedRewardAmount', { amount: item.reward.toFixed(2) })}
                 </div>
               </div>
             ))}
@@ -179,9 +181,12 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
       </div>
 
       <div className="mt-4 space-y-6">
-        <DetailRow label="Collateral" value="Miden P2IDE (gasless)" />
-        <DetailRow label="Route" value={`Miden -> ${vault.protocol} (${vault.network})`} />
-        <DetailRow label="Estimated time" value="~30 seconds" />
+        <DetailRow label={t('earnCollateralLabel')} value={t('earnCollateralValue')} />
+        <DetailRow
+          label={t('route')}
+          value={t('earnDepositRoute', { protocol: vault.protocol, network: vault.network })}
+        />
+        <DetailRow label={t('earnEstimatedTime')} value={t('earnEstimatedTimeValue')} />
       </div>
     </div>
   );

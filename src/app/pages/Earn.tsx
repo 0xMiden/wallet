@@ -1,6 +1,7 @@
 import React, { FC } from 'react';
 
 import classNames from 'clsx';
+import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -10,6 +11,7 @@ import { EarnPosition, EarnVault } from 'screens/earn-flow/types';
 import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 
 const Earn: FC = () => {
+  const { t } = useTranslation();
   const { summary, positions, vaults } = useEarnPositions();
   const handleSeeAllClick = () => {
     hapticLight();
@@ -25,14 +27,14 @@ const Earn: FC = () => {
           <section className="mt-4" aria-labelledby="earn-positions-title">
             <div className="flex items-center justify-between">
               <h2 id="earn-positions-title" className="text-xl font-heading font-bold leading-none text-heading-gray">
-                Current Positions
+                {t('earnCurrentPositionsTitle')}
               </h2>
               <button
                 type="button"
                 onClick={handleSeeAllClick}
                 className="text-xs font-heading font-bold leading-none text-heading-gray"
               >
-                See All
+                {t('earnSeeAll')}
               </button>
             </div>
 
@@ -50,7 +52,7 @@ const Earn: FC = () => {
 
           <section className="mt-3" aria-labelledby="earn-vaults-title">
             <h2 id="earn-vaults-title" className="text-xl font-heading font-bold leading-none text-heading-gray">
-              Featured Vaults
+              {t('earnVaultsTitle')}
             </h2>
 
             <div className="mt-1 flex flex-col divide-y divide-rule-default">
@@ -65,62 +67,70 @@ const Earn: FC = () => {
   );
 };
 
-const PositionCard: FC<{ position: EarnPosition }> = ({ position }) => (
-  <button
-    type="button"
-    onClick={() => {
-      hapticLight();
-      navigate(`/earn/positions/${position.id}`);
-    }}
-    className={classNames('shrink-0 rounded-2xl border border-[#EFEFF2] bg-white px-4 py-4 text-left')}
-  >
-    <div className="flex items-center gap-10">
-      <div className="flex min-w-0 items-center gap-2">
-        <ProviderLogo protocol={position.protocol} className="h-4 w-4" />
-        <div className="text-base font-bold leading-none text-black">
-          {position.protocol} &bull; {position.asset}
+const PositionCard: FC<{ position: EarnPosition }> = ({ position }) => {
+  const { t } = useTranslation();
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        hapticLight();
+        navigate(`/earn/positions/${position.id}`);
+      }}
+      className={classNames('shrink-0 rounded-2xl border border-[#EFEFF2] bg-white px-4 py-4 text-left')}
+    >
+      <div className="flex items-center gap-10">
+        <div className="flex min-w-0 items-center gap-2">
+          <ProviderLogo protocol={position.protocol} className="h-4 w-4" />
+          <div className="text-base font-bold leading-none text-black">
+            {position.protocol} &bull; {position.asset}
+          </div>
+        </div>
+        <div className="rounded-full bg-green-100 px-2 py-1 text-xs font-bold font-heading leading-none text-green-500">
+          {position.apy} {t('earnApyLabel')}
         </div>
       </div>
-      <div className="rounded-full bg-green-100 px-2 py-1 text-xs font-bold font-heading leading-none text-green-500">
-        {position.apy} APY
+
+      <div className="mt-3 text-[22px] font-bold font-heading leading-none text-black">{position.amount}</div>
+      <div className="mt-2 text-xs font-bold leading-none text-green-500">
+        {position.rewards} &bull; {position.age}
       </div>
-    </div>
+    </button>
+  );
+};
 
-    <div className="mt-3 text-[22px] font-bold font-heading leading-none text-black">{position.amount}</div>
-    <div className="mt-2 text-xs font-bold leading-none text-green-500">
-      {position.rewards} &bull; {position.age}
-    </div>
-  </button>
-);
+const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => {
+  const { t } = useTranslation();
 
-const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => (
-  <button
-    type="button"
-    onClick={() => {
-      hapticLight();
-      navigate(`/earn/vaults/${vault.id}`);
-    }}
-    className="flex w-full items-center gap-3 py-4 text-left"
-  >
-    <span className="flex h-9.5 w-9.5 shrink-0 items-center justify-center rounded-[14px] bg-[#F0F0FF]">
-      <ProviderLogo protocol={vault.protocol} className="h-8 w-8" />
-    </span>
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        hapticLight();
+        navigate(`/earn/vaults/${vault.id}`);
+      }}
+      className="flex w-full items-center gap-3 py-4 text-left"
+    >
+      <span className="flex h-9.5 w-9.5 shrink-0 items-center justify-center rounded-[14px] bg-[#F0F0FF]">
+        <ProviderLogo protocol={vault.protocol} className="h-8 w-8" />
+      </span>
 
-    <div className="min-w-0 flex-1">
-      <div className="flex min-w-0 items-baseline gap-2">
-        <span className="shrink-0 text-base font-bold leading-tight text-black">{vault.protocol}</span>
-        <span className="truncate text-xs font-regular leading-tight text-text-secondary-token">
-          {vault.asset} on {vault.network}
-        </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span className="shrink-0 text-base font-bold leading-tight text-black">{vault.protocol}</span>
+          <span className="truncate text-xs font-regular leading-tight text-text-secondary-token">
+            {t('earnVaultAssetOnNetwork', { asset: vault.asset, network: vault.network })}
+          </span>
+        </div>
+        <div className="mt-0.5 flex items-baseline gap-1 text-xs font-bold leading-tight">
+          <span className="text-text-secondary-token">{t('earnApyLabel')}</span>
+          <span className="text-status-positive">{vault.apy}</span>
+        </div>
       </div>
-      <div className="mt-0.5 flex items-baseline gap-1 text-xs font-bold leading-tight">
-        <span className="text-text-secondary-token">APY</span>
-        <span className="text-status-positive">{vault.apy}</span>
-      </div>
-    </div>
 
-    <Icon name={IconName.ChevronRightLucide} className="h-5 w-5 shrink-0 text-text-secondary-token" fill="none" />
-  </button>
-);
+      <Icon name={IconName.ChevronRightLucide} className="h-5 w-5 shrink-0 text-text-secondary-token" fill="none" />
+    </button>
+  );
+};
 
 export default Earn;

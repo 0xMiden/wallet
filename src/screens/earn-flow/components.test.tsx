@@ -22,6 +22,12 @@ jest.mock('lib/woozie', () => ({
   goBack: jest.fn()
 }));
 
+// Stub react-i18next so `t(key)` echoes the key, letting us assert on
+// translation keys instead of English (matches the sibling earn-flow tests).
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
+
 // Stub the two child widgets to probes that surface the props `components.tsx`
 // forwards, so we can prove the wiring (icon/onClick/aria-label, token symbol)
 // without pulling in haptics / the SVG-logo chrome. This mirrors how the
@@ -94,14 +100,14 @@ describe('EarnFlowHeader', () => {
     // The bullet separator is rendered between protocol and asset.
     expect(heading.textContent).toContain('•');
 
-    expect(screen.getByText('USDC on Ethereum')).toBeInTheDocument();
+    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
   });
 
   it('wires the back button to goBack with the ChevronLeft icon and Back label', () => {
     render(<EarnFlowHeader vault={VAULT} />);
 
     const button = screen.getByTestId('circle-button');
-    expect(button).toHaveAttribute('aria-label', 'Back');
+    expect(button).toHaveAttribute('aria-label', 'back');
     expect(button).toHaveAttribute('data-icon', String(IconName.ChevronLeft));
     expect(button).toHaveAttribute('data-size', 'md');
 
@@ -116,7 +122,7 @@ describe('EarnFlowHeader', () => {
     const heading = screen.getByRole('heading', { level: 1 });
     expect(heading).toHaveTextContent('Compound');
     expect(heading).toHaveTextContent('ETH');
-    expect(screen.getByText('ETH on Base')).toBeInTheDocument();
+    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
   });
 });
 
@@ -158,9 +164,9 @@ describe('EarnSummaryPanel', () => {
   it('renders the heading, total rewards and blended APY line', () => {
     render(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" />);
 
-    expect(screen.getByText('Total Earned Rewards')).toBeInTheDocument();
+    expect(screen.getByText('earnTotalEarnedRewards')).toBeInTheDocument();
     expect(screen.getByText('$218.32')).toBeInTheDocument();
-    expect(screen.getByText('Earning ~5.2% blended APY')).toBeInTheDocument();
+    expect(screen.getByText('earnEarningBlendedApy')).toBeInTheDocument();
   });
 
   it('links the section to the heading via titleId and applies className', () => {
@@ -177,19 +183,19 @@ describe('EarnSummaryPanel', () => {
   it('renders both metric cards by default (showMetrics defaults to true)', () => {
     render(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" />);
 
-    expect(screen.getByText('Total Deposited')).toBeInTheDocument();
+    expect(screen.getByText('earnTotalDeposited')).toBeInTheDocument();
     expect(screen.getByText('$4,218.32')).toBeInTheDocument();
-    expect(screen.getByText('Estimated Rewards')).toBeInTheDocument();
+    expect(screen.getByText('earnEstimatedRewards')).toBeInTheDocument();
     expect(screen.getByText('+$24.50')).toBeInTheDocument();
   });
 
   it('hides the metric cards when showMetrics is false', () => {
     render(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" showMetrics={false} />);
 
-    expect(screen.queryByText('Total Deposited')).not.toBeInTheDocument();
-    expect(screen.queryByText('Estimated Rewards')).not.toBeInTheDocument();
+    expect(screen.queryByText('earnTotalDeposited')).not.toBeInTheDocument();
+    expect(screen.queryByText('earnEstimatedRewards')).not.toBeInTheDocument();
     // The summary heading and figures still render.
-    expect(screen.getByText('Total Earned Rewards')).toBeInTheDocument();
+    expect(screen.getByText('earnTotalEarnedRewards')).toBeInTheDocument();
     expect(screen.getByText('$218.32')).toBeInTheDocument();
   });
 });

@@ -59,6 +59,16 @@ jest.mock('recharts', () => {
   };
 });
 
+// i18n: assert on keys, not English. The mock echoes the key and appends any
+// interpolation values so data-bearing assertions (protocol/asset/network/
+// estimate) still hold — e.g. `t('earnPositionHeaderTitle', { protocol, asset })`
+// renders "earnPositionHeaderTitle FlatProto FUSD".
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) => (opts ? `${key} ${Object.values(opts).join(' ')}` : key)
+  })
+}));
+
 // `lib/woozie`'s real barrel reaches for browser history/analytics on import.
 // Stub `goBack`/`navigate` so we can assert the back-button and the action
 // buttons without the router.
@@ -206,10 +216,12 @@ describe('EarnPositionDetail', () => {
     // Page shell.
     expect(screen.getByTestId('earn-position-detail-page')).toBeInTheDocument();
 
-    // Header title: "My {protocol} • {asset} position".
-    const heading = screen.getByRole('heading', { level: 1, name: /My FlatProto/ });
-    expect(heading).toHaveTextContent('My FlatProto');
-    expect(heading).toHaveTextContent('FUSD position');
+    // Header title: t('earnPositionHeaderTitle', { protocol, asset }). The mock
+    // echoes the key + interpolation values -> "earnPositionHeaderTitle FlatProto FUSD".
+    const heading = screen.getByRole('heading', { level: 1, name: /earnPositionHeaderTitle/ });
+    expect(heading).toHaveTextContent('earnPositionHeaderTitle');
+    expect(heading).toHaveTextContent('FlatProto');
+    expect(heading).toHaveTextContent('FUSD');
 
     // EarnSummaryPanel is rendered with metrics hidden and the correct titleId.
     const summary = screen.getByTestId('earn-summary');
@@ -221,34 +233,36 @@ describe('EarnPositionDetail', () => {
     const cards = screen.getAllByTestId('metric-card');
     expect(cards).toHaveLength(6);
     const byLabel = (label: string) => cards.find(c => c.getAttribute('data-label') === label)!;
-    expect(byLabel('Deposited')).toHaveTextContent('$2,000.00');
-    expect(byLabel('Total Earned')).toHaveTextContent('+$99.00');
-    expect(byLabel('Total Earned')).toHaveAttribute('data-valueclass', 'text-status-positive');
+    expect(byLabel('earnMetricDeposited')).toHaveTextContent('$2,000.00');
+    expect(byLabel('earnMetricTotalEarned')).toHaveTextContent('+$99.00');
+    expect(byLabel('earnMetricTotalEarned')).toHaveAttribute('data-valueclass', 'text-status-positive');
     expect(byLabel('APY')).toHaveTextContent('9.99%');
-    expect(byLabel('Daily Avg')).toHaveTextContent('+$1.11');
-    expect(byLabel('Time Active')).toHaveTextContent('7d');
-    expect(byLabel('Started')).toHaveTextContent('Jan 01');
+    expect(byLabel('earnMetricDailyAvg')).toHaveTextContent('+$1.11');
+    expect(byLabel('earnMetricTimeActive')).toHaveTextContent('7d');
+    expect(byLabel('earnMetricStarted')).toHaveTextContent('Jan 01');
 
     // PositionHeading: logo + "{protocol} • {asset}" + "{asset} on {network}" pill.
     expect(screen.getByTestId('position-logo')).toHaveAttribute('data-asset', 'FUSD');
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('FlatProto');
-    expect(container.textContent).toContain('FUSD on Flatnet');
+    // "{asset} on {network}" pill -> t('earnAssetOnNetwork', { asset, network }).
+    expect(container.textContent).toContain('earnAssetOnNetwork');
+    expect(container.textContent).toContain('Flatnet');
 
     // ProjectedEarnings summary line.
+    expect(container.textContent).toContain('earnProjectedEarnings');
     expect(container.textContent).toContain('+$120.00 / yr');
-    expect(container.textContent).toContain('9.99% APY');
 
-    // PositionDetails rows.
-    expect(container.textContent).toContain('Protocol');
-    expect(container.textContent).toContain('Network');
-    expect(container.textContent).toContain('Route');
+    // PositionDetails rows (labels are t() keys; values are data).
+    expect(container.textContent).toContain('protocol');
+    expect(container.textContent).toContain('network');
+    expect(container.textContent).toContain('route');
     expect(container.textContent).toContain('Miden -> Flat (Flatnet)');
     expect(container.textContent).toContain('~10 sec instant');
 
-    // Action buttons (note: "Withdraw" also appears as a PositionDetails row
-    // label, so target the buttons by role to disambiguate).
-    expect(screen.getByRole('button', { name: 'Deposit more' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Withdraw' })).toBeInTheDocument();
+    // Action buttons (note: the "withdraw" key also appears as a PositionDetails
+    // row label, so target the buttons by role to disambiguate).
+    expect(screen.getByRole('button', { name: 'earnDepositMore' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeInTheDocument();
   });
 
   it('falls back to the placeholder position when the id does not match any position', () => {
@@ -256,25 +270,25 @@ describe('EarnPositionDetail', () => {
 
     // `?? placeholderPosition()` — every display field renders "—" and both
     // actions are disabled (no vaultId, nothing withdrawable).
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('My — • — position');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('earnPositionHeaderTitle');
     expect(screen.getByTestId('position-logo')).toHaveAttribute('data-asset', '—');
 
     const cards = screen.getAllByTestId('metric-card');
     const byLabel = (label: string) => cards.find(c => c.getAttribute('data-label') === label)!;
-    expect(byLabel('Deposited')).toHaveTextContent('—');
+    expect(byLabel('earnMetricDeposited')).toHaveTextContent('—');
     expect(byLabel('APY')).toHaveTextContent('—');
 
-    expect(screen.getByRole('button', { name: 'Deposit more' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Withdraw' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'earnDepositMore' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
   });
 
   it('navigates to the deposit and withdraw routes from the action buttons', () => {
     renderDetail('pos-flat');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Deposit more' }));
+    fireEvent.click(screen.getByRole('button', { name: 'earnDepositMore' }));
     expect(mockNavigate).toHaveBeenLastCalledWith('/earn/vaults/vault-flat/deposit');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }));
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
     expect(mockNavigate).toHaveBeenLastCalledWith('/earn/positions/pos-flat/withdraw/review');
   });
 
@@ -302,7 +316,7 @@ describe('EarnPositionDetail', () => {
   it('invokes goBack when the back button is pressed', () => {
     renderDetail('pos-flat');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
     expect(mockGoBack).toHaveBeenCalledTimes(1);
   });
 
@@ -334,6 +348,6 @@ describe('EarnPositionDetail', () => {
     // pos-normal -> varying values -> padding truthy branch.
     const normal = renderDetail('pos-normal');
     expect(normal.getByTestId('area-chart')).toBeInTheDocument();
-    expect(normal.getByRole('heading', { level: 1, name: /My Aave/ })).toBeInTheDocument();
+    expect(normal.getByRole('heading', { level: 1, name: /earnPositionHeaderTitle Aave/ })).toBeInTheDocument();
   });
 });

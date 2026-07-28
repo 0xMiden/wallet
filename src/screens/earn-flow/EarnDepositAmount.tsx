@@ -1,5 +1,7 @@
 import React, { FC, useMemo, useState } from 'react';
 
+import { useTranslation } from 'react-i18next';
+
 import { MIDEN_USDC_DECIMALS, MIDEN_USDC_FAUCET, normalizeMidenIdToHex } from 'lib/epoch';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { navigate } from 'lib/woozie';
@@ -17,6 +19,7 @@ interface EarnDepositAmountProps {
 const parseAmount = (value: string): number => Number(value.replace(/,/g, '')) || 0;
 
 const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
+  const { t } = useTranslation();
   const [amount, setAmount] = useState('');
   const { vaults } = useEarnPositions();
   const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
@@ -53,8 +56,8 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
           token={token}
           amount={amount}
           isValidAmount={isValidAmount}
-          label="Deposit Amount"
-          confirmTitle="Confirm"
+          label={t('earnDepositAmountLabel')}
+          confirmTitle={t('confirm')}
           showNetworkPill={false}
           showBalanceHelper={!hasAmount}
           footerClassName="pt-4 pb-6"

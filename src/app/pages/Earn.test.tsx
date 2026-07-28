@@ -51,6 +51,14 @@ jest.mock('screens/earn-flow/useEarnPositions', () => ({
   useEarnPositions: jest.fn()
 }));
 
+// i18n: the page renders every user-facing string through `t()`. Stub the hook
+// so `t(key)` returns the key verbatim, letting us assert on the stable key
+// instead of the English copy. Interpolated calls (`{asset} on {network}`) also
+// collapse to the bare key under this stub.
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
+
 const mockHaptic = hapticLight as jest.Mock;
 const mockNavigate = navigate as jest.Mock;
 const mockUseEarnPositions = useEarnPositions as jest.Mock;
@@ -63,8 +71,8 @@ beforeEach(() => {
   mockUseEarnPositions.mockReturnValue(EARN_DATA);
 });
 
-const positionsSection = () => screen.getByRole('region', { name: 'Current Positions' });
-const vaultsSection = () => screen.getByRole('region', { name: 'Featured Vaults' });
+const positionsSection = () => screen.getByRole('region', { name: 'earnCurrentPositionsTitle' });
+const vaultsSection = () => screen.getByRole('region', { name: 'earnVaultsTitle' });
 
 describe('Earn page', () => {
   // Sanity guard: the "renders one card per item" checks below rely on the
@@ -87,14 +95,14 @@ describe('Earn page', () => {
   it('renders both section headings', () => {
     render(<Earn />);
 
-    expect(screen.getByRole('heading', { name: 'Current Positions' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Featured Vaults' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'earnCurrentPositionsTitle' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'earnVaultsTitle' })).toBeInTheDocument();
   });
 
   it('navigates to the positions list when "See All" is tapped', () => {
     render(<Earn />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'See All' }));
+    fireEvent.click(screen.getByRole('button', { name: 'earnSeeAll' }));
 
     expect(mockHaptic).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledTimes(1);
@@ -109,14 +117,14 @@ describe('Earn page', () => {
     // not the scroll row, so the card count equals positions.length + nothing.
     const cards = within(section)
       .getAllByRole('button')
-      .filter(button => button.textContent !== 'See All');
+      .filter(button => button.textContent !== 'earnSeeAll');
     expect(cards).toHaveLength(positions.length);
 
     const first = positions[0]!;
     const firstCard = cards[0]!;
     // Protocol + asset are joined by a bullet in a single node.
     expect(firstCard).toHaveTextContent(`${first.protocol} • ${first.asset}`);
-    expect(firstCard).toHaveTextContent(`${first.apy} APY`);
+    expect(firstCard).toHaveTextContent(`${first.apy} earnApyLabel`);
     expect(firstCard).toHaveTextContent(first.amount);
     expect(firstCard).toHaveTextContent(`${first.rewards} • ${first.age}`);
 
@@ -130,7 +138,7 @@ describe('Earn page', () => {
 
     const positionCard = within(positionsSection())
       .getAllByRole('button')
-      .find(button => button.textContent !== 'See All')!;
+      .find(button => button.textContent !== 'earnSeeAll')!;
     expect(within(positionCard).getByText(`${positions[0]!.protocol} • ${positions[0]!.asset}`)).toHaveClass(
       'text-black'
     );
@@ -145,7 +153,7 @@ describe('Earn page', () => {
 
     const cards = within(positionsSection())
       .getAllByRole('button')
-      .filter(button => button.textContent !== 'See All');
+      .filter(button => button.textContent !== 'earnSeeAll');
     fireEvent.click(cards[0]!);
 
     expect(mockHaptic).toHaveBeenCalledTimes(1);
@@ -174,7 +182,7 @@ describe('Earn page', () => {
     const first = vaults[0]!;
     const firstRow = rows[0]!;
     expect(firstRow).toHaveTextContent(first.protocol);
-    expect(firstRow).toHaveTextContent(`${first.asset} on ${first.network}`);
+    expect(firstRow).toHaveTextContent('earnVaultAssetOnNetwork');
     expect(firstRow).toHaveTextContent(first.apy);
 
     // The trailing chevron probe uses the ChevronRightLucide icon rendered with

@@ -1,6 +1,7 @@
 import React, { FC, useMemo, useState } from 'react';
 
 import clsx from 'clsx';
+import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
@@ -28,6 +29,7 @@ interface EarnWithdrawReviewProps {
  * behind it and flips the row's phase, which that screen observes.
  */
 const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
+  const { t } = useTranslation();
   const { positions } = useEarnPositions();
   const position = useMemo(
     () => positions.find(item => item.id === positionId) ?? placeholderPosition(),
@@ -43,7 +45,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
     hapticLight();
     if (isSubmitting) return;
     if (!account.evmAddress || account.evmAddress.toLowerCase() !== position.owner.toLowerCase()) {
-      setSubmitError('This position is not owned by the current wallet-derived EVM account.');
+      setSubmitError(t('earnWithdrawNotOwned'));
       return;
     }
     setIsSubmitting(true);
@@ -65,7 +67,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
       // If the row was already created we have navigated away and the
       // generating screen renders the failed phase; this only surfaces
       // pre-row validation errors.
-      setSubmitError(e instanceof Error ? e.message : 'Gasless withdrawal failed.');
+      setSubmitError(e instanceof Error ? e.message : t('earnGaslessWithdrawalFailed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -80,7 +82,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
             onClick={goBack}
             className="h-10 w-10 bg-gray-25 text-heading-gray hover:bg-gray-50 focus:bg-gray-50"
             size="md"
-            aria-label="Back"
+            aria-label={t('back')}
           />
           <h1 className="min-w-0 truncate font-heading text-[26px] font-bold leading-none text-heading-gray">
             {position.protocol} &bull; {position.asset}
@@ -93,7 +95,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
 
       <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
         <div className={clsx('flex flex-col px-6 pt-6')}>
-          <span className="font-heading text-2xl font-bold leading-none text-gray">Withdraw Amount</span>
+          <span className="font-heading text-2xl font-bold leading-none text-gray">{t('earnWithdrawAmount')}</span>
           <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-heading-gray">
             {amountValue.toFixed(2)}
           </div>
@@ -103,10 +105,10 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
           </div>
 
           <div className="mt-8 space-y-6 pb-4">
-            <DetailRow label="Route" value={`${position.protocol} (${position.network}) -> Miden`} />
-            <DetailRow label="Position owner" value={truncateAddress(position.owner, false, 8, 8)} />
-            <DetailRow label="Withdrawal" value="Full position (gasless)" />
-            <DetailRow label="Estimated time" value="~1 minute" />
+            <DetailRow label={t('route')} value={`${position.protocol} (${position.network}) -> Miden`} />
+            <DetailRow label={t('positionOwnerLabel')} value={truncateAddress(position.owner, false, 8, 8)} />
+            <DetailRow label={t('earnWithdrawalLabel')} value={t('earnFullPositionGasless')} />
+            <DetailRow label={t('earnEstimatedTimeLabel')} value={t('earnEstimatedTimeOneMinute')} />
           </div>
         </div>
       </div>
@@ -116,7 +118,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
           <div className="mb-2 text-center text-sm leading-tight text-status-negative">{submitError}</div>
         )}
         <Button
-          title={isSubmitting ? 'Withdrawing…' : 'Withdraw'}
+          title={isSubmitting ? t('withdrawing') : t('withdraw')}
           variant={ButtonVariant.Primary}
           onClick={handleWithdraw}
           disabled={isSubmitting || amountValue <= 0 || !position.id}

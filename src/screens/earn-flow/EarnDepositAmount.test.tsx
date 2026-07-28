@@ -13,6 +13,11 @@ jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
 
+// i18n: assert on keys, not English copy.
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
+
 // `./components` transitively pulls in the `app/icons/v2` SVG barrel plus the
 // `CircleButton`/`TokenLogo` widgets. Stub `EarnFlowHeader` to a probe that
 // surfaces which vault the page resolved (`data-vault-id`) so we can prove the
@@ -148,8 +153,8 @@ describe('EarnDepositAmount', () => {
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
     const select = screen.getByTestId('select-amount');
-    expect(select).toHaveAttribute('data-label', 'Deposit Amount');
-    expect(select).toHaveAttribute('data-confirm-title', 'Confirm');
+    expect(select).toHaveAttribute('data-label', 'earnDepositAmountLabel');
+    expect(select).toHaveAttribute('data-confirm-title', 'confirm');
     expect(select).toHaveAttribute('data-show-network-pill', 'false');
     expect(select).toHaveAttribute('data-footer', 'pt-4 pb-6');
   });

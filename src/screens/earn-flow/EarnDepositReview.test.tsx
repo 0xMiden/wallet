@@ -8,6 +8,18 @@ import { isMobile } from 'lib/platform';
 
 import EarnDepositReview from './EarnDepositReview';
 
+// --- react-i18next: echo the key back, and fold interpolation options into the
+//     returned string so we can assert the interpolated route/reward values
+//     (mirrors the swap-flow ReviewSwap sibling test).
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) => {
+      const values = opts ? Object.values(opts) : [];
+      return values.length > 0 ? `${key}_${values.join('_')}` : key;
+    }
+  })
+}));
+
 // --- woozie router: mutable location + spyable navigate.
 const mockLocation = { search: '' };
 const mockNavigate = jest.fn();
@@ -198,7 +210,7 @@ describe('EarnDepositReview', () => {
       renderReview('aave-usdc-ethereum-1', '?amount=1,000');
 
       const cta = screen.getByTestId('open-position-btn');
-      expect(cta).toHaveTextContent('Open position');
+      expect(cta).toHaveTextContent('earnOpenPosition');
       expect(cta).toBeEnabled();
 
       fireEvent.click(cta);
@@ -232,7 +244,7 @@ describe('EarnDepositReview', () => {
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
-      expect(await screen.findByText('No EVM address available for this account.')).toBeInTheDocument();
+      expect(await screen.findByText('earnNoEvmAddress')).toBeInTheDocument();
       expect(mockOpenEarnPosition).not.toHaveBeenCalled();
     });
 
@@ -276,42 +288,42 @@ describe('EarnDepositReview', () => {
       expect(screen.getByTestId('chart-container')).toBeInTheDocument();
       expect(screen.getByTestId('area-chart')).toBeInTheDocument();
 
-      // Projection labels.
-      expect(screen.getByText('1 MONTH')).toBeInTheDocument();
-      expect(screen.getByText('6 MONTHS')).toBeInTheDocument();
-      expect(screen.getByText('1 YEAR')).toBeInTheDocument();
+      // Projection labels (keys echoed by the i18n mock).
+      expect(screen.getByText('earnProjection1Month')).toBeInTheDocument();
+      expect(screen.getByText('earnProjection6Months')).toBeInTheDocument();
+      expect(screen.getByText('earnProjection1Year')).toBeInTheDocument();
 
-      // Rewards = amount × APY fraction × year fraction, 2dp, "+$" prefixed.
-      // The fixture vault's APY is "5.24%" => 0.0524.
-      expect(screen.getByText('+$4.37')).toBeInTheDocument();
-      expect(screen.getByText('+$26.20')).toBeInTheDocument();
-      expect(screen.getByText('+$52.40')).toBeInTheDocument();
+      // Rewards = amount × APY fraction × year fraction, 2dp, interpolated into
+      // the reward key. The fixture vault's APY is "5.24%" => 0.0524.
+      expect(screen.getByText('earnProjectedRewardAmount_4.37')).toBeInTheDocument();
+      expect(screen.getByText('earnProjectedRewardAmount_26.20')).toBeInTheDocument();
+      expect(screen.getByText('earnProjectedRewardAmount_52.40')).toBeInTheDocument();
     });
 
     it('renders the static detail rows including the route built from the vault', () => {
       renderReview('aave-usdc-ethereum-1', '?amount=1000');
 
-      expect(screen.getByText('Collateral')).toBeInTheDocument();
-      expect(screen.getByText('Miden P2IDE (gasless)')).toBeInTheDocument();
+      expect(screen.getByText('earnCollateralLabel')).toBeInTheDocument();
+      expect(screen.getByText('earnCollateralValue')).toBeInTheDocument();
 
-      expect(screen.getByText('Estimated time')).toBeInTheDocument();
-      expect(screen.getByText('~30 seconds')).toBeInTheDocument();
+      expect(screen.getByText('earnEstimatedTime')).toBeInTheDocument();
+      expect(screen.getByText('earnEstimatedTimeValue')).toBeInTheDocument();
 
-      // Route: `Miden -> ${protocol} (${network})`.
-      expect(screen.getByText('Route')).toBeInTheDocument();
-      expect(screen.getByText('Miden -> Aave (Ethereum)')).toBeInTheDocument();
+      // Route label reuses the shared `route` key; value interpolates protocol + network.
+      expect(screen.getByText('route')).toBeInTheDocument();
+      expect(screen.getByText('earnDepositRoute_Aave_Ethereum')).toBeInTheDocument();
     });
 
     it('renders zero rewards when the amount is zero', () => {
       renderReview('aave-usdc-ethereum-1', '?amount=0');
       expect(screen.getByText('0.00')).toBeInTheDocument();
       // All three reward tiles collapse to +$0.00.
-      expect(screen.getAllByText('+$0.00')).toHaveLength(3);
+      expect(screen.getAllByText('earnProjectedRewardAmount_0.00')).toHaveLength(3);
     });
 
     it('treats an unparseable APY as zero (placeholder vault, `|| 0` branch)', () => {
       renderReview('does-not-exist', '?amount=1000');
-      expect(screen.getAllByText('+$0.00')).toHaveLength(3);
+      expect(screen.getAllByText('earnProjectedRewardAmount_0.00')).toHaveLength(3);
     });
   });
 });
