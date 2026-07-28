@@ -3,6 +3,7 @@ import { type Address, parseUnits } from 'viem';
 import { sepolia } from 'viem/chains';
 
 import {
+  findPendingBridgeInByEarnWithdrawTxId,
   initiateEarnWithdrawTransaction,
   registerPendingBridgeIn,
   resolveBridgeInNoteId,
@@ -225,18 +226,18 @@ export async function gaslessEarnWithdrawalToMiden(
   // row terminal `failed`. They are the row's two independent recovery anchors, and they
   // are written + caught INDEPENDENTLY so a single failed write cannot strand the row:
   //
-  //   1. registerBridgeIn writes the nonce→txId registry entry the auto-consume path uses
-  //      to flip the row to the authoritative terminal `received`. It runs FIRST because
-  //      it yields the correct terminal state without needing anything on the row, and so
-  //      it is the more valuable of the two to have committed if the WebView is torn down
-  //      mid-bookkeeping.
+  //   1. registerBridgeIn writes the nonce→txId registry entry (keyed to this row via
+  //      earnWithdrawTxId). It runs FIRST because it is the durable proof-of-submit that
+  //      `resumeEarnWithdrawal` falls back to when the row itself lost its nonce, and it
+  //      also lets the auto-consume path flip the row to the terminal `received`.
   //   2. updatePhase records the nonce on the row so `reconcileEarnWithdrawals`→
   //      `resumeEarnWithdrawal` can re-register the bridge-in and re-poll after an app kill.
   //
-  // Losing anchor 1 alone → reconcile recovers via anchor 2; losing anchor 2 alone →
-  // auto-consume recovers via anchor 1. Only losing BOTH (two independent aborted writes)
-  // strands the row, which is why they are no longer chained in one all-or-nothing try:
-  // previously a failed nonce-write skipped registerBridgeIn, killing both nets at once.
+  // Losing anchor 1 alone → resume recovers via anchor 2 (the row nonce). Losing anchor 2
+  // alone → resume recovers the nonce from anchor 1 (the registry) and re-persists it, so
+  // it still never fails a live withdrawal. Only losing BOTH (two independent aborted
+  // writes) strands the row, which is why they are no longer chained in one all-or-nothing
+  // try: previously a failed nonce-write skipped registerBridgeIn, killing both anchors.
   try {
     await registerBridgeIn(sponsorAddress, nonceString, {
       provider: 'epoch',
@@ -359,14 +360,20 @@ export function pollEarnWithdrawDelivery(args: {
 interface ResumeDeps extends DeliveryPollDeps {
   registerBridgeIn?: typeof registerPendingBridgeIn;
   startDeliveryPoll?: typeof pollEarnWithdrawDelivery;
+  findBridgeIn?: typeof findPendingBridgeInByEarnWithdrawTxId;
 }
 
 /**
  * Idempotently resume a non-terminal `earn-withdraw` row after an app restart.
- * If the redeem intent was submitted (`withdrawIntentNonce` recorded), the bridge-in
- * is re-registered and delivery polling restarts. If it was never submitted (app
- * killed mid-solve), the row is marked `failed` — the EVM intent can't be safely
- * reconstructed. No-op on terminal rows.
+ * If the redeem intent was submitted, the bridge-in is re-registered and delivery
+ * polling restarts. The proof-of-submit is the intent nonce: normally read off the
+ * row (`withdrawIntentNonce`), but if the row lost it (a teardown between the two
+ * post-submit writes) it is recovered from the bridge-in registry, which is written
+ * first and keyed to this row's id — so a live withdrawal is never falsely failed
+ * (a false terminal `failed` would permanently block the auto-consume `received`
+ * flip and hide the delivered funds). Only when NEITHER the row nor the registry
+ * has the nonce (app killed mid-solve, intent never submitted) is the row marked
+ * `failed`. No-op on terminal rows.
  */
 export async function resumeEarnWithdrawal(txId: string, deps: ResumeDeps = {}): Promise<void> {
   const row = await Repo.transactions.where({ id: txId }).first();
@@ -377,8 +384,26 @@ export async function resumeEarnWithdrawal(txId: string, deps: ResumeDeps = {}):
   const updatePhase = deps.updatePhase ?? updateEarnWithdrawPhase;
   const registerBridgeIn = deps.registerBridgeIn ?? registerPendingBridgeIn;
   const startDeliveryPoll = deps.startDeliveryPoll ?? pollEarnWithdrawDelivery;
+  const findBridgeIn = deps.findBridgeIn ?? findPendingBridgeInByEarnWithdrawTxId;
 
-  const nonce = ei.withdrawIntentNonce;
+  let nonce = ei.withdrawIntentNonce;
+  // The row can lose its nonce if the process was torn down between the two post-submit
+  // writes (bridge-in registry FIRST, then the row-nonce). The registry entry proves the
+  // intent was submitted, so recover the nonce from it and re-persist rather than falsely
+  // failing a live withdrawal.
+  if (!nonce) {
+    const pending = await findBridgeIn(txId).catch((err: unknown) => {
+      console.warn('[earn-withdraw] resume bridge-in lookup failed', err);
+      return undefined;
+    });
+    if (pending?.intentNonce) {
+      nonce = pending.intentNonce;
+      await updatePhase(txId, 'redeeming', { withdrawIntentNonce: nonce }).catch((err: unknown) =>
+        console.warn('[earn-withdraw] resume nonce re-persist failed', err)
+      );
+    }
+  }
+
   if (!nonce || !isEvmAddress(ei.evmOwner)) {
     await updatePhase(txId, 'failed', { error: 'Withdrawal was interrupted before it was submitted.' });
     return;

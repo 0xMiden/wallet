@@ -83,6 +83,7 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
     initiateRow: jest.fn().mockResolvedValue('TX1'),
     updatePhase: jest.fn().mockResolvedValue(undefined),
     startDeliveryPoll: jest.fn(),
+    findBridgeIn: jest.fn().mockResolvedValue(undefined),
     ...overrides
   };
 }
@@ -186,6 +187,35 @@ describe('resumeEarnWithdrawal', () => {
     expect(deps.updatePhase).not.toHaveBeenCalled();
   });
 
+  it('recovers a submitted row that lost its nonce from the bridge-in registry instead of failing it', async () => {
+    // Row is non-terminal `redeeming` with NO withdrawIntentNonce (torn down between the
+    // two post-submit writes). The registry still holds the nonce → resume must recover +
+    // re-persist it and re-arm delivery, never mark the (live) withdrawal `failed`.
+    (Repo.transactions.where as jest.Mock).mockReturnValue({
+      first: jest.fn().mockResolvedValue({
+        id: 'TX3',
+        type: 'earn-withdraw',
+        extraInputs: { phase: 'redeeming', evmOwner: EVM_OWNER, sourceAmount: '10', sourceSymbol: 'USDC' }
+      })
+    });
+    const deps = baseDeps({
+      findBridgeIn: jest.fn().mockResolvedValue({ intentNonce: 'RECOVERED', userAddress: EVM_OWNER })
+    });
+
+    await resumeEarnWithdrawal('TX3', deps);
+
+    expect(deps.findBridgeIn).toHaveBeenCalledWith('TX3');
+    // Re-persists the recovered nonce onto the row (not a `failed` write).
+    expect(deps.updatePhase).toHaveBeenCalledWith('TX3', 'redeeming', { withdrawIntentNonce: 'RECOVERED' });
+    expect(deps.updatePhase).not.toHaveBeenCalledWith('TX3', 'failed', expect.anything());
+    expect(deps.registerBridgeIn).toHaveBeenCalledWith(
+      EVM_OWNER,
+      'RECOVERED',
+      expect.objectContaining({ earnWithdrawTxId: 'TX3' })
+    );
+    expect(deps.startDeliveryPoll).toHaveBeenCalled();
+  });
+
   it('fails a row that was interrupted before the intent was submitted', async () => {
     (Repo.transactions.where as jest.Mock).mockReturnValue({
       first: jest.fn().mockResolvedValue({
@@ -194,6 +224,8 @@ describe('resumeEarnWithdrawal', () => {
         extraInputs: { phase: 'redeeming', evmOwner: EVM_OWNER, sourceAmount: '10', sourceSymbol: 'USDC' }
       })
     });
+    // No row nonce AND no registry entry (findBridgeIn -> undefined via baseDeps) => truly
+    // never submitted, so failing is correct.
     const deps = baseDeps();
 
     await resumeEarnWithdrawal('TX2', deps);

@@ -263,6 +263,23 @@ export async function takeBridgeInInfoForNotes(noteIds: string[]): Promise<IBrid
 }
 
 /**
+ * Find a still-pending bridge-in intent by the `earn-withdraw` row it belongs to.
+ * The registry entry (written at submit time, keyed to the row via
+ * `info.earnWithdrawTxId`) is authoritative proof the redeem intent WAS submitted.
+ * `resumeEarnWithdrawal` uses this to recover the intent nonce when the row itself
+ * lost its `withdrawIntentNonce` (a teardown between the two post-submit writes),
+ * so a live withdrawal is never falsely marked `failed`. Returns undefined if no
+ * pending intent references this row (never submitted, or already resolved/expired).
+ */
+export async function findPendingBridgeInByEarnWithdrawTxId(
+  txId: string
+): Promise<{ intentNonce: string; userAddress: string } | undefined> {
+  const registry = await readRegistry();
+  const intent = registry.find(r => r.info.earnWithdrawTxId === txId);
+  return intent ? { intentNonce: intent.intentNonce, userAddress: intent.userAddress } : undefined;
+}
+
+/**
  * Return the subset of `ids` that exist as transaction rows. Used by the
  * history list to decide whether a `consume` row that is the tail of another
  * row's lifecycle should be suppressed (its primary row still exists) or shown
