@@ -1,9 +1,3 @@
-import { setEarnCollateralFaucetForTest } from 'lib/epoch/earn';
-import {
-  gaslessEarnWithdrawalToMiden,
-  type GaslessEarnWithdrawalArgs,
-  type GaslessEarnWithdrawalResult
-} from 'lib/epoch/earn-withdraw';
 import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
@@ -17,11 +11,15 @@ import * as Repo from 'lib/miden/repo';
  * from `back/main.ts` ONLY under `MIDEN_E2E_TEST`, so this whole module (and the
  * globals it defines) is dead-stripped from production builds.
  *
- * Mirrors `bridge-in-test-hooks.ts`: the harness drives the REAL earn deposit /
- * withdraw paths and these hooks only expose read access to the tracking rows the
- * DOM never hands back, plus the two runtime injections the pure-Miden localnet
- * path can't otherwise get: the CLI-minted collateral faucet id, and a way to kick
- * off a withdrawal without the positions UI.
+ * Mirrors `bridge-in-test-hooks.ts`, and — like it — keeps its TOP-LEVEL imports
+ * LIGHT (only `Repo` + db types). These are strictly READ hooks over the tracking
+ * rows the DOM never hands back. The ACTION hooks (the collateral-faucet override,
+ * the withdraw driver) live in the PAGE realm (`src/lib/store/index.ts`), because
+ * `openEarnPosition` / `gaslessEarnWithdrawalToMiden` run page-side AND because
+ * importing `lib/epoch/*` here would pull the Epoch/EVM SDK (viem + the Coinbase/
+ * Base wallet SDK) into the service-worker boot path — whose inline-script/COOP
+ * init the extension CSP blocks, hanging SW WASM init and stopping the wallet from
+ * ever loading.
  */
 
 interface LatestEarnDeposit {
@@ -46,12 +44,6 @@ declare global {
   var __TEST_LATEST_EARN_WITHDRAW__: () => Promise<LatestEarnWithdraw | null>;
   // eslint-disable-next-line no-var
   var __TEST_EARN_WITHDRAW_STATE__: (txId: string) => Promise<LatestEarnWithdraw | null>;
-  // eslint-disable-next-line no-var
-  var __TEST_SET_EARN_FAUCET__: (faucetHex: string) => void;
-  // eslint-disable-next-line no-var
-  var __TEST_GASLESS_EARN_WITHDRAW__: (
-    args: GaslessEarnWithdrawalArgs
-  ) => Promise<GaslessEarnWithdrawalResult | { error: string }>;
 }
 
 function toDepositView(row: ITransaction): LatestEarnDeposit {
@@ -98,22 +90,5 @@ export function installEarnTestHooks(): void {
   globalThis.__TEST_EARN_WITHDRAW_STATE__ = async (txId: string): Promise<LatestEarnWithdraw | null> => {
     const row = await Repo.transactions.where({ id: txId }).first();
     return row ? toWithdrawView(row) : null;
-  };
-
-  // Inject the CLI-minted collateral faucet id (the fixed testnet id can't exist
-  // on the localnet node) — mirrors `__TEST_SET_AGGLAYER_SENDER__`.
-  globalThis.__TEST_SET_EARN_FAUCET__ = (faucetHex: string): void => {
-    setEarnCollateralFaucetForTest(faucetHex);
-  };
-
-  // Drive a Smart Withdraw without the positions UI.
-  globalThis.__TEST_GASLESS_EARN_WITHDRAW__ = async (
-    args: GaslessEarnWithdrawalArgs
-  ): Promise<GaslessEarnWithdrawalResult | { error: string }> => {
-    try {
-      return await gaslessEarnWithdrawalToMiden(args);
-    } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
-    }
   };
 }

@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
 import { setAgglayerFaucetForE2E } from 'lib/agglayer/b2agg/constant';
-import { setEarnCollateralFaucetForTest } from 'lib/epoch/earn';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
@@ -783,9 +782,14 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   (globalThis as any).__TEST_SET_AGGLAYER_FAUCET__ = setAgglayerFaucetForE2E;
   // Point the earn (Epoch lending) collateral faucet at a runtime-created test faucet.
   // `openEarnPosition` runs page-side (EarnDepositReview), so the override must be set in
-  // THIS realm — the SW copy in earn-test-hooks.ts is a different module instance. The
+  // THIS (page) realm. The import is LAZY (like the bridge-in hooks) so the Epoch/EVM SDK
+  // that `lib/epoch/earn` pulls in is NOT loaded into the main page bundle at boot — only
+  // when the test calls the hook (by which point the earn route has loaded it anyway). The
   // fixed `MIDEN_USDC_FAUCET` testnet id can't exist on the localnet node. Zero prod impact.
-  (globalThis as any).__TEST_SET_EARN_FAUCET__ = setEarnCollateralFaucetForTest;
+  (globalThis as any).__TEST_SET_EARN_FAUCET__ = async (faucetHex: string): Promise<void> => {
+    const { setEarnCollateralFaucetForTest } = await import('lib/epoch/earn');
+    setEarnCollateralFaucetForTest(faucetHex);
+  };
   // Hex→bech32 faucet-id conversion. iOS E2E needs this to inject
   // synthetic metadata for the CLI-deployed test faucet (whose on-chain
   // procedure layout the SDK can't parse, so the real metadata RPC fails

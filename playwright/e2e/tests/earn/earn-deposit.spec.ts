@@ -97,8 +97,10 @@ test.describe('earn: deposit happy path', () => {
     // is a full `page.goto` reload that resets page-module state, so the override
     // has to be set AFTER the last navigation. The fixed MIDEN_USDC_FAUCET testnet
     // id can't exist on the local node, so the wallet holds the CLI faucet instead.
-    const setEarnFaucet = (h: string): void => {
-      (globalThis as unknown as { __TEST_SET_EARN_FAUCET__?: (hex: string) => void }).__TEST_SET_EARN_FAUCET__?.(h);
+    const setEarnFaucet = async (h: string): Promise<void> => {
+      await (
+        globalThis as unknown as { __TEST_SET_EARN_FAUCET__?: (hex: string) => Promise<void> }
+      ).__TEST_SET_EARN_FAUCET__?.(h);
     };
 
     // 2. Program the fakes.

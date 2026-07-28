@@ -43,12 +43,13 @@ jobs:
       # binary from PATH / ~/.foundry/bin.
       - name: Install Foundry (anvil)
         uses: foundry-rs/foundry-toolchain@v1
-      - name: Cache cargo (cli)
+      - name: Cache cargo (cli + note-transport)
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin
             ~/.cargo/registry
+            ${{ runner.temp }}/note-transport/target
           # rustc pin is in the key so a toolchain bump forces a clean rebuild.
           key: earn-e2e-cargo-v1-rust1.96.1-${{ hashFiles('package.json', 'playwright/e2e/local-stack/versions.env') }}
       - run: yarn install --frozen-lockfile
@@ -88,9 +89,15 @@ jobs:
           echo "node RPC (57291) / prover (50052) not ready in time" >&2
           docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color | tail -120
           exit 1
-      # Earn deposit mints a PUBLIC P2IDE collateral note synced from the node
-      # RPC, so no note-transport (private-note delivery) or guardian co-signer
-      # is needed -- both are omitted here on purpose.
+      - name: Start note-transport
+        # The CLI-minted collateral token + the P2IDE collateral note are delivered
+        # to / discovered by the wallet through the note-transport relay: on
+        # localhost the wallet defaults its transport endpoint to 127.0.0.1:57292
+        # (src/lib/miden-chain/constants.ts) and the CLI's `init` passes
+        # `--note-transport-endpoint` from the localhost env. Without this service
+        # the minted collateral never reaches the wallet balance and funding hangs.
+        # (Guardian co-signer is still omitted — earn needs no co-signing.)
+        run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Build extension (localnet)
         run: yarn test:e2e:blockchain:build
       - name: Install xvfb
