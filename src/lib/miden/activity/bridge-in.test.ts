@@ -1,5 +1,6 @@
 import {
   existingTransactionIds,
+  findPendingBridgeInByEarnWithdrawTxId,
   registerPendingBridgeIn,
   takeAgglayerBridgeInInfo,
   takeBridgeInInfoForNotes
@@ -117,6 +118,46 @@ describe('takeBridgeInInfoForNotes', () => {
     (mockStore[REGISTRY_KEY] as Array<{ midenNoteId?: string }>)[0]!.midenNoteId = 'note-abc';
 
     expect(await takeBridgeInInfoForNotes(['note-other'])).toBeUndefined();
+  });
+});
+
+describe('findPendingBridgeInByEarnWithdrawTxId', () => {
+  it('returns the NEWEST matching intent when a resubmit left a stale entry for the same row', async () => {
+    // Registry after a fail+retry on the same earn-withdraw row: the dead N1 (older,
+    // first in the array as it was appended first) and the live N2 (newer). The lookup
+    // must return N2 — returning the first match (N1) would re-strand the row on a dead
+    // nonce, which is exactly the bug this ordering guards against.
+    const now = Date.now();
+    mockStore[REGISTRY_KEY] = [
+      {
+        userAddress: EVM_OWNER,
+        intentNonce: 'N1',
+        registeredAt: now - 2000,
+        info: { provider: 'epoch', earnWithdrawTxId: 'T' }
+      },
+      {
+        userAddress: EVM_OWNER,
+        intentNonce: 'N2',
+        registeredAt: now - 1000,
+        info: { provider: 'epoch', earnWithdrawTxId: 'T' }
+      }
+    ];
+
+    expect(await findPendingBridgeInByEarnWithdrawTxId('T')).toEqual({ intentNonce: 'N2', userAddress: EVM_OWNER });
+  });
+
+  it('returns undefined when no pending intent references the row', async () => {
+    const now = Date.now();
+    mockStore[REGISTRY_KEY] = [
+      {
+        userAddress: EVM_OWNER,
+        intentNonce: 'N1',
+        registeredAt: now - 1000,
+        info: { provider: 'epoch', earnWithdrawTxId: 'OTHER' }
+      }
+    ];
+
+    expect(await findPendingBridgeInByEarnWithdrawTxId('T')).toBeUndefined();
   });
 });
 

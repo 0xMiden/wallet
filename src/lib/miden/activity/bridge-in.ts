@@ -275,7 +275,16 @@ export async function findPendingBridgeInByEarnWithdrawTxId(
   txId: string
 ): Promise<{ intentNonce: string; userAddress: string } | undefined> {
   const registry = await readRegistry();
-  const intent = registry.find(r => r.info.earnWithdrawTxId === txId);
+  // A resubmit reuses the same earnWithdrawTxId and APPENDS a fresh entry (a failed
+  // intent's entry is only dropped by the 7-day TTL, never by txId), so the registry
+  // can hold several entries for one row. Pick the NEWEST by registeredAt — the live
+  // intent — not the first, which may be a dead nonce whose failed status would
+  // re-strand the row and defeat this recovery's purpose.
+  const intent = registry
+    .filter(r => r.info.earnWithdrawTxId === txId)
+    .reduce<
+      PendingBridgeInIntent | undefined
+    >((newest, r) => (!newest || r.registeredAt > newest.registeredAt ? r : newest), undefined);
   return intent ? { intentNonce: intent.intentNonce, userAddress: intent.userAddress } : undefined;
 }
 
