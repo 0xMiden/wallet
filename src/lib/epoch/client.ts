@@ -13,8 +13,7 @@ import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 // broadcast to Anvil but poll public Sepolia forever. Redirect the chain's
 // default RPC at the local Anvil under MIDEN_E2E_TEST. Inert in production
 // (E2E_EVM_RPC_URL is baked only by the e2e build).
-const E2E_EVM_RPC_URL =
-  process.env.MIDEN_E2E_TEST === 'true' ? (process.env.E2E_EVM_RPC_URL ?? '').trim() : '';
+const E2E_EVM_RPC_URL = process.env.MIDEN_E2E_TEST === 'true' ? (process.env.E2E_EVM_RPC_URL ?? '').trim() : '';
 
 function withE2eRpc(chain: Chain): Chain {
   if (!E2E_EVM_RPC_URL) return chain;
