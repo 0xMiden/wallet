@@ -378,10 +378,55 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       token: 'MDN',
       txId: 'tx-faucet-send',
       timestamp: DAY_B
+    }),
+    // Smart Withdraw in flight: dedicated title/subtitle, positive amount and a
+    // phase-driven status chip.
+    makeEntry({
+      key: 'earn-withdraw',
+      txType: 'earn-withdraw',
+      transactionIcon: undefined,
+      earnWithdrawPhase: 'delivering',
+      amount: 2n,
+      token: 'USDC',
+      txId: 'tx-earn-withdraw',
+      timestamp: DAY_B
+    }),
+    // Position deposit: DEFAULT icon, tagged with the Earn glyph and a negative amount.
+    makeEntry({
+      key: 'earn-deposit',
+      txType: 'earn-deposit',
+      transactionIcon: undefined,
+      amount: 5n,
+      token: 'USDC',
+      message: 'Depositing',
+      txId: 'tx-earn-deposit',
+      timestamp: DAY_B
     })
   ];
 
   const renderFull = () => render(<HistoryView {...baseProps} entries={entries} fullHistory className="full-class" />);
+
+  it('renders the Smart Withdraw row with its phase chip and positive amount', () => {
+    renderFull();
+    const row = rowByTitle('earnWithdrawRowTitle');
+    expect(iconNameIn(row)).toBe('Earn');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-tx-earn');
+    expect(row).toHaveAttribute('data-subtitle', 'earnWithdrawRowVia');
+    expect(row).toHaveAttribute('data-amount-value', '+2');
+    expect(row).toHaveAttribute('data-amount-symbol', 'USDC');
+    expect(row).toHaveAttribute('data-amount-direction', 'positive');
+    expect(row).toHaveAttribute('data-status-label', 'earnWithdrawStatusDelivering');
+    expect(row).toHaveAttribute('data-status-tone', 'pending');
+  });
+
+  it('renders a position deposit with the Earn glyph and a negative amount', () => {
+    renderFull();
+    const row = rowByTitle('Depositing');
+    expect(iconNameIn(row)).toBe('Earn');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-tx-earn');
+    expect(row).toHaveAttribute('data-amount-value', '-5');
+    expect(row).toHaveAttribute('data-amount-direction', 'negative');
+  });
 
   it('renders a date separator per calendar day', () => {
     renderFull();

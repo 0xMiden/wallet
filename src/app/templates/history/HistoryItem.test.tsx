@@ -85,7 +85,16 @@ jest.mock('./TransactionIcon', () => ({
 }));
 jest.mock('./transactionUtils', () => ({
   isFaucetRequest: jest.fn(() => false),
-  isBridgeInEntry: jest.fn(() => false)
+  isBridgeInEntry: jest.fn(() => false),
+  isEarnWithdrawEntry: (entry: { txType?: string }) => entry.txType === 'earn-withdraw',
+  earnWithdrawToneOf: (phase?: string) =>
+    phase === 'received' ? 'confirmed' : phase === 'failed' ? 'failed' : 'pending',
+  EARN_WITHDRAW_STATUS_LABEL_KEY: {
+    redeeming: 'earnWithdrawStatusRedeeming',
+    delivering: 'earnWithdrawStatusDelivering',
+    received: 'received',
+    failed: 'failed'
+  }
 }));
 
 const mockIsMobile = isMobile as jest.MockedFunction<typeof isMobile>;
@@ -272,6 +281,36 @@ describe('HistoryItem', () => {
     expect(cancel).toHaveBeenCalledTimes(1);
     // stopPropagation => the wrapping onClick never sees the event.
     expect(parentClick).not.toHaveBeenCalled();
+  });
+
+  it('renders the Smart Withdraw summary row with its phase chip and positive amount', () => {
+    const entry = makeEntry({
+      txType: 'earn-withdraw',
+      earnWithdrawPhase: 'delivering',
+      amount: 2n,
+      token: 'USDC'
+    });
+
+    const { container } = render(<HistoryItem entry={entry} />);
+
+    expect(screen.getByText('t:earnWithdrawRowTitle')).toBeInTheDocument();
+    expect(screen.getByText('t:earnWithdrawRowVia')).toBeInTheDocument();
+    expect(container.textContent).toContain('+2 USDC');
+    expect(screen.getByText(/earnWithdrawStatusDelivering/)).toBeInTheDocument();
+  });
+
+  it('hides the amount on a failed Smart Withdraw and shows the failed chip', () => {
+    const entry = makeEntry({
+      txType: 'earn-withdraw',
+      earnWithdrawPhase: 'failed',
+      amount: 2n,
+      token: 'USDC'
+    });
+
+    const { container } = render(<HistoryItem entry={entry} />);
+
+    expect(container.textContent).not.toContain('+2 USDC');
+    expect(screen.getByText(/t:failed/)).toBeInTheDocument();
   });
 
   it('applies no card border when fullHistory is true but it is the last entry', () => {

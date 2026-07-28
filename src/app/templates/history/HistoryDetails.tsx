@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useState, memo } from 'react';
+import React, { FC, useCallback, useEffect, useRef, useState, memo } from 'react';
 
 import BigNumber from 'bignumber.js';
 import clsx from 'clsx';
@@ -17,6 +17,7 @@ import {
   isUserCancelledTransaction,
   requestSWTransactionProcessing,
   requeueFailedTransaction,
+  retryEarnWithdrawReceive,
   trackOrderId,
   SwapOrderState,
   SwapOrderTracking,
@@ -26,6 +27,8 @@ import {
 import {
   IBridgedReceiveExtraInputs,
   IBridgedSendExtraInputs,
+  IEarnDepositExtraInputs,
+  IEarnWithdrawExtraInputs,
   ITransaction,
   ITransactionStatus
 } from 'lib/miden/db/types';
@@ -54,12 +57,18 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
+  EARN_WITHDRAW_STATUS_LABEL_KEY,
+  earnWithdrawToneOf,
   formatDate,
+  formatEarnWithdrawAmount,
   isBridgeInEntry
 } from './transactionUtils';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
+
+const isHexEvmAddress = (value: string | undefined): value is `0x${string}` =>
+  value !== undefined && /^0x[0-9a-fA-F]{40}$/.test(value);
 
 interface HistoryDetailsProps {
   transactionId: string;
@@ -119,6 +128,41 @@ const BridgeStatusPill: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
     <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', tone)}>
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
       <span className="text-xs font-medium">{t(BRIDGE_STATUS_LABEL_KEY[status])}</span>
+    </div>
+  );
+};
+
+/** Pending/Confirmed/Failed pill for a Smart Deposit's solver-fulfilled lending leg (`epochStatus`). */
+const EarnDepositStatusPill: FC<{ status: NonNullable<IEarnDepositExtraInputs['epochStatus']> }> = ({ status }) => {
+  const { t } = useTranslation();
+  const toneClass =
+    status === 'confirmed'
+      ? 'bg-status-positive/15 text-status-positive'
+      : status === 'failed'
+        ? 'bg-status-negative/15 text-status-negative'
+        : 'bg-status-pending/15 text-status-pending';
+  return (
+    <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', toneClass)}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      <span className="text-xs font-medium">{t(status)}</span>
+    </div>
+  );
+};
+
+/** Redeeming/Delivering/Received/Failed pill for a Smart Withdraw, mirroring `BridgeStatusPill`. */
+const EarnWithdrawStatusPill: FC<{ phase: IEarnWithdrawExtraInputs['phase'] }> = ({ phase }) => {
+  const { t } = useTranslation();
+  const tone = earnWithdrawToneOf(phase);
+  const toneClass =
+    tone === 'confirmed'
+      ? 'bg-status-positive/15 text-status-positive'
+      : tone === 'failed'
+        ? 'bg-status-negative/15 text-status-negative'
+        : 'bg-status-pending/15 text-status-pending';
+  return (
+    <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', toneClass)}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      <span className="text-xs font-medium">{t(EARN_WITHDRAW_STATUS_LABEL_KEY[phase])}</span>
     </div>
   );
 };
@@ -216,6 +260,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // suppressed in the history list (the swap row is the order's single trace),
   // so this page is where their notes stay visible.
   const [settlementNotes, setSettlementNotes] = useState<SwapSettlementNotes | null>(null);
+  // Smart Withdraw metadata (market, position owner, intent nonce, phase) for the details card.
+  const [earnWithdraw, setEarnWithdraw] = useState<IEarnWithdrawExtraInputs | null>(null);
+  // Guards the earn-withdraw delivery poller so it is (re)started at most once per
+  // intent nonce, even though the reload loop re-runs the effect as the row advances.
+  const withdrawPollNonceRef = useRef<string | null>(null);
+  // Smart Deposit (open-position) metadata for the details card + intent polling.
+  const [earnDeposit, setEarnDeposit] = useState<IEarnDepositExtraInputs | null>(null);
+  const depositPollNonceRef = useRef<string | null>(null);
   const loadTransaction = useCallback(async () => {
     try {
       setLoadError(null);
@@ -228,6 +280,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       const bridge: IBridgedSendExtraInputs | undefined = tx.type === 'bridged-send' ? tx.extraInputs : undefined;
       const bridgeReceive: IBridgedReceiveExtraInputs | undefined =
         tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
+      const earnWithdrawExtra: IEarnWithdrawExtraInputs | undefined =
+        tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
       const historyEntry = {
         address: tx.accountId,
         key: `completed-${tx.id}`,
@@ -235,8 +289,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         message: tx.displayMessage,
         status: tx.status,
         transactionIcon: tx.displayIcon,
-        amount: tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
-        token: tokenMetadata ? tokenMetadata.symbol : undefined,
+        // Earn withdraw: show the human source amount (USDC), not the atomic row
+        // amount (whose faucetId is the native asset — wrong decimals).
+        amount: earnWithdrawExtra
+          ? formatEarnWithdrawAmount(earnWithdrawExtra.sourceAmount)
+          : tx.amount
+            ? formatAmount(tx.amount, tokenMetadata?.decimals)
+            : undefined,
+        token: earnWithdrawExtra ? earnWithdrawExtra.sourceSymbol : tokenMetadata ? tokenMetadata.symbol : undefined,
+        earnWithdrawPhase: earnWithdrawExtra?.phase,
         secondaryAddress: tx.secondaryAccountId,
         txId: tx.id,
         noteType: tx.noteType,
@@ -291,6 +352,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         setSettlementNotes(await getSwapSettlementNotes(tx.id));
       }
 
+      setEarnWithdraw(tx.type === 'earn-withdraw' ? tx.extraInputs : null);
+      setEarnDeposit(tx.type === 'earn-deposit' ? tx.extraInputs : null);
+
       setTransaction(tx);
       setEntry(historyEntry);
     } catch (error) {
@@ -332,20 +396,109 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   // Retry a failed transaction by re-queueing it through the FIFO loop, then
   // hand off to the generating-transaction page which observes the row (and,
-  // on mobile/desktop, drives the loop).
+  // on mobile/desktop, drives the loop). A failed Smart Withdraw has no Miden
+  // row to replay — its redeem intent is re-submitted to Epoch instead, which
+  // flips the row back to non-terminal and restarts delivery polling.
   const handleRetry = useCallback(async () => {
+    if (!entry) return;
     setIsRetrying(true);
     setRetryError(null);
     try {
-      await requeueFailedTransaction(transactionId);
-      requestSWTransactionProcessing();
-      navigate(`/generating-transaction/${encodeURIComponent(transactionId)}`);
+      if (entry.txType === 'earn-withdraw') {
+        await retryEarnWithdrawReceive(transactionId);
+        await loadTransaction();
+      } else {
+        await requeueFailedTransaction(transactionId);
+        requestSWTransactionProcessing();
+        navigate(`/generating-transaction/${encodeURIComponent(transactionId)}`);
+        return; // navigating away — leave the spinner as-is
+      }
     } catch (error) {
       console.error('[HistoryDetails] Failed to retry transaction:', error);
       setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+    } finally {
       setIsRetrying(false);
     }
-  }, [t, transactionId]);
+  }, [entry, loadTransaction, t, transactionId]);
+
+  // The initiating context's background poller may be gone (extension popup closed),
+  // so this page (re)starts the delivery poller AND reloads the row on an interval —
+  // the `received` flip lands via auto-consume tagging, not the poller, so a reload
+  // loop is what surfaces it. Runs only while the phase is non-terminal.
+  const withdrawPhase = earnWithdraw?.phase;
+  const withdrawNonce = earnWithdraw?.withdrawIntentNonce;
+  const withdrawOwner = earnWithdraw?.evmOwner;
+  useEffect(() => {
+    if (entry?.txType !== 'earn-withdraw') return;
+    if (withdrawPhase === 'received' || withdrawPhase === 'failed' || withdrawPhase === undefined) return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const POLL_INTERVAL_MS = 3000;
+
+    // Kick a delivery poller at most once per nonce — it advances the Dexie row
+    // even if no other context is running one. Idempotent if one already is.
+    if (withdrawNonce && isHexEvmAddress(withdrawOwner) && withdrawPollNonceRef.current !== withdrawNonce) {
+      const sponsorAddress = withdrawOwner;
+      const nonce = withdrawNonce;
+      withdrawPollNonceRef.current = nonce;
+      import('lib/epoch')
+        .then(({ pollEarnWithdrawDelivery }) =>
+          pollEarnWithdrawDelivery({ sponsorAddress, nonce, txId: transactionId })
+        )
+        .catch(err => console.warn('[earn-withdraw] detail-page poll start failed', err));
+    }
+
+    const tick = async () => {
+      await loadTransaction();
+      if (!cancelled) timer = setTimeout(tick, POLL_INTERVAL_MS);
+    };
+    timer = setTimeout(tick, POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [entry?.txType, withdrawPhase, withdrawNonce, withdrawOwner, transactionId, loadTransaction]);
+
+  // Drive a live lending-leg status on a Smart Deposit's detail page. The
+  // initiating context started `pollEarnIntentStatus`, but it dies with that
+  // context (popup closed / app restart), so this page (re)starts it — once per
+  // nonce — and reloads the row on an interval until `epochStatus` settles.
+  // Only meaningful once the Miden collateral note actually landed (Completed).
+  const depositStatus = earnDeposit?.epochStatus;
+  const depositNonce = earnDeposit?.intentNonce;
+  const depositOwner = earnDeposit?.evmRecipient;
+  useEffect(() => {
+    if (entry?.txType !== 'earn-deposit') return;
+    if (entry.status !== ITransactionStatus.Completed) return;
+    if (depositStatus === 'confirmed' || depositStatus === 'failed') return;
+    if (!depositNonce || !isHexEvmAddress(depositOwner)) return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const POLL_INTERVAL_MS = 3000;
+
+    if (depositPollNonceRef.current !== depositNonce) {
+      const sponsorAddress = depositOwner;
+      const nonce = depositNonce;
+      depositPollNonceRef.current = nonce;
+      import('lib/epoch')
+        .then(({ pollEarnIntentStatus }) => pollEarnIntentStatus({ sponsorAddress, nonce, txId: transactionId }))
+        .catch(err => console.warn('[earn-deposit] detail-page poll start failed', err));
+    }
+
+    const tick = async () => {
+      await loadTransaction();
+      if (!cancelled) timer = setTimeout(tick, POLL_INTERVAL_MS);
+    };
+    timer = setTimeout(tick, POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [entry?.txType, entry?.status, depositStatus, depositNonce, depositOwner, transactionId, loadTransaction]);
 
   // Poll the swap order lineage until it reaches a terminal state (filled or
   // reclaimed). The orderId is persisted on the swap tx; the live lineage is
@@ -472,6 +625,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isBridgeOut = entry?.txType === 'bridged-send' && !entry.isCancelled;
   const isBridgeIn = entry ? isBridgeInEntry(entry) && entry.txType === 'bridged-receive' : false;
   const isBridge = isBridgeOut || isBridgeIn;
+  const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
+  const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
   const fromAddress = isBridgeOut
     ? entry?.address
     : isBridgeIn
@@ -505,7 +660,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     transactionSummaryBadgeContent &&
     entry?.amount !== undefined &&
     entry.token &&
-    (entry.txType === 'send' || entry.txType === 'bridged-send')
+    (entry.txType === 'send' || entry.txType === 'bridged-send' || entry.txType === 'earn-deposit')
       ? {
           ...transactionSummaryBadgeContent,
           lhs: `${formatDisplayAmount(entry.amount)} ${entry.token}`
@@ -514,10 +669,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const sectionDividerColor = entry ? getTransactionIconBackgroundColor(entry) : 'transparent';
   const isPending =
     entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
-  // Retry only for failed types the wallet can safely replay (structural
-  // Guardian ops are excluded — the user re-initiates those from Settings).
+  // Retry only makes sense when there's something recoverable: a re-queueable
+  // failed Miden tx (structural Guardian ops are excluded — the user re-initiates
+  // those from Settings), or a Smart Withdraw whose redeem intent is on Epoch.
   const canRetry =
-    entry !== null && !entry.isCancelled && isRequeueableTransaction({ status: entry.status, type: entry.txType });
+    entry !== null &&
+    !entry.isCancelled &&
+    (entry.txType === 'earn-withdraw'
+      ? earnWithdraw?.phase === 'failed' && Boolean(earnWithdraw.withdrawIntentNonce)
+      : isRequeueableTransaction({ status: entry.status, type: entry.txType }));
 
   return (
     <PageLayout hideToolbar>
@@ -553,6 +713,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <div className="mt-2">
                 {isBridge ? (
                   <BridgeStatusPill entry={entry} />
+                ) : isEarnWithdraw && earnWithdraw ? (
+                  <EarnWithdrawStatusPill phase={earnWithdraw.phase} />
+                ) : isEarnDeposit && earnDeposit && entry.status === ITransactionStatus.Completed ? (
+                  // Miden note landed — the pill tracks the solver-fulfilled
+                  // lending leg instead of the (long-settled) Miden tx status.
+                  <EarnDepositStatusPill status={earnDeposit.epochStatus ?? 'pending'} />
                 ) : (
                   <StatusPill status={entry.status} isCancelled={entry.isCancelled} />
                 )}
@@ -626,6 +792,145 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 </DetailCard>
               </div>
             </div>
+
+            {/* Smart Withdraw details (market, position owner, intent, note) */}
+            {isEarnWithdraw && earnWithdraw && (
+              <div className="mt-6">
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailCard title={t('earnWithdrawDetailsTitle')}>
+                    <DetailRow label={t('earnMarketLabel')}>
+                      <span className="text-sm text-heading-gray font-medium select-text">
+                        {earnWithdraw.marketUid.split(':')[0] || earnWithdraw.marketUid}
+                      </span>
+                    </DetailRow>
+                    <DetailRow label={t('positionOwnerLabel')}>
+                      <ExternalLinkValue
+                        displayValue={
+                          <HashChip
+                            hash={earnWithdraw.evmOwner}
+                            trimHash
+                            fill="#9E9E9E"
+                            className="ml-2"
+                            copyIcon={false}
+                          />
+                        }
+                        href={SEPOLIA_ADDRESS_URL(earnWithdraw.evmOwner)}
+                      />
+                    </DetailRow>
+                    {earnWithdraw.withdrawIntentNonce && (
+                      <DetailRow label={t('redeemIntentLabel')}>
+                        <HashChip
+                          hash={earnWithdraw.withdrawIntentNonce}
+                          trimHash
+                          fill="#9E9E9E"
+                          className="ml-2"
+                          copyIcon={false}
+                        />
+                      </DetailRow>
+                    )}
+                    {earnWithdraw.evmTxHash && (
+                      <DetailRow label={t('txIdLabel')}>
+                        <ExternalLinkValue
+                          displayValue={
+                            <HashChip
+                              hash={earnWithdraw.evmTxHash}
+                              trimHash
+                              fill="#9E9E9E"
+                              className="ml-2"
+                              copyIcon={false}
+                            />
+                          }
+                          href={SEPOLIA_TX_URL(earnWithdraw.evmTxHash)}
+                        />
+                      </DetailRow>
+                    )}
+                    <DetailRow label={t('note')} isLast={earnWithdraw.phase !== 'failed'}>
+                      <span className="text-sm text-heading-gray font-medium select-text">
+                        {earnWithdraw.midenNoteId ? (
+                          <HashChip
+                            hash={earnWithdraw.midenNoteId}
+                            trimHash
+                            fill="#9E9E9E"
+                            className="ml-2"
+                            copyIcon={false}
+                          />
+                        ) : (
+                          t('pending')
+                        )}
+                      </span>
+                    </DetailRow>
+                    {earnWithdraw.phase === 'failed' && earnWithdraw.error && (
+                      <DetailRow label={t('error')} isLast>
+                        <span className="text-sm text-status-negative font-medium wrap-break-word select-text">
+                          {earnWithdraw.error}
+                        </span>
+                      </DetailRow>
+                    )}
+                  </DetailCard>
+                </div>
+              </div>
+            )}
+
+            {/* Smart Deposit details (market, position owner, intent, Sepolia tx) */}
+            {isEarnDeposit && earnDeposit && (
+              <div className="mt-6">
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailCard title={t('earnDepositDetailsTitle')}>
+                    <DetailRow label={t('earnMarketLabel')}>
+                      <span className="text-sm text-heading-gray font-medium select-text">
+                        {earnDeposit.marketUid.split(':')[0] || earnDeposit.marketUid}
+                      </span>
+                    </DetailRow>
+                    <DetailRow
+                      label={t('positionOwnerLabel')}
+                      isLast={!earnDeposit.intentNonce && !earnDeposit.evmTxHash}
+                    >
+                      <ExternalLinkValue
+                        displayValue={
+                          <HashChip
+                            hash={earnDeposit.evmRecipient}
+                            trimHash
+                            fill="#9E9E9E"
+                            className="ml-2"
+                            copyIcon={false}
+                          />
+                        }
+                        href={SEPOLIA_ADDRESS_URL(earnDeposit.evmRecipient)}
+                      />
+                    </DetailRow>
+                    {earnDeposit.intentNonce && (
+                      <DetailRow label={t('depositIntentLabel')} isLast={!earnDeposit.evmTxHash}>
+                        <HashChip
+                          hash={earnDeposit.intentNonce}
+                          trimHash
+                          fill="#9E9E9E"
+                          className="ml-2"
+                          copyIcon={false}
+                        />
+                      </DetailRow>
+                    )}
+                    {earnDeposit.evmTxHash && (
+                      <DetailRow label={t('txIdLabel')} isLast>
+                        <ExternalLinkValue
+                          displayValue={
+                            <HashChip
+                              hash={earnDeposit.evmTxHash}
+                              trimHash
+                              fill="#9E9E9E"
+                              className="ml-2"
+                              copyIcon={false}
+                            />
+                          }
+                          href={SEPOLIA_TX_URL(earnDeposit.evmTxHash)}
+                        />
+                      </DetailRow>
+                    )}
+                  </DetailCard>
+                </div>
+              </div>
+            )}
 
             {/* Failure reason (persisted on `tx.error` by cancelTransaction) */}
             {(entry.status === ITransactionStatus.Failed || (isBridgeIn && entry.bridgeInPhase === 'failed')) &&

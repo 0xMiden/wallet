@@ -3,7 +3,7 @@ import React from 'react';
 import { render } from '@testing-library/react';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import TransactionIcon from './TransactionIcon';
+import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
 import { bridgeStatusOf, isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
 
 // `app/icons/v2` is the real barrel that switches an `IconName` onto one of
@@ -13,7 +13,7 @@ import { bridgeStatusOf, isFaucetRequest, TRANSACTION_COLORS } from './transacti
 // without the barrel's heavy dependency graph.
 jest.mock('app/icons/v2', () => ({
   __esModule: true,
-  IconName: { Convert: 'convert', Close: 'close' },
+  IconName: { Convert: 'convert', Close: 'close', Earn: 'earn' },
   Icon: ({ name, size, className }: { name: string; size?: string; className?: string }) => (
     <div data-testid="v2-icon" data-name={name} data-size={size} className={className} />
   )
@@ -55,6 +55,34 @@ beforeEach(() => {
 });
 
 describe('TransactionIcon', () => {
+  describe('earn transaction branch', () => {
+    it('renders the Earn glyph for an opened position even when its persisted icon is RECEIVE', () => {
+      const { container, getByTestId } = render(
+        <TransactionIcon entry={makeEntry({ txType: 'earn-deposit', transactionIcon: 'RECEIVE' })} size="lg" />
+      );
+
+      expect(root(container)).toHaveClass('w-18', 'h-18', 'rounded-10', 'bg-tx-earn');
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-name', 'earn');
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-size', 'lg');
+    });
+
+    it('renders the failed cross for a failed Smart Withdraw', () => {
+      const { container } = render(
+        <TransactionIcon entry={makeEntry({ txType: 'earn-withdraw', earnWithdrawPhase: 'failed' })} />
+      );
+
+      expect(root(container)).toHaveClass('bg-status-negative');
+      expect(container.querySelector('svg')).toBeInTheDocument();
+    });
+
+    it('accents earn rows with the earn token and failed withdrawals with red', () => {
+      expect(getTransactionIconBackgroundColor(makeEntry({ txType: 'earn-deposit' }))).toBe('var(--tx-earn)');
+      expect(
+        getTransactionIconBackgroundColor(makeEntry({ txType: 'earn-withdraw', earnWithdrawPhase: 'failed' }))
+      ).toBe('#CC5D5D');
+    });
+  });
+
   it('renders a failed glyph for a terminal bridge failure', () => {
     mockBridgeStatusOf.mockReturnValue('failed');
 

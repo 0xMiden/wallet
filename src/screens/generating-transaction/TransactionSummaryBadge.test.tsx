@@ -155,6 +155,28 @@ describe('useTransactionSummaryBadgeContent', () => {
     act(() => root.unmount());
   });
 
+  it('builds an earn-deposit summary with the market label and USDC fallback', async () => {
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'earn-deposit',
+        amount: 750n,
+        extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
+      })
+    );
+    // lhs = "{amount} {symbol}" with the USDC fallback symbol.
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('750 USDC');
+    // rhs = "{protocol}-USDC" derived from the marketUid lender key.
+    expect(container.textContent).toContain('AAVE-USDC');
+    expect(container.textContent).not.toContain('UNDEFINED');
+    act(() => root.unmount());
+  });
+
+  it('returns undefined for an earn-deposit with no marketUid', async () => {
+    const { container, root } = await renderProbe(baseTransaction({ type: 'earn-deposit', amount: 750n }));
+    expect(container.textContent).toContain('UNDEFINED');
+    act(() => root.unmount());
+  });
+
   it('tolerates an undefined assetsMetadata store slice', async () => {
     mockState.assetsMetadata = undefined;
     const { container, root } = await renderProbe(

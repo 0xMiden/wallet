@@ -10,11 +10,15 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
+  EARN_WITHDRAW_STATUS_LABEL_KEY,
+  earnWithdrawToneOf,
   fontColorForType,
   formatBridgeOutputAmount,
   formatDate,
+  formatEarnWithdrawAmount,
   isBridgeInEntry,
   isCompletedTransaction,
+  isEarnWithdrawEntry,
   isFaucetRequest,
   resolveSwapHistoryFields,
   TRANSACTION_COLORS
@@ -400,6 +404,41 @@ describe('bridgeInRowDisplay', () => {
       providerLabel: 'Epoch',
       network: 'Miden',
       status: 'confirmed'
+    });
+  });
+});
+
+describe('earn withdraw helpers', () => {
+  it('tags only earn-withdraw entries', () => {
+    expect(isEarnWithdrawEntry(bridgeEntry({ txType: 'earn-withdraw' }))).toBe(true);
+    expect(isEarnWithdrawEntry(bridgeEntry({ txType: 'earn-deposit' }))).toBe(false);
+    expect(isEarnWithdrawEntry(bridgeEntry({ txType: 'send' }))).toBe(false);
+  });
+
+  it('trims a human decimal amount to at most two places, rounding down', () => {
+    expect(formatEarnWithdrawAmount('2.50000000')).toBe('2.5');
+    expect(formatEarnWithdrawAmount('1.239')).toBe('1.23');
+    expect(formatEarnWithdrawAmount('7')).toBe('7');
+  });
+
+  it('passes a non-numeric amount through unchanged', () => {
+    expect(formatEarnWithdrawAmount('not-a-number')).toBe('not-a-number');
+  });
+
+  it('maps each phase to a bridge status tone', () => {
+    expect(earnWithdrawToneOf('redeeming')).toBe('pending');
+    expect(earnWithdrawToneOf('delivering')).toBe('pending');
+    expect(earnWithdrawToneOf('received')).toBe('confirmed');
+    expect(earnWithdrawToneOf('failed')).toBe('failed');
+    expect(earnWithdrawToneOf(undefined)).toBe('pending');
+  });
+
+  it('has a label key for every phase', () => {
+    expect(EARN_WITHDRAW_STATUS_LABEL_KEY).toEqual({
+      redeeming: 'earnWithdrawStatusRedeeming',
+      delivering: 'earnWithdrawStatusDelivering',
+      received: 'received',
+      failed: 'failed'
     });
   });
 });

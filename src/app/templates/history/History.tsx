@@ -14,6 +14,7 @@ import {
   IBridgedReceiveExtraInputs,
   IBridgedSendExtraInputs,
   IBridgeInInfo,
+  IEarnWithdrawExtraInputs,
   ITransaction,
   ITransactionStatus
 } from 'lib/miden/db/types';
@@ -24,7 +25,11 @@ import useSafeState from 'lib/ui/useSafeState';
 
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { isFaucetRequest as isFaucetEntry, resolveSwapHistoryFields } from './transactionUtils';
+import {
+  formatEarnWithdrawAmount,
+  isFaucetRequest as isFaucetEntry,
+  resolveSwapHistoryFields
+} from './transactionUtils';
 
 type HistoryProps = {
   address: string;
@@ -181,6 +186,7 @@ async function fetchTransactionsAsHistoryEntries(
     const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
     const bridgedReceive =
       tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
+    const earnWithdraw: IEarnWithdrawExtraInputs | undefined = tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
     // Swap faucets are usually absent from wallet metadata — resolve both
     // sides through the DEX registry instead of the generic path.
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
@@ -192,8 +198,24 @@ async function fetchTransactionsAsHistoryEntries(
       status: tx.status,
       type: HistoryEntryType.CompletedTransaction,
       transactionIcon: icon,
-      amount: swapFields ? swapFields.amount : tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
-      token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
+      // Earn withdraw amounts are the human `sourceAmount` (USDC), NOT the row's
+      // atomic `amount` — its faucetId is the native asset, so formatAmount would
+      // mis-scale by the wrong decimals.
+      amount: earnWithdraw
+        ? formatEarnWithdrawAmount(earnWithdraw.sourceAmount)
+        : swapFields
+          ? swapFields.amount
+          : tx.amount
+            ? formatAmount(tx.amount, tokenMetadata?.decimals)
+            : undefined,
+      token: earnWithdraw
+        ? earnWithdraw.sourceSymbol
+        : swapFields
+          ? swapFields.token
+          : tokenMetadata
+            ? tokenMetadata.symbol
+            : undefined,
+      earnWithdrawPhase: earnWithdraw?.phase,
       requestedAmount: swapFields?.requestedAmount,
       requestedToken: swapFields?.requestedToken,
       requestedFaucetId: swapFields?.requestedFaucetId,
@@ -304,13 +326,19 @@ async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[])
 /**
  * The primary row a `consume` transaction is the lifecycle tail of, if any —
  * swap-order settlement consumes (linked via `extraInputs.swapOrderTxId` by
- * `reconcileSwapOrderNotes`) and bridged-receive delivery consumes (linked via
- * `extraInputs.bridgeIn.bridgeReceiveTxId`). While the primary row exists it is
- * the single trace; a dangling reference falls through to a normal receive row.
+ * `reconcileSwapOrderNotes`), Smart Withdraw delivery consumes (linked via
+ * `extraInputs.bridgeIn.earnWithdrawTxId`) and bridged-receive delivery consumes
+ * (linked via `extraInputs.bridgeIn.bridgeReceiveTxId`). While the primary row
+ * exists it is the single trace; a dangling reference falls through to a normal
+ * receive row.
  */
 function linkedPrimaryTxId(tx: ITransaction): string | undefined {
   if (tx.type !== 'consume') return undefined;
-  return tx.extraInputs?.swapOrderTxId ?? tx.extraInputs?.bridgeIn?.bridgeReceiveTxId;
+  return (
+    tx.extraInputs?.swapOrderTxId ??
+    tx.extraInputs?.bridgeIn?.earnWithdrawTxId ??
+    tx.extraInputs?.bridgeIn?.bridgeReceiveTxId
+  );
 }
 
 /**

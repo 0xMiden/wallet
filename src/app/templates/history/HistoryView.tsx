@@ -18,7 +18,10 @@ import {
   BRIDGE_STATUS_LABEL_KEY,
   bridgeInRowDisplay,
   bridgeRowDisplay,
+  EARN_WITHDRAW_STATUS_LABEL_KEY,
+  earnWithdrawToneOf,
   isBridgeInEntry,
+  isEarnWithdrawEntry,
   isFaucetRequest
 } from './transactionUtils';
 
@@ -91,6 +94,29 @@ function buildRowProps(
     };
   }
 
+  // Smart Withdraw row: "Withdraw from Earn" / "Via Epoch → Miden" with a
+  // positive incoming amount and a phase-driven status dot (Redeeming →
+  // Delivering → Received, or Failed). Reuses the bridge status tones.
+  if (!entry.isCancelled && isEarnWithdrawEntry(entry)) {
+    const phase = entry.earnWithdrawPhase ?? 'redeeming';
+    const failed = phase === 'failed';
+    return {
+      icon: failed ? (
+        <FailedCrossIcon className="w-3.5 h-3.5" />
+      ) : (
+        <Icon name={IconName.Earn} size="sm" className="[&_path]:fill-pure-white [&_path]:stroke-pure-white" />
+      ),
+      iconBg: failed ? 'bg-status-negative' : 'bg-tx-earn',
+      title: t('earnWithdrawRowTitle'),
+      subtitle: t('earnWithdrawRowVia'),
+      amount:
+        failed || entry.amount === undefined
+          ? undefined
+          : { value: `+${entry.amount.toString()}`, symbol: entry.token, direction: 'positive' as const },
+      status: { label: t(EARN_WITHDRAW_STATUS_LABEL_KEY[phase]), tone: earnWithdrawToneOf(phase) }
+    };
+  }
+
   const faucet = isFaucetRequest(entry);
   const icon = entry.transactionIcon ?? 'DEFAULT';
   const isCancelled = entry.isCancelled === true;
@@ -129,6 +155,11 @@ function buildRowProps(
     iconNode = <Icon name={IconName.Earn} size="sm" className="[&_path]:fill-pure-white [&_path]:stroke-pure-white" />;
     iconBg = 'bg-tx-earn';
     amountDirection = 'positive';
+  } else if (entry.txType === 'earn-deposit') {
+    // Position deposits carry a DEFAULT icon — tag them with the Earn glyph.
+    iconNode = <Icon name={IconName.Earn} size="sm" className="[&_path]:fill-pure-white [&_path]:stroke-pure-white" />;
+    iconBg = 'bg-tx-earn';
+    amountDirection = 'negative';
   } else {
     iconNode = <Icon name={IconName.More} size="sm" fill="currentColor" />;
   }

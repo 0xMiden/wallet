@@ -37,6 +37,11 @@ export const getTransactionIconBackgroundColor = (entry: IHistoryEntry): string 
     return bridgeStatusOf(entry) === 'failed' ? '#CC5D5D' : BRIDGE_ICON_BG;
   }
 
+  // Earn rows keep the Earn accent across states; a failed withdraw goes red.
+  if (entry.txType === 'earn-deposit' || entry.txType === 'earn-withdraw') {
+    return entry.earnWithdrawPhase === 'failed' ? '#CC5D5D' : 'var(--tx-earn)';
+  }
+
   if (isFaucetRequest(entry)) return TRANSACTION_COLORS.faucet;
 
   switch (entry.transactionIcon) {
@@ -78,6 +83,27 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
         style={{ backgroundColor: BRIDGE_ICON_BG }}
       >
         <SwapIcon className={config.icon} />
+      </div>
+    );
+  }
+
+  // Earn transactions keep the Earn glyph across states even when their underlying
+  // transaction icon is RECEIVE/SEND. Withdraw failures retain the failed cross.
+  if (entry.txType === 'earn-deposit' || entry.txType === 'earn-withdraw') {
+    if (entry.earnWithdrawPhase === 'failed') {
+      return (
+        <div className={`${config.container} rounded-10 flex items-center justify-center bg-status-negative`}>
+          <FailedCrossIcon className={config.sendIcon} />
+        </div>
+      );
+    }
+    return (
+      <div className={`${config.container} rounded-10 flex items-center justify-center bg-tx-earn`}>
+        <Icon
+          name={IconName.Earn}
+          size={size === 'lg' ? 'lg' : 'sm'}
+          className="[&_path]:fill-pure-white [&_path]:stroke-pure-white"
+        />
       </div>
     );
   }

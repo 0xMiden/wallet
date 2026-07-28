@@ -17,7 +17,10 @@ import {
   BridgeStatus,
   bridgeInRowDisplay,
   bridgeRowDisplay,
+  EARN_WITHDRAW_STATUS_LABEL_KEY,
+  earnWithdrawToneOf,
   isBridgeInEntry,
+  isEarnWithdrawEntry,
   isFaucetRequest
 } from './transactionUtils';
 
@@ -57,6 +60,10 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
 
   if (entry.txType === 'bridged-send' || isBridgeInEntry(entry)) {
     return <BridgeRowContent entry={entry} fullHistory={fullHistory} lastEntry={lastEntry} />;
+  }
+
+  if (isEarnWithdrawEntry(entry)) {
+    return <EarnWithdrawRowContent entry={entry} fullHistory={fullHistory} lastEntry={lastEntry} />;
   }
 
   const title = isFaucet ? t('faucetRequest') : entry.message;
@@ -175,6 +182,58 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
         >
           <span className={classNames('w-1.5 h-1.5 rounded-full', BRIDGE_STATUS_DOT[status])} />
           {t(BRIDGE_STATUS_LABEL_KEY[status])}
+        </span>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Smart Withdraw row: "Withdraw from Earn" / "Via Epoch → Miden" with a positive
+ * incoming amount and a phase-driven status dot (Redeeming → Delivering → Received,
+ * or Failed). Reuses the bridge status-dot palette.
+ */
+const EarnWithdrawRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'lastEntry'>> = ({
+  entry,
+  fullHistory,
+  lastEntry
+}) => {
+  const { t } = useTranslation();
+  const phase = entry.earnWithdrawPhase ?? 'redeeming';
+  const tone = earnWithdrawToneOf(phase);
+  const showAmount = phase !== 'failed' && entry.amount !== undefined;
+
+  return (
+    <div
+      className={classNames(
+        'w-full flex items-center gap-3 py-4 cursor-pointer transition-colors duration-200 hover:bg-gray-100',
+        !lastEntry && 'border-b',
+        fullHistory && !lastEntry ? 'border-b-border-card border-b-[0.27px]' : ''
+      )}
+    >
+      <div
+        className="flex items-center justify-center shrink-0 rounded-[10px] bg-transparent"
+        style={{ width: 40, height: 40 }}
+      >
+        <TransactionIcon entry={entry} size="sm" />
+      </div>
+
+      <div className="flex flex-col grow min-w-0">
+        <span className="text-black font-medium truncate text-sm leading-none">{t('earnWithdrawRowTitle')}</span>
+        <span className="text-xs text-text-muted truncate mt-1">{t('earnWithdrawRowVia')}</span>
+      </div>
+
+      <div className="flex flex-col items-end shrink-0 gap-1">
+        {showAmount && (
+          <span className="text-sm font-medium leading-none text-receive-green">
+            +{entry.amount?.toString()} {entry.token}
+          </span>
+        )}
+        <span
+          className={classNames('flex items-center gap-1 text-xs font-medium leading-none', BRIDGE_STATUS_COLOR[tone])}
+        >
+          <span className={classNames('w-1.5 h-1.5 rounded-full', BRIDGE_STATUS_DOT[tone])} />
+          {t(EARN_WITHDRAW_STATUS_LABEL_KEY[phase])}
         </span>
       </div>
     </div>
