@@ -1103,23 +1103,13 @@ describe('useWalletStore', () => {
     });
   });
 
-  describe('sync + transaction modal actions', () => {
+  describe('sync + transaction UI actions', () => {
     it('setSyncStatus marks initial sync done when transitioning to false', () => {
       useWalletStore.getState().setSyncStatus(true);
       expect(useWalletStore.getState().isSyncing).toBe(true);
       useWalletStore.getState().setSyncStatus(false);
       expect(useWalletStore.getState().isSyncing).toBe(false);
       expect(useWalletStore.getState().hasCompletedInitialSync).toBe(true);
-    });
-
-    it('open/closeTransactionModal toggles flag and resets dismiss flag', () => {
-      useWalletStore.getState().openTransactionModal();
-      expect(useWalletStore.getState().isTransactionModalOpen).toBe(true);
-      useWalletStore.getState().closeTransactionModal(true);
-      expect(useWalletStore.getState().isTransactionModalOpen).toBe(false);
-      expect(useWalletStore.getState().isTransactionModalDismissedByUser).toBe(true);
-      useWalletStore.getState().resetTransactionModalDismiss();
-      expect(useWalletStore.getState().isTransactionModalDismissedByUser).toBe(false);
     });
 
     it('setLastCompletedTxHash stores and clears the hash', () => {
@@ -1187,6 +1177,16 @@ describe('useWalletStore', () => {
       expect(s.seenNoteIds.size).toBe(0);
       expect(s.isNoteToastVisible).toBe(false);
       expect(s.noteToastShownAt).toBeNull();
+    });
+
+    it('resetSeenNotes clears stale extension claimable notes', () => {
+      useWalletStore
+        .getState()
+        .setExtensionClaimableNotes([
+          { id: 'a', faucetId: 'f', amountBaseUnits: '1', senderAddress: 's', noteType: 'public' } as any
+        ]);
+      useWalletStore.getState().resetSeenNotes();
+      expect(useWalletStore.getState().extensionClaimableNotes).toBeNull();
     });
   });
 

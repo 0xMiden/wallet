@@ -783,9 +783,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.waitForSelector('#root > *', { timeout: 15_000 }).catch(() => {});
     await this.page.waitForTimeout(3_000);
     await this.injectClaimableMetadata();
-    // Claimable notes live on their own /pending page now, which mounts the
+    // Claimable notes live on their own /pending-notes page, which mounts the
     // claim UI directly (no tab to switch to).
-    await this.navigateTo('/pending');
+    await this.navigateTo('/pending-notes');
     await this.page.waitForTimeout(3_000);
   }
 
@@ -871,12 +871,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
                 // button may vanish mid-iteration as the list re-renders
               }
             }
-            // Return to the faucet summary list.
-            await this.page
-              .getByTestId('pending-detail-back')
-              .click({ timeout: 5_000 })
-              .catch(() => {});
-            await this.page.waitForTimeout(1_000);
+            // A successful claim can navigate to the transaction progress
+            // screen. Reloading the pending route also reliably returns from
+            // the in-page asset detail view, which has no desktop back button.
+            await this.reloadAndPreparePending();
           } catch {
             // Row vanished as the list re-rendered — try the next pass.
           }
@@ -905,7 +903,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     if (Date.now() >= deadline) {
       const remaining = await readPendingCount().catch(() => -1);
-      console.log(`[WalletPage.claimAllNotes] TIMEOUT after ${timeoutMs}ms, pending=${remaining} (iter=${iteration})`);
+      throw new Error(
+        `[WalletPage.claimAllNotes] timed out after ${timeoutMs}ms with ${remaining} pending note(s) ` +
+          `after ${iteration} iteration(s)`
+      );
     } else {
       console.log(`[WalletPage.claimAllNotes] drained in ${iteration} iteration(s)`);
     }
@@ -999,22 +1000,26 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       );
       await this.page.waitForTimeout(clicked ? 8_000 : 2_000);
 
-      // Back to the summary list for the next pass.
-      await this.page
-        .getByTestId('pending-detail-back')
-        .click({ timeout: 5_000 })
-        .catch(() => {});
+      // A successful group claim navigates to the transaction progress screen.
+      // Reload the pending route so the next iteration always resumes at the
+      // asset summary rather than depending on an in-page back control.
+      await this.reloadAndPreparePending();
 
       // If the count hasn't budged for a few passes, a prior claim may have left
       // notes gated by `isBeingClaimed`; a full reload clears the in-memory gate.
-      if (stuckSameCountIters >= 3) {
-        await this.reloadAndPreparePending();
-        stuckSameCountIters = 0;
-      }
+      if (stuckSameCountIters >= 3) stuckSameCountIters = 0;
       await this.page.waitForTimeout(2_000);
     }
 
-    console.log(`[WalletPage.claimNotesByGroup] done after ${iteration} iteration(s)`);
+    if (Date.now() >= deadline) {
+      const remaining = await readPendingCount().catch(() => -1);
+      throw new Error(
+        `[WalletPage.claimNotesByGroup] timed out after ${timeoutMs}ms with ${remaining} pending note(s) ` +
+          `after ${iteration} iteration(s)`
+      );
+    }
+
+    console.log(`[WalletPage.claimNotesByGroup] drained after ${iteration} iteration(s)`);
     await this.navigateHome();
   }
 
@@ -1048,6 +1053,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     // 2. SelectRecipient: fill the recipient address and confirm.
     await sendFlow.getByTestId('send-recipient-input').fill(params.recipientAddress);
+    if (params.recipientAddress.trim().startsWith('0x')) {
+      await sendFlow.getByTestId('send-network-selector').click({ timeout: STEP_TIMEOUT_MS });
+      await this.page.getByTestId('send-network-sepolia').click({ timeout: STEP_TIMEOUT_MS });
+    }
     await sendFlow.getByTestId('send-recipient-confirm').click({ timeout: STEP_TIMEOUT_MS });
 
     // 3. SelectAmount: open the token picker, pick a token, then fill the

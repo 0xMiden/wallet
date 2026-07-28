@@ -196,7 +196,7 @@ const PositionDetails: FC<{ position: EarnPosition }> = ({ position }) => {
   ];
 
   return (
-    <div className="mt-5 border-t-4 border-[#F1F1F1] pt-4">
+    <div className="mt-5 border-t-4 border-rule-default pt-4">
       <div className="flex flex-col gap-5">
         {rows.map(row => (
           <div key={row.label} className="flex items-center justify-between gap-4 text-base leading-tight">

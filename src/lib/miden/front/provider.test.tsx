@@ -48,10 +48,6 @@ jest.mock('components/NoteToastProvider', () => ({
   NoteToastProvider: () => null
 }));
 
-jest.mock('components/TransactionProgressModal', () => ({
-  TransactionProgressModal: () => null
-}));
-
 jest.mock('./useSyncTrigger', () => ({
   useSyncTrigger: jest.fn()
 }));

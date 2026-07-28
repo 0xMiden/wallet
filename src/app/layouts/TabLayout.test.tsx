@@ -276,11 +276,11 @@ describe('TabLayout — swap action availability (isSwapEnabled)', () => {
     expect(screen.getByTestId('action-swap')).toBeInTheDocument();
   });
 
-  it('hides the Swap action segment on iOS (App Store 3.1.5(iii))', () => {
+  it('shows the Swap action segment on iOS too (swap re-enabled for distribution)', () => {
     mockPlatform.isIOS = true;
     mockLocation.pathname = '/';
     renderLayout();
-    expect(screen.queryByTestId('action-swap')).toBeNull();
+    expect(screen.getByTestId('action-swap')).toBeInTheDocument();
     // The rest of the action bar is unaffected.
     expect(screen.getByTestId('action-overview')).toBeInTheDocument();
     expect(screen.getByTestId('action-send')).toBeInTheDocument();

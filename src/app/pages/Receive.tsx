@@ -1,35 +1,34 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 
 import classNames from 'clsx';
 
-import { useAppEnv } from 'app/env';
 import { AddressTab } from 'app/pages/Receive/AddressTab';
 import { useAccount } from 'lib/miden/front';
-import { isMobile } from 'lib/platform';
+import { navigate } from 'lib/woozie';
 
 export interface ReceiveProps {}
 
 /**
  * Receive surface — shows the account address (QR + copy/share). Pending
- * (claimable) notes live on their own `/pending` screen, reached from the
+ * (claimable) notes live on their own `/pending-notes` screen, reached from the
  * Activity header.
  */
-export const Receive: React.FC<ReceiveProps> = () => {
+const ReceiveManager: React.FC<ReceiveProps> = () => {
   const account = useAccount();
   const address = account.publicKey;
-  const { fullPage, sidePanel } = useAppEnv();
 
-  // Match SendManager's container sizing - use h-full to inherit from parent (body has safe area padding).
-  const containerClass =
-    isMobile() || sidePanel
-      ? 'h-full w-full'
-      : fullPage
-        ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px]'
-        : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
+  const openBridgeDeposit = useCallback(() => {
+    navigate('/bridge/deposit');
+  }, []);
 
   return (
-    <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg relative')}>
-      <AddressTab address={address} />
+    <div
+      className={classNames('h-full w-full mx-auto overflow-hidden flex flex-col bg-app-bg relative')}
+      data-testid="receive-flow"
+    >
+      <AddressTab address={address} onBridgeDeposit={openBridgeDeposit} />
     </div>
   );
 };
+
+export { ReceiveManager as Receive };

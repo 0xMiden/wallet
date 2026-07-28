@@ -1,4 +1,4 @@
-import { NoteType, type TransactionResult, WasmWebClient } from '@miden-sdk/miden-sdk/lazy';
+import { NoteType, TransactionProver, WasmWebClient } from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 
 import {
@@ -7,14 +7,20 @@ import {
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
-import { withGuardianAccountLock, withGuardianConflictRetry } from 'lib/miden/guardian/serialize';
+import {
+  isGuardianPendingConflict,
+  withGuardianAccountLock,
+  withGuardianConflictRetry
+} from 'lib/miden/guardian/serialize';
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { DEFAULT_NETWORK, MIDEN_NETWORK_ENDPOINTS } from 'lib/miden-chain/constants';
+import { isMobile } from 'lib/platform';
 import { logger } from 'shared/logger';
 
 import { cancelStaleQueuedTransactions, cancelStuckTransactions, cancelTransaction } from './cancel';
 import {
+  completeBridgedSendTransaction,
   completeConsumeTransaction,
   completeCustomTransaction,
   completeReplaceHotKeyTransaction,
@@ -34,9 +40,11 @@ import {
 } from './helper';
 import { importAllNotes } from '../activity/notes';
 import {
+  BridgedSendTransaction,
   ConsumeTransaction,
   ITransaction,
   ITransactionStatus,
+  ITransactionType,
   ReplaceHotKeyTransaction,
   SendTransaction,
   SwapTransaction,
@@ -46,13 +54,41 @@ import {
 } from '../db/types';
 import { accountIdStringToSdk, canonicalWalletAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { MidenClientCreateOptions, proveWithFallback } from '../sdk/miden-client-interface';
+import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
+import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 
 export * from './cancel';
 export * from './complete';
+export * from './constants';
 export * from './get';
 export * from './helper';
 export * from './initiate';
+export * from './retry';
+
+// Transaction types whose proposal creator is side-effect-free and idempotent on
+// a pending-delta 409, so returning the tx to the queue for a later cycle is safe.
+// Structural ops are deliberately EXCLUDED: `replace-hot-key` mints a hardware hot
+// key inside createReplaceHotKeyProposal BEFORE its proposal POST, so a requeue
+// re-mints and orphans another key every cycle; `switch-guardian` /
+// `update-procedure-threshold` create a proposal (and switch-guardian cold
+// co-signs) whose re-run can register a duplicate delta and push the commitment
+// past the guardian's expected single delta. Those fall through to cancelTransaction.
+const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
+  'send',
+  'consume',
+  'swap',
+  'execute'
+]);
+
+// Cooldown (seconds) applied to a tx requeued after a transient guardian
+// pending-delta 409. A persistently-conflicting tx is always the OLDEST Queued
+// row by initiatedAt, so without a backoff it is re-picked every cycle — burning
+// the ~60s inline retry budget and starving another account's freshly-queued tx
+// until it ages out at MAX_QUEUED_AGE. Setting `nextEligibleAt = now + this` makes
+// the loop skip it for at least one cycle so other accounts drain first. Kept
+// comfortably above the processing loop's ~5s poll interval so the skip is not a
+// race; MAX_QUEUED_AGE stays the terminal cap.
+const PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC = 15;
 
 /**
  * Run the structural side effects a structural Guardian op needs after its
@@ -139,6 +175,36 @@ export const generateTransaction = async (
           console.error('Structural-op apply-failure reconcile failed; cancelling', reconcileError);
         }
       }
+      // Value-moving guardian op (consume/send/swap/execute) whose submit landed on
+      // chain but whose LOCAL apply failed. The tx IS live — cancelling would leave
+      // it terminally Failed while the note is spent on chain (conservation loss),
+      // and verifyStuckTransactionsFromNode only scans in-progress rows so it can't
+      // recover a Failed one. Mirror generateTransactionsLoop's generic
+      // ApplyTransactionAfterSubmitFailed handler: mark Completed so the next sync
+      // reconciles the note state via ConsumedExternal. (Structural ops are handled
+      // above and never reach here on success.)
+      if (
+        extractSdkErrorCode(error) === 'ApplyTransactionAfterSubmitFailed' &&
+        (transaction.type === 'consume' ||
+          transaction.type === 'send' ||
+          transaction.type === 'swap' ||
+          transaction.type === 'execute')
+      ) {
+        console.warn(
+          '[Guardian] submit landed but local apply failed — marking Completed; sync will reconcile:',
+          error
+        );
+        try {
+          await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
+            displayMessage: transaction.type === 'consume' ? 'Claimed' : 'Sent',
+            completedAt: Math.floor(Date.now() / 1000) // seconds
+          });
+        } catch (markErr) {
+          // updateTransactionStatus throws if the tx is already finalized — fine.
+          console.warn('[Guardian] could not re-mark Completed (likely already finalized):', markErr);
+        }
+        return;
+      }
       // Guardian canonicalization is eventually-consistent: the SDK can throw
       // "Refusing to overwrite local state: incoming nonce N is not greater
       // than local nonce M" when the guardian's view lags the local client.
@@ -155,6 +221,32 @@ export const generateTransaction = async (
           // updateTransactionStatus throws if the tx is already finalized — fine.
           console.warn('[Guardian] could not re-mark Completed (likely already finalized):', markErr);
         }
+        return;
+      }
+      // A transient guardian 409 (a prior delta still canonicalizing) that
+      // outlasted withGuardianConflictRetry's budget is NOT a terminal failure
+      // for a VALUE-MOVING op: the single-delta lock clears on its own, and its
+      // proposal creator is side-effect-free/idempotent, so returning the tx to
+      // the queue for the next generateTransactionsLoop cycle is safe. We reset
+      // the status to Queued AND clear processingStartedAt — a bare return would
+      // leave it GeneratingTransaction, which cancelStuckTransactions would then
+      // reap as stalled; cancelStaleQueuedTransactions (MAX_QUEUED_AGE) remains
+      // the terminal cap. We also stamp `nextEligibleAt` so the loop backs this
+      // tx off for a cycle rather than re-picking it as the oldest row every
+      // time — otherwise it would starve another account's queued tx.
+      //
+      // Structural ops are gated OUT (see REQUEUEABLE_ON_PENDING_CONFLICT): a
+      // replace-hot-key 409 escapes createReplaceHotKeyProposal AFTER the hardware
+      // hot key was minted, so requeueing would re-mint and orphan a key every
+      // cycle; switch-guardian / update-procedure-threshold re-runs can register a
+      // duplicate delta. They fall through to cancelTransaction — the user retries.
+      if (isGuardianPendingConflict(error) && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)) {
+        console.warn('[Guardian] proposal still conflicting after retry budget — requeueing for a later cycle');
+        await updateTransactionStatus(transaction.id, ITransactionStatus.Queued, {
+          processingStartedAt: undefined,
+          stage: 'creating-proposal',
+          nextEligibleAt: Math.floor(Date.now() / 1000) + PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC
+        });
         return;
       }
       await cancelTransaction(transaction, error);
@@ -189,6 +281,17 @@ export const generateTransaction = async (
         return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
       case 'swap':
         return await midenClient.swapTransaction(transaction as SwapTransaction);
+      case 'bridged-send':
+        // Epoch bridges by sending a recallable P2IDE note (send-style, no
+        // `requestBytes`); Agglayer carries a pre-built request.
+        if (!transaction.requestBytes) {
+          return midenClient.sendTransaction(transaction as SendTransaction);
+        }
+        return midenClient.newTransaction(
+          transaction.accountId,
+          transaction.requestBytes,
+          transaction.delegateTransaction
+        );
       case 'execute':
       default:
         return await midenClient.newTransaction(
@@ -208,6 +311,9 @@ export const generateTransaction = async (
       break;
     case 'swap':
       await completeSwapTransaction(transaction as SwapTransaction, result);
+      break;
+    case 'bridged-send':
+      await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
       break;
     case 'execute':
     default:
@@ -300,8 +406,9 @@ const generateGuardianTransaction = async (
       // popped Face ID on every attempt. That flag is gone (hot signing is
       // silent everywhere now), so the cold detour buys nothing and the cached
       // hot service is strictly cheaper than building a transient cold one.
+      const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      proposalResult = await withGuardianConflictRetry(() => service.createConsumeNotesProposal([consumeTx.noteId]));
+      proposalResult = await withGuardianConflictRetry(() => service.createConsumeNotesProposal(consumeNoteIds));
       break;
     }
     case 'switch-guardian': {
@@ -353,6 +460,24 @@ const generateGuardianTransaction = async (
       proposalResult = proposal;
       break;
     }
+    case 'bridged-send': {
+      const bridgeTx = transaction as BridgedSendTransaction;
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      if (bridgeTx.requestBytes) {
+        // Agglayer: preview the pre-built request into a custom multisig proposal.
+        proposalResult = await service.createCustomProposal(bridgeTx.requestBytes);
+      } else {
+        // Epoch: a recallable P2IDE note to the solver's allocator — propose it as
+        // a send. (The multisig send proposal is P2ID today, so the Epoch recall
+        // safety net is not yet available on Guardian accounts.)
+        proposalResult = await service.createSendProposal(
+          bridgeTx.secondaryAccountId!,
+          bridgeTx.faucetId,
+          BigInt(bridgeTx.amount)
+        );
+      }
+      break;
+    }
     case 'swap': {
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       const swapTx = transaction as SwapTransaction;
@@ -366,16 +491,20 @@ const generateGuardianTransaction = async (
       if (!transaction.requestBytes) {
         const requestBytes = await withWasmClientLock(async () => {
           const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
-          const tr = await client.newPswapCreateTransactionRequest(
-            accountIdStringToSdk(swapTx.accountId),
-            accountIdStringToSdk(swapTx.faucetId),
-            swapTx.amount,
-            accountIdStringToSdk(swapTx.extraInputs.requestedFaucetId),
-            swapTx.extraInputs.requestedAmount,
-            NoteType.Public,
-            NoteType.Public
-          );
-          return tr.serialize();
+          try {
+            const tr = await client.newPswapCreateTransactionRequest(
+              accountIdStringToSdk(swapTx.accountId),
+              accountIdStringToSdk(swapTx.faucetId),
+              swapTx.amount,
+              accountIdStringToSdk(swapTx.extraInputs.requestedFaucetId),
+              swapTx.extraInputs.requestedAmount,
+              NoteType.Public,
+              NoteType.Public
+            );
+            return tr.serialize();
+          } finally {
+            client.terminate();
+          }
         });
         transaction.requestBytes = requestBytes;
         await Repo.transactions.where({ id: transaction.id }).modify(t => {
@@ -446,54 +575,71 @@ const generateGuardianTransaction = async (
     await withGuardianConflictRetry(() => coldService.signProposal(proposalResult.id));
   }
 
-  const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
-  const options: MidenClientCreateOptions = {
-    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-      const keyString = Buffer.from(publicKey).toString('hex');
-      const signingInputsString = Buffer.from(signingInputs).toString('hex');
-      return await signCallback(keyString, signingInputsString);
-    }
-  };
-
-  await setTransactionStage(transaction.id, 'sending');
-  const transactionResult = await withWasmClientLock(async () => {
-    try {
-      const midenClient = await getMidenClient(options);
-      const sdkClient = midenClient.client as unknown as {
-        _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
-      };
-      const withInner = sdkClient._withInnerWebClient;
-      if (typeof withInner !== 'function') {
-        throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
+  let submittedTransaction;
+  try {
+    const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
+    const options: MidenClientCreateOptions = {
+      signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
+        const keyString = Buffer.from(publicKey).toString('hex');
+        const signingInputsString = Buffer.from(signingInputs).toString('hex');
+        return await signCallback(keyString, signingInputsString);
       }
+    };
 
-      return (await withInner.call(sdkClient, async (inner: any) => {
-        await setTransactionStage(transaction.id, 'executing');
-        const executedTx = await inner.executeTransaction(accountIdStringToSdk(transaction.accountId), tr);
-        await setTransactionStage(transaction.id, 'proving');
-        // Prove via the shared prover selection (delegate → remote; otherwise
-        // native on mobile / WASM local on desktop), identical to the
-        // non-guardian path. We MUST pass a prover explicitly: this is the RAW
-        // inner WebClient, whose default prover is the single-threaded
-        // main-thread WASM one — calling `inner.proveTransaction(executedTx)`
-        // with no prover freezes the mobile UI for the whole multi-second prove.
-        // In the delegate branch `proveWithFallback` calls the closure with no
-        // prover, so we substitute the client's remote prover here.
-        const remoteProver = (midenClient.client as unknown as { defaultProver?: unknown }).defaultProver ?? undefined;
-        const provedTx = await proveWithFallback(
-          prover => inner.proveTransaction(executedTx, prover ?? remoteProver),
-          transaction.delegateTransaction
-        );
-        await setTransactionStage(transaction.id, 'submitting');
-        const blockNumber = await inner.submitProvenTransaction(provedTx, executedTx);
-        await inner.applyTransaction(executedTx, blockNumber);
-        return executedTx;
-      })) as TransactionResult;
-    } catch (error) {
-      console.error('Error during transaction submission or execution', { error });
-      throw error;
+    await setTransactionStage(transaction.id, 'sending');
+    submittedTransaction = await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient(options);
+      await setTransactionStage(transaction.id, 'executing');
+      const executedTx = await midenClient.client.transactions.executeRequest(transaction.accountId, tr);
+      await setTransactionStage(transaction.id, 'proving');
+      let provenTx;
+      if (!transaction.delegateTransaction) {
+        provenTx = await executedTx.prove({ prover: TransactionProver.newLocalProver() });
+      } else {
+        // Delegated (remote) proving. The client's default prover is the remote
+        // gRPC prover on every platform, and its ~10s deadline is too tight for a
+        // heavyweight guardian multisig proof when the machine is under load — a
+        // single "Deadline expired" used to kill the whole co-signed transaction
+        // (surfacing as the guardian 409 canonicalize-conflict retry loop and a
+        // claim timeout), because the guardian pipeline drives the raw client
+        // directly and had none of the local fallback the non-guardian path gets
+        // for free from `proveWithFallback`. Give it that resilience: on remote
+        // failure, re-prove the SAME executed tx locally. Re-proving is safe
+        // because `proveTransaction` borrows the executed result (only the prover
+        // is consumed, and each attempt passes a fresh one). The local prover
+        // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
+        // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
+        try {
+          provenTx = await executedTx.prove({});
+        } catch (proveError) {
+          console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
+          const fallbackProver = isMobile()
+            ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+            : TransactionProver.newLocalProver();
+          provenTx = await executedTx.prove({ prover: fallbackProver });
+        }
+      }
+      await setTransactionStage(transaction.id, 'submitting');
+      const submittedTx = await provenTx.submit();
+      await submittedTx.apply();
+      return executedTx;
+    });
+  } catch (error) {
+    console.error('Error during Guardian transaction submission or execution', { error });
+    try {
+      await service.abandonCandidate(proposalResult.nonce);
+    } catch (abandonError) {
+      // Cleanup must never mask the transaction failure. The abandonment call
+      // is idempotent, so a later recovery path can safely retry it.
+      console.error('Failed to request Guardian candidate abandonment', {
+        nonce: proposalResult.nonce,
+        error: abandonError
+      });
     }
-  });
+    throw error;
+  }
+
+  const { id, result } = submittedTransaction;
 
   // For switch-guardian, the new guardian must be seeded with the POST-switch
   // account state. submit() returns after submission, not after inclusion, so
@@ -514,7 +660,7 @@ const generateGuardianTransaction = async (
     await setTransactionStage(transaction.id, 'confirming');
     await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
-      await midenClient.waitForTransactionCommit(transactionResult.executedTransaction().id().toHex());
+      await midenClient.waitForTransactionCommit(id.toHex());
     });
   }
 
@@ -549,40 +695,38 @@ const generateGuardianTransaction = async (
 
   switch (transaction.type) {
     case 'send':
-      await completeSendTransaction(transaction as SendTransaction, transactionResult);
+      await completeSendTransaction(transaction as SendTransaction, result);
       break;
     case 'consume':
-      await completeConsumeTransaction(transaction.id, transactionResult);
+      await completeConsumeTransaction(transaction.id, result);
       break;
     case 'switch-guardian':
       await completeSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
-        transactionResult,
+        result,
         service,
         guardianProvider
       );
       break;
     case 'replace-hot-key':
-      await completeReplaceHotKeyTransaction(
-        transaction as ReplaceHotKeyTransaction,
-        transactionResult,
-        guardianProvider,
-        service
-      );
+      await completeReplaceHotKeyTransaction(transaction as ReplaceHotKeyTransaction, result, guardianProvider);
       break;
     case 'update-procedure-threshold':
       await completeUpdateProcedureThresholdTransaction(
         transaction as UpdateProcedureThresholdTransaction,
-        transactionResult,
+        result,
         service
       );
       break;
     case 'swap':
-      await completeSwapTransaction(transaction as SwapTransaction, transactionResult);
+      await completeSwapTransaction(transaction as SwapTransaction, result);
+      break;
+    case 'bridged-send':
+      await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
       break;
     case 'execute':
     default:
-      await completeCustomTransaction(transaction, transactionResult);
+      await completeCustomTransaction(transaction, result);
       break;
   }
 
@@ -613,9 +757,15 @@ export const generateTransactionsLoop = async (
     return;
   }
 
-  // Process next transaction
-  const nextTransaction = queuedTransactions[0];
-  if (!nextTransaction) return; // redundant after length check but satisfies the type narrower
+  // Process the oldest ELIGIBLE transaction. A tx requeued after a transient
+  // guardian pending-delta 409 carries a `nextEligibleAt` cooldown; skip it while
+  // that is in the future so it doesn't monopolize the loop as the oldest row and
+  // starve another account's queued tx. A tx with no `nextEligibleAt` is always
+  // eligible (backward compatible). If every queued tx is still cooling down there
+  // is nothing to do this cycle; MAX_QUEUED_AGE remains the terminal cap.
+  const now = Math.floor(Date.now() / 1000);
+  const nextTransaction = queuedTransactions.find(tx => tx.nextEligibleAt === undefined || tx.nextEligibleAt <= now);
+  if (!nextTransaction) return;
 
   // Call safely to cancel transaction and unlock records if something goes wrong
   try {
@@ -653,11 +803,14 @@ export const generateTransactionsLoop = async (
       logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
       const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
       if (tx && tx.status !== ITransactionStatus.Completed) {
-        // Structural Guardian ops never reach here — they're routed through the
-        // guardian branch of `generateTransaction`, whose own catch handles the
-        // apply-after-submit-failed reconcile (see `reconcileStructuralApplyFailure`).
-        // This generic path covers send/consume, whose note states the next sync
-        // reconciles via ConsumedExternal.
+        // Guardian ops never reach here — they're routed through the guardian branch
+        // of `generateTransaction`, whose own catch handles apply-after-submit-failed
+        // for value-moving ops (send/consume/swap/execute) by marking Completed, and
+        // for replace-hot-key/switch-guardian via `reconcileStructuralApplyFailure`.
+        // (update-procedure-threshold is currently handled by neither and still falls
+        // through to cancel there — a separate, pre-existing gap.) This generic path
+        // covers non-guardian send/consume, whose note states the next sync reconciles
+        // via ConsumedExternal.
         await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
           displayMessage: 'Completed',
           completedAt: Math.floor(Date.now() / 1000)
@@ -730,7 +883,13 @@ export const startBackgroundTransactionProcessing = (
   const processLoop = async () => {
     let hasMore = true;
     let attempts = 0;
-    const maxAttempts = 60; // Max 5 minutes (60 * 5 seconds)
+    // Cap the number of loop passes, not wall-clock time. Each pass now runs one
+    // full generate cycle whose guardian ops can spend up to the conflict-retry
+    // budget (~60s) before returning, so 60 passes is NOT "5 minutes" — it's a
+    // pass ceiling that, together with the 5s inter-pass wait, just bounds how
+    // long this background driver keeps polling. Terminal per-tx caps live
+    // elsewhere: MAX_QUEUED_AGE (queued) and MAX_WAIT_BEFORE_CANCEL (in-flight).
+    const maxAttempts = 60;
 
     while (hasMore && attempts < maxAttempts) {
       attempts++;

@@ -39,7 +39,7 @@ jest.mock('lib/miden/back/store', () => ({
 }));
 
 jest.mock('./sync-manager', () => ({
-  doSync: () => (globalThis as any).__mainTest.doSync()
+  doSync: (force?: boolean) => (globalThis as any).__mainTest.doSync(force)
 }));
 
 jest.mock('./transaction-processor', () => ({
@@ -145,7 +145,12 @@ describe('processRequest', () => {
   it('SyncRequest → SyncResponse and triggers doSync', async () => {
     const res = await dispatch({ type: WalletMessageType.SyncRequest });
     expect(res.type).toBe(WalletMessageType.SyncResponse);
-    expect(mockDoSync).toHaveBeenCalled();
+    expect(mockDoSync).toHaveBeenCalledWith(undefined);
+  });
+
+  it('forwards a forced SyncRequest', async () => {
+    await dispatch({ type: WalletMessageType.SyncRequest, force: true });
+    expect(mockDoSync).toHaveBeenCalledWith(true);
   });
 
   it('NoteClaimStarted broadcasts the note id and returns ack', async () => {

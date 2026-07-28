@@ -60,7 +60,7 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
       <SuccessDivider />
 
       {returnAmountText && (
-        <div className="flex w-full items-start gap-1.5 text-xs text-[#6B6862]">
+        <div className="flex w-full items-start gap-1.5 text-xs text-heading-gray">
           <InfoIcon className="mt-0.5 h-4 w-4 shrink-0 fill-current" />
           <span>{t('swapOrderReservedNote', { amount: returnAmountText })}</span>
         </div>

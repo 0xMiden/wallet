@@ -13,12 +13,14 @@ import Dialogs from 'app/layouts/Dialogs';
 import { MobileBackBridge } from 'app/MobileBackBridge';
 import PageRouter from 'app/PageRouter';
 import { DappBrowserProvider } from 'app/providers/DappBrowserProvider';
+import { HotKeyRotationGate } from 'app/templates/HotKeyRotationGate';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
 import { ExtensionMessageListener } from 'components/ConnectivityIssueBanner';
 import { MidenProvider } from 'lib/miden/front';
 import { isDesktop as checkIsDesktop, isExtension, isMobile as checkIsMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { DialogsProvider } from 'lib/ui/dialog';
+import { AppKitProvider } from 'lib/walletconnect/appkit';
 import * as Woozie from 'lib/woozie';
 import '../i18n';
 
@@ -59,10 +61,14 @@ const App: FC<AppProps> = ({ env }) => {
                     // tab navigation — a parked dApp's bubble stays interactive even
                     // when the user moves to a different tab.
                     <DappBrowserProvider>
+                      <HotKeyRotationGate />
                       <PageRouter />
                     </DappBrowserProvider>
                   ) : (
-                    <PageRouter />
+                    <>
+                      <HotKeyRotationGate />
+                      <PageRouter />
+                    </>
                   )}
                 </div>
               </BootAnimation>
@@ -96,7 +102,9 @@ const AppProvider: FC<AppProps> = ({ children, env }) => {
             <DesktopDappConfirmationModal />
           </Suspense>
         )}
-        <MidenProvider>{children}</MidenProvider>
+        <AppKitProvider>
+          <MidenProvider>{children}</MidenProvider>
+        </AppKitProvider>
       </Woozie.Provider>
     </AppEnvProvider>
   );

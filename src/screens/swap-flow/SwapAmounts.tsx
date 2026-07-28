@@ -21,6 +21,8 @@ export interface SwapAmountsProps {
   requestAmount: string;
   onRequestAmountChange: (amount: string) => void;
   onSelectRequestToken: () => void;
+  /** Show a skeleton on the receive field while its quote is being computed. */
+  requestLoading?: boolean;
   onSwapDirection: () => void;
   onConfirm: () => void;
   canProceed: boolean;
@@ -52,6 +54,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   requestAmount,
   onRequestAmountChange,
   onSelectRequestToken,
+  requestLoading,
   onSwapDirection,
   onConfirm,
   canProceed,
@@ -110,6 +113,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           logoSymbol={requestToken.logoSymbol}
           amount={requestAmount}
           isValidAmount={Number(requestAmount) > 0}
+          loading={requestLoading}
           onAmountChange={onRequestAmountChange}
           onSelectToken={onSelectRequestToken}
         />

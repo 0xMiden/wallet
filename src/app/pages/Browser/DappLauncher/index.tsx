@@ -4,7 +4,7 @@
  * Stack (top → bottom):
  *   <TabHeader/>         "Explore" title + settings button
  *   <HeroSearch/>        search/URL bar
- *   <AppsGrid/>          2×2 curated app cards (EXPLORE_GRID_DAPPS)
+ *   <AppsGrid/>          Two curated faucet app cards
  *   <RecentsRow/>        1-row of up to 4 recent opens
  *
  * The launcher reads recents from `recent-dapps.ts` storage on mount.

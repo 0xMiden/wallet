@@ -127,6 +127,16 @@ jest.mock('./AccountsList', () => ({
   )
 }));
 
+jest.mock('./bridge-networks', () => ({
+  DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+  BRIDGE_NETWORKS: [],
+  getBridgeNetwork: jest.fn()
+}));
+
+jest.mock('./useEpochQuote', () => ({
+  useEpochQuote: () => ({ amount: undefined, loading: false })
+}));
+
 jest.mock('lib/miden/front', () => ({
   useAccount: () => useAccountMock(),
   useAllAccounts: () => useAllAccountsMock(),
@@ -136,20 +146,28 @@ jest.mock('lib/miden/front', () => ({
 jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
   useFilteredContacts: () => useFilteredContactsMock()
 }));
+jest.mock('lib/miden/sdk/helpers', () => ({
+  accountIdStringToSdk: (id: string) => ({ toString: () => id })
+}));
 jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
   useHideNavbarWhileOpen: (...a: any[]) => useHideNavbarWhileOpenMock(...a)
 }));
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
   useMobileBackHandler: (cb: any, deps: any) => useMobileBackHandlerMock(cb, deps)
 }));
-jest.mock('lib/platform', () => ({ isExtension: () => isExtensionMock() }));
+jest.mock('lib/platform', () => ({ isExtension: () => isExtensionMock(), isMobile: () => false }));
 jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => isDelegateProofEnabledMock() }));
 jest.mock('lib/store', () => ({ useWalletStore: { getState: () => walletStoreState } }));
 jest.mock('lib/woozie', () => ({
   navigate: (...a: any[]) => navigateMock(...a),
   useLocation: () => ({ pathname: mockPathname, search: mockSearch })
 }));
-jest.mock('utils/miden', () => ({ isValidMidenAddress: (a: string) => isValidMidenAddressMock(a) }));
+jest.mock('utils/miden', () => ({
+  isValidMidenAddress: (a: string) => isValidMidenAddressMock(a),
+  isValidEthereumAddress: (a: string) => a.startsWith('0x') && a.length > 2,
+  isValidRecipientAddress: (a: string) => isValidMidenAddressMock(a),
+  detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden')
+}));
 jest.mock('lib/i18n/numbers', () => ({ stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a) }));
 jest.mock('lib/miden/activity', () => ({
   requestSpeculateSend: (...a: any[]) => requestSpeculateSendMock(...a),
@@ -536,7 +554,7 @@ describe('confirming the amount', () => {
     return renderFlow();
   };
 
-  it('sets a draft and navigates to the review route with encoded params', () => {
+  it('routes an Ethereum recipient to bridge route selection', () => {
     mockSelectedContact = { id: '0xrecip', name: 'R', isOwned: false, contactType: 'external' };
     mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
     renderAmountStep();
@@ -555,8 +573,9 @@ describe('confirming the amount', () => {
       fireEvent.click(screen.getByTestId('sa-confirm'));
     });
 
-    expect(hasSendDraft()).toBe(true);
-    expect(navigateMock).toHaveBeenCalledWith('/send/review?amount=5&to=0xrecip&tokenId=T1');
+    expect(hasSendDraft()).toBe(false);
+    expect(navigateToMock).toHaveBeenCalledWith(SendFlowStep.Route);
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   it('does nothing when required fields are missing', () => {

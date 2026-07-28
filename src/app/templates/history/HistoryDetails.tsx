@@ -1,12 +1,34 @@
 import React, { FC, useCallback, useEffect, useState, memo } from 'react';
 
 import BigNumber from 'bignumber.js';
+import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
+import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
+import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
-import { getTransactionById, trackOrderId, SwapOrderState, SwapOrderTracking } from 'lib/miden/activity';
+import {
+  cancelTransactionById,
+  getSwapSettlementNotes,
+  getTransactionById,
+  isRequeueableTransaction,
+  isUserCancelledTransaction,
+  requestSWTransactionProcessing,
+  requeueFailedTransaction,
+  trackOrderId,
+  SwapOrderState,
+  SwapOrderTracking,
+  SwapSettlementNotes,
+  USER_CANCELLED_TRANSACTION_REASON
+} from 'lib/miden/activity';
+import {
+  IBridgedReceiveExtraInputs,
+  IBridgedSendExtraInputs,
+  ITransaction,
+  ITransactionStatus
+} from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
@@ -15,14 +37,29 @@ import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
-import { goBack } from 'lib/woozie';
+import { goBack, navigate } from 'lib/woozie';
+import {
+  TransactionSummaryBadge,
+  useTransactionSummaryBadgeContent
+} from 'screens/generating-transaction/TransactionSummaryBadge';
 
 import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
+import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
 import { IHistoryEntry } from './IHistoryEntry';
-import TransactionIcon from './TransactionIcon';
-import { formatDate } from './transactionUtils';
+import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
+import {
+  BRIDGE_STATUS_LABEL_KEY,
+  bridgeInRowDisplay,
+  bridgeRowDisplay,
+  bridgeStatusOf,
+  formatDate,
+  isBridgeInEntry
+} from './transactionUtils';
+
+const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
+const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
 
 interface HistoryDetailsProps {
   transactionId: string;
@@ -43,6 +80,48 @@ interface RequestedTokenInfo {
 }
 
 const DISPLAY_DECIMAL_PLACES = 3;
+
+const SectionDivider: FC<{ color: string }> = ({ color }) => (
+  <div
+    data-testid="history-section-divider"
+    className="h-1 w-full shrink-0 rounded-full"
+    style={{ backgroundColor: color }}
+  />
+);
+
+/** Bridge hero amounts: "IN → OUT" with the destination token greyed, matching the activity row. */
+const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
+  const bridgeIn = isBridgeInEntry(entry);
+  const { inSymbol, outSymbol, outAmount } = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
+  const inAmount = (bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString()) ?? '—';
+  return (
+    <div className="mt-1 flex max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
+      <span className="text-heading-gray">{inAmount}</span>
+      <span className="text-text-muted">{inSymbol}</span>
+      <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 self-center" />
+      <span className="text-heading-gray">{outAmount ?? inAmount}</span>
+      <span className="text-text-muted">{outSymbol}</span>
+    </div>
+  );
+};
+
+/** Pending/Confirmed/Failed for a bridge, derived from the route's own lifecycle. */
+const BridgeStatusPill: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
+  const { t } = useTranslation();
+  const status = bridgeStatusOf(entry);
+  const tone =
+    status === 'confirmed'
+      ? 'bg-status-positive/15 text-status-positive'
+      : status === 'failed'
+        ? 'bg-status-negative/15 text-status-negative'
+        : 'bg-status-pending/15 text-status-pending';
+  return (
+    <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', tone)}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      <span className="text-xs font-medium">{t(BRIDGE_STATUS_LABEL_KEY[status])}</span>
+    </div>
+  );
+};
 
 function formatDisplayAmount(amount: string | number | bigint): string {
   const amountString = amount.toString();
@@ -71,6 +150,15 @@ function formatFiatDisplayAmount(
 
   return `≈ $${fiatAmount.toFixed(2)} USD`;
 }
+
+/** Right-aligned stack of trimmed, copyable note ids. */
+const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId }) => (
+  <div data-testid={testId} className="flex min-w-0 flex-col items-end gap-1">
+    {noteIds.map(noteId => (
+      <HashChip key={noteId} hash={noteId} trimHash fill="#9E9E9E" copyIcon={false} />
+    ))}
+  </div>
+);
 
 const AccountDisplay: FC<{
   address: string | undefined;
@@ -108,23 +196,42 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const account = useAccount();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
+  const [transaction, setTransaction] = useState<ITransaction | undefined>();
+  const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  // Failed txs persist a friendly `error` plus the untouched thrown `rawError`;
+  // this reveals the latter on demand.
+  const [showFullError, setShowFullError] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
   // Swap order tracking: the orderId is persisted on the swap tx's extraInputs
   // by `completeSwapTransaction`; the live lineage is fetched via `trackOrderId`.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
   const [swapTracking, setSwapTracking] = useState<SwapOrderTracking | null>(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
+  // Notes claimed by this order's settlement consumes. Those consume rows are
+  // suppressed in the history list (the swap row is the order's single trace),
+  // so this page is where their notes stay visible.
+  const [settlementNotes, setSettlementNotes] = useState<SwapSettlementNotes | null>(null);
   const loadTransaction = useCallback(async () => {
     try {
       setLoadError(null);
       const tx = await getTransactionById(transactionId);
       const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
       console.log('Loaded transaction for HistoryDetails:', tx, tokenMetadata);
+      // Bridge metadata (route/provider, EVM destination, per-route status) lives
+      // on `extraInputs`; without it the detail view can't tell Fast (Epoch) from
+      // Slow (Agglayer) and defaults every bridge to the Slow route.
+      const bridge: IBridgedSendExtraInputs | undefined = tx.type === 'bridged-send' ? tx.extraInputs : undefined;
+      const bridgeReceive: IBridgedReceiveExtraInputs | undefined =
+        tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
       const historyEntry = {
         address: tx.accountId,
         key: `completed-${tx.id}`,
-        timestamp: tx.completedAt,
+        timestamp: tx.completedAt ?? tx.initiatedAt,
         message: tx.displayMessage,
         status: tx.status,
         transactionIcon: tx.displayIcon,
@@ -137,7 +244,29 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         externalTxId: tx.transactionId,
         faucetId: tx.faucetId,
         outputNoteIds: tx.outputNoteIds,
-        txType: tx.type
+        txType: tx.type,
+        errorMessage: tx.error,
+        rawErrorMessage: tx.rawError,
+        isCancelled: isUserCancelledTransaction(tx.error),
+        bridgeProvider: bridge?.provider,
+        bridgeDestinationAddress: bridge?.destinationAddress,
+        bridgeDestinationNetwork: bridge?.destinationNetwork,
+        bridgeClaimStatus: bridge?.claimStatus,
+        bridgeOutputAmount: bridge?.outputAmount,
+        bridgeOutputSymbol: bridge?.outputSymbol,
+        bridgeIntentNonce: bridge?.intentNonce,
+        bridgeFillTxHash: bridge?.fillTxHash,
+        bridgeFillChainId: bridge?.fillChainId,
+        bridgeEpochStatus: bridge?.epochStatus,
+        bridgeInProvider: bridgeReceive?.provider,
+        bridgeInSourceAddress: bridgeReceive?.sourceAddress,
+        bridgeInSourceAmount: bridgeReceive?.sourceAmount,
+        bridgeInSourceSymbol: bridgeReceive?.sourceSymbol,
+        bridgeInEvmTxHash: bridgeReceive?.evmTxHash,
+        bridgeInPhase: bridgeReceive?.phase,
+        bridgeInOutputAmount: bridgeReceive?.outputAmount,
+        bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
+        bridgeInMidenNoteId: bridgeReceive?.midenNoteId
       } as IHistoryEntry;
 
       if (tx.type === 'swap') {
@@ -158,6 +287,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         }
       }
 
+      if (tx.type === 'swap') {
+        setSettlementNotes(await getSwapSettlementNotes(tx.id));
+      }
+
+      setTransaction(tx);
       setEntry(historyEntry);
     } catch (error) {
       console.error('[HistoryDetails] Failed to load transaction:', error);
@@ -169,12 +303,56 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     if (!entry && !loadError) loadTransaction();
   }, [loadTransaction, entry, loadError]);
 
+  // A detail page can be opened while proving/submission is still in progress.
+  // Keep reloading until the Miden transaction reaches a terminal state so a
+  // bridge failure replaces Pending without requiring the user to leave.
+  useEffect(() => {
+    if (entry?.status !== ITransactionStatus.Queued && entry?.status !== ITransactionStatus.GeneratingTransaction) {
+      return;
+    }
+
+    const timer = setInterval(() => void loadTransaction(), 3000);
+    return () => clearInterval(timer);
+  }, [entry?.status, loadTransaction]);
+
+  const handleCancel = useCallback(async () => {
+    setIsCancelling(true);
+    setCancelError(null);
+
+    try {
+      await cancelTransactionById(transactionId, USER_CANCELLED_TRANSACTION_REASON);
+      await loadTransaction();
+    } catch (error) {
+      console.error('[HistoryDetails] Failed to cancel transaction:', error);
+      setCancelError(error instanceof Error ? error.message : t('smthWentWrong'));
+    } finally {
+      setIsCancelling(false);
+    }
+  }, [loadTransaction, t, transactionId]);
+
+  // Retry a failed transaction by re-queueing it through the FIFO loop, then
+  // hand off to the generating-transaction page which observes the row (and,
+  // on mobile/desktop, drives the loop).
+  const handleRetry = useCallback(async () => {
+    setIsRetrying(true);
+    setRetryError(null);
+    try {
+      await requeueFailedTransaction(transactionId);
+      requestSWTransactionProcessing();
+      navigate(`/generating-transaction/${encodeURIComponent(transactionId)}`);
+    } catch (error) {
+      console.error('[HistoryDetails] Failed to retry transaction:', error);
+      setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+      setIsRetrying(false);
+    }
+  }, [t, transactionId]);
+
   // Poll the swap order lineage until it reaches a terminal state (filled or
   // reclaimed). The orderId is persisted on the swap tx; the live lineage is
   // fetched via `trackOrderId`. Each poll takes the WASM client lock, so a
   // `null`/error result (not-yet-trackable or an order this client can't
   // resolve) backs off exponentially and gives up after a cap, rather than
-  // hammering the lock every 3s forever. A genuinely `active` order resets the
+  // hammering the lock every 2s forever. A genuinely `active` order resets the
   // backoff and keeps a steady watch at the base interval.
   useEffect(() => {
     if (orderId == null) return;
@@ -184,7 +362,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     const trackedOrderId = orderId;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const BASE_INTERVAL_MS = 3000;
+    const BASE_INTERVAL_MS = 2000;
     const MAX_INTERVAL_MS = 30_000;
     const MAX_UNRESOLVED_POLLS = 20;
     let unresolved = 0;
@@ -199,6 +377,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     };
 
     async function poll() {
+      if (cancelled) return;
+      setTrackingLoading(true);
       try {
         const result = await trackOrderId(trackedOrderId);
         if (cancelled) return;
@@ -220,7 +400,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       }
     }
 
-    setTrackingLoading(true);
     poll();
 
     return () => {
@@ -228,6 +407,44 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       if (timer) clearTimeout(timer);
     };
   }, [orderId]);
+
+  // Settlement can land while this page is open (auto-consume runs on its own
+  // 2s cycle), and the lineage poll above stops at a terminal state — usually
+  // just *before* the settlement consume completes. So watch for the notes
+  // separately: cheap Dexie-only reads, stopping as soon as any arrive and
+  // giving up after a cap so a manual-claim order doesn't poll forever.
+  const settlementFound = Boolean(
+    settlementNotes && (settlementNotes.settled.length || settlementNotes.reclaimed.length)
+  );
+  useEffect(() => {
+    if (orderId == null || settlementFound || !transaction) return;
+    const swapTxId = transaction.id;
+    const POLL_INTERVAL_MS = 2000;
+    const MAX_POLLS = 20;
+    let polls = 0;
+    let cancelled = false;
+
+    const timer = setInterval(async () => {
+      polls += 1;
+      if (polls > MAX_POLLS) {
+        clearInterval(timer);
+        return;
+      }
+      try {
+        const notes = await getSwapSettlementNotes(swapTxId);
+        if (!cancelled && (notes.settled.length > 0 || notes.reclaimed.length > 0)) {
+          setSettlementNotes(notes);
+        }
+      } catch (error) {
+        console.error('[HistoryDetails] Failed to read swap settlement notes:', error);
+      }
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [orderId, settlementFound, transaction]);
 
   const orderStatusLabel = (state: SwapOrderState): string => {
     switch (state) {
@@ -249,14 +466,58 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         : requestedToken.amount - swapTracking.remainingRequested
       : undefined;
 
-  const fromAddress = entry?.message === 'Sent' ? entry?.address : entry?.secondaryAddress;
-  const toAddress = entry?.message === 'Sent' ? entry?.secondaryAddress : entry?.address;
-  const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
+  // For a bridge the sender is always the Miden account; the EVM destination is
+  // shown in the BridgeClaimSection (with the right explorer link), so the Miden
+  // "to" row is omitted here.
+  const isBridgeOut = entry?.txType === 'bridged-send' && !entry.isCancelled;
+  const isBridgeIn = entry ? isBridgeInEntry(entry) && entry.txType === 'bridged-receive' : false;
+  const isBridge = isBridgeOut || isBridgeIn;
+  const fromAddress = isBridgeOut
+    ? entry?.address
+    : isBridgeIn
+      ? undefined
+      : entry?.message === 'Sent'
+        ? entry?.address
+        : entry?.secondaryAddress;
+  const toAddress = isBridgeOut
+    ? undefined
+    : isBridgeIn
+      ? entry?.address
+      : entry?.message === 'Sent'
+        ? entry?.secondaryAddress
+        : entry?.address;
+  const settledNoteIds = settlementNotes?.settled ?? [];
+  const reclaimedNoteIds = settlementNotes?.reclaimed ?? [];
+  const hasNoteData =
+    entry?.noteId ||
+    (entry?.outputNoteIds && entry.outputNoteIds.length > 0) ||
+    settledNoteIds.length > 0 ||
+    reclaimedNoteIds.length > 0;
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
   const approximateUsdAmount =
     entry?.amount !== undefined && entry.token
       ? formatFiatDisplayAmount(entry.amount, entry.token, tokenPrices)
       : undefined;
+  // The shared badge resolves its own amounts from the raw tx; for the types
+  // whose hero already reads as "amount token → recipient" we override the left
+  // side with the formatted history amount so both views agree.
+  const historySummaryBadgeContent =
+    transactionSummaryBadgeContent &&
+    entry?.amount !== undefined &&
+    entry.token &&
+    (entry.txType === 'send' || entry.txType === 'bridged-send')
+      ? {
+          ...transactionSummaryBadgeContent,
+          lhs: `${formatDisplayAmount(entry.amount)} ${entry.token}`
+        }
+      : transactionSummaryBadgeContent;
+  const sectionDividerColor = entry ? getTransactionIconBackgroundColor(entry) : 'transparent';
+  const isPending =
+    entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
+  // Retry only for failed types the wallet can safely replay (structural
+  // Guardian ops are excluded — the user re-initiates those from Settings).
+  const canRetry =
+    entry !== null && !entry.isCancelled && isRequeueableTransaction({ status: entry.status, type: entry.txType });
 
   return (
     <PageLayout hideToolbar>
@@ -273,111 +534,301 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           <ActivitySpinner />
         ) : (
           <div className="flex-1 flex flex-col overflow-y-auto">
-            {/* Top Section */}
+            {/* Top Section — a bridge reads "IN → OUT" across the two chains. */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
               <TransactionIcon entry={entry} size="lg" />
-              <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
-                {entry.amount !== undefined && (
-                  <span className="text-heading-gray">{formatDisplayAmount(entry.amount)}</span>
-                )}
-                {entry.token && <span className="text-text-muted">{entry.token}</span>}
-              </div>
+              {historySummaryBadgeContent ? (
+                <TransactionSummaryBadge {...historySummaryBadgeContent} className="mt-2" />
+              ) : isBridge ? (
+                <BridgeHeroAmounts entry={entry} />
+              ) : (
+                <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
+                  {entry.amount !== undefined && (
+                    <span className="text-heading-gray">{formatDisplayAmount(entry.amount)}</span>
+                  )}
+                  {entry.token && <span className="text-text-muted">{entry.token}</span>}
+                </div>
+              )}
               {approximateUsdAmount && <p className="text-sm font-medium text-gray">{approximateUsdAmount}</p>}
               <div className="mt-2">
-                <StatusPill status={entry.status} />
+                {isBridge ? (
+                  <BridgeStatusPill entry={entry} />
+                ) : (
+                  <StatusPill status={entry.status} isCancelled={entry.isCancelled} />
+                )}
               </div>
             </div>
 
             {/* Transfer Details */}
             <div className="mt-4">
-              <DetailCard title={t('transferDetails')}>
-                <DetailRow label={t('date')}>
-                  <span className="text-sm text-heading-gray font-medium">{formatDate(entry.timestamp)}</span>
-                </DetailRow>
-
-                {entry.externalTxId && (
-                  <DetailRow label={t('txIdLabel')}>
-                    <ExternalLinkValue
-                      displayValue={
-                        <HashChip hash={entry.externalTxId} trimHash fill="#9E9E9E" className="ml-2" copyIcon={false} />
-                      }
-                      href={`https://testnet.midenscan.com/tx/${entry.externalTxId}`}
-                    />
+              <SectionDivider color={sectionDividerColor} />
+              <div className="mt-5">
+                <DetailCard title={t('transferDetails')}>
+                  <DetailRow label={t('date')}>
+                    <span className="text-sm text-heading-gray font-medium">{formatDate(entry.timestamp)}</span>
                   </DetailRow>
-                )}
 
-                {fromAddress && (
-                  <DetailRow label={t('from')}>
-                    <ExternalLinkValue
-                      displayValue={
-                        <AccountDisplay address={fromAddress} account={account} allAccounts={allAccounts} />
-                      }
-                      href={`https://testnet.midenscan.com/account/${fromAddress}`}
-                    />
-                  </DetailRow>
-                )}
+                  {isBridgeIn && entry.bridgeInSourceAddress && (
+                    <DetailRow label={t('from')}>
+                      <ExternalLinkValue
+                        displayValue={
+                          <HashChip
+                            hash={entry.bridgeInSourceAddress}
+                            trimHash
+                            fill="#9E9E9E"
+                            className="ml-2"
+                            copyIcon={false}
+                          />
+                        }
+                        href={SEPOLIA_ADDRESS_URL(entry.bridgeInSourceAddress)}
+                      />
+                    </DetailRow>
+                  )}
 
-                {toAddress && (
-                  <DetailRow label={t('to')} isLast>
-                    <ExternalLinkValue
-                      displayValue={<AccountDisplay address={toAddress} account={account} allAccounts={allAccounts} />}
-                      href={`https://testnet.midenscan.com/account/${toAddress}`}
-                    />
-                  </DetailRow>
-                )}
-              </DetailCard>
+                  {entry.externalTxId && (
+                    <DetailRow label={t('txIdLabel')}>
+                      <ExternalLinkValue
+                        displayValue={
+                          <HashChip
+                            hash={entry.externalTxId}
+                            trimHash
+                            fill="#9E9E9E"
+                            className="ml-2"
+                            copyIcon={false}
+                          />
+                        }
+                        href={`https://testnet.midenscan.com/tx/${entry.externalTxId}`}
+                      />
+                    </DetailRow>
+                  )}
+
+                  {fromAddress && (
+                    <DetailRow label={t('from')}>
+                      <ExternalLinkValue
+                        displayValue={
+                          <AccountDisplay address={fromAddress} account={account} allAccounts={allAccounts} />
+                        }
+                        href={`https://testnet.midenscan.com/account/${fromAddress}`}
+                      />
+                    </DetailRow>
+                  )}
+
+                  {toAddress && (
+                    <DetailRow label={t('to')} isLast>
+                      <ExternalLinkValue
+                        displayValue={
+                          <AccountDisplay address={toAddress} account={account} allAccounts={allAccounts} />
+                        }
+                        href={`https://testnet.midenscan.com/account/${toAddress}`}
+                      />
+                    </DetailRow>
+                  )}
+                </DetailCard>
+              </div>
             </div>
+
+            {/* Failure reason (persisted on `tx.error` by cancelTransaction) */}
+            {(entry.status === ITransactionStatus.Failed || (isBridgeIn && entry.bridgeInPhase === 'failed')) &&
+              entry.errorMessage && (
+                <div className="mt-6">
+                  <SectionDivider color={sectionDividerColor} />
+                  <div className="mt-5">
+                    <DetailCard title={entry.isCancelled ? t('cancelled') : t('error')}>
+                      <p
+                        className={clsx(
+                          'px-4 py-3 text-sm font-medium wrap-break-word select-text',
+                          entry.isCancelled ? 'text-gray-500' : 'text-status-negative'
+                        )}
+                      >
+                        {entry.errorMessage}
+                      </p>
+                      {entry.rawErrorMessage && (
+                        <div className="px-4 pb-3">
+                          <button
+                            type="button"
+                            className="text-sm font-medium text-text-muted underline"
+                            onClick={() => setShowFullError(v => !v)}
+                          >
+                            {showFullError ? t('hideFullError') : t('showFullError')}
+                          </button>
+                          {showFullError && (
+                            <p className="mt-2 text-xs font-medium text-text-muted wrap-break-word select-text">
+                              {entry.rawErrorMessage}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </DetailCard>
+                  </div>
+                </div>
+              )}
+
+            {/* Bridge route + EVM-side claim (bridged-send only) */}
+            {isBridgeOut && (
+              <>
+                <div className="mt-6">
+                  <SectionDivider color={sectionDividerColor} />
+                </div>
+                <BridgeClaimSection entry={entry} onUpdated={loadTransaction} />
+              </>
+            )}
+
+            {/* Inbound bridge details (bridged-receive only) */}
+            {isBridgeIn && (
+              <div className="mt-6 mb-4">
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailCard title={t('bridgeDetails')}>
+                    <DetailRow label={t('route')}>
+                      <span className="text-sm text-heading-gray font-medium">
+                        {entry.bridgeInProvider === 'epoch' ? t('fastRouteLabel') : t('slowRouteLabel')}
+                      </span>
+                    </DetailRow>
+                    {entry.bridgeInEvmTxHash && (
+                      <DetailRow label={t('txIdLabel')}>
+                        <ExternalLinkValue
+                          displayValue={
+                            <HashChip
+                              hash={entry.bridgeInEvmTxHash}
+                              trimHash
+                              fill="#9E9E9E"
+                              className="ml-2"
+                              copyIcon={false}
+                            />
+                          }
+                          href={SEPOLIA_TX_URL(entry.bridgeInEvmTxHash)}
+                        />
+                      </DetailRow>
+                    )}
+                    <DetailRow label={t('noteId')} isLast>
+                      <span className="text-sm text-heading-gray font-medium">
+                        {entry.bridgeInMidenNoteId ? (
+                          <HashChip
+                            hash={entry.bridgeInMidenNoteId}
+                            trimHash
+                            fill="#9E9E9E"
+                            className="ml-2"
+                            copyIcon={false}
+                          />
+                        ) : (
+                          t('pending')
+                        )}
+                      </span>
+                    </DetailRow>
+                  </DetailCard>
+                </div>
+              </div>
+            )}
 
             {/* Swap order tracking */}
             {entry.txType === 'swap' && orderId != null && (
               <div className="mt-6" data-testid="swap-order-card">
-                <DetailCard title={t('orderTracking')}>
-                  <DetailRow label={t('orderStatus')} isLast={!swapTracking}>
-                    {swapTracking ? (
-                      <span data-testid="swap-order-status" className="text-sm text-heading-gray font-medium">
-                        {orderStatusLabel(swapTracking.state)}
-                      </span>
-                    ) : (
-                      <span className="text-sm text-text-muted font-medium">
-                        {trackingLoading ? t('loading') : t('trackingUnavailable')}
-                      </span>
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailCard title={t('orderTracking')}>
+                    <DetailRow label={t('orderStatus')} isLast={!swapTracking}>
+                      {swapTracking ? (
+                        <div className="flex items-center gap-2">
+                          <span data-testid="swap-order-status" className="text-sm text-heading-gray font-medium">
+                            {orderStatusLabel(swapTracking.state)}
+                          </span>
+                          {trackingLoading && (
+                            <span
+                              data-testid="swap-order-polling"
+                              className="flex items-center gap-1.5 text-xs font-medium text-text-muted"
+                            >
+                              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary-500" />
+                              {t('loading')}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span
+                          data-testid={trackingLoading ? 'swap-order-polling' : undefined}
+                          className="text-sm text-text-muted font-medium"
+                        >
+                          {trackingLoading ? t('loading') : t('trackingUnavailable')}
+                        </span>
+                      )}
+                    </DetailRow>
+                    {swapTracking && (
+                      <DetailRow label={t('fillRounds')} isLast={!requestedToken}>
+                        <span data-testid="swap-order-fill-rounds" className="text-sm text-heading-gray font-medium">
+                          {swapTracking.currentDepth}
+                        </span>
+                      </DetailRow>
                     )}
-                  </DetailRow>
-                  {swapTracking && (
-                    <DetailRow label={t('fillRounds')} isLast={!requestedToken}>
-                      <span data-testid="swap-order-fill-rounds" className="text-sm text-heading-gray font-medium">
-                        {swapTracking.currentDepth}
-                      </span>
-                    </DetailRow>
-                  )}
-                  {swapTracking && requestedToken && (
-                    <DetailRow label={t('amountFilled')} isLast>
-                      <span data-testid="swap-order-amount-filled" className="text-sm text-heading-gray font-medium">
-                        {formatAmount(filledRequested ?? 0n, requestedToken.decimals)} /{' '}
-                        {formatAmount(requestedToken.amount, requestedToken.decimals)}
-                        {requestedToken.symbol ? ` ${requestedToken.symbol}` : ''}
-                      </span>
-                    </DetailRow>
-                  )}
-                </DetailCard>
+                    {swapTracking && requestedToken && (
+                      <DetailRow label={t('amountFilled')} isLast>
+                        <span data-testid="swap-order-amount-filled" className="text-sm text-heading-gray font-medium">
+                          {formatAmount(filledRequested ?? 0n, requestedToken.decimals)} /{' '}
+                          {formatAmount(requestedToken.amount, requestedToken.decimals)}
+                          {requestedToken.symbol ? ` ${requestedToken.symbol}` : ''}
+                        </span>
+                      </DetailRow>
+                    )}
+                  </DetailCard>
+                </div>
               </div>
             )}
 
             {/* Notes */}
             {hasNoteData && (
               <div className="mt-6 mb-4">
-                <DetailCard title={t('notesSection')}>
-                  <DetailRow label={t('created')}>
-                    <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
-                  </DetailRow>
-                  <DetailRow label="Note" isLast>
-                    <span className={`text-sm font-medium ${entry.noteType ? 'text-[#E8913A]' : 'text-text-muted'}`}>
-                      {entry.noteType ? t('on') : t('off')}
-                    </span>
-                  </DetailRow>
-                </DetailCard>
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailCard title={t('notesSection')}>
+                    <DetailRow
+                      label={t('created')}
+                      isLast={settledNoteIds.length === 0 && reclaimedNoteIds.length === 0}
+                    >
+                      <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
+                    </DetailRow>
+
+                    {/* Swap settlement: the notes the suppressed consume rows claimed. */}
+                    {settledNoteIds.length > 0 && (
+                      <DetailRow label={t('claimed')} isLast={reclaimedNoteIds.length === 0}>
+                        <NoteIdList noteIds={settledNoteIds} testId="swap-settled-notes" />
+                      </DetailRow>
+                    )}
+
+                    {reclaimedNoteIds.length > 0 && (
+                      <DetailRow label={t('reclaimed')} isLast>
+                        <NoteIdList noteIds={reclaimedNoteIds} testId="swap-reclaimed-notes" />
+                      </DetailRow>
+                    )}
+                  </DetailCard>
+                </div>
               </div>
             )}
+          </div>
+        )}
+
+        {isPending && (
+          <div className="shrink-0 pt-3 pb-4">
+            {cancelError && <p className="mb-2 text-center text-sm text-status-negative">{cancelError}</p>}
+            <Button
+              variant={ButtonVariant.Primary}
+              title={t('cancel')}
+              isLoading={isCancelling}
+              disabled={isCancelling}
+              onClick={handleCancel}
+              className="max-w-none bg-status-negative hover:bg-status-negative focus:bg-status-negative"
+            />
+          </div>
+        )}
+
+        {canRetry && (
+          <div className="shrink-0 pt-3 pb-4">
+            {retryError && <p className="mb-2 text-center text-sm text-status-negative">{retryError}</p>}
+            <Button
+              variant={ButtonVariant.Primary}
+              title={t('retry')}
+              isLoading={isRetrying}
+              disabled={isRetrying}
+              onClick={handleRetry}
+              className="max-w-none"
+            />
           </div>
         )}
       </div>

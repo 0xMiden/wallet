@@ -1,8 +1,10 @@
 import React, { useCallback, useMemo, useState } from 'react';
 
+import { validateMnemonic } from 'bip39';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { formatMnemonic } from 'app/defaults';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
 
@@ -34,7 +36,19 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
 
   const isError = useMemo(() => errorsMap.some(error => error) || isErrorProp, [errorsMap, isErrorProp]);
 
-  const isValid = useMemo(() => seedPhrase.every(word => wordslist.includes(word)), [seedPhrase, wordslist]);
+  // All 12 words are present and belong to the wordlist.
+  const allWordsKnown = useMemo(() => seedPhrase.every(word => wordslist.includes(word)), [seedPhrase, wordslist]);
+
+  // A restore also requires a valid BIP-39 checksum. Without this, any 12 words
+  // from the wordlist (e.g. a repeated word) would pass and silently derive an
+  // unrelated wallet instead of restoring the user's existing one.
+  const isChecksumValid = useMemo(() => validateMnemonic(formatMnemonic(seedPhrase.join(' '))), [seedPhrase]);
+
+  const isValid = isChecksumValid && allWordsKnown;
+
+  // Distinguish a per-word typo (word not in wordlist) from a checksum mismatch
+  // (every word is known but the phrase is not a valid mnemonic).
+  const isChecksumError = allWordsKnown && !isChecksumValid;
 
   const handleSubmit = useCallback(() => {
     if (onSubmit && isValid) {
@@ -83,6 +97,7 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
         ))}
       </div>
       {isError && <p className="text-red-500 text-xs mt-4">{t('importSeedPhraseError')}</p>}
+      {isChecksumError && <p className="text-red-500 text-xs mt-4">{t('justValidPreGeneratedMnemonic')}</p>}
 
       <div className="mt-auto w-full">
         <Button

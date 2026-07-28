@@ -423,6 +423,36 @@ describe('MidenClientInterface', () => {
     expect(fakeMidenClient.transactions.consume).toHaveBeenCalled();
   });
 
+  it('consumeNoteId consumes every noteId in one transaction when a batch is given', async () => {
+    const fakeMidenClient = buildFakeMidenClient();
+
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      TransactionProver: {
+        newLocalProver: jest.fn(() => 'local')
+      }
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await client.consumeNoteId({
+      accountId: 'acc-id',
+      noteId: 'note-1',
+      noteIds: ['note-1', 'note-2', 'note-3'],
+      type: 'consume'
+    } as any);
+
+    // Claim All batches into a single consume (one proof, one submit) rather
+    // than falling back to the singular `noteId`.
+    expect(fakeMidenClient.transactions.consume).toHaveBeenCalledWith(
+      expect.objectContaining({ account: 'acc-id', notes: ['note-1', 'note-2', 'note-3'] })
+    );
+  });
+
   describe('miscellaneous branches', () => {
     it('create() returns a mock-network client when MIDEN_USE_MOCK_CLIENT=true', async () => {
       const fakeMockClient = buildFakeMidenClient();

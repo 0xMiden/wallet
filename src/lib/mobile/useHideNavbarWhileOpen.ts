@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useLayoutEffect } from 'react';
 
 /**
  * While `open` is true, hide the bottom tab navbar — the React `BottomNav`
@@ -10,10 +10,10 @@ import { useEffect } from 'react';
  * are gone. Pairs with the `body[data-hide-navbar] [data-tabbar-footer]`
  * rule in `main.css`.
  *
- * Full-screen routes (Send, Receive, generating-transaction) already render
- * outside `TabLayout`, so there is no footer to match and this is a no-op
- * there. It matters when a success / progress surface is shown over a tab
- * page, which still mounts the footer behind it.
+ * Full-screen routes also call this through `FullScreenPage`. Even though
+ * their `TabLayout` has already unmounted, the body flag repaints the iOS
+ * bottom safe-area strip where an overflowing footer shadow can otherwise
+ * survive the route change.
  */
 let openCount = 0;
 
@@ -26,7 +26,7 @@ function applyVisible() {
 }
 
 export function useHideNavbarWhileOpen(open = true): void {
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
 
     openCount += 1;

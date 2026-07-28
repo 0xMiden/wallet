@@ -10,10 +10,17 @@
  * context (like the form state it mirrors), never persist, and needs no
  * reactivity — it's read once on mount.
  */
+import { BridgeNetworkId } from './bridge-networks';
+import { BridgeRoute } from './types';
+
 export interface SendDraft {
   amount: string;
   recipientAddress: string;
   tokenId: string;
+  /** Destination network, only set when the recipient is a 0x (Ethereum) address. */
+  bridgeNetwork?: BridgeNetworkId;
+  /** Cross-chain route, only set when the recipient is a 0x (Ethereum) address. */
+  bridgeRoute?: BridgeRoute;
 }
 
 let draft: SendDraft | null = null;

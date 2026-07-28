@@ -14,6 +14,7 @@ import { NoteTypeEnum } from '../types';
 import {
   completeSendTransaction,
   getCompletedTransactions,
+  getSwapSettlementNotes,
   cancelStaleQueuedTransactions,
   waitForTransactionCompletion,
   generateTransactionsLoop,
@@ -380,6 +381,92 @@ describe('getCompletedTransactions', () => {
   });
 });
 
+describe('getSwapSettlementNotes', () => {
+  it('groups completed settlement consumes by kind and dedupes note ids', async () => {
+    txStore.push(
+      {
+        id: 'c-1',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1', 'n-2'],
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-2',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        // Same note re-tagged by a later batch — must not appear twice.
+        noteIds: ['n-2'],
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-3',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteId: 'n-3',
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim' }
+      }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settled).toEqual(['n-1', 'n-2']);
+    expect(notes.reclaimed).toEqual(['n-3']);
+  });
+
+  it('treats an untagged kind as a settle and reads the singular noteId', async () => {
+    txStore.push({
+      id: 'c-1',
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      noteId: 'n-1',
+      extraInputs: { swapOrderTxId: 'swap-1' }
+    });
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settled).toEqual(['n-1']);
+    expect(notes.reclaimed).toEqual([]);
+  });
+
+  it('ignores consumes for other orders, other types and non-completed rows', async () => {
+    txStore.push(
+      {
+        id: 'c-other-order',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-x'],
+        extraInputs: { swapOrderTxId: 'swap-2', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-queued',
+        type: 'consume',
+        status: ITransactionStatus.Queued,
+        noteIds: ['n-y'],
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-not-consume',
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-z'],
+        extraInputs: { swapOrderTxId: 'swap-1' }
+      },
+      { id: 'c-untagged', type: 'consume', status: ITransactionStatus.Completed, noteIds: ['n-w'] }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settled).toEqual([]);
+    expect(notes.reclaimed).toEqual([]);
+  });
+
+  it('returns empty buckets when the order has no settlement consumes at all', async () => {
+    const notes = await getSwapSettlementNotes('swap-unknown');
+    expect(notes).toEqual({ settled: [], reclaimed: [] });
+  });
+});
+
 describe('cancelStaleQueuedTransactions', () => {
   it('cancels transactions that exceeded MAX_QUEUED_AGE', async () => {
     const longAgo = Math.floor(Date.now() / 1000) - 3600; // 1 hour ago
@@ -634,6 +721,67 @@ describe('generateTransactionsLoop error paths', () => {
     await generateTransactionsLoop(signThrows, true, stubGuardianProvider);
 
     expect(signThrows).toHaveBeenCalled();
+  });
+});
+
+describe('generateTransactionsLoop — head-of-line fairness', () => {
+  const dummySign = jest.fn(async () => new Uint8Array([1]));
+
+  it("skips a cooling-down requeued tx and runs another account's eligible tx that cycle", async () => {
+    // Regression for the guardian pending-delta requeue starving other accounts:
+    // a persistently-conflicting tx is always the OLDEST by initiatedAt, so after
+    // it is requeued it would be re-picked every cycle and burn the retry budget
+    // while a second account's freshly-queued tx never runs — until it ages out at
+    // MAX_QUEUED_AGE (~30 min). The backoff (nextEligibleAt) makes it yield the slot.
+    const now = Math.floor(Date.now() / 1000);
+
+    // Account A: oldest, but cooling down after a pending-conflict requeue
+    // (nextEligibleAt in the future) — must NOT be picked this cycle.
+    txStore.push({
+      id: 'tx-A-cooldown',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: now - 100,
+      nextEligibleAt: now + 300,
+      accountId: 'acc-A'
+    });
+    // Account B: newer, no cooldown — the only eligible tx, must run this cycle.
+    txStore.push({
+      id: 'tx-B-eligible',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: now - 50,
+      accountId: 'acc-B'
+    });
+
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+
+    const a = txStore.find(t => t.id === 'tx-A-cooldown');
+    const b = txStore.find(t => t.id === 'tx-B-eligible');
+    // A is untouched — still Queued, still cooling down; it did not block B.
+    expect(a!.status).toBe(ITransactionStatus.Queued);
+    // B was selected and processed (left the queue), proving the cooling-down A
+    // yielded the slot instead of being re-picked as the oldest row.
+    expect(b!.status).not.toBe(ITransactionStatus.Queued);
+  });
+
+  it('still runs a cooling-down tx once its nextEligibleAt has passed (terminal cap unaffected)', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    // A single queued tx whose cooldown already elapsed — must be picked normally.
+    txStore.push({
+      id: 'tx-cooldown-expired',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: now - 100,
+      nextEligibleAt: now - 1,
+      accountId: 'acc-A'
+    });
+
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+
+    const row = txStore.find(t => t.id === 'tx-cooldown-expired');
+    // Cooldown elapsed → eligible again → selected and processed (left the queue).
+    expect(row!.status).not.toBe(ITransactionStatus.Queued);
   });
 });
 

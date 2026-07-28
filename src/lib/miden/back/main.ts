@@ -35,6 +35,8 @@ export async function start() {
       const sigHex = await Actions.signTransaction(Buffer.from(pk).toString('hex'), Buffer.from(si).toString('hex'));
       return new Uint8Array(Buffer.from(sigHex, 'hex'));
     });
+    const { installBridgeInTestHooks } = await import('lib/miden/activity/bridge-in-test-hooks');
+    installBridgeInTestHooks();
   }
 
   // SpeculationManager wires through the same MidenClientInterface singleton
@@ -58,10 +60,9 @@ export async function start() {
 }
 
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
-  console.log('[processRequest] type:', req?.type);
   switch (req?.type) {
     case WalletMessageType.SyncRequest:
-      doSync().catch(err => console.warn('[SyncManager] Error:', err));
+      doSync(req.force).catch(err => console.warn('[SyncManager] Error:', err));
       return { type: WalletMessageType.SyncResponse };
     case WalletMessageType.NoteClaimStarted:
       intercom.broadcast({ type: WalletMessageType.NoteClaimStarted, noteId: req.noteId });

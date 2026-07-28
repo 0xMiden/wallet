@@ -1,7 +1,12 @@
 import { ConsumableNote, NoteTypeEnum } from '../types';
-import { ConsumeTransaction, formatTransactionStatus, ITransactionStatus, SendTransaction, Transaction } from './types';
-
-jest.useFakeTimers().setSystemTime(new Date('2024-01-01').getTime());
+import {
+  BridgedReceiveTransaction,
+  ConsumeTransaction,
+  formatTransactionStatus,
+  ITransactionStatus,
+  SendTransaction,
+  Transaction
+} from './types';
 
 describe('transaction models', () => {
   it('initializes Transaction defaults', () => {
@@ -37,6 +42,25 @@ describe('transaction models', () => {
     expect(tx.displayIcon).toBe('RECEIVE');
     expect(tx.delegateTransaction).toBe(true);
     expect(tx.completedAt).toBeUndefined();
+  });
+
+  it('creates bridge receives as tracking-only completed rows', () => {
+    const tx = new BridgedReceiveTransaction(
+      'miden-account',
+      10n,
+      'miden-faucet',
+      'epoch',
+      '0x1111111111111111111111111111111111111111',
+      '10',
+      'USDC',
+      '9.9',
+      'USDC'
+    );
+
+    expect(tx.type).toBe('bridged-receive');
+    expect(tx.status).toBe(ITransactionStatus.Completed);
+    expect(tx.completedAt).toBe(tx.initiatedAt);
+    expect(tx.extraInputs).toMatchObject({ provider: 'epoch', phase: 'submitting', outputAmount: '9.9' });
   });
 
   it('formats transaction status', () => {

@@ -7,6 +7,11 @@ const pkg = require('./package.json');
 const TARGET_BROWSER = process.env.TARGET_BROWSER ?? 'chrome';
 
 export default defineConfig({
+  // The extension build owns public assets because it transforms the
+  // cross-browser manifest keys before writing manifest.json. Copying public/
+  // here briefly exposes the raw manifest while development builds start.
+  publicDir: false,
+
   plugins: [
     // Stub SVG imports and CSS modules -- the background SW doesn't render UI.
     {
@@ -64,7 +69,26 @@ export default defineConfig({
           ].join('\n');
         }
         if (id.startsWith('\0stub:')) {
-          return 'export default {}; export const useTranslation = () => ({ t: (k) => k, i18n: {} });';
+          // These modules are frontend-only but get dragged into the SW bundle
+          // via the dapp → activity → store chain. None of them are ever rendered
+          // or invoked in the SW; the stub just has to EXPORT every named import
+          // the bundler sees so resolution succeeds. react-i18next gets a working
+          // `useTranslation`; framer-motion gets inert no-ops (components pass
+          // children through, hooks return neutral values).
+          return [
+            'export default {};',
+            'export const useTranslation = () => ({ t: (k) => k, i18n: {} });',
+            'export const motion = new Proxy(() => null, { get: () => () => null });',
+            'export const AnimatePresence = ({ children }) => children;',
+            'export const MotionConfig = ({ children }) => children;',
+            'export const LayoutGroup = ({ children }) => children;',
+            'export const useReducedMotion = () => false;',
+            'export const useMotionValue = (v) => ({ get: () => v, set: () => {}, on: () => () => {} });',
+            'export const useTransform = () => ({ get: () => 0, set: () => {}, on: () => () => {} });',
+            'export const useSpring = (v) => ({ get: () => v, set: () => {}, on: () => () => {} });',
+            'export const useAnimationControls = () => ({ start: () => Promise.resolve(), stop: () => {}, set: () => {} });',
+            'export const animate = () => ({ stop: () => {} });'
+          ].join('\n');
         }
       }
     } satisfies Plugin,
@@ -288,14 +312,14 @@ export default defineConfig({
   },
 
   resolve: {
-    // The mt-wasm SDK is symlinked into node_modules/@miden-sdk/miden-sdk for
-    // local dev. With preserveSymlinks=false (Vite default), Rolldown resolves
-    // the SDK file through the symlink to its real path (web-sdk worktree),
-    // and then can't find peer-of-the-wallet packages like
-    // `vite-plugin-node-polyfills/shims/global` because that package is only
-    // installed in the wallet's node_modules, not in the SDK's. Keeping the
-    // symlink path makes module resolution find the wallet's node_modules.
-    preserveSymlinks: true,
+    // The file-linked web-sdk (@miden-sdk/miden-sdk 0.14.10) and the multisig-client's
+    // nested @miden-sdk/miden-sdk (0.14.5) each INLINE their own dexie (4.4.2 vs 4.0.8)
+    // into their wasm-glue chunks. Two different dexie versions trip dexie's global guard
+    // ("Two different versions of Dexie loaded in the same app"). Dedupe @miden-sdk/miden-sdk
+    // so only the single root copy (0.14.10) is ever resolved — this also prevents two
+    // separate WebClient/WASM instances. Dedupe dexie too for any non-inlined imports
+    // (root dexie is pinned to 4.4.2 via package.json resolutions).
+    dedupe: ['dexie', '@miden-sdk/miden-sdk'],
     alias: [
       // Two concerns, one redirect target (`@miden-sdk/miden-sdk/mt/lazy`):
       //
@@ -332,6 +356,13 @@ export default defineConfig({
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
+    'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
+      process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
+    ),
+    'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
+      process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'
+    ),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     // Opt the wallet's local-prove path into the chrome.offscreen mt-wasm
     // route — ~3.5x faster (40s -> 11s) on a 10-core machine with

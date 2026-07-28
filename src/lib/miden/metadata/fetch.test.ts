@@ -23,7 +23,7 @@ const mockRpcClient = jest.fn(() => ({
   getAccountDetails: mockGetAccountDetails
 }));
 const mockFromBech32 = jest.fn();
-const mockFromAccount = jest.fn();
+const mockFromAccountStorage = jest.fn();
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   RpcClient: function (..._args: unknown[]) {
@@ -33,7 +33,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     fromBech32: (...args: unknown[]) => mockFromBech32(...args)
   },
   BasicFungibleFaucetComponent: {
-    fromAccount: (account: unknown) => mockFromAccount(account)
+    fromAccountStorage: (storage: unknown) => mockFromAccountStorage(storage)
   }
 }));
 
@@ -54,7 +54,7 @@ describe('metadata/fetch', () => {
     jest.clearAllMocks();
     mockGetAccountDetails.mockReset();
     mockFromBech32.mockReset();
-    mockFromAccount.mockReset();
+    mockFromAccountStorage.mockReset();
     mockFetchFromStorage.mockResolvedValue(null);
   });
 
@@ -89,13 +89,14 @@ describe('metadata/fetch', () => {
       const mockAccountId = 'account-id-123';
       mockFromBech32.mockReturnValue({ accountId: () => mockAccountId });
 
-      const mockUnderlyingAccount = { id: 'underlying' };
+      const mockStorage = { slots: [] };
+      const mockUnderlyingAccount = { storage: () => mockStorage };
       mockGetAccountDetails.mockResolvedValue({
         account: () => mockUnderlyingAccount,
         isPublic: () => true
       });
 
-      mockFromAccount.mockReturnValue({
+      mockFromAccountStorage.mockReturnValue({
         decimals: () => 8,
         symbol: () => ({ toString: () => 'TEST' })
       });
@@ -104,6 +105,7 @@ describe('metadata/fetch', () => {
 
       expect(mockFromBech32).toHaveBeenCalledWith('test-asset-id');
       expect(mockGetAccountDetails).toHaveBeenCalledWith(mockAccountId);
+      expect(mockFromAccountStorage).toHaveBeenCalledWith(mockStorage);
       expect(result.base).toEqual({
         decimals: 8,
         symbol: 'TEST',
@@ -119,10 +121,10 @@ describe('metadata/fetch', () => {
       mockIsMidenAsset.mockReturnValue(false);
       mockFromBech32.mockReturnValue({ accountId: () => 'acc-id' });
       mockGetAccountDetails.mockResolvedValue({
-        account: () => ({ id: 'underlying' }),
+        account: () => ({ storage: () => ({ slots: [] }) }),
         isPublic: () => true
       });
-      mockFromAccount.mockImplementation(() => {
+      mockFromAccountStorage.mockImplementation(() => {
         throw new Error('metadata slot unreadable');
       });
 

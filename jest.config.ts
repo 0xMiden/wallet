@@ -36,6 +36,13 @@ export default {
   // - `lib/animation/use-motion.ts` — browser media-query/animation plumbing.
   // - `app/icons/v2/index.tsx` — barrel file of SVG re-exports.
   // - `lib/mobile/faucet-webview.ts` — Capacitor InAppBrowser wrapper.
+  // - `app/pages/BridgeDeposit.tsx`, `app/templates/EvmConnectModal*`, and
+  //   `lib/{epoch,agglayer,walletconnect}/` — external wallet/intent SDK and
+  //   native-provider orchestration exercised by the bridge Playwright suites.
+  // - `lib/miden/activity/bridge-in.ts` — persistent bridge-intent polling and
+  //   transaction reconciliation, covered by the end-to-end deposit flow.
+  // - `lib/miden/swap/test-hooks.ts` — E2E-only window hooks, not production
+  //   application behavior.
   // - `packages/dapp-browser/` — external package build output.
   // - `lib/lock-up/run-checks.ts` — extension popup bootstrap with module-scope
   //   top-level `await`; @swc/jest emits bare TLA into a CommonJS wrapper that
@@ -51,6 +58,15 @@ export default {
     '/src/lib/miden/assets/stake\\.ts$',
     '/src/app/pages/Browser/',
     '/src/app/pages/Pending\\.tsx$',
+    '/src/app/pages/PendingNotes\\.tsx$',
+    '/src/app/pages/BridgeDeposit\\.tsx$',
+    '/src/app/templates/EvmConnectModal',
+    // Bridged-send activity-detail claim/reclaim panel — the same external
+    // wallet + agglayer/epoch-SDK orchestration as the entries above, exercised
+    // by the bridge Playwright suites. Its critical reclaim/claim logic has
+    // focused unit tests (BridgeClaimSection.test.tsx), but its many
+    // wallet-state / poll-timing branches are E2E territory.
+    '/src/app/templates/history/BridgeClaimSection\\.tsx$',
     '/src/app/pages/Receive\\.tsx$',
     '/src/app/pages/Receive/',
     '/src/app/icons/v2/index\\.tsx$',
@@ -60,6 +76,11 @@ export default {
     '/src/lib/animation/use-motion\\.ts$',
     '/src/lib/ui/drawer\\.tsx$',
     '/src/lib/mobile/faucet-webview\\.ts$',
+    '/src/lib/epoch/',
+    '/src/lib/agglayer/',
+    '/src/lib/walletconnect/',
+    '/src/lib/miden/activity/bridge-in\\.ts$',
+    '/src/lib/miden/swap/test-hooks\\.ts$',
     '/src/screens/generating-transaction/success/SwapSuccess\\.tsx$',
     '/packages/dapp-browser/'
   ],
@@ -80,12 +101,18 @@ export default {
     // stub instead of trying to execute the PNG bytes as JavaScript.
     '\\.svg$': '<rootDir>/__mocks__/svgMock.js',
     '\\.(png|jpg|jpeg|gif|webp)$': '<rootDir>/__mocks__/fileMock.js',
+    '\\.(css|less|scss|sass)$': '<rootDir>/__mocks__/styleMock.ts',
     '^lib/(.*)$': '<rootDir>/src/lib/$1',
     '^shared/(.*)$': '<rootDir>/src/shared/$1',
     '^app/(.*)$': '<rootDir>/src/app/$1',
     '^components/(.*)$': '<rootDir>/src/components/$1',
     '^screens/(.*)$': '<rootDir>/src/screens/$1',
     '^utils/(.*)$': '<rootDir>/src/utils/$1',
+    '^@reown/appkit/react$': '<rootDir>/__mocks__/reownAppKitReact.ts',
+    '^@reown/appkit/networks$': '<rootDir>/__mocks__/reownAppKitNetworks.ts',
+    '^@reown/appkit-adapter-wagmi$': '<rootDir>/__mocks__/reownWagmiAdapter.ts',
+    '^@wagmi/core$': '<rootDir>/__mocks__/wagmiCore.ts',
+    '^wagmi$': '<rootDir>/__mocks__/wagmi.ts',
     // Match all four published subpaths — tests mock them identically.
     // - `@miden-sdk/miden-sdk`         (eager + ST)
     // - `@miden-sdk/miden-sdk/lazy`    (lazy + ST)
@@ -102,7 +129,9 @@ export default {
   transform: {
     '.+\\.(ts|tsx|js|mjs)$': '@swc/jest'
   },
-  transformIgnorePatterns: ['/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie)/)'],
+  transformIgnorePatterns: [
+    '/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie|@wagmi|wagmi|@reown)/)'
+  ],
   moduleFileExtensions: ['ts', 'tsx', 'js'],
   // Exclude git worktrees: they hold full copies of the repo, so without this a
   // plain `jest` run discovers their stale test files and emits haste-map

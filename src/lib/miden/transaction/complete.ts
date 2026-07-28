@@ -6,9 +6,16 @@ import * as Repo from 'lib/miden/repo';
 
 import { setTransactionStage, updateTransactionStatus } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
+import { takeAgglayerBridgeInInfo, takeBridgeInInfoForNotes } from '../activity/bridge-in';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
 import {
+  BridgedSendTransaction,
+  IBridgeClaimStatus,
+  IBridgedReceiveExtraInputs,
+  IBridgedReceivePhase,
+  IBridgedSendExtraInputs,
+  IConsumeSwapSettleExtraInputs,
   ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
@@ -18,7 +25,7 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { toNoteTypeString } from '../helpers';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { NoteTypeEnum } from '../types';
 
@@ -83,7 +90,8 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
 };
 
 export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
-  const firstInputNote = result.executedTransaction().inputNotes().notes()[0];
+  const inputNotes = result.executedTransaction().inputNotes().notes();
+  const firstInputNote = inputNotes[0];
   if (!firstInputNote) {
     throw new Error('completeConsumeTransaction: no input notes on executed transaction');
   }
@@ -100,7 +108,14 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     throw new Error('completeConsumeTransaction: note has no fungible assets');
   }
   const faucetId = getBech32AddressFromAccountId(asset.faucetId());
-  const amount = asset.amount();
+  let amount = 0n;
+  for (const inputNote of inputNotes) {
+    for (const noteAsset of inputNote.note().assets().fungibleAssets()) {
+      if (getBech32AddressFromAccountId(noteAsset.faucetId()) === faucetId) {
+        amount += noteAsset.amount();
+      }
+    }
+  }
 
   await updateTransactionStatus(id, ITransactionStatus.Completed, {
     displayMessage,
@@ -112,6 +127,62 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
     resultBytes: result.serialize()
   });
+
+  // Best-effort bridge-in tagging: if this consume claimed a note parked by an
+  // EVM→Miden intent, tag the row as "Bridged from EVM". A bridge-in with a
+  // `bridgeReceiveTxId` also flips that tracking row to `received`. Must never
+  // fail the consume itself.
+  try {
+    const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
+    const bridgeIn =
+      (await takeBridgeInInfoForNotes(consumedNoteIds)) ??
+      (await takeAgglayerBridgeInInfo({
+        accountId: dbTransaction?.accountId ?? '',
+        senderAccountId: sender,
+        amount
+      }));
+    if (bridgeIn) {
+      await Repo.transactions.where({ id }).modify(tx => {
+        tx.extraInputs = { ...(tx.extraInputs ?? {}), bridgeIn };
+        tx.displayMessage = 'Bridged from EVM';
+      });
+      if (bridgeIn.bridgeReceiveTxId) {
+        await updateBridgedReceivePhase(
+          bridgeIn.bridgeReceiveTxId,
+          'received',
+          {
+            midenNoteId: bridgeIn.midenNoteId ?? consumedNoteIds[0],
+            outputSymbol: bridgeIn.sourceSymbol
+          },
+          { amount, faucetId, transactionId: executedTransaction.id().toHex() }
+        );
+      }
+    }
+  } catch (err) {
+    console.warn('[bridge-in] consume tagging failed (non-fatal)', err);
+  }
+
+  // Swap settlement: a consume queued by `reconcileSwapOrderNotes` carries a
+  // link to its swap order. Stamp the settlement on the swap row so history
+  // can flip the single swap row's chip (Pending → Confirmed / Reclaimed)
+  // while the linked consume row itself stays suppressed. Must never fail the
+  // consume itself.
+  try {
+    const settle: IConsumeSwapSettleExtraInputs | undefined =
+      dbTransaction?.extraInputs?.swapOrderTxId != null ? dbTransaction.extraInputs : undefined;
+    if (settle) {
+      const stampedAt = Math.floor(Date.now() / 1000);
+      await Repo.transactions.where({ id: settle.swapOrderTxId }).modify(tx => {
+        if (tx.type !== 'swap') return;
+        tx.extraInputs = {
+          ...(tx.extraInputs ?? {}),
+          ...(settle.swapSettleKind === 'reclaim' ? { reclaimedAt: stampedAt } : { settledAt: stampedAt })
+        };
+      });
+    }
+  } catch (err) {
+    console.warn('[swap-settlement] consume stamping failed (non-fatal)', err);
+  }
 };
 
 export const completeSwapTransaction = async (tx: SwapTransaction, result: TransactionResult) => {
@@ -128,24 +199,27 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   // TODO: track the created PSWAP note + payback note for richer activity
   // display (offered/requested asset breakdown). For now record the tx as
   // Completed with the output note ids so the swap shows up in history.
+  const completedAt = Math.floor(Date.now() / 1000); // seconds
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
     displayMessage: 'Swapped',
     transactionId: executedTx.id().toHex(),
     outputNoteIds: [outputNote.id().toString()],
-    completedAt: Math.floor(Date.now() / 1000), // seconds
+    completedAt,
     resultBytes: result.serialize(),
-    extraInputs: { ...tx.extraInputs, orderId }
+    // Stamp the absolute expiry so `reconcileSwapOrderNotes` can expiry-reclaim
+    // the unfilled remainder of a partial fill. This is load-bearing: the
+    // reconcile gate requires an explicit `expiresAt` (no fallback since the
+    // "explicit expiry" review change), and an earlier hot-key-rotation commit
+    // accidentally reverted this stamp — leaving `expiresAt` undefined so active
+    // orders were never reclaimed (swap-partial-fill lineage stuck `active`).
+    extraInputs: { ...tx.extraInputs, orderId, expiresAt: completedAt + (tx.extraInputs.expirySeconds ?? 120) }
   });
 };
 
 export const completeReplaceHotKeyTransaction = async (
   tx: ReplaceHotKeyTransaction,
   result: TransactionResult | undefined,
-  guardianProvider: GuardianAccountProvider,
-  // The cold MultisigService used to drive the rotation. Supplied on the normal
-  // path so we can push the rotated state to the guardian below; absent on the
-  // apply-after-submit-failed reconcile path (runSync self-heals that case).
-  service?: MultisigService
+  guardianProvider: GuardianAccountProvider
 ) => {
   try {
     const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
@@ -157,19 +231,44 @@ export const completeReplaceHotKeyTransaction = async (
       throw new Error('swapHotKey not implemented in this provider');
     }
 
-    // The OZ lib submitted `update_signers` on-chain but did NOT re-register the
-    // rotated state on the guardian (it only does that for switch_guardian). Push
-    // it now — BEFORE `swapHotKey`, which sets `hotPublicKey` and thereby arms the
-    // ~3s guardian hot-sync. If we let the hot-sync start with the guardian's blob
-    // still pre-rotation, every tick throws on the guardian-vs-on-chain mismatch
-    // until a reinstall. Best-effort: an on-chain-successful rotation must not be
-    // failed by a guardian blip — runSync re-registers on a later tick if this slips.
-    if (service) {
-      try {
-        await service.reRegisterCurrentStateOnGuardian();
-      } catch (e) {
-        console.warn('Failed to re-register rotated state on guardian post-replace-hot-key (non-fatal):', e);
+    // Re-register on the guardian — REQUIRED, and it must carry the
+    // POST-rotation signer set. The guardian's request-auth allowlist
+    // (`auth.cosigner_commitments`) is written ONLY by `/configure`
+    // (`registerOnGuardian`); the delta pipeline canonicalizes the state blob
+    // but never touches the allowlist, so without this push every request
+    // signed by the NEW hot key 401s ("session expired") forever.
+    // `registerOnGuardian` derives the allowlist from the service's in-memory
+    // `signerCommitments`, so the cold service is built FRESH here from the
+    // freshly-synced on-chain account (now [new-hot, cold]). Reusing the
+    // pre-rotation service that drove the tx pushed the OLD allowlist — the
+    // historical permanent-401 bug. Runs BEFORE `swapHotKey` arms the ~3s
+    // hot-sync. Best-effort: an on-chain-successful rotation must not be
+    // failed by a guardian blip (registerOnGuardian retries 5× internally).
+    try {
+      const accounts = await guardianProvider.getAccounts();
+      const walletAccount = accounts.find(a => sameWalletAccountId(a.publicKey, tx.accountId));
+      if (!walletAccount) {
+        throw new Error(`Guardian account ${tx.accountId} not found in provider`);
       }
+      const sdkAccount = await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient();
+        await midenClient.syncState();
+        return midenClient.getAccount(tx.accountId);
+      });
+      if (!sdkAccount) {
+        throw new Error(`Guardian account ${tx.accountId} not found in local client`);
+      }
+      const coldService = await MultisigService.buildColdMultisigService(
+        sdkAccount,
+        walletAccount,
+        guardianProvider.signWord
+      );
+      await coldService.reRegisterCurrentStateOnGuardian();
+    } catch (e) {
+      console.error(
+        'Failed to re-register post-rotation signer set on guardian — the new hot key stays unauthorized (401) until a re-register lands:',
+        e
+      );
     }
 
     // Vault.swapHotKey resolves the previous hot pubkey from the persisted
@@ -369,4 +468,102 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       error
     });
   }
+};
+
+export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction, result: TransactionResult) => {
+  const executedTx = result.executedTransaction();
+  const note = extractFullNote(result);
+  const noteId = note?.id().toString();
+  const outputNoteIds = noteId ? [noteId] : [];
+
+  await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    displayMessage: 'Bridged to EVM',
+    transactionId: executedTx.id().toHex(),
+    outputNoteIds,
+    completedAt: Math.floor(Date.now() / 1000), // seconds
+    resultBytes: result.serialize()
+  });
+};
+
+/** Advance a tracking-only EVM → Miden bridge row without touching its terminal DB status. */
+export const updateBridgedReceivePhase = async (
+  id: string,
+  phase: IBridgedReceivePhase,
+  extra?: Partial<
+    Pick<
+      IBridgedReceiveExtraInputs,
+      'evmTxHash' | 'intentNonce' | 'midenNoteId' | 'outputAmount' | 'outputSymbol' | 'error'
+    >
+  >,
+  received?: { amount: bigint; faucetId: string; transactionId?: string }
+) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const inputs = tx.extraInputs as IBridgedReceiveExtraInputs;
+    tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
+    if (received) {
+      tx.amount = received.amount;
+      tx.faucetId = received.faucetId;
+      if (received.transactionId) tx.transactionId = received.transactionId;
+      tx.displayMessage = 'Bridged from EVM';
+    }
+    if (phase === 'failed' && extra?.error) tx.error = extra.error;
+  });
+};
+
+/**
+ * Patch the EVM-side claim status of a `bridged-send` row. The L1 claim happens
+ * long after the Miden-side send has reached `Completed`, so this mutates ONLY
+ * `extraInputs` and never touches `status` (which `updateTransactionStatus`
+ * would reject as "already finalized"). Used by the activity-detail claim flow.
+ */
+export const updateBridgeClaimStatus = async (
+  id: string,
+  claimStatus: IBridgeClaimStatus,
+  extra?: Partial<
+    Pick<
+      IBridgedSendExtraInputs,
+      | 'depositReady'
+      | 'claimTxHash'
+      | 'evmTxHash'
+      | 'intentNonce'
+      | 'outputAmount'
+      | 'outputSymbol'
+      | 'fillTxHash'
+      | 'fillChainId'
+      | 'epochStatus'
+    >
+  >
+) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
+    tx.extraInputs = { ...ei, claimStatus, ...(extra ?? {}) };
+  });
+};
+
+/**
+ * A `bridged-send` (Epoch) row reaches Completed / 'Bridged to EVM' the instant
+ * its P2IDE note commits — but the SDK submits the intent to the allocator AFTER
+ * that, so a post-commit rejection (reclaim window, solver liquidity, quote
+ * drift, allocator downtime) means the bridge did NOT succeed and the funds sit
+ * in a recallable P2IDE note. Demote the false success to Failed and record it so
+ * the activity view stops claiming success. Modifies the row directly because
+ * `updateTransactionStatus` rejects re-finalizing a Completed tx; the send
+ * pipeline is already done with this row, so there is no race.
+ */
+export const markBridgedSendFailed = async (id: string, error: string, reclaimHeight?: number) => {
+  console.error('[epoch] bridged-send intent rejected after the P2IDE note committed; demoting row to Failed', {
+    id,
+    error
+  });
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.status = ITransactionStatus.Failed;
+    tx.displayMessage = 'Bridge failed — funds reclaimable';
+    const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
+    tx.extraInputs = {
+      ...ei,
+      claimStatus: 'failed',
+      epochStatus: 'failed',
+      ...(reclaimHeight != null ? { reclaimHeight } : {})
+    };
+  });
 };
