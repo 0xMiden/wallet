@@ -8,6 +8,9 @@ import {
 import { keccak256, toBytes } from 'viem';
 
 import { updateEarnDepositStatus } from 'lib/miden/activity';
+import { type IEarnDepositExtraInputs, ITransactionStatus } from 'lib/miden/db/types';
+import { isGuardianAccount } from 'lib/miden/front/guardian-manager';
+import * as Repo from 'lib/miden/repo';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
@@ -182,11 +185,60 @@ export const EARN_DONE_STATUSES = new Set(['completed', 'finalized', 'success', 
 export const EARN_FAILED_STATUSES = new Set(['failed', 'error', 'expired', 'reverted']);
 
 /**
+ * Minimal shape of one `getIntentStatus` entry. Epoch returns ONE entry per chain
+ * leg of an intent (source + destination), so the SDK's `IntentTransactionStatus`
+ * is structurally assignable to this.
+ */
+export interface EpochLegStatus {
+  chainId?: number;
+  status?: string;
+  transactionHash?: string;
+}
+
+export type EarnIntentOutcome = 'pending' | 'done' | 'failed';
+
+/**
+ * Collapse Epoch's per-chain status entries into a single intent outcome.
+ *
+ * The gating is deliberately ASYMMETRIC, and this is the whole point of the
+ * helper (mirrors `pollEpochIntentFill`'s destination-leg preference):
+ *
+ *  - `done` requires the DESTINATION leg (`destinationChainId`) to report a
+ *    terminal success. A completed SOURCE leg only means the collateral was
+ *    picked up — the deposit/delivery it pays for may still be pending or may
+ *    yet fail, so it must never be read as success.
+ *  - `failed` is decided by the destination leg first, but a terminal failure on
+ *    ANY leg is also fatal: if the source leg reverted, the destination leg will
+ *    never land, so there is nothing left to wait for.
+ *  - everything else is `pending` (including "no destination entry yet").
+ */
+export function resolveEarnIntentOutcome(
+  results: readonly EpochLegStatus[],
+  destinationChainId: number
+): { outcome: EarnIntentOutcome; destination?: EpochLegStatus; source?: EpochLegStatus } {
+  const destination = results.find(entry => entry.chainId === destinationChainId);
+  const source = results.find(entry => entry.chainId !== destinationChainId);
+  const destinationStatus = (destination?.status ?? '').toLowerCase();
+
+  if (EARN_DONE_STATUSES.has(destinationStatus)) return { outcome: 'done', destination, source };
+  if (EARN_FAILED_STATUSES.has(destinationStatus)) return { outcome: 'failed', destination, source };
+  if (results.some(entry => EARN_FAILED_STATUSES.has((entry.status ?? '').toLowerCase()))) {
+    return { outcome: 'failed', destination, source };
+  }
+  return { outcome: 'pending', destination, source };
+}
+
+/**
  * Background-poll the Epoch allocator for a lending intent's fill and flip the
  * `earn-deposit` row's `epochStatus` once it settles. Fire-and-forget: the Miden
  * collateral note is already locked by the time this runs, so the form doesn't wait
  * on it — the activity row updates in place. Uses the read-only SDK (no wallet),
  * and self-terminates on a terminal status or after `maxAttempts` ticks.
+ *
+ * Settlement is gated on the SEPOLIA (destination) leg via
+ * `resolveEarnIntentOutcome` — the Miden source leg completing only means the
+ * collateral note was consumed by the allocator, not that the lending deposit
+ * landed.
  */
 export function pollEarnIntentStatus(args: {
   sponsorAddress: `0x${string}`;
@@ -206,16 +258,18 @@ export function pollEarnIntentStatus(args: {
       const sdk = await getEpochReadOnlySdk(sponsorAddress);
       const results = await sdk.getIntentStatus(sponsorAddress, nonce);
       console.log('[earn] poll intent status', results);
-      const statuses = results.map(s => (s.status ?? '').toLowerCase());
-      const done = statuses.some(s => EARN_DONE_STATUSES.has(s));
-      const failed = !done && statuses.some(s => EARN_FAILED_STATUSES.has(s));
-      if (done || failed) {
+      const { outcome, destination, source } = resolveEarnIntentOutcome(results, EARN_DESTINATION_CHAIN_ID);
+      if (outcome !== 'pending') {
         clearInterval(interval);
-        // The Sepolia (destination) leg carries the EVM tx hash for the position.
-        const fill = results.find(r => r.chainId === EARN_DESTINATION_CHAIN_ID) ?? results[results.length - 1];
-        const evmTxHash = fill?.transactionHash || undefined;
+        // The Sepolia (destination) leg carries the EVM tx hash for the position;
+        // on a source-side failure fall back to whatever leg reported.
+        const evmTxHash = destination?.transactionHash || source?.transactionHash || undefined;
         if (txId) {
-          await updateEarnDepositStatus(txId, done ? 'confirmed' : 'failed', evmTxHash ? { evmTxHash } : undefined);
+          await updateEarnDepositStatus(
+            txId,
+            outcome === 'done' ? 'confirmed' : 'failed',
+            evmTxHash ? { evmTxHash } : undefined
+          );
         }
       }
     } catch (err) {
@@ -224,6 +278,31 @@ export function pollEarnIntentStatus(args: {
     if (attempts >= maxAttempts) clearInterval(interval);
   }
 }
+
+/**
+ * Why Guardian (multisig) accounts cannot open Earn positions yet.
+ *
+ * The Epoch mandate advertises the collateral note as a **P2IDE with an absolute
+ * `midenReclaimHeight`** (see `buildEarnTaskDataParams`) — that reclaim height is
+ * both what the allocator validates and the user's only escape hatch if the
+ * lending leg never settles. The Guardian proposal API
+ * (`@openzeppelin/miden-multisig-client`) exposes only `createP2idProposal`
+ * (recipient/faucet/amount — no reclaim height) plus the structural proposals and
+ * `createCustomProposal(requestBytes)`; there is NO P2IDE / recall-height
+ * proposal. Routing an earn deposit through `createSendProposal` therefore mints
+ * a plain P2ID: the note does not match the mandate (the allocator can reject the
+ * intent) and the collateral has no reclaim path.
+ *
+ * Rather than ship that silent mismatch, earn deposits are refused for Guardian
+ * accounts here, at the earliest point that has a guardian provider (before any
+ * quote or intent exists), and again in the Guardian branch of
+ * `generateTransaction`. Lifting this needs a P2IDE-capable proposal (or a
+ * hand-built P2IDE `requestBytes` fed through `createCustomProposal`, the way the
+ * Agglayer `bridged-send` path does).
+ */
+export const GUARDIAN_EARN_DEPOSIT_UNSUPPORTED =
+  'Earn deposits are not available on Guardian accounts yet — the collateral note needs a reclaim height ' +
+  'that Guardian proposals cannot express. Use a standard account to deposit.';
 
 export interface OpenEarnPositionArgs {
   /** Collateral amount in `MIDEN_USDC_DECIMALS` base units. */
@@ -254,6 +333,9 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   }
   if (!isEvmAddress(args.evmAddress)) {
     throw new Error('Enter a valid EVM address (0x followed by 40 hex characters).');
+  }
+  if (await isGuardianAccount(args.senderPublicKey, args.deps.guardianProvider)) {
+    throw new Error(GUARDIAN_EARN_DEPOSIT_UNSUPPORTED);
   }
   const evmRecipient = args.evmAddress;
 
@@ -322,4 +404,67 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   }
 
   return { txId: earnTxId };
+}
+
+interface ReconcileEarnDepositsDeps {
+  getSdk?: typeof getEpochReadOnlySdk;
+  updateStatus?: typeof updateEarnDepositStatus;
+  /** Injectable background poller (tests pass a no-op). */
+  startStatusPoll?: typeof pollEarnIntentStatus;
+}
+
+/**
+ * Startup reconciler for `earn-deposit` rows — the deposit-side counterpart of
+ * `reconcileEarnWithdrawals`.
+ *
+ * `pollEarnIntentStatus` is a plain `setInterval` living in the popup / app
+ * process: closing the popup (or an iOS WebView teardown) kills it mid-flight and
+ * the row is stranded on `epochStatus: 'pending'` forever, even though the Epoch
+ * intent has long since settled. This scans the Completed `earn-deposit` rows
+ * that are still un-settled and re-polls their intents once, applying the same
+ * destination-leg gating (`resolveEarnIntentOutcome`) the live poller uses. Rows
+ * that are still genuinely in flight get their background poll restarted so they
+ * settle within this session.
+ *
+ * Called once per session from the Explore mount, next to
+ * `reconcileEarnWithdrawals`.
+ */
+export async function reconcileEarnDeposits(deps: ReconcileEarnDepositsDeps = {}): Promise<void> {
+  const getSdk = deps.getSdk ?? getEpochReadOnlySdk;
+  const updateStatus = deps.updateStatus ?? updateEarnDepositStatus;
+  const startStatusPoll = deps.startStatusPoll ?? pollEarnIntentStatus;
+
+  // `type` is not a Dexie index (see repo.ts), so scan + filter rather than
+  // `.where('type')` (which throws SchemaError).
+  const rows = await Repo.transactions.filter(tx => tx.type === 'earn-deposit').toArray();
+
+  for (const row of rows) {
+    // Only a row whose Miden collateral note actually landed has an intent to poll.
+    if (row.status !== ITransactionStatus.Completed) continue;
+
+    const inputs: IEarnDepositExtraInputs | undefined = row.extraInputs;
+    if (!inputs) continue;
+    // Already settled one way or the other — nothing to reconcile.
+    if (inputs.epochStatus === 'confirmed' || inputs.epochStatus === 'failed') continue;
+    if (!inputs.intentNonce || !isEvmAddress(inputs.evmRecipient)) continue;
+
+    const sponsorAddress = inputs.evmRecipient;
+    const nonce = inputs.intentNonce;
+    try {
+      const sdk = await getSdk(sponsorAddress);
+      const results = await sdk.getIntentStatus(sponsorAddress, nonce);
+      const { outcome, destination, source } = resolveEarnIntentOutcome(results, EARN_DESTINATION_CHAIN_ID);
+
+      if (outcome === 'pending') {
+        // Still in flight — restart the poller the dead process took with it.
+        startStatusPoll({ sponsorAddress, nonce, txId: row.id });
+        continue;
+      }
+
+      const evmTxHash = destination?.transactionHash || source?.transactionHash || undefined;
+      await updateStatus(row.id, outcome === 'done' ? 'confirmed' : 'failed', evmTxHash ? { evmTxHash } : undefined);
+    } catch (err) {
+      console.warn('[earn] reconcile deposit failed', row.id, err);
+    }
+  }
 }

@@ -12,9 +12,12 @@ export type { EpochSendArgs, EpochQuoteOutput, EpochIntentFill } from './epoch-s
 export {
   openEarnPosition,
   pollEarnIntentStatus,
+  reconcileEarnDeposits,
+  resolveEarnIntentOutcome,
   buildEarnTaskDataParams,
   getEarnQuote,
   buildEarnIntent,
+  GUARDIAN_EARN_DEPOSIT_UNSUPPORTED,
   MIDEN_USDC_FAUCET,
   MIDEN_USDC_DECIMALS,
   EARN_MARKET_UID,
@@ -22,12 +25,13 @@ export {
   EARN_DESTINATION_CHAIN_ID,
   EARN_PROTOCOL_HASH
 } from './earn';
-export type { OpenEarnPositionArgs, EarnIntentParams, EarnQuote } from './earn';
+export type { OpenEarnPositionArgs, EarnIntentParams, EarnQuote, EarnIntentOutcome, EpochLegStatus } from './earn';
 export {
   buildEarnWithdrawTaskDataParams,
   gaslessEarnWithdrawalToMiden,
   pollEarnWithdrawDelivery,
   resumeEarnWithdrawal,
+  resubmitEarnWithdrawal,
   reconcileEarnWithdrawals
 } from './earn-withdraw';
 export type { GaslessEarnWithdrawalArgs, GaslessEarnWithdrawalResult } from './earn-withdraw';

@@ -18,7 +18,9 @@ import {
   BRIDGE_STATUS_LABEL_KEY,
   bridgeInRowDisplay,
   bridgeRowDisplay,
+  EARN_DEPOSIT_STATUS_LABEL_KEY,
   EARN_WITHDRAW_STATUS_LABEL_KEY,
+  earnDepositSettlementOf,
   earnWithdrawToneOf,
   isBridgeInEntry,
   isEarnWithdrawEntry,
@@ -221,6 +223,15 @@ function buildRowProps(
   ) {
     statusTone = 'pending';
     statusLabel = t('pending');
+  } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
+    // A deposit row completes when the Miden collateral note lands, but the
+    // position only exists once the solver-fulfilled Sepolia lending leg settles —
+    // the chip tracks that leg (mirrors `EarnDepositStatusPill` on the details
+    // page). Deliberately checked AFTER cancelled/failed/pending so a Miden-side
+    // failure always wins over the lending leg's state.
+    const settlement = earnDepositSettlementOf(entry);
+    statusTone = settlement;
+    statusLabel = t(EARN_DEPOSIT_STATUS_LABEL_KEY[settlement]);
   } else if (isSwap && entry.swapSettlement === 'pending') {
     // A completed swap row is the single trace of the whole order (its
     // settlement consumes are suppressed) — the chip reflects settlement.

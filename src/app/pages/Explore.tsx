@@ -52,6 +52,7 @@ interface PullGesture {
 // Module-level so they survive remounts.
 let bridgeReceivesReconciled = false;
 let earnWithdrawReconciled = false;
+let earnDepositsReconciled = false;
 
 const Explore: FC = () => {
   const { t } = useTranslation();
@@ -144,6 +145,17 @@ const Explore: FC = () => {
     import('lib/epoch')
       .then(({ reconcileEarnWithdrawals }) => reconcileEarnWithdrawals())
       .catch(err => console.warn('[earn-withdraw] reconcile on mount failed', err));
+  }, []);
+
+  // Deposit-side counterpart: `pollEarnIntentStatus` is a popup-lifetime
+  // setInterval, so rows can be stranded on `epochStatus: 'pending'` after the
+  // process dies. Re-poll (or restart polling for) those once per session.
+  useEffect(() => {
+    if (earnDepositsReconciled) return;
+    earnDepositsReconciled = true;
+    import('lib/epoch')
+      .then(({ reconcileEarnDeposits }) => reconcileEarnDeposits())
+      .catch(err => console.warn('[earn] deposit reconcile on mount failed', err));
   }, []);
 
   useEffect(() => {

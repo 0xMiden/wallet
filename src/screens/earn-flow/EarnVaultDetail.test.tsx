@@ -19,6 +19,15 @@ import EarnVaultDetail from './EarnVaultDetail';
 // props via data-* attributes so we can assert what `EarnVaultDetail` passed
 // (label / value / valueClassName), which is where the audited-branch styling
 // lives.
+// --- Wallet context: the screen reads the account only to disable the Deposit
+//     CTA on Guardian accounts (earn deposits need a P2IDE collateral note that
+//     Guardian proposals can't express). Mutated per-test to flip that branch.
+const mockAccount: { publicKey: string; type?: string } = { publicKey: 'mm1testaccount' };
+
+jest.mock('lib/miden/front', () => ({
+  useAccount: () => mockAccount
+}));
+
 jest.mock('./components', () => ({
   MetricCard: ({
     label,
@@ -160,6 +169,26 @@ const metricValue = (label: string) => {
 describe('EarnVaultDetail', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAccount.type = undefined;
+  });
+
+  it('disables the Deposit CTA and explains why on a Guardian account', () => {
+    mockAccount.type = 'guardian';
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    const deposit = screen.getByRole('button', { name: 'Deposit' });
+    expect(deposit).toBeDisabled();
+    expect(screen.getByText('earnDepositGuardianUnsupported')).toBeInTheDocument();
+
+    fireEvent.click(deposit);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('leaves the Deposit CTA enabled (and unexplained) on a standard account', () => {
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    expect(screen.getByRole('button', { name: 'Deposit' })).not.toBeDisabled();
+    expect(screen.queryByText('earnDepositGuardianUnsupported')).not.toBeInTheDocument();
   });
 
   it('renders the audited vault: header, APY block, stats, about and chart', () => {

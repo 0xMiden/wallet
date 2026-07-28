@@ -121,6 +121,14 @@ jest.mock('./transactionUtils', () => ({
     delivering: 'earnWithdrawStatusDelivering',
     received: 'received',
     failed: 'failed'
+  },
+  // Smart Deposit settlement: mirror the real helper (unstamped ⇒ pending) so
+  // the earn-deposit status branch is exercised with realistic values.
+  earnDepositSettlementOf: jest.fn((entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'),
+  EARN_DEPOSIT_STATUS_LABEL_KEY: {
+    pending: 'pending',
+    confirmed: 'confirmed',
+    failed: 'failed'
   }
 }));
 
@@ -716,5 +724,68 @@ describe('HistoryView infinite scroll wiring', () => {
     render(<HistoryView {...baseProps} entries={twoEntries} fullHistory />);
     expect(screen.queryByTestId('infinite-scroll')).toBeNull();
     expect(screen.getAllByTestId('activity-row')).toHaveLength(2);
+  });
+});
+
+// A Smart Deposit row goes database-Completed as soon as the Miden collateral
+// note lands — but the position only exists once the solver-fulfilled Sepolia
+// lending leg settles, so the chip must track THAT leg, not the row status.
+describe('HistoryView earn-deposit status chip', () => {
+  const renderDeposit = (overrides: Partial<IHistoryEntry> = {}) => {
+    const entry = makeEntry({
+      txType: 'earn-deposit',
+      message: 'Depositing',
+      amount: 5n,
+      token: 'USDC',
+      ...overrides
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    return rowByTitle('Depositing');
+  };
+
+  it('reads pending while the lending leg is unsettled', () => {
+    const row = renderDeposit({ earnDepositStatus: 'pending' });
+    expect(row).toHaveAttribute('data-status-label', 'pending');
+    expect(row).toHaveAttribute('data-status-tone', 'pending');
+  });
+
+  it('defaults an unstamped leg to pending rather than Confirmed', () => {
+    const row = renderDeposit();
+    expect(row).toHaveAttribute('data-status-label', 'pending');
+    expect(row).toHaveAttribute('data-status-tone', 'pending');
+  });
+
+  it('reads failed when the lending leg failed', () => {
+    const row = renderDeposit({ earnDepositStatus: 'failed' });
+    expect(row).toHaveAttribute('data-status-label', 'failed');
+    expect(row).toHaveAttribute('data-status-tone', 'failed');
+  });
+
+  it('falls through to Confirmed once the lending leg settles', () => {
+    const row = renderDeposit({ earnDepositStatus: 'confirmed' });
+    expect(row).toHaveAttribute('data-status-label', 'confirmed');
+    expect(row).toHaveAttribute('data-status-tone', 'confirmed');
+  });
+
+  it('lets a Miden-side failure win over a pending lending leg', () => {
+    // The earn-deposit branch is checked AFTER cancelled/failed/pending, so the
+    // real failure is what the user sees.
+    const row = renderDeposit({ transactionIcon: 'FAILED', earnDepositStatus: 'pending' });
+    expect(row).toHaveAttribute('data-status-label', 'failed');
+    expect(row).toHaveAttribute('data-status-tone', 'failed');
+  });
+
+  it('lets a cancellation win over a pending lending leg', () => {
+    const entry = makeEntry({ txType: 'earn-deposit', message: 'Depositing', isCancelled: true });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    const row = rowByTitle('cancelled');
+    expect(row).toHaveAttribute('data-status-label', 'cancelled');
+    expect(row).toHaveAttribute('data-status-tone', 'cancelled');
+  });
+
+  it('lets a still-processing row win over the lending leg', () => {
+    const row = renderDeposit({ type: HistoryEntryType.PendingTransaction, earnDepositStatus: 'failed' });
+    expect(row).toHaveAttribute('data-status-label', 'pending');
+    expect(row).toHaveAttribute('data-status-tone', 'pending');
   });
 });

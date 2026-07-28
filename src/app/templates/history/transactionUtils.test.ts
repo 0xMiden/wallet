@@ -10,7 +10,10 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
+  EARN_DEPOSIT_STATUS_LABEL_KEY,
   EARN_WITHDRAW_STATUS_LABEL_KEY,
+  earnDepositSettlementOf,
+  earnWithdrawAmountFields,
   earnWithdrawToneOf,
   fontColorForType,
   formatBridgeOutputAmount,
@@ -438,6 +441,78 @@ describe('earn withdraw helpers', () => {
       redeeming: 'earnWithdrawStatusRedeeming',
       delivering: 'earnWithdrawStatusDelivering',
       received: 'received',
+      failed: 'failed'
+    });
+  });
+});
+
+describe('earnWithdrawAmountFields', () => {
+  const extra = {
+    phase: 'redeeming' as const,
+    evmOwner: '0x1111111111111111111111111111111111111111',
+    marketUid: 'DUMMY_LENDING:11155111:0xunderlying',
+    sourceAmount: '10.500000',
+    sourceSymbol: 'USDC',
+    destinationFaucetId: 'native-id'
+  };
+  const destinationMetadata = { symbol: 'MIDEN', decimals: 8, name: 'Miden', faucetId: 'native-id' };
+
+  it.each(['redeeming', 'delivering', 'failed'] as const)(
+    'shows the redeemed source side while the withdrawal is %s',
+    phase => {
+      // The row's atomic `amount` is denominated in the native faucet, so
+      // formatting it against USDC decimals would mis-scale it.
+      expect(earnWithdrawAmountFields({ ...extra, phase }, 999n, destinationMetadata)).toEqual({
+        amount: '10.5',
+        token: 'USDC'
+      });
+    }
+  );
+
+  it('switches to the delivered destination amount once the note is received', () => {
+    // The consume path patches the row with what actually landed; the consume
+    // row itself is suppressed, so this row must not keep claiming the USDC side.
+    expect(earnWithdrawAmountFields({ ...extra, phase: 'received' }, 250_000_000n, destinationMetadata)).toEqual({
+      amount: formatAmount(250_000_000n, 8),
+      token: 'MIDEN'
+    });
+  });
+
+  it('falls back to the recorded output symbol when destination metadata is missing', () => {
+    expect(earnWithdrawAmountFields({ ...extra, phase: 'received', outputSymbol: 'MDN' }, 100n, undefined)).toEqual({
+      amount: formatAmount(100n, undefined),
+      token: 'MDN'
+    });
+  });
+
+  it('keeps the source side on a received row that was never patched with an amount', () => {
+    expect(earnWithdrawAmountFields({ ...extra, phase: 'received' }, undefined, destinationMetadata)).toEqual({
+      amount: '10.5',
+      token: 'USDC'
+    });
+  });
+});
+
+describe('earn deposit settlement helpers', () => {
+  it('treats an unstamped lending leg as still pending', () => {
+    // The row is database-Completed as soon as the Miden collateral note lands,
+    // so "no epochStatus yet" must never read as Confirmed.
+    expect(earnDepositSettlementOf(bridgeEntry({ txType: 'earn-deposit' }))).toBe('pending');
+  });
+
+  it('passes an explicit settlement through', () => {
+    expect(earnDepositSettlementOf(bridgeEntry({ txType: 'earn-deposit', earnDepositStatus: 'confirmed' }))).toBe(
+      'confirmed'
+    );
+    expect(earnDepositSettlementOf(bridgeEntry({ txType: 'earn-deposit', earnDepositStatus: 'failed' }))).toBe(
+      'failed'
+    );
+  });
+
+  it('reuses the shared status label keys (no new i18n keys)', () => {
+    expect(EARN_DEPOSIT_STATUS_LABEL_KEY).toEqual({
+      pending: 'pending',
+      confirmed: 'confirmed',
       failed: 'failed'
     });
   });

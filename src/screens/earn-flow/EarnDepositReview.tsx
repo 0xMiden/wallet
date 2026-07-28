@@ -1,6 +1,7 @@
 import React, { FC, useMemo, useState } from 'react';
 
 import clsx from 'clsx';
+import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { Button, ButtonVariant } from 'components/Button';
@@ -14,6 +15,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { ChartContainer } from 'lib/ui/charts';
 import { navigate, useLocation } from 'lib/woozie';
+import { WalletType } from 'screens/onboarding/types';
 
 import { EarnFlowHeader } from './components';
 import { placeholderVault } from './earn-mapping';
@@ -42,15 +44,21 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const { vaults } = useEarnPositions();
   const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
 
+  const { t } = useTranslation();
   const account = useAccount();
   const depositSymbol = 'USDC';
   const { signTransaction } = useMidenContext();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // Earn deposits need a P2IDE collateral note with a reclaim height; Guardian
+  // proposals can only express a plain P2ID (see GUARDIAN_EARN_DEPOSIT_UNSUPPORTED).
+  // `openEarnPosition` refuses these too — this just avoids a dead-end CTA.
+  const isGuardian = account.type === WalletType.Guardian;
+
   const handleOpenPosition = async () => {
     hapticLight();
-    if (isSubmitting) return;
+    if (isSubmitting || isGuardian) return;
     if (!account.evmAddress) {
       setSubmitError('No EVM address available for this account.');
       return;
@@ -92,6 +100,11 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       </div>
 
       <div className={clsx('shrink-0 pt-4 pb-6', isMobile() ? 'px-8' : 'px-6')}>
+        {isGuardian && (
+          <div className="mb-2 text-center text-sm leading-tight text-status-negative">
+            {t('earnDepositGuardianUnsupported')}
+          </div>
+        )}
         {submitError && (
           <div className="mb-2 text-center text-sm leading-tight text-status-negative">{submitError}</div>
         )}
@@ -99,7 +112,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
           title="Open position"
           variant={ButtonVariant.Primary}
           onClick={handleOpenPosition}
-          disabled={isSubmitting || amountValue <= 0 || !vault.id}
+          disabled={isSubmitting || amountValue <= 0 || !vault.id || isGuardian}
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
       </div>

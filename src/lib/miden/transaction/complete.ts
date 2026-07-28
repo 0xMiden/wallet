@@ -531,10 +531,49 @@ export const updateEarnDepositStatus = async (
 };
 
 /**
+ * Ordering of the `earn-withdraw` lifecycle. `received` and `failed` are both
+ * terminal (equal rank): a delivered-and-consumed withdrawal is done, and a failed
+ * intent is done. `redeeming` → `delivering` → terminal is the only legal direction.
+ */
+const EARN_WITHDRAW_PHASE_RANK: Record<IEarnWithdrawPhase, number> = {
+  redeeming: 0,
+  delivering: 1,
+  received: 2,
+  failed: 2
+};
+
+const EARN_WITHDRAW_TERMINAL_PHASES: ReadonlySet<IEarnWithdrawPhase> = new Set<IEarnWithdrawPhase>([
+  'received',
+  'failed'
+]);
+
+/**
+ * Whether `next` is a legal move from `current`.
+ *
+ * Exported for tests. The load-bearing rule is that a TERMINAL phase never moves:
+ * `pollEarnWithdrawDelivery` races the auto-consume path — `resolveBridgeInNoteId`
+ * can flip a row to `received` while the poller is still about to write
+ * `delivering`, which used to downgrade the row and strand it at "Delivering"
+ * forever. Same-phase writes stay allowed so callers can idempotently patch extras
+ * (note id, output amount, tx hash) onto an already-terminal row.
+ */
+export const canAdvanceEarnWithdrawPhase = (current: IEarnWithdrawPhase, next: IEarnWithdrawPhase): boolean => {
+  if (current === next) return true;
+  if (EARN_WITHDRAW_TERMINAL_PHASES.has(current)) return false;
+  return EARN_WITHDRAW_PHASE_RANK[next] >= EARN_WITHDRAW_PHASE_RANK[current];
+};
+
+/**
  * Advance an `earn-withdraw` row's lifecycle. The row is finalized (`Completed`)
  * from birth, so this mutates ONLY `extraInputs` (via a direct `modify`) — never
  * `updateTransactionStatus`, which would reject the already-finalized row. On the
  * `failed` phase the failure reason is also mirrored onto `tx.error`.
+ *
+ * Transitions are MONOTONIC (`canAdvanceEarnWithdrawPhase`): a backwards or
+ * out-of-terminal move is dropped whole — phase AND extras — so a late writer can't
+ * resurrect a settled row. The one sanctioned way back out of `failed` is the
+ * user-initiated retry in `resubmitEarnWithdrawal`, which resets the row with its
+ * own `modify` and deliberately bypasses this guard.
  */
 export const updateEarnWithdrawPhase = async (
   id: string,
@@ -551,6 +590,10 @@ export const updateEarnWithdrawPhase = async (
 ) => {
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
+    if (!canAdvanceEarnWithdrawPhase(inputs.phase, phase)) {
+      console.warn(`[earn-withdraw] refusing phase downgrade ${inputs.phase} -> ${phase} on ${id}`);
+      return;
+    }
     tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
     if (amount !== undefined) tx.amount = amount;
     if (phase === 'failed' && extra?.error) tx.error = extra.error;

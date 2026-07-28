@@ -14,6 +14,7 @@ import {
   IBridgedReceiveExtraInputs,
   IBridgedSendExtraInputs,
   IBridgeInInfo,
+  IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
   ITransaction,
   ITransactionStatus
@@ -26,7 +27,7 @@ import useSafeState from 'lib/ui/useSafeState';
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import {
-  formatEarnWithdrawAmount,
+  earnWithdrawAmountFields,
   isFaucetRequest as isFaucetEntry,
   resolveSwapHistoryFields
 } from './transactionUtils';
@@ -187,6 +188,12 @@ async function fetchTransactionsAsHistoryEntries(
     const bridgedReceive =
       tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
     const earnWithdraw: IEarnWithdrawExtraInputs | undefined = tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
+    const earnDeposit: IEarnDepositExtraInputs | undefined = tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
+    // Source side (USDC) while in flight, destination side once the bridged note
+    // was consumed — see `earnWithdrawAmountFields`.
+    const earnWithdrawFields = earnWithdraw
+      ? earnWithdrawAmountFields(earnWithdraw, tx.amount, tokenMetadata)
+      : undefined;
     // Swap faucets are usually absent from wallet metadata — resolve both
     // sides through the DEX registry instead of the generic path.
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
@@ -198,24 +205,24 @@ async function fetchTransactionsAsHistoryEntries(
       status: tx.status,
       type: HistoryEntryType.CompletedTransaction,
       transactionIcon: icon,
-      // Earn withdraw amounts are the human `sourceAmount` (USDC), NOT the row's
-      // atomic `amount` — its faucetId is the native asset, so formatAmount would
-      // mis-scale by the wrong decimals.
-      amount: earnWithdraw
-        ? formatEarnWithdrawAmount(earnWithdraw.sourceAmount)
+      amount: earnWithdrawFields
+        ? earnWithdrawFields.amount
         : swapFields
           ? swapFields.amount
           : tx.amount
             ? formatAmount(tx.amount, tokenMetadata?.decimals)
             : undefined,
-      token: earnWithdraw
-        ? earnWithdraw.sourceSymbol
+      token: earnWithdrawFields
+        ? earnWithdrawFields.token
         : swapFields
           ? swapFields.token
           : tokenMetadata
             ? tokenMetadata.symbol
             : undefined,
       earnWithdrawPhase: earnWithdraw?.phase,
+      // The Miden collateral note landing is only half a deposit — the chip
+      // tracks the Sepolia lending leg.
+      earnDepositStatus: earnDeposit?.epochStatus,
       requestedAmount: swapFields?.requestedAmount,
       requestedToken: swapFields?.requestedToken,
       requestedFaucetId: swapFields?.requestedFaucetId,
@@ -266,6 +273,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
         : HistoryEntryType.PendingTransaction;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
+    const earnDeposit: IEarnDepositExtraInputs | undefined = tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
     return {
       key: `pending-${tx.id}`,
@@ -296,7 +304,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeFillTxHash: bridge?.fillTxHash,
       bridgeFillChainId: bridge?.fillChainId,
       bridgeEpochStatus: bridge?.epochStatus,
-      bridgeReclaimHeight: bridge?.reclaimHeight
+      bridgeReclaimHeight: bridge?.reclaimHeight,
+      earnDepositStatus: earnDeposit?.epochStatus
     } as IHistoryEntry;
   });
   const entries = await Promise.all(entryPromises);

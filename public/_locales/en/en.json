@@ -720,6 +720,7 @@
   "bridgeRowVia": "Via $provider$ → $network$",
   "bridgeInProgress": "In progress",
   "bridgeFailed": "Failed",
+  "earnDepositGuardianUnsupported": "Earn deposits aren’t available on Guardian accounts yet. Switch to a standard account to deposit.",
   "reclaimFunds": "Reclaim funds",
   "reclaiming": "Reclaiming…",
   "reclaimableAfterBlock": "Funds reclaimable after block",

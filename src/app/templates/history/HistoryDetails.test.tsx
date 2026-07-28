@@ -17,6 +17,7 @@ let mockPrice = 2;
 // Data / logic dependency mocks.
 // ---------------------------------------------------------------------------
 const mockGetTransactionById = jest.fn();
+const mockRetryEarnWithdrawReceive = jest.fn().mockResolvedValue(undefined);
 const mockTrackOrderId = jest.fn();
 const mockGetSwapSettlementNotes = jest.fn();
 const mockGetTokenMetadata = jest.fn();
@@ -40,6 +41,7 @@ jest.mock('lib/miden/activity', () => ({
   requeueFailedTransaction: (...args: unknown[]) => mockRequeueFailedTransaction(...args),
   requestSWTransactionProcessing: (...args: unknown[]) => mockRequestSWTransactionProcessing(...args),
   isRequeueableTransaction: (...args: unknown[]) => mockIsRequeueableTransaction(...args),
+  retryEarnWithdrawReceive: (...args: unknown[]) => mockRetryEarnWithdrawReceive(...args),
   USER_CANCELLED_TRANSACTION_REASON: 'Transaction was cancelled by user',
   isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user'
 }));
@@ -902,5 +904,98 @@ describe('HistoryDetails', () => {
       expect(screen.getByText('bridgeFailed')).toBeInTheDocument();
       expect(screen.getByText('The Epoch bridge intent failed.')).toBeInTheDocument();
     });
+  });
+});
+
+// Smart Withdraw detail: the hero must show the same side as the activity row
+// (source USDC in flight, destination asset once delivered), and retry must be
+// offered for ANY failed withdrawal — it resubmits a brand-new Epoch intent
+// rather than re-polling the dead nonce, so a missing nonce is not a blocker.
+describe('HistoryDetails earn-withdraw', () => {
+  const earnWithdrawTx = (extraInputs: Record<string, unknown>, overrides: Tx = {}): Tx => ({
+    ...baseSendTx,
+    id: 'tx-1',
+    type: 'earn-withdraw',
+    faucetId: 'faucet-1',
+    displayMessage: 'Withdraw from Earn',
+    displayIcon: 'DEFAULT',
+    extraInputs: {
+      phase: 'redeeming',
+      evmOwner: '0x1111111111111111111111111111111111111111',
+      marketUid: 'DUMMY_LENDING:11155111:0xunderlying',
+      sourceAmount: '10.50',
+      sourceSymbol: 'USDC',
+      ...extraInputs
+    },
+    ...overrides
+  });
+
+  beforeEach(() => {
+    mockRetryEarnWithdrawReceive.mockClear();
+    mockRetryEarnWithdrawReceive.mockResolvedValue(undefined);
+  });
+
+  it('shows the redeemed source side while the withdrawal is still in flight', async () => {
+    mockGetTransactionById.mockResolvedValue(earnWithdrawTx({ phase: 'delivering' }, { amount: 999n }));
+    await renderAndLoad();
+
+    expect(document.body.textContent).toContain('10.5');
+    expect(document.body.textContent).toContain('USDC');
+  });
+
+  it('switches to the delivered destination amount once the note is received', async () => {
+    mockGetTransactionById.mockResolvedValue(
+      earnWithdrawTx({ phase: 'received', outputSymbol: 'MDN' }, { amount: 999n })
+    );
+    await renderAndLoad();
+
+    // The source figure is no longer what the hero claims.
+    expect(document.body.textContent).not.toContain('10.5');
+  });
+
+  it('offers retry on a failed withdrawal that never recorded a nonce', async () => {
+    mockGetTransactionById.mockResolvedValue(
+      earnWithdrawTx({ phase: 'failed', error: 'boom', withdrawIntentNonce: undefined })
+    );
+    await renderAndLoad();
+
+    fireEvent.click(screen.getByText('retry'));
+    await flush();
+
+    // Full resubmission, not a re-queue of a Miden row.
+    expect(mockRetryEarnWithdrawReceive).toHaveBeenCalledWith('tx-1');
+    expect(mockRequeueFailedTransaction).not.toHaveBeenCalled();
+    // The row is reused in place, so the page reloads rather than navigating.
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('offers retry on a failed withdrawal that does have a nonce', async () => {
+    mockGetTransactionById.mockResolvedValue(
+      earnWithdrawTx({ phase: 'failed', error: 'boom', withdrawIntentNonce: 'DEAD' })
+    );
+    await renderAndLoad();
+
+    fireEvent.click(screen.getByText('retry'));
+    await flush();
+
+    expect(mockRetryEarnWithdrawReceive).toHaveBeenCalledWith('tx-1');
+  });
+
+  it('offers no retry while the withdrawal is still progressing', async () => {
+    mockGetTransactionById.mockResolvedValue(earnWithdrawTx({ phase: 'delivering' }));
+    await renderAndLoad();
+
+    expect(screen.queryByText('retry')).toBeNull();
+  });
+
+  it('surfaces a resubmission failure inline', async () => {
+    mockGetTransactionById.mockResolvedValue(earnWithdrawTx({ phase: 'failed', error: 'boom' }));
+    mockRetryEarnWithdrawReceive.mockRejectedValue(new Error('epoch is down'));
+    await renderAndLoad();
+
+    fireEvent.click(screen.getByText('retry'));
+    await flush();
+
+    expect(screen.getByText('epoch is down')).toBeInTheDocument();
   });
 });

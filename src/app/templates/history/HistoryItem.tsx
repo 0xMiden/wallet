@@ -17,7 +17,9 @@ import {
   BridgeStatus,
   bridgeInRowDisplay,
   bridgeRowDisplay,
+  EARN_DEPOSIT_STATUS_LABEL_KEY,
   EARN_WITHDRAW_STATUS_LABEL_KEY,
+  earnDepositSettlementOf,
   earnWithdrawToneOf,
   isBridgeInEntry,
   isEarnWithdrawEntry,
@@ -66,6 +68,16 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
     return <EarnWithdrawRowContent entry={entry} fullHistory={fullHistory} lastEntry={lastEntry} />;
   }
 
+  // A Smart Deposit row is Completed once the Miden collateral note lands, but
+  // the position only exists once the Sepolia lending leg settles — surface that
+  // leg while it is still pending or has failed (settled reads as the plain row).
+  // Never on a cancelled or Miden-failed row: that failure is the real story.
+  const settlement =
+    entry.txType === 'earn-deposit' && !entry.isCancelled && entry.transactionIcon !== 'FAILED'
+      ? earnDepositSettlementOf(entry)
+      : 'confirmed';
+  const depositSettlement = settlement === 'confirmed' ? undefined : settlement;
+
   const title = isFaucet ? t('faucetRequest') : entry.message;
   return (
     <div
@@ -111,6 +123,20 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
             <span className="font-heading text-sm text-black opacity-64 font-medium leading-none">{entry.token}</span>
           )}
         </div>
+      )}
+
+      {/* Sepolia lending-leg status (Smart Deposit, while unsettled) */}
+      {depositSettlement && (
+        <span
+          data-testid="earn-deposit-status"
+          className={classNames(
+            'flex items-center gap-1 shrink-0 text-xs font-medium leading-none',
+            BRIDGE_STATUS_COLOR[depositSettlement]
+          )}
+        >
+          <span className={classNames('w-1.5 h-1.5 rounded-full', BRIDGE_STATUS_DOT[depositSettlement])} />
+          {t(EARN_DEPOSIT_STATUS_LABEL_KEY[depositSettlement])}
+        </span>
       )}
 
       {/* Cancel button for pending */}

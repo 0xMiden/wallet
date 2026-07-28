@@ -489,16 +489,18 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'earn-deposit': {
-      const earnTx = transaction as EarnDepositTransaction;
-      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      // Same shape as the Epoch bridged-send: a P2IDE note to the allocator,
-      // proposed as a multisig send.
-      proposalResult = await service.createSendProposal(
-        earnTx.secondaryAccountId!,
-        earnTx.faucetId,
-        BigInt(earnTx.amount)
+      // NOT SUPPORTED on Guardian accounts — see `GUARDIAN_EARN_DEPOSIT_UNSUPPORTED`
+      // in lib/epoch/earn.ts. The Epoch mandate advertises a P2IDE collateral note
+      // with an absolute `midenReclaimHeight`; the multisig client exposes only
+      // `createP2idProposal` (no recall height), so proposing this as a plain send
+      // would mint a P2ID that doesn't match the mandate AND leaves the collateral
+      // with no reclaim path. `openEarnPosition` refuses Guardian accounts before a
+      // row is ever queued; this is the backstop for any row that slips through
+      // (e.g. an account converted to Guardian while a deposit was queued).
+      throw new Error(
+        'Earn deposits are not available on Guardian accounts yet — the collateral note needs a reclaim ' +
+          'height that Guardian proposals cannot express.'
       );
-      break;
     }
     case 'swap': {
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
@@ -746,9 +748,8 @@ const generateGuardianTransaction = async (
     case 'bridged-send':
       await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
       break;
-    case 'earn-deposit':
-      await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
-      break;
+    // No `earn-deposit` case: the proposal switch above throws for that type on
+    // Guardian accounts (no P2IDE proposal exists), so it can never reach here.
     case 'execute':
     default:
       await completeCustomTransaction(transaction, result);

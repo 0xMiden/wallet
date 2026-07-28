@@ -35,7 +35,7 @@ jest.mock('lib/epoch', () => ({
 
 // --- Wallet context: the screen needs the account's EVM address (the deposit
 //     owner) plus `signTransaction` for the guardian-signed Miden note.
-const mockAccount: { publicKey: string; evmAddress?: string } = {
+const mockAccount: { publicKey: string; evmAddress?: string; type?: string } = {
   publicKey: 'mm1testaccount',
   evmAddress: '0xdeadbeef'
 };
@@ -128,6 +128,7 @@ describe('EarnDepositReview', () => {
     jest.clearAllMocks();
     mockLocation.search = '';
     mockAccount.evmAddress = '0xdeadbeef';
+    mockAccount.type = undefined;
     (isMobile as jest.Mock).mockReturnValue(false);
     mockOpenEarnPosition.mockResolvedValue(undefined);
   });
@@ -181,6 +182,18 @@ describe('EarnDepositReview', () => {
   });
 
   describe('open position CTA', () => {
+    it('disables the CTA and explains why on a Guardian account', () => {
+      mockAccount.type = 'guardian';
+      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+
+      const cta = screen.getByTestId('open-position-btn');
+      expect(cta).toBeDisabled();
+      expect(screen.getByText('earnDepositGuardianUnsupported')).toBeInTheDocument();
+
+      fireEvent.click(cta);
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+    });
+
     it('fires haptics and opens the Epoch position with the scaled amount + account owner', async () => {
       renderReview('aave-usdc-ethereum-1', '?amount=1,000');
 

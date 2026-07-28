@@ -15,7 +15,7 @@ import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { normalizeMidenIdToHex } from './bridge';
 import { BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS } from './bridgeable-token';
 import { EPOCH_ALLOCATOR_URL, MIDEN_DESTINATION_CHAIN_ID } from './config';
-import { EARN_PROTOCOL_HASH, EARN_UNDERLYING, EARN_DONE_STATUSES, EARN_FAILED_STATUSES } from './earn';
+import { EARN_PROTOCOL_HASH, EARN_UNDERLYING, resolveEarnIntentOutcome } from './earn';
 import { buildVaultEvmWalletClient } from './evm-account';
 import { getEpochReadOnlySdk, ensureEpochSmartAccount } from './sdk';
 
@@ -234,6 +234,19 @@ interface DeliveryPollDeps {
  * `received` flip happens on auto-consume); a terminal `failed` status marks the row
  * `failed`. Fire-and-forget, read-only SDK, self-terminating — mirrors
  * `pollEarnIntentStatus`.
+ *
+ * Terminality is gated on the MIDEN (destination) leg via `resolveEarnIntentOutcome`.
+ * This is the mirror image of the deposit poll: here the SEPOLIA leg is the SOURCE,
+ * and it routinely completes (the position is redeemed) well before the bridged note
+ * reaches Miden. Treating that as terminal stopped the poll early, so the allocator's
+ * `midenNoteId` and any later destination-side failure were never observed.
+ *
+ * Ordering matters: the terminal phase patch runs BEFORE `resolveNoteId`. Note
+ * resolution can tag an already-completed consume row, which flips this row to the
+ * terminal `received` phase — doing it first and then writing `delivering` would
+ * downgrade the row and strand it at "Delivering" forever. `updateEarnWithdrawPhase`
+ * is monotonic and refuses that downgrade too; the ordering here just avoids relying
+ * on the guard.
  */
 export function pollEarnWithdrawDelivery(args: {
   sponsorAddress: `0x${string}`;
@@ -259,25 +272,24 @@ export function pollEarnWithdrawDelivery(args: {
       }
       const sdk = await getSdk(sponsorAddress);
       const results = await sdk.getIntentStatus(sponsorAddress, nonce);
-      const statuses = results.map(s => (s.status ?? '').toLowerCase());
-      const done = statuses.some(s => EARN_DONE_STATUSES.has(s));
-      const failed = !done && statuses.some(s => EARN_FAILED_STATUSES.has(s));
+      const { outcome, source } = resolveEarnIntentOutcome(results, MIDEN_DESTINATION_CHAIN_ID);
 
-      // Learn the bridged note id as soon as it appears so an already-completed
-      // consume row (delivery-before-poll race) gets tagged + flipped to received.
-      const midenNoteId = extractMidenNoteId(results);
-      if (midenNoteId) await resolveNoteId(nonce, midenNoteId).catch(() => undefined);
-
-      if (done || failed) {
+      if (outcome !== 'pending') {
         clearInterval(interval);
-        const fill = results[results.length - 1];
-        const evmTxHash = fill?.transactionHash || undefined;
-        if (done) {
+        // The EVM (source) leg carries the redeem/bridge tx hash.
+        const evmTxHash = source?.transactionHash || undefined;
+        if (outcome === 'done') {
           await updatePhase(txId, 'delivering', evmTxHash ? { evmTxHash } : undefined);
         } else {
           await updatePhase(txId, 'failed', { error: 'The withdrawal intent failed on Epoch.' });
         }
       }
+
+      // Learn the bridged note id as soon as it appears so an already-completed
+      // consume row (delivery-before-poll race) gets tagged + flipped to received.
+      // Runs LAST so the `received` flip is never overwritten by `delivering`.
+      const midenNoteId = extractMidenNoteId(results);
+      if (midenNoteId) await resolveNoteId(nonce, midenNoteId).catch(() => undefined);
     } catch (err) {
       console.warn('[earn-withdraw] delivery poll failed', err);
     }
@@ -348,4 +360,60 @@ export async function reconcileEarnWithdrawals(deps: ResumeDeps = {}): Promise<v
       console.warn('[earn-withdraw] reconcile resume failed', err)
     );
   }
+}
+
+type ResubmitDeps = GaslessEarnWithdrawalDeps;
+
+/**
+ * Retry a terminally-failed Smart Withdraw by submitting a BRAND NEW Epoch intent.
+ *
+ * Re-polling the old nonce is pointless: `phase === 'failed'` means Epoch already
+ * reported that intent as failed/expired, so it will report the same forever. The
+ * position, however, was never redeemed, and `IEarnWithdrawExtraInputs` persists
+ * everything `gaslessEarnWithdrawalToMiden` needs to rebuild the request —
+ * `evmOwner` (sponsor), `marketUid`, `sourceAmount`, `sourceSymbol` — with the
+ * Miden destination on `row.accountId` and the underlying pinned to
+ * `EARN_UNDERLYING` (the gasless path only supports that market anyway). So this
+ * runs the whole flow again and gets a fresh nonce.
+ *
+ * The SAME row is reused (via the `initiateRow` dep) so history keeps one entry per
+ * withdrawal instead of accreting a row per retry. Its phase is reset to `redeeming`
+ * with a direct `modify` — `updateEarnWithdrawPhase` is intentionally monotonic and
+ * would refuse to move a terminal `failed` row backwards; this explicit,
+ * user-initiated reset is the one sanctioned exception.
+ *
+ * Caveat: if the previous intent failed AFTER the Sepolia redeem leg landed, there
+ * is nothing left in the market to withdraw and the resubmitted intent will fail
+ * again — safely, by marking the row `failed` a second time.
+ */
+export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = {}): Promise<void> {
+  const row = await Repo.transactions.where({ id: txId }).first();
+  if (!row || row.type !== 'earn-withdraw') throw new Error(`Transaction ${txId} is not an earn-withdraw`);
+  const ei: IEarnWithdrawExtraInputs = row.extraInputs;
+  if (ei.phase !== 'failed') return;
+  if (!isEvmAddress(ei.evmOwner)) {
+    throw new Error('This withdrawal has no valid position owner recorded — start a new withdrawal.');
+  }
+  if (!ei.marketUid || !ei.sourceAmount) {
+    throw new Error('This withdrawal is missing the market details needed to retry — start a new withdrawal.');
+  }
+
+  // Clear the terminal state (and the dead nonce) so the reused row is live again.
+  await Repo.transactions.where({ id: txId }).modify(dbTx => {
+    const inputs: IEarnWithdrawExtraInputs = dbTx.extraInputs;
+    dbTx.extraInputs = { ...inputs, phase: 'redeeming', error: undefined, withdrawIntentNonce: undefined };
+    dbTx.error = undefined;
+  });
+
+  await gaslessEarnWithdrawalToMiden(
+    {
+      midenAccountPublicKey: row.accountId,
+      evmAddress: ei.evmOwner,
+      marketUid: ei.marketUid,
+      underlyingAddress: EARN_UNDERLYING,
+      amount: ei.sourceAmount,
+      underlyingDecimals: BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS
+    },
+    { ...deps, initiateRow: deps.initiateRow ?? (async () => txId) }
+  );
 }

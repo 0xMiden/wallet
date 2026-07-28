@@ -21,6 +21,7 @@ const mockFormatAmount = jest.fn();
 const mockResolveSwapHistoryFields = jest.fn();
 const mockIsFaucetRequest = jest.fn();
 const mockFormatTransactionStatus = jest.fn();
+const mockEarnWithdrawAmountFields = jest.fn();
 
 // Latest props seen by the mocked HistoryView child, so tests can invoke its
 // `loadMore` callback and read back the filtered/sorted `entries`.
@@ -91,7 +92,8 @@ jest.mock('lib/shared/format', () => ({
 
 jest.mock('./transactionUtils', () => ({
   isFaucetRequest: (...args: unknown[]) => mockIsFaucetRequest(...args),
-  resolveSwapHistoryFields: (...args: unknown[]) => mockResolveSwapHistoryFields(...args)
+  resolveSwapHistoryFields: (...args: unknown[]) => mockResolveSwapHistoryFields(...args),
+  earnWithdrawAmountFields: (...args: unknown[]) => mockEarnWithdrawAmountFields(...args)
 }));
 
 // Thin HistoryView stub: capture props (for `loadMore`) and surface each entry
@@ -744,5 +746,91 @@ describe('History', () => {
       bridgeIntentNonce: 'n2',
       secondaryAddress: '0xpend'
     });
+  });
+});
+
+// Earn rows: the row and its detail hero must agree on which side of a Smart
+// Withdraw is shown, and a Smart Deposit's Sepolia lending leg must reach the
+// entry so the status chip can track it.
+describe('History earn entries', () => {
+  beforeEach(() => {
+    mockEarnWithdrawAmountFields.mockReturnValue({ amount: 'EARN-AMT', token: 'EARN-TOK' });
+  });
+
+  const withRows = (rows: unknown[]) => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined ? rows : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+  };
+
+  it('routes an earn-withdraw row through earnWithdrawAmountFields with the row amount + metadata', async () => {
+    const extraInputs = { phase: 'received', sourceAmount: '10', sourceSymbol: 'USDC' };
+    withRows([
+      {
+        id: 'EW',
+        type: 'earn-withdraw',
+        status: 2,
+        completedAt: 5000,
+        faucetId: 'fa1',
+        amount: 250n,
+        extraInputs,
+        displayMessage: 'Withdrawing',
+        displayIcon: 'DEFAULT'
+      }
+    ]);
+
+    await renderHistory();
+
+    // The helper decides the side; History just forwards its output.
+    expect(mockEarnWithdrawAmountFields).toHaveBeenCalledWith(extraInputs, 250n, { symbol: 'TKF', decimals: 6 });
+    const entry = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-EW');
+    expect(entry.amount).toBe('EARN-AMT');
+    expect(entry.token).toBe('EARN-TOK');
+    expect(entry.earnWithdrawPhase).toBe('received');
+  });
+
+  it('surfaces the Sepolia lending-leg status on a completed earn-deposit row', async () => {
+    withRows([
+      {
+        id: 'ED',
+        type: 'earn-deposit',
+        status: 2,
+        completedAt: 5000,
+        faucetId: 'fa1',
+        amount: 5n,
+        extraInputs: { epochStatus: 'pending', evmRecipient: '0xowner' },
+        displayMessage: 'Depositing',
+        displayIcon: 'DEFAULT'
+      }
+    ]);
+
+    await renderHistory();
+
+    const entry = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-ED');
+    expect(entry.earnDepositStatus).toBe('pending');
+    // Not an earn-withdraw, so the withdraw helper is never consulted.
+    expect(mockEarnWithdrawAmountFields).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the lending-leg status on a still-pending earn-deposit row too', async () => {
+    mockGetCompletedTransactions.mockResolvedValue([]);
+    mockGetUncompletedTransactions.mockResolvedValue([
+      {
+        id: 'EDP',
+        type: 'earn-deposit',
+        status: 1,
+        initiatedAt: 100,
+        faucetId: 'fa1',
+        amount: 5n,
+        extraInputs: { epochStatus: 'failed', evmRecipient: '0xowner' },
+        displayMessage: 'Depositing'
+      }
+    ]);
+
+    await renderHistory();
+
+    const entry = mockHistoryViewProps.entries.find((e: any) => e.key === 'pending-EDP');
+    expect(entry.earnDepositStatus).toBe('failed');
   });
 });

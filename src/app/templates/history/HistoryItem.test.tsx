@@ -94,6 +94,12 @@ jest.mock('./transactionUtils', () => ({
     delivering: 'earnWithdrawStatusDelivering',
     received: 'received',
     failed: 'failed'
+  },
+  earnDepositSettlementOf: (entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending',
+  EARN_DEPOSIT_STATUS_LABEL_KEY: {
+    pending: 'pending',
+    confirmed: 'confirmed',
+    failed: 'failed'
   }
 }));
 
@@ -322,5 +328,55 @@ describe('HistoryItem', () => {
     // lastEntry => no border-b; fullHistory && !lastEntry is false => no card border.
     expect(root).not.toHaveClass('border-b');
     expect(root).not.toHaveClass('border-b-border-card');
+  });
+
+  // A Smart Deposit's summary row surfaces the Sepolia lending leg while it is
+  // still unsettled — the row itself is Completed the moment the Miden
+  // collateral note lands, which would otherwise read as fully done.
+  it('shows the lending-leg status dot on a pending Smart Deposit', () => {
+    const entry = makeEntry({ txType: 'earn-deposit', earnDepositStatus: 'pending', message: 'Depositing' });
+
+    render(<HistoryItem entry={entry} />);
+
+    const chip = screen.getByTestId('earn-deposit-status');
+    expect(chip).toHaveTextContent('t:pending');
+    expect(chip.className).toContain('text-status-pending');
+  });
+
+  it('defaults an unstamped lending leg to pending', () => {
+    render(<HistoryItem entry={makeEntry({ txType: 'earn-deposit', message: 'Depositing' })} />);
+    expect(screen.getByTestId('earn-deposit-status')).toHaveTextContent('t:pending');
+  });
+
+  it('shows a failed lending leg', () => {
+    const entry = makeEntry({ txType: 'earn-deposit', earnDepositStatus: 'failed', message: 'Depositing' });
+
+    render(<HistoryItem entry={entry} />);
+
+    const chip = screen.getByTestId('earn-deposit-status');
+    expect(chip).toHaveTextContent('t:failed');
+    expect(chip.className).toContain('text-status-negative');
+  });
+
+  it('renders no chip once the lending leg is confirmed', () => {
+    const entry = makeEntry({ txType: 'earn-deposit', earnDepositStatus: 'confirmed', message: 'Depositing' });
+    render(<HistoryItem entry={entry} />);
+    expect(screen.queryByTestId('earn-deposit-status')).toBeNull();
+  });
+
+  it('renders no chip on a cancelled or Miden-failed deposit row', () => {
+    const cancelled = makeEntry({ txType: 'earn-deposit', isCancelled: true, earnDepositStatus: 'pending' });
+    const { unmount } = render(<HistoryItem entry={cancelled} />);
+    expect(screen.queryByTestId('earn-deposit-status')).toBeNull();
+    unmount();
+
+    const failed = makeEntry({ txType: 'earn-deposit', transactionIcon: 'FAILED', earnDepositStatus: 'pending' });
+    render(<HistoryItem entry={failed} />);
+    expect(screen.queryByTestId('earn-deposit-status')).toBeNull();
+  });
+
+  it('never renders the chip on a non-deposit row', () => {
+    render(<HistoryItem entry={makeEntry({ txType: 'send' })} />);
+    expect(screen.queryByTestId('earn-deposit-status')).toBeNull();
   });
 });

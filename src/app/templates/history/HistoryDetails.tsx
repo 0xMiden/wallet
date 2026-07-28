@@ -58,9 +58,9 @@ import {
   bridgeRowDisplay,
   bridgeStatusOf,
   EARN_WITHDRAW_STATUS_LABEL_KEY,
+  earnWithdrawAmountFields,
   earnWithdrawToneOf,
   formatDate,
-  formatEarnWithdrawAmount,
   isBridgeInEntry
 } from './transactionUtils';
 
@@ -282,6 +282,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
       const earnWithdrawExtra: IEarnWithdrawExtraInputs | undefined =
         tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
+      const earnDepositExtra: IEarnDepositExtraInputs | undefined =
+        tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
+      // Source side (USDC) while in flight, destination side once the bridged
+      // note was consumed — identical rule to the activity row.
+      const earnWithdrawFields = earnWithdrawExtra
+        ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
+        : undefined;
       const historyEntry = {
         address: tx.accountId,
         key: `completed-${tx.id}`,
@@ -289,15 +296,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         message: tx.displayMessage,
         status: tx.status,
         transactionIcon: tx.displayIcon,
-        // Earn withdraw: show the human source amount (USDC), not the atomic row
-        // amount (whose faucetId is the native asset — wrong decimals).
-        amount: earnWithdrawExtra
-          ? formatEarnWithdrawAmount(earnWithdrawExtra.sourceAmount)
+        amount: earnWithdrawFields
+          ? earnWithdrawFields.amount
           : tx.amount
             ? formatAmount(tx.amount, tokenMetadata?.decimals)
             : undefined,
-        token: earnWithdrawExtra ? earnWithdrawExtra.sourceSymbol : tokenMetadata ? tokenMetadata.symbol : undefined,
+        token: earnWithdrawFields ? earnWithdrawFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
         earnWithdrawPhase: earnWithdrawExtra?.phase,
+        earnDepositStatus: earnDepositExtra?.epochStatus,
         secondaryAddress: tx.secondaryAccountId,
         txId: tx.id,
         noteType: tx.noteType,
@@ -352,8 +358,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         setSettlementNotes(await getSwapSettlementNotes(tx.id));
       }
 
-      setEarnWithdraw(tx.type === 'earn-withdraw' ? tx.extraInputs : null);
-      setEarnDeposit(tx.type === 'earn-deposit' ? tx.extraInputs : null);
+      setEarnWithdraw(earnWithdrawExtra ?? null);
+      setEarnDeposit(earnDepositExtra ?? null);
 
       setTransaction(tx);
       setEntry(historyEntry);
@@ -397,8 +403,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // Retry a failed transaction by re-queueing it through the FIFO loop, then
   // hand off to the generating-transaction page which observes the row (and,
   // on mobile/desktop, drives the loop). A failed Smart Withdraw has no Miden
-  // row to replay — its redeem intent is re-submitted to Epoch instead, which
-  // flips the row back to non-terminal and restarts delivery polling.
+  // row to replay — the whole withdrawal is resubmitted as a BRAND NEW Epoch
+  // intent (fresh nonce) reusing this same row, so the page just reloads it in
+  // place rather than navigating.
   const handleRetry = useCallback(async () => {
     if (!entry) return;
     setIsRetrying(true);
@@ -670,13 +677,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isPending =
     entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
   // Retry only makes sense when there's something recoverable: a re-queueable
-  // failed Miden tx (structural Guardian ops are excluded — the user re-initiates
-  // those from Settings), or a Smart Withdraw whose redeem intent is on Epoch.
+  // failed Miden tx (structural Guardian ops and earn deposits are excluded — the
+  // user re-initiates those from Settings / the Earn flow), or a failed Smart
+  // Withdraw, which is fully resubmittable as a brand-new Epoch intent whether or
+  // not the previous one ever reached the allocator.
   const canRetry =
     entry !== null &&
     !entry.isCancelled &&
     (entry.txType === 'earn-withdraw'
-      ? earnWithdraw?.phase === 'failed' && Boolean(earnWithdraw.withdrawIntentNonce)
+      ? earnWithdraw?.phase === 'failed'
       : isRequeueableTransaction({ status: entry.status, type: entry.txType }));
 
   return (

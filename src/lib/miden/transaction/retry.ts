@@ -14,8 +14,39 @@ import {
  * update-procedure-threshold) are deliberately excluded — re-running them
  * blind can mint orphan hardware keys or re-register a stale guardian; the
  * user re-initiates those from Settings instead.
+ *
+ * `earn-deposit` is ALSO excluded, and for a different reason. The row is only
+ * the Miden half of an Epoch lending deposit: `openEarnPosition` quotes the
+ * intent, then `solveIntent` calls back into `createEarnP2IDNote`, which queues
+ * this row and BLOCKS on it before the intent is submitted. So when the row
+ * fails, the surrounding intent has already been abandoned (there is no
+ * allocator-side mandate left to satisfy). Re-queueing would re-run only the
+ * Miden send — minting a fresh P2IDE collateral note to the allocator with no
+ * quote and no intent behind it, i.e. locking the user's collateral in an
+ * orphaned note until its reclaim height. A dedicated retry would have to redo
+ * the whole flow (new quote → new intent → new row), and that flow needs the
+ * caller-supplied `BridgeNoteDeps` (`signTransaction` + guardian provider) that
+ * only the earn screens hold — it is not reconstructible from this entry point.
+ * Failed earn deposits are therefore non-retryable; the user re-initiates from
+ * the Earn flow, and the orphaned note (if any) reclaims itself.
+ *
+ * How the other two "retry-ish" paths treat `earn-deposit` — different lists,
+ * different reasoning, both deliberately unchanged:
+ *
+ *  - The pre-submit LOCKED-WALLET path in `generateTransactionsLoop` leaves the
+ *    row `Queued` (never Failed) when the sign callback reports a locked vault.
+ *    Nothing was abandoned there: `openEarnPosition` is still awaiting this row
+ *    via `waitForTransactionCompletion`, and the quote/mandate are still live —
+ *    so `earn-deposit` SHOULD keep participating, and it does.
+ *  - `ApplyTransactionAfterSubmitFailed` marks the row `Completed` rather than
+ *    Failed: the note IS on chain, so the correct move is to let the awaiting
+ *    `createEarnP2IDNote` read it back, not to re-send. `earn-deposit` belongs
+ *    in that type-agnostic path too, and stays there.
+ *
+ * Both of those cover cases where the intent is still valid; only the terminal
+ * FIFO requeue, which reruns a send whose intent is gone, has to exclude it.
  */
-const REQUEUEABLE_TYPES: ITransactionType[] = ['send', 'consume', 'swap', 'bridged-send', 'earn-deposit', 'execute'];
+const REQUEUEABLE_TYPES: ITransactionType[] = ['send', 'consume', 'swap', 'bridged-send', 'execute'];
 
 /** Pre-failure display icon per type (mirrors the Transaction subclass constructors). */
 const ICON_BY_TYPE: Partial<Record<ITransactionType, ITransactionIcon>> = {
@@ -23,7 +54,6 @@ const ICON_BY_TYPE: Partial<Record<ITransactionType, ITransactionIcon>> = {
   consume: 'RECEIVE',
   swap: 'SWAP',
   'bridged-send': 'SEND',
-  'earn-deposit': 'DEFAULT',
   execute: 'DEFAULT'
 };
 
@@ -66,30 +96,32 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
 // intent); those never produce a Failed Miden row in the first place.
 
 /**
- * Retry the RECEIVE side of a failed Smart Withdraw: the redeem intent is
- * already on Epoch (nonce recorded), so flip the row back to non-terminal and
- * let `resumeEarnWithdrawal` re-register the bridge-in and restart delivery
- * polling. Only meaningful when the intent nonce exists — a row that failed
- * before submission has nothing on the EVM side to wait for.
+ * Retry a failed Smart Withdraw.
+ *
+ * This used to flip the phase back to `redeeming` and re-run
+ * `resumeEarnWithdrawal`, which just re-polls the SAME Epoch nonce. But
+ * `phase === 'failed'` is set precisely because Epoch reported that intent
+ * terminally failed/expired — repolling it can only ever fail again, so the
+ * button was a no-op dressed as a retry.
+ *
+ * The position was never redeemed, and `IEarnWithdrawExtraInputs` persists
+ * everything needed to rebuild the request (`evmOwner`, `marketUid`,
+ * `sourceAmount`; Miden destination = `accountId`; underlying pinned to the one
+ * supported market). So the retry now submits a genuinely NEW intent with a new
+ * nonce, reusing the same row — see `resubmitEarnWithdrawal`.
+ *
+ * This covers BOTH terminal cases: an intent that failed on Epoch, and one that
+ * never reached Epoch at all (no nonce recorded) — the latter has nothing to
+ * resume but is perfectly resubmittable.
  */
 export const retryEarnWithdrawReceive = async (txId: string): Promise<void> => {
   const tx = await Repo.transactions.where({ id: txId }).first();
   if (!tx || tx.type !== 'earn-withdraw') throw new Error(`Transaction ${txId} is not an earn-withdraw`);
   const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
   if (inputs.phase !== 'failed') return;
-  if (!inputs.withdrawIntentNonce) {
-    throw new Error('The withdrawal never reached Epoch — retry is not possible; start a new withdrawal.');
-  }
 
-  await Repo.transactions.where({ id: txId }).modify((dbTx: ITransaction) => {
-    const ei: IEarnWithdrawExtraInputs = dbTx.extraInputs;
-    dbTx.extraInputs = { ...ei, phase: 'redeeming', error: undefined };
-    dbTx.error = undefined;
-  });
-
-  // Re-registers the bridge-in (idempotent) and restarts the delivery poll.
   // Dynamic import: lib/epoch statically imports lib/miden/activity, which
   // re-exports this module — a static import here would be circular.
-  const { resumeEarnWithdrawal } = await import('lib/epoch');
-  await resumeEarnWithdrawal(txId);
+  const { resubmitEarnWithdrawal } = await import('lib/epoch');
+  await resubmitEarnWithdrawal(txId);
 };

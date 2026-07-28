@@ -2,6 +2,7 @@ import {
   IBridgeClaimStatus,
   IBridgeProvider,
   IBridgedReceivePhase,
+  IEarnDepositExtraInputs,
   IEarnWithdrawPhase,
   ITransactionIcon,
   ITransactionStatus,
@@ -85,6 +86,14 @@ export interface IHistoryEntry {
 
   // `earn-withdraw` (Smart Withdraw) lifecycle phase, driving the row's status chip.
   earnWithdrawPhase?: IEarnWithdrawPhase;
+
+  /**
+   * `earn-deposit` (Smart Deposit): settlement of the solver-fulfilled Sepolia
+   * lending leg (`extraInputs.epochStatus`). The row is database-Completed as
+   * soon as the Miden collateral note lands, so this — not the transaction
+   * status — is what the row's status chip must reflect.
+   */
+  earnDepositStatus?: IEarnDepositExtraInputs['epochStatus'];
 }
 
 /// The history entry type. For sorting purposes, the order matters. In a given transaction

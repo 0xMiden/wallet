@@ -2,7 +2,15 @@ import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
 import { getDateFnsLocale } from 'lib/i18n';
-import { IEarnWithdrawPhase, ITransaction, ITransactionStatus, ITransactionType } from 'lib/miden/db/types';
+import {
+  IEarnDepositExtraInputs,
+  IEarnWithdrawExtraInputs,
+  IEarnWithdrawPhase,
+  ITransaction,
+  ITransactionStatus,
+  ITransactionType
+} from 'lib/miden/db/types';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
@@ -172,6 +180,57 @@ export const EARN_WITHDRAW_STATUS_LABEL_KEY: Record<IEarnWithdrawPhase, string> 
   redeeming: 'earnWithdrawStatusRedeeming',
   delivering: 'earnWithdrawStatusDelivering',
   received: 'received',
+  failed: 'failed'
+};
+
+/** The amount/symbol pair an `earn-withdraw` row (and its detail hero) displays. */
+export interface EarnWithdrawAmountFields {
+  amount?: string;
+  token?: string;
+}
+
+/**
+ * Which side of a Smart Withdraw the activity shows.
+ *
+ * While the withdrawal is in flight (or dead) the only known figure is the
+ * redeemed source side — human-decimal USDC on Sepolia, NOT the row's atomic
+ * `amount`. Once the bridged note is consumed (`phase === 'received'`) the
+ * consume path patches the row with the amount that actually arrived,
+ * denominated in `faucetId`'s asset — so the row must switch to its own amount
+ * scaled by that faucet's metadata. The consume row is suppressed from Activity
+ * (this row is the single trace), so keeping the source side would let the row
+ * claim "+10 USDC" when a different amount of a different asset landed.
+ */
+export const earnWithdrawAmountFields = (
+  extra: IEarnWithdrawExtraInputs,
+  rowAmount: bigint | undefined,
+  destinationMetadata: AssetMetadata | undefined
+): EarnWithdrawAmountFields => {
+  if (extra.phase === 'received' && rowAmount !== undefined) {
+    return {
+      amount: formatAmount(rowAmount, destinationMetadata?.decimals),
+      token: destinationMetadata?.symbol ?? extra.outputSymbol
+    };
+  }
+  return { amount: formatEarnWithdrawAmount(extra.sourceAmount), token: extra.sourceSymbol };
+};
+
+/** Settlement state of a Smart Deposit's Sepolia lending leg (`extraInputs.epochStatus`). */
+export type EarnDepositSettlement = NonNullable<IEarnDepositExtraInputs['epochStatus']>;
+
+/**
+ * An `earn-deposit` row goes database-Completed the moment the Miden collateral
+ * note lands, but the leg that actually opens the lending position is
+ * solver-fulfilled and tracked separately — so an unstamped/pending leg must not
+ * render as Confirmed. Mirrors `EarnDepositStatusPill` on the detail page.
+ */
+export const earnDepositSettlementOf = (entry: IHistoryEntry): EarnDepositSettlement =>
+  entry.earnDepositStatus ?? 'pending';
+
+/** i18n key per deposit settlement state (reuses the shared status labels). */
+export const EARN_DEPOSIT_STATUS_LABEL_KEY: Record<EarnDepositSettlement, string> = {
+  pending: 'pending',
+  confirmed: 'confirmed',
   failed: 'failed'
 };
 
