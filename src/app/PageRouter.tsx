@@ -10,7 +10,7 @@ import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
-import { isSwapEnabled } from 'lib/feature-flags';
+import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import * as Woozie from 'lib/woozie';
 import EarnDepositAmount from 'screens/earn-flow/EarnDepositAmount';
@@ -184,11 +184,15 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   [
     '/bridge/deposit',
-    onlyReady(() => (
-      <FullScreenPage>
-        <BridgeDeposit />
-      </FullScreenPage>
-    ))
+    onlyReady(() =>
+      isBridgeDepositEnabled() ? (
+        <FullScreenPage>
+          <BridgeDeposit />
+        </FullScreenPage>
+      ) : (
+        <Woozie.Redirect to="/receive" />
+      )
+    )
   ],
   [
     '/history-details/:transactionId',

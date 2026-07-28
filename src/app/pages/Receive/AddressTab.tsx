@@ -9,6 +9,7 @@ import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
 import { QRCode, type QRCodeHandle } from 'components/QRCode';
+import { isBridgeDepositEnabled } from 'lib/feature-flags';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
@@ -141,7 +142,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             {/* WalletConnect is not supported on the extension: the Reown relay
                 rejects the extension bundle's auth JWT (WebSocket close 3000), so
                 the AppKit connect flow can never complete there. */}
-            {!isExtension() && (
+            {!isExtension() && isBridgeDepositEnabled() && (
               <button
                 type="button"
                 data-testid="receive-cross-chain"
@@ -157,7 +158,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
           </div>
         </div>
       </div>
-      {!isExtension() && <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />}
+      {!isExtension() && isBridgeDepositEnabled() && <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />}
     </div>
   );
 };
