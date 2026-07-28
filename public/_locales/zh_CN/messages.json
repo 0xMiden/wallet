@@ -74,6 +74,15 @@
     "message": "加载中",
     "englishSource": "Loading"
   },
+  "priceChangeAmountNeutral": {
+    "message": "$amount$",
+    "englishSource": "$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "priceChangeAmountPositive": {
     "message": "+ $amount$ ",
     "englishSource": "+$amount$",
