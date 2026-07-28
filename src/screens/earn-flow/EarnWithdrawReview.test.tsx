@@ -5,191 +5,213 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { goBack, navigate } from 'lib/woozie';
 
 import EarnWithdrawReview from './EarnWithdrawReview';
+import type { EarnPosition } from './types';
 
-// --- woozie router: spyable navigate + goBack.
-const mockNavigate = jest.fn();
-const mockGoBack = jest.fn();
+const mockAccount: { publicKey: string; evmAddress?: string } = {
+  publicKey: 'miden-account',
+  evmAddress: '0x1111111111111111111111111111111111111111'
+};
+let mockPositions: EarnPosition[] = [];
 
-jest.mock('lib/woozie', () => ({
-  navigate: (...args: unknown[]) => mockNavigate(...args),
-  goBack: (...args: unknown[]) => mockGoBack(...args)
+jest.mock('lib/miden/front', () => ({
+  useAccount: () => mockAccount
 }));
 
-// --- Platform / haptics.
-jest.mock('lib/platform', () => ({
-  isMobile: jest.fn(() => false)
+jest.mock('lib/epoch', () => ({
+  gaslessEarnWithdrawalToMiden: jest.fn()
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
-// --- Epoch SDK barrel: only the gasless withdrawal entry point is used here.
-jest.mock('lib/epoch', () => ({
-  gaslessEarnWithdrawalToMiden: jest.fn(() => Promise.resolve())
+jest.mock('lib/platform', () => ({
+  isMobile: jest.fn(() => false)
 }));
 
-// --- Wallet context: the screen needs the account's EVM address (must match
-//     the position owner) plus the miden public key for the intent.
-const mockAccount: { publicKey: string; evmAddress?: string } = {
-  publicKey: 'mm1testaccount',
-  evmAddress: '0xowner'
-};
-
-jest.mock('lib/miden/front', () => ({
-  useAccount: () => mockAccount
+jest.mock('lib/woozie', () => ({
+  goBack: jest.fn(),
+  navigate: jest.fn()
 }));
-
-// --- Live earn data: serve a single controllable position.
-const mockPosition = {
-  id: 'aave-usdc-1',
-  owner: '0xOwner',
-  marketUid: 'market-1',
-  underlyingAddress: '0xunderlying',
-  withdrawable: '1024.5',
-  decimals: 6,
-  protocol: 'Aave',
-  asset: 'USDC',
-  network: 'Ethereum'
-};
-
-const mockPositions: (typeof mockPosition)[] = [mockPosition];
 
 jest.mock('./useEarnPositions', () => ({
   useEarnPositions: () => ({
+    summary: { totalRewards: '', blendedApy: '', totalDeposited: '', estimatedRewards: '' },
     positions: mockPositions,
+    vaults: [],
     isLoading: false,
     error: undefined
   })
 }));
 
-// --- Presentational children: keep just enough to assert the wiring.
-jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, size }: { symbol: string; size?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-size={size} />
-  )
+jest.mock('app/icons/v2', () => ({
+  IconName: { ChevronLeft: 'ChevronLeft' }
 }));
 
 jest.mock('components/CircleButton', () => ({
-  CircleButton: ({ onClick, 'aria-label': ariaLabel }: { onClick?: () => void; 'aria-label'?: string }) => (
-    <button data-testid="back-btn" aria-label={ariaLabel} onClick={onClick} />
+  CircleButton: ({ onClick }: { onClick?: () => void }) => (
+    <button type="button" aria-label="Back" onClick={onClick}>
+      Back
+    </button>
   )
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick, disabled }: { title?: string; onClick?: () => void; disabled?: boolean }) => (
-    <button data-testid="withdraw-btn" onClick={onClick} disabled={disabled}>
+  Button: ({
+    title,
+    onClick,
+    disabled
+  }: {
+    title?: string;
+    onClick?: React.MouseEventHandler<HTMLButtonElement>;
+    disabled?: boolean;
+  }) => (
+    <button type="button" onClick={onClick} disabled={disabled}>
       {title}
     </button>
   ),
-  ButtonVariant: { Primary: 'Primary', Secondary: 'Secondary', Ghost: 'Ghost' }
+  ButtonVariant: { Primary: 'Primary' }
 }));
 
-const mockWithdraw = gaslessEarnWithdrawalToMiden as jest.Mock;
+jest.mock('components/TokenLogo', () => ({
+  TokenLogo: ({ symbol }: { symbol: string }) => <span data-testid="token-logo">{symbol}</span>
+}));
+
+const position: EarnPosition = {
+  id: 'position-1',
+  vaultId: 'vault-1',
+  owner: '0x1111111111111111111111111111111111111111',
+  marketUid: 'DUMMY_LENDING:11155111:0xasset',
+  chainId: '11155111',
+  underlyingAddress: '0xasset',
+  withdrawable: '42.25',
+  decimals: 6,
+  protocol: 'Aave',
+  asset: 'USDC',
+  network: 'Sepolia',
+  amount: '$42.25',
+  depositedAmount: '$40.00',
+  rewards: '+$2.25',
+  age: '1d',
+  activeDuration: '1 day active',
+  apy: '5%',
+  dailyAverage: '+$0.01',
+  started: 'Jul 28',
+  yearlyEstimate: '+$2 / yr',
+  withdrawTime: '~1 minute',
+  route: 'Miden -> Aave (Sepolia)',
+  chartData: [{ label: 'now', value: 42.25 }]
+};
 
 describe('EarnWithdrawReview', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockAccount.evmAddress = '0xowner';
-    mockPositions.length = 0;
-    mockPositions.push({ ...mockPosition });
-    (isMobile as jest.Mock).mockReturnValue(false);
-    mockWithdraw.mockResolvedValue(undefined);
+    mockAccount.evmAddress = position.owner;
+    mockPositions = [position];
+    jest.mocked(isMobile).mockReturnValue(false);
+    jest.mocked(gaslessEarnWithdrawalToMiden).mockResolvedValue({
+      txId: 'tx-id',
+      nonce: 'owner:1',
+      gaslessUsed: true
+    });
   });
 
-  it('renders the page shell, amount, asset logo and translated detail rows', () => {
-    render(<EarnWithdrawReview positionId="aave-usdc-1" />);
+  it('renders the selected position and the full-withdraw route details', () => {
+    render(<EarnWithdrawReview positionId="position-1" />);
 
     expect(screen.getByTestId('earn-withdraw-review-page')).toBeInTheDocument();
-
-    // Amount formatted to 2dp.
-    expect(screen.getByText('1024.50')).toBeInTheDocument();
-    const logo = screen.getByTestId('token-logo');
-    expect(logo).toHaveAttribute('data-symbol', 'USDC');
-
-    // Translated labels are keyed (react-i18next returns the key with no provider).
-    expect(screen.getByText('earnWithdrawAmount')).toBeInTheDocument();
-    expect(screen.getByText('route')).toBeInTheDocument();
-    expect(screen.getByText('positionOwnerLabel')).toBeInTheDocument();
-    expect(screen.getByText('earnWithdrawalLabel')).toBeInTheDocument();
+    expect(screen.getByRole('heading')).toHaveTextContent('Aave • USDC');
+    expect(screen.getByText('42.25')).toBeInTheDocument();
+    expect(screen.getByTestId('token-logo')).toHaveTextContent('USDC');
+    expect(screen.getByText('Aave (Sepolia) -> Miden')).toBeInTheDocument();
     expect(screen.getByText('earnFullPositionGasless')).toBeInTheDocument();
-    expect(screen.getByText('earnEstimatedTimeLabel')).toBeInTheDocument();
-    expect(screen.getByText('earnEstimatedTimeOneMinute')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
 
-    // CTA and back button use keyed labels.
-    expect(screen.getByTestId('withdraw-btn')).toHaveTextContent('withdraw');
-    expect(screen.getByTestId('back-btn')).toHaveAttribute('aria-label', 'back');
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(goBack).toHaveBeenCalledTimes(1);
   });
 
-  it('goes back when the header button is pressed', () => {
-    render(<EarnWithdrawReview positionId="aave-usdc-1" />);
-    fireEvent.click(screen.getByTestId('back-btn'));
-    expect(mockGoBack).toHaveBeenCalledTimes(1);
+  it('falls back to an empty position and disables withdrawal for an unknown id', () => {
+    render(<EarnWithdrawReview positionId="unknown" />);
+
+    expect(screen.getByText('0.00')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
   });
 
-  it('fires haptics and submits the gasless withdrawal for the matching owner', async () => {
-    render(<EarnWithdrawReview positionId="aave-usdc-1" />);
+  it('submits the full position and routes as soon as the tracking row exists', async () => {
+    jest.mocked(gaslessEarnWithdrawalToMiden).mockImplementation(async args => {
+      args.onRowCreated?.('tx/1');
+      return { txId: 'tx/1', nonce: 'owner:1', gaslessUsed: true };
+    });
+    render(<EarnWithdrawReview positionId="position-1" />);
 
-    const cta = screen.getByTestId('withdraw-btn');
-    expect(cta).toBeEnabled();
-    fireEvent.click(cta);
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
 
     expect(hapticLight).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(mockWithdraw).toHaveBeenCalledTimes(1));
-
-    const call = mockWithdraw.mock.calls[0]![0];
-    // Owner match is case-insensitive.
-    expect(call.evmAddress).toBe('0xowner');
-    expect(call.midenAccountPublicKey).toBe('mm1testaccount');
-    expect(call.marketUid).toBe('market-1');
-  });
-
-  it('routes to the withdraw-status page as soon as the tx row exists', async () => {
-    mockWithdraw.mockImplementation((args: { onRowCreated: (txId: string) => void }) => {
-      args.onRowCreated('tx/1');
-      return Promise.resolve();
+    await waitFor(() => expect(gaslessEarnWithdrawalToMiden).toHaveBeenCalledTimes(1));
+    expect(gaslessEarnWithdrawalToMiden).toHaveBeenCalledWith({
+      midenAccountPublicKey: 'miden-account',
+      evmAddress: position.owner,
+      marketUid: position.marketUid,
+      underlyingAddress: position.underlyingAddress,
+      amount: '42.25',
+      underlyingDecimals: 6,
+      onRowCreated: expect.any(Function)
     });
-
-    render(<EarnWithdrawReview positionId="aave-usdc-1" />);
-    fireEvent.click(screen.getByTestId('withdraw-btn'));
-
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/earn/withdraw-status/tx%2F1'));
+    expect(navigate).toHaveBeenCalledWith('/earn/withdraw-status/tx%2F1');
   });
 
-  it('surfaces the translated not-owned error and never calls the SDK on an owner mismatch', async () => {
-    mockAccount.evmAddress = '0xsomeoneelse';
-    render(<EarnWithdrawReview positionId="aave-usdc-1" />);
+  it('rejects a position not owned by the current wallet account', async () => {
+    mockAccount.evmAddress = '0x2222222222222222222222222222222222222222';
+    render(<EarnWithdrawReview positionId="position-1" />);
 
-    fireEvent.click(screen.getByTestId('withdraw-btn'));
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
 
-    expect(await screen.findByText('earnWithdrawNotOwned')).toBeInTheDocument();
-    expect(mockWithdraw).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText('earnWithdrawNotOwned')
+    ).toBeInTheDocument();
+    expect(gaslessEarnWithdrawalToMiden).not.toHaveBeenCalled();
   });
 
-  it('surfaces the SDK error message when the withdrawal rejects', async () => {
-    mockWithdraw.mockRejectedValue(new Error('intent broadcast failed'));
-    render(<EarnWithdrawReview positionId="aave-usdc-1" />);
+  it('handles an account without a derived EVM address', async () => {
+    mockAccount.evmAddress = undefined;
+    render(<EarnWithdrawReview positionId="position-1" />);
 
-    fireEvent.click(screen.getByTestId('withdraw-btn'));
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
 
-    expect(await screen.findByText('intent broadcast failed')).toBeInTheDocument();
+    expect(
+      await screen.findByText('earnWithdrawNotOwned')
+    ).toBeInTheDocument();
+    expect(gaslessEarnWithdrawalToMiden).not.toHaveBeenCalled();
   });
 
-  it('falls back to the translated generic error when the rejection is not an Error', async () => {
-    mockWithdraw.mockRejectedValue('boom');
-    render(<EarnWithdrawReview positionId="aave-usdc-1" />);
+  it('surfaces SDK errors and restores the CTA', async () => {
+    jest.mocked(gaslessEarnWithdrawalToMiden).mockRejectedValue(new Error('intent unavailable'));
+    render(<EarnWithdrawReview positionId="position-1" />);
 
-    fireEvent.click(screen.getByTestId('withdraw-btn'));
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
+
+    expect(await screen.findByText('intent unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
+  });
+
+  it('uses the fallback message for non-Error failures', async () => {
+    jest.mocked(gaslessEarnWithdrawalToMiden).mockRejectedValue('failed');
+    render(<EarnWithdrawReview positionId="position-1" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
 
     expect(await screen.findByText('earnGaslessWithdrawalFailed')).toBeInTheDocument();
   });
 
-  it('uses mobile horizontal padding when isMobile() is true', () => {
-    (isMobile as jest.Mock).mockReturnValue(true);
-    render(<EarnWithdrawReview positionId="aave-usdc-1" />);
-    const footer = screen.getByTestId('withdraw-btn').parentElement!;
+  it('uses mobile footer padding in the mobile app', () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    render(<EarnWithdrawReview positionId="position-1" />);
+
+    const footer = screen.getByRole('button', { name: 'withdraw' }).parentElement;
     expect(footer).toHaveClass('px-8');
     expect(footer).not.toHaveClass('px-6');
   });
