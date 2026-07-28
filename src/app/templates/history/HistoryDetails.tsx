@@ -194,7 +194,7 @@ function formatFiatDisplayAmount(
   const { price } = getTokenPrice(tokenPrices, tokenSymbol);
   const fiatAmount = displayAmount.abs().times(price);
 
-  return t('historyDetailsFiatApprox', { amount: fiatAmount.toFixed(2) });
+  return t('historyDetailsFiatApprox', { amount: `$${fiatAmount.toFixed(2)}` });
 }
 
 /** Right-aligned stack of trimmed, copyable note ids. */

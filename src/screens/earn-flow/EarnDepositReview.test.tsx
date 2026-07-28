@@ -295,9 +295,9 @@ describe('EarnDepositReview', () => {
 
       // Rewards = amount × APY fraction × year fraction, 2dp, interpolated into
       // the reward key. The fixture vault's APY is "5.24%" => 0.0524.
-      expect(screen.getByText('earnProjectedRewardAmount_4.37')).toBeInTheDocument();
-      expect(screen.getByText('earnProjectedRewardAmount_26.20')).toBeInTheDocument();
-      expect(screen.getByText('earnProjectedRewardAmount_52.40')).toBeInTheDocument();
+      expect(screen.getByText('earnProjectedRewardAmount_$4.37')).toBeInTheDocument();
+      expect(screen.getByText('earnProjectedRewardAmount_$26.20')).toBeInTheDocument();
+      expect(screen.getByText('earnProjectedRewardAmount_$52.40')).toBeInTheDocument();
     });
 
     it('renders the static detail rows including the route built from the vault', () => {
@@ -318,12 +318,12 @@ describe('EarnDepositReview', () => {
       renderReview('aave-usdc-ethereum-1', '?amount=0');
       expect(screen.getByText('0.00')).toBeInTheDocument();
       // All three reward tiles collapse to +$0.00.
-      expect(screen.getAllByText('earnProjectedRewardAmount_0.00')).toHaveLength(3);
+      expect(screen.getAllByText('earnProjectedRewardAmount_$0.00')).toHaveLength(3);
     });
 
     it('treats an unparseable APY as zero (placeholder vault, `|| 0` branch)', () => {
       renderReview('does-not-exist', '?amount=1000');
-      expect(screen.getAllByText('earnProjectedRewardAmount_0.00')).toHaveLength(3);
+      expect(screen.getAllByText('earnProjectedRewardAmount_$0.00')).toHaveLength(3);
     });
   });
 });

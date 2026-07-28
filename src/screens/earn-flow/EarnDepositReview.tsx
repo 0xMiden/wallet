@@ -173,7 +173,7 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
               <div key={item.label}>
                 <div className="text-xs font-semibold uppercase leading-none text-gray-secondary">{item.label}</div>
                 <div className="mt-1 font-heading text-sm font-bold leading-none text-status-positive">
-                  {t('earnProjectedRewardAmount', { amount: item.reward.toFixed(2) })}
+                  {t('earnProjectedRewardAmount', { amount: `$${item.reward.toFixed(2)}` })}
                 </div>
               </div>
             ))}

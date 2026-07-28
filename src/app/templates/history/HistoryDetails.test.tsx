@@ -291,7 +291,7 @@ describe('HistoryDetails', () => {
       expect(screen.getByText('1000 MID')).toBeInTheDocument();
       expect(screen.getByText('acct-B')).toBeInTheDocument();
       // Fiat: |1000| * price(2) => 2000.00, interpolated into the fiat key.
-      expect(screen.getByText('historyDetailsFiatApprox_2000.00')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$2000.00')).toBeInTheDocument();
 
       // Status pill fed the raw status.
       expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
@@ -356,7 +356,7 @@ describe('HistoryDetails', () => {
       // No external tx id row.
       expect(rowByLabel('txIdLabel')).toBeUndefined();
       // No amount span (amount undefined) → fiat also absent.
-      expect(screen.queryByText('historyDetailsFiatApprox_2000.00')).not.toBeInTheDocument();
+      expect(screen.queryByText('historyDetailsFiatApprox_$2000.00')).not.toBeInTheDocument();
     });
 
     it('hides the notes section entirely when there is no note data', async () => {

@@ -42,10 +42,10 @@ export const PriceChangeBadge = ({ account }: { account: WalletAccount }) => {
         )}
       >
         {isNeutral
-          ? t('priceChangeAmountNeutral', { amount })
+          ? t('priceChangeAmountNeutral', { amount: `$${amount}` })
           : isPositive
-            ? t('priceChangeAmountPositive', { amount })
-            : t('priceChangeAmountNegative', { amount })}
+            ? t('priceChangeAmountPositive', { amount: `$${amount}` })
+            : t('priceChangeAmountNegative', { amount: `$${amount}` })}
       </Badge>
       <p className={clsx('text-xs', isNeutral ? 'text-grey-500' : isPositive ? 'text-receive-green' : 'text-red-500')}>
         {t('priceChangePercent', { value: percentageChange.toFixed(2) })}

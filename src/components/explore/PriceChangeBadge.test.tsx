@@ -42,13 +42,11 @@ jest.mock('lib/store', () => ({
 // currency + amount, percentage) rather than opaque translation keys.
 jest.mock('react-i18next', () => {
   const templates: Record<string, string> = {
-    // `${{amount}}` is a literal `$` followed by the i18next `{{amount}}` placeholder
-    // (mirrors the en.json value, renders e.g. `$100.00`), not a JS template literal.
-    /* eslint-disable no-template-curly-in-string */
-    priceChangeAmountNeutral: '${{amount}}',
-    priceChangeAmountPositive: '+${{amount}}',
-    priceChangeAmountNegative: '-${{amount}}',
-    /* eslint-enable no-template-curly-in-string */
+    // The `$` currency symbol is supplied by the component (it passes `$${amount}`), so
+    // these mirror the en.json values, which interpolate the already-$-prefixed value.
+    priceChangeAmountNeutral: '{{amount}}',
+    priceChangeAmountPositive: '+{{amount}}',
+    priceChangeAmountNegative: '-{{amount}}',
     priceChangePercent: '{{value}}%'
   };
   return {
