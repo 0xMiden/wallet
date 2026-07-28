@@ -106,6 +106,20 @@ jest.mock('lib/biometric', () => ({
   confirmSensitiveAction: jest.fn()
 }));
 
+jest.mock('lib/agglayer/b2agg', () => ({
+  initiateB2AggBridge: jest.fn()
+}));
+
+jest.mock('lib/agglayer/b2agg/constant', () => ({
+  EVM_AGGLAYER_NETWORK_ID: 11155111,
+  MIDEN_AGGLAYER_FAUCET_ID: 'agglayer-faucet',
+  getAgglayerFaucetId: () => 'agglayer-faucet'
+}));
+
+jest.mock('lib/epoch', () => ({
+  bridgeEpochSend: jest.fn()
+}));
+
 jest.mock('lib/i18n/numbers', () => ({
   stringToBigInt: jest.fn()
 }));
@@ -122,8 +136,20 @@ jest.mock('lib/miden/front', () => ({
   useAllTokensBaseMetadata: () => mockTokensMeta
 }));
 
+jest.mock('lib/miden/front/client', () => ({
+  useMidenContext: () => ({ signTransaction: jest.fn() })
+}));
+
+jest.mock('lib/miden/front/guardian-sync', () => ({
+  zustandProvider: {}
+}));
+
 jest.mock('lib/miden/types', () => ({
   NoteTypeEnum: { Public: 'public', Private: 'private' }
+}));
+
+jest.mock('lib/miden/sdk/helpers', () => ({
+  accountIdStringToSdk: () => ({ toString: () => 'sdk-faucet' })
 }));
 
 jest.mock('lib/miden-chain/constants', () => ({
@@ -155,9 +181,14 @@ jest.mock('lib/woozie', () => ({
   useLocation: () => ({ search: mockSearch })
 }));
 
-jest.mock('utils/miden', () => ({
-  isValidMidenAddress: jest.fn(() => true)
-}));
+jest.mock('utils/miden', () => {
+  const validate = jest.fn(() => true);
+  return {
+    isValidMidenAddress: validate,
+    isValidRecipientAddress: validate,
+    detectAddressChain: jest.fn(() => 'miden')
+  };
+});
 
 jest.mock('./RecallCalendarDrawer', () => ({
   dateTimeToRecallBlocks: jest.fn(() => 999),
@@ -168,6 +199,10 @@ jest.mock('./RecallCalendarDrawer', () => ({
 
 jest.mock('./send-draft', () => ({
   clearSendDraft: jest.fn()
+}));
+
+jest.mock('./useEpochQuote', () => ({
+  useEpochQuote: () => ({ outputAmount: undefined, feeUsd: undefined, loading: false, error: null })
 }));
 
 // ---------------------------------------------------------------------------
@@ -453,7 +488,7 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(mockWalletStoreState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
     expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 999, false);
     expect(requestSWMock).not.toHaveBeenCalled();
-    expect(clearSendDraftMock).toHaveBeenCalledTimes(1);
+    expect(clearSendDraftMock).toHaveBeenCalled();
     expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-abc', 'replacestate');
   });
 

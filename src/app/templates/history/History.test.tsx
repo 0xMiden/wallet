@@ -15,6 +15,7 @@ import { HistoryEntryType } from './IHistoryEntry';
 const mockGetCompletedTransactions = jest.fn();
 const mockGetUncompletedTransactions = jest.fn();
 const mockCancelTransactionById = jest.fn().mockResolvedValue(undefined);
+const mockExistingTransactionIds = jest.fn();
 const mockGetTokenMetadata = jest.fn();
 const mockFormatAmount = jest.fn();
 const mockResolveSwapHistoryFields = jest.fn();
@@ -66,8 +67,13 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('lib/miden/activity', () => ({
   cancelTransactionById: (...args: unknown[]) => mockCancelTransactionById(...args),
+  existingTransactionIds: (...args: unknown[]) => mockExistingTransactionIds(...args),
   getCompletedTransactions: (...args: unknown[]) => mockGetCompletedTransactions(...args),
-  getUncompletedTransactions: (...args: unknown[]) => mockGetUncompletedTransactions(...args)
+  getUncompletedTransactions: (...args: unknown[]) => mockGetUncompletedTransactions(...args),
+  // Real (pure) implementations so the cancelled-row mapping is exercised
+  // against the production sentinel string.
+  USER_CANCELLED_TRANSACTION_REASON: 'Transaction was cancelled by user',
+  isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user'
 }));
 
 jest.mock('lib/miden/db/types', () => ({
@@ -171,6 +177,19 @@ function makeCompleted() {
       completedAt: 2500,
       secondaryAccountId: '0xEEE'
     },
+    // User-cancelled send → Failed status + the cancellation sentinel on `error`.
+    {
+      id: 'C',
+      status: STATUS.Failed,
+      displayMessage: 'Failed',
+      displayIcon: 'FAILED',
+      faucetId: 'fa1',
+      type: 'send',
+      amount: 7n,
+      completedAt: 900,
+      secondaryAccountId: '0xFFF',
+      error: 'Transaction was cancelled by user'
+    },
     // Faucet drip → isFaucetRequest true; metadata + amount; ties timestamp w/ swap.
     {
       id: 'FC',
@@ -261,6 +280,7 @@ beforeEach(() => {
     (entry: any) => entry.faucetId === 'NATIVE' && entry.transactionIcon === 'RECEIVE'
   );
   mockFormatTransactionStatus.mockImplementation((s: number) => `status-${s}`);
+  mockExistingTransactionIds.mockImplementation(async (ids: string[]) => new Set(ids.filter(id => id === 'BR-KEEP')));
 });
 
 afterEach(() => cleanup());
@@ -279,7 +299,8 @@ describe('History', () => {
         'completed-SD', // ts 2500
         'completed-S', // ts 2000 (tie w/ FC, order by type diff → 0)
         'completed-FC', // ts 2000
-        'completed-F' // ts 1000
+        'completed-F', // ts 1000
+        'completed-C' // ts 900
       ])
     );
 
@@ -288,6 +309,16 @@ describe('History', () => {
 
     // Completed: Failed → message/icon override, metadata symbol + formatAmount.
     expect(rowText('completed-F')).toContain('completed-F|Transaction failed|TKF|fmt(100,6)|FAILED|');
+    // Completed: user-cancelled → 'Cancelled' message + isCancelled/errorMessage on the entry.
+    expect(rowText('completed-C')).toContain('completed-C|Cancelled|TKF|fmt(7,6)|FAILED|');
+    const cancelledEntry = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-C');
+    expect(cancelledEntry.isCancelled).toBe(true);
+    expect(cancelledEntry.errorMessage).toBe('Transaction was cancelled by user');
+    const failedEntry = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-F');
+    expect(failedEntry.isCancelled).toBe(false);
+
+    // Failed rows are fetched at all: the completed fetch runs with includeFailed=true.
+    expect(mockGetCompletedTransactions).toHaveBeenCalledWith('0xme', undefined, undefined, true, undefined);
     // Completed: Swap → swapFields drive amount/token/requested*, icon from displayIcon.
     expect(rowText('completed-S')).toContain('completed-S|swap msg|S-tok|S-amt|SWAP|');
     expect(rowText('completed-S')).toContain('|S-req|S-reqtok');
@@ -356,7 +387,7 @@ describe('History', () => {
 
     // Whitespace-only query → filter skipped (all entries retained).
     await doRerender({ searchQuery: '   ' });
-    expect(entryKeys().length).toBe(8);
+    expect(entryKeys().length).toBe(9);
   });
 
   it('filters by sent / received / faucet / all and tolerates an unknown filter value', async () => {
@@ -367,10 +398,10 @@ describe('History', () => {
       });
     };
 
-    // sent → transactionIcon === 'SEND' (the non-failed send; the failed send
-    // carries the 'FAILED' icon and is excluded).
+    // sent → SEND icon, plus failed/cancelled sends (their icon becomes
+    // 'FAILED', so the filter falls back to the underlying tx type).
     await doRerender({ filter: 'sent' });
-    expect(entryKeys()).toEqual(['completed-SD']);
+    expect(entryKeys()).toEqual(['completed-SD', 'completed-F', 'completed-C']);
 
     // received → RECEIVE and not a faucet request.
     await doRerender({ filter: 'received' });
@@ -382,11 +413,11 @@ describe('History', () => {
 
     // all → filter block skipped, everything retained.
     await doRerender({ filter: 'all' });
-    expect(entryKeys().length).toBe(8);
+    expect(entryKeys().length).toBe(9);
 
     // unknown filter → inner default `return true`, everything retained.
     await doRerender({ filter: 'weird' });
-    expect(entryKeys().length).toBe(8);
+    expect(entryKeys().length).toBe(9);
   });
 
   it('limits the number of rendered entries with numItems (and ignores falsy 0)', async () => {
@@ -401,13 +432,13 @@ describe('History', () => {
     await act(async () => {
       rerender(<History address="0xme" numItems={999} />);
     });
-    expect(entryKeys().length).toBe(8);
+    expect(entryKeys().length).toBe(9);
 
     // numItems 0 is falsy → slicing skipped.
     await act(async () => {
       rerender(<History address="0xme" numItems={0} />);
     });
-    expect(entryKeys().length).toBe(8);
+    expect(entryKeys().length).toBe(9);
   });
 
   it('loadMore appends de-duplicated older transactions and keeps hasMore true', async () => {
@@ -445,7 +476,7 @@ describe('History', () => {
     });
 
     // Called with the paged offset/limit (page 0 → offset 0, limit HISTORY_PAGE_SIZE).
-    expect(mockGetCompletedTransactions).toHaveBeenCalledWith('0xme', 0, 1000, false, undefined);
+    expect(mockGetCompletedTransactions).toHaveBeenCalledWith('0xme', 0, 1000, true, undefined);
     await waitFor(() => expect(entryKeys()).toContain('completed-OLD'));
     // Duplicate `completed-P` appears exactly once.
     expect(entryKeys().filter(k => k === 'completed-P')).toHaveLength(1);
@@ -514,10 +545,204 @@ describe('History', () => {
   it('threads tokenId into the SWR keys and both fetchers', async () => {
     await renderHistory({ tokenId: 'tok-9' });
 
-    expect(mockGetCompletedTransactions).toHaveBeenCalledWith('0xme', undefined, undefined, false, 'tok-9');
+    expect(mockGetCompletedTransactions).toHaveBeenCalledWith('0xme', undefined, undefined, true, 'tok-9');
     expect(mockGetUncompletedTransactions).toHaveBeenCalledWith('0xme', 'tok-9');
     const keys = mockUseRetryableSWR.mock.calls.map(c => c[0]);
     expect(keys).toContainEqual(['latest-transactions', '0xme', 'tok-9']);
     expect(keys).toContainEqual(['latest-pending-transactions', '0xme', 'tok-9']);
+  });
+
+  it('maps bridge rows, suppresses lifecycle-tail consumes, and derives swap settlement chips', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'BOUT',
+              status: STATUS.Completed,
+              displayMessage: 'Bridged to EVM',
+              displayIcon: 'SEND',
+              faucetId: 'fa1',
+              type: 'bridged-send',
+              amount: 9n,
+              completedAt: 5000,
+              extraInputs: {
+                provider: 'epoch',
+                destinationAddress: '0xdest',
+                destinationNetwork: 8453,
+                claimStatus: 'not-applicable',
+                outputAmount: '8.99',
+                outputSymbol: 'USDC',
+                intentNonce: 'n1',
+                fillTxHash: '0xfill',
+                fillChainId: 8453,
+                epochStatus: 'confirmed'
+              }
+            },
+            {
+              id: 'BR-KEEP',
+              status: STATUS.Completed,
+              displayMessage: 'Bridging from EVM',
+              displayIcon: 'RECEIVE',
+              faucetId: 'fa1',
+              type: 'bridged-receive',
+              amount: 4n,
+              completedAt: 4000,
+              extraInputs: {
+                provider: 'agglayer',
+                sourceAddress: '0xsrc',
+                sourceAmount: '4',
+                sourceSymbol: 'ETH',
+                evmTxHash: '0xhash',
+                phase: 'delivering',
+                outputAmount: '4',
+                outputSymbol: 'ETH',
+                midenNoteId: '0xnote'
+              }
+            },
+            // Delivery consume linked to the still-existing tracking row above → suppressed.
+            {
+              id: 'CONS-LINKED',
+              status: STATUS.Completed,
+              displayMessage: 'Received',
+              displayIcon: 'RECEIVE',
+              faucetId: 'fa1',
+              type: 'consume',
+              amount: 4n,
+              completedAt: 4100,
+              extraInputs: { bridgeIn: { provider: 'agglayer', bridgeReceiveTxId: 'BR-KEEP' } }
+            },
+            // Dangling tracking reference → shown, with bridgeIn display fallbacks.
+            {
+              id: 'CONS-DANGLING',
+              status: STATUS.Completed,
+              displayMessage: 'Bridged from EVM',
+              displayIcon: 'RECEIVE',
+              faucetId: 'fa1',
+              type: 'consume',
+              amount: 3n,
+              completedAt: 3900,
+              extraInputs: {
+                bridgeIn: {
+                  provider: 'epoch',
+                  sourceAmount: '3',
+                  sourceSymbol: 'USDC',
+                  evmTxHash: '0xebd',
+                  bridgeReceiveTxId: 'BR-GONE'
+                }
+              }
+            },
+            // Settlement consume for a swap row that no longer exists → shown as receive.
+            {
+              id: 'CONS-SWAP-GONE',
+              status: STATUS.Completed,
+              displayMessage: 'Received',
+              displayIcon: 'RECEIVE',
+              faucetId: 'fa1',
+              type: 'consume',
+              amount: 2n,
+              completedAt: 3800,
+              extraInputs: { swapOrderTxId: 'SW-GONE' }
+            },
+            {
+              id: 'SWAP-RECLAIMED',
+              status: STATUS.Completed,
+              displayMessage: 'swap',
+              displayIcon: 'SWAP',
+              faucetId: 'fa2',
+              type: 'swap',
+              amount: 5n,
+              completedAt: 3700,
+              extraInputs: { orderId: 7n, expiresAt: 1, reclaimedAt: 99 }
+            },
+            {
+              id: 'SWAP-PENDING',
+              status: STATUS.Completed,
+              displayMessage: 'swap',
+              displayIcon: 'SWAP',
+              faucetId: 'fa2',
+              type: 'swap',
+              amount: 5n,
+              completedAt: 3600,
+              extraInputs: { orderId: 8n, expiresAt: 1 }
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([
+      {
+        id: 'PB',
+        status: STATUS.GeneratingTransaction,
+        displayMessage: 'Bridging',
+        faucetId: 'fa1',
+        type: 'bridged-send',
+        amount: 6n,
+        initiatedAt: 700,
+        extraInputs: {
+          provider: 'agglayer',
+          destinationAddress: '0xpend',
+          destinationNetwork: 1,
+          claimStatus: 'pending',
+          outputAmount: '5.5',
+          outputSymbol: 'ETH',
+          intentNonce: 'n2',
+          fillTxHash: '0xf2',
+          fillChainId: 1,
+          epochStatus: 'pending'
+        }
+      }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries.length).toBeGreaterThan(0));
+
+    const byKey = (key: string) => mockHistoryViewProps.entries.find((e: any) => e.key === key);
+
+    expect(byKey('completed-CONS-LINKED')).toBeUndefined();
+
+    const out = byKey('completed-BOUT');
+    expect(out).toMatchObject({
+      bridgeProvider: 'epoch',
+      bridgeDestinationAddress: '0xdest',
+      bridgeClaimStatus: 'not-applicable',
+      bridgeOutputAmount: '8.99',
+      bridgeFillTxHash: '0xfill',
+      bridgeEpochStatus: 'confirmed',
+      secondaryAddress: '0xdest'
+    });
+
+    const receive = byKey('completed-BR-KEEP');
+    expect(receive).toMatchObject({
+      txType: 'bridged-receive',
+      bridgeInProvider: 'agglayer',
+      bridgeInSourceAddress: '0xsrc',
+      bridgeInSourceAmount: '4',
+      bridgeInEvmTxHash: '0xhash',
+      bridgeInPhase: 'delivering',
+      bridgeInOutputAmount: '4',
+      bridgeInMidenNoteId: '0xnote'
+    });
+
+    const dangling = byKey('completed-CONS-DANGLING');
+    expect(dangling).toMatchObject({
+      txType: 'consume',
+      bridgeInProvider: 'epoch',
+      bridgeInSourceAmount: '3',
+      bridgeInSourceSymbol: 'USDC',
+      bridgeInEvmTxHash: '0xebd'
+    });
+    expect(byKey('completed-CONS-SWAP-GONE')).toBeDefined();
+
+    expect(byKey('completed-SWAP-RECLAIMED')).toMatchObject({ swapSettlement: 'reclaimed' });
+    expect(byKey('completed-SWAP-PENDING')).toMatchObject({ swapSettlement: 'pending' });
+
+    const pendingBridge = byKey('pending-PB');
+    expect(pendingBridge).toMatchObject({
+      bridgeProvider: 'agglayer',
+      bridgeDestinationAddress: '0xpend',
+      bridgeClaimStatus: 'pending',
+      bridgeOutputAmount: '5.5',
+      bridgeIntentNonce: 'n2',
+      secondaryAddress: '0xpend'
+    });
   });
 });

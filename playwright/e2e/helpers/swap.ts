@@ -28,7 +28,7 @@ type Wallet = ChromeWalletPageApi;
 const PRICE_FEED_GLOB = '**/35-175-40-181.sslip.io/**';
 
 /** Default base-unit amount minted to each side's faucet. */
-const DEFAULT_FUND_AMOUNT = 100_000_000_000;
+export const DEFAULT_FUND_AMOUNT = 100_000_000_000;
 
 export interface SwapTokenDescriptor {
   symbol: string;
@@ -339,6 +339,21 @@ export async function readLineage(maker: Wallet, orderId: string): Promise<Linea
       ).__TEST_PSWAP_LINEAGE__(id),
     orderId
   ) as Promise<LineageInfo>;
+}
+
+/**
+ * Drive the extension's real sync-manager settlement path.
+ *
+ * The read-only PSWAP hooks (`readLineage` / `tokenBalance`) sync the SDK
+ * client directly, but they do not run `reconcileSwapOrderNotes`. Production
+ * runs that reconciliation from the service-worker SyncRequest handler and
+ * then starts transaction processing. Auto-consume assertions must therefore
+ * trigger a wallet sync while polling instead of relying on the page's
+ * best-effort interval (which can be delayed by page lifecycle changes or a
+ * long-running transaction).
+ */
+export async function triggerSwapAutoConsume(maker: Wallet): Promise<void> {
+  await maker.triggerSync();
 }
 
 /** An account's on-chain balance for a faucet, in base units. */

@@ -18,9 +18,15 @@ let mockPrice = 2;
 // ---------------------------------------------------------------------------
 const mockGetTransactionById = jest.fn();
 const mockTrackOrderId = jest.fn();
+const mockGetSwapSettlementNotes = jest.fn();
 const mockGetTokenMetadata = jest.fn();
 const mockGetSwapTokenByFaucetId = jest.fn();
 const mockGoBack = jest.fn();
+const mockNavigate = jest.fn();
+const mockCancelTransactionById = jest.fn();
+const mockRequeueFailedTransaction = jest.fn();
+const mockRequestSWTransactionProcessing = jest.fn();
+const mockIsRequeueableTransaction = jest.fn();
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -28,7 +34,14 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('lib/miden/activity', () => ({
   getTransactionById: (...args: unknown[]) => mockGetTransactionById(...args),
-  trackOrderId: (...args: unknown[]) => mockTrackOrderId(...args)
+  trackOrderId: (...args: unknown[]) => mockTrackOrderId(...args),
+  getSwapSettlementNotes: (...args: unknown[]) => mockGetSwapSettlementNotes(...args),
+  cancelTransactionById: (...args: unknown[]) => mockCancelTransactionById(...args),
+  requeueFailedTransaction: (...args: unknown[]) => mockRequeueFailedTransaction(...args),
+  requestSWTransactionProcessing: (...args: unknown[]) => mockRequestSWTransactionProcessing(...args),
+  isRequeueableTransaction: (...args: unknown[]) => mockIsRequeueableTransaction(...args),
+  USER_CANCELLED_TRANSACTION_REASON: 'Transaction was cancelled by user',
+  isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user'
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -61,7 +74,8 @@ jest.mock('lib/store', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  goBack: () => mockGoBack()
+  goBack: () => mockGoBack(),
+  navigate: (...args: unknown[]) => mockNavigate(...args)
 }));
 
 // ---------------------------------------------------------------------------
@@ -118,15 +132,25 @@ jest.mock('./DetailCard', () => ({
       {displayValue}
     </a>
   ),
-  StatusPill: ({ status }: { status?: number }) => <div data-testid="status-pill" data-status={String(status)} />
+  StatusPill: ({ status, isCancelled }: { status?: number; isCancelled?: boolean }) => (
+    <div data-testid="status-pill" data-status={String(status)} data-cancelled={String(!!isCancelled)} />
+  )
 }));
 
 jest.mock('./TransactionIcon', () => ({
   __esModule: true,
-  default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />
+  default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />,
+  getTransactionIconBackgroundColor: () => '#91ACC1'
+}));
+
+// The branch adds the EVM bridge claim panel to history details. Stub it here
+// so this swap/history unit test does not load Wagmi's ESM-only runtime.
+jest.mock('./BridgeClaimSection', () => ({
+  BridgeClaimSection: () => <div data-testid="bridge-claim-section" />
 }));
 
 jest.mock('./transactionUtils', () => ({
+  ...jest.requireActual('./transactionUtils'),
   formatDate: (timestamp: number | string) => `formatted:${timestamp}`
 }));
 
@@ -175,8 +199,11 @@ const rowByLabel = (label: string) =>
 
 beforeEach(() => {
   jest.clearAllMocks();
-  jest.useFakeTimers();
+  // Keep IndexedDB/Dexie's scheduling primitives real so the global database
+  // cleanup hook can complete; only timer-based order polling needs faking.
+  jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
 
+  mockGetSwapSettlementNotes.mockResolvedValue({ settled: [], reclaimed: [] });
   mockAccount = { publicKey: 'acct-A', name: 'Mine' };
   mockAllAccounts = [{ publicKey: 'acct-B', name: 'Other' }];
   mockTokenPrices = { MID: { price: 2 } };
@@ -189,6 +216,13 @@ beforeEach(() => {
   );
   mockGetSwapTokenByFaucetId.mockReturnValue(undefined);
   mockTrackOrderId.mockResolvedValue(null);
+  // Mirror the production predicate: Failed + a re-queueable type.
+  mockIsRequeueableTransaction.mockImplementation(
+    (tx: { status?: number; type: string }) =>
+      tx.status === 3 && ['send', 'consume', 'swap', 'bridged-send', 'execute'].includes(tx.type)
+  );
+  mockCancelTransactionById.mockResolvedValue(undefined);
+  mockRequeueFailedTransaction.mockResolvedValue(undefined);
 
   // Reset the deterministic formatAmount default (a test may override it).
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -246,9 +280,9 @@ describe('HistoryDetails', () => {
       mockGetTransactionById.mockResolvedValue({ ...baseSendTx });
       await renderAndLoad();
 
-      // Amount + token from the top section.
-      expect(screen.getByText('1000')).toBeInTheDocument();
-      expect(screen.getByText('MID')).toBeInTheDocument();
+      // Amount + token now share the summary badge's left side.
+      expect(screen.getByText('1000 MID')).toBeInTheDocument();
+      expect(screen.getByText('acct-B')).toBeInTheDocument();
       // Fiat: |1000| * price(2) => 2000.00.
       expect(screen.getByText('≈ $2000.00 USD')).toBeInTheDocument();
 
@@ -274,9 +308,13 @@ describe('HistoryDetails', () => {
       expect(toChip).toHaveAttribute('data-address', 'acct-B');
       expect(toChip).toHaveAttribute('data-displayname', 'you (Other)');
 
-      // Notes section: created count = outputNoteIds length; noteType truthy => 'on'.
+      // Notes section: created count = outputNoteIds length.
       expect(rowByLabel('created')?.textContent).toBe('1');
-      expect(rowByLabel('Note')?.textContent).toBe('on');
+
+      // Transfer details and Notes are separated using the transaction icon accent.
+      const dividers = screen.getAllByTestId('history-section-divider');
+      expect(dividers).toHaveLength(2);
+      dividers.forEach(divider => expect(divider).toHaveStyle({ backgroundColor: '#91ACC1' }));
 
       // Not a swap → no order-tracking card.
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
@@ -297,7 +335,6 @@ describe('HistoryDetails', () => {
         transactionId: undefined, // no external tx id row
         amount: 0n, // falsy → amount undefined → no amount span / no fiat
         faucetId: undefined, // no metadata → token undefined
-        noteType: undefined, // notes 'off' branch
         outputNoteIds: ['note-x'] // still has note data
       });
       await renderAndLoad();
@@ -313,15 +350,12 @@ describe('HistoryDetails', () => {
       expect(rowByLabel('txIdLabel')).toBeUndefined();
       // No amount span (amount undefined) → fiat also absent.
       expect(screen.queryByText('≈ $2000.00 USD')).not.toBeInTheDocument();
-      // noteType falsy → 'off'.
-      expect(rowByLabel('Note')?.textContent).toBe('off');
     });
 
     it('hides the notes section entirely when there is no note data', async () => {
       mockGetTransactionById.mockResolvedValue({ ...baseSendTx, outputNoteIds: undefined });
       await renderAndLoad();
       expect(rowByLabel('created')).toBeUndefined();
-      expect(rowByLabel('Note')).toBeUndefined();
     });
 
     it('treats a present-but-empty-first note id as note data via the outputNoteIds branch', async () => {
@@ -338,8 +372,8 @@ describe('HistoryDetails', () => {
       mockGetTransactionById.mockResolvedValue({ ...baseSendTx });
       await renderAndLoad();
 
-      // formatDisplayAmount('NaN') → non-finite → returns 'NaN' verbatim.
-      expect(screen.getByText('NaN')).toBeInTheDocument();
+      // The shared summary badge preserves the formatter's non-finite output.
+      expect(screen.getByText('NaN MID')).toBeInTheDocument();
       // formatFiatDisplayAmount → non-finite → undefined → no fiat line.
       expect(screen.queryByText(/USD/)).not.toBeInTheDocument();
     });
@@ -439,9 +473,9 @@ describe('HistoryDetails', () => {
       // First poll → active.
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusActive');
 
-      // Active schedules another poll at the base interval (3s).
+      // Active schedules another poll at the base interval (2s).
       await act(async () => {
-        jest.advanceTimersByTime(3000);
+        jest.advanceTimersByTime(2000);
       });
       await flush();
 
@@ -458,6 +492,56 @@ describe('HistoryDetails', () => {
       const statusRow = rowByLabel('orderStatus')!;
       expect(statusRow.textContent).toBe('loading');
       expect(screen.queryByTestId('swap-order-status')).not.toBeInTheDocument();
+    });
+
+    it('shows a polling indicator while refreshing an active order', async () => {
+      let resolveRefresh!: (tracking: {
+        orderId: string;
+        state: string;
+        currentDepth: number;
+        remainingOffered: bigint;
+        remainingRequested: bigint;
+      }) => void;
+      const refresh = new Promise(resolve => {
+        resolveRefresh = resolve;
+      });
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId
+        .mockResolvedValueOnce({
+          orderId: '10',
+          state: 'active',
+          currentDepth: 1,
+          remainingOffered: 0n,
+          remainingRequested: 700n
+        })
+        .mockReturnValueOnce(refresh);
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 10n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+      await renderAndLoad();
+
+      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusActive');
+      expect(screen.getByTestId('swap-order-polling')).toHaveTextContent('loading');
+
+      await act(async () => {
+        resolveRefresh({
+          orderId: '10',
+          state: 'filled',
+          currentDepth: 2,
+          remainingOffered: 0n,
+          remainingRequested: 0n
+        });
+        await Promise.resolve();
+      });
+
+      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
     });
 
     it('backs off on unresolved polls and gives up after the cap', async () => {
@@ -530,6 +614,293 @@ describe('HistoryDetails', () => {
       mockGetTransactionById.mockResolvedValue({ ...swapTx({}), extraInputs: undefined });
       await renderAndLoad();
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('swap settlement notes', () => {
+    const swapTx = (extra: Record<string, unknown>): Tx => ({
+      ...baseSendTx,
+      type: 'swap',
+      amount: undefined,
+      faucetId: 'faucet-1',
+      outputNoteIds: undefined,
+      transactionId: undefined,
+      extraInputs: extra
+    });
+
+    it('lists the notes the suppressed settlement consumes claimed', async () => {
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-a', 'note-b'], reclaimed: ['note-c'] });
+      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+
+      await renderAndLoad();
+
+      expect(mockGetSwapSettlementNotes).toHaveBeenCalledWith('tx-1');
+      expect(screen.getByTestId('swap-settled-notes').textContent).toBe('note-anote-b');
+      expect(screen.getByTestId('swap-reclaimed-notes').textContent).toBe('note-c');
+      // The card renders even though the swap itself created no output notes.
+      expect(rowByLabel('claimed')).toBeDefined();
+      expect(rowByLabel('reclaimed')).toBeDefined();
+    });
+
+    it('omits the reclaimed row when the order only settled', async () => {
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-a'], reclaimed: [] });
+      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-settled-notes').textContent).toBe('note-a');
+      expect(screen.queryByTestId('swap-reclaimed-notes')).not.toBeInTheDocument();
+      // Last row in the card is the claimed one.
+      expect(rowByLabel('claimed')?.getAttribute('data-islast')).toBe('true');
+    });
+
+    it('renders no settlement rows when nothing has settled yet', async () => {
+      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+
+      await renderAndLoad();
+
+      expect(screen.queryByTestId('swap-settled-notes')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('swap-reclaimed-notes')).not.toBeInTheDocument();
+    });
+
+    it('picks the notes up when settlement lands while the page is open', async () => {
+      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+      await renderAndLoad();
+      expect(screen.queryByTestId('swap-settled-notes')).not.toBeInTheDocument();
+
+      // Auto-consume completes after the page mounted.
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-late'], reclaimed: [] });
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      await flush();
+
+      expect(screen.getByTestId('swap-settled-notes').textContent).toBe('note-late');
+    });
+
+    it('does not poll for settlement notes on a swap with no order id', async () => {
+      mockGetTransactionById.mockResolvedValue(swapTx({ requestedFaucetId: 'req-faucet' }));
+      await renderAndLoad();
+      mockGetSwapSettlementNotes.mockClear();
+
+      await act(async () => {
+        jest.advanceTimersByTime(30_000);
+      });
+
+      expect(mockGetSwapSettlementNotes).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('failed transactions: error card, retry & cancel', () => {
+    const STATUS_FAILED = 3;
+    const STATUS_QUEUED = 0;
+
+    const failedSendTx = (overrides: Tx = {}): Tx => ({
+      ...baseSendTx,
+      status: STATUS_FAILED,
+      displayMessage: 'Failed',
+      displayIcon: 'FAILED',
+      error: 'Remote prover failed — this is most often caused by a timeout. Please try again.',
+      rawError: 'Error: fetch timeout after 30000ms',
+      ...overrides
+    });
+
+    it('shows the friendly failure reason with a toggleable raw-error disclosure', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx());
+      await renderAndLoad();
+
+      const errorCard = Array.from(document.querySelectorAll('[data-testid="detail-card"]')).find(
+        el => el.getAttribute('data-title') === 'error'
+      )!;
+      expect(errorCard).toBeTruthy();
+      expect(errorCard.textContent).toContain('Remote prover failed');
+
+      // Raw error hidden until the disclosure is toggled.
+      expect(errorCard.textContent).not.toContain('fetch timeout');
+      fireEvent.click(screen.getByText('showFullError'));
+      expect(errorCard.textContent).toContain('Error: fetch timeout after 30000ms');
+      fireEvent.click(screen.getByText('hideFullError'));
+      expect(errorCard.textContent).not.toContain('fetch timeout');
+    });
+
+    it('omits the raw-error disclosure when no rawError was persisted', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx({ rawError: undefined, error: 'Note is invalid' }));
+      await renderAndLoad();
+
+      expect(screen.queryByText('showFullError')).toBeNull();
+      expect(screen.getByText('Note is invalid')).toBeInTheDocument();
+    });
+
+    it('retries a failed send: re-queues the row, nudges the SW and navigates to the progress page', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx());
+      await renderAndLoad();
+
+      fireEvent.click(screen.getByText('retry'));
+      await flush();
+
+      expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('tx-1');
+      expect(mockRequestSWTransactionProcessing).toHaveBeenCalled();
+      expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx-1');
+    });
+
+    it('surfaces a retry failure inline and does not navigate', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx());
+      mockRequeueFailedTransaction.mockRejectedValue(new Error('row is gone'));
+      await renderAndLoad();
+
+      fireEvent.click(screen.getByText('retry'));
+      await flush();
+
+      expect(screen.getByText('row is gone')).toBeInTheDocument();
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it('offers no retry for a failed structural Guardian op', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx({ type: 'replace-hot-key' }));
+      await renderAndLoad();
+
+      expect(screen.queryByText('retry')).toBeNull();
+    });
+
+    it('renders a user-cancelled tx with the cancelled pill and no retry button', async () => {
+      mockGetTransactionById.mockResolvedValue(
+        failedSendTx({ error: 'Transaction was cancelled by user', rawError: undefined })
+      );
+      await renderAndLoad();
+
+      expect(screen.getByTestId('status-pill').getAttribute('data-cancelled')).toBe('true');
+      // The failure card is titled "cancelled" and retry is suppressed.
+      const cancelledCard = Array.from(document.querySelectorAll('[data-testid="detail-card"]')).find(
+        el => el.getAttribute('data-title') === 'cancelled'
+      );
+      expect(cancelledCard).toBeTruthy();
+      expect(screen.queryByText('retry')).toBeNull();
+    });
+
+    it('falls back to initiatedAt for the date of a row that never completed', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx({ completedAt: undefined, initiatedAt: 1_600_000_000 }));
+      await renderAndLoad();
+
+      expect(rowByLabel('date')!.textContent).toContain('formatted:1600000000');
+    });
+
+    it('cancels a still-queued tx with the user-cancelled sentinel and reloads the row', async () => {
+      mockGetTransactionById.mockResolvedValue({ ...baseSendTx, status: STATUS_QUEUED, error: undefined });
+      await renderAndLoad();
+
+      fireEvent.click(screen.getByText('cancel'));
+      await flush();
+
+      expect(mockCancelTransactionById).toHaveBeenCalledWith('tx-1', 'Transaction was cancelled by user');
+      // The row is re-fetched after the cancel lands.
+      expect(mockGetTransactionById.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('shows the cancel failure inline when cancelling throws', async () => {
+      mockGetTransactionById.mockResolvedValue({ ...baseSendTx, status: STATUS_QUEUED, error: undefined });
+      mockCancelTransactionById.mockRejectedValue(new Error('cancel exploded'));
+      await renderAndLoad();
+
+      fireEvent.click(screen.getByText('cancel'));
+      await flush();
+
+      expect(screen.getByText('cancel exploded')).toBeInTheDocument();
+    });
+  });
+
+  describe('bridge details', () => {
+    const bridgedSendTx: Tx = {
+      ...baseSendTx,
+      id: 'bridge-out',
+      type: 'bridged-send',
+      displayMessage: 'Bridged to EVM',
+      extraInputs: {
+        provider: 'epoch',
+        destinationAddress: '0xdest',
+        destinationNetwork: 8453,
+        claimStatus: 'not-applicable',
+        outputAmount: '8.99',
+        outputSymbol: 'USDC',
+        epochStatus: 'confirmed'
+      }
+    };
+
+    const bridgedReceiveTx: Tx = {
+      ...baseSendTx,
+      id: 'bridge-in',
+      type: 'bridged-receive',
+      secondaryAccountId: undefined,
+      displayMessage: 'Bridging from EVM',
+      extraInputs: {
+        provider: 'epoch',
+        sourceAddress: '0xffffffffffffffffffffffffffffffffffffffff',
+        sourceAmount: '10',
+        sourceSymbol: 'USDC',
+        evmTxHash: '0xevmhash',
+        phase: 'delivering',
+        outputAmount: '9.98',
+        outputSymbol: 'USDC'
+      }
+    };
+
+    it('shows the claim section and bridge status pill for an outbound bridge', async () => {
+      mockGetTransactionById.mockResolvedValue(bridgedSendTx);
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(screen.getByTestId('bridge-claim-section')).toBeInTheDocument();
+      expect(screen.getByText('confirmed')).toBeInTheDocument();
+      // The bridged "to" is the EVM destination — no Miden to-row.
+      expect(rowByLabel('to')).toBeUndefined();
+    });
+
+    it('renders an in-flight inbound bridge with EVM source, route and pending note', async () => {
+      mockGetTransactionById.mockResolvedValue(bridgedReceiveTx);
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      // From = the EVM source address (Sepolia link), to = our Miden account.
+      const fromRow = rowByLabel('from');
+      expect(fromRow?.textContent).toContain('0xffffffffffffffffffffffffffffffffffffffff');
+      expect(rowByLabel('to')?.textContent).toContain('you (Mine)');
+
+      // Inbound bridge details card: Fast route, EVM tx hash, note still pending.
+      expect(screen.getByText('fastRouteLabel')).toBeInTheDocument();
+      expect(screen.getByText('0xevmhash')).toBeInTheDocument();
+      expect(rowByLabel('noteId')?.textContent).toContain('pending');
+      // Outbound-only claim section stays hidden.
+      expect(screen.queryByTestId('bridge-claim-section')).not.toBeInTheDocument();
+    });
+
+    it('renders a delivered inbound bridge with its Miden note id and slow-route label', async () => {
+      mockGetTransactionById.mockResolvedValue({
+        ...bridgedReceiveTx,
+        extraInputs: {
+          ...(bridgedReceiveTx.extraInputs as Record<string, unknown>),
+          provider: 'agglayer',
+          phase: 'received',
+          midenNoteId: '0xminednote'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('slowRouteLabel')).toBeInTheDocument();
+      expect(screen.getByText('0xminednote')).toBeInTheDocument();
+      expect(screen.getByText('confirmed')).toBeInTheDocument();
+    });
+
+    it('surfaces the failure reason for a failed inbound bridge', async () => {
+      mockGetTransactionById.mockResolvedValue({
+        ...bridgedReceiveTx,
+        error: 'The Epoch bridge intent failed.',
+        extraInputs: {
+          ...(bridgedReceiveTx.extraInputs as Record<string, unknown>),
+          phase: 'failed',
+          error: 'The Epoch bridge intent failed.'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('bridgeFailed')).toBeInTheDocument();
+      expect(screen.getByText('The Epoch bridge intent failed.')).toBeInTheDocument();
     });
   });
 });

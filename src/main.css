@@ -343,6 +343,22 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
   display: none !important;
 }
 
+/* BottomNav's shadow deliberately overflows #root into body's safe-area
+ * padding. On iOS WKWebView that strip is not repainted when TabLayout is
+ * replaced, so the last shadow pixels can survive after the footer is gone.
+ * Paint the strip explicitly while the navbar is hidden. */
+body[data-hide-navbar]::after {
+  content: '';
+  position: fixed;
+  z-index: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: max(16px, env(safe-area-inset-bottom));
+  background-color: var(--color-app-bg);
+  pointer-events: none;
+}
+
 @layer base {
   :root {
     --chart-1: oklch(0.646 0.222 41.116);

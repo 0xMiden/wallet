@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
@@ -7,14 +7,18 @@ import { useTranslation } from 'react-i18next';
 import CopyButton from 'app/atoms/CopyButton';
 import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
+import EvmConnectModal from 'app/templates/EvmConnectModal';
 import { QRCode, type QRCodeHandle } from 'components/QRCode';
+import { isBridgeDepositEnabled } from 'lib/feature-flags';
 import { hapticLight } from 'lib/mobile/haptics';
-import { isMobile } from 'lib/platform';
+import { isExtension, isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
+import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { truncateAddress } from 'utils/string';
 
 interface AddressTabProps {
   address: string;
+  onBridgeDeposit: () => void;
 }
 
 const QR_FILE_NAME = 'miden-address.png';
@@ -35,10 +39,31 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
     reader.readAsDataURL(blob);
   });
 
-export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
+export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit }) => {
   const { t } = useTranslation();
   const { fieldRef, copy } = useCopyToClipboard();
+  const [evmOpen, setEvmOpen] = useState(false);
+  const { address: evmAddress, connected: evmConnected } = useEvmWalletConnection();
   const qrRef = useRef<QRCodeHandle>(null);
+
+  const openBridgeDeposit = useCallback(() => {
+    onBridgeDeposit();
+  }, [onBridgeDeposit]);
+
+  const handleOpenEvm = useCallback(() => {
+    hapticLight();
+    if (evmConnected && evmAddress) {
+      openBridgeDeposit();
+      return;
+    }
+    setEvmOpen(true);
+  }, [evmAddress, evmConnected, openBridgeDeposit]);
+
+  useEffect(() => {
+    if (!evmOpen || !evmConnected || !evmAddress) return;
+    setEvmOpen(false);
+    openBridgeDeposit();
+  }, [evmAddress, evmConnected, evmOpen, openBridgeDeposit]);
 
   const handleShare = useCallback(async () => {
     hapticLight();
@@ -114,13 +139,26 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
               <Icon name={IconName.Add} size="lg" className="shrink-0 fill-current" />
               <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">Request</span>
             </div> */}
-            {/* <div className="flex items-center gap-4 text-accent-primary">
-              <Icon name={IconName.CrossChain} size="lg" className="shrink-0" />
-              <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">Cross-chain</span>
-            </div> */}
+            {/* WalletConnect is not supported on the extension: the Reown relay
+                rejects the extension bundle's auth JWT (WebSocket close 3000), so
+                the AppKit connect flow can never complete there. */}
+            {!isExtension() && isBridgeDepositEnabled() && (
+              <button
+                type="button"
+                data-testid="receive-cross-chain"
+                onClick={handleOpenEvm}
+                className="flex items-center gap-4 text-accent-primary"
+              >
+                <Icon name={IconName.CrossChain} size="lg" className="shrink-0" />
+                <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">
+                  {t('crossChain')}
+                </span>
+              </button>
+            )}
           </div>
         </div>
       </div>
+      {!isExtension() && isBridgeDepositEnabled() && <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />}
     </div>
   );
 };

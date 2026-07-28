@@ -62,6 +62,14 @@ export default defineConfig({
   },
 
   resolve: {
+    // The file-linked web-sdk (@miden-sdk/miden-sdk 0.14.10) and the multisig-client's
+    // nested @miden-sdk/miden-sdk (0.14.5) each INLINE their own dexie (4.4.2 vs 4.0.8)
+    // into their wasm-glue chunks. Two different dexie versions trip dexie's global guard
+    // ("Two different versions of Dexie loaded in the same app"). Dedupe @miden-sdk/miden-sdk
+    // so only the single root copy (0.14.10) is ever resolved — this also prevents two
+    // separate WebClient/WASM instances. Dedupe dexie too for any non-inlined imports
+    // (root dexie is pinned to 4.4.2 via package.json resolutions).
+    dedupe: ['dexie', '@miden-sdk/miden-sdk'],
     alias: {
       lib: resolve(__dirname, 'src/lib'),
       app: resolve(__dirname, 'src/app'),
@@ -79,6 +87,13 @@ export default defineConfig({
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_DEFAULT_NETWORK': JSON.stringify(process.env.MIDEN_DEFAULT_NETWORK ?? ''),
+    'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
+    'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
+      process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
+    ),
+    'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
+      process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'
+    ),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
     'process.browser': 'true',

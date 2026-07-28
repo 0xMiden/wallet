@@ -8,6 +8,7 @@ import { useGasToken } from 'app/hooks/useGasToken';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import {
   MIDEN_METADATA,
+  DEFAULT_TOKEN_METADATA,
   AssetMetadata,
   DetailedAssetMetdata,
   fetchFromStorage,
@@ -76,7 +77,10 @@ export function useAssetMetadata(_slug: string, assetId: string) {
     return metadata;
   }
 
-  return tokenMetadata!;
+  // On a hard fetch failure (RPC throw, blacklisted asset) tokenMetadata stays
+  // null — fall back to Unknown rather than handing back a null behind a
+  // non-null assertion, which crashes consumers reading .symbol/.decimals.
+  return tokenMetadata ?? DEFAULT_TOKEN_METADATA;
 }
 
 export async function useAllAssetMetadata(): Promise<Record<string, AssetMetadata>> {

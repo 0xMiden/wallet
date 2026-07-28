@@ -1,7 +1,8 @@
+import { isGuardianAuthRejection } from 'lib/miden/guardian';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
-import { getOrCreateMultisigService, type GuardianAccountProvider } from './guardian-manager';
+import { clearGuardianServiceFor, getOrCreateMultisigService, type GuardianAccountProvider } from './guardian-manager';
 
 /**
  * Default GuardianAccountProvider backed by the Zustand store. Frontend-only —
@@ -77,6 +78,15 @@ export async function syncGuardianAccounts(): Promise<void> {
         await ensureGuardianProcedureThresholds(account.publicKey, undefined, zustandProvider);
       }
     } catch (error) {
+      // An auth rejection means the cached service's bound signer and the
+      // guardian's registered signer set disagree (e.g. mid-rotation the
+      // service was built from a pre-rotation on-chain account, pairing the
+      // new hot pubkey with the old commitment). Evict it so the next tick
+      // rebuilds against freshly-synced on-chain state instead of re-signing
+      // with the same stale binding every ~3s forever.
+      if (isGuardianAuthRejection(error)) {
+        clearGuardianServiceFor(account.publicKey);
+      }
       console.error(`[Guardian Sync] Error syncing Guardian account ${account.publicKey}:`, error);
     }
   }

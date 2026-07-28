@@ -57,6 +57,11 @@ import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 await withWasmClientLock(async () => (await getMidenClient()).someOp());
 ```
 
+### Duplicate dexie / duplicate `@miden-sdk/miden-sdk` ("Two different versions of Dexie loaded")
+The wallet pulls `@miden-sdk/miden-sdk` two ways: the file-linked web-sdk (root, e.g. 0.14.10) AND a nested copy under `@openzeppelin/miden-multisig-client/node_modules/@miden-sdk/miden-sdk` (its own pin, e.g. 0.14.5). **Each SDK build INLINES its own dexie** into its wasm-glue chunk (`dist/**/Cargo-*.js`), at different versions (e.g. 4.4.2 vs 4.0.8). Two inlined dexies → dexie's `globalThis[Symbol.for("Dexie")]` guard throws at runtime (service worker fails to register; mobile/desktop crash). Because dexie is *inlined*, `resolve.alias`/`resolutions` on `dexie` alone can't fix it.
+
+Fix (already in place — keep it): every app vite config (`vite.{mobile,extension,background,desktop}.config.ts`) sets `resolve.dedupe: ['dexie', '@miden-sdk/miden-sdk']` so only the single root SDK resolves (this also collapses the duplicate WASM `WebClient`), and `package.json` pins `dexie` + a `resolutions` entry to the web-sdk's inlined version. Debug tip: `var DEXIE_VERSION` is in the UMD `dist/dexie.js` (no guard); the guard lives in `import-wrapper.mjs`. To find a stray version, parse a built chunk's `.js.map` for `sourcesContent` containing `DEXIE_VERSION` — the `sources[]` path names the offending package. `grep -r` over node_modules misses it (binary-detected wasm-glue + symlinked file: deps); use `--binary-files=text` and the sourcemap. `build:ext`/`build:bg` don't `rimraf dist/` — wipe `dist/chrome_unpacked` before re-verifying or you'll read stale chunks.
+
 ### Tailwind auto-flipping tokens
 Many tokens in `tailwind.config.ts` map to CSS vars in `src/main.css` and auto-flip with theme. Do NOT add `dark:` variants on these — it overrides the auto-flip with a worse value:
 - `text-black`, `bg-white`, `bg-gray-25/50/100`, `text-heading-gray`
