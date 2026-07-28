@@ -27,6 +27,9 @@ jest.mock('./transactionUtils', () => ({
   __esModule: true,
   bridgeStatusOf: jest.fn(() => 'confirmed'),
   isFaucetRequest: jest.fn(() => false),
+  // Faithful to the real one-liner (`entry.earnDepositStatus ?? 'pending'`) so the
+  // failed-lending-leg branch is exercised, not stubbed away.
+  earnDepositSettlementOf: (entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending',
   TRANSACTION_COLORS: { send: '#91ACC1', receive: '#99AC94', faucet: '#891DB1' }
 }));
 
@@ -80,6 +83,19 @@ describe('TransactionIcon', () => {
       expect(
         getTransactionIconBackgroundColor(makeEntry({ txType: 'earn-withdraw', earnWithdrawPhase: 'failed' }))
       ).toBe('#CC5D5D');
+    });
+
+    it('reddens a deposit whose lending leg settled failed (agrees with the Failed chip)', () => {
+      // earnDepositStatus 'failed' with a non-FAILED transactionIcon: the Miden collateral
+      // note landed but the Sepolia lending leg failed. The accent + glyph must go red so
+      // they do not contradict the red "Failed" status chip the activity list renders.
+      expect(
+        getTransactionIconBackgroundColor(makeEntry({ txType: 'earn-deposit', earnDepositStatus: 'failed' }))
+      ).toBe('#CC5D5D');
+      const { container } = render(
+        <TransactionIcon entry={makeEntry({ txType: 'earn-deposit', earnDepositStatus: 'failed' })} />
+      );
+      expect(root(container)).toHaveClass('bg-status-negative');
     });
   });
 

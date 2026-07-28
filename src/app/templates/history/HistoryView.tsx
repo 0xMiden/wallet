@@ -158,9 +158,16 @@ function buildRowProps(
     iconBg = 'bg-tx-earn';
     amountDirection = 'positive';
   } else if (entry.txType === 'earn-deposit') {
-    // Position deposits carry a DEFAULT icon — tag them with the Earn glyph.
-    iconNode = <Icon name={IconName.Earn} size="sm" className="[&_path]:fill-pure-white [&_path]:stroke-pure-white" />;
-    iconBg = 'bg-tx-earn';
+    // Position deposits carry a DEFAULT icon — tag them with the Earn glyph, or a red
+    // cross when the lending leg settled `failed` so the row icon agrees with the red
+    // "Failed" status chip rendered below (statusTone) for that same state.
+    const earnFailed = earnDepositSettlementOf(entry) === 'failed';
+    iconNode = earnFailed ? (
+      <FailedCrossIcon className="w-3.5 h-3.5" />
+    ) : (
+      <Icon name={IconName.Earn} size="sm" className="[&_path]:fill-pure-white [&_path]:stroke-pure-white" />
+    );
+    iconBg = earnFailed ? 'bg-[#CC5D5D]' : 'bg-tx-earn';
     amountDirection = 'negative';
   } else {
     iconNode = <Icon name={IconName.More} size="sm" fill="currentColor" />;

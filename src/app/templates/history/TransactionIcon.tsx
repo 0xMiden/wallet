@@ -9,10 +9,22 @@ import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { bridgeStatusOf, isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
+import { bridgeStatusOf, earnDepositSettlementOf, isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
 
 /** Slate square behind the white swap glyph for bridge rows (matches the design). */
 const BRIDGE_ICON_BG = '#777487';
+
+/**
+ * An earn row renders as failed (red cross + red accent) when the tx hard-failed, a
+ * withdraw phase failed, or a deposit's lending leg settled `failed`. Routing the
+ * deposit case through `earnDepositSettlementOf` keeps the glyph/accent in lockstep
+ * with the red "Failed" status chip the activity list and details page already render
+ * for that same state.
+ */
+const isEarnRowFailed = (entry: IHistoryEntry): boolean =>
+  entry.transactionIcon === 'FAILED' ||
+  entry.earnWithdrawPhase === 'failed' ||
+  (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) === 'failed');
 
 type TransactionIconSize = 'sm' | 'lg';
 
@@ -37,9 +49,9 @@ export const getTransactionIconBackgroundColor = (entry: IHistoryEntry): string 
     return bridgeStatusOf(entry) === 'failed' ? '#CC5D5D' : BRIDGE_ICON_BG;
   }
 
-  // Earn rows keep the Earn accent across states; a failed withdraw goes red.
+  // Earn rows keep the Earn accent across states; any failed earn leg goes red.
   if (entry.txType === 'earn-deposit' || entry.txType === 'earn-withdraw') {
-    return entry.earnWithdrawPhase === 'failed' ? '#CC5D5D' : 'var(--tx-earn)';
+    return isEarnRowFailed(entry) ? '#CC5D5D' : 'var(--tx-earn)';
   }
 
   if (isFaucetRequest(entry)) return TRANSACTION_COLORS.faucet;
@@ -88,11 +100,11 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
   }
 
   // Earn transactions keep the Earn glyph across states even when their underlying
-  // transaction icon is RECEIVE/SEND. A hard Miden-side failure (transactionIcon
-  // === 'FAILED') or a failed withdraw phase retains the failed cross, so the
-  // summary/hero glyph agrees with the full Activity list and the divider accent.
+  // transaction icon is RECEIVE/SEND. A hard Miden-side failure, a failed withdraw
+  // phase, or a failed deposit lending leg retains the failed cross, so the summary/
+  // hero glyph agrees with the full Activity list, the divider accent, and the chip.
   if (entry.txType === 'earn-deposit' || entry.txType === 'earn-withdraw') {
-    if (entry.transactionIcon === 'FAILED' || entry.earnWithdrawPhase === 'failed') {
+    if (isEarnRowFailed(entry)) {
       return (
         <div className={`${config.container} rounded-10 flex items-center justify-center bg-status-negative`}>
           <FailedCrossIcon className={config.sendIcon} />

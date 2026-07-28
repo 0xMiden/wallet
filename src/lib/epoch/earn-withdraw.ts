@@ -221,14 +221,23 @@ export async function gaslessEarnWithdrawalToMiden(
   }
 
   // --- Post-submit bookkeeping (intent already in flight — DO NOT mark failed) ---
-  // The nonce is persisted first so `resumeEarnWithdrawal` can recover THIS intent
-  // without re-submitting. A storage failure here leaves the row non-terminal
-  // `redeeming` (its birth phase), so `reconcileEarnWithdrawals` resumes it and
-  // re-registers the bridge-in next session, and auto-consume still drives the
-  // authoritative `received` flip independently. Flipping it to terminal `failed`
-  // would permanently mismark a withdrawal that genuinely succeeded.
+  // The intent is live now, so NEITHER of the two post-submit writes below may mark the
+  // row terminal `failed`. They are the row's two independent recovery anchors, and they
+  // are written + caught INDEPENDENTLY so a single failed write cannot strand the row:
+  //
+  //   1. registerBridgeIn writes the nonce→txId registry entry the auto-consume path uses
+  //      to flip the row to the authoritative terminal `received`. It runs FIRST because
+  //      it yields the correct terminal state without needing anything on the row, and so
+  //      it is the more valuable of the two to have committed if the WebView is torn down
+  //      mid-bookkeeping.
+  //   2. updatePhase records the nonce on the row so `reconcileEarnWithdrawals`→
+  //      `resumeEarnWithdrawal` can re-register the bridge-in and re-poll after an app kill.
+  //
+  // Losing anchor 1 alone → reconcile recovers via anchor 2; losing anchor 2 alone →
+  // auto-consume recovers via anchor 1. Only losing BOTH (two independent aborted writes)
+  // strands the row, which is why they are no longer chained in one all-or-nothing try:
+  // previously a failed nonce-write skipped registerBridgeIn, killing both nets at once.
   try {
-    await updatePhase(txId, 'redeeming', { withdrawIntentNonce: nonceString });
     await registerBridgeIn(sponsorAddress, nonceString, {
       provider: 'epoch',
       sourceAmount: args.amount,
@@ -236,13 +245,18 @@ export async function gaslessEarnWithdrawalToMiden(
       intentNonce: nonceString,
       earnWithdrawTxId: txId
     });
-    startDeliveryPoll({ sponsorAddress, nonce: nonceString, txId });
-  } catch (bookkeepingError) {
+  } catch (registrationError) {
     console.warn(
-      '[earn-withdraw] post-submit bookkeeping failed; row left `redeeming` for reconcile',
-      bookkeepingError
+      '[earn-withdraw] bridge-in registration failed; row nonce + reconcile will recover',
+      registrationError
     );
   }
+  try {
+    await updatePhase(txId, 'redeeming', { withdrawIntentNonce: nonceString });
+  } catch (nonceError) {
+    console.warn('[earn-withdraw] nonce persist failed; bridge-in registry + auto-consume will recover', nonceError);
+  }
+  startDeliveryPoll({ sponsorAddress, nonce: nonceString, txId });
 
   return { txId, nonce: nonceString, gaslessUsed: true };
 }
