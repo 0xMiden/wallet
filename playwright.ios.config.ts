@@ -9,9 +9,11 @@ import { defineConfig } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './playwright/e2e/ios/tests',
-  // Guardian specs run via playwright.ios.guardian.config.ts (dedicated run);
-  // keep them out of the standard iOS suite.
-  testIgnore: '**/guardian-*.ios.spec.ts',
+  // Guardian specs run via playwright.ios.guardian.config.ts and bridge-in specs
+  // via playwright.ios.bridge-in.config.ts (dedicated runs with their own setup —
+  // the bridge-in deposit specs need a local Anvil this suite doesn't provide);
+  // keep both out of the standard iOS suite.
+  testIgnore: ['**/guardian-*.ios.spec.ts', '**/bridge-in-*.ios.spec.ts'],
   // 25 min per test. WASM prove on the simulator is slow (~60-90s per consume),
   // and on degraded macos-26 runners BOTH the two-sim `_simPair` setup (capped
   // at 13 min, see SETUP_DEADLINE_MS) and the test body's simctl/WASM ops crawl.
@@ -20,7 +22,7 @@ export default defineConfig({
   // assertion is relaxed — this is purely tolerance for degraded-runner IO).
   timeout: 1_500_000,
   expect: {
-    timeout: 60_000,
+    timeout: 60_000
   },
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
@@ -30,12 +32,12 @@ export default defineConfig({
   reporter: [
     ['list'],
     ['json', { outputFile: 'test-results-ios/results.json' }],
-    ['html', { outputFolder: 'test-results-ios/html', open: 'never' }],
+    ['html', { outputFolder: 'test-results-ios/html', open: 'never' }]
   ],
   globalSetup: './playwright/e2e/ios/fixtures/global-setup.ts',
   globalTeardown: './playwright/e2e/ios/fixtures/global-teardown.ts',
   use: {
     actionTimeout: 30_000,
-    navigationTimeout: 90_000,
-  },
+    navigationTimeout: 90_000
+  }
 });

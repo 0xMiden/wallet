@@ -23,7 +23,7 @@ import { newEvmDestination } from '../../helpers/sepolia';
  * flag so the CLI-minted balance is found). Requires public Miden testnet + the
  * delegated prover, so this is testnet/nightly, not a per-PR gate.
  */
-test.describe('bridge-out: Miden -> EVM (Slow / AggLayer)', () => {
+test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
   test.describe.configure({ mode: 'serial' });
 
   const TOKEN_SYMBOL = 'AGG';

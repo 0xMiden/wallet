@@ -191,7 +191,7 @@ jobs:
         # Anvil (+ the Epoch spec its own fake allocator). --retries=2 absorbs
         # flaky CDP setup on macos-26 AND transient relay rate-limit trips on the
         # connect step; each attempt is a fresh wallet + pairing + Anvil.
-        run: yarn playwright test --config playwright.ios.config.ts bridge-in-deposit --retries=2
+        run: yarn playwright test --config playwright.ios.bridge-in.config.ts --retries=2
 
       - name: Upload artifacts
         if: always()
