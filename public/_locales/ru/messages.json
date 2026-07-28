@@ -28,20 +28,26 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Ваш кошелек попросит одобрить {{tokenSymbol}} и подписать депозит на Sepolia. Средства поступают на Miden после подтверждения.",
-    "englishSource": "Your wallet will ask to approve {{tokenSymbol}} and sign the deposit on Sepolia. Funds arrive on Miden after confirmation."
+    "message": "Ваш кошелек запросит подтверждение $tokenSymbol$ и подпишем залог на Сеполию. Средства поступают на Miden после подтверждения.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "placeholders": {
+      "tokensymbol": {
+        "content": "$1"
+      }
+    }
   },
   "balanceCardTotalBalance": {
     "message": "Общий баланс",
     "englishSource": "Total Balance"
   },
-  "balanceCardDeltaPill": {
-    "message": "{{абсолютный}} ({{процент}})",
-    "englishSource": "{{absolute}} ({{percentage}})"
-  },
   "balanceCardAccount": {
-    "message": "Номер счета}}",
-    "englishSource": "Account #: {{number}}"
+    "message": "Счет #: $number$ ",
+    "englishSource": "Account #: $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "balanceCardAccountOptions": {
     "message": "Параметры учетной записи",
@@ -51,13 +57,14 @@
     "message": "Загрузка…",
     "englishSource": "Loading…"
   },
-  "dappSwitcherCardActivate": {
-    "message": "{{имя}}. Активируйте, чтобы переключиться на это приложение.",
-    "englishSource": "{{name}}. Activate to switch to this dApp."
-  },
   "dappSwitcherCloseCard": {
-    "message": "Закрыть {{name}}",
-    "englishSource": "Close {{name}}"
+    "message": "Закрывать $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "promptCardDismiss": {
     "message": "Увольнять",
@@ -67,21 +74,23 @@
     "message": "Загрузка",
     "englishSource": "Loading"
   },
-  "priceChangeAmountNeutral": {
-    "message": "${{сумма}}",
-    "englishSource": "${{amount}}"
-  },
   "priceChangeAmountPositive": {
-    "message": "+${{сумма}}",
-    "englishSource": "+${{amount}}"
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "priceChangeAmountNegative": {
-    "message": "-${{сумма}}",
-    "englishSource": "-${{amount}}"
-  },
-  "priceChangePercent": {
-    "message": "{{ценить}}%",
-    "englishSource": "{{value}}%"
+    "message": "- $amount$ ",
+    "englishSource": "-$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "pendingTabApproxUsd": {
     "message": "≈  $value$ ",
@@ -92,29 +101,36 @@
       }
     }
   },
-  "tokenDetailChange24h": {
-    "message": "{{изменять}}%",
-    "englishSource": "{{change}}%"
-  },
   "historyDetailsIdLabel": {
-    "message": "Я сделал}}",
-    "englishSource": "ID: {{id}}"
-  },
-  "historyDetailsAmountFilledValue": {
-    "message": "{{заполнено}} / {{всего}}{{символ}}",
-    "englishSource": "{{filled}} / {{total}}{{symbol}}"
+    "message": "ИДЕНТИФИКАТОР: $id$ ",
+    "englishSource": "ID: $id$",
+    "placeholders": {
+      "id": {
+        "content": "$1"
+      }
+    }
   },
   "historyDetailsLoadError": {
     "message": "Не удалось загрузить транзакцию",
     "englishSource": "Failed to load transaction"
   },
   "historyDetailsFiatApprox": {
-    "message": "≈ ${{amount}} долл. США",
-    "englishSource": "≈ ${{amount}} USD"
+    "message": "≈  $amount$ доллар США",
+    "englishSource": "≈ $amount$ USD",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "dappTileVerifiedLabel": {
-    "message": "{{name}}, проверенное децентрализованное приложение",
-    "englishSource": "{{name}}, verified dApp"
+    "message": "$name$, проверенное децентрализованное приложение",
+    "englishSource": "$name$, verified dApp",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "dappPeekCardOverflowBadge": {
     "message": "+ $count$ ",
@@ -126,20 +142,41 @@
     }
   },
   "settingsVersion": {
-    "message": "Версия {{версия}}",
-    "englishSource": "Version {{version}}"
+    "message": "Версия $version$ ",
+    "englishSource": "Version $version$",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
   },
   "unlockBrandName": {
     "message": "Хлеб",
     "englishSource": "Bread"
   },
   "earnPositionHeaderTitle": {
-    "message": "Моя позиция по {{протокол}} • {{актив}}",
-    "englishSource": "My {{protocol}} • {{asset}} position"
+    "message": "Мой $protocol$  •  $asset$ позиция",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
   },
   "earnAssetOnNetwork": {
-    "message": "{{актив}} в {{сети}}",
-    "englishSource": "{{asset}} on {{network}}"
+    "message": "$asset$ в $network$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnMetricDeposited": {
     "message": "Депонированный",
@@ -162,8 +199,16 @@
     "englishSource": "Started"
   },
   "earnProjectedEarnings": {
-    "message": "~ {{оценка}} · по цене {{apy}} в год",
-    "englishSource": "~ {{estimate}} · at {{apy}} APY"
+    "message": "~  $estimate$ · в $apy$ APY",
+    "englishSource": "~ $estimate$ · at $apy$ APY",
+    "placeholders": {
+      "estimate": {
+        "content": "$1"
+      },
+      "apy": {
+        "content": "$2"
+      }
+    }
   },
   "protocol": {
     "message": "Протокол",
@@ -258,8 +303,13 @@
     "englishSource": "Now"
   },
   "earnProjectedRewardAmount": {
-    "message": "+${{сумма}}",
-    "englishSource": "+${{amount}}"
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "earnCollateralLabel": {
     "message": "Залог",
@@ -270,8 +320,16 @@
     "englishSource": "Miden P2IDE (gasless)"
   },
   "earnDepositRoute": {
-    "message": "Миден -> {{протокол}} ({{сеть}})",
-    "englishSource": "Miden -> {{protocol}} ({{network}})"
+    "message": "Миден -> $protocol$  ( $network$ )",
+    "englishSource": "Miden -> $protocol$ ($network$)",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnEstimatedTime": {
     "message": "Расчетное время",
@@ -294,8 +352,13 @@
     "englishSource": "Total Earned Rewards"
   },
   "earnEarningBlendedApy": {
-    "message": "Заработок {{apy}} смешанного APY",
-    "englishSource": "Earning {{apy}} blended APY"
+    "message": "Заработок $apy$ смешанный APY",
+    "englishSource": "Earning $apy$ blended APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
   },
   "earnTotalDeposited": {
     "message": "Всего внесено",
@@ -314,8 +377,13 @@
     "englishSource": "Positions"
   },
   "earnPositionsApy": {
-    "message": "{{apy}} APY",
-    "englishSource": "{{apy}} APY"
+    "message": "$apy$ APY",
+    "englishSource": "$apy$ APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
   },
   "earnDeposited": {
     "message": "Депонированный",
@@ -338,8 +406,16 @@
     "englishSource": "APY"
   },
   "earnVaultAssetOnNetwork": {
-    "message": "{{актив}} в {{сети}}",
-    "englishSource": "{{asset}} on {{network}}"
+    "message": "$asset$ в $network$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnCurrentPositionsTitle": {
     "message": "Текущие позиции",

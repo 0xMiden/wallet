@@ -28,20 +28,26 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Ваш гаманець попросить підтвердити {{tokenSymbol}} і підписати депозит на Sepolia. Кошти надходять на Miden після підтвердження.",
-    "englishSource": "Your wallet will ask to approve {{tokenSymbol}} and sign the deposit on Sepolia. Funds arrive on Miden after confirmation."
+    "message": "Ваш гаманець попросить підтвердження $tokenSymbol$ і підписати депозит на Sepolia. Кошти надходять на Miden після підтвердження.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "placeholders": {
+      "tokensymbol": {
+        "content": "$1"
+      }
+    }
   },
   "balanceCardTotalBalance": {
     "message": "Загальний баланс",
     "englishSource": "Total Balance"
   },
-  "balanceCardDeltaPill": {
-    "message": "{{абсолютний}} ({{percentage}})",
-    "englishSource": "{{absolute}} ({{percentage}})"
-  },
   "balanceCardAccount": {
-    "message": "Номер рахунку: {{number}}",
-    "englishSource": "Account #: {{number}}"
+    "message": "Рахунок №: $number$ ",
+    "englishSource": "Account #: $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "balanceCardAccountOptions": {
     "message": "Параметри облікового запису",
@@ -52,12 +58,22 @@
     "englishSource": "Loading…"
   },
   "dappSwitcherCardActivate": {
-    "message": "{{name}}. Активуйте, щоб перейти до цього dApp.",
-    "englishSource": "{{name}}. Activate to switch to this dApp."
+    "message": "$name$. Активуйте, щоб перейти до цього dApp.",
+    "englishSource": "$name$. Activate to switch to this dApp.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "dappSwitcherCloseCard": {
-    "message": "Закрити {{name}}",
-    "englishSource": "Close {{name}}"
+    "message": "Закрити $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "promptCardDismiss": {
     "message": "Відхилити",
@@ -67,21 +83,32 @@
     "message": "Завантаження",
     "englishSource": "Loading"
   },
-  "priceChangeAmountNeutral": {
-    "message": "${{amount}}",
-    "englishSource": "${{amount}}"
-  },
   "priceChangeAmountPositive": {
-    "message": "+${{amount}}",
-    "englishSource": "+${{amount}}"
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "priceChangeAmountNegative": {
-    "message": "-${{сума}}",
-    "englishSource": "-${{amount}}"
+    "message": "- $amount$ ",
+    "englishSource": "-$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "priceChangePercent": {
-    "message": "{{value}}%",
-    "englishSource": "{{value}}%"
+    "message": "$value$%",
+    "englishSource": "$value$%",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
   },
   "pendingTabApproxUsd": {
     "message": "≈  $value$ ",
@@ -92,29 +119,36 @@
       }
     }
   },
-  "tokenDetailChange24h": {
-    "message": "{{змінити}}%",
-    "englishSource": "{{change}}%"
-  },
   "historyDetailsIdLabel": {
-    "message": "ID: {{id}}",
-    "englishSource": "ID: {{id}}"
-  },
-  "historyDetailsAmountFilledValue": {
-    "message": "{{filled}} / {{total}}{{symbol}}",
-    "englishSource": "{{filled}} / {{total}}{{symbol}}"
+    "message": "ID: $id$ ",
+    "englishSource": "ID: $id$",
+    "placeholders": {
+      "id": {
+        "content": "$1"
+      }
+    }
   },
   "historyDetailsLoadError": {
     "message": "Не вдалося завантажити транзакцію",
     "englishSource": "Failed to load transaction"
   },
   "historyDetailsFiatApprox": {
-    "message": "≈ ${{amount}} USD",
-    "englishSource": "≈ ${{amount}} USD"
+    "message": "≈  $amount$ доларів США",
+    "englishSource": "≈ $amount$ USD",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "dappTileVerifiedLabel": {
-    "message": "{{name}}, перевірений dApp",
-    "englishSource": "{{name}}, verified dApp"
+    "message": "$name$, перевірений dApp",
+    "englishSource": "$name$, verified dApp",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "dappPeekCardOverflowBadge": {
     "message": "+ $count$ ",
@@ -126,20 +160,41 @@
     }
   },
   "settingsVersion": {
-    "message": "Версія {{version}}",
-    "englishSource": "Version {{version}}"
+    "message": "Версія $version$ ",
+    "englishSource": "Version $version$",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
   },
   "unlockBrandName": {
     "message": "Хліб",
     "englishSource": "Bread"
   },
   "earnPositionHeaderTitle": {
-    "message": "Моя позиція {{protocol}} • {{asset}}",
-    "englishSource": "My {{protocol}} • {{asset}} position"
+    "message": "мій $protocol$  •  $asset$ положення",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
   },
   "earnAssetOnNetwork": {
-    "message": "{{asset}} у {{network}}",
-    "englishSource": "{{asset}} on {{network}}"
+    "message": "$asset$ на $network$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnMetricDeposited": {
     "message": "Депонований",
@@ -162,8 +217,16 @@
     "englishSource": "Started"
   },
   "earnProjectedEarnings": {
-    "message": "~ {{estimate}} · у {{apy}} APY",
-    "englishSource": "~ {{estimate}} · at {{apy}} APY"
+    "message": "~  $estimate$ · при $apy$ APY",
+    "englishSource": "~ $estimate$ · at $apy$ APY",
+    "placeholders": {
+      "estimate": {
+        "content": "$1"
+      },
+      "apy": {
+        "content": "$2"
+      }
+    }
   },
   "protocol": {
     "message": "Протокол",
@@ -258,8 +321,13 @@
     "englishSource": "Now"
   },
   "earnProjectedRewardAmount": {
-    "message": "+${{amount}}",
-    "englishSource": "+${{amount}}"
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "earnCollateralLabel": {
     "message": "Застава",
@@ -270,8 +338,16 @@
     "englishSource": "Miden P2IDE (gasless)"
   },
   "earnDepositRoute": {
-    "message": "Miden -> {{protocol}} ({{network}})",
-    "englishSource": "Miden -> {{protocol}} ({{network}})"
+    "message": "Міден -> $protocol$  ( $network$ )",
+    "englishSource": "Miden -> $protocol$ ($network$)",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnEstimatedTime": {
     "message": "Розрахунковий час",
@@ -294,8 +370,13 @@
     "englishSource": "Total Earned Rewards"
   },
   "earnEarningBlendedApy": {
-    "message": "Отримання {{apy}} змішаного APY",
-    "englishSource": "Earning {{apy}} blended APY"
+    "message": "Заробіток $apy$ змішаний APY",
+    "englishSource": "Earning $apy$ blended APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
   },
   "earnTotalDeposited": {
     "message": "Всього внесено",
@@ -314,8 +395,13 @@
     "englishSource": "Positions"
   },
   "earnPositionsApy": {
-    "message": "{{apy}} APY",
-    "englishSource": "{{apy}} APY"
+    "message": "$apy$ APY",
+    "englishSource": "$apy$ APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
   },
   "earnDeposited": {
     "message": "Депонований",
@@ -338,8 +424,16 @@
     "englishSource": "APY"
   },
   "earnVaultAssetOnNetwork": {
-    "message": "{{asset}} у {{network}}",
-    "englishSource": "{{asset}} on {{network}}"
+    "message": "$asset$ на $network$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnCurrentPositionsTitle": {
     "message": "Поточні позиції",

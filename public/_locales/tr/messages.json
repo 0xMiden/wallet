@@ -28,20 +28,26 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Cüzdanınız {{tokenSymbol}}'u onaylamanızı ve Sepolia'daki para yatırma işlemini imzalamanızı isteyecek. Fonlar onaylandıktan sonra Miden'e ulaşıyor.",
-    "englishSource": "Your wallet will ask to approve {{tokenSymbol}} and sign the deposit on Sepolia. Funds arrive on Miden after confirmation."
+    "message": "Cüzdanınız onay isteyecek $tokenSymbol$ ve Sepolia'daki depozitoyu imzalayın. Fonlar onaylandıktan sonra Miden'e ulaşıyor.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "placeholders": {
+      "tokensymbol": {
+        "content": "$1"
+      }
+    }
   },
   "balanceCardTotalBalance": {
     "message": "Toplam Bakiye",
     "englishSource": "Total Balance"
   },
-  "balanceCardDeltaPill": {
-    "message": "{{mutlak}} ({{yüzde}})",
-    "englishSource": "{{absolute}} ({{percentage}})"
-  },
   "balanceCardAccount": {
-    "message": "Hesap No: {{number}}",
-    "englishSource": "Account #: {{number}}"
+    "message": "Hesap #: $number$ ",
+    "englishSource": "Account #: $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "balanceCardAccountOptions": {
     "message": "Hesap seçenekleri",
@@ -51,13 +57,14 @@
     "message": "Yükleniyor…",
     "englishSource": "Loading…"
   },
-  "dappSwitcherCardActivate": {
-    "message": "{{isim}}. Bu dApp'e geçmek için etkinleştirin.",
-    "englishSource": "{{name}}. Activate to switch to this dApp."
-  },
   "dappSwitcherCloseCard": {
-    "message": "{{name}}'yi kapat",
-    "englishSource": "Close {{name}}"
+    "message": "Kapalı $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "promptCardDismiss": {
     "message": "Azletmek",
@@ -67,21 +74,23 @@
     "message": "Yükleniyor",
     "englishSource": "Loading"
   },
-  "priceChangeAmountNeutral": {
-    "message": "${{miktar}}",
-    "englishSource": "${{amount}}"
-  },
   "priceChangeAmountPositive": {
-    "message": "+${{miktar}}",
-    "englishSource": "+${{amount}}"
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "priceChangeAmountNegative": {
-    "message": "-${{miktar}}",
-    "englishSource": "-${{amount}}"
-  },
-  "priceChangePercent": {
-    "message": "{{değer}}%",
-    "englishSource": "{{value}}%"
+    "message": "- $amount$ ",
+    "englishSource": "-$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "pendingTabApproxUsd": {
     "message": "≈  $value$ ",
@@ -92,29 +101,36 @@
       }
     }
   },
-  "tokenDetailChange24h": {
-    "message": "{{değiştirmek}}%",
-    "englishSource": "{{change}}%"
-  },
   "historyDetailsIdLabel": {
-    "message": "Yaptım}}",
-    "englishSource": "ID: {{id}}"
-  },
-  "historyDetailsAmountFilledValue": {
-    "message": "{{dolu}} / {{toplam}}{{symbol}}",
-    "englishSource": "{{filled}} / {{total}}{{symbol}}"
+    "message": "İD: $id$ ",
+    "englishSource": "ID: $id$",
+    "placeholders": {
+      "id": {
+        "content": "$1"
+      }
+    }
   },
   "historyDetailsLoadError": {
     "message": "İşlem yüklenemedi",
     "englishSource": "Failed to load transaction"
   },
   "historyDetailsFiatApprox": {
-    "message": "≈ ${{amount}} ABD Doları",
-    "englishSource": "≈ ${{amount}} USD"
+    "message": "≈  $amount$ Amerikan Doları",
+    "englishSource": "≈ $amount$ USD",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "dappTileVerifiedLabel": {
-    "message": "{{name}}, doğrulanmış dApp",
-    "englishSource": "{{name}}, verified dApp"
+    "message": "$name$, doğrulanmış dApp",
+    "englishSource": "$name$, verified dApp",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "dappPeekCardOverflowBadge": {
     "message": "+ $count$ ",
@@ -126,20 +142,41 @@
     }
   },
   "settingsVersion": {
-    "message": "Sürüm {{sürüm}}",
-    "englishSource": "Version {{version}}"
+    "message": "Sürüm $version$ ",
+    "englishSource": "Version $version$",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
   },
   "unlockBrandName": {
     "message": "Ekmek",
     "englishSource": "Bread"
   },
   "earnPositionHeaderTitle": {
-    "message": "{{protokol}} • {{asset}} konumum",
-    "englishSource": "My {{protocol}} • {{asset}} position"
+    "message": "Benim $protocol$  •  $asset$ konum",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
   },
   "earnAssetOnNetwork": {
-    "message": "{{network}} üzerinde {{asset}}",
-    "englishSource": "{{asset}} on {{network}}"
+    "message": "$network$ üzerinde $asset$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnMetricDeposited": {
     "message": "Yatırılan",
@@ -162,8 +199,16 @@
     "englishSource": "Started"
   },
   "earnProjectedEarnings": {
-    "message": "~ {{estimate}} · {{apy}} APY'de",
-    "englishSource": "~ {{estimate}} · at {{apy}} APY"
+    "message": "~  $estimate$ · en $apy$ APY",
+    "englishSource": "~ $estimate$ · at $apy$ APY",
+    "placeholders": {
+      "estimate": {
+        "content": "$1"
+      },
+      "apy": {
+        "content": "$2"
+      }
+    }
   },
   "protocol": {
     "message": "Protokol",
@@ -258,8 +303,13 @@
     "englishSource": "Now"
   },
   "earnProjectedRewardAmount": {
-    "message": "+${{miktar}}",
-    "englishSource": "+${{amount}}"
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "earnCollateralLabel": {
     "message": "Teminat",
@@ -270,8 +320,16 @@
     "englishSource": "Miden P2IDE (gasless)"
   },
   "earnDepositRoute": {
-    "message": "Miden -> {{protokol}} ({{ağ}})",
-    "englishSource": "Miden -> {{protocol}} ({{network}})"
+    "message": "Miden -> $protocol$  ( $network$ )",
+    "englishSource": "Miden -> $protocol$ ($network$)",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnEstimatedTime": {
     "message": "Tahmini süre",
@@ -294,8 +352,13 @@
     "englishSource": "Total Earned Rewards"
   },
   "earnEarningBlendedApy": {
-    "message": "{{apy}} karma APY kazanma",
-    "englishSource": "Earning {{apy}} blended APY"
+    "message": "kazanç $apy$ harmanlanmış APY",
+    "englishSource": "Earning $apy$ blended APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
   },
   "earnTotalDeposited": {
     "message": "Toplam Yatırılan",
@@ -314,8 +377,13 @@
     "englishSource": "Positions"
   },
   "earnPositionsApy": {
-    "message": "{{apy}} APY",
-    "englishSource": "{{apy}} APY"
+    "message": "$apy$ APY",
+    "englishSource": "$apy$ APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
   },
   "earnDeposited": {
     "message": "Yatırılan",
@@ -338,8 +406,16 @@
     "englishSource": "APY"
   },
   "earnVaultAssetOnNetwork": {
-    "message": "{{network}} üzerinde {{asset}}",
-    "englishSource": "{{asset}} on {{network}}"
+    "message": "$network$ üzerinde $asset$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnCurrentPositionsTitle": {
     "message": "Mevcut Pozisyonlar",

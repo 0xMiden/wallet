@@ -28,20 +28,26 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Votre portefeuille demandera d'approuver {{tokenSymbol}} et de signer le dépôt sur Sepolia. Les fonds arrivent sur Miden après confirmation.",
-    "englishSource": "Your wallet will ask to approve {{tokenSymbol}} and sign the deposit on Sepolia. Funds arrive on Miden after confirmation."
+    "message": "Votre portefeuille vous demandera d'approuver $tokenSymbol$ et signez la caution sur Sepolia. Les fonds arrivent sur Miden après confirmation.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "placeholders": {
+      "tokensymbol": {
+        "content": "$1"
+      }
+    }
   },
   "balanceCardTotalBalance": {
     "message": "Solde total",
     "englishSource": "Total Balance"
   },
-  "balanceCardDeltaPill": {
-    "message": "{{absolu}} ({{pourcentage}})",
-    "englishSource": "{{absolute}} ({{percentage}})"
-  },
   "balanceCardAccount": {
-    "message": "N° de compte : {{numéro}}",
-    "englishSource": "Account #: {{number}}"
+    "message": "Compte #: $number$ ",
+    "englishSource": "Account #: $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "balanceCardAccountOptions": {
     "message": "Options de compte",
@@ -51,13 +57,14 @@
     "message": "Chargement…",
     "englishSource": "Loading…"
   },
-  "dappSwitcherCardActivate": {
-    "message": "{{nom}}. Activez pour passer à cette dApp.",
-    "englishSource": "{{name}}. Activate to switch to this dApp."
-  },
   "dappSwitcherCloseCard": {
-    "message": "Fermer {{name}}",
-    "englishSource": "Close {{name}}"
+    "message": "Fermer $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "promptCardDismiss": {
     "message": "Rejeter",
@@ -67,21 +74,23 @@
     "message": "Chargement",
     "englishSource": "Loading"
   },
-  "priceChangeAmountNeutral": {
-    "message": "${{montant}}",
-    "englishSource": "${{amount}}"
-  },
   "priceChangeAmountPositive": {
-    "message": "+${{montant}}",
-    "englishSource": "+${{amount}}"
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "priceChangeAmountNegative": {
-    "message": "-${{montant}}",
-    "englishSource": "-${{amount}}"
-  },
-  "priceChangePercent": {
-    "message": "{{valeur}}%",
-    "englishSource": "{{value}}%"
+    "message": "- $amount$ ",
+    "englishSource": "-$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "pendingTabApproxUsd": {
     "message": "≈  $value$ ",
@@ -93,28 +102,44 @@
     }
   },
   "tokenDetailChange24h": {
-    "message": "{{changement}}%",
-    "englishSource": "{{change}}%"
+    "message": "$change$%",
+    "englishSource": "$change$%",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      }
+    }
   },
   "historyDetailsIdLabel": {
-    "message": "Je l'ai fait}}",
-    "englishSource": "ID: {{id}}"
-  },
-  "historyDetailsAmountFilledValue": {
-    "message": "{{rempli}} / {{total}}{{symbole}}",
-    "englishSource": "{{filled}} / {{total}}{{symbol}}"
+    "message": "IDENTIFIANT: $id$ ",
+    "englishSource": "ID: $id$",
+    "placeholders": {
+      "id": {
+        "content": "$1"
+      }
+    }
   },
   "historyDetailsLoadError": {
     "message": "Échec du chargement de la transaction",
     "englishSource": "Failed to load transaction"
   },
   "historyDetailsFiatApprox": {
-    "message": "≈ ${{montant}} USD",
-    "englishSource": "≈ ${{amount}} USD"
+    "message": "≈  $amount$ USD",
+    "englishSource": "≈ $amount$ USD",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "dappTileVerifiedLabel": {
-    "message": "{{name}}, dApp vérifiée",
-    "englishSource": "{{name}}, verified dApp"
+    "message": "$name$, dApp vérifiée",
+    "englishSource": "$name$, verified dApp",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "dappPeekCardOverflowBadge": {
     "message": "+ $count$ ",
@@ -126,20 +151,29 @@
     }
   },
   "settingsVersion": {
-    "message": "Version {{version}}",
-    "englishSource": "Version {{version}}"
+    "message": "Version $version$ ",
+    "englishSource": "Version $version$",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
   },
   "unlockBrandName": {
     "message": "Pain",
     "englishSource": "Bread"
   },
   "earnPositionHeaderTitle": {
-    "message": "Ma position {{protocol}} • {{asset}}",
-    "englishSource": "My {{protocol}} • {{asset}} position"
-  },
-  "earnAssetOnNetwork": {
-    "message": "{{actif}} sur {{réseau}}",
-    "englishSource": "{{asset}} on {{network}}"
+    "message": "Mon $protocol$  •  $asset$ position",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
   },
   "earnMetricDeposited": {
     "message": "Déposé",
@@ -162,8 +196,16 @@
     "englishSource": "Started"
   },
   "earnProjectedEarnings": {
-    "message": "~ {{estimate}} · à {{apy}} APY",
-    "englishSource": "~ {{estimate}} · at {{apy}} APY"
+    "message": "~  $estimate$ · à $apy$ APY",
+    "englishSource": "~ $estimate$ · at $apy$ APY",
+    "placeholders": {
+      "estimate": {
+        "content": "$1"
+      },
+      "apy": {
+        "content": "$2"
+      }
+    }
   },
   "protocol": {
     "message": "Protocole",
@@ -258,8 +300,13 @@
     "englishSource": "Now"
   },
   "earnProjectedRewardAmount": {
-    "message": "+${{montant}}",
-    "englishSource": "+${{amount}}"
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "earnCollateralLabel": {
     "message": "Collatéral",
@@ -270,8 +317,16 @@
     "englishSource": "Miden P2IDE (gasless)"
   },
   "earnDepositRoute": {
-    "message": "Miden -> {{protocole}} ({{réseau}})",
-    "englishSource": "Miden -> {{protocol}} ({{network}})"
+    "message": "Midène -> $protocol$  ( $network$ )",
+    "englishSource": "Miden -> $protocol$ ($network$)",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnEstimatedTime": {
     "message": "Temps estimé",
@@ -294,8 +349,13 @@
     "englishSource": "Total Earned Rewards"
   },
   "earnEarningBlendedApy": {
-    "message": "Gagner {{apy}} APY mixte",
-    "englishSource": "Earning {{apy}} blended APY"
+    "message": "Revenus $apy$ APY mixte",
+    "englishSource": "Earning $apy$ blended APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
   },
   "earnTotalDeposited": {
     "message": "Total déposé",
@@ -314,8 +374,13 @@
     "englishSource": "Positions"
   },
   "earnPositionsApy": {
-    "message": "{{apy}}APY",
-    "englishSource": "{{apy}} APY"
+    "message": "$apy$APY",
+    "englishSource": "$apy$ APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
   },
   "earnDeposited": {
     "message": "Déposé",
@@ -336,10 +401,6 @@
   "earnApyLabel": {
     "message": "APY",
     "englishSource": "APY"
-  },
-  "earnVaultAssetOnNetwork": {
-    "message": "{{actif}} sur {{réseau}}",
-    "englishSource": "{{asset}} on {{network}}"
   },
   "earnCurrentPositionsTitle": {
     "message": "Postes actuels",
