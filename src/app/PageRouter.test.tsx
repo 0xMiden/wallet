@@ -101,8 +101,15 @@ jest.mock('app/pages/OpenSidePanel', () => ({
   __esModule: true,
   default: () => <div data-testid="open-side-panel" />
 }));
-jest.mock('app/pages/Pending', () => ({ Pending: () => <div data-testid="pending" /> }));
+jest.mock('app/pages/PendingNotes', () => ({
+  __esModule: true,
+  default: () => <div data-testid="pending" />
+}));
 jest.mock('app/pages/Receive', () => ({ Receive: () => <div data-testid="receive" /> }));
+jest.mock('app/pages/BridgeDeposit', () => ({
+  __esModule: true,
+  default: () => <div data-testid="bridge-deposit" />
+}));
 jest.mock('app/pages/Settings', () => ({
   __esModule: true,
   default: ({ tabSlug }: { tabSlug?: string }) => <div data-testid="settings" data-tab-slug={tabSlug ?? ''} />
@@ -360,8 +367,8 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('receive'));
   });
 
-  it('/pending renders Pending inside FullScreenPage', () => {
-    renderAt('/pending', ready);
+  it('/pending-notes renders PendingNotes inside FullScreenPage', () => {
+    renderAt('/pending-notes', ready);
     expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('pending'));
   });
 

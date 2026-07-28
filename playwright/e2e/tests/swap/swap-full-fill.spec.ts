@@ -1,5 +1,12 @@
 import { expect, test } from '../../fixtures/two-wallets';
-import { createSwapOrder, fillSwapOrder, fundSwapPair, readLineage, tokenBalance } from '../../helpers/swap';
+import {
+  createSwapOrder,
+  fillSwapOrder,
+  fundSwapPair,
+  readLineage,
+  tokenBalance,
+  triggerSwapAutoConsume
+} from '../../helpers/swap';
 
 /**
  * Scenario 3.1 — full fill, maker A → taker B.
@@ -68,13 +75,16 @@ test.describe('swap: full fill A→B', () => {
       })
       .toBe(OFFER_BASE);
 
-    // Settlement 3: maker claims the P2ID payback and receives the full requested SWPB.
-    await walletA.claimAllNotes(150_000);
+    // Settlement 3: the swap lifecycle auto-consumes the hidden payback; the
+    // generic Pending Notes / Claim All flow is not involved.
     await expect
-      .poll(async () => (await tokenBalance(walletA, a.address, pair.request.faucetId)).toString(), {
-        timeout: 90_000,
-        intervals: [3000]
-      })
+      .poll(
+        async () => {
+          await triggerSwapAutoConsume(walletA);
+          return (await tokenBalance(walletA, a.address, pair.request.faucetId)).toString();
+        },
+        { timeout: 90_000, intervals: [3000] }
+      )
       .toBe(REQUEST_BASE);
   });
 });

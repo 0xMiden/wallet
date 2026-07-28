@@ -4,7 +4,7 @@ import { render } from '@testing-library/react';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import TransactionIcon from './TransactionIcon';
-import { isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
+import { bridgeStatusOf, isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
 
 // `app/icons/v2` is the real barrel that switches an `IconName` onto one of
 // ~100 SVG imports and pulls in `lib/miden-chain/constants`. Replace it with a
@@ -13,7 +13,7 @@ import { isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
 // without the barrel's heavy dependency graph.
 jest.mock('app/icons/v2', () => ({
   __esModule: true,
-  IconName: { Convert: 'convert' },
+  IconName: { Convert: 'convert', Close: 'close' },
   Icon: ({ name, size, className }: { name: string; size?: string; className?: string }) => (
     <div data-testid="v2-icon" data-name={name} data-size={size} className={className} />
   )
@@ -25,11 +25,13 @@ jest.mock('app/icons/v2', () => ({
 // feed the inline `backgroundColor` styles.
 jest.mock('./transactionUtils', () => ({
   __esModule: true,
+  bridgeStatusOf: jest.fn(() => 'confirmed'),
   isFaucetRequest: jest.fn(() => false),
   TRANSACTION_COLORS: { send: '#91ACC1', receive: '#99AC94', faucet: '#891DB1' }
 }));
 
 const mockIsFaucetRequest = isFaucetRequest as jest.MockedFunction<typeof isFaucetRequest>;
+const mockBridgeStatusOf = bridgeStatusOf as jest.MockedFunction<typeof bridgeStatusOf>;
 
 // The SVG imports (faucet / rotate / receive / send) resolve to the `svg`
 // string host element via the jest svgMock, so each renders as a real
@@ -49,9 +51,21 @@ const root = (container: HTMLElement) => container.firstChild as HTMLElement;
 
 beforeEach(() => {
   mockIsFaucetRequest.mockReturnValue(false);
+  mockBridgeStatusOf.mockReturnValue('confirmed');
 });
 
 describe('TransactionIcon', () => {
+  it('renders a failed glyph for a terminal bridge failure', () => {
+    mockBridgeStatusOf.mockReturnValue('failed');
+
+    const { getByTestId, container } = render(
+      <TransactionIcon entry={makeEntry({ txType: 'bridged-send', transactionIcon: 'SEND' })} />
+    );
+
+    expect(root(container)).toHaveClass('bg-status-negative');
+    expect(getByTestId('v2-icon')).toHaveAttribute('data-name', 'close');
+  });
+
   describe('pending / processing spinner branch', () => {
     it.each([
       ['PendingTransaction', HistoryEntryType.PendingTransaction],

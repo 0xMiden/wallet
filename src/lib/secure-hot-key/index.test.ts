@@ -27,6 +27,11 @@ jest.mock('./nativePlugin', () => ({
   revealHotKey: (ciphertext: string) => mockNativeRevealHotKey(ciphertext)
 }));
 
+const mockReportHotKeyHardwareFailure = jest.fn();
+jest.mock('lib/wallet-prompts', () => ({
+  reportHotKeyHardwareFailure: (message: string) => mockReportHotKeyHardwareFailure(message)
+}));
+
 beforeEach(() => {
   jest.clearAllMocks();
 });
@@ -140,5 +145,41 @@ describe('secure-hot-key facade', () => {
     expect(mockNativeSignHotDigest).not.toHaveBeenCalled();
     expect(mockNativeDeleteHotKey).not.toHaveBeenCalled();
     expect(mockNativeRevealHotKey).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the report prompt (with code prefix) for any native op failure on mobile', async () => {
+    mockIsMobile.mockReturnValue(true);
+    mockReportHotKeyHardwareFailure.mockResolvedValue(undefined);
+    const hardwareError = Object.assign(new Error('Secure hardware unavailable: INCOMPATIBLE_MGF_DIGEST'), {
+      code: 'HARDWARE_UNAVAILABLE'
+    });
+    mockNativeSignHotDigest.mockRejectedValue(hardwareError);
+
+    await expect(secureHotKey.signHotDigest('nativetag:nativepayload', '0xword')).rejects.toBe(hardwareError);
+
+    expect(mockReportHotKeyHardwareFailure).toHaveBeenCalledWith(
+      '[HARDWARE_UNAVAILABLE] Secure hardware unavailable: INCOMPATIBLE_MGF_DIGEST'
+    );
+  });
+
+  it('surfaces the report prompt for a code-less native failure on mobile', async () => {
+    mockIsMobile.mockReturnValue(true);
+    mockReportHotKeyHardwareFailure.mockResolvedValue(undefined);
+    const plainError = new Error('Hot-key sign failed: something odd');
+    mockNativeSignHotDigest.mockRejectedValue(plainError);
+
+    await expect(secureHotKey.signHotDigest('nativetag:nativepayload', '0xword')).rejects.toBe(plainError);
+
+    expect(mockReportHotKeyHardwareFailure).toHaveBeenCalledWith('Hot-key sign failed: something odd');
+  });
+
+  it('does not surface the report prompt for failures off mobile (JS fallback path)', async () => {
+    mockIsMobile.mockReturnValue(false);
+    const error = Object.assign(new Error('nope'), { code: 'HARDWARE_UNAVAILABLE' });
+    mockJsSignHotDigest.mockRejectedValue(error);
+
+    await expect(secureHotKey.signHotDigest('js-ciphertext', '0xword')).rejects.toBe(error);
+
+    expect(mockReportHotKeyHardwareFailure).not.toHaveBeenCalled();
   });
 });

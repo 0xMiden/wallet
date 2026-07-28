@@ -13,15 +13,16 @@ import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
 import { CustomRpsContext } from 'lib/analytics';
+import { getAllUncompletedTransactions } from 'lib/miden/activity';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { MIDEN_METADATA, useAccount, useMidenContext } from 'lib/miden/front';
 import { MidenDAppPayload } from 'lib/miden/types';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
-import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import useSafeState from 'lib/ui/useSafeState';
-import { useLocation } from 'lib/woozie';
+import { navigate, useLocation } from 'lib/woozie';
 import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
@@ -458,11 +459,17 @@ const ConfirmDAppForm: FC = () => {
             payload.allowedPrivateData
           );
         case 'transaction':
-          useWalletStore.getState().openTransactionModal();
-          return confirmDAppTransaction(id, confirmed, delegate);
         case 'consume':
-          useWalletStore.getState().openTransactionModal();
-          return confirmDAppTransaction(id, confirmed, delegate);
+          await confirmDAppTransaction(id, confirmed, delegate);
+          if (confirmed) {
+            // The dApp confirm response carries no txId, but the progress page
+            // is addressed by one — resolve the active row from the queue.
+            const uncompleted = await getAllUncompletedTransactions();
+            const active =
+              uncompleted.find(tx => tx.status === ITransactionStatus.GeneratingTransaction) ?? uncompleted[0];
+            navigate(active ? `/generating-transaction-full/${encodeURIComponent(active.id)}` : '/');
+          }
+          return;
         case 'privateNotes':
           return confirmDAppPrivateNotes(id, confirmed);
         case 'sign':

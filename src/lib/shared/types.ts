@@ -191,6 +191,7 @@ export interface SyncCompleted extends WalletMessageBase {
 
 export interface SyncRequest extends WalletMessageBase {
   type: WalletMessageType.SyncRequest;
+  force?: boolean;
 }
 
 export interface SyncResponse extends WalletMessageBase {
@@ -203,6 +204,15 @@ export interface SerializedConsumableNote {
   amountBaseUnits: string;
   senderAddress: string;
   noteType?: string; // 'public' | 'private' | 'unknown'
+  swapOrder?: {
+    orderId: string;
+    depth: number;
+    role: 'tip' | 'payback';
+    lineageState: 'active' | 'filled' | 'reclaimed';
+    expiresAt: number;
+    expiryTriggeredAt?: number;
+    autoConsume?: boolean;
+  };
   metadata?: {
     decimals: number;
     symbol: string;

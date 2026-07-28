@@ -7,7 +7,6 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useMidenContext, useAccount } from 'lib/miden/front';
 import { getNetworkId } from 'lib/miden-chain/constants';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
-import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { useLocation } from 'lib/woozie';
 
@@ -30,6 +29,11 @@ jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   Address: { fromAccountId: jest.fn() },
   FungibleAsset: jest.fn(),
+  InputNoteState: {
+    ConsumedAuthenticatedLocal: 'ConsumedAuthenticatedLocal',
+    ConsumedUnauthenticatedLocal: 'ConsumedUnauthenticatedLocal',
+    ConsumedExternal: 'ConsumedExternal'
+  },
   SigningInputs: { deserialize: jest.fn() },
   SigningInputsType: { TransactionSummary: 'TransactionSummary', Arbitrary: 'Arbitrary', Blind: 'Blind' },
   Word: { deserialize: jest.fn() }
@@ -46,6 +50,13 @@ jest.mock('lib/miden/front', () => ({
   useMidenContext: jest.fn(),
   useAccount: jest.fn(),
   MIDEN_METADATA: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
+}));
+
+const mockGetAllUncompletedTransactions = jest.fn(async () => [] as unknown[]);
+// `lib/miden/activity` re-exports the whole transaction pipeline (guardian +
+// miden-chain constants); mock it so this UI test doesn't drag that graph in.
+jest.mock('lib/miden/activity', () => ({
+  getAllUncompletedTransactions: () => mockGetAllUncompletedTransactions()
 }));
 
 jest.mock('lib/miden-chain/constants', () => ({
@@ -65,7 +76,8 @@ jest.mock('lib/swr', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  useLocation: jest.fn()
+  useLocation: jest.fn(),
+  navigate: jest.fn()
 }));
 
 // Layout/boundary wrappers: render children so `ConfirmDAppForm` mounts.
@@ -229,8 +241,6 @@ const ctx = {
   simulateCustomTransaction: jest.fn()
 };
 
-const openTransactionModal = jest.fn();
-
 const ACCOUNT = { name: 'Main', publicKey: 'mtst1account_ABCDpub', isPublic: true };
 
 const APP_META = { name: 'DApp', description: 'x', iconUri: '' };
@@ -275,7 +285,6 @@ beforeEach(() => {
   mockUseLocation.mockReturnValue({ search: '?id=req-1' });
   mockIsDelegateProofEnabled.mockReturnValue(false);
   mockGetNetworkId.mockReturnValue('testnet');
-  (useWalletStore.getState as jest.Mock).mockReturnValue({ openTransactionModal });
   consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 });
@@ -546,7 +555,6 @@ describe('transaction payload', () => {
     });
 
     await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', true, true));
-    expect(openTransactionModal).toHaveBeenCalledTimes(1);
   });
 
   it('renders the payloadError instead of the derived content when present', () => {
@@ -579,7 +587,7 @@ describe('consume payload', () => {
     expect(screen.getByText('NoCommaConsume')).toBeInTheDocument();
   });
 
-  it('confirms a consume via confirmDAppTransaction and opens the modal', async () => {
+  it('confirms a consume via confirmDAppTransaction', async () => {
     ctx.confirmDAppTransaction.mockResolvedValue(undefined);
     setPayload(consumePayload());
     render(<ConfirmPage />);
@@ -589,7 +597,6 @@ describe('consume payload', () => {
     });
 
     await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', true, false));
-    expect(openTransactionModal).toHaveBeenCalledTimes(1);
   });
 });
 

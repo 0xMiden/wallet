@@ -10,7 +10,7 @@ import {
   type Proposal
 } from '@openzeppelin/miden-multisig-client';
 
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
+import { DEFAULT_GUARDIAN_ENDPOINT, DEFAULT_NETWORK, MIDEN_NETWORK_ENDPOINTS } from 'lib/miden-chain/constants';
 import * as secureHotKey from 'lib/secure-hot-key';
 import type { GeneratedHotKey } from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
@@ -24,6 +24,20 @@ import { fetchFromStorage } from '../front/storage';
 import { accountIdStringToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
+/**
+ * Structural GuardianHttpError auth-rejection check (401 /
+ * `authentication_failed` / `signer_not_authorized`). Duck-typed rather than
+ * `instanceof GuardianHttpError` so it survives test mocks of the multisig
+ * client and any duplicate-package instance of the error class (same
+ * convention as the 409 check in `./serialize.ts`).
+ */
+export const isGuardianAuthRejection = (err: unknown): boolean => {
+  if (typeof err !== 'object' || err === null) return false;
+  const status = 'status' in err ? err.status : undefined;
+  const code = 'code' in err ? err.code : undefined;
+  return status === 401 || code === 'authentication_failed' || code === 'signer_not_authorized';
+};
+
 const MAX_SYNC_RETRIES = 30;
 const SYNC_RETRY_DELAY_MS = 1000;
 // The guardian typically re-canonicalizes an accepted delta within ~2-10 ticks,
@@ -36,6 +50,7 @@ const SYNC_RETRY_DELAY_MS = 1000;
 const MAX_GUARDIAN_CANONICALIZE_RETRIES = 30;
 const MAX_GUARDIAN_REGISTER_RETRIES = 5;
 const GUARDIAN_REGISTER_RETRY_DELAY_MS = 2000;
+const MIDEN_RPC_ENDPOINT = MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -84,7 +99,10 @@ export class MultisigService {
       const webClient = (await getMidenClient()).client;
 
       registerGuardianOrigin(guardianEndpoint);
-      const client = new MultisigClient(webClient, { guardianEndpoint });
+      const client = new MultisigClient(webClient, {
+        guardianEndpoint,
+        midenRpcEndpoint: MIDEN_RPC_ENDPOINT
+      });
       // `load` drives the shared WASM web-client, so it must be serialized with
       // every other client operation via the global mutex.
       const multisig = await withWasmClientLock(() => client.load(account.id().toString(), signer));
@@ -247,6 +265,17 @@ export class MultisigService {
     await this.multisig.signProposal(id);
   }
 
+  /**
+   * Tell the Guardian that a canonicalization candidate will not be submitted.
+   *
+   * This records an abandonment intent rather than immediately discarding the
+   * candidate. The Guardian first checks that the transaction did not land, so
+   * this is safe to call after ambiguous prover/RPC/submit failures.
+   */
+  async abandonCandidate(nonce: number): Promise<void> {
+    await this.multisig.abandonCandidate(nonce);
+  }
+
   async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
     const proposal = await this.multisig.signProposal(id);
     if (proposal.metadata.proposalType === 'custom') {
@@ -304,6 +333,13 @@ export class MultisigService {
           await delay(SYNC_RETRY_DELAY_MS);
           continue;
         }
+
+        // Auth rejections (401 / authentication_failed / signer_not_authorized)
+        // are NOT self-healed here: never push local state to a guardian that
+        // just refused our signer — if our binding is the stale side, the
+        // caller-level cache eviction (guardian-sync) rebuilds it; if the
+        // guardian is the stale side, that's an operator/registration problem
+        // to surface, not overwrite. Rethrow like any other error.
 
         // `multisig.syncState` refuses to overwrite local state while the guardian
         // is still canonicalizing a delta it just accepted: its stored blob lags the
@@ -423,9 +459,9 @@ export class MultisigService {
         webClient,
         targetThreshold,
         targetSignerCommitments,
-        { signatureScheme: 'ecdsa' }
+        { signatureScheme: 'ecdsa', midenRpcEndpoint: MIDEN_RPC_ENDPOINT }
       );
-      const summary = await executeForSummary(webClient, this.accountId, request);
+      const summary = await executeForSummary(webClient, this.accountId, request, MIDEN_RPC_ENDPOINT);
       return { summaryBase64: u8ToB64(summary.serialize()), saltHex: salt.toHex() };
     });
     const metadata: ProposalMetadata = {

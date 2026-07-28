@@ -28,6 +28,48 @@ import * as nativePlugin from './nativePlugin';
 
 export type { GeneratedHotKey } from './jsFallback';
 
+function readErrorField(error: unknown, key: string): string | undefined {
+  if (typeof error === 'object' && error !== null && key in error) {
+    const value = Reflect.get(error, key);
+    return typeof value === 'string' ? value : undefined;
+  }
+  return undefined;
+}
+
+function describeError(error: unknown): string {
+  const code = readErrorField(error, 'code');
+  const message = readErrorField(error, 'message') ?? String(error);
+  return code ? `[${code}] ${message}` : message;
+}
+
+/**
+ * Run a native hot-key op and, if it fails on mobile, record the raw error and
+ * surface the report prompt before re-throwing (the caller still sees the
+ * failure — this only adds the user-facing signal). We report on ANY native
+ * rejection, not just a specific error code: a stuck transaction can come from
+ * any plugin failure, and the native codes are only best-effort — so the
+ * isMobile() gate is the whole condition. Recovered failures (a
+ * HARDWARE_UNAVAILABLE that falls back to JS at generate time) never reach
+ * here, because the wrapped op resolves instead of throwing. The report
+ * module is imported lazily so the wallet-prompts / faucet / React dependencies
+ * never enter the facade's static graph (e.g. the extension service-worker bundle).
+ */
+async function withHardwareFailureReport<T>(op: () => Promise<T>): Promise<T> {
+  try {
+    return await op();
+  } catch (error) {
+    if (isMobile()) {
+      try {
+        const { reportHotKeyHardwareFailure } = await import('lib/wallet-prompts');
+        await reportHotKeyHardwareFailure(describeError(error));
+      } catch (reportError) {
+        console.warn('[secure-hot-key] failed to surface hot-key failure prompt:', reportError);
+      }
+    }
+    throw error;
+  }
+}
+
 // Reject code raised by both native HotKey plugins when Keystore/StrongBox
 // (Android) or the Secure Enclave (iOS) genuinely cannot be used — distinct
 // from transient states (DEVICE_LOCKED) and user-driven ones (USER_CANCELLED).
@@ -44,17 +86,19 @@ function implFor(ciphertext: string) {
 
 export async function generateHotKey() {
   if (!isMobile()) return jsFallback.generateHotKey();
-  try {
-    return await nativePlugin.generateHotKey();
-  } catch (error) {
-    if (!isHardwareUnavailable(error)) throw error;
-    console.warn('[secure-hot-key] secure hardware unavailable, generating JS-fallback hot key:', error);
-    return jsFallback.generateHotKey();
-  }
+  return withHardwareFailureReport(async () => {
+    try {
+      return await nativePlugin.generateHotKey();
+    } catch (error) {
+      if (!isHardwareUnavailable(error)) throw error;
+      console.warn('[secure-hot-key] secure hardware unavailable, generating JS-fallback hot key:', error);
+      return jsFallback.generateHotKey();
+    }
+  });
 }
 
 export async function signHotDigest(ciphertext: string, wordHex: string): Promise<string> {
-  return implFor(ciphertext).signHotDigest(ciphertext, wordHex);
+  return withHardwareFailureReport(() => implFor(ciphertext).signHotDigest(ciphertext, wordHex));
 }
 
 export async function deleteHotKey(ciphertext: string): Promise<void> {
@@ -69,5 +113,5 @@ export async function deleteHotKey(ciphertext: string): Promise<void> {
  * so the format matches the native return.
  */
 export async function revealHotKey(ciphertext: string): Promise<string> {
-  return implFor(ciphertext).revealHotKey(ciphertext);
+  return withHardwareFailureReport(() => implFor(ciphertext).revealHotKey(ciphertext));
 }

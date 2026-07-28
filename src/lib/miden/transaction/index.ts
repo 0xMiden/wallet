@@ -1,4 +1,4 @@
-import { NoteType, type TransactionResult, WasmWebClient } from '@miden-sdk/miden-sdk/lazy';
+import { NoteType, TransactionProver, WasmWebClient } from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 
 import {
@@ -15,10 +15,12 @@ import {
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { DEFAULT_NETWORK, MIDEN_NETWORK_ENDPOINTS } from 'lib/miden-chain/constants';
+import { isMobile } from 'lib/platform';
 import { logger } from 'shared/logger';
 
 import { cancelStaleQueuedTransactions, cancelStuckTransactions, cancelTransaction } from './cancel';
 import {
+  completeBridgedSendTransaction,
   completeConsumeTransaction,
   completeCustomTransaction,
   completeReplaceHotKeyTransaction,
@@ -37,6 +39,7 @@ import {
 } from './helper';
 import { importAllNotes } from '../activity/notes';
 import {
+  BridgedSendTransaction,
   ConsumeTransaction,
   ITransaction,
   ITransactionStatus,
@@ -50,13 +53,16 @@ import {
 } from '../db/types';
 import { accountIdStringToSdk, canonicalWalletAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { MidenClientCreateOptions, proveWithFallback } from '../sdk/miden-client-interface';
+import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
+import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 
 export * from './cancel';
 export * from './complete';
+export * from './constants';
 export * from './get';
 export * from './helper';
 export * from './initiate';
+export * from './retry';
 
 // Transaction types whose proposal creator is side-effect-free and idempotent on
 // a pending-delta 409, so returning the tx to the queue for a later cycle is safe.
@@ -267,6 +273,17 @@ export const generateTransaction = async (
         return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
       case 'swap':
         return await midenClient.swapTransaction(transaction as SwapTransaction);
+      case 'bridged-send':
+        // Epoch bridges by sending a recallable P2IDE note (send-style, no
+        // `requestBytes`); Agglayer carries a pre-built request.
+        if (!transaction.requestBytes) {
+          return midenClient.sendTransaction(transaction as SendTransaction);
+        }
+        return midenClient.newTransaction(
+          transaction.accountId,
+          transaction.requestBytes,
+          transaction.delegateTransaction
+        );
       case 'execute':
       default:
         return await midenClient.newTransaction(
@@ -286,6 +303,9 @@ export const generateTransaction = async (
       break;
     case 'swap':
       await completeSwapTransaction(transaction as SwapTransaction, result);
+      break;
+    case 'bridged-send':
+      await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
       break;
     case 'execute':
     default:
@@ -378,8 +398,9 @@ const generateGuardianTransaction = async (
       // popped Face ID on every attempt. That flag is gone (hot signing is
       // silent everywhere now), so the cold detour buys nothing and the cached
       // hot service is strictly cheaper than building a transient cold one.
+      const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      proposalResult = await withGuardianConflictRetry(() => service.createConsumeNotesProposal([consumeTx.noteId]));
+      proposalResult = await withGuardianConflictRetry(() => service.createConsumeNotesProposal(consumeNoteIds));
       break;
     }
     case 'switch-guardian': {
@@ -431,6 +452,24 @@ const generateGuardianTransaction = async (
       proposalResult = proposal;
       break;
     }
+    case 'bridged-send': {
+      const bridgeTx = transaction as BridgedSendTransaction;
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      if (bridgeTx.requestBytes) {
+        // Agglayer: preview the pre-built request into a custom multisig proposal.
+        proposalResult = await service.createCustomProposal(bridgeTx.requestBytes);
+      } else {
+        // Epoch: a recallable P2IDE note to the solver's allocator — propose it as
+        // a send. (The multisig send proposal is P2ID today, so the Epoch recall
+        // safety net is not yet available on Guardian accounts.)
+        proposalResult = await service.createSendProposal(
+          bridgeTx.secondaryAccountId!,
+          bridgeTx.faucetId,
+          BigInt(bridgeTx.amount)
+        );
+      }
+      break;
+    }
     case 'swap': {
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       const swapTx = transaction as SwapTransaction;
@@ -444,16 +483,20 @@ const generateGuardianTransaction = async (
       if (!transaction.requestBytes) {
         const requestBytes = await withWasmClientLock(async () => {
           const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
-          const tr = await client.newPswapCreateTransactionRequest(
-            accountIdStringToSdk(swapTx.accountId),
-            accountIdStringToSdk(swapTx.faucetId),
-            swapTx.amount,
-            accountIdStringToSdk(swapTx.extraInputs.requestedFaucetId),
-            swapTx.extraInputs.requestedAmount,
-            NoteType.Public,
-            NoteType.Public
-          );
-          return tr.serialize();
+          try {
+            const tr = await client.newPswapCreateTransactionRequest(
+              accountIdStringToSdk(swapTx.accountId),
+              accountIdStringToSdk(swapTx.faucetId),
+              swapTx.amount,
+              accountIdStringToSdk(swapTx.extraInputs.requestedFaucetId),
+              swapTx.extraInputs.requestedAmount,
+              NoteType.Public,
+              NoteType.Public
+            );
+            return tr.serialize();
+          } finally {
+            client.terminate();
+          }
         });
         transaction.requestBytes = requestBytes;
         await Repo.transactions.where({ id: transaction.id }).modify(t => {
@@ -524,54 +567,71 @@ const generateGuardianTransaction = async (
     await withGuardianConflictRetry(() => coldService.signProposal(proposalResult.id));
   }
 
-  const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
-  const options: MidenClientCreateOptions = {
-    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-      const keyString = Buffer.from(publicKey).toString('hex');
-      const signingInputsString = Buffer.from(signingInputs).toString('hex');
-      return await signCallback(keyString, signingInputsString);
-    }
-  };
-
-  await setTransactionStage(transaction.id, 'sending');
-  const transactionResult = await withWasmClientLock(async () => {
-    try {
-      const midenClient = await getMidenClient(options);
-      const sdkClient = midenClient.client as unknown as {
-        _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
-      };
-      const withInner = sdkClient._withInnerWebClient;
-      if (typeof withInner !== 'function') {
-        throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
+  let submittedTransaction;
+  try {
+    const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
+    const options: MidenClientCreateOptions = {
+      signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
+        const keyString = Buffer.from(publicKey).toString('hex');
+        const signingInputsString = Buffer.from(signingInputs).toString('hex');
+        return await signCallback(keyString, signingInputsString);
       }
+    };
 
-      return (await withInner.call(sdkClient, async (inner: any) => {
-        await setTransactionStage(transaction.id, 'executing');
-        const executedTx = await inner.executeTransaction(accountIdStringToSdk(transaction.accountId), tr);
-        await setTransactionStage(transaction.id, 'proving');
-        // Prove via the shared prover selection (delegate → remote; otherwise
-        // native on mobile / WASM local on desktop), identical to the
-        // non-guardian path. We MUST pass a prover explicitly: this is the RAW
-        // inner WebClient, whose default prover is the single-threaded
-        // main-thread WASM one — calling `inner.proveTransaction(executedTx)`
-        // with no prover freezes the mobile UI for the whole multi-second prove.
-        // In the delegate branch `proveWithFallback` calls the closure with no
-        // prover, so we substitute the client's remote prover here.
-        const remoteProver = (midenClient.client as unknown as { defaultProver?: unknown }).defaultProver ?? undefined;
-        const provedTx = await proveWithFallback(
-          prover => inner.proveTransaction(executedTx, prover ?? remoteProver),
-          transaction.delegateTransaction
-        );
-        await setTransactionStage(transaction.id, 'submitting');
-        const blockNumber = await inner.submitProvenTransaction(provedTx, executedTx);
-        await inner.applyTransaction(executedTx, blockNumber);
-        return executedTx;
-      })) as TransactionResult;
-    } catch (error) {
-      console.error('Error during transaction submission or execution', { error });
-      throw error;
+    await setTransactionStage(transaction.id, 'sending');
+    submittedTransaction = await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient(options);
+      await setTransactionStage(transaction.id, 'executing');
+      const executedTx = await midenClient.client.transactions.executeRequest(transaction.accountId, tr);
+      await setTransactionStage(transaction.id, 'proving');
+      let provenTx;
+      if (!transaction.delegateTransaction) {
+        provenTx = await executedTx.prove({ prover: TransactionProver.newLocalProver() });
+      } else {
+        // Delegated (remote) proving. The client's default prover is the remote
+        // gRPC prover on every platform, and its ~10s deadline is too tight for a
+        // heavyweight guardian multisig proof when the machine is under load — a
+        // single "Deadline expired" used to kill the whole co-signed transaction
+        // (surfacing as the guardian 409 canonicalize-conflict retry loop and a
+        // claim timeout), because the guardian pipeline drives the raw client
+        // directly and had none of the local fallback the non-guardian path gets
+        // for free from `proveWithFallback`. Give it that resilience: on remote
+        // failure, re-prove the SAME executed tx locally. Re-proving is safe
+        // because `proveTransaction` borrows the executed result (only the prover
+        // is consumed, and each attempt passes a fresh one). The local prover
+        // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
+        // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
+        try {
+          provenTx = await executedTx.prove({});
+        } catch (proveError) {
+          console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
+          const fallbackProver = isMobile()
+            ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+            : TransactionProver.newLocalProver();
+          provenTx = await executedTx.prove({ prover: fallbackProver });
+        }
+      }
+      await setTransactionStage(transaction.id, 'submitting');
+      const submittedTx = await provenTx.submit();
+      await submittedTx.apply();
+      return executedTx;
+    });
+  } catch (error) {
+    console.error('Error during Guardian transaction submission or execution', { error });
+    try {
+      await service.abandonCandidate(proposalResult.nonce);
+    } catch (abandonError) {
+      // Cleanup must never mask the transaction failure. The abandonment call
+      // is idempotent, so a later recovery path can safely retry it.
+      console.error('Failed to request Guardian candidate abandonment', {
+        nonce: proposalResult.nonce,
+        error: abandonError
+      });
     }
-  });
+    throw error;
+  }
+
+  const { id, result } = submittedTransaction;
 
   // For switch-guardian, the new guardian must be seeded with the POST-switch
   // account state. submit() returns after submission, not after inclusion, so
@@ -592,7 +652,7 @@ const generateGuardianTransaction = async (
     await setTransactionStage(transaction.id, 'confirming');
     await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
-      await midenClient.waitForTransactionCommit(transactionResult.executedTransaction().id().toHex());
+      await midenClient.waitForTransactionCommit(id.toHex());
     });
   }
 
@@ -627,40 +687,38 @@ const generateGuardianTransaction = async (
 
   switch (transaction.type) {
     case 'send':
-      await completeSendTransaction(transaction as SendTransaction, transactionResult);
+      await completeSendTransaction(transaction as SendTransaction, result);
       break;
     case 'consume':
-      await completeConsumeTransaction(transaction.id, transactionResult);
+      await completeConsumeTransaction(transaction.id, result);
       break;
     case 'switch-guardian':
       await completeSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
-        transactionResult,
+        result,
         service,
         guardianProvider
       );
       break;
     case 'replace-hot-key':
-      await completeReplaceHotKeyTransaction(
-        transaction as ReplaceHotKeyTransaction,
-        transactionResult,
-        guardianProvider,
-        service
-      );
+      await completeReplaceHotKeyTransaction(transaction as ReplaceHotKeyTransaction, result, guardianProvider);
       break;
     case 'update-procedure-threshold':
       await completeUpdateProcedureThresholdTransaction(
         transaction as UpdateProcedureThresholdTransaction,
-        transactionResult,
+        result,
         service
       );
       break;
     case 'swap':
-      await completeSwapTransaction(transaction as SwapTransaction, transactionResult);
+      await completeSwapTransaction(transaction as SwapTransaction, result);
+      break;
+    case 'bridged-send':
+      await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
       break;
     case 'execute':
     default:
-      await completeCustomTransaction(transaction, transactionResult);
+      await completeCustomTransaction(transaction, result);
       break;
   }
 

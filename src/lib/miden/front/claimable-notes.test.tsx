@@ -161,6 +161,55 @@ describe('useClaimableNotes (extension mode)', () => {
     expect(result.current.data?.[0]?.id).toBe('n1');
   });
 
+  it('hides swap-managed notes while leaving unrelated notes visible', () => {
+    const metadata = { decimals: 6, symbol: 'TOK', name: 'Token' };
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'swap-tip',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata,
+        swapOrder: {
+          orderId: '77',
+          depth: 2,
+          role: 'tip',
+          lineageState: 'active',
+          expiresAt: 220,
+          autoConsume: true
+        }
+      },
+      {
+        id: 'manual-swap-tip',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata,
+        swapOrder: {
+          orderId: '78',
+          depth: 0,
+          role: 'tip',
+          lineageState: 'active',
+          expiresAt: 220,
+          autoConsume: false
+        }
+      },
+      {
+        id: 'ordinary-same-token-and-amount',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata
+      }
+    ];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    expect(result.current.data?.map(note => note.id)).toEqual(['manual-swap-tip', 'ordinary-same-token-and-amount']);
+  });
+
   it('mutate triggers a SyncRequest via intercom', async () => {
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
     await result.current.mutate();

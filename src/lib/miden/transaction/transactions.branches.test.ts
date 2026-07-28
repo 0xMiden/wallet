@@ -14,6 +14,7 @@ import { NoteTypeEnum } from '../types';
 import {
   completeSendTransaction,
   getCompletedTransactions,
+  getSwapSettlementNotes,
   cancelStaleQueuedTransactions,
   waitForTransactionCompletion,
   generateTransactionsLoop,
@@ -364,6 +365,92 @@ describe('getCompletedTransactions', () => {
     }
     const txs = await getCompletedTransactions('acc-1', 2, 5);
     expect(txs).toHaveLength(3);
+  });
+});
+
+describe('getSwapSettlementNotes', () => {
+  it('groups completed settlement consumes by kind and dedupes note ids', async () => {
+    txStore.push(
+      {
+        id: 'c-1',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1', 'n-2'],
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-2',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        // Same note re-tagged by a later batch — must not appear twice.
+        noteIds: ['n-2'],
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-3',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteId: 'n-3',
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim' }
+      }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settled).toEqual(['n-1', 'n-2']);
+    expect(notes.reclaimed).toEqual(['n-3']);
+  });
+
+  it('treats an untagged kind as a settle and reads the singular noteId', async () => {
+    txStore.push({
+      id: 'c-1',
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      noteId: 'n-1',
+      extraInputs: { swapOrderTxId: 'swap-1' }
+    });
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settled).toEqual(['n-1']);
+    expect(notes.reclaimed).toEqual([]);
+  });
+
+  it('ignores consumes for other orders, other types and non-completed rows', async () => {
+    txStore.push(
+      {
+        id: 'c-other-order',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-x'],
+        extraInputs: { swapOrderTxId: 'swap-2', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-queued',
+        type: 'consume',
+        status: ITransactionStatus.Queued,
+        noteIds: ['n-y'],
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-not-consume',
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-z'],
+        extraInputs: { swapOrderTxId: 'swap-1' }
+      },
+      { id: 'c-untagged', type: 'consume', status: ITransactionStatus.Completed, noteIds: ['n-w'] }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settled).toEqual([]);
+    expect(notes.reclaimed).toEqual([]);
+  });
+
+  it('returns empty buckets when the order has no settlement consumes at all', async () => {
+    const notes = await getSwapSettlementNotes('swap-unknown');
+    expect(notes).toEqual({ settled: [], reclaimed: [] });
   });
 });
 

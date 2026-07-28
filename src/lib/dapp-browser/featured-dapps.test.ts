@@ -30,7 +30,8 @@ describe('FEATURED_DAPPS', () => {
       'lumina',
       'qash',
       'playground',
-      'miden-name'
+      'miden-name',
+      'swap-faucet'
     ]);
   });
 

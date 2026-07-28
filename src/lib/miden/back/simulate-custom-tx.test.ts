@@ -42,7 +42,12 @@ describe('simulateCustomTransaction', () => {
     });
     expect(importNoteBytes).toHaveBeenCalledTimes(2);
     expect(syncState).toHaveBeenCalledTimes(1);
-    expect(executeForSummary).toHaveBeenCalledWith(fakeClient, 'hex:mtst1abc', { __req: expect.any(Uint8Array) });
+    expect(executeForSummary).toHaveBeenCalledWith(
+      fakeClient,
+      'hex:mtst1abc',
+      { __req: expect.any(Uint8Array) },
+      expect.any(String)
+    );
     expect(res).toEqual({ summaryBytes: 'b64:1-2-3' });
   });
 
@@ -86,7 +91,12 @@ describe('simulateCustomTransaction', () => {
 
   it('passes a hex address straight through without calling accountIdStringToSdk', async () => {
     const res = await simulateCustomTransaction({ address: '0xabc', transactionRequest: 'reqB64' });
-    expect(executeForSummary).toHaveBeenCalledWith(fakeClient, '0xabc', { __req: expect.any(Uint8Array) });
+    expect(executeForSummary).toHaveBeenCalledWith(
+      fakeClient,
+      '0xabc',
+      { __req: expect.any(Uint8Array) },
+      expect.any(String)
+    );
     expect(accountIdStringToSdk as jest.Mock).not.toHaveBeenCalled();
     expect(res).toEqual({ summaryBytes: 'b64:1-2-3' });
   });

@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { ConnectivityCategory } from 'lib/miden/activity/connectivity-state';
 import { useConnectivityState } from 'lib/miden/activity/use-connectivity-state';
+import { requestImmediateSync } from 'lib/miden/front/useSyncTrigger';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType } from 'lib/shared/types';
@@ -91,16 +92,13 @@ export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ clas
   const onRetry = useCallback(() => {
     hapticLight();
     if (!isExtension()) {
-      // On mobile/desktop sync runs in-process via useSyncTrigger; flipping
-      // the resolving flag prompts a UI hint that a retry is in progress.
-      // The next sync tick (max ~3s) will either clear the issue or
-      // re-mark it.
+      requestImmediateSync();
       return;
     }
     // Extension: poke the SW to sync immediately. SW will clear the
     // category on success or re-mark it on failure.
     void getIntercom()
-      .request({ type: WalletMessageType.SyncRequest })
+      .request({ type: WalletMessageType.SyncRequest, force: true })
       .catch(() => {});
   }, []);
 
@@ -133,13 +131,14 @@ export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ clas
           {t(view.ctaKey)}
         </button>
       )}
-      <Icon
-        name={IconName.Close}
-        size="sm"
-        fill="currentColor"
-        className="cursor-pointer hover:opacity-100 opacity-50"
+      <button
+        type="button"
         onClick={onDismiss}
-      />
+        aria-label={t('close')}
+        className="flex size-8 shrink-0 items-center justify-center rounded-md opacity-50 hover:bg-gray-100 hover:opacity-100"
+      >
+        <Icon name={IconName.Close} size="sm" fill="currentColor" />
+      </button>
     </div>
   );
 };
