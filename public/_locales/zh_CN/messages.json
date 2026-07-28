@@ -3116,6 +3116,10 @@
     "message": "失败的",
     "englishSource": "Failed"
   },
+  "earnDepositGuardianUnsupported": {
+    "message": "Guardian 账户尚不支持赚取存款。切换至标准账户进行存款。",
+    "englishSource": "Earn deposits aren’t available on Guardian accounts yet. Switch to a standard account to deposit."
+  },
   "reclaimFunds": {
     "message": "收回资金",
     "englishSource": "Reclaim funds"

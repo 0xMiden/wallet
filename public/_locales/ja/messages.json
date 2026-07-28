@@ -3116,6 +3116,10 @@
     "message": "失敗した",
     "englishSource": "Failed"
   },
+  "earnDepositGuardianUnsupported": {
+    "message": "Guardian アカウントではまだデポジットの獲得は利用できません。入金するには標準口座に切り替えてください。",
+    "englishSource": "Earn deposits aren’t available on Guardian accounts yet. Switch to a standard account to deposit."
+  },
   "reclaimFunds": {
     "message": "資金を回収する",
     "englishSource": "Reclaim funds"

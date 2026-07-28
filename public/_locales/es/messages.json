@@ -3063,6 +3063,10 @@
     "message": "Fallido",
     "englishSource": "Failed"
   },
+  "earnDepositGuardianUnsupported": {
+    "message": "Los depósitos ganados aún no están disponibles en las cuentas de Guardian. Cambie a una cuenta estándar para depositar.",
+    "englishSource": "Earn deposits aren’t available on Guardian accounts yet. Switch to a standard account to deposit."
+  },
   "reclaimFunds": {
     "message": "Reclamar fondos",
     "englishSource": "Reclaim funds"

@@ -3116,6 +3116,10 @@
     "message": "Arızalı",
     "englishSource": "Failed"
   },
+  "earnDepositGuardianUnsupported": {
+    "message": "Para yatırma özelliği henüz Guardian hesaplarında mevcut değil. Para yatırmak için standart bir hesaba geçin.",
+    "englishSource": "Earn deposits aren’t available on Guardian accounts yet. Switch to a standard account to deposit."
+  },
   "reclaimFunds": {
     "message": "Fonları geri alın",
     "englishSource": "Reclaim funds"
