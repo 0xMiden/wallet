@@ -5,6 +5,7 @@ import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
+import { setAgglayerFaucetForE2E } from 'lib/agglayer/b2agg/constant';
 import { installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
@@ -765,6 +766,10 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   (globalThis as any).__TEST_STORE__ = useWalletStore;
   (globalThis as any).__TEST_INTERCOM__ = getIntercom();
   installSwapTestHooks();
+  // Point the bridge-OUT AggLayer "Slow" route at a runtime-created test faucet
+  // (the real bridge faucet is un-mintable). Read front-side by createB2AggNote +
+  // the send-flow route gate. Zero production impact (E2E-gated).
+  (globalThis as any).__TEST_SET_AGGLAYER_FAUCET__ = setAgglayerFaucetForE2E;
   // Hex→bech32 faucet-id conversion. iOS E2E needs this to inject
   // synthetic metadata for the CLI-deployed test faucet (whose on-chain
   // procedure layout the SDK can't parse, so the real metadata RPC fails

@@ -125,11 +125,87 @@ export async function bridgeOutFast(wallet: Wallet, opts: BridgeOutFastOptions):
   await page.waitForURL(/generating-transaction/, { timeout: 60_000 });
 }
 
+export interface BridgeOutSlowOptions {
+  /** EVM (0x) recipient of the bridged asset. */
+  destAddress: `0x${string}`;
+  /** Symbol of the funded bridgeable token (matches `fundBridgeToken`). */
+  tokenSymbol: string;
+  /**
+   * Hex faucet id of the funded token — the Slow route is hard-gated on the
+   * bridgeable faucet, so this points the E2E override at the funded test faucet.
+   */
+  faucetHex: string;
+  /** Human amount to bridge, as typed in the UI (e.g. '1'). */
+  amount: string;
+  /** Per-step timeout (default 30s). */
+  stepTimeoutMs?: number;
+}
+
+/**
+ * Drive the real Send flow to bridge a token to a 0x address via the Slow
+ * (AggLayer) route. Unlike Fast, there is NO live quote — the Slow card shows a
+ * fixed "no fee" and `bridge-route-confirm` is never disabled — so nothing is
+ * waited on beyond the route becoming ENABLED. The Slow route is gated on the
+ * bridgeable faucet token (`slowEnabled`), so the caller MUST have set the E2E
+ * faucet override (`__TEST_SET_AGGLAYER_FAUCET__`) to the funded token's faucet
+ * BEFORE this call — otherwise `bridge-route-slow` stays disabled and this fails
+ * fast at the `toBeEnabled` gate (rather than silently taking the Fast fallback).
+ */
+export async function bridgeOutSlow(wallet: Wallet, opts: BridgeOutSlowOptions): Promise<void> {
+  const { page, extensionId } = wallet;
+  const step = opts.stepTimeoutMs ?? 30_000;
+
+  await page.goto(`chrome-extension://${extensionId}/fullpage.html#/send`);
+  await expect(page.getByTestId('send-flow')).toBeVisible({ timeout: step });
+
+  // Point the Slow route at the funded test faucet. Set AFTER the page load (the
+  // override is a front module var; `fundBridgeToken`'s claim reloads the page,
+  // which would reset it) and BEFORE the token is picked, so `isBridgeableToken`
+  // is true from the first render and the Slow card is enabled.
+  await page.evaluate(id => {
+    (globalThis as unknown as { __TEST_SET_AGGLAYER_FAUCET__: (v: string) => void }).__TEST_SET_AGGLAYER_FAUCET__(id);
+  }, opts.faucetHex);
+
+  const flow = page.getByTestId('send-flow');
+
+  // Recipient: a 0x address flips the flow to cross-chain and reveals the network row.
+  await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
+  await flow.getByTestId('send-network-selector').click({ timeout: step });
+  await page.getByTestId('send-network-sepolia').click({ timeout: step });
+  await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
+
+  // Amount: pick the bridgeable token, type the amount.
+  await flow.getByTestId('send-token-selector').click({ timeout: step });
+  await page.getByTestId(`send-token-${opts.tokenSymbol}`).click({ timeout: step });
+  await flow.getByTestId('send-amount-input').fill(opts.amount);
+  await flow.getByTestId('send-amount-confirm').click({ timeout: step });
+
+  // Route: Slow (AggLayer). Enabled only when the token is the bridgeable faucet
+  // (the E2E override) — assert that gate opened before selecting it.
+  await expect(flow.getByTestId('bridge-route-slow')).toBeEnabled({ timeout: step });
+  await flow.getByTestId('bridge-route-slow').click();
+  await flow.getByTestId('bridge-route-confirm').click({ timeout: step });
+
+  // Review -> submit -> generating-transaction.
+  await page.getByTestId('send-review-submit').click({ timeout: step });
+  await page.waitForURL(/generating-transaction/, { timeout: 60_000 });
+}
+
 export interface BridgedSendRow {
   /** ITransactionStatus: Queued=0, GeneratingTransaction=1, Completed=2, Failed=3. */
   status: number;
   displayMessage?: string;
-  extraInputs?: { intentNonce?: string; outputAmount?: string; evmTxHash?: string };
+  transactionId?: string;
+  outputNoteIds?: string[];
+  extraInputs?: {
+    intentNonce?: string;
+    outputAmount?: string;
+    evmTxHash?: string;
+    /** 'agglayer' (Slow) | 'epoch' (Fast). */
+    provider?: string;
+    /** AggLayer L1 claim lifecycle: 'pending' | 'ready' | 'claimed'. */
+    claimStatus?: string;
+  };
 }
 
 /**
@@ -151,7 +227,15 @@ export async function readBridgedSendRows(page: Page): Promise<BridgedSendRow[]>
         type?: string;
         status?: number;
         displayMessage?: string;
-        extraInputs?: { intentNonce?: string; outputAmount?: string; evmTxHash?: string };
+        transactionId?: string;
+        outputNoteIds?: string[];
+        extraInputs?: {
+          intentNonce?: string;
+          outputAmount?: string;
+          evmTxHash?: string;
+          provider?: string;
+          claimStatus?: string;
+        };
       }> = await new Promise((res, rej) => {
         const r = db.transaction('transactions', 'readonly').objectStore('transactions').getAll();
         r.onsuccess = () => res(r.result);
@@ -159,7 +243,13 @@ export async function readBridgedSendRows(page: Page): Promise<BridgedSendRow[]>
       });
       return all
         .filter(t => t.type === 'bridged-send')
-        .map(t => ({ status: t.status ?? -1, displayMessage: t.displayMessage, extraInputs: t.extraInputs }));
+        .map(t => ({
+          status: t.status ?? -1,
+          displayMessage: t.displayMessage,
+          transactionId: t.transactionId,
+          outputNoteIds: t.outputNoteIds,
+          extraInputs: t.extraInputs
+        }));
     } finally {
       db.close();
     }

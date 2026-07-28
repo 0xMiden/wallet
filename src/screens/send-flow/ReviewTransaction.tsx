@@ -8,7 +8,7 @@ import { useAppEnv } from 'app/env';
 import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
-import { EVM_AGGLAYER_NETWORK_ID, MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { EVM_AGGLAYER_NETWORK_ID, getAgglayerFaucetId } from 'lib/agglayer/b2agg/constant';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
@@ -89,7 +89,7 @@ export const ReviewTransaction: React.FC = () => {
   // Cross-chain sends over the Slow (Agglayer) route only carry the dedicated
   // bridgeable faucet token; Fast (Epoch) bridges any token.
   const isBridgeableToken =
-    !!token && accountIdStringToSdk(token.id.toLowerCase()).toString() === MIDEN_AGGLAYER_FAUCET_ID.toLowerCase();
+    !!token && accountIdStringToSdk(token.id.toLowerCase()).toString() === getAgglayerFaucetId().toLowerCase();
 
   const amountBaseUnits = useMemo(() => {
     if (!token || !amount) return undefined;

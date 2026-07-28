@@ -7,6 +7,20 @@ import { buildNativeReownProvider, isNativeReownAvailable, NativeReown } from 'l
 
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 
+// E2E-only: the Epoch SDK's on-chain reads + receipt-waits use the walletClient
+// chain's default RPC (viem's `sepolia` → public thirdweb RPC), NOT the
+// walletconnect/config.ts override — so without this the bridge-in deposit would
+// broadcast to Anvil but poll public Sepolia forever. Redirect the chain's
+// default RPC at the local Anvil under MIDEN_E2E_TEST. Inert in production
+// (E2E_EVM_RPC_URL is baked only by the e2e build).
+const E2E_EVM_RPC_URL =
+  process.env.MIDEN_E2E_TEST === 'true' ? (process.env.E2E_EVM_RPC_URL ?? '').trim() : '';
+
+function withE2eRpc(chain: Chain): Chain {
+  if (!E2E_EVM_RPC_URL) return chain;
+  return { ...chain, rpcUrls: { ...chain.rpcUrls, default: { http: [E2E_EVM_RPC_URL] } } };
+}
+
 export interface EvmConnection {
   address?: string;
   chainId?: number;
@@ -42,10 +56,11 @@ export async function buildEpochWalletClient(
   address: `0x${string}`,
   opts?: { chainOverride?: number }
 ): Promise<WalletClient> {
-  const chain: Chain =
+  const baseChain: Chain =
     opts?.chainOverride !== undefined && opts.chainOverride !== sepolia.id
       ? { ...sepolia, id: opts.chainOverride }
       : sepolia;
+  const chain = withE2eRpc(baseChain);
   // On mobile the EVM session lives in the native Reown plugin (wagmi is never
   // connected), so back the viem walletClient with a native EIP-1193 shim.
   const rpcUrl = chain.rpcUrls.default.http[0] ?? '';
@@ -71,11 +86,12 @@ export function buildEpochReadOnlyWalletClient(
   address: `0x${string}`,
   opts?: { chainOverride?: number }
 ): WalletClient {
-  const chain: Chain =
+  const baseChain: Chain =
     opts?.chainOverride !== undefined && opts.chainOverride !== sepolia.id
       ? { ...sepolia, id: opts.chainOverride }
       : sepolia;
-  const rpcUrl = sepolia.rpcUrls.default.http[0] ?? '';
+  const chain = withE2eRpc(baseChain);
+  const rpcUrl = chain.rpcUrls.default.http[0] ?? '';
   return createWalletClient({
     account: address,
     chain,

@@ -13,7 +13,7 @@ const defaultState: ReownState = {
 
 let configurePromise: Promise<void> | null = null;
 
-function configureNativeReown(): Promise<void> {
+export function configureNativeReown(): Promise<void> {
   if (!configurePromise) {
     // Reset the cache on rejection: a rejected promise is truthy and would be
     // returned by every later call, permanently poisoning EVM/bridge connect

@@ -5,8 +5,10 @@ import * as path from 'path';
 import type { CLIRunner } from '../harness/cli-runner';
 import type { CLIInvocation, EnvironmentConfig } from '../harness/types';
 
-const faucetInitToml = (symbol: string, decimals: number) =>
-  `[fungible-faucet-metadata]\nmax_supply = 1000000000000\ndecimals = ${decimals}\nsymbol = "${symbol}"\n`;
+const DEFAULT_FAUCET_MAX_SUPPLY = 1_000_000_000_000;
+
+const faucetInitToml = (symbol: string, decimals: number, maxSupply: number | bigint = DEFAULT_FAUCET_MAX_SUPPLY) =>
+  `[fungible-faucet-metadata]\nmax_supply = ${maxSupply}\ndecimals = ${decimals}\nsymbol = "${symbol}"\n`;
 
 /**
  * Classify a `miden-client` CLI stderr as a transient failure that should be
@@ -189,10 +191,10 @@ export class MidenCli {
    * Deploy a new fungible faucet account.
    * Returns the faucet account ID.
    */
-  async createFaucet(symbol = 'TST', decimals = 8): Promise<string> {
+  async createFaucet(symbol = 'TST', decimals = 8, maxSupply: number | bigint = DEFAULT_FAUCET_MAX_SUPPLY): Promise<string> {
     // Write the init storage data TOML
     const tomlPath = path.join(this.workDir, 'faucet-init.toml');
-    fs.writeFileSync(tomlPath, faucetInitToml(symbol, decimals));
+    fs.writeFileSync(tomlPath, faucetInitToml(symbol, decimals, maxSupply));
 
     const createArgs =
       `new-account --account-type public ` +

@@ -68,6 +68,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
             <button
               key={token}
               type="button"
+              data-testid={`bridge-token-${token}`}
               onClick={() => handleSelect(token)}
               className={classNames(
                 'flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors',

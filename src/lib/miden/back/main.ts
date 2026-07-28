@@ -35,6 +35,8 @@ export async function start() {
       const sigHex = await Actions.signTransaction(Buffer.from(pk).toString('hex'), Buffer.from(si).toString('hex'));
       return new Uint8Array(Buffer.from(sigHex, 'hex'));
     });
+    const { installBridgeInTestHooks } = await import('lib/miden/activity/bridge-in-test-hooks');
+    installBridgeInTestHooks();
   }
 
   // SpeculationManager wires through the same MidenClientInterface singleton

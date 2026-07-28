@@ -142,7 +142,12 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
                 rejects the extension bundle's auth JWT (WebSocket close 3000), so
                 the AppKit connect flow can never complete there. */}
             {!isExtension() && (
-              <button type="button" onClick={handleOpenEvm} className="flex items-center gap-4 text-accent-primary">
+              <button
+                type="button"
+                data-testid="receive-cross-chain"
+                onClick={handleOpenEvm}
+                className="flex items-center gap-4 text-accent-primary"
+              >
                 <Icon name={IconName.CrossChain} size="lg" className="shrink-0" />
                 <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">
                   {t('crossChain')}
