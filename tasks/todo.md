@@ -58,7 +58,41 @@ The Compact + USDC ERC-20 + the allocator service + Epoch solver all doubled. Ep
       NOTE: bridge-in harness is HYBRID — local EVM (Anvil + stub + WC counterparty) + REAL Miden
       testnet (no local Miden node in mobile harness; same as every iOS spec + bridge-OUT). Only the
       WC relay is non-local (transport, not chain).
-- [ ] CI gate (mobile job + Foundry/Anvil; relay rate-limit reliability — see mitigations below).
+- [x] CI gate: `.github/workflows/e2e-bridge-in.yml` — post-merge on main (push + workflow_dispatch),
+      macos-26-xlarge, installs Foundry, reuses the tuned sim-boot pattern from e2e-blockchain.yml,
+      bakes E2E_EVM_RPC_URL, runs `bridge-in-deposit --retries=2`. Optional WC_COUNTERPARTY_PROJECT_ID
+      secret to split relay load. COMMITTED + PUSHED (wiktor/bridge-in-e2e: d8ff8699c feature,
+      f277263fa ci). Both SSH-signed.
+
+## Epoch/USDC "Fast" route — HERMETIC DOUBLES (user chose the PR-gate path)
+Investigation done: Epoch solver is hosted-only + watches REAL Sepolia (can't run vs Anvil), so a
+gateable test must stub the allocator+solver. Reconcile is note-id-only (vs AggLayer sender+amount).
+Wallet flow: quote (/checkIfDepositNeeded → gates Fast route) → executeEVMToMiden (solveIntent:
+approve+depositERC20AndRegister on-chain + createAllocation) → row 'delivering' + registerPendingBridgeIn
+by nonce → poll/consume reconcile matches midenNoteId from getIntentStatus.
+Build plan:
+- [x] epoch/client.ts E2E RPC override (SDK reads use chain default RPC, NOT config.ts override) —
+      withE2eRpc() on both builders; EVM→Miden uses buildEpochWalletClient (confirmed via sdk.ts). tsc clean.
+- [x] Fake allocator HTTP server (`fake-epoch-allocator.ts`, port 8548): /suggested-nonce, /checkIfDepositNeeded
+      (resourceLockRequired:true + quote), /compact, /intentStatus (programmable midenNoteId; chainId as NUMBER).
+      CORS for the WKWebView cross-origin fetch. Runs in the playwright node process.
+- [x] Anvil doubles: MockUsdc extended (max allowance → SDK skips approve; approve/transferFrom/balanceOf) +
+      MockCompact at 0x00..9788 (getForcedWithdrawalStatus→(0,0) Disabled; depositERC20AndRegister asserts
+      token==USDC + transferFrom + counts). All 5 selectors verified vs SDK; cast smoke: deposit ok, wrong
+      token reverts. Bytecode embedded in evm-doubles.ts.
+- [x] Anvil `--block-time 1` for waitForTransactionReceipt confirmations:3.
+- [x] Spec `bridge-in-deposit-epoch.ios.spec.ts` + selectBridgeRouteFast helper.
+- [x] Extraction agent gave exact shapes; contracts + allocator built to them.
+- [x] ✅ GREEN on sim (1.2m): real WC connect → real UI (USDC + Fast/Epoch) → Epoch SDK reads stubbed
+      Compact/USDC on Anvil → real depositERC20AndRegister signed by counterparty + broadcast + receipt
+      (confirmations:3 via --block-time 1) → createAllocation to fake allocator → 'delivering' → CLI mints
+      note + programs allocator's intentStatus → Claim-All → note-id reconcile → 'received'/"Bridged from EVM".
+      Asserted: deposit decoded (token=USDC, amount>0), stub depositCount=1, /compact called. One fix
+      from evidence: /compact assert was racy (createAllocation runs AFTER the receipt wait) → made it a poll.
+- [x] CI: extended e2e-bridge-in.yml — added EPOCH_ALLOCATOR_URL; the `bridge-in-deposit` filter runs BOTH
+      deposit specs serially (workers:1), each with its own Anvil (+ Epoch's fake allocator).
+
+## Both bridge-in deposit routes GREEN. AggLayer (ETH/Slow) + Epoch (USDC/Fast). Committing + pushing.
 
 ## Findings to report to the team
 - WALLETCONNECT_PROJECT_ID is NOT set anywhere (repo/CI/release) -> builds fall back to b54ef53.

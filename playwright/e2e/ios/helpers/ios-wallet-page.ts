@@ -189,6 +189,16 @@ export class IosWalletPage implements WalletPage {
     await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', 15_000);
   }
 
+  /**
+   * Pick the Epoch "Fast" route (USDC) and continue to review. The route-confirm
+   * button is gated on the Epoch quote landing (epochStatus === 'quoted'), so the
+   * wider clickWhenEnabled window absorbs the allocator round-trip.
+   */
+  async selectBridgeRouteFast(): Promise<void> {
+    await this.clickWhenEnabled('[data-testid="bridge-route-fast"]', 30_000);
+    await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', 30_000);
+  }
+
   /** Confirm the deposit on the review step (runs handleConfirm → handleSlowBridge). */
   async confirmBridgeDeposit(): Promise<void> {
     await this.clickWhenEnabled('[data-testid="bridge-deposit-review-confirm"]', 20_000);

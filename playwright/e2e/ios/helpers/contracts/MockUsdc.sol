@@ -1,32 +1,44 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// Minimal ERC20-ish stand-in for the bridge-in deposit screen's USDC balance
-/// read on a local Anvil. The screen calls `getBalance(address)` (falling back
-/// to `balanceOf(address)`) via eth_call; against a bare address that returns
-/// "0x" and viem's decodeFunctionResult throws, breaking the amount screen. This
-/// answers both with a valid uint256 (0 by default; anvil_setCode leaves storage
-/// empty) so the screen renders. `setBalance` allows funding if ever needed.
+/// Stateless ERC20-ish stand-in at BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS for the
+/// bridge-in harness on a local Anvil. Serves two callers:
+///   - the deposit screen's USDC balance read (getBalance/balanceOf), so the
+///     amount screen renders instead of throwing on an empty "0x" eth_call;
+///   - the Epoch SDK's deposit path: a MAX `allowance` makes the SDK skip the
+///     `approve` (single-tx deposit), and approve/transferFrom succeed so the
+///     Compact stub can pull funds. Always "funded" (constant balance) so no
+///     setup/funding step is needed.
 ///
-/// Deployed (runtime) bytecode is embedded in ../evm-doubles.ts and placed at
-/// BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS via `anvil_setCode`. Regenerate after
-/// editing: `forge inspect MockUsdc deployedBytecode` (optimizer on, 200 runs).
+/// Deployed (runtime) bytecode is embedded in ../evm-doubles.ts and placed via
+/// `anvil_setCode`. Regenerate after editing:
+/// `forge inspect MockUsdc deployedBytecode` (optimizer on, 200 runs).
 contract MockUsdc {
-    mapping(address => uint256) private balances;
-
-    function getBalance(address account) external view returns (uint256) {
-        return balances[account];
+    function getBalance(address) external pure returns (uint256) {
+        return 1_000_000_000_000;
     }
 
-    function balanceOf(address account) external view returns (uint256) {
-        return balances[account];
+    function balanceOf(address) external pure returns (uint256) {
+        return 1_000_000_000_000;
     }
 
-    function setBalance(address account, uint256 value) external {
-        balances[account] = value;
+    function allowance(address, address) external pure returns (uint256) {
+        return type(uint256).max;
+    }
+
+    function approve(address, uint256) external pure returns (bool) {
+        return true;
+    }
+
+    function transfer(address, uint256) external pure returns (bool) {
+        return true;
+    }
+
+    function transferFrom(address, address, uint256) external pure returns (bool) {
+        return true;
     }
 
     function decimals() external pure returns (uint8) {
-        return 18;
+        return 6;
     }
 }
