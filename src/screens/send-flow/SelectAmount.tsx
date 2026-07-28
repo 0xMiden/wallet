@@ -124,6 +124,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
     <div className="flex flex-col">
       <button
         type="button"
+        data-testid="send-token-selector"
         onClick={() => {
           hapticLight();
           onSelectToken();

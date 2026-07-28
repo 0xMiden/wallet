@@ -50,6 +50,16 @@ declare global {
   var __TEST_REOWN_CONNECT_URI__: () => Promise<string>;
   // eslint-disable-next-line no-var
   var __TEST_REOWN_STATE__: () => Promise<{ connected: boolean; address?: string; chainId?: number }>;
+  // eslint-disable-next-line no-var
+  var __TEST_LATEST_BRIDGE_RECEIVE__: (provider?: IBridgeProvider) => Promise<LatestBridgeReceive | null>;
+}
+
+interface LatestBridgeReceive {
+  id: string;
+  amount?: string;
+  faucetId: string;
+  phase?: IBridgedReceiveExtraInputs['phase'];
+  displayMessage?: string;
 }
 
 export function installBridgeInTestHooks(): void {
@@ -98,6 +108,30 @@ export function installBridgeInTestHooks(): void {
     const { uri } = await NativeReown.connectUri();
     console.log('[bridge-in-e2e] connectUri: got uri len=', uri.length);
     return uri;
+  };
+
+  // Return the newest `bridged-receive` row (optionally filtered by provider),
+  // so the deposit-UI harness can find the row that the REAL `handleConfirm`
+  // created — it doesn't hand the txId back to the DOM — and then mint a
+  // matching-amount note for the AggLayer reconcile.
+  globalThis.__TEST_LATEST_BRIDGE_RECEIVE__ = async (
+    provider?: IBridgeProvider
+  ): Promise<LatestBridgeReceive | null> => {
+    const rows = await Repo.transactions.filter(tx => tx.type === 'bridged-receive').toArray();
+    const filtered = provider
+      ? rows.filter(row => (row.extraInputs as IBridgedReceiveExtraInputs | undefined)?.provider === provider)
+      : rows;
+    filtered.sort((a, b) => b.initiatedAt - a.initiatedAt);
+    const row = filtered[0];
+    if (!row) return null;
+    const inputs = row.extraInputs as IBridgedReceiveExtraInputs | undefined;
+    return {
+      id: row.id,
+      amount: row.amount != null ? row.amount.toString() : undefined,
+      faucetId: row.faucetId ?? '',
+      phase: inputs?.phase,
+      displayMessage: row.displayMessage
+    };
   };
 
   // Read the native EVM (Reown) connection state, for asserting the pairing

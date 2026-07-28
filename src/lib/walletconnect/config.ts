@@ -16,7 +16,15 @@ export type EvmChain = {
   nativeCurrency: { name: string; symbol: string; decimals: number };
 };
 
-const RPC = (id: number) => `https://rpc.walletconnect.org/v1?chainId=eip155:${id}&projectId=${WC_PROJECT_ID}`;
+// E2E-only: redirect Sepolia reads (balances, tx receipts) at a local Anvil so
+// the bridge-in deposit harness runs against a hermetic chain instead of public
+// Sepolia. Inert in production — `E2E_EVM_RPC_URL` is baked in only by the e2e
+// build, and only when `MIDEN_E2E_TEST` is also on.
+const E2E_EVM_RPC_URL =
+  process.env.MIDEN_E2E_TEST === 'true' ? (process.env.E2E_EVM_RPC_URL ?? '').trim() : '';
+
+const RPC = (id: number) =>
+  E2E_EVM_RPC_URL || `https://rpc.walletconnect.org/v1?chainId=eip155:${id}&projectId=${WC_PROJECT_ID}`;
 
 export const SUPPORTED_CHAINS: EvmChain[] = [
   {

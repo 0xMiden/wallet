@@ -19,7 +19,14 @@ import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
  */
 
 const RELAY_URL = process.env.WC_RELAY_URL ?? 'wss://relay.walletconnect.org';
-const PROJECT_ID = process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67';
+// The counterparty authenticates its OWN relay connection, independent of the
+// app's — WC peers don't need to share a projectId. Prefer a dedicated one
+// (WC_COUNTERPARTY_PROJECT_ID) so CI can halve per-projectId relay load and cut
+// the chance of tripping the free-tier rate limit that connection bursts hit.
+const PROJECT_ID =
+  process.env.WC_COUNTERPARTY_PROJECT_ID ??
+  process.env.WALLETCONNECT_PROJECT_ID ??
+  'b54ef53f878d160bf63c6eae3a567e67';
 const ANVIL_RPC = process.env.E2E_EVM_RPC_URL ?? 'http://127.0.0.1:8545';
 const CHAIN_ID = 11155111;
 // Anvil's first deterministic dev account (pre-funded with 10000 ETH).

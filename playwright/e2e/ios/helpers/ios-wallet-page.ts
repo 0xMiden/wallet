@@ -127,6 +127,73 @@ export class IosWalletPage implements WalletPage {
     return this.stashAndPoll('__wc_state', `window.__TEST_REOWN_STATE__()`);
   }
 
+  /**
+   * Newest `bridged-receive` row (optionally by provider). The real deposit UI
+   * creates the row inside `handleConfirm` and never surfaces its txId to the
+   * DOM, so the harness reads it back here after confirming the deposit.
+   */
+  async latestBridgeReceive(provider?: 'epoch' | 'agglayer'): Promise<{
+    id: string;
+    amount?: string;
+    faucetId: string;
+    phase?: string;
+    displayMessage?: string;
+  } | null> {
+    const arg = provider ? JSON.stringify(provider) : '';
+    return this.stashAndPoll('__bi_latest', `window.__TEST_LATEST_BRIDGE_RECEIVE__(${arg})`);
+  }
+
+  // ── Bridge-IN deposit UI (EVM → Miden) ──────────────────────────────────────
+  // Real-UI navigation for the deposit flow. EVM connection is established
+  // separately via reownConnectUri() + the headless counterparty (the native
+  // WC modal is outside the WebView and un-tappable via CDP).
+
+  /** Receive → "Cross Chain" → the deposit amount screen (requires EVM connected). */
+  async openBridgeDeposit(): Promise<void> {
+    await this.navigateTo('/receive');
+    await this.waitFor('[data-testid="receive-page"]', { timeoutMs: 15_000 });
+    await this.click('[data-testid="receive-cross-chain"]');
+    // The cross-chain tap reads the EVM `connected` state at click time. The
+    // native WC session is established (getState() reports connected), but that
+    // propagates to React via useNativeReown's async on-mount refresh — so a tap
+    // fired before it lands opens the (un-tappable native) connect modal instead
+    // of navigating. Fall back to the real /bridge/deposit route, which renders
+    // the deposit screen reactively once `connected` propagates: same
+    // destination, no tap-timing race.
+    try {
+      await this.waitFor('[data-testid="send-token-selector"]', { timeoutMs: 8_000 });
+      return;
+    } catch {
+      await this.navigateTo('/bridge/deposit');
+      await this.waitFor('[data-testid="send-token-selector"]', { timeoutMs: 30_000 });
+    }
+  }
+
+  /** Open the bridge token drawer and pick ETH or USDC. */
+  async selectBridgeToken(symbol: 'ETH' | 'USDC'): Promise<void> {
+    await this.click('[data-testid="send-token-selector"]');
+    await this.waitFor(`[data-testid="bridge-token-${symbol}"]`, { timeoutMs: 10_000 });
+    await this.click(`[data-testid="bridge-token-${symbol}"]`);
+  }
+
+  /** Type the deposit amount and confirm to advance to the route step. */
+  async enterBridgeAmount(amount: string): Promise<void> {
+    await this.pollForSelector('[data-testid="send-amount-input"]', 15_000);
+    await this.fillInput('[data-testid="send-amount-input"]', amount);
+    await this.clickWhenEnabled('[data-testid="send-amount-confirm"]', 15_000);
+  }
+
+  /** Pick the AggLayer "Slow" route (ETH only) and continue to review. */
+  async selectBridgeRouteSlow(): Promise<void> {
+    await this.clickWhenEnabled('[data-testid="bridge-route-slow"]', 15_000);
+    await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', 15_000);
+  }
+
+  /** Confirm the deposit on the review step (runs handleConfirm → handleSlowBridge). */
+  async confirmBridgeDeposit(): Promise<void> {
+    await this.clickWhenEnabled('[data-testid="bridge-deposit-review-confirm"]', 20_000);
+  }
+
   /** Run a Promise-returning hook expression and poll its stashed result. */
   private async stashAndPoll<T>(prefix: string, promiseExpr: string, timeoutMs = 30_000): Promise<T> {
     const key = `${prefix}_${Date.now()}`;
