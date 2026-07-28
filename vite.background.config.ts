@@ -363,6 +363,10 @@ export default defineConfig({
     'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
       process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'
     ),
+    'process.env.EPOCH_POSITIONS_URL': JSON.stringify(
+      process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
+    ),
+    'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     // Opt the wallet's local-prove path into the chrome.offscreen mt-wasm
     // route — ~3.5x faster (40s -> 11s) on a 10-core machine with

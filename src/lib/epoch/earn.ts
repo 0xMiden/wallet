@@ -33,6 +33,21 @@ import type { IntentResult } from './types';
 export const MIDEN_USDC_FAUCET = '0x2458e5446128e6b150b75b8ebd9ce1';
 export const MIDEN_USDC_DECIMALS = 6;
 
+// E2E-only collateral-faucet override. The fixed `MIDEN_USDC_FAUCET` testnet id
+// can't exist on a local e2e node, and the CLI-minted faucet id is only known at
+// test time — so the harness injects it at runtime via `setEarnCollateralFaucetForTest`
+// (mirrors `setAgglayerSenderForE2E`). Unset in production, so `getEarnCollateralFaucet()`
+// returns `MIDEN_USDC_FAUCET` and behavior is byte-identical.
+let earnCollateralFaucetOverride: string | undefined;
+
+export function setEarnCollateralFaucetForTest(faucetHex: string | undefined): void {
+  earnCollateralFaucetOverride = faucetHex;
+}
+
+function getEarnCollateralFaucet(): string {
+  return earnCollateralFaucetOverride ?? MIDEN_USDC_FAUCET;
+}
+
 // Lending market the deposit targets (testnet `DUMMY_LENDING`). `EARN_UNDERLYING`
 // matches `BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS` (Sepolia USDC).
 export const EARN_MARKET_UID = 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
@@ -358,7 +373,7 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
 
   const params: EarnIntentParams = {
     midenSourceAccount: args.senderPublicKey,
-    midenFaucetId: MIDEN_USDC_FAUCET,
+    midenFaucetId: getEarnCollateralFaucet(),
     depositAmount: args.amount.toString(),
     evmRecipient,
     // Minimum window + headroom for the blocks that elapse while the collateral

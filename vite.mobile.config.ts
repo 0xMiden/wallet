@@ -2,13 +2,13 @@
  * Vite config for the mobile (Capacitor) build.
  * Single entry point, webextension-polyfill mocked.
  */
-import { resolve } from 'path';
+import { midenVitePlugin } from '@miden-sdk/vite-plugin';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react-swc';
-import { midenVitePlugin } from '@miden-sdk/vite-plugin';
-import wasm from 'vite-plugin-wasm';
-import { nodePolyfills } from 'vite-plugin-node-polyfills';
+import { resolve } from 'path';
 import { defineConfig, type Plugin } from 'vite';
+import { nodePolyfills } from 'vite-plugin-node-polyfills';
+import wasm from 'vite-plugin-wasm';
 
 const pkg = require('./package.json');
 
@@ -196,6 +196,9 @@ export default defineConfig({
     ),
     'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
       process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'
+    ),
+    'process.env.EPOCH_POSITIONS_URL': JSON.stringify(
+      process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
     ),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),

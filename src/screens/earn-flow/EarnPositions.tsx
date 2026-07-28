@@ -54,6 +54,7 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
   return (
     <button
       type="button"
+      data-testid={`earn-position-card-${position.id}`}
       onClick={() => {
         hapticLight();
         navigate(`/earn/positions/${position.id}`);

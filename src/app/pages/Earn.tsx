@@ -73,6 +73,7 @@ const PositionCard: FC<{ position: EarnPosition }> = ({ position }) => {
   return (
     <button
       type="button"
+      data-testid={`earn-position-card-${position.id}`}
       onClick={() => {
         hapticLight();
         navigate(`/earn/positions/${position.id}`);
@@ -105,6 +106,7 @@ const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => {
   return (
     <button
       type="button"
+      data-testid={`earn-vault-row-${vault.id}`}
       onClick={() => {
         hapticLight();
         navigate(`/earn/vaults/${vault.id}`);

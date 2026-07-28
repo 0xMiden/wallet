@@ -74,9 +74,18 @@ export function buildVaultEvmWalletClient(midenAccountPublicKey: string, evmAddr
     }
   });
 
+  // E2E-only: honor the local Anvil RPC override so the gasless withdraw path's
+  // on-chain reads/receipt-waits hit the hermetic node instead of hanging on
+  // real Sepolia. Inert in production (E2E_EVM_RPC_URL is baked only by the e2e
+  // build), where this resolves to the same default Sepolia RPC as before.
+  const evmRpcUrl =
+    process.env.MIDEN_E2E_TEST === 'true' && process.env.E2E_EVM_RPC_URL
+      ? process.env.E2E_EVM_RPC_URL
+      : (sepolia.rpcUrls.default.http[0] ?? '');
+
   return createWalletClient({
     account,
     chain: sepolia,
-    transport: http(sepolia.rpcUrls.default.http[0] ?? '')
+    transport: http(evmRpcUrl)
   });
 }

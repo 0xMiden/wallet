@@ -102,6 +102,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
               </div>
             )}
             <Button
+              data-testid="earn-vault-deposit-btn"
               title={t('earnDeposit')}
               variant={ButtonVariant.Primary}
               disabled={!vault.id || isGuardian}

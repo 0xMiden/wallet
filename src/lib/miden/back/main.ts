@@ -37,6 +37,8 @@ export async function start() {
     });
     const { installBridgeInTestHooks } = await import('lib/miden/activity/bridge-in-test-hooks');
     installBridgeInTestHooks();
+    const { installEarnTestHooks } = await import('lib/miden/activity/earn-test-hooks');
+    installEarnTestHooks();
   }
 
   // SpeculationManager wires through the same MidenClientInterface singleton

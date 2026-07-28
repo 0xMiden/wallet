@@ -244,6 +244,7 @@ const PositionActions: FC<{
     <div className="mt-16">
       <div className="grid grid-cols-2 gap-3">
         <Button
+          data-testid="earn-deposit-more-btn"
           title={t('earnDepositMore')}
           variant={ButtonVariant.Secondary}
           disabled={!position.vaultId}
@@ -254,6 +255,7 @@ const PositionActions: FC<{
           className="h-14 max-w-none rounded-full border-rule-strong bg-white text-base font-bold text-accent-primary hover:bg-white focus:bg-white"
         />
         <Button
+          data-testid="earn-withdraw-btn"
           title={t('withdraw')}
           variant={ButtonVariant.Primary}
           disabled={!position.id || Number(position.withdrawable) <= 0}

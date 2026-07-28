@@ -109,6 +109,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
           <div className="mb-2 text-center text-sm leading-tight text-status-negative">{submitError}</div>
         )}
         <Button
+          data-testid="earn-deposit-review-confirm"
           title={t('earnOpenPosition')}
           variant={ButtonVariant.Primary}
           onClick={handleOpenPosition}

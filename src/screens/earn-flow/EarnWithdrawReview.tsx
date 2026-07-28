@@ -118,6 +118,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
           <div className="mb-2 text-center text-sm leading-tight text-status-negative">{submitError}</div>
         )}
         <Button
+          data-testid="earn-withdraw-review-confirm"
           title={isSubmitting ? t('withdrawing') : t('withdraw')}
           variant={ButtonVariant.Primary}
           onClick={handleWithdraw}
