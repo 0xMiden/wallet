@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.13 (TBD)
+
+### Changes
+
+- [CHANGE][extension] **Dropped the `tabs` permission from the extension manifest.** Nothing in the wallet reads other tabs' URLs/titles — `tabs.create/query/update/remove` and matching our own extension-page URLs work without it — so the permission was pure over-privilege (its "Read your browsing history" install warning was already subsumed by the content-script warning).
+
 ## 1.15.12 (2026-07-28)
 
 ### Features
