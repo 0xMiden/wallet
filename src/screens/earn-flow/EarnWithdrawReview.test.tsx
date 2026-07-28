@@ -170,9 +170,7 @@ describe('EarnWithdrawReview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
 
-    expect(
-      await screen.findByText('earnWithdrawNotOwned')
-    ).toBeInTheDocument();
+    expect(await screen.findByText('earnWithdrawNotOwned')).toBeInTheDocument();
     expect(gaslessEarnWithdrawalToMiden).not.toHaveBeenCalled();
   });
 
@@ -182,9 +180,7 @@ describe('EarnWithdrawReview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
 
-    expect(
-      await screen.findByText('earnWithdrawNotOwned')
-    ).toBeInTheDocument();
+    expect(await screen.findByText('earnWithdrawNotOwned')).toBeInTheDocument();
     expect(gaslessEarnWithdrawalToMiden).not.toHaveBeenCalled();
   });
 
