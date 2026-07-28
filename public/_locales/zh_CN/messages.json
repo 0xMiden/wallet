@@ -28,20 +28,26 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "您的钱包将要求批准 {{tokenSymbol}} 并在 Sepolia 上签署存款。确认后资金到达Miden。",
-    "englishSource": "Your wallet will ask to approve {{tokenSymbol}} and sign the deposit on Sepolia. Funds arrive on Miden after confirmation."
+    "message": "您的钱包将要求批准 $tokenSymbol$ 并在Sepolia 上签署存款。确认后资金到达Miden。",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "placeholders": {
+      "tokensymbol": {
+        "content": "$1"
+      }
+    }
   },
   "balanceCardTotalBalance": {
     "message": "总余额",
     "englishSource": "Total Balance"
   },
-  "balanceCardDeltaPill": {
-    "message": "{{绝对}}（{{百分比}}）",
-    "englishSource": "{{absolute}} ({{percentage}})"
-  },
   "balanceCardAccount": {
-    "message": "帐号}}",
-    "englishSource": "Account #: {{number}}"
+    "message": "帐户 ＃： $number$ ",
+    "englishSource": "Account #: $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "balanceCardAccountOptions": {
     "message": "账户选项",
@@ -51,13 +57,14 @@
     "message": "加载中…",
     "englishSource": "Loading…"
   },
-  "dappSwitcherCardActivate": {
-    "message": "{{姓名}}。激活以切换到此 dApp。",
-    "englishSource": "{{name}}. Activate to switch to this dApp."
-  },
   "dappSwitcherCloseCard": {
-    "message": "关闭{{name}}",
-    "englishSource": "Close {{name}}"
+    "message": "关闭 $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "promptCardDismiss": {
     "message": "解雇",
@@ -67,21 +74,23 @@
     "message": "加载中",
     "englishSource": "Loading"
   },
-  "priceChangeAmountNeutral": {
-    "message": "${{金额}}",
-    "englishSource": "${{amount}}"
-  },
   "priceChangeAmountPositive": {
-    "message": "+${{金额}}",
-    "englishSource": "+${{amount}}"
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "priceChangeAmountNegative": {
-    "message": "-${{金额}}",
-    "englishSource": "-${{amount}}"
-  },
-  "priceChangePercent": {
-    "message": "{{价值}}​​％",
-    "englishSource": "{{value}}%"
+    "message": "- $amount$ ",
+    "englishSource": "-$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "pendingTabApproxUsd": {
     "message": "≈  $value$ ",
@@ -92,29 +101,36 @@
       }
     }
   },
-  "tokenDetailChange24h": {
-    "message": "{{改变}}％",
-    "englishSource": "{{change}}%"
-  },
   "historyDetailsIdLabel": {
-    "message": "身份证号：{{id}}",
-    "englishSource": "ID: {{id}}"
-  },
-  "historyDetailsAmountFilledValue": {
-    "message": "{{填充}} / {{总计}}{{符号}}",
-    "englishSource": "{{filled}} / {{total}}{{symbol}}"
+    "message": "ID： $id$ ",
+    "englishSource": "ID: $id$",
+    "placeholders": {
+      "id": {
+        "content": "$1"
+      }
+    }
   },
   "historyDetailsLoadError": {
     "message": "加载交易失败",
     "englishSource": "Failed to load transaction"
   },
   "historyDetailsFiatApprox": {
-    "message": "≈ ${{金额}} 美元",
-    "englishSource": "≈ ${{amount}} USD"
+    "message": "≈  $amount$ 美元",
+    "englishSource": "≈ $amount$ USD",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "dappTileVerifiedLabel": {
-    "message": "{{name}}，经过验证的 dApp",
-    "englishSource": "{{name}}, verified dApp"
+    "message": "$name$，已验证的 dApp",
+    "englishSource": "$name$, verified dApp",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "dappPeekCardOverflowBadge": {
     "message": "+ $count$ ",
@@ -126,20 +142,41 @@
     }
   },
   "settingsVersion": {
-    "message": "版本 {{版本}}",
-    "englishSource": "Version {{version}}"
+    "message": "版本 $version$ ",
+    "englishSource": "Version $version$",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
   },
   "unlockBrandName": {
     "message": "面包",
     "englishSource": "Bread"
   },
   "earnPositionHeaderTitle": {
-    "message": "我的{{协议}} • {{资产}} 位置",
-    "englishSource": "My {{protocol}} • {{asset}} position"
+    "message": "我的 $protocol$  •  $asset$ 位置",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
   },
   "earnAssetOnNetwork": {
-    "message": "{{network}} 上的 {{asset}}",
-    "englishSource": "{{asset}} on {{network}}"
+    "message": "$network$上的$asset$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnMetricDeposited": {
     "message": "已存入",
@@ -162,8 +199,16 @@
     "englishSource": "Started"
   },
   "earnProjectedEarnings": {
-    "message": "~ {{估计}} · 在 {{apy}} APY",
-    "englishSource": "~ {{estimate}} · at {{apy}} APY"
+    "message": "~  $estimate$ · 在 $apy$ 平均年产量",
+    "englishSource": "~ $estimate$ · at $apy$ APY",
+    "placeholders": {
+      "estimate": {
+        "content": "$1"
+      },
+      "apy": {
+        "content": "$2"
+      }
+    }
   },
   "protocol": {
     "message": "协议",
@@ -258,8 +303,13 @@
     "englishSource": "Now"
   },
   "earnProjectedRewardAmount": {
-    "message": "+${{金额}}",
-    "englishSource": "+${{amount}}"
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "earnCollateralLabel": {
     "message": "抵押品",
@@ -270,8 +320,16 @@
     "englishSource": "Miden P2IDE (gasless)"
   },
   "earnDepositRoute": {
-    "message": "Miden -> {{协议}} ({{网络}})",
-    "englishSource": "Miden -> {{protocol}} ({{network}})"
+    "message": "米登-> $protocol$  ( $network$ )",
+    "englishSource": "Miden -> $protocol$ ($network$)",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnEstimatedTime": {
     "message": "预计时间",
@@ -294,8 +352,13 @@
     "englishSource": "Total Earned Rewards"
   },
   "earnEarningBlendedApy": {
-    "message": "赚取 {{apy}} 混合 APY",
-    "englishSource": "Earning {{apy}} blended APY"
+    "message": "收益 $apy$ 混合APY",
+    "englishSource": "Earning $apy$ blended APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
   },
   "earnTotalDeposited": {
     "message": "存入总额",
@@ -314,8 +377,13 @@
     "englishSource": "Positions"
   },
   "earnPositionsApy": {
-    "message": "{{apy}} APY",
-    "englishSource": "{{apy}} APY"
+    "message": "$apy$ APY",
+    "englishSource": "$apy$ APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
   },
   "earnDeposited": {
     "message": "已存入",
@@ -338,8 +406,16 @@
     "englishSource": "APY"
   },
   "earnVaultAssetOnNetwork": {
-    "message": "{{network}} 上的 {{asset}}",
-    "englishSource": "{{asset}} on {{network}}"
+    "message": "$network$上的$asset$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnCurrentPositionsTitle": {
     "message": "目前职位",

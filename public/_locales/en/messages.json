@@ -28,20 +28,38 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Your wallet will ask to approve {{tokenSymbol}} and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
-    "englishSource": "Your wallet will ask to approve {{tokenSymbol}} and sign the deposit on Sepolia. Funds arrive on Miden after confirmation."
+    "message": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "placeholders": {
+      "tokensymbol": {
+        "content": "$1"
+      }
+    }
   },
   "balanceCardTotalBalance": {
     "message": "Total Balance",
     "englishSource": "Total Balance"
   },
   "balanceCardDeltaPill": {
-    "message": "{{absolute}} ({{percentage}})",
-    "englishSource": "{{absolute}} ({{percentage}})"
+    "message": "$absolute$ ($percentage$)",
+    "englishSource": "$absolute$ ($percentage$)",
+    "placeholders": {
+      "absolute": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
   },
   "balanceCardAccount": {
-    "message": "Account #: {{number}}",
-    "englishSource": "Account #: {{number}}"
+    "message": "Account #: $number$",
+    "englishSource": "Account #: $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "balanceCardAccountOptions": {
     "message": "Account options",
@@ -52,12 +70,22 @@
     "englishSource": "Loading…"
   },
   "dappSwitcherCardActivate": {
-    "message": "{{name}}. Activate to switch to this dApp.",
-    "englishSource": "{{name}}. Activate to switch to this dApp."
+    "message": "$name$. Activate to switch to this dApp.",
+    "englishSource": "$name$. Activate to switch to this dApp.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "dappSwitcherCloseCard": {
-    "message": "Close {{name}}",
-    "englishSource": "Close {{name}}"
+    "message": "Close $name$",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "promptCardDismiss": {
     "message": "Dismiss",
@@ -68,20 +96,40 @@
     "englishSource": "Loading"
   },
   "priceChangeAmountNeutral": {
-    "message": "${{amount}}",
-    "englishSource": "${{amount}}"
+    "message": "$amount$",
+    "englishSource": "$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "priceChangeAmountPositive": {
-    "message": "+${{amount}}",
-    "englishSource": "+${{amount}}"
+    "message": "+$amount$",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "priceChangeAmountNegative": {
-    "message": "-${{amount}}",
-    "englishSource": "-${{amount}}"
+    "message": "-$amount$",
+    "englishSource": "-$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "priceChangePercent": {
-    "message": "{{value}}%",
-    "englishSource": "{{value}}%"
+    "message": "$value$%",
+    "englishSource": "$value$%",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
   },
   "pendingTabApproxUsd": {
     "message": "≈ $value$",
@@ -93,28 +141,59 @@
     }
   },
   "tokenDetailChange24h": {
-    "message": "{{change}}%",
-    "englishSource": "{{change}}%"
+    "message": "$change$%",
+    "englishSource": "$change$%",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      }
+    }
   },
   "historyDetailsIdLabel": {
-    "message": "ID: {{id}}",
-    "englishSource": "ID: {{id}}"
+    "message": "ID: $id$",
+    "englishSource": "ID: $id$",
+    "placeholders": {
+      "id": {
+        "content": "$1"
+      }
+    }
   },
   "historyDetailsAmountFilledValue": {
-    "message": "{{filled}} / {{total}}{{symbol}}",
-    "englishSource": "{{filled}} / {{total}}{{symbol}}"
+    "message": "$filled$ / $total$$symbol$",
+    "englishSource": "$filled$ / $total$$symbol$",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
   },
   "historyDetailsLoadError": {
     "message": "Failed to load transaction",
     "englishSource": "Failed to load transaction"
   },
   "historyDetailsFiatApprox": {
-    "message": "≈ ${{amount}} USD",
-    "englishSource": "≈ ${{amount}} USD"
+    "message": "≈ $amount$ USD",
+    "englishSource": "≈ $amount$ USD",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "dappTileVerifiedLabel": {
-    "message": "{{name}}, verified dApp",
-    "englishSource": "{{name}}, verified dApp"
+    "message": "$name$, verified dApp",
+    "englishSource": "$name$, verified dApp",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "dappPeekCardOverflowBadge": {
     "message": "+$count$",
@@ -126,20 +205,41 @@
     }
   },
   "settingsVersion": {
-    "message": "Version {{version}}",
-    "englishSource": "Version {{version}}"
+    "message": "Version $version$",
+    "englishSource": "Version $version$",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
   },
   "unlockBrandName": {
     "message": "Bread",
     "englishSource": "Bread"
   },
   "earnPositionHeaderTitle": {
-    "message": "My {{protocol}} • {{asset}} position",
-    "englishSource": "My {{protocol}} • {{asset}} position"
+    "message": "My $protocol$ • $asset$ position",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
   },
   "earnAssetOnNetwork": {
-    "message": "{{asset}} on {{network}}",
-    "englishSource": "{{asset}} on {{network}}"
+    "message": "$asset$ on $network$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnMetricDeposited": {
     "message": "Deposited",
@@ -162,8 +262,16 @@
     "englishSource": "Started"
   },
   "earnProjectedEarnings": {
-    "message": "~ {{estimate}} · at {{apy}} APY",
-    "englishSource": "~ {{estimate}} · at {{apy}} APY"
+    "message": "~ $estimate$ · at $apy$ APY",
+    "englishSource": "~ $estimate$ · at $apy$ APY",
+    "placeholders": {
+      "estimate": {
+        "content": "$1"
+      },
+      "apy": {
+        "content": "$2"
+      }
+    }
   },
   "protocol": {
     "message": "Protocol",
@@ -258,8 +366,13 @@
     "englishSource": "Now"
   },
   "earnProjectedRewardAmount": {
-    "message": "+${{amount}}",
-    "englishSource": "+${{amount}}"
+    "message": "+$amount$",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "earnCollateralLabel": {
     "message": "Collateral",
@@ -270,8 +383,16 @@
     "englishSource": "Miden P2IDE (gasless)"
   },
   "earnDepositRoute": {
-    "message": "Miden -> {{protocol}} ({{network}})",
-    "englishSource": "Miden -> {{protocol}} ({{network}})"
+    "message": "Miden -> $protocol$ ($network$)",
+    "englishSource": "Miden -> $protocol$ ($network$)",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnEstimatedTime": {
     "message": "Estimated time",
@@ -294,8 +415,13 @@
     "englishSource": "Total Earned Rewards"
   },
   "earnEarningBlendedApy": {
-    "message": "Earning {{apy}} blended APY",
-    "englishSource": "Earning {{apy}} blended APY"
+    "message": "Earning $apy$ blended APY",
+    "englishSource": "Earning $apy$ blended APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
   },
   "earnTotalDeposited": {
     "message": "Total Deposited",
@@ -314,8 +440,13 @@
     "englishSource": "Positions"
   },
   "earnPositionsApy": {
-    "message": "{{apy}} APY",
-    "englishSource": "{{apy}} APY"
+    "message": "$apy$ APY",
+    "englishSource": "$apy$ APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
   },
   "earnDeposited": {
     "message": "Deposited",
@@ -338,8 +469,16 @@
     "englishSource": "APY"
   },
   "earnVaultAssetOnNetwork": {
-    "message": "{{asset}} on {{network}}",
-    "englishSource": "{{asset}} on {{network}}"
+    "message": "$asset$ on $network$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnCurrentPositionsTitle": {
     "message": "Current Positions",

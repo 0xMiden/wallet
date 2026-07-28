@@ -28,20 +28,26 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Ihr Wallet wird Sie dazu auffordern, {{tokenSymbol}} zu genehmigen und die Einzahlung auf Sepolia zu unterzeichnen. Das Geld kommt nach der Bestätigung auf Miden an.",
-    "englishSource": "Your wallet will ask to approve {{tokenSymbol}} and sign the deposit on Sepolia. Funds arrive on Miden after confirmation."
+    "message": "Ihr Wallet wird Sie um Genehmigung bitten $tokenSymbol$ und unterzeichnen Sie die Anzahlung auf Sepolia. Das Geld kommt nach der Bestätigung auf Miden an.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "placeholders": {
+      "tokensymbol": {
+        "content": "$1"
+      }
+    }
   },
   "balanceCardTotalBalance": {
     "message": "Gesamtsaldo",
     "englishSource": "Total Balance"
   },
-  "balanceCardDeltaPill": {
-    "message": "{{absolute}} ({{percentage}})",
-    "englishSource": "{{absolute}} ({{percentage}})"
-  },
   "balanceCardAccount": {
-    "message": "Kontonummer: {{number}}",
-    "englishSource": "Account #: {{number}}"
+    "message": "Konto #: $number$ ",
+    "englishSource": "Account #: $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "balanceCardAccountOptions": {
     "message": "Kontooptionen",
@@ -52,12 +58,22 @@
     "englishSource": "Loading…"
   },
   "dappSwitcherCardActivate": {
-    "message": "{{Name}}. Aktivieren, um zu dieser dApp zu wechseln.",
-    "englishSource": "{{name}}. Activate to switch to this dApp."
+    "message": "$name$. Aktivieren, um zu dieser dApp zu wechseln.",
+    "englishSource": "$name$. Activate to switch to this dApp.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "dappSwitcherCloseCard": {
-    "message": "Schließen Sie {{name}}",
-    "englishSource": "Close {{name}}"
+    "message": "Schließen $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "promptCardDismiss": {
     "message": "Zurückweisen",
@@ -67,21 +83,23 @@
     "message": "Laden",
     "englishSource": "Loading"
   },
-  "priceChangeAmountNeutral": {
-    "message": "${{Betrag}}",
-    "englishSource": "${{amount}}"
-  },
   "priceChangeAmountPositive": {
-    "message": "+${{Betrag}}",
-    "englishSource": "+${{amount}}"
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "priceChangeAmountNegative": {
-    "message": "-${{Betrag}}",
-    "englishSource": "-${{amount}}"
-  },
-  "priceChangePercent": {
-    "message": "{{Wert}}%",
-    "englishSource": "{{value}}%"
+    "message": "- $amount$ ",
+    "englishSource": "-$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "pendingTabApproxUsd": {
     "message": "≈  $value$ ",
@@ -92,29 +110,36 @@
       }
     }
   },
-  "tokenDetailChange24h": {
-    "message": "{{ändern}}%",
-    "englishSource": "{{change}}%"
-  },
   "historyDetailsIdLabel": {
-    "message": "ID: {{id}}",
-    "englishSource": "ID: {{id}}"
-  },
-  "historyDetailsAmountFilledValue": {
-    "message": "{{gefüllt}} ​​/ {{total}}{{symbol}}",
-    "englishSource": "{{filled}} / {{total}}{{symbol}}"
+    "message": "AUSWEIS: $id$ ",
+    "englishSource": "ID: $id$",
+    "placeholders": {
+      "id": {
+        "content": "$1"
+      }
+    }
   },
   "historyDetailsLoadError": {
     "message": "Die Transaktion konnte nicht geladen werden",
     "englishSource": "Failed to load transaction"
   },
   "historyDetailsFiatApprox": {
-    "message": "≈ ${{amount}} USD",
-    "englishSource": "≈ ${{amount}} USD"
+    "message": "≈  $amount$ USD",
+    "englishSource": "≈ $amount$ USD",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "dappTileVerifiedLabel": {
-    "message": "{{name}}, verifizierte dApp",
-    "englishSource": "{{name}}, verified dApp"
+    "message": "$name$, verifizierte dApp",
+    "englishSource": "$name$, verified dApp",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "dappPeekCardOverflowBadge": {
     "message": "+ $count$ ",
@@ -126,20 +151,41 @@
     }
   },
   "settingsVersion": {
-    "message": "Version {{version}}",
-    "englishSource": "Version {{version}}"
+    "message": "Version $version$ ",
+    "englishSource": "Version $version$",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
   },
   "unlockBrandName": {
     "message": "Brot",
     "englishSource": "Bread"
   },
   "earnPositionHeaderTitle": {
-    "message": "Meine {{Protokoll}} • {{Asset}}-Position",
-    "englishSource": "My {{protocol}} • {{asset}} position"
+    "message": "Mein $protocol$  •  $asset$ Position",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
   },
   "earnAssetOnNetwork": {
-    "message": "{{asset}} auf {{network}}",
-    "englishSource": "{{asset}} on {{network}}"
+    "message": "$asset$ auf $network$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnMetricDeposited": {
     "message": "Hinterlegt",
@@ -162,8 +208,16 @@
     "englishSource": "Started"
   },
   "earnProjectedEarnings": {
-    "message": "~ {{estimate}} · bei {{apy}} APY",
-    "englishSource": "~ {{estimate}} · at {{apy}} APY"
+    "message": "~  $estimate$ · bei $apy$ APY",
+    "englishSource": "~ $estimate$ · at $apy$ APY",
+    "placeholders": {
+      "estimate": {
+        "content": "$1"
+      },
+      "apy": {
+        "content": "$2"
+      }
+    }
   },
   "protocol": {
     "message": "Protokoll",
@@ -258,8 +312,13 @@
     "englishSource": "Now"
   },
   "earnProjectedRewardAmount": {
-    "message": "+${{Betrag}}",
-    "englishSource": "+${{amount}}"
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "earnCollateralLabel": {
     "message": "Sicherheit",
@@ -270,8 +329,16 @@
     "englishSource": "Miden P2IDE (gasless)"
   },
   "earnDepositRoute": {
-    "message": "Miden -> {{Protokoll}} ({{Netzwerk}})",
-    "englishSource": "Miden -> {{protocol}} ({{network}})"
+    "message": "Miden -> $protocol$  ( $network$ )",
+    "englishSource": "Miden -> $protocol$ ($network$)",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnEstimatedTime": {
     "message": "Geschätzte Zeit",
@@ -294,8 +361,13 @@
     "englishSource": "Total Earned Rewards"
   },
   "earnEarningBlendedApy": {
-    "message": "Verdienen Sie {{apy}} gemischten APY",
-    "englishSource": "Earning {{apy}} blended APY"
+    "message": "Verdienen $apy$ gemischter APY",
+    "englishSource": "Earning $apy$ blended APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
   },
   "earnTotalDeposited": {
     "message": "Insgesamt eingezahlt",
@@ -314,8 +386,13 @@
     "englishSource": "Positions"
   },
   "earnPositionsApy": {
-    "message": "{{apy}} APY",
-    "englishSource": "{{apy}} APY"
+    "message": "$apy$ APY",
+    "englishSource": "$apy$ APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
   },
   "earnDeposited": {
     "message": "Hinterlegt",
@@ -338,8 +415,16 @@
     "englishSource": "APY"
   },
   "earnVaultAssetOnNetwork": {
-    "message": "{{asset}} auf {{network}}",
-    "englishSource": "{{asset}} on {{network}}"
+    "message": "$asset$ auf $network$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnCurrentPositionsTitle": {
     "message": "Aktuelle Positionen",
