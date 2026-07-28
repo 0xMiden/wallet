@@ -134,7 +134,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
     >
       <ReviewRow label={t('rate')} value={rate} />
       {rate && (
-        <p className="pt-1 text-xs text-[#6B6862]">
+        <p className="pt-1 text-xs text-heading-gray">
           {t('swapSolverFeeNote', { percent: `${Math.round(SOLVER_MARGIN * 100)}%` })}
         </p>
       )}
