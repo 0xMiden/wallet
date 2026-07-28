@@ -97,15 +97,16 @@ jest.mock('recharts', () => {
 
 // Controlled data (inlined inside the factory because jest hoists jest.mock
 // above module-scope `const`s, so referencing outer consts would hit the TDZ).
+// The screen reads live Epoch data through `useEarnPositions` (`useAccount` +
+// SWR under the hood), so we replace that hook rather than the data module.
 // Two vaults exercise every data-dependent branch:
 //   - the audited vault  — audited=true, varying chart values → padding math
 //     truthy branch.
 //   - the unaudited vault — audited=false, all-equal chart values →
 //     `(max-min)*0.18` is 0, so the `|| 1` fallback branch runs.
-// The first vault is also `DEFAULT_VAULT` (vaults[0]) used for unknown ids.
-jest.mock('./data', () => ({
-  EARN_DATA: {
-    summary: {},
+jest.mock('./useEarnPositions', () => ({
+  useEarnPositions: () => ({
+    summary: { totalRewards: '', blendedApy: '', totalDeposited: '', estimatedRewards: '' },
     positions: [],
     vaults: [
       {
@@ -143,8 +144,10 @@ jest.mock('./data', () => ({
           { label: 'F3', value: 3.0 }
         ]
       }
-    ]
-  }
+    ],
+    isLoading: false,
+    error: undefined
+  })
 }));
 
 const metricValue = (label: string) => {
@@ -210,12 +213,14 @@ describe('EarnVaultDetail', () => {
     expect(screen.getByTestId('area-chart')).toBeInTheDocument();
   });
 
-  it('falls back to the default (first) vault when the id is unknown', () => {
+  it('falls back to the placeholder vault when the id is unknown', () => {
     render(<EarnVaultDetail vaultId="does-not-exist" />);
 
-    // DEFAULT_VAULT is vaults[0] === AUDITED.
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave • USDC');
-    expect(screen.getByText('About the audited vault.')).toBeInTheDocument();
+    // `?? placeholderVault()` — every display field is the "—" placeholder and
+    // the empty id disables the Deposit CTA.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('— • —');
+    expect(metricValue('TVL')).toHaveTextContent('—');
+    expect(screen.getByRole('button', { name: 'Deposit' })).toBeDisabled();
   });
 
   it('navigates back when the header back button is pressed', () => {

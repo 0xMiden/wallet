@@ -63,6 +63,22 @@ jest.mock('./components', () => ({
   )
 }));
 
+// The screen reads live Epoch data through `useEarnPositions`, which pulls in
+// `useAccount` + SWR. Feed it the static demo fixture instead so the assertions
+// below can stay pinned to `EARN_DATA`.
+jest.mock('./useEarnPositions', () => {
+  const { EARN_DATA } = jest.requireActual<typeof import('./data')>('./data');
+  return {
+    useEarnPositions: () => ({
+      summary: EARN_DATA.summary,
+      positions: EARN_DATA.positions,
+      vaults: EARN_DATA.vaults,
+      isLoading: false,
+      error: undefined
+    })
+  };
+});
+
 const mockGoBack = goBack as jest.Mock;
 const mockNavigate = navigate as jest.Mock;
 const mockHapticLight = hapticLight as jest.Mock;

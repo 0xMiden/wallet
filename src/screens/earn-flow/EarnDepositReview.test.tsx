@@ -1,20 +1,19 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
+import { openEarnPosition } from 'lib/epoch';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 
 import EarnDepositReview from './EarnDepositReview';
 
-// --- woozie router: mutable location + spyable navigate/goBack.
+// --- woozie router: mutable location + spyable navigate.
 const mockLocation = { search: '' };
 const mockNavigate = jest.fn();
-const mockGoBack = jest.fn();
 
 jest.mock('lib/woozie', () => ({
   navigate: (...args: unknown[]) => mockNavigate(...args),
-  goBack: (...args: unknown[]) => mockGoBack(...args),
   useLocation: () => mockLocation
 }));
 
@@ -26,6 +25,48 @@ jest.mock('lib/platform', () => ({
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
+
+// --- Epoch SDK barrel (wasm + network clients): only the deposit entry point
+//     and the USDC decimals constant are used by this screen.
+jest.mock('lib/epoch', () => ({
+  MIDEN_USDC_DECIMALS: 6,
+  openEarnPosition: jest.fn(() => Promise.resolve())
+}));
+
+// --- Wallet context: the screen needs the account's EVM address (the deposit
+//     owner) plus `signTransaction` for the guardian-signed Miden note.
+const mockAccount: { publicKey: string; evmAddress?: string } = {
+  publicKey: 'mm1testaccount',
+  evmAddress: '0xdeadbeef'
+};
+
+jest.mock('lib/miden/front', () => ({
+  useAccount: () => mockAccount
+}));
+
+const mockSignTransaction = jest.fn();
+jest.mock('lib/miden/front/client', () => ({
+  useMidenContext: () => ({ signTransaction: mockSignTransaction })
+}));
+
+jest.mock('lib/miden/front/guardian-sync', () => ({
+  zustandProvider: { kind: 'zustand-provider' }
+}));
+
+// --- Live earn data: serve the static demo fixture instead of the SWR-backed
+//     Epoch positions hook.
+jest.mock('./useEarnPositions', () => {
+  const { EARN_DATA } = jest.requireActual<typeof import('./data')>('./data');
+  return {
+    useEarnPositions: () => ({
+      summary: EARN_DATA.summary,
+      positions: EARN_DATA.positions,
+      vaults: EARN_DATA.vaults,
+      isLoading: false,
+      error: undefined
+    })
+  };
+});
 
 // --- Chart wrapper: render children directly so the projection JSX still runs.
 jest.mock('lib/ui/charts', () => ({
@@ -54,8 +95,8 @@ jest.mock('components/TokenLogo', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick }: { title?: string; onClick?: () => void }) => (
-    <button data-testid="open-position-btn" onClick={onClick}>
+  Button: ({ title, onClick, disabled }: { title?: string; onClick?: () => void; disabled?: boolean }) => (
+    <button data-testid="open-position-btn" onClick={onClick} disabled={disabled}>
       {title}
     </button>
   ),
@@ -75,6 +116,8 @@ jest.mock('./components', () => ({
   )
 }));
 
+const mockOpenEarnPosition = openEarnPosition as jest.Mock;
+
 const renderReview = (vaultId: string, search = '') => {
   mockLocation.search = search;
   return render(<EarnDepositReview vaultId={vaultId} />);
@@ -84,7 +127,9 @@ describe('EarnDepositReview', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockLocation.search = '';
+    mockAccount.evmAddress = '0xdeadbeef';
     (isMobile as jest.Mock).mockReturnValue(false);
+    mockOpenEarnPosition.mockResolvedValue(undefined);
   });
 
   describe('deposit amount header', () => {
@@ -93,7 +138,7 @@ describe('EarnDepositReview', () => {
 
       expect(screen.getByTestId('earn-deposit-review-page')).toBeInTheDocument();
 
-      // Vault resolved by id (not the default vaults[0]).
+      // Vault resolved by id (not the first vault).
       const header = screen.getByTestId('earn-flow-header');
       expect(header).toHaveAttribute('data-vault-id', 'aave-usdc-ethereum-2');
       expect(header).toHaveAttribute('data-asset', 'USDC');
@@ -101,19 +146,22 @@ describe('EarnDepositReview', () => {
       // Amount from the query string, formatted to 2 dp.
       expect(screen.getByText('1000.00')).toBeInTheDocument();
 
-      // Asset logo + label wired from the resolved vault.
+      // The deposit asset is always USDC (Epoch Earn is USDC-only).
       const logo = screen.getByTestId('token-logo');
       expect(logo).toHaveAttribute('data-symbol', 'USDC');
       expect(logo).toHaveAttribute('data-size', 'md');
-      // The asset label appears next to the logo.
       expect(screen.getAllByText('USDC').length).toBeGreaterThan(0);
     });
 
-    it('falls back to the default vault when the vaultId does not match any vault', () => {
+    it('falls back to the placeholder vault when the vaultId matches nothing', () => {
       renderReview('does-not-exist', '?amount=500');
-      // Default vault is EARN_DATA.vaults[0] → id "aave-usdc-ethereum-1".
-      expect(screen.getByTestId('earn-flow-header')).toHaveAttribute('data-vault-id', 'aave-usdc-ethereum-1');
+
+      const header = screen.getByTestId('earn-flow-header');
+      expect(header).toHaveAttribute('data-vault-id', '');
+      expect(header).toHaveAttribute('data-protocol', '—');
       expect(screen.getByText('500.00')).toBeInTheDocument();
+      // No vault id => nothing to deposit into => CTA disabled.
+      expect(screen.getByTestId('open-position-btn')).toBeDisabled();
     });
 
     it('strips thousands separators from the amount before parsing', () => {
@@ -126,25 +174,67 @@ describe('EarnDepositReview', () => {
       expect(screen.getByText('0.00')).toBeInTheDocument();
     });
 
-    it('coerces a non-numeric amount to 0.00 (parseAmount NaN branch)', () => {
+    it('coerces a non-numeric amount to 0.00 (parseAmount `|| 0` branch)', () => {
       renderReview('aave-usdc-ethereum-1', '?amount=not-a-number');
       expect(screen.getByText('0.00')).toBeInTheDocument();
     });
   });
 
   describe('open position CTA', () => {
-    it('fires haptic feedback and navigates to the default position on click', () => {
-      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+    it('fires haptics and opens the Epoch position with the scaled amount + account owner', async () => {
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
 
       const cta = screen.getByTestId('open-position-btn');
       expect(cta).toHaveTextContent('Open position');
+      expect(cta).toBeEnabled();
 
       fireEvent.click(cta);
 
       expect(hapticLight).toHaveBeenCalledTimes(1);
-      expect(mockNavigate).toHaveBeenCalledTimes(1);
-      // DEFAULT_POSITION_ID resolves from EARN_DATA.positions[0].id → "aave-usdc-1".
-      expect(mockNavigate).toHaveBeenCalledWith('/earn/positions/aave-usdc-1');
+      await waitFor(() => expect(mockOpenEarnPosition).toHaveBeenCalledTimes(1));
+
+      const call = mockOpenEarnPosition.mock.calls[0]![0];
+      // Commas stripped, then scaled by the USDC decimals (6).
+      expect(call.amount).toBe(1_000_000_000n);
+      expect(call.evmAddress).toBe('0xdeadbeef');
+      expect(call.senderPublicKey).toBe('mm1testaccount');
+      expect(call.deps.signTransaction).toBe(mockSignTransaction);
+    });
+
+    it('routes to the generating-transaction page as soon as the tx row exists', async () => {
+      mockOpenEarnPosition.mockImplementation((args: { onRowCreated: (txId: string) => void }) => {
+        args.onRowCreated('tx/1');
+        return Promise.resolve();
+      });
+
+      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/tx%2F1'));
+    });
+
+    it('surfaces an error and never calls the SDK when the account has no EVM address', async () => {
+      mockAccount.evmAddress = undefined;
+      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      expect(await screen.findByText('No EVM address available for this account.')).toBeInTheDocument();
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+    });
+
+    it('surfaces the SDK error message when opening the position rejects', async () => {
+      mockOpenEarnPosition.mockRejectedValue(new Error('allocator unreachable'));
+      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      expect(await screen.findByText('allocator unreachable')).toBeInTheDocument();
+    });
+
+    it('disables the CTA for a zero amount', () => {
+      renderReview('aave-usdc-ethereum-1', '?amount=0');
+      expect(screen.getByTestId('open-position-btn')).toBeDisabled();
     });
   });
 
@@ -152,14 +242,14 @@ describe('EarnDepositReview', () => {
     it('uses mobile horizontal padding when isMobile() is true', () => {
       (isMobile as jest.Mock).mockReturnValue(true);
       renderReview('aave-usdc-ethereum-1', '?amount=1000');
-      const footer = screen.getByTestId('open-position-btn').parentElement as HTMLElement;
+      const footer = screen.getByTestId('open-position-btn').parentElement!;
       expect(footer).toHaveClass('px-8');
       expect(footer).not.toHaveClass('px-6');
     });
 
     it('uses desktop horizontal padding when isMobile() is false', () => {
       renderReview('aave-usdc-ethereum-1', '?amount=1000');
-      const footer = screen.getByTestId('open-position-btn').parentElement as HTMLElement;
+      const footer = screen.getByTestId('open-position-btn').parentElement!;
       expect(footer).toHaveClass('px-6');
       expect(footer).not.toHaveClass('px-8');
     });
@@ -178,22 +268,20 @@ describe('EarnDepositReview', () => {
       expect(screen.getByText('6 MONTHS')).toBeInTheDocument();
       expect(screen.getByText('1 YEAR')).toBeInTheDocument();
 
-      // Projected rewards: amount * factor, 2dp, "+$" prefixed.
-      // 1000 * 0.0164 = 16.40, 1000 * 0.09825 = 98.25, 1000 * 0.1965 = 196.50.
-      expect(screen.getByText('+$16.40')).toBeInTheDocument();
-      expect(screen.getByText('+$98.25')).toBeInTheDocument();
-      expect(screen.getByText('+$196.50')).toBeInTheDocument();
+      // Rewards = amount × APY fraction × year fraction, 2dp, "+$" prefixed.
+      // The fixture vault's APY is "5.24%" => 0.0524.
+      expect(screen.getByText('+$4.37')).toBeInTheDocument();
+      expect(screen.getByText('+$26.20')).toBeInTheDocument();
+      expect(screen.getByText('+$52.40')).toBeInTheDocument();
     });
 
     it('renders the static detail rows including the route built from the vault', () => {
       renderReview('aave-usdc-ethereum-1', '?amount=1000');
 
-      expect(screen.getByText('Solver fee')).toBeInTheDocument();
-      expect(screen.getByText('0.30%')).toBeInTheDocument();
+      expect(screen.getByText('Collateral')).toBeInTheDocument();
+      expect(screen.getByText('Miden P2IDE (gasless)')).toBeInTheDocument();
 
-      // "Network fee" appears twice (network fee + estimated time).
-      expect(screen.getAllByText('Network fee')).toHaveLength(2);
-      expect(screen.getByText('~$0.42')).toBeInTheDocument();
+      expect(screen.getByText('Estimated time')).toBeInTheDocument();
       expect(screen.getByText('~30 seconds')).toBeInTheDocument();
 
       // Route: `Miden -> ${protocol} (${network})`.
@@ -207,57 +295,10 @@ describe('EarnDepositReview', () => {
       // All three reward tiles collapse to +$0.00.
       expect(screen.getAllByText('+$0.00')).toHaveLength(3);
     });
-  });
 
-  // The module-level `DEFAULT_POSITION_ID = positions[0]?.id ?? 'aave-usdc-1'`
-  // and `DEFAULT_VAULT = vaults[0]!` are derived from EARN_DATA at import time.
-  // With the real data (non-empty positions) the primary tests only exercise the
-  // "truthy" side of those expressions. Re-importing the module against a
-  // positions-less data fixture runs the module body again and exercises the
-  // `?.id` short-circuit + `?? 'aave-usdc-1'` literal fallback branch.
-  //
-  // We only re-`require` here (no re-render): `isolateModules` gives the fresh
-  // module its own React copy, which is incompatible with the top-level RTL
-  // `render`. The fallback branch lives in module-scope initialization, so the
-  // `require` itself is what exercises it.
-  describe('module defaults fallback (empty positions)', () => {
-    afterEach(() => {
-      jest.dontMock('./data');
-    });
-
-    it('re-evaluates the default position/vault constants when there are no positions', () => {
-      let FreshReview: unknown;
-
-      jest.isolateModules(() => {
-        jest.doMock('./data', () => ({
-          EARN_DATA: {
-            summary: { totalRewards: '', blendedApy: '', totalDeposited: '', estimatedRewards: '' },
-            positions: [],
-            vaults: [
-              {
-                id: 'fallback-vault',
-                protocol: 'Compound',
-                asset: 'DAI',
-                network: 'Base',
-                apy: '',
-                apyChange24h: '',
-                tvl: '',
-                risk: '',
-                audited: false,
-                about: '',
-                chartData: []
-              }
-            ]
-          }
-        }));
-
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        FreshReview = require('./EarnDepositReview').default;
-      });
-
-      // The module re-evaluated cleanly with no positions, proving the
-      // `positions[0]?.id ?? 'aave-usdc-1'` fallback path executes without error.
-      expect(typeof FreshReview).toBe('function');
+    it('treats an unparseable APY as zero (placeholder vault, `|| 0` branch)', () => {
+      renderReview('does-not-exist', '?amount=1000');
+      expect(screen.getAllByText('+$0.00')).toHaveLength(3);
     });
   });
 });

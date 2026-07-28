@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
-import { goBack } from 'lib/woozie';
+import { goBack, navigate } from 'lib/woozie';
 
 import EarnPositionDetail from './EarnPositionDetail';
 
@@ -60,9 +60,11 @@ jest.mock('recharts', () => {
 });
 
 // `lib/woozie`'s real barrel reaches for browser history/analytics on import.
-// Stub `goBack` so we can assert the back-button wiring without the router.
+// Stub `goBack`/`navigate` so we can assert the back-button and the action
+// buttons without the router.
 jest.mock('lib/woozie', () => ({
-  goBack: jest.fn()
+  goBack: jest.fn(),
+  navigate: jest.fn()
 }));
 
 // Stub the shared earn widgets to prop probes. This keeps the test focused on
@@ -98,13 +100,21 @@ jest.mock('./components', () => {
   };
 });
 
-// Feed the component a deterministic dataset. Two positions let us cover both
-// the `find(...)` hit path and the `?? DEFAULT_POSITION` fallback path, and the
-// flat-value chart covers the `(max - min) * 0.18 || 1` fallback branch (the
-// real dataset never has an all-equal series, so this is the only way to reach
-// the `|| 1` arm without touching the source).
-jest.mock('./data', () => ({
-  EARN_DATA: {
+// Native haptics wrap the Capacitor plugin — stub both entry points so the
+// timeframe taps and the action buttons never reach native code.
+jest.mock('lib/mobile/haptics', () => ({
+  hapticLight: jest.fn(),
+  hapticSelection: jest.fn()
+}));
+
+// Feed the component a deterministic dataset through `useEarnPositions` (the
+// real hook pulls `useAccount` + SWR + the Epoch positions API). Two positions
+// let us cover the `find(...)` hit path, and the flat-value chart covers the
+// `(max - min) * 0.18 || 1` fallback branch (the live data never has an
+// all-equal series, so this is the only way to reach the `|| 1` arm without
+// touching the source). Unknown ids fall through to `placeholderPosition()`.
+jest.mock('./useEarnPositions', () => ({
+  useEarnPositions: () => ({
     summary: {
       totalRewards: '$218.32',
       blendedApy: '~5.2%',
@@ -113,8 +123,14 @@ jest.mock('./data', () => ({
     },
     positions: [
       {
-        // positions[0] -> DEFAULT_POSITION (used by the fallback path).
         id: 'pos-normal',
+        vaultId: 'vault-normal',
+        owner: '0xowner',
+        marketUid: 'DUMMY_LENDING',
+        chainId: '11155111',
+        underlyingAddress: '0xusdc',
+        withdrawable: '1024.5',
+        decimals: 6,
         protocol: 'Aave',
         asset: 'USDC',
         network: 'Ethereum',
@@ -138,6 +154,13 @@ jest.mock('./data', () => ({
       },
       {
         id: 'pos-flat',
+        vaultId: 'vault-flat',
+        owner: '0xowner',
+        marketUid: 'DUMMY_LENDING',
+        chainId: '11155111',
+        underlyingAddress: '0xusdc',
+        withdrawable: '2024.5',
+        decimals: 6,
         protocol: 'FlatProto',
         asset: 'FUSD',
         network: 'Flatnet',
@@ -160,16 +183,20 @@ jest.mock('./data', () => ({
         ]
       }
     ],
-    vaults: []
-  }
+    vaults: [],
+    isLoading: false,
+    error: undefined
+  })
 }));
 
 const mockGoBack = goBack as jest.Mock;
+const mockNavigate = navigate as jest.Mock;
 
 const renderDetail = (positionId: string) => render(<EarnPositionDetail positionId={positionId} />);
 
 beforeEach(() => {
   mockGoBack.mockClear();
+  mockNavigate.mockClear();
 });
 
 describe('EarnPositionDetail', () => {
@@ -224,19 +251,31 @@ describe('EarnPositionDetail', () => {
     expect(screen.getByRole('button', { name: 'Withdraw' })).toBeInTheDocument();
   });
 
-  it('falls back to DEFAULT_POSITION when the id does not match any position', () => {
-    const { container } = renderDetail('does-not-exist');
+  it('falls back to the placeholder position when the id does not match any position', () => {
+    renderDetail('does-not-exist');
 
-    // DEFAULT_POSITION === positions[0] === the "Aave / USDC" normal position.
-    expect(screen.getByRole('heading', { level: 1, name: /My Aave/ })).toHaveTextContent('USDC position');
-    expect(screen.getByTestId('position-logo')).toHaveAttribute('data-asset', 'USDC');
+    // `?? placeholderPosition()` — every display field renders "—" and both
+    // actions are disabled (no vaultId, nothing withdrawable).
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('My — • — position');
+    expect(screen.getByTestId('position-logo')).toHaveAttribute('data-asset', '—');
 
     const cards = screen.getAllByTestId('metric-card');
     const byLabel = (label: string) => cards.find(c => c.getAttribute('data-label') === label)!;
-    expect(byLabel('Deposited')).toHaveTextContent('$1,000.00');
-    expect(byLabel('APY')).toHaveTextContent('5.24%');
-    expect(container.textContent).toContain('+$53.68 / yr');
-    expect(container.textContent).toContain('Miden -> Aave (Ethereum)');
+    expect(byLabel('Deposited')).toHaveTextContent('—');
+    expect(byLabel('APY')).toHaveTextContent('—');
+
+    expect(screen.getByRole('button', { name: 'Deposit more' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Withdraw' })).toBeDisabled();
+  });
+
+  it('navigates to the deposit and withdraw routes from the action buttons', () => {
+    renderDetail('pos-flat');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deposit more' }));
+    expect(mockNavigate).toHaveBeenLastCalledWith('/earn/vaults/vault-flat/deposit');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }));
+    expect(mockNavigate).toHaveBeenLastCalledWith('/earn/positions/pos-flat/withdraw/review');
   });
 
   it('renders the four timeframe buttons with 1M active by default and switches on click', () => {

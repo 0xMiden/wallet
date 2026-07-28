@@ -109,7 +109,19 @@ jest.mock('./transactionUtils', () => ({
   isFaucetRequest: jest.fn((entry: { __faucet?: boolean }) => Boolean(entry.__faucet)),
   isBridgeInEntry: jest.fn(() => false),
   bridgeInRowDisplay: jest.fn(),
-  bridgeRowDisplay: jest.fn()
+  bridgeRowDisplay: jest.fn(),
+  // Smart Withdraw rows: mirror the real predicate / tone map / label map so the
+  // earn branch of `buildRowProps` is exercised with realistic values.
+  isEarnWithdrawEntry: jest.fn((entry: { txType?: string }) => entry.txType === 'earn-withdraw'),
+  earnWithdrawToneOf: jest.fn((phase?: string) =>
+    phase === 'received' ? 'confirmed' : phase === 'failed' ? 'failed' : 'pending'
+  ),
+  EARN_WITHDRAW_STATUS_LABEL_KEY: {
+    redeeming: 'earnWithdrawStatusRedeeming',
+    delivering: 'earnWithdrawStatusDelivering',
+    received: 'received',
+    failed: 'failed'
+  }
 }));
 
 const mockBridgeRowDisplay = bridgeRowDisplay as jest.MockedFunction<typeof bridgeRowDisplay>;
