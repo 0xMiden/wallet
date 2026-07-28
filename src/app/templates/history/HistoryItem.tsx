@@ -116,6 +116,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
               isReceive ? 'text-receive-green' : 'text-[#DC2626]'
             )}
           >
+            {/* eslint-disable-next-line i18next/no-literal-string -- numeric amount sign prefix, not translatable copy */}
             {isReceive ? '+' : '-'}
             {entry.amount.toString()}
           </span>
@@ -250,11 +251,13 @@ const EarnWithdrawRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' 
       </div>
 
       <div className="flex flex-col items-end shrink-0 gap-1">
+        {/* eslint-disable i18next/no-literal-string -- numeric amount sign prefix, not translatable copy */}
         {showAmount && (
           <span className="text-sm font-medium leading-none text-receive-green">
             +{entry.amount?.toString()} {entry.token}
           </span>
         )}
+        {/* eslint-enable i18next/no-literal-string */}
         <span
           className={classNames('flex items-center gap-1 text-xs font-medium leading-none', BRIDGE_STATUS_COLOR[tone])}
         >

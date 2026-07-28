@@ -117,10 +117,10 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <DrawerHeader>
-          <DrawerTitle>{t('dappActionsSheet') ?? 'dApp actions'}</DrawerTitle>
+          <DrawerTitle>{t('dappActionsSheet')}</DrawerTitle>
         </DrawerHeader>
         <div className="flex items-start justify-around gap-2 px-4 pb-8">
-          <ActionButton icon={IconName.Copy} label={t('dappActionCopyLink') ?? 'Copy link'} onClick={handleCopyLink} />
+          <ActionButton icon={IconName.Copy} label={t('dappActionCopyLink')} onClick={handleCopyLink} />
           <ActionButton
             // Toggle: the AddCircle plus-in-outline-circle is the
             // default, swapped for CheckboxCircleFill (filled check)
@@ -128,14 +128,10 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
             // filled icon + "Remove" label reads as "this one is
             // already saved; tap to un-save."
             icon={isInMyDapps ? IconName.CheckboxCircleFill : IconName.AddCircle}
-            label={
-              isInMyDapps
-                ? (t('dappActionRemoveFromMyDapps') ?? 'Remove from My Dapps')
-                : (t('dappActionAddToMyDapps') ?? 'Add to My Dapps')
-            }
+            label={isInMyDapps ? t('dappActionRemoveFromMyDapps') : t('dappActionAddToMyDapps')}
             onClick={handleToggleMyDapps}
           />
-          <ActionButton icon={IconName.Refresh} label={t('dappActionReopen') ?? 'Reopen'} onClick={handleReopen} />
+          <ActionButton icon={IconName.Refresh} label={t('dappActionReopen')} onClick={handleReopen} />
         </div>
       </DrawerContent>
     </Drawer>

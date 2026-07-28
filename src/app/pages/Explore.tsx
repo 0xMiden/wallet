@@ -38,6 +38,8 @@ import { isHexAddress } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
 
 const PULL_TO_REFRESH_THRESHOLD = 72;
+/** Decorative aria-hidden pull-to-refresh arrow glyph (not translatable copy). */
+const PULL_TO_REFRESH_ARROW = '↓';
 const MAX_PULL_DISTANCE = 104;
 const REFRESH_INDICATOR_DISTANCE = 56;
 
@@ -283,7 +285,7 @@ const Explore: FC = () => {
                 aria-hidden="true"
                 className={`text-xl transition-transform ${pullDistance >= PULL_TO_REFRESH_THRESHOLD ? 'rotate-180' : ''}`}
               >
-                ↓
+                {PULL_TO_REFRESH_ARROW}
               </span>
             )}
           </div>
@@ -366,7 +368,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         <span className="text-2xl font-bold text-text-primary-token">{t('assets')}</span>
       </div>
 
-      <SearchInput value={search} onChange={onSearchChange} placeholder="Search for tokens" />
+      <SearchInput value={search} onChange={onSearchChange} placeholder={t('searchForTokens')} />
 
       <div className="flex flex-col divide-y divide-rule-default">
         {filteredTokens.map(asset => (

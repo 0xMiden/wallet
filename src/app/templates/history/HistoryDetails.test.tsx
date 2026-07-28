@@ -30,7 +30,12 @@ const mockRequestSWTransactionProcessing = jest.fn();
 const mockIsRequeueableTransaction = jest.fn();
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) => {
+      const values = opts ? Object.values(opts) : [];
+      return values.length > 0 ? `${key}_${values.join('_')}` : key;
+    }
+  })
 }));
 
 jest.mock('lib/miden/activity', () => ({
@@ -258,15 +263,15 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByText('smthWentWrong')).toBeInTheDocument();
       expect(screen.getByText('boom-failure')).toBeInTheDocument();
-      // ID line echoes the transactionId.
-      expect(screen.getByText('ID: tx-1')).toBeInTheDocument();
+      // ID line echoes the transactionId (interpolated into the label key).
+      expect(screen.getByText('historyDetailsIdLabel_tx-1')).toBeInTheDocument();
       expect(screen.queryByTestId('spinner')).not.toBeInTheDocument();
     });
 
     it('falls back to a generic message when the thrown value is not an Error', async () => {
       mockGetTransactionById.mockRejectedValue('a plain string');
       await renderAndLoad();
-      expect(screen.getByText('Failed to load transaction')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
     });
 
     it('calls goBack when the header back button is pressed', async () => {
@@ -285,8 +290,8 @@ describe('HistoryDetails', () => {
       // Amount + token now share the summary badge's left side.
       expect(screen.getByText('1000 MID')).toBeInTheDocument();
       expect(screen.getByText('acct-B')).toBeInTheDocument();
-      // Fiat: |1000| * price(2) => 2000.00.
-      expect(screen.getByText('≈ $2000.00 USD')).toBeInTheDocument();
+      // Fiat: |1000| * price(2) => 2000.00, interpolated into the fiat key.
+      expect(screen.getByText('historyDetailsFiatApprox_2000.00')).toBeInTheDocument();
 
       // Status pill fed the raw status.
       expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
@@ -351,7 +356,7 @@ describe('HistoryDetails', () => {
       // No external tx id row.
       expect(rowByLabel('txIdLabel')).toBeUndefined();
       // No amount span (amount undefined) → fiat also absent.
-      expect(screen.queryByText('≈ $2000.00 USD')).not.toBeInTheDocument();
+      expect(screen.queryByText('historyDetailsFiatApprox_2000.00')).not.toBeInTheDocument();
     });
 
     it('hides the notes section entirely when there is no note data', async () => {
@@ -377,7 +382,7 @@ describe('HistoryDetails', () => {
       // The shared summary badge preserves the formatter's non-finite output.
       expect(screen.getByText('NaN MID')).toBeInTheDocument();
       // formatFiatDisplayAmount → non-finite → undefined → no fiat line.
-      expect(screen.queryByText(/USD/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
     });
 
     it('renders address chips even when there is no current account (optional-chaining branch)', async () => {
@@ -422,8 +427,10 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusFilled');
       expect(screen.getByTestId('swap-order-fill-rounds').textContent).toBe('2');
-      // filledRequested = 1000 - 400 = 600; symbol appended.
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('600 / 1000 ETH');
+      // filledRequested = 1000 - 400 = 600; symbol appended (interpolated into the key).
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe(
+        'historyDetailsAmountFilledValue_600_1000_ ETH'
+      );
 
       // Registry hit → requested-faucet metadata NOT fetched (only the tx faucet was).
       expect(mockGetTokenMetadata).toHaveBeenCalledTimes(1);
@@ -445,7 +452,7 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusReclaimed');
       // requestedAmount defaulted to 0n; remainingRequested(5) > amount(0) → filled clamped to 0; no symbol.
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('0 / 0');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('historyDetailsAmountFilledValue_0_0_');
       // Two metadata calls: tx faucet + requested faucet.
       expect(mockGetTokenMetadata).toHaveBeenCalledWith('req-faucet');
     });

@@ -318,7 +318,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       <button
         type="button"
         onClick={handleTap}
-        aria-label={t('restoreDappCard', { name: displayName }) ?? `Restore ${displayName}`}
+        aria-label={t('restoreDappCard', { name: displayName })}
         className="group relative block h-full w-full overflow-hidden rounded-2xl bg-white"
         style={{
           // Layered shadow: tight contact + wide soft halo with a subtle
@@ -379,7 +379,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
         <button
           type="button"
           onClick={handleClose}
-          aria-label={t('closeDappCard', { name: displayName }) ?? `Close ${displayName}`}
+          aria-label={t('closeDappCard', { name: displayName })}
           className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm transition-transform active:scale-90"
         >
           <Icon name={IconName.Close} size="xs" className="text-pure-white" fill="currentColor" />
@@ -392,10 +392,12 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
         <button
           type="button"
           onClick={handleShowAll}
-          aria-label={t('showAllDapps', { count: overflowCount }) ?? `+${overflowCount} more`}
+          aria-label={t('showAllDapps', { count: overflowCount })}
           className="absolute left-1.5 top-1.5 flex h-6 items-center rounded-full bg-black/60 px-2 backdrop-blur-sm transition-transform active:scale-95"
         >
-          <span className="text-[10px] font-bold text-pure-white">+{overflowCount}</span>
+          <span className="text-[10px] font-bold text-pure-white">
+            {t('dappPeekCardOverflowBadge', { count: overflowCount })}
+          </span>
         </button>
       )}
     </motion.div>

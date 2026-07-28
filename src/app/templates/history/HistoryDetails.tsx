@@ -2,6 +2,7 @@ import React, { FC, useCallback, useEffect, useRef, useState, memo } from 'react
 
 import BigNumber from 'bignumber.js';
 import clsx from 'clsx';
+import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
@@ -179,6 +180,7 @@ function formatDisplayAmount(amount: string | number | bigint): string {
 }
 
 function formatFiatDisplayAmount(
+  t: TFunction,
   amount: string | number | bigint,
   tokenSymbol: string,
   tokenPrices: TokenPrices
@@ -192,7 +194,7 @@ function formatFiatDisplayAmount(
   const { price } = getTokenPrice(tokenPrices, tokenSymbol);
   const fiatAmount = displayAmount.abs().times(price);
 
-  return `≈ $${fiatAmount.toFixed(2)} USD`;
+  return t('historyDetailsFiatApprox', { amount: fiatAmount.toFixed(2) });
 }
 
 /** Right-aligned stack of trimmed, copyable note ids. */
@@ -365,9 +367,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       setEntry(historyEntry);
     } catch (error) {
       console.error('[HistoryDetails] Failed to load transaction:', error);
-      setLoadError(error instanceof Error ? error.message : 'Failed to load transaction');
+      setLoadError(error instanceof Error ? error.message : t('historyDetailsLoadError'));
     }
-  }, [transactionId, setEntry]);
+  }, [transactionId, setEntry, t]);
 
   useEffect(() => {
     if (!entry && !loadError) loadTransaction();
@@ -658,7 +660,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
   const approximateUsdAmount =
     entry?.amount !== undefined && entry.token
-      ? formatFiatDisplayAmount(entry.amount, entry.token, tokenPrices)
+      ? formatFiatDisplayAmount(t, entry.amount, entry.token, tokenPrices)
       : undefined;
   // The shared badge resolves its own amounts from the raw tx; for the types
   // whose hero already reads as "amount token → recipient" we override the left
@@ -697,7 +699,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           <div className="flex-1 flex flex-col items-center justify-center p-4">
             <p className="text-red-500 text-center mb-2">{t('smthWentWrong')}</p>
             <p className="text-text-muted text-sm text-center select-text">{loadError}</p>
-            <p className="text-text-muted text-xs text-center mt-2 select-text">ID: {transactionId}</p>
+            <p className="text-text-muted text-xs text-center mt-2 select-text">
+              {t('historyDetailsIdLabel', { id: transactionId })}
+            </p>
           </div>
         ) : entry === null ? (
           <ActivitySpinner />
@@ -1075,9 +1079,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     {swapTracking && requestedToken && (
                       <DetailRow label={t('amountFilled')} isLast>
                         <span data-testid="swap-order-amount-filled" className="text-sm text-heading-gray font-medium">
-                          {formatAmount(filledRequested ?? 0n, requestedToken.decimals)} /{' '}
-                          {formatAmount(requestedToken.amount, requestedToken.decimals)}
-                          {requestedToken.symbol ? ` ${requestedToken.symbol}` : ''}
+                          {t('historyDetailsAmountFilledValue', {
+                            filled: formatAmount(filledRequested ?? 0n, requestedToken.decimals),
+                            total: formatAmount(requestedToken.amount, requestedToken.decimals),
+                            symbol: requestedToken.symbol ? ` ${requestedToken.symbol}` : ''
+                          })}
                         </span>
                       </DetailRow>
                     )}
