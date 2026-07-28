@@ -183,7 +183,7 @@ describe('ReviewSwap', () => {
     });
 
     it('colours the solver-fee note with a theme token that flips in dark mode, not a hardcoded light hex', () => {
-      renderComponent({ offerPrice: 2, requestPrice: 1 });
+      renderComponent({ swapEta: etaWithRate('2') });
 
       // The note sits on the dark app background in dark mode, so its colour must
       // come from a token that flips. `text-heading-gray` (--color-text-secondary)
