@@ -400,6 +400,62 @@ describe('setupTransactionProcessor', () => {
   });
 });
 
+describe('vaultGuardianProvider — locked-vault guard (#313)', () => {
+  it('getAccounts throws a locked-classified error (not a raw null-deref) when the vault is locked', async () => {
+    // Simulate a LOCKED wallet: `inited === true` but `vault === null`.
+    // The real `withUnlocked` only asserts `inited`, so it invokes the
+    // factory with a null vault — the exact state a background Guardian
+    // consume hits when the wallet is locked.
+    mockWithUnlocked.mockImplementation((fn: (ctx: { vault: unknown }) => unknown) => fn({ vault: null }));
+    const mod = await import('./transaction-processor');
+
+    let caught: unknown;
+    try {
+      await mod.vaultGuardianProvider.getAccounts();
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    const message = (caught as Error).message;
+    // Recognisable "locked" signal so the transaction loop DEFERS (requeues)
+    // the tx for retry after unlock…
+    expect(message).toMatch(/locked/i);
+    expect((caught as { reason?: string }).reason).toBe('locked');
+    // …instead of the opaque null-vault TypeError the unguarded path threw,
+    // which the loop could not classify and so cancelled the tx.
+    expect(message).not.toMatch(/Cannot read propert/i);
+  });
+
+  it('swSignCallback throws a locked-classified error (not a raw null-deref) when the vault is locked at sign time', async () => {
+    // The sign step of a background Guardian consume: `getAccounts` already
+    // passed (live vault) but an auto-lock nulled the vault before
+    // `executeTransaction` invoked the sign callback. `withUnlocked` only
+    // asserts `inited`, so it hands the factory a null vault. An unguarded
+    // `vault.signTransaction(...)` would throw the opaque
+    // `TypeError: Cannot read properties of null` — which the guardian catch
+    // cannot classify as locked, so the tx is Failed and the note-claim lost.
+    mockWithUnlocked.mockImplementation((fn: (ctx: { vault: unknown }) => unknown) => fn({ vault: null }));
+    const mod = await import('./transaction-processor');
+
+    let caught: unknown;
+    try {
+      await mod.swSignCallback('pubkey-hex', 'signing-inputs-hex');
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    const message = (caught as Error).message;
+    // Recognisable "locked" signal (matched by `isLockedError`) so the guardian
+    // catch re-throws and the loop DEFERS the tx for retry after unlock…
+    expect(message).toMatch(/locked/i);
+    expect((caught as { reason?: string }).reason).toBe('locked');
+    // …not the opaque null-vault TypeError the unguarded sign path threw.
+    expect(message).not.toMatch(/Cannot read propert/i);
+  });
+});
+
 describe('startTransactionProcessing — broadcast and retry loop', () => {
   it('broadcasts SyncCompleted after each loop iteration', async () => {
     mockGetAllUncompletedTransactions.mockResolvedValue([]);

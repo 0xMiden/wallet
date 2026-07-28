@@ -60,6 +60,33 @@ export function buildSignCallbackError(err: unknown): SignCallbackError {
 }
 
 /**
+ * True when `err` signals the wallet is LOCKED (its vault reference is
+ * null / unavailable) rather than a genuine transaction failure. The
+ * transaction loop uses this to DEFER a tx (leave it Queued) so the next
+ * auto-consume cycle retries it after unlock, instead of marking it Failed.
+ *
+ * Two signals, mirroring `buildSignCallbackError`'s locked classification:
+ *   - a `reason: 'locked'` tag (attached by `buildSignCallbackError` or by
+ *     the vault-backed guardian provider's null-vault guard), or
+ *   - an explicit "locked" / "not initialized" message.
+ *
+ * Deliberately NARROWER than `buildSignCallbackError`: it does NOT treat a
+ * bare `Cannot read properties of null` TypeError as locked. That regex is
+ * safe inside the sign-callback wrapper (only reached on an actual sign
+ * attempt), but here it runs over EVERY `generateTransaction` failure, and
+ * classifying arbitrary null-derefs as "locked" would requeue genuinely
+ * broken transactions forever. The guardian provider throws an explicit
+ * locked message, so this precise match is sufficient.
+ */
+export function isLockedError(err: unknown): boolean {
+  if (err && typeof err === 'object' && (err as { reason?: unknown }).reason === 'locked') {
+    return true;
+  }
+  const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  return /wallet is locked|vault is (?:null|locked|unavailable)|not initialized/i.test(msg);
+}
+
+/**
  * Update the status of the transaction
  * @param id The id of the transaction to update
  * @throws if the transaction has been cancelled
