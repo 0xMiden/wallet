@@ -21,6 +21,7 @@
     "activeTab",
     "http://localhost:4180/",
     "http://localhost:3000/",
+    "https://faucet-api.forkchoice.xyz/*",
     "https://*.miden.fi/*"
   ],
   "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",

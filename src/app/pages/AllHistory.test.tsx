@@ -162,14 +162,14 @@ describe('AllHistory', () => {
     void rerender;
   });
 
-  it('navigates to /pending and fires light haptics from the header button', () => {
+  it('navigates to /pending-notes and fires light haptics from the header button', () => {
     render(<AllHistory />);
 
     fireEvent.click(screen.getByRole('button', { name: 'pendingNotes' }));
 
     expect(hapticLight).toHaveBeenCalledTimes(1);
     expect(navigate).toHaveBeenCalledTimes(1);
-    expect(navigate).toHaveBeenCalledWith('/pending');
+    expect(navigate).toHaveBeenCalledWith('/pending-notes');
   });
 
   it('changes the active filter and propagates it to History on tap', () => {

@@ -13,6 +13,7 @@
  */
 
 import faucetIcon from 'app/misc/dapp-icons/faucet.png';
+import forkchoiceFaucetIcon from 'app/misc/dapp-icons/forkchoice-faucet.png';
 import luminaIcon from 'app/misc/dapp-icons/lumina.png';
 import midenNameIcon from 'app/misc/dapp-icons/miden-name.png';
 import midenIcon from 'app/misc/dapp-icons/miden.png';
@@ -89,6 +90,16 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     badge: 'verified'
   },
   {
+    id: 'forkchoice-faucet',
+    name: 'Forkchoice Faucet',
+    url: 'https://faucets.forkchoice.xyz/',
+    icon: forkchoiceFaucetIcon,
+    shortDescription: 'Gamified testnet MIDEN faucet',
+    genre: 'Helper Tool',
+    brandColor: '#2563EB',
+    category: 'tools'
+  },
+  {
     id: 'lumina',
     name: 'Lumina Engine',
     url: 'https://beta.luminaengine.ai/',
@@ -130,14 +141,24 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     genre: 'Naming Service',
     brandColor: '#10B981',
     category: 'tools'
+  },
+  {
+    id: 'swap-faucet',
+    name: 'Miden Swap Faucet',
+    url: 'https://faucets.forkchoice.xyz',
+    shortDescription: 'The Faucet tokens for swap testing',
+    genre: 'tools',
+    brandColor: '#E77537',
+    icon: midenIcon,
+    category: 'tools'
   }
 ];
 
 /** dApps surfaced in the hero carousel — subset of FEATURED_DAPPS. */
 export const CAROUSEL_DAPPS = FEATURED_DAPPS.filter(d => d.featured);
 
-/** The four curated apps shown on the simplified Explore grid, in display order. */
-export const EXPLORE_GRID_DAPPS: FeaturedDapp[] = ['zoro', 'qash', 'faucet', 'miden-name'].flatMap(id =>
+/** The curated apps shown on the simplified Explore grid, in display order. */
+export const EXPLORE_GRID_DAPPS: FeaturedDapp[] = ['faucet', 'forkchoice-faucet'].flatMap(id =>
   FEATURED_DAPPS.filter(d => d.id === id)
 );
 

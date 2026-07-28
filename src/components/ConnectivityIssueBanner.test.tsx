@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { useConnectivityState } from 'lib/miden/activity/use-connectivity-state';
+import { requestImmediateSync } from 'lib/miden/front/useSyncTrigger';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 
@@ -31,6 +32,10 @@ jest.mock('lib/mobile/haptics', () => ({
 // mobile/desktop early-return and the extension intercom branch of `onRetry`.
 jest.mock('lib/platform', () => ({
   isExtension: jest.fn()
+}));
+
+jest.mock('lib/miden/front/useSyncTrigger', () => ({
+  requestImmediateSync: jest.fn()
 }));
 
 // The SW poke goes through the store's intercom client. Expose a spyable
@@ -75,6 +80,7 @@ jest.mock('lib/miden/activity/use-connectivity-state', () => ({
 const mockUseConnectivityState = useConnectivityState as jest.MockedFunction<typeof useConnectivityState>;
 const mockIsExtension = isExtension as jest.MockedFunction<typeof isExtension>;
 const mockHapticLight = hapticLight as jest.MockedFunction<typeof hapticLight>;
+const mockRequestImmediateSync = requestImmediateSync as jest.MockedFunction<typeof requestImmediateSync>;
 
 const mockDismiss = jest.fn();
 
@@ -139,7 +145,8 @@ describe('ConnectivityIssueBanner', () => {
 
     expect(screen.getByTestId('connectivity-banner-prover')).toBeInTheDocument();
     expect(screen.getByText('connectivityProverTitle')).toBeInTheDocument();
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'connectivityRetry' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'connectivityRetrySync' })).not.toBeInTheDocument();
     expect(screen.getByTestId('icon-InformationFill')).toHaveAttribute('data-fill', '#5b8def');
   });
 
@@ -149,7 +156,8 @@ describe('ConnectivityIssueBanner', () => {
 
     expect(screen.getByTestId('connectivity-banner-resolving')).toBeInTheDocument();
     expect(screen.getByText('connectivityResolvingTitle')).toBeInTheDocument();
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'connectivityRetry' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'connectivityRetrySync' })).not.toBeInTheDocument();
     expect(screen.getByTestId('icon-Refresh')).toBeInTheDocument();
   });
 
@@ -173,7 +181,7 @@ describe('ConnectivityIssueBanner', () => {
   });
 
   // -- onRetry --------------------------------------------------------------
-  it('on retry off-extension: buzzes but does not poke the intercom', () => {
+  it('on retry off-extension: buzzes and requests an immediate sync', () => {
     mockIsExtension.mockReturnValue(false);
     setState({ network: true });
     render(<ConnectivityIssueBanner />);
@@ -181,6 +189,7 @@ describe('ConnectivityIssueBanner', () => {
     fireEvent.click(screen.getByRole('button', { name: 'connectivityRetry' }));
 
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
+    expect(mockRequestImmediateSync).toHaveBeenCalledTimes(1);
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
@@ -192,7 +201,8 @@ describe('ConnectivityIssueBanner', () => {
     fireEvent.click(screen.getByRole('button', { name: 'connectivityRetry' }));
 
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
-    expect(mockRequest).toHaveBeenCalledWith({ type: 'SyncRequest' });
+    expect(mockRequestImmediateSync).not.toHaveBeenCalled();
+    expect(mockRequest).toHaveBeenCalledWith({ type: 'SyncRequest', force: true });
   });
 
   it('swallows an intercom rejection on retry (no unhandled error)', async () => {
@@ -203,7 +213,7 @@ describe('ConnectivityIssueBanner', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'connectivityRetrySync' }));
 
-    await waitFor(() => expect(mockRequest).toHaveBeenCalledWith({ type: 'SyncRequest' }));
+    await waitFor(() => expect(mockRequest).toHaveBeenCalledWith({ type: 'SyncRequest', force: true }));
     // Let the rejected promise settle so the `.catch(() => {})` handler runs.
     await Promise.resolve();
     await Promise.resolve();
@@ -214,7 +224,7 @@ describe('ConnectivityIssueBanner', () => {
     setState({ prover: true });
     render(<ConnectivityIssueBanner />);
 
-    fireEvent.click(screen.getByTestId('icon-Close'));
+    fireEvent.click(screen.getByRole('button', { name: 'close' }));
 
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
     expect(mockDismiss).toHaveBeenCalledWith('prover');

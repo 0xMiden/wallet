@@ -13,6 +13,7 @@ import HomeSwipeContainer from './HomeSwipeContainer';
 const mockNavigate = jest.fn();
 let mockPathname = '/';
 const mockSwapEnabled = { value: true };
+const mockEarnEnabled = { value: false };
 
 const mockAnimateStop = jest.fn();
 const mockAnimate = jest.fn((..._args: unknown[]) => ({ stop: mockAnimateStop }));
@@ -92,7 +93,8 @@ jest.mock('screens/swap-flow/SwapManager', () => ({
 // Swap availability is gated by isSwapEnabled (false on iOS); toggle it to
 // assert the pane is added/removed and the track stays in sync.
 jest.mock('lib/feature-flags', () => ({
-  isSwapEnabled: () => mockSwapEnabled.value
+  isSwapEnabled: () => mockSwapEnabled.value,
+  isEarnEnabled: () => mockEarnEnabled.value
 }));
 
 // ---------------------------------------------------------------------------
@@ -129,6 +131,7 @@ beforeEach(() => {
   mockLastDragConstraints = null;
   mockRoCallback = null;
   mockSwapEnabled.value = true;
+  mockEarnEnabled.value = false;
 });
 
 // Drive the captured ResizeObserver callback to set a positive width.
@@ -151,13 +154,20 @@ function dragEnd(offsetX: number, velocityX = 0) {
 }
 
 describe('HomeSwipeContainer', () => {
-  it('mounts all five home pages in the track', () => {
-    const { getByTestId } = render(<HomeSwipeContainer />);
+  it('mounts the four home pages in the track, with Earn gated off', () => {
+    const { getByTestId, queryByTestId } = render(<HomeSwipeContainer />);
     expect(getByTestId('page-explore')).toBeInTheDocument();
     expect(getByTestId('page-send')).toBeInTheDocument();
     expect(getByTestId('page-receive')).toBeInTheDocument();
-    expect(getByTestId('page-earn')).toBeInTheDocument();
     expect(getByTestId('page-swap')).toBeInTheDocument();
+    // Earn is built but not exposed (isEarnEnabled === false).
+    expect(queryByTestId('page-earn')).toBeNull();
+  });
+
+  it('adds the Earn pane when earn is enabled', () => {
+    mockEarnEnabled.value = true;
+    const { getByTestId } = render(<HomeSwipeContainer />);
+    expect(getByTestId('page-earn')).toBeInTheDocument();
   });
 
   it('passes isLoading={false} to the SendFlow', () => {
@@ -165,18 +175,19 @@ describe('HomeSwipeContainer', () => {
     expect(getByTestId('page-send')).toHaveAttribute('data-loading', 'false');
   });
 
-  it('drops the Swap pane when swap is disabled (iOS), keeping the other four', () => {
+  it('drops the Swap pane when swap is disabled, keeping the other three', () => {
     mockSwapEnabled.value = false;
     const { getByTestId, queryByTestId } = render(<HomeSwipeContainer />);
     expect(queryByTestId('page-swap')).toBeNull();
     expect(getByTestId('page-explore')).toBeInTheDocument();
     expect(getByTestId('page-send')).toBeInTheDocument();
     expect(getByTestId('page-receive')).toBeInTheDocument();
-    expect(getByTestId('page-earn')).toBeInTheDocument();
-    // Track math must derive from the 4-page filtered array — not a hardcoded 5 —
-    // so the drag bounds shrink accordingly (a phantom 5th slot would fail here).
+    // Earn is gated off too, so only three panes remain.
+    expect(queryByTestId('page-earn')).toBeNull();
+    // Track math must derive from the 3-page filtered array — not a hardcoded 5 —
+    // so the drag bounds shrink accordingly (a phantom slot would fail here).
     measure(300);
-    expect(mockLastDragConstraints).toEqual({ left: -900, right: 0 }); // -(4 - 1) * 300
+    expect(mockLastDragConstraints).toEqual({ left: -600, right: 0 }); // -(3 - 1) * 300
   });
 
   it('on mount at width 0 sets the motion value directly instead of animating', () => {
@@ -289,14 +300,14 @@ describe('HomeSwipeContainer', () => {
     });
 
     it('cannot advance past the last page', () => {
-      mockPathname = '/swap'; // index 4 (last)
+      mockPathname = '/swap'; // index 3 (last, with Earn gated off)
       render(<HomeSwipeContainer />);
       measure(300);
       mockAnimate.mockClear();
-      dragEnd(-1000); // projected far left but activeIdx === PAGES.length - 1
+      dragEnd(-1000); // projected far left but activeIdx === pages.length - 1
       expect(mockNavigate).not.toHaveBeenCalled();
       // No index change -> snap back animate to the current resting position.
-      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -1200, expect.anything());
+      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -900, expect.anything());
     });
 
     it('cannot go before the first page', () => {
@@ -329,8 +340,8 @@ describe('HomeSwipeContainer', () => {
     it('clamps left to -(pages-1)*width once measured', () => {
       render(<HomeSwipeContainer />);
       measure(300);
-      // 5 pages -> left edge at -(5 - 1) * 300 = -1200
-      expect(mockLastDragConstraints).toEqual({ left: -1200, right: 0 });
+      // 4 pages (Earn gated off, Swap on) -> left edge at -(4 - 1) * 300 = -900
+      expect(mockLastDragConstraints).toEqual({ left: -900, right: 0 });
     });
   });
 

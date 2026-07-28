@@ -17,17 +17,15 @@ import { act, render, waitFor } from '@testing-library/react';
 import { WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import { useSyncTrigger } from './useSyncTrigger';
+import { requestImmediateSync, useSyncTrigger } from './useSyncTrigger';
 
 const storeState: {
   status: WalletStatus;
   accounts: Array<{ publicKey: string; type: WalletType }>;
-  isTransactionModalOpen: boolean;
   setSyncStatus: jest.Mock;
 } = {
   status: WalletStatus.Ready,
   accounts: [],
-  isTransactionModalOpen: false,
   setSyncStatus: jest.fn()
 };
 
@@ -57,6 +55,7 @@ const mockIsExtension = jest.fn((..._args: unknown[]) => false);
 const mockIsMobile = jest.fn((..._args: unknown[]) => false);
 jest.mock('lib/platform', () => ({
   isExtension: (...args: unknown[]) => mockIsExtension(...args),
+  // useSyncTrigger skips the WASM sync while the transaction modal is up on mobile.
   isMobile: (...args: unknown[]) => mockIsMobile(...args)
 }));
 
@@ -75,11 +74,10 @@ const flush = () => new Promise(res => setTimeout(res, 0));
 describe('useSyncTrigger', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    window.location.hash = '';
     storeState.status = WalletStatus.Ready;
     storeState.accounts = [];
-    storeState.isTransactionModalOpen = false;
     mockIsExtension.mockReturnValue(false);
-    mockIsMobile.mockReturnValue(false);
   });
 
   it('does nothing when wallet status is not Ready', () => {
@@ -131,6 +129,16 @@ describe('useSyncTrigger', () => {
     unmount();
   });
 
+  it('mobile/desktop: runs immediately when the banner requests a retry', async () => {
+    const { unmount } = render(<HookHost />);
+
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalledTimes(1));
+    act(() => requestImmediateSync());
+
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalledTimes(2));
+    unmount();
+  });
+
   it('mobile/desktop: runs Guardian sync after chain sync when Guardian accounts exist', async () => {
     storeState.accounts = [{ publicKey: 'g1', type: WalletType.Guardian }];
 
@@ -140,9 +148,8 @@ describe('useSyncTrigger', () => {
     unmount();
   });
 
-  it('mobile/desktop: skips sync while the mobile transaction modal is open', async () => {
-    mockIsMobile.mockReturnValue(true);
-    storeState.isTransactionModalOpen = true;
+  it('mobile/desktop: skips sync while the generating transaction page is active', async () => {
+    window.location.hash = '#/generating-transaction-full';
 
     const { unmount } = render(<HookHost />);
 

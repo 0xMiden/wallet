@@ -102,6 +102,16 @@ jest.mock('../sdk/miden-client', () => ({
 
 jest.mock('lib/miden/sdk/helpers', () => ({ getBech32AddressFromAccountId: () => 'bech32' }));
 
+jest.mock('./simulate-custom-tx', () => ({
+  simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'confirm-sim-sum' }))
+}));
+
+const mockReleaseNoteIds = jest.fn(async (_ids: string[]) => undefined);
+jest.mock('lib/miden/note-quarantine', () => ({
+  importedNoteIds: jest.fn((notes: string[] | undefined) => (notes ?? []).map((n: string) => `id:${n}`)),
+  releaseNoteIds: (ids: string[]) => mockReleaseNoteIds(ids)
+}));
+
 jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
   AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
@@ -315,5 +325,120 @@ describe('requestPermission (extension) — public-key fetch failure', () => {
         getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([1]) }]
       });
     }
+  });
+});
+
+describe('requestConfirm — DAppSimulateTransactionRequest branch', () => {
+  it('answers a matching simulate request without closing the popup', async () => {
+    const p = dapp.requestTransaction('https://test.xyz', {
+      type: MidenDAppMessageType.TransactionRequest,
+      sourcePublicKey: 'a1',
+      transaction: {
+        payload: {
+          address: 'a1',
+          recipientAddress: 'bob',
+          transactionRequest: 'b64req'
+        }
+      }
+    } as never);
+    await jest.advanceTimersByTimeAsync(0);
+
+    const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
+    const url = browser.windows.create.mock.calls.at(-1)?.[0]?.url || '';
+    const id = url.match(/id=([^&]+)/)?.[1];
+    expect(id).toBeTruthy();
+
+    const listener = _g.__dappConfInternals.intercomListeners.at(-1);
+    const port = { id: 'sim-port' };
+
+    // Register the confirm window's port via the payload fetch, as the real popup does.
+    await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, port);
+
+    const result = await listener({ type: MidenMessageType.DAppSimulateTransactionRequest, id }, port);
+
+    expect(result).toEqual({
+      type: MidenMessageType.DAppSimulateTransactionResponse,
+      summaryBytes: 'confirm-sim-sum',
+      error: undefined
+    });
+    // Critical: the popup must stay open after a simulate round-trip.
+    expect(browser.windows.remove).not.toHaveBeenCalled();
+
+    // Clean up by auto-declining.
+    jest.advanceTimersByTime(121_000);
+    p.catch(() => {});
+  });
+});
+
+describe('requestConfirm — custom tx quarantine release', () => {
+  it('releases the simulation quarantine after a successful confirm', async () => {
+    const p = dapp.requestTransaction('https://test.xyz', {
+      type: MidenDAppMessageType.TransactionRequest,
+      sourcePublicKey: 'a1',
+      transaction: {
+        payload: {
+          address: 'a1',
+          recipientAddress: 'bob',
+          transactionRequest: 'b64req',
+          importNotes: ['noteA', 'noteB']
+        }
+      }
+    } as never);
+    await jest.advanceTimersByTimeAsync(0);
+
+    const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
+    const url = browser.windows.create.mock.calls.at(-1)?.[0]?.url || '';
+    const id = url.match(/id=([^&]+)/)?.[1];
+    expect(id).toBeTruthy();
+
+    const listener = _g.__dappConfInternals.intercomListeners.at(-1);
+    const port = { id: 'confirm-port' };
+    await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, port);
+
+    const result = await listener(
+      { type: MidenMessageType.DAppTransactionConfirmationRequest, id, confirmed: true, delegate: false },
+      port
+    );
+    expect(result).toEqual({ type: MidenMessageType.DAppTransactionConfirmationResponse });
+
+    await expect(p).resolves.toEqual(expect.objectContaining({ transactionId: 'tx-2' }));
+    // Confirmed: the transaction is queued and will consume these notes, so
+    // the quarantine placed on them by the pre-confirm dry-run is released.
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteA', 'id:noteB']);
+  });
+
+  it('does NOT release the simulation quarantine when the user declines', async () => {
+    const p = dapp.requestTransaction('https://test.xyz', {
+      type: MidenDAppMessageType.TransactionRequest,
+      sourcePublicKey: 'a1',
+      transaction: {
+        payload: {
+          address: 'a1',
+          recipientAddress: 'bob',
+          transactionRequest: 'b64req',
+          importNotes: ['noteA']
+        }
+      }
+    } as never);
+    await jest.advanceTimersByTimeAsync(0);
+
+    const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
+    const url = browser.windows.create.mock.calls.at(-1)?.[0]?.url || '';
+    const id = url.match(/id=([^&]+)/)?.[1];
+    expect(id).toBeTruthy();
+
+    const listener = _g.__dappConfInternals.intercomListeners.at(-1);
+    const port = { id: 'decline-port' };
+    await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, port);
+
+    const result = await listener(
+      { type: MidenMessageType.DAppTransactionConfirmationRequest, id, confirmed: false },
+      port
+    );
+    expect(result).toEqual({ type: MidenMessageType.DAppTransactionConfirmationResponse });
+
+    await expect(p).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    // Declined: the imported notes must stay hidden from the claimable UI.
+    expect(mockReleaseNoteIds).not.toHaveBeenCalled();
   });
 });

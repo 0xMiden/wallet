@@ -230,9 +230,9 @@ export class AndroidWalletPage implements WalletPage {
   async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
     // No location.reload() on mobile — would drop the in-memory vault
     // decryption key (no service worker like Chrome has). Stay in-session.
-    // Claimable notes live on their own /pending page (mounts the claim UI
+    // Claimable notes live on their own /pending-notes page (mounts the claim UI
     // directly).
-    await this.navigateTo('/pending');
+    await this.navigateTo('/pending-notes');
     await sleep(3_000);
 
     await this.pollForCondition(
@@ -303,6 +303,12 @@ export class AndroidWalletPage implements WalletPage {
     await this.pollForSelector('[data-testid="send-flow"]', 15_000);
 
     await this.fillInput('[data-testid="send-recipient-input"]', params.recipientAddress);
+    if (params.recipientAddress.trim().startsWith('0x')) {
+      await this.pollForSelector('[data-testid="send-network-selector"]', 15_000);
+      await this.click('[data-testid="send-network-selector"]');
+      await this.pollForSelector('[data-testid="send-network-sepolia"]', 15_000);
+      await this.click('[data-testid="send-network-sepolia"]');
+    }
     await this.clickWhenEnabled('[data-testid="send-recipient-confirm"]', 30_000);
 
     await this.pollForSelector('[data-testid="send-token-selector"]', 15_000);

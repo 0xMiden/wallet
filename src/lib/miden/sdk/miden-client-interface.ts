@@ -342,7 +342,10 @@ export class MidenClientInterface {
       const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');
       const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
 
-      const lookupClient = new MultisigClient(this.client, { guardianEndpoint });
+      const lookupClient = new MultisigClient(this.client, {
+        guardianEndpoint,
+        midenRpcEndpoint: MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!
+      });
       const lookupSigner = new EcdsaSigner(coldSk);
       const matches = await lookupClient.recoverByKey(lookupSigner);
 
@@ -581,7 +584,10 @@ export class MidenClientInterface {
   }
 
   async consumeNoteId(transaction: ConsumeTransaction): Promise<TransactionResult> {
-    const { accountId, noteId } = transaction;
+    const { accountId, noteId, noteIds } = transaction;
+
+    // Batch claims consume every note in one transaction (one proof/submit).
+    const targetNoteIds = noteIds && noteIds.length > 0 ? noteIds : [noteId];
 
     recordProveTiming(`consumeNoteId entered noteId=${noteId} delegateTransaction=${transaction.delegateTransaction}`);
     return proveWithFallback(async prover => {
@@ -599,15 +605,18 @@ export class MidenClientInterface {
           // produces a tx with zero input notes (the prove succeeds, then
           // completeConsumeTransaction trips on `inputNotes().notes()[0]`
           // being undefined).
-          recordProveTiming('consumeNoteId buildExecuteArgs: calling getInputNote');
-          const inputNoteRecord = await inner.getInputNote(noteId);
-          recordProveTiming(`consumeNoteId buildExecuteArgs: getInputNote returned, found=${!!inputNoteRecord}`);
-          if (!inputNoteRecord) {
-            throw new Error(`Note ${noteId} not found in store`);
+          const notes: Note[] = [];
+          for (const id of targetNoteIds) {
+            recordProveTiming('consumeNoteId buildExecuteArgs: calling getInputNote');
+            const inputNoteRecord = await inner.getInputNote(id);
+            recordProveTiming(`consumeNoteId buildExecuteArgs: getInputNote returned, found=${!!inputNoteRecord}`);
+            if (!inputNoteRecord) {
+              throw new Error(`Note ${id} not found in store`);
+            }
+            notes.push(inputNoteRecord.toNote());
           }
-          const note: Note = inputNoteRecord.toNote();
           recordProveTiming('consumeNoteId buildExecuteArgs: toNote done; calling newConsumeTransactionRequest');
-          const request: TransactionRequest = await inner.newConsumeTransactionRequest([note]);
+          const request: TransactionRequest = await inner.newConsumeTransactionRequest(notes);
           recordProveTiming('consumeNoteId buildExecuteArgs: newConsumeTransactionRequest returned');
           const acctId = resolveAccountId(wasm, accountId);
           recordProveTiming('consumeNoteId buildExecuteArgs: resolveAccountId returned');
@@ -615,22 +624,19 @@ export class MidenClientInterface {
         });
       }
       recordProveTiming('consumeNoteId calling SDK client.transactions.consume');
-      let result;
       try {
-        const r = await this.client.transactions.consume({
+        const { result } = await this.client.transactions.consume({
           account: accountId,
-          notes: [noteId],
+          notes: targetNoteIds,
           prover
         });
-        result = r.result;
-      } catch (err) {
-        recordProveTiming(
-          `consumeNoteId SDK consume THREW: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`
-        );
-        throw err;
+        recordProveTiming('consumeNoteId SDK consume returned');
+        return result;
+      } catch (error) {
+        const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+        recordProveTiming(`consumeNoteId SDK consume THREW ${detail}`);
+        throw error;
       }
-      recordProveTiming('consumeNoteId SDK consume returned');
-      return result;
     }, transaction.delegateTransaction);
   }
 

@@ -34,7 +34,9 @@ export const getTransactionStepState = (
   hasErrors: boolean
 ): TransactionStepState => {
   if (transactionComplete) {
-    return hasErrors && index === TRANSACTION_STEPS.length - 1 ? 'failed' : 'complete';
+    if (!hasErrors) return 'complete';
+    if (index === activeStepIndex) return 'failed';
+    return index < activeStepIndex ? 'complete' : 'pending';
   }
   if (index < activeStepIndex) {
     return 'complete';

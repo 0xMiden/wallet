@@ -1,0 +1,118 @@
+name: E2E Bridge
+
+# Runs the cross-chain bridge-OUT E2E suite (playwright/e2e/tests/bridge, all
+# specs) on every push to main. UI-only, real Miden testnet. Two routes:
+#   - Fast/Epoch (bridge-out-epoch): the wallet mints a real P2IDE note; the
+#     hosted solver settles the EVM leg; the test asserts real USDC lands at the
+#     Sepolia destination (read via a public RPC).
+#   - Slow/AggLayer (bridge-out-agglayer): the wallet's real work is the Miden
+#     leg — build + prove + submit the B2AGG note → the bridged-send row reaches
+#     Completed ("Bridged to EVM"). The EVM claim is external AggLayer L1 infra
+#     with no hermetic double, so it is deliberately not asserted.
+#
+# Testnet-only by nature — it depends on LIVE external services (Miden testnet,
+# the Epoch allocator/solver, a public Sepolia RPC), so it is a post-merge
+# signal on main, not a per-PR gate. It needs NO secrets: bridge-out is
+# solver-fulfilled / Miden-side, so the test signs nothing on EVM and only reads
+# a public Sepolia RPC — there is no funded key to inject. `--retries=1` absorbs
+# transient testnet/RPC hiccups so a one-off external blip doesn't red main.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chrome-bridge-testnet:
+    name: Bridge E2E (Chrome, testnet)
+    runs-on: ubuntu-latest
+    # Headroom for a cold cache (yarn + `cargo install --git --locked` + playwright
+    # + the extension build ~20 min) PLUS two 15-min test attempts under
+    # `--retries=1`, so the retry that absorbs a transient blip can't itself
+    # wall-clock-timeout and red main.
+    timeout-minutes: 70
+    env:
+      E2E_NETWORK: testnet
+      # Optional: pin a keyed / higher-rate-limit Sepolia RPC so the EVM-side read
+      # doesn't hit a 429 from the shared runner IP. Falls back to the public node
+      # in playwright/e2e/helpers/sepolia.ts when this secret is unset.
+      E2E_SEPOLIA_RPC_URL: ${{ secrets.E2E_SEPOLIA_RPC_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      # cargo is needed to install the miden-client CLI that funds the Miden
+      # account (the bridge's Miden-side input token is self-minted per run).
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache miden-client-cli
+        # Key follows package.json so a SDK/CLI-pin bump invalidates naturally —
+        # the CLI is installed version-matched by playwright/e2e/helpers/miden-cli.ts.
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Install miden-client-cli
+        shell: bash
+        run: |
+          # Decoupled from the JS SDK version — read the CLI pin from
+          # package.json. `midenClientCliGit` ({url, rev}) takes precedence
+          # over `midenClientCliVersion` and is used while the target
+          # miden-client line is unreleased on crates.io (the 0.15 series
+          # ships from the repo's `next` branch only). See
+          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
+          # path.
+          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
+          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
+          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
+          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
+            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
+            exit 1
+          fi
+          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
+            echo "miden-client already present from cache:"
+            "$HOME/.cargo/bin/miden-client" --version || true
+          elif [[ -n "$GIT_URL" ]]; then
+            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
+            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
+          else
+            echo "Installing miden-client-cli@${VERSION}..."
+            cargo install miden-client-cli --version "$VERSION"
+          fi
+
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Build extension (testnet, e2e flags)
+        run: yarn test:e2e:blockchain:build
+
+      - name: Run bridge E2E (testnet)
+        run: xvfb-run -a yarn playwright test --config playwright.bridge.config.ts --retries=1
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-e2e-testnet-${{ github.run_id }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore

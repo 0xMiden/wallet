@@ -2,6 +2,23 @@ import { expect, test } from '../fixtures/extension';
 
 test.describe.configure({ mode: 'serial' });
 
+/**
+ * Console errors that are noise in the extension build and are not wallet
+ * regressions:
+ *  - The wallet-connect / AppKit dependency chain (pulled in for the bridge
+ *    flows) probes for an inline script and for Coinbase's COOP header. Neither
+ *    path is reachable from the extension fullpage, and MV3's CSP blocking the
+ *    inline script is the intended behaviour, not a failure.
+ */
+const IGNORED_CONSOLE_ERRORS = [
+  /Executing inline script violates the following Content Security Policy directive/i,
+  // Emitted as either "Coinbase Wallet SDK" or "Base Account SDK" depending on
+  // the resolved SDK version.
+  /SDK requires the Cross-Origin-Opener-Policy header/i
+];
+
+const isIgnoredConsoleError = (text: string) => IGNORED_CONSOLE_ERRORS.some(pattern => pattern.test(text));
+
 test.describe('Fullpage UI', () => {
   test.skip(({ browserName }) => browserName !== 'chromium', 'Extension UI only runs in Chromium');
 
@@ -11,7 +28,7 @@ test.describe('Fullpage UI', () => {
 
     extensionContext.on('page', page => {
       page.on('console', message => {
-        if (message.type() === 'error') {
+        if (message.type() === 'error' && !isIgnoredConsoleError(message.text())) {
           errors.push(message.text());
         }
       });
@@ -82,7 +99,10 @@ test.describe('Fullpage UI', () => {
 
     // Recovery method step — pick "Fully Private" to avoid the guardian backend.
     await page.getByRole('heading', { name: /set up account recovery/i }).waitFor({ timeout: 15000 });
-    await page.getByText(/fully private/i).first().click();
+    await page
+      .getByText(/fully private/i)
+      .first()
+      .click();
     await page.getByRole('button', { name: /continue/i }).click();
 
     // New-wallet onboarding hands the wallet off to the Chrome side panel: the
@@ -110,10 +130,9 @@ test.describe('Fullpage UI', () => {
     }
     await page.locator('#import-link').click();
 
-    const importType = page.getByTestId('import-select-type');
-    await importType.waitFor({ timeout: 15000 });
-
-    await importType.getByText(/import with seed phrase/i).click();
+    // Recovery is seed-phrase only — the old "select import type" screen is gone
+    // and the welcome link lands directly on the seed entry form.
+    await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15000 });
 
     const words = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(
       ' '
@@ -142,7 +161,6 @@ test.describe('Fullpage UI', () => {
     await expect(page.getByTestId('explore-page')).toBeVisible({ timeout: 30000 });
   });
 
-
   test('import seed phrase enforces valid words before continue', async ({ extensionContext, extensionId }) => {
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const page = await extensionContext.newPage();
@@ -155,10 +173,6 @@ test.describe('Fullpage UI', () => {
       throw new Error('Page closed before onboarding');
     }
     await page.locator('#import-link').click();
-
-    const importType = page.getByTestId('import-select-type');
-    await importType.waitFor({ timeout: 15000 });
-    await importType.getByText(/import with seed phrase/i).click();
 
     const seedForm = page.getByTestId('import-seed-phrase');
     await seedForm.waitFor({ timeout: 15000 });

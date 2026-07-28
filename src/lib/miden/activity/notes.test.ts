@@ -20,6 +20,8 @@ jest.mock('lib/platform/storage-adapter', () => ({
       return out;
     },
     set: async (items: Record<string, any>) => {
+      const hook = (globalThis as any).__notesTest.beforeSet;
+      if (hook) await hook(items);
       Object.assign((globalThis as any).__notesTest.store, items);
     }
   })
@@ -38,6 +40,7 @@ import { importAllNotes, queueNoteImport } from './notes';
 
 beforeEach(() => {
   for (const k of Object.keys(_g.__notesTest.store)) delete _g.__notesTest.store[k];
+  _g.__notesTest.beforeSet = undefined;
   _g.__notesTest.midenClient.importNoteBytes.mockClear();
   _g.__notesTest.midenClient.syncState.mockClear();
 });
@@ -191,6 +194,58 @@ describe('importAllNotes', () => {
     // because the re-fetch saw no stored value and used the [] fallback.
     expect(_g.__notesTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
     expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
+    jest.useRealTimers();
+  });
+});
+
+describe('queueNoteImport vs importAllNotes concurrency', () => {
+  const flush = async () => {
+    for (let i = 0; i < 30; i++) await Promise.resolve();
+  };
+
+  // TOCTOU race: importAllNotes rebuilds the queue with a read-slice-write, and
+  // queueNoteImport does its own read-modify-write. If an enqueue lands between
+  // importAllNotes' rewrite read and its rewrite write, the write clobbers the
+  // freshly enqueued note. A private note's bytes are its only copy, so the note
+  // is lost. The queue-level lock must serialize the two so nothing is dropped.
+  it('does not drop a note enqueued during importAllNotes rewrite window', async () => {
+    jest.useFakeTimers();
+    _g.__notesTest.store['miden-notes-pending-import'] = ['snap'];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockResolvedValue(undefined);
+
+    // Park importAllNotes at its rewrite write (the first `set` of the pass), so
+    // a concurrent enqueue is forced into the read-write window.
+    let setCount = 0;
+    let releaseGate = () => {};
+    const gate = new Promise<void>(resolve => {
+      releaseGate = resolve;
+    });
+    _g.__notesTest.beforeSet = async () => {
+      setCount += 1;
+      if (setCount === 1) await gate;
+    };
+
+    const importP = importAllNotes();
+    // Let importAllNotes run up to (and block on) its gated rewrite write.
+    await flush();
+
+    // A new private note is enqueued while importAllNotes is mid-rewrite.
+    const enqueueP = queueNoteImport('fresh-private-note');
+    await flush();
+
+    // Unblock the rewrite write and let both settle.
+    releaseGate();
+    await enqueueP;
+    await jest.advanceTimersByTimeAsync(2100);
+    await importP;
+
+    const queue = (_g.__notesTest.store['miden-notes-pending-import'] as any[]).map(e =>
+      typeof e === 'string' ? e : e.bytes
+    );
+    // The processed snapshot note is gone (correctly imported), but the note
+    // enqueued during the pass MUST survive.
+    expect(queue).toContain('fresh-private-note');
     jest.useRealTimers();
   });
 });

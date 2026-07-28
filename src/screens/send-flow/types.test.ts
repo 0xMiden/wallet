@@ -36,12 +36,12 @@ describe('send-flow/types', () => {
     it('maps every step key to its self-named string value', () => {
       expect(SendFlowStep.SelectRecipient).toBe('SelectRecipient');
       expect(SendFlowStep.SelectAmount).toBe('SelectAmount');
-      expect(SendFlowStep.TransactionInitiated).toBe('TransactionInitiated');
+      expect(SendFlowStep.Route).toBe('Route');
     });
 
     it('contains exactly three steps', () => {
-      expect(Object.keys(SendFlowStep)).toEqual(['SelectRecipient', 'SelectAmount', 'TransactionInitiated']);
-      expect(Object.values(SendFlowStep)).toEqual(['SelectRecipient', 'SelectAmount', 'TransactionInitiated']);
+      expect(Object.keys(SendFlowStep)).toEqual(['SelectRecipient', 'SelectAmount', 'Route']);
+      expect(Object.values(SendFlowStep)).toEqual(['SelectRecipient', 'SelectAmount', 'Route']);
     });
   });
 

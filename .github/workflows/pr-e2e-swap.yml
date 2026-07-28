@@ -18,9 +18,13 @@ jobs:
   swap-e2e:
     name: swap-e2e (chrome)
     runs-on: ubuntu-latest
-    # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m);
-    # warm-cache runs are ~20m. 45m gives the cold run headroom to seed the cache.
-    timeout-minutes: 45
+    # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m).
+    # The suite is real-network and intermittently flaky under CI load, so it runs
+    # with `--retries=1`; the partial-fill spec alone sits through a real ~2-min
+    # order expiry (~6m/attempt). When two specs each need their retry, a 45m cap
+    # cancels the job mid-retry — turning a would-be-green (retry passes) into red.
+    # 60m (matching e2e-blockchain.yml) lets the existing retry mechanism finish.
+    timeout-minutes: 60
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret

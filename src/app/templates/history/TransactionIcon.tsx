@@ -3,11 +3,16 @@ import React, { FC } from 'react';
 import { ReactComponent as FaucetIcon } from 'app/icons/faucet-new.svg';
 import { ReactComponent as PendingIcon } from 'app/icons/rotate.svg';
 import { Icon, IconName } from 'app/icons/v2';
+import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
+import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
+import { bridgeStatusOf, isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
+
+/** Slate square behind the white swap glyph for bridge rows (matches the design). */
+const BRIDGE_ICON_BG = '#777487';
 
 type TransactionIconSize = 'sm' | 'lg';
 
@@ -23,10 +28,59 @@ const sizeConfig = {
 
 const whiteIconClass = 'text-pure-white [&_path]:fill-pure-white';
 
+/** Shared accent used by both the transaction glyph and detail-section dividers. */
+export const getTransactionIconBackgroundColor = (entry: IHistoryEntry): string => {
+  if (entry.isCancelled) return '#9E9E9E';
+  if (entry.transactionIcon === 'FAILED') return '#CC5D5D';
+
+  if (entry.txType === 'bridged-send' || entry.bridgeInProvider) {
+    return bridgeStatusOf(entry) === 'failed' ? '#CC5D5D' : BRIDGE_ICON_BG;
+  }
+
+  if (isFaucetRequest(entry)) return TRANSACTION_COLORS.faucet;
+
+  switch (entry.transactionIcon) {
+    case 'SEND':
+      return TRANSACTION_COLORS.send;
+    case 'SWAP':
+      return 'var(--tx-swap)';
+    case 'RECEIVE':
+    default:
+      return TRANSACTION_COLORS.receive;
+  }
+};
+
 const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
   const config = sizeConfig[size];
   const isPending =
     entry.type === HistoryEntryType.PendingTransaction || entry.type === HistoryEntryType.ProcessingTransaction;
+
+  if (entry.isCancelled) {
+    return (
+      <div className={`${config.container} rounded-10 flex items-center justify-center bg-gray-400`}>
+        <FailedCrossIcon className={config.sendIcon} />
+      </div>
+    );
+  }
+
+  if (entry.txType === 'bridged-send' || entry.txType === 'bridged-receive' || entry.bridgeInProvider) {
+    if (bridgeStatusOf(entry) === 'failed') {
+      return (
+        <div className={`${config.container} rounded-10 flex items-center justify-center bg-status-negative`}>
+          <Icon name={IconName.Close} size={size === 'lg' ? 'lg' : 'sm'} fill="currentColor" />
+        </div>
+      );
+    }
+
+    return (
+      <div
+        className={`${config.container} rounded-10 flex items-center justify-center`}
+        style={{ backgroundColor: BRIDGE_ICON_BG }}
+      >
+        <SwapIcon className={config.icon} />
+      </div>
+    );
+  }
 
   if (isPending) {
     return <PendingIcon className={`${config.pending} animate-spin ${whiteIconClass}`} />;
@@ -44,6 +98,12 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
   }
 
   switch (entry.transactionIcon) {
+    case 'FAILED':
+      return (
+        <div className={`${config.container} rounded-10 flex items-center justify-center bg-[#CC5D5D]`}>
+          <FailedCrossIcon className={config.sendIcon} />
+        </div>
+      );
     case 'SEND':
       return (
         <div

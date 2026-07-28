@@ -6,7 +6,7 @@ import { navigate } from 'lib/woozie';
 
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { isFaucetRequest } from './transactionUtils';
+import { bridgeRowDisplay, isFaucetRequest } from './transactionUtils';
 
 // i18n: identity translator so `t(key)` returns the key verbatim, letting us
 // assert on the raw translation keys the component passes in.
@@ -101,8 +101,18 @@ jest.mock('./HistoryItem', () => ({
 // isFaucetRequest: pure predicate driven off a test-only `__faucet` marker so
 // each entry can opt into the faucet branch independently.
 jest.mock('./transactionUtils', () => ({
-  isFaucetRequest: jest.fn((entry: { __faucet?: boolean }) => Boolean(entry.__faucet))
+  BRIDGE_STATUS_LABEL_KEY: {
+    pending: 'pending',
+    confirmed: 'confirmed',
+    failed: 'bridgeFailed'
+  },
+  isFaucetRequest: jest.fn((entry: { __faucet?: boolean }) => Boolean(entry.__faucet)),
+  isBridgeInEntry: jest.fn(() => false),
+  bridgeInRowDisplay: jest.fn(),
+  bridgeRowDisplay: jest.fn()
 }));
+
+const mockBridgeRowDisplay = bridgeRowDisplay as jest.MockedFunction<typeof bridgeRowDisplay>;
 
 // InfiniteScroll: render children inline, invoke getScrollParent so the
 // `() => scrollParentRef.current` closure is exercised, and expose a button
@@ -219,6 +229,29 @@ describe('HistoryView summary (non-full) list', () => {
 });
 
 describe('HistoryView full-history rows (buildRowProps branches)', () => {
+  it('uses failed styling for a failed bridge row', () => {
+    mockBridgeRowDisplay.mockReturnValue({
+      inSymbol: 'MIDEN',
+      outSymbol: 'USDC',
+      outAmount: '10',
+      providerLabel: 'AggLayer',
+      network: 'Sepolia',
+      status: 'failed'
+    });
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[makeEntry({ key: 'bridge-failed', txType: 'bridged-send', txId: 'bridge-tx' })]}
+        fullHistory
+      />
+    );
+
+    const row = rowByTitle('bridgeRowTitle');
+    expect(iconNameIn(row)).toBe('Close');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-status-negative');
+    expect(row).toHaveAttribute('data-status-tone', 'failed');
+  });
+
   // One render exercising every icon/title/subtitle/amount/status branch.
   const entries: IHistoryEntry[] = [
     // --- Day A group (first group → gets pt-4; set + push + push) ---
@@ -375,8 +408,9 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   it('renders the failed-by-icon row with neutral amount and underscore address', () => {
     renderFull();
     const row = rowByTitle('Failed by icon');
-    expect(iconNameIn(row)).toBe('Close');
-    expect(row).toHaveAttribute('data-iconbg', 'bg-status-negative');
+    // Failed rows use the raw failed-cross SVG (not the Icon component).
+    expect(row.querySelector('svg')).not.toBeNull();
+    expect(row).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
     // Underscore address → slice(0,6)…slice(-7).
     expect(row).toHaveAttribute('data-subtitle', 'to: mtst1_…address');
     expect(row).toHaveAttribute('data-amount-value', '5');
@@ -388,10 +422,51 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   it('renders the failed-by-message row (no subtitle, no amount)', () => {
     renderFull();
     const row = rowByTitle('Transaction failed');
-    expect(iconNameIn(row)).toBe('Close');
+    expect(row.querySelector('svg')).not.toBeNull();
     expect(row).toHaveAttribute('data-subtitle', '');
     expect(row).toHaveAttribute('data-amount-value', '');
     expect(row).toHaveAttribute('data-status-tone', 'failed');
+  });
+
+  it('renders a user-cancelled row with grey styling and a cancelled status, even for a bridge', () => {
+    render(
+      <HistoryView
+        entries={[
+          makeEntry({
+            key: 'cancelled-send',
+            transactionIcon: 'FAILED',
+            isCancelled: true,
+            message: 'Cancelled',
+            txId: 'tx-cancelled',
+            timestamp: DAY_A
+          }),
+          makeEntry({
+            key: 'cancelled-bridge',
+            txType: 'bridged-send',
+            transactionIcon: 'FAILED',
+            isCancelled: true,
+            message: 'Cancelled',
+            txId: 'tx-cancelled-bridge',
+            timestamp: DAY_A
+          })
+        ]}
+        initialLoading={false}
+        loadMore={jest.fn()}
+        hasMore={false}
+        fullHistory
+      />
+    );
+    const rows = screen.getAllByTestId('activity-row');
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      // Cancelled rows (incl. cancelled bridges) drop the bridge layout and
+      // render the grey cancelled treatment.
+      expect(row).toHaveAttribute('data-title', 'cancelled');
+      expect(row).toHaveAttribute('data-iconbg', 'bg-gray-400');
+      expect(row).toHaveAttribute('data-status-tone', 'cancelled');
+      expect(row).toHaveAttribute('data-status-label', 'cancelled');
+      expect(row.querySelector('svg')).not.toBeNull();
+    }
   });
 
   it('renders the receive row with a short (<=12) address returned verbatim', () => {
@@ -481,6 +556,73 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     renderFull();
     fireEvent.click(rowByTitle('Received'));
     expect(navigate).toHaveBeenCalledWith('/history-details/tx-receive');
+  });
+});
+
+describe('HistoryView token-scoped swap rows', () => {
+  const swapEntry = makeEntry({
+    key: 'swap-scoped',
+    transactionIcon: 'SWAP',
+    txType: 'swap',
+    token: 'MDN',
+    faucetId: 'offered-faucet',
+    requestedToken: 'ETH',
+    requestedFaucetId: 'requested-faucet',
+    requestedAmount: '0.5',
+    amount: 10n,
+    txId: 'tx-swap-scoped'
+  });
+
+  const renderScoped = (tokenId?: string) =>
+    render(<HistoryView {...baseProps} entries={[swapEntry]} fullHistory tokenId={tokenId} />);
+
+  it('signs the offered side negative on the offered token page', () => {
+    renderScoped('offered-faucet');
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-amount-value', '-10');
+    expect(row).toHaveAttribute('data-amount-symbol', 'MDN');
+    expect(row).toHaveAttribute('data-amount-direction', 'negative');
+  });
+
+  it('signs the requested side positive on the requested token page', () => {
+    renderScoped('requested-faucet');
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-amount-value', '+0.5');
+    expect(row).toHaveAttribute('data-amount-symbol', 'ETH');
+    expect(row).toHaveAttribute('data-amount-direction', 'positive');
+  });
+
+  it('keeps the unsigned requested side on the unscoped activity list', () => {
+    renderScoped(undefined);
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-amount-value', '0.5');
+    expect(row).toHaveAttribute('data-amount-direction', 'neutral');
+  });
+
+  it('falls back to the unscoped rendering when the token matches neither side', () => {
+    renderScoped('unrelated-faucet');
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-amount-value', '0.5');
+    expect(row).toHaveAttribute('data-amount-direction', 'neutral');
+  });
+
+  it('falls through when the scoped side has no amount to show', () => {
+    const noOffered = makeEntry({
+      key: 'swap-no-offered',
+      transactionIcon: 'SWAP',
+      txType: 'swap',
+      token: 'MDN',
+      faucetId: 'offered-faucet',
+      requestedToken: 'ETH',
+      requestedFaucetId: 'requested-faucet',
+      requestedAmount: '0.5',
+      amount: undefined,
+      txId: 'tx-swap-no-offered'
+    });
+    render(<HistoryView {...baseProps} entries={[noOffered]} fullHistory tokenId="offered-faucet" />);
+    const row = screen.getByTestId('activity-row');
+    expect(row).toHaveAttribute('data-amount-value', '0.5');
+    expect(row).toHaveAttribute('data-amount-direction', 'neutral');
   });
 });
 
