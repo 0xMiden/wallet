@@ -171,6 +171,22 @@ describe('useTransactionSummaryBadgeContent', () => {
     act(() => root.unmount());
   });
 
+  it('uses faucet metadata and an unknown lender key for an earn-deposit summary', async () => {
+    mockState.assetsMetadata = { 'earn-faucet': { symbol: 'mUSDC', decimals: 4 } };
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'earn-deposit',
+        amount: 125_000n,
+        faucetId: 'earn-faucet',
+        extraInputs: { marketUid: 'NEW_LENDER:11155111:0xabc' }
+      })
+    );
+
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('125000 mUSDC');
+    expect(container.textContent).toContain('NEW_LENDER-USDC');
+    act(() => root.unmount());
+  });
+
   it('returns undefined for an earn-deposit with no marketUid', async () => {
     const { container, root } = await renderProbe(baseTransaction({ type: 'earn-deposit', amount: 750n }));
     expect(container.textContent).toContain('UNDEFINED');
