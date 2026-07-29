@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.14 (TBD)
+
+### Fixes
+
+- [FIX][mobile] **Guardian transactions with local (non-delegated) proving no longer freeze the UI on iOS.** The guardian pipeline drives the raw client directly, and its local-proving branch always used the single-threaded WASM prover — which on iOS WKWebView runs on the main thread and locks the UI for the whole multi-second prove (~13s). It now routes to the native Rust prover on mobile (off the main thread), matching the non-guardian path and the guardian delegated-proving fallback.
+
 ## 1.15.13 (TBD)
 
 ### Fixes
