@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.14 (TBD)
+
+### Fixes
+
+- [FIX][all] **Connectivity-state hook no longer render-loops on fresh profiles.** `useConnectivityState` passed an inline `{}` fallback to `useStorage`, so while no connectivity banner had ever been dismissed the hook received a new object every render and its storage-sync effect re-set state forever ("Maximum update depth exceeded" spam on every platform). The fallback is now a stable module-level constant.
+
 ## 1.15.13 (TBD)
 
 ### Fixes

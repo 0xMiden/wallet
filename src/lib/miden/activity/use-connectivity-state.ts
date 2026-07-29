@@ -14,6 +14,11 @@ export const CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY = 'miden-connectivity-dismis
 
 type DismissedActivations = Partial<Record<ConnectivityCategory, number | null>>;
 
+// Stable fallback: an inline `{}` would be a new object every render, and
+// useStorage returns `data ?? fallback`, so the sync effect below would fire
+// on each render and setState forever ("Maximum update depth exceeded").
+const NO_DISMISSED_ACTIVATIONS: DismissedActivations = {};
+
 /**
  * React hook exposing the current connectivity-state snapshot.
  *
@@ -41,7 +46,7 @@ export function useConnectivityState(): {
   const [storageSnapshot] = useStorage<ConnectivityStateSnapshot | null>(CONNECTIVITY_STATE_KEY, null);
   const [storedDismissedActivations, setStoredDismissedActivations] = useStorage<DismissedActivations>(
     CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY,
-    {}
+    NO_DISMISSED_ACTIVATIONS
   );
   const [memorySnapshot, setMemorySnapshot] = useState<ConnectivityStateSnapshot>(() => getConnectivityState());
   const [dismissedActivations, setDismissedActivations] = useState<DismissedActivations>(storedDismissedActivations);
