@@ -5,6 +5,9 @@
 ### Features
 
 - [FEATURE][all] **Koda (Kodax) guardian operator.** New testnet guardian option with its brand wordmark in the guardian picker; guardian operator logos are now a shared module and the Guardian settings screen shows the current operator's logo — and resolves the endpoint per-account first, fixing the stale pre-switch operator name shown after switching guardians.
+### Fixes
+
+- [FIX][mobile] **Guardian transactions with local (non-delegated) proving no longer freeze the UI on iOS.** The guardian pipeline drives the raw client directly, and its local-proving branch always used the single-threaded WASM prover — which on iOS WKWebView runs on the main thread and locks the UI for the whole multi-second prove (~13s). It now routes to the native Rust prover on mobile (off the main thread), matching the non-guardian path and the guardian delegated-proving fallback.
 
 ## 1.15.13 (TBD)
 
