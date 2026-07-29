@@ -254,8 +254,18 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
         ]
         self.proposalNamespaces = namespaces
 
+        // Reown persists its relay client-id in a keychain access group AND a
+        // UserDefaults suite named by `groupIdentifier` (RelayClientFactory /
+        // NetworkingClientFactory). It MUST be a group this app is entitled to —
+        // otherwise the keychain ops return errSecMissingEntitlement, which the KMS
+        // force-tries (`try! kms.create…`) → EXC_BREAKPOINT/swift_unexpectedError at
+        // launch. The old `group.com.miden.wallet` App Group was dropped from
+        // App.entitlements in #405 (owned by a former Apple team, not provisionable),
+        // so point Reown at the app's OWN entitled keychain access group
+        // ($(AppIdentifierPrefix)com.miden.bread = <teamID>.com.miden.bread). No App
+        // Group / provisioning-profile change required.
         Networking.configure(
-            groupIdentifier: "group.com.miden.wallet",
+            groupIdentifier: "LHU7B7J5WL.com.miden.bread",
             projectId: projectId,
             socketFactory: ReownSocketFactory()
         )
