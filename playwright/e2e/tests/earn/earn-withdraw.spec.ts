@@ -1,7 +1,6 @@
 import { expect, test } from '../../fixtures/two-wallets';
 import { FakeEpochAllocator } from '../../helpers/fake-epoch-allocator';
 import { FakeEpochPositions } from '../../helpers/fake-epoch-positions';
-import { swOf } from '../../helpers/swap';
 import type { ChromeWalletPageApi } from '../../helpers/wallet-page';
 import { AnvilInstance } from '../../ios/helpers/anvil';
 import { installMockCompact, installMockUsdc } from '../../ios/helpers/evm-doubles';
@@ -155,31 +154,19 @@ test.describe('earn: withdraw happy path', () => {
     await expect(confirm).toBeEnabled({ timeout: 30_000 });
     await confirm.click();
 
-    // DIAGNOSTIC (temporary): the row is created page-side (URL confirms) but the
-    // type-filter finds nothing — dump the tx table in BOTH realms + read by the
-    // URL txId to locate the row + its actual type/realm.
+    // DIAGNOSTIC (temporary): the gasless submit stores its error in
+    // extraInputs.error and flips the row to phase 'failed' — surface it and FAIL
+    // FAST rather than waiting out the phase polls.
     await walletA.page.waitForTimeout(8000);
     const url = walletA.page.url();
     const urlTxId = decodeURIComponent(url.match(/withdraw-status\/([^/?#]+)/)?.[1] ?? '');
-    console.log('[withdraw-diag] url:', url, 'urlTxId:', urlTxId);
-    console.log('[withdraw-diag] page by-id:', JSON.stringify(urlTxId ? await withdrawState(walletA, urlTxId) : null));
-    console.log(
-      '[withdraw-diag] page dump:',
-      JSON.stringify(
-        await walletA.page.evaluate(() =>
-          (globalThis as unknown as { __TEST_DUMP_TX__?: () => Promise<unknown> }).__TEST_DUMP_TX__?.()
-        )
-      )
-    );
-    console.log(
-      '[withdraw-diag] sw dump:',
-      JSON.stringify(
-        await swOf(walletA)
-          .evaluate(() => (globalThis as unknown as { __TEST_DUMP_TX__?: () => Promise<unknown> }).__TEST_DUMP_TX__?.())
-          .catch(() => 'sw-eval-err')
-      )
-    );
+    const dump = ((await walletA.page.evaluate(() =>
+      (globalThis as unknown as { __TEST_DUMP_TX__?: () => Promise<unknown[]> }).__TEST_DUMP_TX__?.()
+    )) ?? []) as Array<{ id: string; type: string; phase?: string; error?: string }>;
+    console.log('[withdraw-diag] url:', url, 'urlTxId:', urlTxId, 'dump:', JSON.stringify(dump));
     console.log('[withdraw-diag] console errors:', JSON.stringify(consoleErrors.slice(-6)));
+    const failedRow = dump.find(t => t.type === 'earn-withdraw' && t.phase === 'failed');
+    if (failedRow) throw new Error(`earn-withdraw submit FAILED -> ${failedRow.error}`);
 
     // 5. The earn-withdraw row is created page-side (born `redeeming`) and driven
     //    by the gasless submit; the UI routes to /earn/withdraw-status/:txId but we

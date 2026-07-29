@@ -814,7 +814,14 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   (globalThis as any).__TEST_DUMP_TX__ = async () => {
     const Repo = await import('lib/miden/repo');
     const all: any[] = await Repo.transactions.toArray();
-    return all.map(t => ({ id: t.id, type: t.type, status: t.status, phase: t.extraInputs?.phase }));
+    return all.map(t => ({
+      id: t.id,
+      type: t.type,
+      status: t.status,
+      phase: t.extraInputs?.phase,
+      error: t.extraInputs?.error,
+      displayMessage: t.displayMessage
+    }));
   };
   // Hex→bech32 faucet-id conversion. iOS E2E needs this to inject
   // synthetic metadata for the CLI-deployed test faucet (whose on-chain
