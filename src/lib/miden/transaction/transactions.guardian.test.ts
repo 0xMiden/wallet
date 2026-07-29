@@ -113,6 +113,19 @@ jest.mock('../sdk/native-prover-mobile', () => ({
   buildNativeProverCallback: jest.fn(() => async () => new Uint8Array())
 }));
 
+// isMobile is toggled per-test (default false = the desktop/extension env the
+// rest of the suite assumes). Only `isMobile` is overridden; every other
+// platform predicate keeps its real (jsdom = false) behavior. It must be a
+// hoisted `var`: some modules call isMobile() at load time (e.g. cancel.ts), so
+// the holder has to be defined (falsy) before the suite body runs — a const/let
+// would be in the temporal dead zone at that point.
+// eslint-disable-next-line no-var
+var mockPlatformIsMobile = false;
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isMobile: () => mockPlatformIsMobile
+}));
+
 jest.mock('shared/logger', () => ({
   logger: { warning: jest.fn(), error: jest.fn(), info: jest.fn() }
 }));
@@ -393,6 +406,71 @@ describe('generateTransaction — Guardian routing', () => {
     expect(abandonCandidate).not.toHaveBeenCalled();
     expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Completed);
     warnSpy.mockRestore();
+  });
+
+  it('Guardian send (local proving on mobile): routes to the native callback prover, never main-thread WASM', async () => {
+    // Regression: the guardian pipeline drives the raw client directly, whose
+    // default local prover is the single-threaded WASM one — on iOS WKWebView
+    // that runs on the main thread and freezes the UI for the whole multi-second
+    // prove. The non-delegated (local) guardian prove must route to the native
+    // Rust prover (newCallbackProver), mirroring proveWithFallback's
+    // localProverFactory and the delegated fallback above. isMobile is flipped
+    // inside an isolated module registry so the flag doesn't leak to other tests.
+    const txId = 'send-guardian-mobile-local';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(result)
+    });
+
+    const provider = makeGuardianProvider(true);
+    const signCallback = jest.fn(async () => new Uint8Array([2]));
+
+    mockPlatformIsMobile = true;
+    try {
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'send',
+          accountId: 'guardian-acc',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          amount: '1000',
+          delegateTransaction: false
+        } as never,
+        signCallback,
+        false,
+        provider
+      );
+    } finally {
+      mockPlatformIsMobile = false;
+    }
+
+    // The local guardian prove picked the native callback prover, not the
+    // main-thread WASM local prover.
+    expect(TransactionProver.newCallbackProver).toHaveBeenCalledTimes(1);
+    expect(TransactionProver.newLocalProver).not.toHaveBeenCalled();
   });
 
   it('Guardian send: a still-pending 409 (delta not yet canonicalized) requeues instead of failing', async () => {
