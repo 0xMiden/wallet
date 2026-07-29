@@ -78,14 +78,19 @@ export function buildVaultEvmWalletClient(midenAccountPublicKey: string, evmAddr
   // on-chain reads/receipt-waits hit the hermetic node instead of hanging on
   // real Sepolia. Inert in production (E2E_EVM_RPC_URL is baked only by the e2e
   // build), where this resolves to the same default Sepolia RPC as before.
-  const evmRpcUrl =
-    process.env.MIDEN_E2E_TEST === 'true' && process.env.E2E_EVM_RPC_URL
-      ? process.env.E2E_EVM_RPC_URL
-      : (sepolia.rpcUrls.default.http[0] ?? '');
+  const e2eRpc = process.env.MIDEN_E2E_TEST === 'true' ? (process.env.E2E_EVM_RPC_URL ?? '').trim() : '';
+  const evmRpcUrl = e2eRpc || (sepolia.rpcUrls.default.http[0] ?? '');
+
+  // Override the CHAIN's default rpcUrls too, not just the transport: the Epoch
+  // SDK builds its OWN publicClients from `walletClient.chain.rpcUrls.default`
+  // (e.g. getWalletGaslessStatus reads the 7702 delegation there), so the chain
+  // must point at the local Anvil or those reads hit real Sepolia. Mirrors
+  // `withE2eRpc` in client.ts (the deposit path).
+  const chain = e2eRpc ? { ...sepolia, rpcUrls: { ...sepolia.rpcUrls, default: { http: [e2eRpc] } } } : sepolia;
 
   return createWalletClient({
     account,
-    chain: sepolia,
+    chain,
     transport: http(evmRpcUrl)
   });
 }
