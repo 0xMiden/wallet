@@ -106,6 +106,15 @@ test.describe('earn: withdraw happy path', () => {
     walletA,
     midenCli
   }) => {
+    // DIAGNOSTIC (temporary): surface a submit failure in the CI log — the harness
+    // saves the trace to test-results, whose artifact upload is broken by a ':' in
+    // the checkpoint filename, so console errors never reach us otherwise.
+    const consoleErrors: string[] = [];
+    walletA.page.on('console', m => {
+      if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 300));
+    });
+    walletA.page.on('pageerror', e => consoleErrors.push(`pageerror: ${e.message.slice(0, 300)}`));
+
     // 1. Create the wallet and read its Miden address + vault-derived EVM owner.
     await walletA.createNewWallet();
     const addressA = await walletA.getAccountAddress();
@@ -138,6 +147,22 @@ test.describe('earn: withdraw happy path', () => {
     const confirm = walletA.page.getByTestId('earn-withdraw-review-confirm');
     await expect(confirm).toBeEnabled({ timeout: 30_000 });
     await confirm.click();
+
+    // DIAGNOSTIC (temporary): URL = /earn/withdraw-status ⇒ the row WAS created
+    // (null SW-hook read then ⇒ cross-realm IndexedDB gap); staying on
+    // /withdraw/review with error text ⇒ threw BEFORE row creation.
+    await walletA.page.waitForTimeout(8000);
+    console.log('[withdraw-diag] url:', walletA.page.url());
+    console.log(
+      '[withdraw-diag] review-page text:',
+      (
+        await walletA.page
+          .getByTestId('earn-withdraw-review-page')
+          .textContent()
+          .catch(() => '(navigated away)')
+      )?.slice(0, 400)
+    );
+    console.log('[withdraw-diag] console errors:', JSON.stringify(consoleErrors.slice(-12)));
 
     // 5. The earn-withdraw row is created page-side (born `redeeming`) and driven
     //    by the gasless submit; the UI routes to /earn/withdraw-status/:txId but we
