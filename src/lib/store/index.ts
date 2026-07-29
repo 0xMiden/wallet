@@ -808,6 +808,14 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     const row: any = await Repo.transactions.where({ id: txId }).first();
     return row ? { id: row.id, phase: row.extraInputs?.phase, displayMessage: row.displayMessage } : null;
   };
+  // TEMP DIAGNOSTIC: dump the whole transactions table (id/type/status/phase) in
+  // this realm so the earn-withdraw e2e can see whether the row is present + what
+  // realm/table it lands in.
+  (globalThis as any).__TEST_DUMP_TX__ = async () => {
+    const Repo = await import('lib/miden/repo');
+    const all: any[] = await Repo.transactions.toArray();
+    return all.map(t => ({ id: t.id, type: t.type, status: t.status, phase: t.extraInputs?.phase }));
+  };
   // Hex→bech32 faucet-id conversion. iOS E2E needs this to inject
   // synthetic metadata for the CLI-deployed test faucet (whose on-chain
   // procedure layout the SDK can't parse, so the real metadata RPC fails

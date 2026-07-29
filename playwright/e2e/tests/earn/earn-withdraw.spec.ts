@@ -1,6 +1,7 @@
 import { expect, test } from '../../fixtures/two-wallets';
 import { FakeEpochAllocator } from '../../helpers/fake-epoch-allocator';
 import { FakeEpochPositions } from '../../helpers/fake-epoch-positions';
+import { swOf } from '../../helpers/swap';
 import type { ChromeWalletPageApi } from '../../helpers/wallet-page';
 import { AnvilInstance } from '../../ios/helpers/anvil';
 import { installMockCompact, installMockUsdc } from '../../ios/helpers/evm-doubles';
@@ -154,21 +155,31 @@ test.describe('earn: withdraw happy path', () => {
     await expect(confirm).toBeEnabled({ timeout: 30_000 });
     await confirm.click();
 
-    // DIAGNOSTIC (temporary): URL = /earn/withdraw-status ⇒ the row WAS created
-    // (null SW-hook read then ⇒ cross-realm IndexedDB gap); staying on
-    // /withdraw/review with error text ⇒ threw BEFORE row creation.
+    // DIAGNOSTIC (temporary): the row is created page-side (URL confirms) but the
+    // type-filter finds nothing — dump the tx table in BOTH realms + read by the
+    // URL txId to locate the row + its actual type/realm.
     await walletA.page.waitForTimeout(8000);
-    console.log('[withdraw-diag] url:', walletA.page.url());
+    const url = walletA.page.url();
+    const urlTxId = decodeURIComponent(url.match(/withdraw-status\/([^/?#]+)/)?.[1] ?? '');
+    console.log('[withdraw-diag] url:', url, 'urlTxId:', urlTxId);
+    console.log('[withdraw-diag] page by-id:', JSON.stringify(urlTxId ? await withdrawState(walletA, urlTxId) : null));
     console.log(
-      '[withdraw-diag] review-page text:',
-      (
-        await walletA.page
-          .getByTestId('earn-withdraw-review-page')
-          .textContent()
-          .catch(() => '(navigated away)')
-      )?.slice(0, 400)
+      '[withdraw-diag] page dump:',
+      JSON.stringify(
+        await walletA.page.evaluate(() =>
+          (globalThis as unknown as { __TEST_DUMP_TX__?: () => Promise<unknown> }).__TEST_DUMP_TX__?.()
+        )
+      )
     );
-    console.log('[withdraw-diag] console errors:', JSON.stringify(consoleErrors.slice(-12)));
+    console.log(
+      '[withdraw-diag] sw dump:',
+      JSON.stringify(
+        await swOf(walletA)
+          .evaluate(() => (globalThis as unknown as { __TEST_DUMP_TX__?: () => Promise<unknown> }).__TEST_DUMP_TX__?.())
+          .catch(() => 'sw-eval-err')
+      )
+    );
+    console.log('[withdraw-diag] console errors:', JSON.stringify(consoleErrors.slice(-6)));
 
     // 5. The earn-withdraw row is created page-side (born `redeeming`) and driven
     //    by the gasless submit; the UI routes to /earn/withdraw-status/:txId but we
