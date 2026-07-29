@@ -30,8 +30,6 @@ interface AppCardProps {
   onOpen: (url: string) => void;
 }
 
-const getFaucetDapps = () => getExploreGridDapps().filter(dapp => dapp.id === 'swap-faucet' || dapp.id === 'faucet');
-
 const AppCard: FC<AppCardProps> = ({ dapp, onOpen }) => {
   const [iconBroken, setIconBroken] = useState(false);
   const springs = useSprings();
@@ -93,7 +91,7 @@ const AppCard: FC<AppCardProps> = ({ dapp, onOpen }) => {
 
 export const AppsGrid: FC<AppsGridProps> = ({ onOpen }) => (
   <section className="grid grid-cols-2 gap-3 px-4">
-    {getFaucetDapps().map(dapp => (
+    {getExploreGridDapps().map(dapp => (
       <AppCard key={dapp.id} dapp={dapp} onOpen={onOpen} />
     ))}
   </section>

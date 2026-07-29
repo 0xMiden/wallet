@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.14 (TBD)
+
+### Fixes
+
+- [FIX][mobile] **The Explore page now shows both faucet tiles.** The grid was rendering through a stale `id`-based filter (`swap-faucet`/`faucet`) that no longer matched the curated `EXPLORE_GRID_DAPPS` set (`faucet` + `forkchoice-faucet`), so only the first faucet tile appeared. The grid now renders `getExploreGridDapps()` directly.
+
 ## 1.15.13 (TBD)
 
 ### Fixes
