@@ -80,6 +80,12 @@ export default {
     '/src/lib/agglayer/',
     '/src/lib/walletconnect/',
     '/src/lib/miden/activity/bridge-in\\.ts$',
+    // E2E-only `globalThis`/`window` __TEST_* hooks, MIDEN_E2E_TEST-gated and
+    // dead-stripped from production — no unit-testable surface (same rationale as
+    // swap/test-hooks.ts). earn-test-hooks + bridge-in-test-hooks were an
+    // oversight, not excluded when swap's were.
+    '/src/lib/miden/activity/bridge-in-test-hooks\\.ts$',
+    '/src/lib/miden/activity/earn-test-hooks\\.ts$',
     '/src/lib/miden/swap/test-hooks\\.ts$',
     '/src/screens/generating-transaction/success/SwapSuccess\\.tsx$',
     '/packages/dapp-browser/'
