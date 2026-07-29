@@ -1,6 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { fetchFromStorage, onStorageChanged } from 'lib/miden/front';
+import { useWalletStore } from 'lib/store';
+import { WalletType } from 'screens/onboarding/types';
 
 import {
   guardianEndpointHost,
@@ -36,6 +38,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockFetchFromStorage.mockResolvedValue(undefined);
   mockOnStorageChanged.mockReturnValue(jest.fn());
+  useWalletStore.setState({ currentAccount: null });
 });
 
 it('loads the stored endpoint and refreshes it on demand', async () => {
@@ -73,6 +76,24 @@ it('reacts to storage changes and unsubscribes on unmount', async () => {
 
   unmount();
   expect(unsubscribe).toHaveBeenCalledTimes(1);
+});
+
+it('prefers the per-account guardianEndpoint over the legacy global key', async () => {
+  mockFetchFromStorage.mockResolvedValue('https://stale.global.guardian');
+  useWalletStore.setState({
+    currentAccount: {
+      publicKey: '0xabc',
+      name: 'Guardian Account',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      guardianEndpoint: 'https://switched.guardian'
+    }
+  });
+  const { result } = renderHook(() => useCurrentGuardianEndpoint());
+
+  await waitFor(() => expect(mockFetchFromStorage).toHaveBeenCalled());
+  expect(result.current.endpoint).toBe('https://switched.guardian');
 });
 
 it('matches guardian options across network endpoints', () => {
