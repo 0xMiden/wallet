@@ -5,6 +5,11 @@
 ### Fixes
 
 - [FIX][mobile] **The Explore page now shows both faucet tiles.** The grid was rendering through a stale `id`-based filter (`swap-faucet`/`faucet`) that no longer matched the curated `EXPLORE_GRID_DAPPS` set (`faucet` + `forkchoice-faucet`), so only the first faucet tile appeared. The grid now renders `getExploreGridDapps()` directly.
+## 1.15.14 (2026-07-29)
+
+### Fixes
+
+- [FIX][mobile] **Guardian transactions with local (non-delegated) proving no longer freeze the UI on iOS.** The guardian pipeline drives the raw client directly, and its local-proving branch always used the single-threaded WASM prover — which on iOS WKWebView runs on the main thread and locks the UI for the whole multi-second prove (~13s). It now routes to the native Rust prover on mobile (off the main thread), matching the non-guardian path and the guardian delegated-proving fallback.
 
 ## 1.15.13 (TBD)
 

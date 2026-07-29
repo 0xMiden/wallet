@@ -594,7 +594,17 @@ const generateGuardianTransaction = async (
       await setTransactionStage(transaction.id, 'proving');
       let provenTx;
       if (!transaction.delegateTransaction) {
-        provenTx = await executedTx.prove({ prover: TransactionProver.newLocalProver() });
+        // Local (non-delegated) proving. The guardian pipeline drives the raw
+        // client directly, whose default local prover is the single-threaded
+        // WASM one — which on iOS WKWebView runs on the main thread and freezes
+        // the UI for the whole multi-second prove. Route to the native Rust
+        // prover on mobile (off the main thread via @miden/native-prover),
+        // exactly like `proveWithFallback`'s localProverFactory and the
+        // delegated fallback below; WASM local prover elsewhere.
+        const localProver = isMobile()
+          ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+          : TransactionProver.newLocalProver();
+        provenTx = await executedTx.prove({ prover: localProver });
       } else {
         // Delegated (remote) proving. The client's default prover is the remote
         // gRPC prover on every platform, and its ~10s deadline is too tight for a
