@@ -148,6 +148,13 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
     endpoint: new Map<MIDEN_NETWORK_NAME, string>([
       [MIDEN_NETWORK_NAME.TESTNET, 'https://miden-guardian.lambdaclass.com']
     ])
+  },
+  {
+    id: 'kodax',
+    name: 'Koda',
+    operatedBy: 'Korea Digital Asset (Koda)',
+    location: 'Asia (SK)',
+    endpoint: new Map<MIDEN_NETWORK_NAME, string>([[MIDEN_NETWORK_NAME.TESTNET, 'https://guardian-testnet.kodax.com']])
   }
 ];
 

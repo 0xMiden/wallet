@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.14 (TBD)
+
+### Features
+
+- [FEATURE][all] **Koda (Kodax) guardian operator.** New testnet guardian option with its brand wordmark in the guardian picker; guardian operator logos are now a shared module and the Guardian settings screen shows the current operator's logo — and resolves the endpoint per-account first, fixing the stale pre-switch operator name shown after switching guardians.
+
 ## 1.15.13 (TBD)
 
 ### Fixes
