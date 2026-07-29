@@ -220,6 +220,24 @@ describe('useConnectivityState', () => {
     expect(result.current.state.network.active).toBe(true);
   });
 
+  it('settles on a fresh profile under the real useStorage contract (regression: fresh-profile render loop)', () => {
+    // Complements the stable-fallback identity test below by simulating what
+    // real useStorage returns on a profile where nothing has ever been
+    // dismissed: the key is absent, so the hook receives `data ?? fallback` —
+    // the fallback object itself, not a closed-over stable stub. With the old
+    // inline `{}` fallback this mount loops until React throws "Maximum update
+    // depth exceeded"; with the hoisted constant it settles in one pass.
+    mockUseStorage.mockImplementation((key: string, fallback: unknown) =>
+      key === CONNECTIVITY_STATE_KEY ? [null, jest.fn()] : [fallback, mockSetStoredDismissedActivations]
+    );
+
+    const { result, rerender } = renderHook(() => useConnectivityState());
+    rerender();
+
+    expect(result.current.hasAnyIssue).toBe(false);
+    expect(mockSetStoredDismissedActivations).not.toHaveBeenCalled();
+  });
+
   it('keeps a stable dismiss reference across re-renders', () => {
     const { result, rerender } = renderHook(() => useConnectivityState());
     const first = result.current.dismiss;
