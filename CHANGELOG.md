@@ -5,6 +5,17 @@
 ### Fixes
 
 - [FIX][all] **Connectivity-state hook no longer render-loops on fresh profiles.** `useConnectivityState` passed an inline `{}` fallback to `useStorage`, so while no connectivity banner had ever been dismissed the hook received a new object every render and its storage-sync effect re-set state forever ("Maximum update depth exceeded" spam on every platform). The fallback is now a stable module-level constant.
+### Features
+
+- [FEATURE][all] **Koda (Kodax) guardian operator.** New testnet guardian option with its brand wordmark in the guardian picker; guardian operator logos are now a shared module and the Guardian settings screen shows the current operator's logo — and resolves the endpoint per-account first, fixing the stale pre-switch operator name shown after switching guardians.
+### Fixes
+
+- [FIX][mobile] **The Explore page now shows both faucet tiles.** The grid was rendering through a stale `id`-based filter (`swap-faucet`/`faucet`) that no longer matched the curated `EXPLORE_GRID_DAPPS` set (`faucet` + `forkchoice-faucet`), so only the first faucet tile appeared. The grid now renders `getExploreGridDapps()` directly.
+## 1.15.14 (2026-07-29)
+
+### Fixes
+
+- [FIX][mobile] **Guardian transactions with local (non-delegated) proving no longer freeze the UI on iOS.** The guardian pipeline drives the raw client directly, and its local-proving branch always used the single-threaded WASM prover — which on iOS WKWebView runs on the main thread and locks the UI for the whole multi-second prove (~13s). It now routes to the native Rust prover on mobile (off the main thread), matching the non-guardian path and the guardian delegated-proving fallback.
 
 ## 1.15.13 (TBD)
 

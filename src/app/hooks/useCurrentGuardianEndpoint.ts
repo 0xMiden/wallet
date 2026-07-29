@@ -4,9 +4,20 @@ import { fetchFromStorage, onStorageChanged } from 'lib/miden/front';
 import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import type { GuardianOption } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
 
+/**
+ * The guardian endpoint the current account actually uses. Mirrors the
+ * backend's `resolveGuardianEndpoint`: prefer the per-account
+ * `guardianEndpoint` (set at create/recovery and updated on switch-guardian),
+ * falling back to the legacy global `GUARDIAN_URL_STORAGE_KEY` for records
+ * created before the field existed. Reading only the global key here is wrong:
+ * switch-guardian persists onto the account record, so the global key goes
+ * stale and the UI would keep naming the pre-switch operator.
+ */
 export function useCurrentGuardianEndpoint(): { endpoint: string; refresh: () => void } {
-  const [endpoint, setEndpoint] = useState<string>('');
+  const accountEndpoint = useWalletStore(s => s.currentAccount?.guardianEndpoint);
+  const [storedEndpoint, setStoredEndpoint] = useState<string>('');
   const [nonce, setNonce] = useState(0);
   const refresh = useCallback(() => setNonce(n => n + 1), []);
 
@@ -15,11 +26,11 @@ export function useCurrentGuardianEndpoint(): { endpoint: string; refresh: () =>
     fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)
       .then(stored => {
         if (cancelled) return;
-        setEndpoint(stored ?? '');
+        setStoredEndpoint(stored ?? '');
       })
       .catch(() => {
         if (cancelled) return;
-        setEndpoint('');
+        setStoredEndpoint('');
       });
     return () => {
       cancelled = true;
@@ -31,12 +42,12 @@ export function useCurrentGuardianEndpoint(): { endpoint: string; refresh: () =>
   useEffect(
     () =>
       onStorageChanged<string>(GUARDIAN_URL_STORAGE_KEY, next => {
-        setEndpoint(next ?? '');
+        setStoredEndpoint(next ?? '');
       }),
     []
   );
 
-  return { endpoint, refresh };
+  return { endpoint: accountEndpoint || storedEndpoint, refresh };
 }
 
 // A provider now maps each supported network to its endpoint there, so match
