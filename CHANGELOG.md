@@ -2,6 +2,9 @@
 
 ## 1.15.14 (TBD)
 
+### Fixes
+
+- [FIX][all] **Connectivity-state hook no longer render-loops on fresh profiles.** `useConnectivityState` passed an inline `{}` fallback to `useStorage`, so while no connectivity banner had ever been dismissed the hook received a new object every render and its storage-sync effect re-set state forever ("Maximum update depth exceeded" spam on every platform). The fallback is now a stable module-level constant.
 ### Features
 
 - [FEATURE][all] **Koda (Kodax) guardian operator.** New testnet guardian option with its brand wordmark in the guardian picker; guardian operator logos are now a shared module and the Guardian settings screen shows the current operator's logo — and resolves the endpoint per-account first, fixing the stale pre-switch operator name shown after switching guardians.

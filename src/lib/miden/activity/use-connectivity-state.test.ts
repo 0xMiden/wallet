@@ -220,11 +220,50 @@ describe('useConnectivityState', () => {
     expect(result.current.state.network.active).toBe(true);
   });
 
+  it('settles on a fresh profile under the real useStorage contract (regression: fresh-profile render loop)', () => {
+    // Complements the stable-fallback identity test below by simulating what
+    // real useStorage returns on a profile where nothing has ever been
+    // dismissed: the key is absent, so the hook receives `data ?? fallback` —
+    // the fallback object itself, not a closed-over stable stub. With the old
+    // inline `{}` fallback this mount loops until React throws "Maximum update
+    // depth exceeded"; with the hoisted constant it settles in one pass.
+    mockUseStorage.mockImplementation((key: string, fallback: unknown) =>
+      key === CONNECTIVITY_STATE_KEY ? [null, jest.fn()] : [fallback, mockSetStoredDismissedActivations]
+    );
+
+    const { result, rerender } = renderHook(() => useConnectivityState());
+    rerender();
+
+    expect(result.current.hasAnyIssue).toBe(false);
+    expect(mockSetStoredDismissedActivations).not.toHaveBeenCalled();
+  });
+
   it('keeps a stable dismiss reference across re-renders', () => {
     const { result, rerender } = renderHook(() => useConnectivityState());
     const first = result.current.dismiss;
     rerender();
     expect(result.current.dismiss).toBe(first);
+  });
+
+  it('passes a stable dismissed-activations fallback across re-renders (guards the render-loop fix)', () => {
+    // Regression guard for the fresh-profile render loop: the hook used to pass
+    // an inline `{}` fallback to useStorage, a new object every render. Since
+    // useStorage returns `data ?? fallback`, that churned identity on every
+    // render while the key was absent and made the storage-sync effect setState
+    // forever ("Maximum update depth exceeded"). The fix hoists the fallback to
+    // a module-level constant, so every render MUST pass the same reference.
+    // (Reverting to an inline `{}` makes this test fail; the deep-equality
+    // `toHaveBeenCalledWith(..., {})` assertion above does not.)
+    const { rerender } = renderHook(() => useConnectivityState());
+    rerender();
+    rerender();
+
+    const fallbacks = mockUseStorage.mock.calls
+      .filter(call => call[0] === CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)
+      .map(call => call[1]);
+
+    expect(fallbacks.length).toBeGreaterThan(1);
+    for (const fallback of fallbacks) expect(fallback).toBe(fallbacks[0]);
   });
 
   it('unsubscribes on unmount so later transitions do not update the hook', () => {
