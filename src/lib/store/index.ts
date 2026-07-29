@@ -790,6 +790,24 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     const { setEarnCollateralFaucetForTest } = await import('lib/epoch/earn');
     setEarnCollateralFaucetForTest(faucetHex);
   };
+  // Earn WITHDRAW read hooks live in the PAGE realm (here), NOT the SW-side
+  // earn-test-hooks: the `earn-withdraw` tracking row is created AND advanced
+  // page-side (gaslessEarnWithdrawalToMiden runs in EarnWithdrawReview, and the
+  // note-id reconcile flips it), so the SW's Repo view never sees it. The e2e
+  // reads these via `walletA.page.evaluate` (the deposit rows, created SW-side,
+  // stay on the SW hooks). Lazy Repo import — E2E-gated, zero prod impact.
+  (globalThis as any).__TEST_LATEST_EARN_WITHDRAW__ = async () => {
+    const Repo = await import('lib/miden/repo');
+    const rows = await Repo.transactions.filter((tx: any) => tx.type === 'earn-withdraw').toArray();
+    rows.sort((a: any, b: any) => (b.initiatedAt ?? 0) - (a.initiatedAt ?? 0));
+    const row: any = rows[0];
+    return row ? { id: row.id, phase: row.extraInputs?.phase, displayMessage: row.displayMessage } : null;
+  };
+  (globalThis as any).__TEST_EARN_WITHDRAW_STATE__ = async (txId: string) => {
+    const Repo = await import('lib/miden/repo');
+    const row: any = await Repo.transactions.where({ id: txId }).first();
+    return row ? { id: row.id, phase: row.extraInputs?.phase, displayMessage: row.displayMessage } : null;
+  };
   // Hex→bech32 faucet-id conversion. iOS E2E needs this to inject
   // synthetic metadata for the CLI-deployed test faucet (whose on-chain
   // procedure layout the SDK can't parse, so the real metadata RPC fails

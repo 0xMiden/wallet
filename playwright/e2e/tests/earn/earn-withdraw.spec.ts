@@ -1,7 +1,7 @@
 import { expect, test } from '../../fixtures/two-wallets';
 import { FakeEpochAllocator } from '../../helpers/fake-epoch-allocator';
 import { FakeEpochPositions } from '../../helpers/fake-epoch-positions';
-import { swOf } from '../../helpers/swap';
+import type { ChromeWalletPageApi } from '../../helpers/wallet-page';
 import { AnvilInstance } from '../../ios/helpers/anvil';
 import { installMockCompact, installMockUsdc } from '../../ios/helpers/evm-doubles';
 
@@ -57,17 +57,21 @@ interface EarnWithdrawView {
   displayMessage?: string;
 }
 
-/** Read the newest earn-withdraw row from the SW hook (shared IndexedDB). */
-const latestWithdraw = (wallet: Parameters<typeof swOf>[0]) =>
-  swOf(wallet).evaluate(() =>
+// Earn-withdraw rows are created + advanced PAGE-side, so read the PAGE-realm
+// hooks (installed in src/lib/store/index.ts), NOT the SW-side earn-test-hooks —
+// the SW's Repo view never sees the page-written row.
+
+/** Read the newest earn-withdraw row from the page-realm hook. */
+const latestWithdraw = (wallet: ChromeWalletPageApi) =>
+  wallet.page.evaluate(() =>
     (
       globalThis as unknown as { __TEST_LATEST_EARN_WITHDRAW__: () => Promise<EarnWithdrawView | null> }
     ).__TEST_LATEST_EARN_WITHDRAW__()
   ) as Promise<EarnWithdrawView | null>;
 
-/** Read a specific earn-withdraw row's phase by id. */
-const withdrawState = (wallet: Parameters<typeof swOf>[0], txId: string) =>
-  swOf(wallet).evaluate(
+/** Read a specific earn-withdraw row's phase by id (page realm). */
+const withdrawState = (wallet: ChromeWalletPageApi, txId: string) =>
+  wallet.page.evaluate(
     (id: string) =>
       (
         globalThis as unknown as {
