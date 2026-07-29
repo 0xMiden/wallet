@@ -261,10 +261,18 @@ export class FakeEpochAllocator {
         return;
       }
 
-      // POST /relay-execute — the gasless withdraw submit. `executeActions` reads
-      // `nonce` off this to track delivery; programmable via setWithdrawNonce.
+      // POST /relay-execute — the gasless withdraw submit. The SDK's
+      // gaslessWithdrawViaRelay throws "Gasless withdraw relay failed" unless
+      // `result.success === true`, and reads `result.txHash` (zeroHash fallback).
+      // `ok`/`nonce` are ignored by the current SDK; `nonce` kept for older SDKs +
+      // setWithdrawNonce.
       if (method === 'POST' && path === '/relay-execute') {
-        this.send(res, 200, { ok: true, nonce: this.withdrawNonce });
+        this.send(res, 200, {
+          success: true,
+          txHash: `0x${'11'.repeat(32)}`,
+          ok: true,
+          nonce: this.withdrawNonce
+        });
         return;
       }
 
