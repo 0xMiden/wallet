@@ -227,6 +227,27 @@ describe('useConnectivityState', () => {
     expect(result.current.dismiss).toBe(first);
   });
 
+  it('passes a stable dismissed-activations fallback across re-renders (guards the render-loop fix)', () => {
+    // Regression guard for the fresh-profile render loop: the hook used to pass
+    // an inline `{}` fallback to useStorage, a new object every render. Since
+    // useStorage returns `data ?? fallback`, that churned identity on every
+    // render while the key was absent and made the storage-sync effect setState
+    // forever ("Maximum update depth exceeded"). The fix hoists the fallback to
+    // a module-level constant, so every render MUST pass the same reference.
+    // (Reverting to an inline `{}` makes this test fail; the deep-equality
+    // `toHaveBeenCalledWith(..., {})` assertion above does not.)
+    const { rerender } = renderHook(() => useConnectivityState());
+    rerender();
+    rerender();
+
+    const fallbacks = mockUseStorage.mock.calls
+      .filter(call => call[0] === CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)
+      .map(call => call[1]);
+
+    expect(fallbacks.length).toBeGreaterThan(1);
+    for (const fallback of fallbacks) expect(fallback).toBe(fallbacks[0]);
+  });
+
   it('unsubscribes on unmount so later transitions do not update the hook', () => {
     const { result, unmount } = renderHook(() => useConnectivityState());
     const lastState = result.current.state;
