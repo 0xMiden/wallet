@@ -83,6 +83,14 @@ export interface SeedDummyLendingOpts {
   apr?: number;
   /** USDC price (default 1). */
   priceUsd?: number;
+  /**
+   * Underlying-asset decimals reported to the wallet (default 6, standard USDC).
+   * The gasless WITHDRAW path validates `underlyingDecimals ===
+   * BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS` (18, Epoch's amount convention), so a
+   * withdraw seed must pass `decimals: 18` or `gaslessEarnWithdrawalToMiden`
+   * throws "only supports the configured USDC Earn market" before creating a row.
+   */
+  decimals?: number;
 }
 
 /** Build a DUMMY_LENDING / Sepolia USDC chain item — a vault, optionally with a funded position. */
@@ -96,7 +104,7 @@ export function buildDummyLendingItem(opts: SeedDummyLendingOpts = {}): Position
     address: EARN_UNDERLYING,
     chainId: SEPOLIA_CHAIN_ID,
     logoURI: null,
-    decimals: 6,
+    decimals: opts.decimals ?? 6,
     assetGroup: 'stablecoin'
   };
   const positions: PositionsApiPosition[] = [];

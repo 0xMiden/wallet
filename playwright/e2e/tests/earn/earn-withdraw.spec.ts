@@ -124,7 +124,9 @@ test.describe('earn: withdraw happy path', () => {
     //    owner. `EarnWithdrawReview` aborts (`earnWithdrawNotOwned`) unless
     //    `account.evmAddress === position.owner`, so it MUST be the wallet's own
     //    address — no deposit run needed to materialize the position.
-    positions.seedDummyLending(evmOwner, { depositAmount: WITHDRAW_AMOUNT });
+    // decimals:18 — the withdraw validation requires underlyingDecimals ===
+    // BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS (18, Epoch's convention), not USDC's 6.
+    positions.seedDummyLending(evmOwner, { depositAmount: WITHDRAW_AMOUNT, decimals: 18 });
 
     // 3. Deploy the "solver" faucet for the bridged-back USDC note.
     await midenCli.init();
