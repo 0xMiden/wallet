@@ -3,7 +3,7 @@ import { FakeEpochAllocator } from '../../helpers/fake-epoch-allocator';
 import { FakeEpochPositions } from '../../helpers/fake-epoch-positions';
 import type { ChromeWalletPageApi } from '../../helpers/wallet-page';
 import { AnvilInstance } from '../../ios/helpers/anvil';
-import { installMockCompact, installMockUsdc } from '../../ios/helpers/evm-doubles';
+import { installEpoch7702Delegation, installMockCompact, installMockUsdc } from '../../ios/helpers/evm-doubles';
 
 /**
  * Epoch "Earn" WITHDRAW ("Smart Withdraw") happy path — drives the REAL /earn UI
@@ -123,6 +123,12 @@ test.describe('earn: withdraw happy path', () => {
     await walletA.createNewWallet();
     const addressA = await walletA.getAccountAddress();
     const evmOwner = await walletA.getEvmAddress();
+
+    // Pre-activate the vault owner's EIP-7702 delegation on Anvil so the gasless
+    // withdraw's `ensureEpochSmartAccount` sees `delegation === 'epoch'` and skips
+    // the relay enable — the fake relay can only ack `/relay-enable-delegation`, it
+    // can't broadcast the real 7702 authorization tx that sets the delegation code.
+    await installEpoch7702Delegation(anvil.rpcUrl, evmOwner);
 
     // 2. Seed a funded, withdrawable DUMMY_LENDING position for THIS wallet's EVM
     //    owner. `EarnWithdrawReview` aborts (`earnWithdrawNotOwned`) unless
