@@ -110,15 +110,6 @@ test.describe('earn: withdraw happy path', () => {
     walletA,
     midenCli
   }) => {
-    // DIAGNOSTIC (temporary): surface a submit failure in the CI log — the harness
-    // saves the trace to test-results, whose artifact upload is broken by a ':' in
-    // the checkpoint filename, so console errors never reach us otherwise.
-    const consoleErrors: string[] = [];
-    walletA.page.on('console', m => {
-      if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 300));
-    });
-    walletA.page.on('pageerror', e => consoleErrors.push(`pageerror: ${e.message.slice(0, 300)}`));
-
     // 1. Create the wallet and read its Miden address + vault-derived EVM owner.
     await walletA.createNewWallet();
     const addressA = await walletA.getAccountAddress();
@@ -160,23 +151,9 @@ test.describe('earn: withdraw happy path', () => {
     await expect(confirm).toBeEnabled({ timeout: 30_000 });
     await confirm.click();
 
-    // DIAGNOSTIC (temporary): the gasless submit stores its error in
-    // extraInputs.error and flips the row to phase 'failed' — surface it and FAIL
-    // FAST rather than waiting out the phase polls.
-    await walletA.page.waitForTimeout(8000);
-    const url = walletA.page.url();
-    const urlTxId = decodeURIComponent(url.match(/withdraw-status\/([^/?#]+)/)?.[1] ?? '');
-    const dump = ((await walletA.page.evaluate(() =>
-      (globalThis as unknown as { __TEST_DUMP_TX__?: () => Promise<unknown[]> }).__TEST_DUMP_TX__?.()
-    )) ?? []) as Array<{ id: string; type: string; phase?: string; error?: string }>;
-    console.log('[withdraw-diag] url:', url, 'urlTxId:', urlTxId, 'dump:', JSON.stringify(dump));
-    console.log('[withdraw-diag] console errors:', JSON.stringify(consoleErrors.slice(-6)));
-    const failedRow = dump.find(t => t.type === 'earn-withdraw' && t.phase === 'failed');
-    if (failedRow) throw new Error(`earn-withdraw submit FAILED -> ${failedRow.error}`);
-
     // 5. The earn-withdraw row is created page-side (born `redeeming`) and driven
-    //    by the gasless submit; the UI routes to /earn/withdraw-status/:txId but we
-    //    key off the tracking row's phase via the SW hook (reads shared IndexedDB).
+    //    by the gasless submit; the UI routes to /earn/withdraw-status/:txId. We key
+    //    off the tracking row's phase via the page-realm hook.
     let txId = '';
     await expect
       .poll(

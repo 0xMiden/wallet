@@ -1,9 +1,4 @@
-import {
-  IEarnDepositExtraInputs,
-  IEarnWithdrawExtraInputs,
-  ITransaction,
-  ITransactionStatus
-} from 'lib/miden/db/types';
+import { IEarnDepositExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
 /**
@@ -29,21 +24,11 @@ interface LatestEarnDeposit {
   displayMessage?: string;
 }
 
-interface LatestEarnWithdraw {
-  id: string;
-  phase?: IEarnWithdrawExtraInputs['phase'];
-  displayMessage?: string;
-}
-
 declare global {
   // eslint-disable-next-line no-var
   var __TEST_LATEST_EARN_DEPOSIT__: () => Promise<LatestEarnDeposit | null>;
   // eslint-disable-next-line no-var
   var __TEST_EARN_DEPOSIT_STATE__: (txId: string) => Promise<LatestEarnDeposit | null>;
-  // eslint-disable-next-line no-var
-  var __TEST_LATEST_EARN_WITHDRAW__: () => Promise<LatestEarnWithdraw | null>;
-  // eslint-disable-next-line no-var
-  var __TEST_EARN_WITHDRAW_STATE__: (txId: string) => Promise<LatestEarnWithdraw | null>;
 }
 
 function toDepositView(row: ITransaction): LatestEarnDeposit {
@@ -52,15 +37,6 @@ function toDepositView(row: ITransaction): LatestEarnDeposit {
     id: row.id,
     status: row.status,
     epochStatus: inputs?.epochStatus,
-    displayMessage: row.displayMessage
-  };
-}
-
-function toWithdrawView(row: ITransaction): LatestEarnWithdraw {
-  const inputs: IEarnWithdrawExtraInputs | undefined = row.extraInputs;
-  return {
-    id: row.id,
-    phase: inputs?.phase,
     displayMessage: row.displayMessage
   };
 }
@@ -78,17 +54,5 @@ export function installEarnTestHooks(): void {
   globalThis.__TEST_EARN_DEPOSIT_STATE__ = async (txId: string): Promise<LatestEarnDeposit | null> => {
     const row = await Repo.transactions.where({ id: txId }).first();
     return row ? toDepositView(row) : null;
-  };
-
-  globalThis.__TEST_LATEST_EARN_WITHDRAW__ = async (): Promise<LatestEarnWithdraw | null> => {
-    const rows = await Repo.transactions.filter(tx => tx.type === 'earn-withdraw').toArray();
-    rows.sort((a, b) => b.initiatedAt - a.initiatedAt);
-    const row = rows[0];
-    return row ? toWithdrawView(row) : null;
-  };
-
-  globalThis.__TEST_EARN_WITHDRAW_STATE__ = async (txId: string): Promise<LatestEarnWithdraw | null> => {
-    const row = await Repo.transactions.where({ id: txId }).first();
-    return row ? toWithdrawView(row) : null;
   };
 }
