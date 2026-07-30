@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.17 (TBD)
+
+### Features
+
+- [FEATURE][all] **Your guardian is detected automatically when you recover from a seed phrase.** Entering your seed phrase now probes every known guardian operator in the background and preselects the one that actually holds your account — picking the highest account nonce, so after a guardian switch the new operator wins over the old one's stale state. The recovery-method screen shows the detected operator with a "use a different one instead?" disclosure over the classic picker, falls back to the manual picker (with a retry link) when nothing is found, and the Forgot-password recovery flow adopts the detected guardian silently.
+
 ## 1.15.16 (TBD)
 
 ### Features

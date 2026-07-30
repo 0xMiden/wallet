@@ -1,4 +1,3 @@
-import { derivePath } from '@demox-labs/aleo-hd-key';
 import { SendTransaction, SignKind } from '@demox-labs/miden-wallet-adapter-base';
 import {
   AccountBuilder,
@@ -37,6 +36,7 @@ import { compareAccountIds } from '../activity/utils';
 import { fetchFromStorage, putToStorage } from '../front/storage';
 import type { CreatedGuardianKeys } from '../guardian/account';
 import { getSignerDetailsFromAccount } from '../guardian/account';
+import { deriveClientSeed, makeColdSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
@@ -410,8 +410,11 @@ export class Vault {
         console.log('[Vault.spawn] Step 7a: recovering Guardian accounts (adopt only — rotation deferred)...');
         const guardianEndpoint =
           (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+        // makeColdSeedDeriver pays the 2048-round PBKDF2 once across the whole
+        // 20-index scan; a per-index deriveClientSeed closure would re-run it
+        // for every index.
         const recovered = await midenClient.recoverGuardianAccountsBySeed(
-          (idx: number) => deriveClientSeed(WalletType.Guardian, mnemonic!, idx),
+          makeColdSeedDeriver(mnemonic!, WalletType.Guardian),
           guardianEndpoint
         );
         createdAccounts = recovered.map(r => ({
@@ -1582,27 +1585,6 @@ function isValidHex(s: string): boolean {
   return /^[0-9a-fA-F]+$/.test(s);
 }
 
-// Maps a wallet type to its BIP-44 namespace index. hdIndex/accIndex is allocated
-// PER privacy bucket (public vs non-public), so distinct wallet types can share
-// an index; both the Miden and the EVM derivation must namespace by this to keep
-// their keys distinct across wallet types.
-function walletTypeIndex(walletType: WalletType): number {
-  switch (walletType) {
-    case WalletType.OnChain:
-      return 0;
-    case WalletType.OffChain:
-      return 1;
-    case WalletType.Guardian:
-      return 2;
-    default:
-      throw new Error('Invalid wallet type');
-  }
-}
-
-function getMainDerivationPath(walletType: WalletType, accIndex: number) {
-  return `m/44'/0'/${walletTypeIndex(walletType)}'/${accIndex}'`;
-}
-
 /**
  * One-time derivation of the wallet's EVM identity for a Miden HD account,
  * at account creation / unlock backfill. BIP-44 Ethereum path
@@ -1626,13 +1608,6 @@ function deriveEvmKeyPair(
     throw new PublicError('EVM key derivation failed');
   }
   return { address: hdAccount.address, privateKeyHex: toHex(privateKey) };
-}
-
-function deriveClientSeed(walletType: WalletType, mnemonic: string, hdAccIndex: number) {
-  const seed = Bip39.mnemonicToSeedSync(mnemonic);
-  const path = getMainDerivationPath(walletType, hdAccIndex);
-  const { seed: childSeed } = derivePath(path, seed.toString('hex'));
-  return new Uint8Array(childSeed);
 }
 
 function createStorageKey(id: StorageEntity) {

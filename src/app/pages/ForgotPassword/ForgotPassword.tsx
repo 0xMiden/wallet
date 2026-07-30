@@ -1,13 +1,17 @@
-import React, { FC, useCallback, useState } from 'react';
+import React, { FC, useCallback, useRef, useState } from 'react';
 
 import { generateMnemonic } from 'bip39';
 import wordsList from 'bip39/src/wordlists/english.json';
 
 import { formatMnemonic } from 'app/defaults';
 import { useMidenContext } from 'lib/miden/front';
+import { putToStorage } from 'lib/miden/front/storage';
+import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
+import { GUARDIAN_PROBE_WAIT_DEADLINE_MS, useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { clearClientStorage } from 'lib/miden/reset';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
+import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { navigate } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import { OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
@@ -20,10 +24,50 @@ const ForgotPassword: FC = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   const { registerWallet } = useMidenContext();
+  // Guardian auto-detection (issue #418). This flow has no recovery-method
+  // screen, so the probe is invisible: it starts at seed submit and its winner
+  // is written to the guardian-URL setting just before registering. When it
+  // finds nothing (or is still running at the deadline) the previously stored
+  // endpoint is used, exactly as before.
+  const guardianProbe = useGuardianProbe();
+  const startGuardianProbe = guardianProbe.start;
+  const resetGuardianProbe = guardianProbe.reset;
+  const probeResult = useRef<Promise<GuardianDiscoveryResult | undefined> | null>(null);
+
+  /** The probe belongs to an entered import seed — drop it when leaving that path. */
+  const discardGuardianProbe = useCallback(() => {
+    probeResult.current = null;
+    resetGuardianProbe();
+  }, [resetGuardianProbe]);
+
+  /**
+   * Adopt the auto-detected guardian, waiting at most
+   * {@link GUARDIAN_PROBE_WAIT_DEADLINE_MS} for a probe that is still running.
+   * Silent no-op when nothing was detected — the stored endpoint stands.
+   */
+  const adoptDetectedGuardian = useCallback(async () => {
+    const pending = probeResult.current;
+    if (!pending) return;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const result = await Promise.race([
+      pending,
+      new Promise<undefined>(resolve => {
+        deadline = setTimeout(() => resolve(undefined), GUARDIAN_PROBE_WAIT_DEADLINE_MS);
+      })
+    ]);
+    if (deadline !== undefined) clearTimeout(deadline);
+    if (result?.best) {
+      await putToStorage(GUARDIAN_URL_STORAGE_KEY, result.best.endpoint);
+    }
+  }, []);
 
   const register = useCallback(async () => {
     if (password && seedPhrase) {
       clearClientStorage();
+      // Adoption MUST follow clearClientStorage: on desktop the guardian-URL
+      // setting lives in the very localStorage that call just wiped, so
+      // adopting first would silently erase the detected endpoint.
+      if (onboardingType === OnboardingType.Import) await adoptDetectedGuardian();
 
       const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
       try {
@@ -37,12 +81,13 @@ const ForgotPassword: FC = () => {
         console.error(e);
       }
     }
-  }, [password, seedPhrase, registerWallet, onboardingType]);
+  }, [password, seedPhrase, registerWallet, onboardingType, adoptDetectedGuardian]);
 
   const onAction = useCallback(
     async (action: OnboardingAction) => {
       switch (action.id) {
         case 'create-wallet':
+          discardGuardianProbe();
           setSeedPhrase(generateMnemonic(128).split(' '));
           setOnboardingType(OnboardingType.Create);
           setStep(OnboardingStep.BackupSeedPhrase);
@@ -55,12 +100,16 @@ const ForgotPassword: FC = () => {
         case 'import-from-seed':
           setStep(OnboardingStep.ImportFromSeed);
           break;
-        case 'import-seed-phrase-submit':
-          setSeedPhrase(action.payload.split(' '));
+        case 'import-seed-phrase-submit': {
+          const words = action.payload.split(' ');
+          setSeedPhrase(words);
+          probeResult.current = startGuardianProbe(words);
           // Mobile protection is a passcode; the full password is extension/desktop-only.
           setStep(isMobile() ? OnboardingStep.SetupPasscode : OnboardingStep.CreatePassword);
           break;
+        }
         case 'backup-seed-phrase':
+          discardGuardianProbe();
           setSeedPhrase(generateMnemonic(128).split(' '));
           setStep(OnboardingStep.BackupSeedPhrase);
           break;
@@ -106,7 +155,7 @@ const ForgotPassword: FC = () => {
           break;
       }
     },
-    [register, step, onboardingType]
+    [register, step, onboardingType, startGuardianProbe, discardGuardianProbe]
   );
 
   // Handle mobile back button/gesture in forgot password flow
