@@ -173,9 +173,7 @@ describe('RecallCalendarDrawer', () => {
   it('does not start the live clock while the drawer is closed', async () => {
     jest.useFakeTimers({ now: new Date('2030-01-01T12:00:00') });
     try {
-      const { unmount } = await renderDrawer(
-        makeProps({ open: false, recallDate: new Date('2030-01-02T00:00:00') })
-      );
+      const { unmount } = await renderDrawer(makeProps({ open: false, recallDate: new Date('2030-01-02T00:00:00') }));
 
       expect(screen.getByTestId('drawer')).toHaveAttribute('data-open', 'false');
       expect(jest.getTimerCount()).toBe(0);
