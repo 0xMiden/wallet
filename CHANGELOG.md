@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.16 (TBD)
+
+### Features
+
+- [FEATURE][all] **Send a plain P2ID note ("Never" expiration).** The send flow always attached a reclaim/expiration height (defaulting to 7 days → a P2IDE note), with no way to remove it. The "Expiration Date" picker now offers a **"Never"** option that clears the reclaim height, so the send goes out as a plain **P2ID** note (recipient keeps it; the sender has no recall window). Default behaviour (7-day recall → P2IDE) is unchanged unless the user picks "Never".
+
 ## 1.15.15 (2026-07-30)
 
 ### Features
