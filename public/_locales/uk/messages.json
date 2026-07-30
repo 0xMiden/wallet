@@ -2880,6 +2880,10 @@
     "message": "Через 2 тижні",
     "englishSource": "In 2 weeks"
   },
+  "never": {
+    "message": "Ніколи",
+    "englishSource": "Never"
+  },
   "30mins": {
     "message": "30 хв",
     "englishSource": "30 mins"
