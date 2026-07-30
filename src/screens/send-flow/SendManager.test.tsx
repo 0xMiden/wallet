@@ -54,6 +54,8 @@ const isValidMidenAddressMock = jest.fn((addr: string) => !!addr && addr.startsW
 const stringToBigIntMock = jest.fn((s: string) => BigInt(Math.floor(parseFloat(s || '0'))));
 const requestSpeculateSendMock = jest.fn();
 const requestSpeculateInvalidateMock = jest.fn();
+const isScanAvailableMock = jest.fn(() => false);
+const scanQRCodeMock = jest.fn();
 
 const closeTransactionModalMock = jest.fn();
 const setLastCompletedTxHashMock = jest.fn();
@@ -85,6 +87,7 @@ jest.mock('./SelectRecipient', () => ({
       <span data-testid="sr-error">{props.error ?? ''}</span>
       <textarea data-testid="sr-input" onChange={props.onAddressChange} />
       <button data-testid="sr-addressbook" onClick={props.onAddressBook} />
+      {props.onScan && <button data-testid="sr-scan" onClick={props.onScan} />}
       <button data-testid="sr-confirm" onClick={props.onConfirm} />
     </div>
   )
@@ -157,6 +160,10 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
   useMobileBackHandler: (cb: any, deps: any) => useMobileBackHandlerMock(cb, deps)
 }));
 jest.mock('lib/platform', () => ({ isExtension: () => isExtensionMock(), isMobile: () => false }));
+jest.mock('lib/qr', () => ({
+  isScanAvailable: () => isScanAvailableMock(),
+  scanQRCode: () => scanQRCodeMock()
+}));
 jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => isDelegateProofEnabledMock() }));
 jest.mock('lib/store', () => ({ useWalletStore: { getState: () => walletStoreState } }));
 jest.mock('lib/woozie', () => ({
@@ -200,6 +207,7 @@ beforeEach(() => {
   useFilteredContactsMock.mockReturnValue({ contacts: [] });
   isExtensionMock.mockReturnValue(false);
   isDelegateProofEnabledMock.mockReturnValue(false);
+  isScanAvailableMock.mockReturnValue(false);
   isValidMidenAddressMock.mockImplementation((addr: string) => !!addr && addr.startsWith('0x'));
   stringToBigIntMock.mockImplementation((s: string) => BigInt(Math.floor(parseFloat(s || '0'))));
 
@@ -402,6 +410,41 @@ describe('recipient address entry', () => {
     expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
   });
 
+  it('clears the recipient error when the address is emptied', () => {
+    renderFlow();
+    act(() => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'not-an-address' } });
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidMidenAccountId');
+
+    act(() => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '   ' } });
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+  });
+
+  it('rejects the current Miden account as a typed recipient', () => {
+    isValidMidenAddressMock.mockImplementation((address: string) => address === 'me-pk');
+    renderFlow();
+
+    act(() => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'me-pk' } });
+    });
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+  });
+
+  it('uses the Ethereum-specific error for a malformed 0x recipient', () => {
+    renderFlow();
+
+    act(() => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0x' } });
+    });
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidEthereumAddress');
+  });
+
   it('advances to the amount step when confirming the recipient', () => {
     renderFlow();
     act(() => {
@@ -418,6 +461,61 @@ describe('recipient address entry', () => {
     });
     expect(screen.getByTestId('sr-address')).toHaveTextContent('0xpicked');
     expect(screen.getByTestId('ad-recipient')).toHaveTextContent('0xpicked');
+  });
+
+  it('rejects the current account when it is selected from contacts', () => {
+    mockSelectedContact = { id: 'me-pk', name: 'Me', isOwned: true, contactType: 'public' };
+    renderFlow();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('ad-select'));
+    });
+
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('me-pk');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
+  });
+
+  it.each([
+    ['me-pk', 'cannotSendToSelf'],
+    ['0xscanned', '']
+  ])('validates a scanned recipient %s against the current account', async (address, expectedError) => {
+    isScanAvailableMock.mockReturnValue(true);
+    scanQRCodeMock.mockResolvedValue({ success: true, address });
+    renderFlow();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('sr-scan'));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('sr-address')).toHaveTextContent(address);
+    expect(screen.getByTestId('sr-error')).toHaveTextContent(expectedError);
+  });
+
+  it('surfaces a QR scanner error other than cancellation', async () => {
+    isScanAvailableMock.mockReturnValue(true);
+    scanQRCodeMock.mockResolvedValue({ success: false, errorKey: 'cameraDenied' });
+    renderFlow();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('sr-scan'));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cameraDenied');
+  });
+
+  it('ignores QR scan cancellation', async () => {
+    isScanAvailableMock.mockReturnValue(true);
+    scanQRCodeMock.mockResolvedValue({ success: false, errorKey: 'scanCancelled' });
+    renderFlow();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('sr-scan'));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
   });
 
   it('lets the token/contacts drawers be closed via onOpenChange', () => {

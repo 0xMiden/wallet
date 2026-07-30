@@ -170,6 +170,21 @@ describe('RecallCalendarDrawer', () => {
     expect(screen.getByTestId('calendar-month').textContent).toBe(firstOfThisMonth().toISOString());
   });
 
+  it('does not start the live clock while the drawer is closed', async () => {
+    jest.useFakeTimers({ now: new Date('2030-01-01T12:00:00') });
+    try {
+      const { unmount } = await renderDrawer(
+        makeProps({ open: false, recallDate: new Date('2030-01-02T00:00:00') })
+      );
+
+      expect(screen.getByTestId('drawer')).toHaveAttribute('data-open', 'false');
+      expect(jest.getTimerCount()).toBe(0);
+      unmount();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('renders all six recall presets', async () => {
     await renderDrawer();
     ['30mins', '1hour', '5hours', 'tomorrow', 'inAWeek', 'in2Weeks'].forEach(label => {
@@ -254,6 +269,31 @@ describe('RecallCalendarDrawer', () => {
     expect(Number(blocksArg)).toBeGreaterThan(0);
     expect(Number(blocksArg)).toBeLessThanOrEqual(expected + 1);
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('rechecks the wall clock before applying a selection that has just expired', () => {
+    jest.useFakeTimers({ now: new Date('2030-01-01T12:00:00') });
+    try {
+      const props = makeProps({
+        recallDate: new Date('2030-01-01T00:00:00'),
+        recallTime: '12:01'
+      });
+      const { unmount } = render(<RecallCalendarDrawer {...props} />);
+      expect(screen.getByText('confirm')).not.toBeDisabled();
+
+      // Advance the wall clock without firing the 15-second React interval.
+      // The render-time state is still 12:00, so the click reaches the
+      // callback's final defensive check at the now-expired 12:01 target.
+      jest.setSystemTime(new Date('2030-01-01T12:02:00'));
+      fireEvent.click(screen.getByText('confirm'));
+
+      expect(props.onRecallDateChange).not.toHaveBeenCalled();
+      expect(props.onRecallBlocksChange).not.toHaveBeenCalled();
+      expect(props.onOpenChange).not.toHaveBeenCalled();
+      unmount();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('confirm handles a time with no minutes segment (minutes ?? 0 fallback)', async () => {

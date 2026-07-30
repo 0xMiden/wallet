@@ -27,6 +27,13 @@ let mockFullPage = false;
 let mockPublicKey: string | null = 'pubkey-1';
 let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
+let mockExpirationTarget: Date | undefined;
+let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
+let mockEpochQuote: { amount?: string; loading: boolean; error: null } = {
+  amount: undefined,
+  loading: false,
+  error: null
+};
 
 const mockWalletStoreState = {
   setLastCompletedTxHash: jest.fn()
@@ -186,13 +193,14 @@ jest.mock('utils/miden', () => {
   return {
     isValidMidenAddress: validate,
     isValidRecipientAddress: validate,
-    detectAddressChain: jest.fn(() => 'miden')
+    detectAddressChain: () => mockDetectedChain
   };
 });
 
 jest.mock('./RecallCalendarDrawer', () => ({
   dateTimeToRecallBlocks: jest.fn(() => 999),
   combineDateAndTime: (date: Date, time: string) => {
+    if (mockExpirationTarget) return mockExpirationTarget;
     const [hours, minutes] = time.split(':').map(Number);
     const withTime = new Date(date);
     withTime.setHours(hours ?? 0, minutes ?? 0, 0, 0);
@@ -208,7 +216,7 @@ jest.mock('./send-draft', () => ({
 }));
 
 jest.mock('./useEpochQuote', () => ({
-  useEpochQuote: () => ({ outputAmount: undefined, feeUsd: undefined, loading: false, error: null })
+  useEpochQuote: () => mockEpochQuote
 }));
 
 // ---------------------------------------------------------------------------
@@ -281,6 +289,9 @@ beforeEach(() => {
   mockPublicKey = 'pubkey-1';
   mockBalanceData = undefined;
   mockTokensMeta = [];
+  mockExpirationTarget = undefined;
+  mockDetectedChain = 'miden';
+  mockEpochQuote = { amount: undefined, loading: false, error: null };
 
   delete process.env.MIDEN_E2E_TEST;
   delete process.env.MIDEN_USE_SPECULATIVE_PROVING;
@@ -314,6 +325,16 @@ describe('ReviewTransaction — redirect guards', () => {
     isValidMidenAddressMock.mockReturnValue(false);
     render(<ReviewTransaction />);
     await flush();
+    expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
+  });
+
+  it('redirects when a deep link tries to send to the current account', async () => {
+    mockSearch = 'amount=5&to=pubkey-1&tokenId=tok1';
+    mockBalanceData = [VALID_TOKEN];
+
+    render(<ReviewTransaction />);
+    await flush();
+
     expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
   });
 
@@ -392,6 +413,53 @@ describe('ReviewTransaction — rendering', () => {
     fireEvent.click(screen.getByTestId('row-edit'));
     await flush();
     expect(screen.getByTestId('recall-drawer').getAttribute('data-open')).toBe('true');
+  });
+
+  it.each([
+    [120_000, 'expiresInSeconds'],
+    [10 * 60_000, 'expiresInMinutes'],
+    [-1_000, 'none']
+  ])('renders the precise expiration label for a target offset by %d ms', async (offset, expectedLabel) => {
+    const now = new Date('2030-01-01T12:00:00');
+    jest.useFakeTimers({ now });
+    try {
+      mockExpirationTarget = new Date(now.getTime() + offset);
+      setValidRoute();
+      const { unmount } = render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByText(expectedLabel)).toBeInTheDocument();
+      unmount();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('renders the slow bridge route without a Miden expiration row', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByText('Sepolia')).toBeInTheDocument();
+    expect(screen.getByText('slow slowArrival')).toBeInTheDocument();
+    expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
+    expect(dateTimeToRecallBlocksMock).not.toHaveBeenCalled();
+  });
+
+  it('renders the fast bridge route loading state from the Epoch quote', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '4.8', loading: true, error: null };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+
+    const { container } = render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByText('fast fastArrival')).toBeInTheDocument();
+    expect(container.querySelector('.animate-pulse')).toBeInTheDocument();
   });
 });
 
