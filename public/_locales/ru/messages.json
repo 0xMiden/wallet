@@ -1517,6 +1517,28 @@
       }
     }
   },
+  "recallTimeInPast": {
+    "message": "Это время уже прошло — выберите будущее время",
+    "englishSource": "This time has already passed — pick a future time"
+  },
+  "expiresInSeconds": {
+    "message": "В $seconds$ секунды",
+    "englishSource": "In $seconds$ seconds",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "expiresInMinutes": {
+    "message": "В $minutes$ минуты",
+    "englishSource": "In $minutes$ minutes",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
   "edit": {
     "message": "Редактировать",
     "englishSource": "Edit"
@@ -2318,6 +2340,10 @@
   "invalidMidenAccountId": {
     "message": "Неверный идентификатор учетной записи Miden",
     "englishSource": "Invalid Miden account ID"
+  },
+  "cannotSendToSelf": {
+    "message": "Вы не можете отправить на свой адрес",
+    "englishSource": "You can't send to your own address"
   },
   "amountMustBeLessThanBalance": {
     "message": "Сумма должна быть меньше остатка",

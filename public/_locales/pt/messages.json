@@ -1484,6 +1484,28 @@
       }
     }
   },
+  "recallTimeInPast": {
+    "message": "Este tempo já passou – escolha um momento futuro",
+    "englishSource": "This time has already passed — pick a future time"
+  },
+  "expiresInSeconds": {
+    "message": "Em $seconds$ segundos",
+    "englishSource": "In $seconds$ seconds",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "expiresInMinutes": {
+    "message": "Em $minutes$ minutos",
+    "englishSource": "In $minutes$ minutes",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
   "edit": {
     "message": "Editar",
     "englishSource": "Edit"
@@ -2282,6 +2304,10 @@
   "invalidMidenAccountId": {
     "message": "ID de conta Miden inválido",
     "englishSource": "Invalid Miden account ID"
+  },
+  "cannotSendToSelf": {
+    "message": "Você não pode enviar para seu próprio endereço",
+    "englishSource": "You can't send to your own address"
   },
   "amountMustBeLessThanBalance": {
     "message": "O valor deve ser menor que o saldo",

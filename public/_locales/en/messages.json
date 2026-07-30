@@ -1563,6 +1563,28 @@
       }
     }
   },
+  "recallTimeInPast": {
+    "message": "This time has already passed — pick a future time",
+    "englishSource": "This time has already passed — pick a future time"
+  },
+  "expiresInSeconds": {
+    "message": "In $seconds$ seconds",
+    "englishSource": "In $seconds$ seconds",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "expiresInMinutes": {
+    "message": "In $minutes$ minutes",
+    "englishSource": "In $minutes$ minutes",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
   "edit": {
     "message": "Edit",
     "englishSource": "Edit"
@@ -2332,6 +2354,10 @@
   "invalidMidenAccountId": {
     "message": "Invalid Miden account ID",
     "englishSource": "Invalid Miden account ID"
+  },
+  "cannotSendToSelf": {
+    "message": "You can't send to your own address",
+    "englishSource": "You can't send to your own address"
   },
   "amountMustBeLessThanBalance": {
     "message": "Amount must be less than balance",

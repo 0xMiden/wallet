@@ -1541,6 +1541,28 @@
       }
     }
   },
+  "recallTimeInPast": {
+    "message": "この時間はすでに過ぎています — 将来の時間を選択してください",
+    "englishSource": "This time has already passed — pick a future time"
+  },
+  "expiresInSeconds": {
+    "message": "で $seconds$ 秒",
+    "englishSource": "In $seconds$ seconds",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "expiresInMinutes": {
+    "message": "で $minutes$ 分",
+    "englishSource": "In $minutes$ minutes",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
   "edit": {
     "message": "編集",
     "englishSource": "Edit"
@@ -2341,6 +2363,10 @@
   "invalidMidenAccountId": {
     "message": "無効なMidenアカウントIDです",
     "englishSource": "Invalid Miden account ID"
+  },
+  "cannotSendToSelf": {
+    "message": "自分の住所には送れない",
+    "englishSource": "You can't send to your own address"
   },
   "amountMustBeLessThanBalance": {
     "message": "金額は残高よりも少ない必要があります",
