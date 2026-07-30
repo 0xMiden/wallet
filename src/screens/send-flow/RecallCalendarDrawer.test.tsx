@@ -2,7 +2,12 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { combineDateAndTime, dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
+import {
+  combineDateAndTime,
+  dateTimeToRecallBlocks,
+  RecallCalendarDrawer,
+  SECONDS_PER_BLOCK
+} from './RecallCalendarDrawer';
 
 // ---------------------------------------------------------------------------
 // Mocks

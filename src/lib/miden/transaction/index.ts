@@ -53,10 +53,10 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { accountIdStringToSdk, canonicalWalletAccountId, sameWalletAccountId } from '../sdk/helpers';
-import { NoteTypeEnum } from '../types';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
+import { NoteTypeEnum } from '../types';
 
 export * from './cancel';
 export * from './complete';
