@@ -215,7 +215,9 @@ describe('MultisigService', () => {
 
       const proposal = await service.createSendProposal('rec', 'fauc', 1000n);
 
-      expect(multisig.createP2idProposal).toHaveBeenCalledWith('sdk(rec)', 'sdk(fauc)', 1000n);
+      expect(multisig.createP2idProposal).toHaveBeenCalledWith('sdk(rec)', 'sdk(fauc)', 1000n, undefined, {
+        noteType: 'Private'
+      });
       expect(proposal).toEqual({ kind: 'p2id' });
     });
 
