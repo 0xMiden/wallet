@@ -13,6 +13,19 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+// This suite exercises selection between multiple presets, so pin the
+// component to testnet regardless of the MIDEN_NETWORK used to invoke Jest.
+jest.mock('lib/miden-chain/constants', () => {
+  const actual =
+    jest.requireActual<typeof import('lib/miden-chain/constants')>('lib/miden-chain/constants');
+  return {
+    ...actual,
+    DEFAULT_NETWORK: actual.MIDEN_NETWORK_NAME.TESTNET,
+    getGuardianOptionsForNetwork: (network = actual.MIDEN_NETWORK_NAME.TESTNET) =>
+      actual.getGuardianOptionsForNetwork(network)
+  };
+});
+
 // Leaf UI components pull in framer-motion / Capacitor haptics /
 // react-currency-input-field / radix-slot which are irrelevant to this
 // screen's logic. Stub them to the smallest DOM that preserves the props the
@@ -45,7 +58,7 @@ jest.mock('lib/ui/badge', () => ({
 }));
 
 // Endpoint the component seeds `endpointInput` with (OpenZeppelin on the
-// active network — testnet under jest, since MIDEN_NETWORK is unset).
+// test network pinned above.
 const DEFAULT_ENDPOINT = GUARDIAN_OPTIONS[0]!.endpoint.get(DEFAULT_NETWORK)!;
 
 const renderScreen = (overrides: Partial<React.ComponentProps<typeof ImportRecoveryMethodScreen>> = {}) => {
@@ -89,10 +102,11 @@ describe('ImportRecoveryMethodScreen', () => {
   it('defaults to Guardian: shows presets, the endpoint readout, a down chevron, and no custom input', () => {
     renderScreen();
 
-    // All three testnet Guardian providers are offered as presets.
+    // All testnet Guardian providers are offered as presets.
     expect(ozPreset()).toBeInTheDocument();
     expect(gatewayPreset()).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Lambda Class/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Koda/ })).toBeInTheDocument();
 
     // The seeded OpenZeppelin preset is active; the others are not.
     expect(ozPreset()).toHaveClass('border-primary-500');

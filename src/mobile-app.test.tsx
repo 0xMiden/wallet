@@ -23,6 +23,7 @@ import React from 'react';
 const mockInitTheme = jest.fn();
 const mockInstallGuardianCorsBypass = jest.fn();
 const mockInitMobileBackHandler = jest.fn<Promise<void>, []>();
+const mockInitKeyboardInset = jest.fn<Promise<void>, []>();
 const mockAdapterInit = jest.fn<Promise<void>, []>();
 const mockGetMobileIntercomAdapter = jest.fn(() => ({ init: mockAdapterInit }));
 const mockRender = jest.fn();
@@ -51,6 +52,9 @@ jest.mock('lib/miden/guardian/native-http', () => ({
 jest.mock('lib/mobile/back-handler', () => ({
   initMobileBackHandler: (...args: unknown[]) => mockInitMobileBackHandler(...(args as []))
 }));
+jest.mock('lib/mobile/keyboard-inset', () => ({
+  initKeyboardInset: (...args: unknown[]) => mockInitKeyboardInset(...(args as []))
+}));
 jest.mock('lib/settings/theme', () => ({
   initTheme: (...args: unknown[]) => mockInitTheme(...(args as []))
 }));
@@ -76,6 +80,7 @@ beforeEach(() => {
   // Default happy-path resolutions; individual tests override.
   mockAdapterInit.mockResolvedValue(undefined);
   mockInitMobileBackHandler.mockResolvedValue(undefined);
+  mockInitKeyboardInset.mockResolvedValue(undefined);
   mockGetPlatform.mockReturnValue('ios');
   mockIsNativePlatform.mockReturnValue(true);
 
@@ -135,6 +140,7 @@ describe('mobile-app entry point — successful bootstrap', () => {
     expect(mockGetMobileIntercomAdapter).toHaveBeenCalledTimes(1);
     expect(mockAdapterInit).toHaveBeenCalledTimes(1);
     expect(mockInitMobileBackHandler).toHaveBeenCalledTimes(1);
+    expect(mockInitKeyboardInset).toHaveBeenCalledTimes(1);
 
     const rootEl = document.getElementById('root');
     expect(mockCreateRoot).toHaveBeenCalledTimes(1);
