@@ -104,6 +104,32 @@ describe('useGuardianProbe', () => {
     expect(hook.current.state).toEqual({ status: 'done', result: fast });
   });
 
+  it('keeps a newer result when a stale probe rejects', async () => {
+    const fast = result('https://fresh.example.com');
+    let rejectSlow: (reason: Error) => void = () => {};
+    mockDiscover
+      .mockImplementationOnce(() => new Promise<GuardianDiscoveryResult>((_resolve, reject) => (rejectSlow = reject)))
+      .mockResolvedValueOnce(fast);
+
+    const { result: hook } = renderHook(() => useGuardianProbe());
+
+    let stalePromise: Promise<GuardianDiscoveryResult | undefined> | undefined;
+    act(() => {
+      stalePromise = hook.current.start(['stale', 'seed']);
+    });
+    await act(async () => {
+      await hook.current.start(WORDS);
+    });
+
+    const staleResolved = await act(async () => {
+      rejectSlow(new Error('stale probe failed'));
+      return stalePromise;
+    });
+
+    expect(staleResolved).toBeUndefined();
+    expect(hook.current.state).toEqual({ status: 'done', result: fast });
+  });
+
   it('aborts the in-flight probe and returns to idle on reset', async () => {
     let capturedSignal: AbortSignal | undefined;
     mockDiscover.mockImplementation((_derive: unknown, options: { signal?: AbortSignal }) => {
