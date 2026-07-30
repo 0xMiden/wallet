@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 import { addDays, format, formatDistanceToNow } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
@@ -20,9 +19,8 @@ import {
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { accountIdStringToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { NoteTypeEnum } from 'lib/miden/types';
-import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
@@ -130,29 +128,17 @@ export const ReviewTransaction: React.FC = () => {
   const [recallBlocks, setRecallBlocks] = useState<string | undefined>(undefined);
   const [showCalendar, setShowCalendar] = useState(false);
 
-  // Default every same-chain send to a 7-day reclaim (expiration) height. Fetch
-  // the current block height once on mount and seed recallDate/recallBlocks. The
+  // Default every same-chain send to a 7-day reclaim (expiration) offset. The
   // user can override via the "Edit" link, which opens RecallCalendarDrawer.
-  // A bridge has no Miden-side expiration row, so skip the RPC round-trip.
+  // recallBlocks is a RELATIVE blocks-until-recall offset — the SDK-interface
+  // layer converts it to an absolute height at send time, so no block-height
+  // fetch is needed here. A bridge has no Miden-side expiration row.
   useEffect(() => {
     if (isBridge) return;
-    let cancelled = false;
-    ensureSdkWasmReady()
-      .then(() => {
-        if (cancelled) return;
-        const rpc = new RpcClient(getRpcEndpoint());
-        return rpc.getBlockHeaderByNumber().then(header => {
-          if (cancelled) return;
-          const date = addDays(new Date(), 7);
-          setRecallDate(date);
-          setRecallTime(format(date, 'HH:mm'));
-          setRecallBlocks(String(dateTimeToRecallBlocks(date, header.blockNum())));
-        });
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
+    const date = addDays(new Date(), 7);
+    setRecallDate(date);
+    setRecallTime(format(date, 'HH:mm'));
+    setRecallBlocks(String(dateTimeToRecallBlocks(date)));
   }, [isBridge]);
 
   // Leaving review = leaving the send flow: drop any cached speculative prove
@@ -282,8 +268,10 @@ export const ReviewTransaction: React.FC = () => {
 
   // Deep-link guards — after all hooks. Address/amount are checkable
   // immediately; token existence and balance only once balances load. A 0x
-  // recipient is valid here too: it routes through the bridge.
-  const paramsInvalid = !tokenId || !(parseFloat(amount) > 0) || !isValidRecipientAddress(to);
+  // recipient is valid here too: it routes through the bridge. Self-sends are
+  // rejected (SendManager blocks them at entry; this covers direct routing).
+  const paramsInvalid =
+    !tokenId || !(parseFloat(amount) > 0) || !isValidRecipientAddress(to) || sameWalletAccountId(to, publicKey ?? '');
   // A cross-chain send must know its destination network, otherwise the review
   // rows and the submit path have nothing to act on.
   const bridgeParamsInvalid = isBridge && !bridgeNetworkObj;

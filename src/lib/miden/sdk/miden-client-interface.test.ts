@@ -74,6 +74,7 @@ describe('MidenClientInterface', () => {
         ...overrides.transactions
       },
       sync: jest.fn(async () => ({ blockNum: () => 5 })),
+      getSyncHeight: jest.fn(async () => 5),
       storeIdentifier: jest.fn(() => 'test-store'),
       terminate: jest.fn(),
       defaultProver: null,
@@ -94,6 +95,18 @@ describe('MidenClientInterface', () => {
       TransactionProver: {
         newRemoteProver: jest.fn(() => 'remote'),
         newLocalProver: jest.fn(() => 'local')
+      },
+      getWasmOrThrow: jest.fn(async () => ({
+        AccountId: {
+          fromHex: jest.fn((id: string) => id),
+          fromBech32: jest.fn((id: string) => id)
+        }
+      })),
+      WasmWebClient: {
+        createClient: jest.fn(async () => ({
+          getConsumableNotes: jest.fn(async () => []),
+          terminate: jest.fn()
+        }))
       },
       exportStore: jest.fn(async () => '{"version":1,"data":"dump"}'),
       importStore: jest.fn()

@@ -53,6 +53,7 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { accountIdStringToSdk, canonicalWalletAccountId, sameWalletAccountId } from '../sdk/helpers';
+import { NoteTypeEnum } from '../types';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
@@ -393,9 +394,58 @@ const generateGuardianTransaction = async (
     case 'send': {
       const sendTx = transaction as SendTransaction;
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      proposalResult = await withGuardianConflictRetry(() =>
-        service.createSendProposal(sendTx.secondaryAccountId, sendTx.faucetId, BigInt(sendTx.amount))
-      );
+      const recallBlocks = sendTx.extraInputs?.recallBlocks;
+      if (recallBlocks) {
+        // TEMP WORKAROUND (OpenZeppelin/guardian#366): the multisig client's
+        // P2ID send proposal has no reclaim support, so the expiration the
+        // user picked used to be silently dropped on Guardian accounts —
+        // every guardian send went out as a plain P2ID, never recallable.
+        // Route recallable sends through a custom proposal built from a P2IDE
+        // send request instead; once createP2idProposal grows
+        // reclaimHeight/timelockHeight options, replace this branch with the
+        // typed API. `recallBlocks` is a
+        // RELATIVE blocks-until-recall offset; this is the guardian-path
+        // counterpart of the relative→absolute conversion in
+        // `MidenClientInterface.sendTransaction`.
+        //
+        // The P2IDE note's serial number is random, so the request must be
+        // built ONCE and the exact same bytes reused for BOTH
+        // `createCustomProposal` and `signAndCreateTransactionRequest` below —
+        // persist them so a retry after a restart reuses the same request
+        // (same rule as the PSWAP case).
+        if (!transaction.requestBytes) {
+          const requestBytes = await withWasmClientLock(async () => {
+            const midenClient = await getMidenClient();
+            const syncHeight = await midenClient.client.getSyncHeight();
+            const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
+            try {
+              const tr = await client.newSendTransactionRequest(
+                accountIdStringToSdk(sendTx.accountId),
+                accountIdStringToSdk(sendTx.secondaryAccountId),
+                accountIdStringToSdk(sendTx.faucetId),
+                sendTx.noteType === NoteTypeEnum.Public ? NoteType.Public : NoteType.Private,
+                BigInt(sendTx.amount),
+                syncHeight + recallBlocks,
+                null
+              );
+              return tr.serialize();
+            } finally {
+              client.terminate();
+            }
+          });
+          transaction.requestBytes = requestBytes;
+          await Repo.transactions.where({ id: transaction.id }).modify(t => {
+            t.requestBytes = requestBytes;
+          });
+        }
+        proposalResult = await withGuardianConflictRetry(() =>
+          service.createCustomProposal(transaction.requestBytes!, 'recallable_send')
+        );
+      } else {
+        proposalResult = await withGuardianConflictRetry(() =>
+          service.createSendProposal(sendTx.secondaryAccountId, sendTx.faucetId, BigInt(sendTx.amount))
+        );
+      }
       break;
     }
     case 'consume': {

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 
@@ -70,26 +70,6 @@ jest.mock('lib/ui/calendar', () => ({
   )
 }));
 
-// `lib/miden-chain/constants` touches WASM-backed `Endpoint`/`MidenClient`; stub
-// the two functions the component actually calls.
-const ensureSdkWasmReady = jest.fn<Promise<void>, []>();
-const getRpcEndpoint = jest.fn(() => 'rpc-endpoint');
-jest.mock('lib/miden-chain/constants', () => ({
-  ensureSdkWasmReady: () => ensureSdkWasmReady(),
-  getRpcEndpoint: () => getRpcEndpoint()
-}));
-
-// RpcClient from the lazy SDK subpath. The default moduleNameMapper points this
-// at `wasmMock.js` (which has no RpcClient), so provide our own factory.
-const getBlockHeaderByNumber = jest.fn<Promise<{ blockNum: () => number }>, []>();
-const RpcClientCtor = jest.fn();
-jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
-  RpcClient: function RpcClient(endpoint: unknown) {
-    RpcClientCtor(endpoint);
-    return { getBlockHeaderByNumber: () => getBlockHeaderByNumber() };
-  }
-}));
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -107,35 +87,13 @@ const makeProps = (overrides: Partial<Props> = {}): Props => ({
   ...overrides
 });
 
-/** A never-resolving deferred so we can control effect timing. */
-const deferred = <T,>() => {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-};
-
-/** Flush the mount effect's promise chain (ensureSdkWasmReady → rpc → setSyncHeight). */
-const flushEffects = () => act(async () => void (await new Promise(r => setTimeout(r, 0))));
-
-/** Render and settle the mount effect so no `setSyncHeight` fires outside `act`. */
-const renderDrawer = async (props: Props = makeProps()) => {
-  const utils = render(<RecallCalendarDrawer {...props} />);
-  await flushEffects();
-  return utils;
-};
+const renderDrawer = async (props: Props = makeProps()) => render(<RecallCalendarDrawer {...props} />);
 
 /** First-of-current-month, matching the component's initial `calendarMonth`. */
 const firstOfThisMonth = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
 beforeEach(() => {
   jest.clearAllMocks();
-  // Default: WASM ready, block header resolves to a fixed height.
-  ensureSdkWasmReady.mockResolvedValue(undefined);
-  getBlockHeaderByNumber.mockResolvedValue({ blockNum: () => 12345 });
 });
 
 // ---------------------------------------------------------------------------
@@ -164,21 +122,28 @@ describe('dateTimeToRecallBlocks', () => {
     jest.useRealTimers();
   });
 
-  it('returns the current block for a past/now target (<= 0 seconds until target)', () => {
+  it('returns 1 (recallable immediately, still truthy) for a past/now target', () => {
     const past = new Date(Date.now() - 60_000);
-    expect(dateTimeToRecallBlocks(past, 500)).toBe(500);
+    expect(dateTimeToRecallBlocks(past)).toBe(1);
   });
 
-  it('adds one block per SECONDS_PER_BLOCK seconds for a future target', () => {
-    // 30s in the future → floor(1000 + 30/3) = 1010.
+  it('returns a RELATIVE offset of one block per SECONDS_PER_BLOCK seconds', () => {
+    // 30s in the future → floor(30/3) = 10 blocks-until-recall. No chain
+    // height in the result — the SDK-interface layer adds it (#308).
     const future = new Date(Date.now() + 30_000);
-    expect(dateTimeToRecallBlocks(future, 1000)).toBe(1010);
+    expect(dateTimeToRecallBlocks(future)).toBe(10);
   });
 
   it('floors the fractional block count', () => {
-    // 8s in the future → floor(0 + 8/3) = floor(2.66..) = 2.
+    // 8s in the future → floor(8/3) = 2.
     const future = new Date(Date.now() + 8_000);
-    expect(dateTimeToRecallBlocks(future, 0)).toBe(2);
+    expect(dateTimeToRecallBlocks(future)).toBe(2);
+  });
+
+  it('clamps a sub-block future target up to 1', () => {
+    // 2s in the future → floor(2/3) = 0 would read as "no recall" downstream.
+    const future = new Date(Date.now() + 2_000);
+    expect(dateTimeToRecallBlocks(future)).toBe(1);
   });
 });
 
@@ -205,15 +170,6 @@ describe('RecallCalendarDrawer', () => {
     ['30mins', '1hour', '5hours', 'tomorrow', 'inAWeek', 'in2Weeks'].forEach(label => {
       expect(screen.getByText(label)).toBeInTheDocument();
     });
-  });
-
-  it('fetches the block height on mount and constructs an RpcClient with the endpoint', async () => {
-    render(<RecallCalendarDrawer {...makeProps()} />);
-
-    await waitFor(() => expect(getBlockHeaderByNumber).toHaveBeenCalledTimes(1));
-    expect(ensureSdkWasmReady).toHaveBeenCalledTimes(1);
-    expect(getRpcEndpoint).toHaveBeenCalledTimes(1);
-    expect(RpcClientCtor).toHaveBeenCalledWith('rpc-endpoint');
   });
 
   it('reflects a passed recallTime and forwards edits to onRecallTimeChange', async () => {
@@ -267,22 +223,23 @@ describe('RecallCalendarDrawer', () => {
     expect(screen.queryByText('confirm')).not.toBeInTheDocument();
   });
 
-  it('confirm applies the selection, computes blocks, and closes the drawer', async () => {
+  it('confirm applies the selection, computes relative blocks, and closes the drawer', async () => {
     const recallDate = new Date('2035-06-15T00:00:00');
     const props = makeProps({ recallDate, recallTime: '14:30' });
     render(<RecallCalendarDrawer {...props} />);
-
-    // Wait for the mount effect to install the fetched sync height (12345).
-    await waitFor(() => expect(getBlockHeaderByNumber).toHaveBeenCalled());
 
     fireEvent.click(screen.getByText('confirm'));
 
     expect(props.onRecallDateChange).toHaveBeenCalledWith(recallDate);
     expect(props.onRecallTimeChange).toHaveBeenCalledWith('14:30');
-    // A far-future date → blocks strictly above the fetched sync height.
+    // Blocks-until-recall for a far-future date: large, but plausibly relative
+    // (a ~9-year horizon is ~95M blocks at 3s cadence — well under any
+    // realistic absolute chain height double-add).
     const blocksArg = (props.onRecallBlocksChange as jest.Mock).mock.calls[0][0];
     expect(typeof blocksArg).toBe('string');
-    expect(Number(blocksArg)).toBeGreaterThan(12345);
+    const expected = Math.floor((new Date('2035-06-15T14:30:00').getTime() - Date.now()) / 1000 / SECONDS_PER_BLOCK);
+    expect(Number(blocksArg)).toBeGreaterThan(0);
+    expect(Number(blocksArg)).toBeLessThanOrEqual(expected + 1);
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
   });
 
@@ -290,7 +247,6 @@ describe('RecallCalendarDrawer', () => {
     const recallDate = new Date('2035-06-15T00:00:00');
     const props = makeProps({ recallDate, recallTime: '5' });
     render(<RecallCalendarDrawer {...props} />);
-    await waitFor(() => expect(getBlockHeaderByNumber).toHaveBeenCalled());
 
     fireEvent.click(screen.getByText('confirm'));
 
@@ -302,7 +258,6 @@ describe('RecallCalendarDrawer', () => {
     const recallDate = new Date('2035-06-15T00:00:00');
     const props = makeProps({ recallDate, recallTime: '' });
     render(<RecallCalendarDrawer {...props} />);
-    await waitFor(() => expect(getBlockHeaderByNumber).toHaveBeenCalled());
 
     fireEvent.click(screen.getByText('confirm'));
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
@@ -313,7 +268,6 @@ describe('RecallCalendarDrawer', () => {
     async label => {
       const props = makeProps();
       render(<RecallCalendarDrawer {...props} />);
-      await waitFor(() => expect(getBlockHeaderByNumber).toHaveBeenCalled());
 
       fireEvent.click(screen.getByText(label));
 
@@ -335,54 +289,5 @@ describe('RecallCalendarDrawer', () => {
     fireEvent.click(screen.getByTestId('drawer-onOpenChange-false'));
 
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
-  });
-
-  // -- Effect cancellation / error branches ---------------------------------
-
-  it('does not set state when unmounted before ensureSdkWasmReady resolves', async () => {
-    const d = deferred<void>();
-    ensureSdkWasmReady.mockReturnValue(d.promise);
-
-    const { unmount } = render(<RecallCalendarDrawer {...makeProps()} />);
-    unmount();
-
-    // Resolving after unmount hits the `if (cancelled) return;` early exit.
-    await act(async () => {
-      d.resolve();
-      await Promise.resolve();
-    });
-
-    expect(getBlockHeaderByNumber).not.toHaveBeenCalled();
-  });
-
-  it('does not set state when unmounted before the block header resolves', async () => {
-    ensureSdkWasmReady.mockResolvedValue(undefined);
-    const d = deferred<{ blockNum: () => number }>();
-    getBlockHeaderByNumber.mockReturnValue(d.promise);
-
-    const { unmount } = render(<RecallCalendarDrawer {...makeProps()} />);
-
-    // Let the WASM-ready promise settle so getBlockHeaderByNumber is in flight.
-    await waitFor(() => expect(getBlockHeaderByNumber).toHaveBeenCalledTimes(1));
-
-    unmount();
-
-    // Resolving after unmount hits the `if (!cancelled)` guard around setSyncHeight.
-    await act(async () => {
-      d.resolve({ blockNum: () => 999 });
-      await Promise.resolve();
-    });
-    // No throw / no act warning is the assertion here.
-    expect(true).toBe(true);
-  });
-
-  it('swallows a rejected block-height fetch (catch branch)', async () => {
-    ensureSdkWasmReady.mockRejectedValue(new Error('wasm boom'));
-
-    render(<RecallCalendarDrawer {...makeProps()} />);
-
-    // The rejection is caught; confirm still uses the initial syncHeight of 0.
-    await waitFor(() => expect(ensureSdkWasmReady).toHaveBeenCalled());
-    expect(getBlockHeaderByNumber).not.toHaveBeenCalled();
   });
 });

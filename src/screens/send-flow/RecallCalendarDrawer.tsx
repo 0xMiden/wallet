@@ -1,21 +1,27 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 
-import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 import { addDays, addHours, addMinutes, differenceInSeconds, format } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { Calendar } from 'lib/ui/calendar';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
 export const SECONDS_PER_BLOCK = 3;
 
-/** Block height that the given target date maps to, relative to `currentBlockNum`. */
-export function dateTimeToRecallBlocks(targetDate: Date, currentBlockNum: number): number {
+/**
+ * Blocks-until-recall (RELATIVE offset) for the given target date. The
+ * SDK-interface layer (`sendTransaction`) converts this to an absolute
+ * reclaim height by adding the current sync height — the single place that
+ * addition happens. Never return an absolute height here: that double-adds
+ * the chain height into the on-chain P2IDE reclaim input (#308).
+ * A past/now target maps to 1 so the note stays recallable immediately
+ * (0 would read as "no recall" downstream).
+ */
+export function dateTimeToRecallBlocks(targetDate: Date): number {
   const secondsUntilTarget = differenceInSeconds(targetDate, new Date());
-  if (secondsUntilTarget <= 0) return currentBlockNum;
-  return Math.floor(currentBlockNum + secondsUntilTarget / SECONDS_PER_BLOCK);
+  if (secondsUntilTarget <= 0) return 1;
+  return Math.max(1, Math.floor(secondsUntilTarget / SECONDS_PER_BLOCK));
 }
 
 const RECALL_PRESETS = (t: (key: string) => string) => [
@@ -39,9 +45,9 @@ export interface RecallCalendarDrawerProps {
 
 /**
  * Calendar + preset picker for the send "Expiration Date" (reclaim height).
- * Self-contained: fetches the current block height and converts the chosen
- * date/time into `recallBlocks` via `onRecallBlocksChange`. Extracted from
- * the old SendDetails screen so the Review page can reuse it.
+ * Converts the chosen date/time into a relative `recallBlocks` offset via
+ * `onRecallBlocksChange` — no chain access needed. Extracted from the old
+ * SendDetails screen so the Review page can reuse it.
  */
 export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
   open,
@@ -53,27 +59,9 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
   onRecallTimeChange
 }) => {
   const { t } = useTranslation();
-  const [syncHeight, setSyncHeight] = useState(0);
   const [calendarMonth, setCalendarMonth] = useState<Date>(
     new Date(new Date().getFullYear(), new Date().getMonth(), 1)
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    // Page-side SDK calls need WASM loaded — see ensureSdkWasmReady comment.
-    ensureSdkWasmReady()
-      .then(() => {
-        if (cancelled) return;
-        const rpc = new RpcClient(getRpcEndpoint());
-        return rpc.getBlockHeaderByNumber().then(header => {
-          if (!cancelled) setSyncHeight(header.blockNum());
-        });
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const applyDateTimeSelection = useCallback(
     (date: Date, time: string) => {
@@ -82,10 +70,10 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
       dateWithTime.setHours(hours ?? 0, minutes ?? 0, 0, 0);
       onRecallDateChange(date);
       onRecallTimeChange(time);
-      onRecallBlocksChange(String(dateTimeToRecallBlocks(dateWithTime, syncHeight)));
+      onRecallBlocksChange(String(dateTimeToRecallBlocks(dateWithTime)));
       onOpenChange(false);
     },
-    [onRecallBlocksChange, onOpenChange, onRecallDateChange, onRecallTimeChange, syncHeight]
+    [onRecallBlocksChange, onOpenChange, onRecallDateChange, onRecallTimeChange]
   );
 
   return (

@@ -147,7 +147,8 @@ jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
   useFilteredContacts: () => useFilteredContactsMock()
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({
-  accountIdStringToSdk: (id: string) => ({ toString: () => id })
+  accountIdStringToSdk: (id: string) => ({ toString: () => id }),
+  sameWalletAccountId: (a: string, b: string) => a === b
 }));
 jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
   useHideNavbarWhileOpen: (...a: any[]) => useHideNavbarWhileOpenMock(...a)
