@@ -2433,6 +2433,44 @@
     "message": "Utilice un tutor diferente",
     "englishSource": "Use a different guardian"
   },
+  "detectingGuardian": {
+    "message": "Buscando a tu tutor...",
+    "englishSource": "Looking for your guardian…"
+  },
+  "guardianDetectedTitle": {
+    "message": "Encontré a tu tutor: $name$ ",
+    "englishSource": "Found your guardian: $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianDetectedMultiple": {
+    "message": "Más de un tutor conoce esta cuenta. Elegimos el que tiene su estado más reciente.",
+    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
+  },
+  "useCustomGuardianInstead": {
+    "message": "¿Usar uno diferente en su lugar?",
+    "englishSource": "Use a different one instead?"
+  },
+  "guardianNotDetected": {
+    "message": "No pudimos detectar a tu tutor automáticamente. Elija el que utilizó o ingrese su URL.",
+    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianProbePartialFailure": {
+    "message": "No se pudo contactar a los tutores de $count$, por lo que la detección puede estar incompleta.",
+    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "retryGuardianDetection": {
+    "message": "Intenta detectar de nuevo",
+    "englishSource": "Try detecting again"
+  },
   "guardianAccountNotFound": {
     "message": "No pudimos encontrar su cuenta en este guardián. En su lugar, verifique la URL o importe como una cuenta pública.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."

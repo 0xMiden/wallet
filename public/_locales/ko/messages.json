@@ -2534,6 +2534,44 @@
     "message": "다른 보호자를 사용하세요",
     "englishSource": "Use a different guardian"
   },
+  "detectingGuardian": {
+    "message": "보호자를 찾고 있습니다…",
+    "englishSource": "Looking for your guardian…"
+  },
+  "guardianDetectedTitle": {
+    "message": "보호자를 찾았습니다: $name$ ",
+    "englishSource": "Found your guardian: $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianDetectedMultiple": {
+    "message": "한 명 이상의 보호자가 이 계정을 알고 있습니다. 우리는 가장 최근 상태를 담고 있는 것을 선택했습니다.",
+    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
+  },
+  "useCustomGuardianInstead": {
+    "message": "대신 다른 것을 사용하시겠습니까?",
+    "englishSource": "Use a different one instead?"
+  },
+  "guardianNotDetected": {
+    "message": "보호자를 자동으로 감지할 수 없습니다. 사용한 것을 선택하거나 URL을 입력하세요.",
+    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianProbePartialFailure": {
+    "message": "$count$명의 보호자에게 연락할 수 없으므로 감지가 불완전할 수 있습니다.",
+    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "retryGuardianDetection": {
+    "message": "다시 감지해 보세요",
+    "englishSource": "Try detecting again"
+  },
   "guardianAccountNotFound": {
     "message": "이 보호자에서 귀하의 계정을 찾을 수 없습니다. 대신 URL을 확인하거나 공개 계정으로 가져오세요.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."

@@ -2519,6 +2519,44 @@
     "message": "Farklı bir veli kullan",
     "englishSource": "Use a different guardian"
   },
+  "detectingGuardian": {
+    "message": "Vasinizi arıyorsunuz…",
+    "englishSource": "Looking for your guardian…"
+  },
+  "guardianDetectedTitle": {
+    "message": "Vasinizi buldum: $name$ ",
+    "englishSource": "Found your guardian: $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianDetectedMultiple": {
+    "message": "Bu hesabı birden fazla veli biliyor. En son durumunuzu tutanı seçtik.",
+    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
+  },
+  "useCustomGuardianInstead": {
+    "message": "Bunun yerine farklı bir tane mi kullanıyorsunuz?",
+    "englishSource": "Use a different one instead?"
+  },
+  "guardianNotDetected": {
+    "message": "Vasinizi otomatik olarak tespit edemedik. Kullandığınızı seçin veya URL'sini girin.",
+    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianProbePartialFailure": {
+    "message": "$count$ veliye/vasilere ulaşılamadı, dolayısıyla algılama eksik olabilir.",
+    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "retryGuardianDetection": {
+    "message": "Tekrar tespit etmeyi deneyin",
+    "englishSource": "Try detecting again"
+  },
   "guardianAccountNotFound": {
     "message": "Bu velide hesabınızı bulamadık. URL'yi kontrol edin veya bunun yerine herkese açık bir hesap olarak içe aktarın.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
