@@ -2,10 +2,16 @@
 
 ## 1.15.15 (2026-07-30)
 
+### Features
+
+- [FEATURE][all] **Koda (Kodax) guardian operator.** New testnet guardian option with its brand wordmark in the guardian picker; guardian operator logos are now a shared module and the Guardian settings screen shows the current operator's logo — and resolves the endpoint per-account first, fixing the stale pre-switch operator name shown after switching guardians.
+
 ### Fixes
 
 - [FIX][mobile][android] **Android on-device (local) proving now works.** The Android native prover was built from a divergent pre-release miden revision, so its transaction-kernel MAST roots didn't match the SDK's — every local prove was rejected with `procedure with root digest … could not be found` (surfaced to the user as a proof-generation failure). Re-pinned the native-prover crate to the published `miden-client 0.15.4` the wallet's `@miden-sdk/miden-sdk` is built from and rebuilt the JNI `.so` binaries. Default (delegated/remote) proving was unaffected; only users who opted into local proving hit this.
 - [FIX][mobile] **Failed on-device (local) proving no longer misreports as a "Remote prover failed" timeout.** The transaction error text was hardcoded to blame the remote prover for any failure at the proving stage — so a failed local/native prove (e.g. a Guardian tx with delegated proving turned off) showed a misleading "Remote prover failed — timeout" message. The message now reflects the prover that actually ran (remote when proving was delegated, local otherwise).
+- [FIX][all] **Connectivity-state hook no longer render-loops on fresh profiles.** `useConnectivityState` passed an inline `{}` fallback to `useStorage`, so while no connectivity banner had ever been dismissed the hook received a new object every render and its storage-sync effect re-set state forever ("Maximum update depth exceeded" spam on every platform). The fallback is now a stable module-level constant.
+- [FIX][mobile] **The Explore page now shows both faucet tiles.** The grid was rendering through a stale `id`-based filter (`swap-faucet`/`faucet`) that no longer matched the curated `EXPLORE_GRID_DAPPS` set (`faucet` + `forkchoice-faucet`), so only the first faucet tile appeared. The grid now renders `getExploreGridDapps()` directly.
 
 ## 1.15.14 (2026-07-29)
 
