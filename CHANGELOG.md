@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.15 (TBD)
+
+### Fixes
+
+- [FIX][mobile] **Failed on-device (local) proving no longer misreports as a "Remote prover failed" timeout.** The transaction error text was hardcoded to blame the remote prover for any failure at the proving stage — so a failed local/native prove (e.g. a Guardian tx with delegated proving turned off) showed a misleading "Remote prover failed — timeout" message. The message now reflects the prover that actually ran (remote when proving was delegated, local otherwise).
+
 ## 1.15.14 (2026-07-29)
 
 ### Fixes
