@@ -118,4 +118,10 @@ describe('deriveRequestAmount', () => {
   it('returns empty when the quote rounds away to zero at the token precision', () => {
     expect(deriveRequestAmount('0.0001', '0.0001', 2)).toBe('');
   });
+
+  it('returns empty when the fair quote is non-positive', () => {
+    // A negative offered amount is truthy (passes the earlier `!offered` guard)
+    // but produces a negative quote, so the `quote <= 0` guard returns ''.
+    expect(deriveRequestAmount('-5', '2', SWAP_TOKEN_DECIMALS)).toBe('');
+  });
 });
