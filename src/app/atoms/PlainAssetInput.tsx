@@ -78,7 +78,15 @@ const PlainAssetInput: FC<PlainAssetInputProps> = ({
   );
 
   return (
-    <input type="text" value={localValue} onChange={handleChange} onFocus={handleFocus} onBlur={handleBlur} {...rest} />
+    <input
+      type="text"
+      enterKeyHint="done"
+      value={localValue}
+      onChange={handleChange}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+      {...rest}
+    />
   );
 };
 

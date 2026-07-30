@@ -25,8 +25,9 @@ const config: CapacitorConfig = {
     Keyboard: {
       // Prevent keyboard from pushing content - overlay instead
       resize: 'none',
-      // Show accessory bar (Done button) on iOS
-      resizeOnFullScreen: true
+      // iOS: WebKit accessory bar above the keyboard (Done + arrows) — the
+      // only way to dismiss the number pad, which has no return key
+      accessoryBarVisible: true
     },
     SplashScreen: {
       // Auto-hide after app is ready

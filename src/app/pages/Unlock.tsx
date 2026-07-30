@@ -314,6 +314,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           <form className="w-full flex flex-col gap-6 mt-4" onSubmit={onPasswordSubmit}>
             <Input
               id="unlock-password"
+              enterKeyHint="go"
               type={isPasswordVisible ? 'text' : 'password'}
               label={t('password')}
               value={password}

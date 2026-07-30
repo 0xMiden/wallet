@@ -52,19 +52,23 @@ jest.mock('components/Button', () => ({
   )
 }));
 
-// `Input` — thin controlled input echoing the props the screen threads through.
+// `Input` — thin controlled input echoing the props the screen threads through
+// (rest props forwarded so keyboard attributes like enterKeyHint are assertable).
 jest.mock('components/Input', () => ({
   Input: ({
     id,
     value,
     placeholder,
-    onChange
+    onChange,
+    ...rest
   }: {
     id?: string;
     value?: string;
     placeholder?: string;
     onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  }) => <input data-testid="custom-input" id={id} value={value} placeholder={placeholder} onChange={onChange} />
+  } & React.InputHTMLAttributes<HTMLInputElement>) => (
+    <input data-testid="custom-input" id={id} value={value} placeholder={placeholder} onChange={onChange} {...rest} />
+  )
 }));
 
 // `GuardianInfoDrawer` — surface the open flag and a close hook so the
@@ -384,5 +388,32 @@ describe('ChooseGuardianScreen', () => {
     expect(input.value).toBe('https://abc.example.com');
     // No error was ever shown.
     expect(screen.queryByText('invalidUrl')).not.toBeInTheDocument();
+  });
+});
+
+describe('ChooseGuardianScreen — custom endpoint keyboard (regression)', () => {
+  it('gives the URL field a url keyboard with autocorrect off and a Done key', () => {
+    render(<ChooseGuardianScreen allowCustomEndpoint />);
+    fireEvent.click(screen.getByText('useCustomGuardianUrl'));
+
+    const input = screen.getByTestId('custom-input');
+    expect(input.getAttribute('inputmode')).toBe('url');
+    expect(input.getAttribute('autocapitalize')).toBe('none');
+    expect(input.getAttribute('autocorrect')).toBe('off');
+    expect(input.getAttribute('spellcheck')).toBe('false');
+    expect(input.getAttribute('enterkeyhint')).toBe('done');
+  });
+
+  it('Enter blurs the URL field so the keyboard dismisses', () => {
+    render(<ChooseGuardianScreen allowCustomEndpoint />);
+    fireEvent.click(screen.getByText('useCustomGuardianUrl'));
+
+    const input = screen.getByTestId('custom-input') as HTMLInputElement;
+    input.focus();
+    expect(document.activeElement).toBe(input);
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(document.activeElement).not.toBe(input);
   });
 });

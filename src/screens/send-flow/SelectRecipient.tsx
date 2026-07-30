@@ -105,6 +105,15 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             spellCheck={false}
             autoCapitalize="none"
             autoCorrect="off"
+            enterKeyHint="done"
+            onKeyDown={event => {
+              // Addresses are single-line: Done/Enter dismisses the keyboard
+              // instead of inserting a newline.
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                event.currentTarget.blur();
+              }
+            }}
           />
         </div>
 
@@ -157,7 +166,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
         </div>
       </div>
 
-      <div className="shrink-0 pb-24">
+      <div className="shrink-0 pb-24" data-navbar-cushion="true">
         <Button
           title={t('confirm')}
           variant={ButtonVariant.Primary}

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.15 (TBD)
+
+### Fixes
+
+- [FIX][mobile] **Inputs no longer hide behind the soft keyboard.** The keyboard height now insets the layout (`--keyboard-height` CSS var driven by `@capacitor/keyboard` events), so bottom-pinned inputs/CTAs ride above the keyboard with a synced animation; the iOS accessory bar (Done) is enabled — the config previously set the unrelated `resizeOnFullScreen` key — and search/amount/recipient fields set `enterKeyHint`.
+
 ## 1.15.14 (TBD)
 
 ### Fixes

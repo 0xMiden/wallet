@@ -86,6 +86,10 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
             id={`seed-phrase-input-${index}`}
             key={index}
             value={seedPhrase[index]}
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint={index === PHRASE_LENGTH - 1 ? 'done' : 'next'}
             prefix={`${index + 1}.`}
             onPaste={onInputPaste}
             onChange={event => {

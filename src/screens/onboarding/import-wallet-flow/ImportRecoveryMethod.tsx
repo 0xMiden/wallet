@@ -158,6 +158,10 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
                     <Input
                       id="guardian-endpoint-input"
                       value={endpointInput}
+                      inputMode="url"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                       placeholder={GUARDIAN_OPTIONS[0]!.endpoint.get(DEFAULT_NETWORK)}
                       onChange={event => {
                         setEndpointInput(event.target.value);
