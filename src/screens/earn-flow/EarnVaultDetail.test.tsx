@@ -19,6 +19,22 @@ import EarnVaultDetail from './EarnVaultDetail';
 // props via data-* attributes so we can assert what `EarnVaultDetail` passed
 // (label / value / valueClassName), which is where the audited-branch styling
 // lives.
+// --- Wallet context: the screen reads the account only to disable the Deposit
+//     CTA on Guardian accounts (earn deposits need a P2IDE collateral note that
+//     Guardian proposals can't express). Mutated per-test to flip that branch.
+const mockAccount: { publicKey: string; type?: string } = { publicKey: 'mm1testaccount' };
+
+// i18n: the component and the shared Button/CircleButton call `useTranslation`.
+// Stub it so `t(key)` echoes the key, letting us assert on stable keys instead
+// of translated English.
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
+
+jest.mock('lib/miden/front', () => ({
+  useAccount: () => mockAccount
+}));
+
 jest.mock('./components', () => ({
   MetricCard: ({
     label,
@@ -97,15 +113,16 @@ jest.mock('recharts', () => {
 
 // Controlled data (inlined inside the factory because jest hoists jest.mock
 // above module-scope `const`s, so referencing outer consts would hit the TDZ).
+// The screen reads live Epoch data through `useEarnPositions` (`useAccount` +
+// SWR under the hood), so we replace that hook rather than the data module.
 // Two vaults exercise every data-dependent branch:
 //   - the audited vault  — audited=true, varying chart values → padding math
 //     truthy branch.
 //   - the unaudited vault — audited=false, all-equal chart values →
 //     `(max-min)*0.18` is 0, so the `|| 1` fallback branch runs.
-// The first vault is also `DEFAULT_VAULT` (vaults[0]) used for unknown ids.
-jest.mock('./data', () => ({
-  EARN_DATA: {
-    summary: {},
+jest.mock('./useEarnPositions', () => ({
+  useEarnPositions: () => ({
+    summary: { totalRewards: '', blendedApy: '', totalDeposited: '', estimatedRewards: '' },
     positions: [],
     vaults: [
       {
@@ -143,8 +160,10 @@ jest.mock('./data', () => ({
           { label: 'F3', value: 3.0 }
         ]
       }
-    ]
-  }
+    ],
+    isLoading: false,
+    error: undefined
+  })
 }));
 
 const metricValue = (label: string) => {
@@ -157,6 +176,26 @@ const metricValue = (label: string) => {
 describe('EarnVaultDetail', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAccount.type = undefined;
+  });
+
+  it('disables the Deposit CTA and explains why on a Guardian account', () => {
+    mockAccount.type = 'guardian';
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    const deposit = screen.getByRole('button', { name: 'earnDeposit' });
+    expect(deposit).toBeDisabled();
+    expect(screen.getByText('earnDepositGuardianUnsupported')).toBeInTheDocument();
+
+    fireEvent.click(deposit);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('leaves the Deposit CTA enabled (and unexplained) on a standard account', () => {
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).not.toBeDisabled();
+    expect(screen.queryByText('earnDepositGuardianUnsupported')).not.toBeInTheDocument();
   });
 
   it('renders the audited vault: header, APY block, stats, about and chart', () => {
@@ -167,19 +206,20 @@ describe('EarnVaultDetail', () => {
 
     // Header: "{protocol} • {asset}" title and "{asset} on {network}" pill.
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave • USDC');
-    expect(screen.getByText('USDC on Ethereum')).toBeInTheDocument();
+    // "{{asset}} on {{network}}" pill — the stubbed t() echoes the key.
+    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
 
     // APY section.
-    expect(screen.getByText('Current APY')).toBeInTheDocument();
+    expect(screen.getByText('earnCurrentApy')).toBeInTheDocument();
     expect(screen.getByText('+0.12% (24h)')).toBeInTheDocument();
     // "5.24%" appears in the APY headline (and in the mocked tooltip body).
     expect(screen.getAllByText('5.24%').length).toBeGreaterThanOrEqual(1);
 
-    // Stats: audited → "✓ Yes" with the heading-gray value class.
-    expect(metricValue('TVL')).toHaveTextContent('$1.2B');
-    expect(metricValue('Risk')).toHaveTextContent('Low');
-    const audited = metricValue('Audited');
-    expect(audited).toHaveTextContent('✓ Yes');
+    // Stats: audited → "✓ yes" with the heading-gray value class.
+    expect(metricValue('earnTvlLabel')).toHaveTextContent('$1.2B');
+    expect(metricValue('earnRiskLabel')).toHaveTextContent('Low');
+    const audited = metricValue('earnAuditedLabel');
+    expect(audited).toHaveTextContent('✓ yes');
     expect(audited).toHaveAttribute('data-value-class', 'text-heading-gray');
 
     // About section copy.
@@ -197,38 +237,40 @@ describe('EarnVaultDetail', () => {
     render(<EarnVaultDetail vaultId="v-unaudited" />);
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Compound • DAI');
-    expect(screen.getByText('DAI on Base')).toBeInTheDocument();
+    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
 
-    // Not audited → "No" and no explicit value class (undefined → '').
-    const audited = metricValue('Audited');
-    expect(audited).toHaveTextContent('No');
+    // Not audited → "no" and no explicit value class (undefined → '').
+    const audited = metricValue('earnAuditedLabel');
+    expect(audited).toHaveTextContent('no');
     expect(audited).toHaveAttribute('data-value-class', '');
-    expect(metricValue('Risk')).toHaveTextContent('Medium');
-    expect(metricValue('TVL')).toHaveTextContent('$500M');
+    expect(metricValue('earnRiskLabel')).toHaveTextContent('Medium');
+    expect(metricValue('earnTvlLabel')).toHaveTextContent('$500M');
 
     expect(screen.getByText('About the unaudited vault.')).toBeInTheDocument();
     expect(screen.getByTestId('area-chart')).toBeInTheDocument();
   });
 
-  it('falls back to the default (first) vault when the id is unknown', () => {
+  it('falls back to the placeholder vault when the id is unknown', () => {
     render(<EarnVaultDetail vaultId="does-not-exist" />);
 
-    // DEFAULT_VAULT is vaults[0] === AUDITED.
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave • USDC');
-    expect(screen.getByText('About the audited vault.')).toBeInTheDocument();
+    // `?? placeholderVault()` — every display field is the "—" placeholder and
+    // the empty id disables the Deposit CTA.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('— • —');
+    expect(metricValue('earnTvlLabel')).toHaveTextContent('—');
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
   });
 
   it('navigates back when the header back button is pressed', () => {
     render(<EarnVaultDetail vaultId="v-audited" />);
 
-    fireEvent.click(screen.getByLabelText('Back'));
+    fireEvent.click(screen.getByLabelText('back'));
     expect(goBack).toHaveBeenCalledTimes(1);
   });
 
   it('navigates to the deposit route when the Deposit button is pressed', () => {
     render(<EarnVaultDetail vaultId="v-audited" />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Deposit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'earnDeposit' }));
     expect(navigate).toHaveBeenCalledWith('/earn/vaults/v-audited/deposit');
   });
 

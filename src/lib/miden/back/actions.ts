@@ -21,7 +21,7 @@ import {
 import { Vault } from 'lib/miden/back/vault';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
-import { GuardianSyncStatus, WalletAccount, WalletSettings, WalletState } from 'lib/shared/types';
+import { GuardianSyncStatus, SignEvmOperation, WalletAccount, WalletSettings, WalletState } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { MidenSharedStorageKey } from '../types';
@@ -196,6 +196,9 @@ export function unlock(password?: string) {
       // (best-effort, never throws) so they surface the Activate Device Key
       // banner instead of being unreachable. See Vault.migrateLegacyGuardianAccounts.
       await vault.migrateLegacyGuardianAccounts();
+      // Stamp wallet-derived EVM addresses on pre-existing HD accounts
+      // (best-effort, never throws) before the accounts list is read below.
+      await vault.backfillEvmAddresses();
       const accounts = await vault.fetchAccounts();
       const settings = await vault.fetchSettings();
       const currentAccount = await vault.getCurrentAccount();
@@ -324,6 +327,12 @@ export function signTransaction(publicKey: string, signingInputs: string) {
 export function signWord(publicKey: string, wordHex: string) {
   return withUnlocked(async ({ vault }) => {
     return await vault.signWord(publicKey, wordHex);
+  });
+}
+
+export function signEvm(accountPublicKey: string, operation: SignEvmOperation) {
+  return withUnlocked(async ({ vault }) => {
+    return await vault.signEvm(accountPublicKey, operation);
   });
 }
 

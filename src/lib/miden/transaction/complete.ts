@@ -11,11 +11,15 @@ import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
 import {
   BridgedSendTransaction,
+  EarnDepositTransaction,
   IBridgeClaimStatus,
   IBridgedReceiveExtraInputs,
   IBridgedReceivePhase,
   IBridgedSendExtraInputs,
   IConsumeSwapSettleExtraInputs,
+  IEarnDepositExtraInputs,
+  IEarnWithdrawExtraInputs,
+  IEarnWithdrawPhase,
   ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
@@ -129,8 +133,10 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   });
 
   // Best-effort bridge-in tagging: if this consume claimed a note parked by an
-  // EVM→Miden intent, tag the row as "Bridged from EVM". A bridge-in with a
-  // `bridgeReceiveTxId` also flips that tracking row to `received`. Must never
+  // EVM→Miden intent (plain bridge deposit OR a Smart Withdraw delivery), tag the
+  // row as "Bridged from EVM". A bridge-in with a `bridgeReceiveTxId` also flips
+  // that tracking row to `received`; one with an `earnWithdrawTxId` flips the
+  // linked Smart Withdraw row instead, with the actual consumed amount. Must never
   // fail the consume itself.
   try {
     const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
@@ -146,6 +152,17 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
         tx.extraInputs = { ...(tx.extraInputs ?? {}), bridgeIn };
         tx.displayMessage = 'Bridged from EVM';
       });
+      if (bridgeIn.earnWithdrawTxId) {
+        await updateEarnWithdrawPhase(
+          bridgeIn.earnWithdrawTxId,
+          'received',
+          {
+            midenNoteId: bridgeIn.midenNoteId ?? consumedNoteIds[0],
+            outputSymbol: bridgeIn.sourceSymbol
+          },
+          amount
+        );
+      }
       if (bridgeIn.bridgeReceiveTxId) {
         await updateBridgedReceivePhase(
           bridgeIn.bridgeReceiveTxId,
@@ -482,6 +499,104 @@ export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction,
     outputNoteIds,
     completedAt: Math.floor(Date.now() / 1000), // seconds
     resultBytes: result.serialize()
+  });
+};
+
+/** Complete the Miden collateral-note leg of an Epoch Earn deposit. */
+export const completeEarnDepositTransaction = async (tx: EarnDepositTransaction, result: TransactionResult) => {
+  const executedTx = result.executedTransaction();
+  const note = extractFullNote(result);
+  const noteId = note?.id().toString();
+  const outputNoteIds = noteId ? [noteId] : [];
+
+  await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    displayMessage: 'Deposited to lending',
+    transactionId: executedTx.id().toHex(),
+    outputNoteIds,
+    completedAt: Math.floor(Date.now() / 1000), // seconds
+    resultBytes: result.serialize()
+  });
+};
+
+/** Patch the allocator-side settlement state after the Miden note is finalized. */
+export const updateEarnDepositStatus = async (
+  id: string,
+  epochStatus: NonNullable<IEarnDepositExtraInputs['epochStatus']>,
+  extra?: Partial<Pick<IEarnDepositExtraInputs, 'evmTxHash' | 'intentNonce' | 'outputAmount' | 'outputSymbol'>>
+) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const inputs: IEarnDepositExtraInputs = tx.extraInputs;
+    tx.extraInputs = { ...inputs, epochStatus, ...(extra ?? {}) };
+  });
+};
+
+/**
+ * Ordering of the `earn-withdraw` lifecycle. `received` and `failed` are both
+ * terminal (equal rank): a delivered-and-consumed withdrawal is done, and a failed
+ * intent is done. `redeeming` → `delivering` → terminal is the only legal direction.
+ */
+const EARN_WITHDRAW_PHASE_RANK: Record<IEarnWithdrawPhase, number> = {
+  redeeming: 0,
+  delivering: 1,
+  received: 2,
+  failed: 2
+};
+
+const EARN_WITHDRAW_TERMINAL_PHASES: ReadonlySet<IEarnWithdrawPhase> = new Set<IEarnWithdrawPhase>([
+  'received',
+  'failed'
+]);
+
+/**
+ * Whether `next` is a legal move from `current`.
+ *
+ * Exported for tests. The load-bearing rule is that a TERMINAL phase never moves:
+ * `pollEarnWithdrawDelivery` races the auto-consume path — `resolveBridgeInNoteId`
+ * can flip a row to `received` while the poller is still about to write
+ * `delivering`, which used to downgrade the row and strand it at "Delivering"
+ * forever. Same-phase writes stay allowed so callers can idempotently patch extras
+ * (note id, output amount, tx hash) onto an already-terminal row.
+ */
+export const canAdvanceEarnWithdrawPhase = (current: IEarnWithdrawPhase, next: IEarnWithdrawPhase): boolean => {
+  if (current === next) return true;
+  if (EARN_WITHDRAW_TERMINAL_PHASES.has(current)) return false;
+  return EARN_WITHDRAW_PHASE_RANK[next] >= EARN_WITHDRAW_PHASE_RANK[current];
+};
+
+/**
+ * Advance an `earn-withdraw` row's lifecycle. The row is finalized (`Completed`)
+ * from birth, so this mutates ONLY `extraInputs` (via a direct `modify`) — never
+ * `updateTransactionStatus`, which would reject the already-finalized row. On the
+ * `failed` phase the failure reason is also mirrored onto `tx.error`.
+ *
+ * Transitions are MONOTONIC (`canAdvanceEarnWithdrawPhase`): a backwards or
+ * out-of-terminal move is dropped whole — phase AND extras — so a late writer can't
+ * resurrect a settled row. The one sanctioned way back out of `failed` is the
+ * user-initiated retry in `resubmitEarnWithdrawal`, which resets the row with its
+ * own `modify` and deliberately bypasses this guard.
+ */
+export const updateEarnWithdrawPhase = async (
+  id: string,
+  phase: IEarnWithdrawPhase,
+  extra?: Partial<
+    Pick<
+      IEarnWithdrawExtraInputs,
+      'withdrawIntentNonce' | 'evmTxHash' | 'midenNoteId' | 'outputAmount' | 'outputSymbol' | 'error'
+    >
+  >,
+  // Actual delivered amount (base units), patched onto the row when the bridged
+  // note is consumed so the history hero reflects what really landed.
+  amount?: bigint
+) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
+    if (!canAdvanceEarnWithdrawPhase(inputs.phase, phase)) {
+      console.warn(`[earn-withdraw] refusing phase downgrade ${inputs.phase} -> ${phase} on ${id}`);
+      return;
+    }
+    tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
+    if (amount !== undefined) tx.amount = amount;
+    if (phase === 'failed' && extra?.error) tx.error = extra.error;
   });
 };
 

@@ -412,7 +412,9 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
               </div>
             ))}
 
-            <p className="text-base font-medium text-text-muted pt-2">Version {pkg.version}</p>
+            <p className="text-base font-medium text-text-muted pt-2">
+              {t('settingsVersion', { version: pkg.version })}
+            </p>
           </div>
         )}
       </div>

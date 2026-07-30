@@ -151,6 +151,13 @@ export class DesktopIntercomAdapter {
           signature
         };
 
+      case WalletMessageType.SignEvmRequest:
+        const evmSignResult = await Actions.signEvm(req.accountPublicKey, req.operation);
+        return {
+          type: WalletMessageType.SignEvmResponse,
+          result: evmSignResult
+        };
+
       case WalletMessageType.GetAuthSecretKeyRequest:
         const key = await Actions.getAuthSecretKey((req as any).key);
         return {

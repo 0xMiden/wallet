@@ -2,7 +2,7 @@ import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID } from 'lib/agglayer/constant';
 import * as Repo from 'lib/miden/repo';
 
 import { compareAccountIds } from './utils';
-import { IBridgeInInfo, IBridgedReceiveExtraInputs, ITransactionStatus } from '../db/types';
+import { IBridgeInInfo, IBridgedReceiveExtraInputs, IEarnWithdrawExtraInputs, ITransactionStatus } from '../db/types';
 import { fetchFromStorage, putToStorage } from '../front/storage';
 
 /**
@@ -116,6 +116,22 @@ async function tagConsumeRow(noteId: string, info: IBridgeInInfo): Promise<boole
       );
     } catch (err) {
       console.warn('[bridge-in] bridge receive patch (resolve path) failed', err);
+    }
+  }
+  // Race cover: if the consume already completed before this intent was resolved,
+  // `completeConsumeTransaction` never saw the bridge-in, so flip the linked
+  // Smart Withdraw row to `received` here instead. Lazy import avoids a cycle.
+  if (info.earnWithdrawTxId) {
+    try {
+      const { updateEarnWithdrawPhase } = await import('../transaction/complete');
+      await updateEarnWithdrawPhase(
+        info.earnWithdrawTxId,
+        'received',
+        { midenNoteId: noteId, outputSymbol: info.sourceSymbol },
+        row.amount
+      );
+    } catch (err) {
+      console.warn('[bridge-in] earn-withdraw received patch (resolve path) failed', err);
     }
   }
   return true;
@@ -247,14 +263,55 @@ export async function takeBridgeInInfoForNotes(noteIds: string[]): Promise<IBrid
 }
 
 /**
- * Return the subset of `ids` that exist as transaction rows. Used by the
- * history list to decide whether a `consume` row that is the tail of another
- * row's lifecycle should be suppressed (its primary row still exists) or shown
- * as a plain receive (dangling reference — funds are never invisible).
+ * Find a still-pending bridge-in intent by the `earn-withdraw` row it belongs to.
+ * The registry entry (written at submit time, keyed to the row via
+ * `info.earnWithdrawTxId`) is authoritative proof the redeem intent WAS submitted.
+ * `resumeEarnWithdrawal` uses this to recover the intent nonce when the row itself
+ * lost its `withdrawIntentNonce` (a teardown between the two post-submit writes),
+ * so a live withdrawal is never falsely marked `failed`. Returns undefined if no
+ * pending intent references this row (never submitted, or already resolved/expired).
  */
-export async function existingTransactionIds(ids: string[]): Promise<Set<string>> {
+export async function findPendingBridgeInByEarnWithdrawTxId(
+  txId: string
+): Promise<{ intentNonce: string; userAddress: string } | undefined> {
+  const registry = await readRegistry();
+  // A resubmit reuses the same earnWithdrawTxId and APPENDS a fresh entry (a failed
+  // intent's entry is only dropped by the 7-day TTL, never by txId), so the registry
+  // can hold several entries for one row. Pick the NEWEST by registeredAt — the live
+  // intent — not the first, which may be a dead nonce whose failed status would
+  // re-strand the row and defeat this recovery's purpose.
+  const intent = registry
+    .filter(r => r.info.earnWithdrawTxId === txId)
+    .reduce<
+      PendingBridgeInIntent | undefined
+    >((newest, r) => (!newest || r.registeredAt > newest.registeredAt ? r : newest), undefined);
+  return intent ? { intentNonce: intent.intentNonce, userAddress: intent.userAddress } : undefined;
+}
+
+/**
+ * Of the given linked-primary ids, the ones whose row is currently the SINGLE TRACE
+ * of the money movement, and so should suppress its delivery `consume` in the history
+ * list. Ids with no row (dangling reference) fall through to a plain receive — funds
+ * are never invisible.
+ *
+ * The one exception to "exists ⇒ suppresses": a terminal-`failed` earn-withdraw row.
+ * The bridged note can still be delivered and auto-consumed AFTER the row was failed
+ * (a bridge that stalls past the reconcile TTL, or a resubmit), and the monotonic phase
+ * machine then refuses to flip the failed row to `received`. Such a row is no longer a
+ * valid trace of the (arrived) funds, so it must NOT suppress its consume — otherwise
+ * the delivered funds would be invisible in history behind a Failed row. It is excluded
+ * here so the consume falls through to a visible receive. Every other primary suppresses
+ * on existence, as before.
+ */
+export async function suppressingLinkedTxIds(ids: string[]): Promise<Set<string>> {
   const unique = [...new Set(ids)].filter(Boolean);
   if (unique.length === 0) return new Set();
-  const rows = await Repo.transactions.where('id').anyOf(unique).primaryKeys();
-  return new Set(rows);
+  const rows = await Repo.transactions.where('id').anyOf(unique).toArray();
+  const suppressing = new Set<string>();
+  for (const row of rows) {
+    const isFailedEarnWithdraw =
+      row.type === 'earn-withdraw' && (row.extraInputs as IEarnWithdrawExtraInputs | undefined)?.phase === 'failed';
+    if (!isFailedEarnWithdraw) suppressing.add(row.id);
+  }
+  return suppressing;
 }

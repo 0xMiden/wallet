@@ -2,12 +2,12 @@
  * Vite config for the desktop (Tauri) build.
  * Single entry point. Tauri has native Vite support.
  */
-import { resolve } from 'path';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react-swc';
-import wasm from 'vite-plugin-wasm';
-import { nodePolyfills } from 'vite-plugin-node-polyfills';
+import { resolve } from 'path';
 import { defineConfig, type Plugin } from 'vite';
+import { nodePolyfills } from 'vite-plugin-node-polyfills';
+import wasm from 'vite-plugin-wasm';
 
 const pkg = require('./package.json');
 
@@ -30,20 +30,24 @@ export default defineConfig({
         const { readFileSync } = await import('fs');
         const svgContent = readFileSync(filePath, 'utf8');
         const { transform } = await import('@svgr/core');
-        const jsxCode = await transform(svgContent, {
-          plugins: ['@svgr/plugin-jsx'],
-          exportType: 'named',
-          namedExport: 'ReactComponent',
-          jsxRuntime: 'automatic',
-        }, { filePath });
+        const jsxCode = await transform(
+          svgContent,
+          {
+            plugins: ['@svgr/plugin-jsx'],
+            exportType: 'named',
+            namedExport: 'ReactComponent',
+            jsxRuntime: 'automatic'
+          },
+          { filePath }
+        );
         return { code: jsxCode + '\nexport default "";', moduleType: 'jsx' };
-      },
+      }
     } satisfies Plugin,
     wasm(),
     nodePolyfills({
       include: ['buffer', 'stream', 'assert', 'process'],
-      globals: { Buffer: true, process: true },
-    }),
+      globals: { Buffer: true, process: true }
+    })
   ],
 
   build: {
@@ -56,9 +60,9 @@ export default defineConfig({
       output: {
         entryFileNames: '[name].js',
         chunkFileNames: 'chunks/[name].[hash].js',
-        assetFileNames: 'static/[name].[hash][extname]',
-      },
-    },
+        assetFileNames: 'static/[name].[hash][extname]'
+      }
+    }
   },
 
   resolve: {
@@ -77,8 +81,8 @@ export default defineConfig({
       components: resolve(__dirname, 'src/components'),
       screens: resolve(__dirname, 'src/screens'),
       utils: resolve(__dirname, 'src/utils'),
-      stories: resolve(__dirname, 'src/stories'),
-    },
+      stories: resolve(__dirname, 'src/stories')
+    }
   },
 
   define: {
@@ -94,17 +98,21 @@ export default defineConfig({
     'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
       process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'
     ),
+    'process.env.EPOCH_POSITIONS_URL': JSON.stringify(
+      process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
+    ),
+    'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
     'process.browser': 'true',
-    'global': 'globalThis',
+    global: 'globalThis'
   },
 
   server: {
-    port: 3000,
+    port: 3000
   },
 
   worker: {
-    format: 'es',
-  },
+    format: 'es'
+  }
 });

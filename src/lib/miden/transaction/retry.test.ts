@@ -53,6 +53,16 @@ describe('isRequeueableTransaction', () => {
     }
   });
 
+  it('excludes earn-deposit: the surrounding Epoch intent is already abandoned', () => {
+    // Re-running only the Miden leg would mint a fresh P2IDE collateral note to
+    // the allocator with no quote and no intent behind it, locking the user's
+    // funds until the note's reclaim height. The user re-initiates from the Earn
+    // flow instead. (The locked-wallet Queued path and
+    // ApplyTransactionAfterSubmitFailed still include earn-deposit — the intent
+    // is still live in both of those.)
+    expect(isRequeueableTransaction({ status: ITransactionStatus.Failed, type: 'earn-deposit' })).toBe(false);
+  });
+
   it('rejects non-failed rows regardless of type', () => {
     expect(isRequeueableTransaction({ status: ITransactionStatus.Completed, type: 'send' })).toBe(false);
     expect(isRequeueableTransaction({ status: ITransactionStatus.Queued, type: 'send' })).toBe(false);

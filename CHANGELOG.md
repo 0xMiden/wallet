@@ -8,6 +8,9 @@
 - [FIX][all] **Expiration picker: near expirations render precisely and past times are rejected.** The review row now combines the chosen date AND time (it previously formatted the bare date, so a same-day expiration under 30 minutes away showed a nonsense coarse label): under 3 minutes it counts down in seconds, under 30 minutes in exact minutes, ticking live. The drawer's time input rejects a time already in the past for the selected date — the time turns red with an inline message, and Confirm and dismissal are blocked until it's corrected.
 - [FIX][all] **Future-gated notes are hidden until consumable, and self-sends are blocked.** The claimable-notes listing now uses the SDK's consumability-annotated query instead of the ungated `listAvailable`, hiding notes only consumable at a future block (a sender-side P2IDE reclaim before its height — attempts on those fail on the kernel's reclaim assertion, #308). The send flow additionally rejects sending to the account's own address (typed, scanned, contact-picked, or deep-linked into review) — a P2IDE to yourself consumes through the kernel's target branch, so recall semantics are meaningless and auto-consume would immediately claim it back.
 - [FIX][all] **Send expiration (Recall Height) now lands at the chosen date instead of ~2× chain height.** The send flow's date picker computed an ABSOLUTE reclaim block height while the SDK-interface layer treated `recallBlocks` as a relative offset and added the current sync height again — so every recallable note's on-chain reclaim height was roughly doubled (a "30 minutes" recall became recallable ~9.6 days out at current testnet height) and every earlier recall attempt failed with "reclaim block height is not reached yet". The UI now produces a relative blocks-until-recall offset, matching the dApp and bridge paths, and the interface layer remains the single place that converts to an absolute height. This also removed the UI's block-height RPC fetch, whose silent failure used to send the default 7-day expiration with NO recall height at all (note not recallable, ever) — the default is now seeded synchronously and always applies. Already-sent notes can't be repaired (the height is baked into the note); they stay claimable by recipients and recallable once the erroneous height passes. (#308)
+### Features
+
+- [FEATURE][mobile][desktop] **Re-enabled bridge-in (Receive from EVM).** The "Cross Chain" deposit entry on the Receive page and the `/bridge/deposit` flow now ship to users — previously hidden behind a launch flag (`isBridgeDepositEnabled` gated on `MIDEN_E2E_TEST` / `MIDEN_ENABLE_BRIDGE_UI`).
 
 ## 1.15.15 (2026-07-30)
 
@@ -29,6 +32,10 @@
 - [FIX][mobile] **Guardian transactions with local (non-delegated) proving no longer freeze the UI on iOS.** The guardian pipeline drives the raw client directly, and its local-proving branch always used the single-threaded WASM prover — which on iOS WKWebView runs on the main thread and locks the UI for the whole multi-second prove (~13s). It now routes to the native Rust prover on mobile (off the main thread), matching the non-guardian path and the guardian delegated-proving fallback.
 
 ## 1.15.13 (TBD)
+
+### Features
+
+- [FEATURE][all] **Earn: Epoch lending positions, end to end.** Opening a position (`earn-deposit`) sends a recallable collateral note to the solver's allocator and tracks the solver-fulfilled lending leg; Smart Withdraw (`earn-withdraw`) redeems the position and bridges the underlying back to Miden as one gasless intent, tracked through a Redeeming → Delivering → Received lifecycle (Failed is retryable by re-submitting the redeem intent). Both types render throughout the wallet: the earn deposit/withdraw screens, an in-progress summary badge (`{amount} {token} ↑ {protocol}-USDC`), dedicated Activity rows (the withdraw row is the single trace — its delivery consume is suppressed), and Deposit/Withdrawal detail cards with market, position owner, intent nonce and Sepolia/Miden links.
 
 ### Fixes
 

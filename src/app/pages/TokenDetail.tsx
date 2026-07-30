@@ -155,8 +155,9 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
                 : 'text-red-600 bg-red-50 dark:bg-red-500/15 dark:text-red-500'
             )}
           >
-            {priceInfo.change24h >= 0 ? '+' : ''}
-            {priceInfo.change24h.toFixed(1)}%
+            {t('tokenDetailChange24h', {
+              change: `${priceInfo.change24h >= 0 ? '+' : ''}${priceInfo.change24h.toFixed(1)}`
+            })}
           </span>
         </div>
         <span className="font-heading text-2xl font-bold text-heading-gray">${priceInfo.price.toFixed(3)}</span>

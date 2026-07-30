@@ -6,6 +6,7 @@ import constate from 'constate';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import {
   GuardianSyncStatus,
+  SignEvmOperation,
   WalletAccount,
   WalletRequest,
   WalletResponse,
@@ -66,6 +67,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeUpdateSettings = useWalletStore(s => s.updateSettings);
   const storeSignData = useWalletStore(s => s.signData);
   const storeSignTransaction = useWalletStore(s => s.signTransaction);
+  const storeSignEvm = useWalletStore(s => s.signEvm);
   const storeGetAuthSecretKey = useWalletStore(s => s.getAuthSecretKey);
   const storeGetDAppPayload = useWalletStore(s => s.getDAppPayload);
   const storeSimulateCustomTransaction = useWalletStore(s => s.simulateCustomTransaction);
@@ -231,6 +233,13 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [storeSignTransaction]
   );
 
+  const signEvm = useCallback(
+    async (accountPublicKey: string, operation: SignEvmOperation) => {
+      return storeSignEvm(accountPublicKey, operation);
+    },
+    [storeSignEvm]
+  );
+
   const getAuthSecretKey = useCallback(
     async (key: string) => {
       return storeGetAuthSecretKey(key);
@@ -384,6 +393,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     updateSettings,
     signData,
     signTransaction,
+    signEvm,
     getAuthSecretKey,
     getDAppPayload,
     simulateCustomTransaction,

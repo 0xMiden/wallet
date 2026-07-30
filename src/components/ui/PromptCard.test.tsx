@@ -15,6 +15,10 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
+
 describe('PromptCard', () => {
   beforeEach(() => jest.clearAllMocks());
 
@@ -54,7 +58,7 @@ describe('PromptCard', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    fireEvent.click(screen.getByRole('button', { name: 'promptCardDismiss' }));
 
     expect(onDismiss).toHaveBeenCalledTimes(1);
     expect(onAction).not.toHaveBeenCalled();
@@ -72,9 +76,9 @@ describe('PromptCard', () => {
   });
 
   it.each([
-    ['loading', 'Loading', 'Loader'],
-    ['success', 'Success', 'Checkmark'],
-    ['failure', 'Failed', 'Close']
+    ['loading', 'promptCardLoading', 'Loader'],
+    ['success', 'success', 'Checkmark'],
+    ['failure', 'failed', 'Close']
   ] as const)('renders the %s status indicator', (status, label, icon) => {
     render(<PromptCard title="Fund your wallet" status={status} />);
 

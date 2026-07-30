@@ -1,6 +1,7 @@
 import React, { FC } from 'react';
 
 import classNames from 'clsx';
+import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -32,6 +33,8 @@ export const PromptCard: FC<PromptCardProps> = ({
   onDismiss,
   className
 }) => {
+  const { t } = useTranslation();
+
   const handleClick = () => {
     if (!onClick) return;
     hapticLight();
@@ -56,7 +59,7 @@ export const PromptCard: FC<PromptCardProps> = ({
     <button
       type="button"
       onClick={handleDismiss}
-      aria-label="Dismiss"
+      aria-label={t('promptCardDismiss')}
       className="shrink-0 flex items-center justify-center w-6 h-6 -mr-1 text-text-tertiary-token"
     >
       <Icon name={IconName.Close} className="w-4 h-4" fill="currentColor" />
@@ -67,13 +70,13 @@ export const PromptCard: FC<PromptCardProps> = ({
 
   const StatusIndicator =
     status === 'loading' ? (
-      <span role="status" aria-label="Loading" className="shrink-0 text-accent-primary">
+      <span role="status" aria-label={t('promptCardLoading')} className="shrink-0 text-accent-primary">
         <Icon name={IconName.Loader} size="sm" className="animate-spin" fill="currentColor" />
       </span>
     ) : status === 'success' ? (
       <span
         role="status"
-        aria-label="Success"
+        aria-label={t('success')}
         className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-status-positive/15 text-status-positive"
       >
         <Icon name={IconName.Checkmark} size="xs" className="scale-75" fill="currentColor" />
@@ -81,7 +84,7 @@ export const PromptCard: FC<PromptCardProps> = ({
     ) : status === 'failure' ? (
       <span
         role="status"
-        aria-label="Failed"
+        aria-label={t('failed')}
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-status-negative/15 text-status-negative"
       >
         <Icon name={IconName.Close} size="xs" fill="currentColor" />

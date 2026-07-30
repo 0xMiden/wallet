@@ -1499,7 +1499,7 @@
     ethers "^6.0.0"
     viem "2.42.0"
 
-"@epoch-protocol/epoch-intents-sdk@^1.0.26":
+"@epoch-protocol/epoch-intents-sdk@^1.0.35":
   version "1.0.37"
   resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-intents-sdk/-/epoch-intents-sdk-1.0.37.tgz#7684b23f2a1a18321f8b1f8d1978901c89a98712"
   integrity sha512-F58mMLeLneeq+27HCgfeAQOLpLFhGYJ3WULHp0qqX69VF690YOD6SAbxOpz1gXdyoKNMzOZ0W2t8pLZdgVhsXQ==

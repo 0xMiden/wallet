@@ -18,7 +18,12 @@ import {
   BRIDGE_STATUS_LABEL_KEY,
   bridgeInRowDisplay,
   bridgeRowDisplay,
+  EARN_DEPOSIT_STATUS_LABEL_KEY,
+  EARN_WITHDRAW_STATUS_LABEL_KEY,
+  earnDepositSettlementOf,
+  earnWithdrawToneOf,
   isBridgeInEntry,
+  isEarnWithdrawEntry,
   isFaucetRequest
 } from './transactionUtils';
 
@@ -91,6 +96,29 @@ function buildRowProps(
     };
   }
 
+  // Smart Withdraw row: "Withdraw from Earn" / "Via Epoch → Miden" with a
+  // positive incoming amount and a phase-driven status dot (Redeeming →
+  // Delivering → Received, or Failed). Reuses the bridge status tones.
+  if (!entry.isCancelled && isEarnWithdrawEntry(entry)) {
+    const phase = entry.earnWithdrawPhase ?? 'redeeming';
+    const failed = phase === 'failed';
+    return {
+      icon: failed ? (
+        <FailedCrossIcon className="w-3.5 h-3.5" />
+      ) : (
+        <Icon name={IconName.Earn} size="sm" className="[&_path]:fill-pure-white [&_path]:stroke-pure-white" />
+      ),
+      iconBg: failed ? 'bg-status-negative' : 'bg-tx-earn',
+      title: t('earnWithdrawRowTitle'),
+      subtitle: t('earnWithdrawRowVia'),
+      amount:
+        failed || entry.amount === undefined
+          ? undefined
+          : { value: `+${entry.amount.toString()}`, symbol: entry.token, direction: 'positive' as const },
+      status: { label: t(EARN_WITHDRAW_STATUS_LABEL_KEY[phase]), tone: earnWithdrawToneOf(phase) }
+    };
+  }
+
   const faucet = isFaucetRequest(entry);
   const icon = entry.transactionIcon ?? 'DEFAULT';
   const isCancelled = entry.isCancelled === true;
@@ -129,6 +157,18 @@ function buildRowProps(
     iconNode = <Icon name={IconName.Earn} size="sm" className="[&_path]:fill-pure-white [&_path]:stroke-pure-white" />;
     iconBg = 'bg-tx-earn';
     amountDirection = 'positive';
+  } else if (entry.txType === 'earn-deposit') {
+    // Position deposits carry a DEFAULT icon — tag them with the Earn glyph, or a red
+    // cross when the lending leg settled `failed` so the row icon agrees with the red
+    // "Failed" status chip rendered below (statusTone) for that same state.
+    const earnFailed = earnDepositSettlementOf(entry) === 'failed';
+    iconNode = earnFailed ? (
+      <FailedCrossIcon className="w-3.5 h-3.5" />
+    ) : (
+      <Icon name={IconName.Earn} size="sm" className="[&_path]:fill-pure-white [&_path]:stroke-pure-white" />
+    );
+    iconBg = earnFailed ? 'bg-[#CC5D5D]' : 'bg-tx-earn';
+    amountDirection = 'negative';
   } else {
     iconNode = <Icon name={IconName.More} size="sm" fill="currentColor" />;
   }
@@ -190,6 +230,15 @@ function buildRowProps(
   ) {
     statusTone = 'pending';
     statusLabel = t('pending');
+  } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
+    // A deposit row completes when the Miden collateral note lands, but the
+    // position only exists once the solver-fulfilled Sepolia lending leg settles —
+    // the chip tracks that leg (mirrors `EarnDepositStatusPill` on the details
+    // page). Deliberately checked AFTER cancelled/failed/pending so a Miden-side
+    // failure always wins over the lending leg's state.
+    const settlement = earnDepositSettlementOf(entry);
+    statusTone = settlement;
+    statusLabel = t(EARN_DEPOSIT_STATUS_LABEL_KEY[settlement]);
   } else if (isSwap && entry.swapSettlement === 'pending') {
     // A completed swap row is the single trace of the whole order (its
     // settlement consumes are suppressed) — the chip reflects settlement.

@@ -83,6 +83,24 @@ export async function installMockCompact(rpcUrl: string): Promise<void> {
   await installCode(rpcUrl, MOCK_COMPACT_ADDRESS, MOCK_COMPACT_RUNTIME, 'installMockCompact');
 }
 
+/**
+ * MetaMask Stateless-7702 delegate on Sepolia — the Epoch SDK's
+ * `METAMASK_STATELESS_7702_IMPLEMENTATION[11155111]` (an approved 7702 impl).
+ */
+const METAMASK_7702_IMPL_SEPOLIA = '0x63c0c19a282a1B52b07dD5a65b58948A07DAE32B';
+
+/**
+ * Mark `owner` as already EIP-7702-delegated to Epoch's approved implementation
+ * on Anvil, so the gasless withdraw's `ensureEpochSmartAccount` sees
+ * `delegation === 'epoch'` and returns early (skips the relay enable — the fake
+ * relay only acks `/relay-enable-delegation`, it can't broadcast the real 7702
+ * authorization tx that would set this delegation code on-chain). The delegation
+ * bytecode is `EIP7702_DELEGATION_PREFIX` (0xef0100) followed by the impl address.
+ */
+export async function installEpoch7702Delegation(rpcUrl: string, owner: string): Promise<void> {
+  await installCode(rpcUrl, owner, `0xef0100${METAMASK_7702_IMPL_SEPOLIA.slice(2)}`, 'installEpoch7702Delegation');
+}
+
 /** Read the Compact stub's deposit counter (increments per depositERC20AndRegister). */
 export async function readCompactDepositCount(rpcUrl: string): Promise<number> {
   // depositCount() selector = 0x2dfdf0b5

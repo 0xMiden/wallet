@@ -26,6 +26,11 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
+// i18n — echo the key back so we can assert on translation keys.
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -106,7 +111,7 @@ describe('Numpad', () => {
   it('gives the delete button an accessible label', () => {
     renderNumpad();
 
-    expect(screen.getByRole('button', { name: 'Delete' })).toBe(screen.getByTestId('numpad-delete'));
+    expect(screen.getByRole('button', { name: 'delete' })).toBe(screen.getByTestId('numpad-delete'));
   });
 
   it('renders an aria-hidden spacer to keep the 0 key centered', () => {

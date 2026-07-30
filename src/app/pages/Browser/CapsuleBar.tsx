@@ -125,7 +125,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
       // PR-7: explicit landmark role so VoiceOver/TalkBack announces
       // the capsule as a banner region when the user swipes into it.
       role="banner"
-      aria-label={t('dappBrowserCapsule') ?? 'dApp browser header'}
+      aria-label={t('dappBrowserCapsule')}
       style={{
         background: 'rgba(255,255,255,0.85)',
         backdropFilter: 'blur(20px) saturate(1.6)',
@@ -152,7 +152,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
         data-drag-handle="true"
         role={onMinimize ? 'button' : undefined}
         aria-roledescription={onMinimize ? 'draggable' : undefined}
-        aria-label={onMinimize ? (t('dragToMinimize') ?? 'Drag down to minimize') : undefined}
+        aria-label={onMinimize ? t('dragToMinimize') : undefined}
         drag={onMinimize ? 'y' : false}
         dragConstraints={{ top: 0, bottom: 0 }}
         dragElastic={{ top: 0, bottom: 0.6 }}
@@ -211,7 +211,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
               hapticLight();
               onMinimize();
             }}
-            aria-label={t('minimize') ?? 'Minimize'}
+            aria-label={t('minimize')}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100"
           >
             <Icon name={IconName.ArrowDown} size="sm" className="text-black" fill="currentColor" />
@@ -224,7 +224,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
         <button
           type="button"
           onClick={handleReload}
-          aria-label={t('reload') ?? 'Reload'}
+          aria-label={t('reload')}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100"
         >
           <Icon name={IconName.Refresh} size="sm" className="text-black" fill="currentColor" />
@@ -234,7 +234,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
         <button
           type="button"
           onClick={handleClose}
-          aria-label={t('close') ?? 'Close'}
+          aria-label={t('close')}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100"
         >
           <Icon name={IconName.Close} size="sm" className="text-black" fill="currentColor" />
@@ -251,7 +251,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
               hapticLight();
               onOpenSwitcher();
             }}
-            aria-label={t('switchDapps') ?? 'Switch dApps'}
+            aria-label={t('switchDapps')}
             className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100"
           >
             <div className="flex h-5 w-5 items-center justify-center rounded-md border-[1.5px] border-black">
@@ -269,7 +269,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
               hapticLight();
               onOpenActions();
             }}
-            aria-label={t('dappActionsSheet') ?? 'dApp actions'}
+            aria-label={t('dappActionsSheet')}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100"
           >
             <Icon name={IconName.More} size="sm" className="text-black" fill="currentColor" />
