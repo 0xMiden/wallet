@@ -18,22 +18,17 @@ export function isSwapEnabled(): boolean {
 /**
  * Receive-from-EVM bridge deposit (bridge-IN) availability.
  *
- * The deposit entry — the "Cross Chain" button on the Receive page and the
- * `/bridge/deposit` screen — is hidden from users pending launch, like Earn.
- * Unlike Earn it stays enabled in the E2E build (`MIDEN_E2E_TEST=true`) so the
- * bridge-in e2e jobs keep exercising the flow with zero test changes, and can be
- * force-enabled in a dev / staging build via `MIDEN_ENABLE_BRIDGE_UI` for manual
- * testing.
+ * Enabled on every platform — the "Cross Chain" deposit button on the Receive
+ * page and the `/bridge/deposit` screen now ship to users (previously hidden
+ * pending launch behind `MIDEN_E2E_TEST` / `MIDEN_ENABLE_BRIDGE_UI`).
  *
  * This is the single source of truth for the deposit entry — the Receive "Cross
  * Chain" button and the `/bridge/deposit` route both read it. Send-to-EVM
  * (bridge-OUT) is intentionally NOT gated: it has no discoverable entry point
- * (it only triggers when a user types a 0x recipient address). To ship the
- * deposit UI, make this return true unconditionally.
- *
- * Both env vars are statically replaced by Vite (`define`), so a production
- * build compiles this to a constant `false` and the entry points never render.
+ * (it only triggers when a user types a 0x recipient address). To gate the
+ * deposit UI again (per-platform, per-region, or behind a remote flag), change
+ * only this function.
  */
 export function isBridgeDepositEnabled(): boolean {
-  return process.env.MIDEN_E2E_TEST === 'true' || process.env.MIDEN_ENABLE_BRIDGE_UI === 'true';
+  return true;
 }
