@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.16 (TBD)
+
+### Features
+
+- [FEATURE][mobile][desktop] **Re-enabled bridge-in (Receive from EVM).** The "Cross Chain" deposit entry on the Receive page and the `/bridge/deposit` flow now ship to users — previously hidden behind a launch flag (`isBridgeDepositEnabled` gated on `MIDEN_E2E_TEST` / `MIDEN_ENABLE_BRIDGE_UI`).
+
 ## 1.15.15 (2026-07-30)
 
 ### Features

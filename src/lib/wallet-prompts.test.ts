@@ -80,6 +80,16 @@ describe('wallet prompts', () => {
     );
   });
 
+  it('coerces a non-object prompts field on an object value to an empty prompt set', () => {
+    // The value itself is an object (so it isn't short-circuited at the top),
+    // but its `prompts` field is missing / not a record — drop it rather than
+    // iterating a non-object.
+    expect(normalizeWalletPromptStorage({ prompts: null })).toEqual(EMPTY_WALLET_PROMPT_STORAGE);
+    expect(normalizeWalletPromptStorage({ prompts: 'not-an-object' })).toEqual(EMPTY_WALLET_PROMPT_STORAGE);
+    expect(normalizeWalletPromptStorage({ prompts: 5 })).toEqual(EMPTY_WALLET_PROMPT_STORAGE);
+    expect(normalizeWalletPromptStorage({})).toEqual(EMPTY_WALLET_PROMPT_STORAGE);
+  });
+
   it('normalizes pending-note prompt state and valid unique dismissed note ids', () => {
     expect(
       normalizeWalletPromptStorage({
