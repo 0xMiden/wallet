@@ -95,7 +95,9 @@ const Welcome: FC = () => {
   const [seedPhrase, setSeedPhrase] = useState<string[] | null>(null);
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
   const [password, setPassword] = useState<string | null>(null);
-  const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
+  // Default to a fully-private (OffChain) self-custody wallet. Guardian selection
+  // has been removed from the create flow, so new wallets are non-guardian.
+  const [walletType, setWalletType] = useState<WalletType>(WalletType.OffChain);
   const [isLoading, setIsLoading] = useState(false);
   const [useBiometric, setUseBiometric] = useState(true);
   const [isHardwareSecurityAvailable, setIsHardwareSecurityAvailable] = useState(false);
@@ -254,12 +256,21 @@ const Welcome: FC = () => {
         break;
       case 'setup-biometric-submit':
         // User finished the (fake) biometric prompt — generate the mnemonic
-        // silently and route to guardian selection. The hardware/password
-        // decision is deferred to after the guardian is chosen.
+        // silently and default to a fully-private (OffChain) wallet (guardian
+        // selection removed). The hardware/password decision is made here.
         setSeedPhrase(generateMnemonic(128).split(' '));
         setOnboardingType(OnboardingType.Create);
         setProtectionMethod('biometric');
-        navigate('/#choose-guardian');
+        setWalletType(WalletType.OffChain);
+        {
+          const hardwareAvailable = await checkHardwareSecurityAvailable();
+          if (hardwareAvailable) {
+            setPassword('__HARDWARE_ONLY__');
+            navigate('/#confirmation');
+          } else {
+            navigate('/#create-password');
+          }
+        }
         break;
       case 'setup-passcode-submit':
         // Passcode IS the vault password. The 6 digits get stretched through
@@ -278,7 +289,9 @@ const Welcome: FC = () => {
         setOnboardingType(OnboardingType.Create);
         setPassword(action.payload);
         setProtectionMethod('passcode');
-        navigate('/#choose-guardian');
+        // Default to a fully-private (OffChain) wallet — guardian selection removed.
+        setWalletType(WalletType.OffChain);
+        navigate('/#confirmation');
         break;
       case 'choose-guardian-submit':
         await putToStorage(GUARDIAN_URL_STORAGE_KEY, action.payload.guardianEndpoint);
@@ -324,12 +337,13 @@ const Welcome: FC = () => {
         setPassword(action.payload.password);
         eventCategory = AnalyticsEventCategory.FormSubmit;
         if (onboardingType === OnboardingType.Create && !isMobile()) {
-          // Extension/desktop create flow: the password screen replaces
-          // passcode setup and runs before guardian selection — generate the
-          // mnemonic here, exactly like setup-passcode-submit does.
+          // Extension/desktop create flow: the password screen replaces passcode
+          // setup — generate the mnemonic here, default to a fully-private
+          // (OffChain) wallet, and skip guardian selection.
           setSeedPhrase(generateMnemonic(128).split(' '));
           setProtectionMethod('password');
-          navigate('/#choose-guardian');
+          setWalletType(WalletType.OffChain);
+          navigate('/#confirmation');
         } else if (onboardingType === OnboardingType.Import) {
           navigate('/#import-select-recovery-method');
         } else {
@@ -404,8 +418,8 @@ const Welcome: FC = () => {
           if (onboardingType === OnboardingType.Create) {
             // Extension/desktop: the password screen is the first protection
             // step, so back returns to Welcome. On mobile the
-            // biometric-without-hardware path lands here from choose-guardian.
-            navigate(isMobile() ? '/#choose-guardian' : '/');
+            // biometric-without-hardware path lands here from setup-biometric.
+            navigate(isMobile() ? '/#setup-biometric' : '/');
           } else {
             navigate('/#import-from-seed');
           }
