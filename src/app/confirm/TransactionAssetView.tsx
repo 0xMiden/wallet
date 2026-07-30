@@ -87,6 +87,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
             <span className="text-text-muted">{t('assetChanges')}</span>
             {outgoing.map(a => (
               <div key={`out-${a.faucetId}`} className="flex flex-row items-baseline w-full my-2 text-sm">
+                {/* eslint-disable i18next/no-literal-string -- Decorative outgoing-amount sign, aria-hidden. */}
                 <span
                   className={classNames(
                     'font-heading text-lg mr-1',
@@ -96,6 +97,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
                 >
                   -
                 </span>
+                {/* eslint-enable i18next/no-literal-string */}
                 <span
                   className={classNames(
                     'font-heading text-lg',
@@ -108,6 +110,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
             ))}
             {incoming.map(a => (
               <div key={`in-${a.faucetId}`} className="flex flex-row items-baseline w-full my-2 text-sm">
+                {/* eslint-disable i18next/no-literal-string -- Decorative incoming-amount sign, aria-hidden. */}
                 <span
                   className={classNames(
                     'font-heading text-lg mr-1',
@@ -117,6 +120,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
                 >
                   +
                 </span>
+                {/* eslint-enable i18next/no-literal-string */}
                 <span
                   className={classNames(
                     'font-heading text-lg',

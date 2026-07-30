@@ -15,12 +15,15 @@ import { MidenSharedStorageKey } from 'lib/miden/types';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 
-const BrandIcon = () => (
-  <div className="flex flex-col items-center gap-2">
-    <BreadLogo style={{ width: 80, height: 'auto' }} />
-    <span className="text-3xl font-semibold font-heading text-heading-gray">Bread</span>
-  </div>
-);
+const BrandIcon = () => {
+  const { t } = useTranslation();
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <BreadLogo style={{ width: 80, height: 'auto' }} />
+      <span className="text-3xl font-semibold font-heading text-heading-gray">{t('unlockBrandName')}</span>
+    </div>
+  );
+};
 
 const PASSCODE_LENGTH = 6;
 const LOCK_TIME = 60_000;

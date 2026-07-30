@@ -109,7 +109,27 @@ jest.mock('./transactionUtils', () => ({
   isFaucetRequest: jest.fn((entry: { __faucet?: boolean }) => Boolean(entry.__faucet)),
   isBridgeInEntry: jest.fn(() => false),
   bridgeInRowDisplay: jest.fn(),
-  bridgeRowDisplay: jest.fn()
+  bridgeRowDisplay: jest.fn(),
+  // Smart Withdraw rows: mirror the real predicate / tone map / label map so the
+  // earn branch of `buildRowProps` is exercised with realistic values.
+  isEarnWithdrawEntry: jest.fn((entry: { txType?: string }) => entry.txType === 'earn-withdraw'),
+  earnWithdrawToneOf: jest.fn((phase?: string) =>
+    phase === 'received' ? 'confirmed' : phase === 'failed' ? 'failed' : 'pending'
+  ),
+  EARN_WITHDRAW_STATUS_LABEL_KEY: {
+    redeeming: 'earnWithdrawStatusRedeeming',
+    delivering: 'earnWithdrawStatusDelivering',
+    received: 'received',
+    failed: 'failed'
+  },
+  // Smart Deposit settlement: mirror the real helper (unstamped ⇒ pending) so
+  // the earn-deposit status branch is exercised with realistic values.
+  earnDepositSettlementOf: jest.fn((entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'),
+  EARN_DEPOSIT_STATUS_LABEL_KEY: {
+    pending: 'pending',
+    confirmed: 'confirmed',
+    failed: 'failed'
+  }
 }));
 
 const mockBridgeRowDisplay = bridgeRowDisplay as jest.MockedFunction<typeof bridgeRowDisplay>;
@@ -378,10 +398,55 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       token: 'MDN',
       txId: 'tx-faucet-send',
       timestamp: DAY_B
+    }),
+    // Smart Withdraw in flight: dedicated title/subtitle, positive amount and a
+    // phase-driven status chip.
+    makeEntry({
+      key: 'earn-withdraw',
+      txType: 'earn-withdraw',
+      transactionIcon: undefined,
+      earnWithdrawPhase: 'delivering',
+      amount: 2n,
+      token: 'USDC',
+      txId: 'tx-earn-withdraw',
+      timestamp: DAY_B
+    }),
+    // Position deposit: DEFAULT icon, tagged with the Earn glyph and a negative amount.
+    makeEntry({
+      key: 'earn-deposit',
+      txType: 'earn-deposit',
+      transactionIcon: undefined,
+      amount: 5n,
+      token: 'USDC',
+      message: 'Depositing',
+      txId: 'tx-earn-deposit',
+      timestamp: DAY_B
     })
   ];
 
   const renderFull = () => render(<HistoryView {...baseProps} entries={entries} fullHistory className="full-class" />);
+
+  it('renders the Smart Withdraw row with its phase chip and positive amount', () => {
+    renderFull();
+    const row = rowByTitle('earnWithdrawRowTitle');
+    expect(iconNameIn(row)).toBe('Earn');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-tx-earn');
+    expect(row).toHaveAttribute('data-subtitle', 'earnWithdrawRowVia');
+    expect(row).toHaveAttribute('data-amount-value', '+2');
+    expect(row).toHaveAttribute('data-amount-symbol', 'USDC');
+    expect(row).toHaveAttribute('data-amount-direction', 'positive');
+    expect(row).toHaveAttribute('data-status-label', 'earnWithdrawStatusDelivering');
+    expect(row).toHaveAttribute('data-status-tone', 'pending');
+  });
+
+  it('renders a position deposit with the Earn glyph and a negative amount', () => {
+    renderFull();
+    const row = rowByTitle('Depositing');
+    expect(iconNameIn(row)).toBe('Earn');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-tx-earn');
+    expect(row).toHaveAttribute('data-amount-value', '-5');
+    expect(row).toHaveAttribute('data-amount-direction', 'negative');
+  });
 
   it('renders a date separator per calendar day', () => {
     renderFull();
@@ -659,5 +724,68 @@ describe('HistoryView infinite scroll wiring', () => {
     render(<HistoryView {...baseProps} entries={twoEntries} fullHistory />);
     expect(screen.queryByTestId('infinite-scroll')).toBeNull();
     expect(screen.getAllByTestId('activity-row')).toHaveLength(2);
+  });
+});
+
+// A Smart Deposit row goes database-Completed as soon as the Miden collateral
+// note lands — but the position only exists once the solver-fulfilled Sepolia
+// lending leg settles, so the chip must track THAT leg, not the row status.
+describe('HistoryView earn-deposit status chip', () => {
+  const renderDeposit = (overrides: Partial<IHistoryEntry> = {}) => {
+    const entry = makeEntry({
+      txType: 'earn-deposit',
+      message: 'Depositing',
+      amount: 5n,
+      token: 'USDC',
+      ...overrides
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    return rowByTitle('Depositing');
+  };
+
+  it('reads pending while the lending leg is unsettled', () => {
+    const row = renderDeposit({ earnDepositStatus: 'pending' });
+    expect(row).toHaveAttribute('data-status-label', 'pending');
+    expect(row).toHaveAttribute('data-status-tone', 'pending');
+  });
+
+  it('defaults an unstamped leg to pending rather than Confirmed', () => {
+    const row = renderDeposit();
+    expect(row).toHaveAttribute('data-status-label', 'pending');
+    expect(row).toHaveAttribute('data-status-tone', 'pending');
+  });
+
+  it('reads failed when the lending leg failed', () => {
+    const row = renderDeposit({ earnDepositStatus: 'failed' });
+    expect(row).toHaveAttribute('data-status-label', 'failed');
+    expect(row).toHaveAttribute('data-status-tone', 'failed');
+  });
+
+  it('falls through to Confirmed once the lending leg settles', () => {
+    const row = renderDeposit({ earnDepositStatus: 'confirmed' });
+    expect(row).toHaveAttribute('data-status-label', 'confirmed');
+    expect(row).toHaveAttribute('data-status-tone', 'confirmed');
+  });
+
+  it('lets a Miden-side failure win over a pending lending leg', () => {
+    // The earn-deposit branch is checked AFTER cancelled/failed/pending, so the
+    // real failure is what the user sees.
+    const row = renderDeposit({ transactionIcon: 'FAILED', earnDepositStatus: 'pending' });
+    expect(row).toHaveAttribute('data-status-label', 'failed');
+    expect(row).toHaveAttribute('data-status-tone', 'failed');
+  });
+
+  it('lets a cancellation win over a pending lending leg', () => {
+    const entry = makeEntry({ txType: 'earn-deposit', message: 'Depositing', isCancelled: true });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    const row = rowByTitle('cancelled');
+    expect(row).toHaveAttribute('data-status-label', 'cancelled');
+    expect(row).toHaveAttribute('data-status-tone', 'cancelled');
+  });
+
+  it('lets a still-processing row win over the lending leg', () => {
+    const row = renderDeposit({ type: HistoryEntryType.PendingTransaction, earnDepositStatus: 'failed' });
+    expect(row).toHaveAttribute('data-status-label', 'pending');
+    expect(row).toHaveAttribute('data-status-tone', 'pending');
   });
 });

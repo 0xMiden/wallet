@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 
 import clsx from 'clsx';
+import { useTranslation } from 'react-i18next';
 
 import { useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { WalletAccount } from 'lib/shared/types';
@@ -8,6 +9,7 @@ import { useWalletStore } from 'lib/store';
 import { Badge } from 'lib/ui/badge';
 
 export const PriceChangeBadge = ({ account }: { account: WalletAccount }) => {
+  const { t } = useTranslation();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: allTokenBalances = [] } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
@@ -25,6 +27,7 @@ export const PriceChangeBadge = ({ account }: { account: WalletAccount }) => {
   }, [allTokenBalances, tokenPrices]);
   const isPositive = portfolioChange > 0;
   const isNeutral = portfolioChange === 0;
+  const amount = Math.abs(portfolioChange).toFixed(2);
 
   return (
     <div className="flex items-center gap-1">
@@ -38,10 +41,14 @@ export const PriceChangeBadge = ({ account }: { account: WalletAccount }) => {
               : 'bg-red-500 !text-white'
         )}
       >
-        {isNeutral ? '' : isPositive ? '+' : '-'}${Math.abs(portfolioChange).toFixed(2)}
+        {isNeutral
+          ? t('priceChangeAmountNeutral', { amount: `$${amount}` })
+          : isPositive
+            ? t('priceChangeAmountPositive', { amount: `$${amount}` })
+            : t('priceChangeAmountNegative', { amount: `$${amount}` })}
       </Badge>
       <p className={clsx('text-xs', isNeutral ? 'text-grey-500' : isPositive ? 'text-receive-green' : 'text-red-500')}>
-        {percentageChange.toFixed(2)}%
+        {t('priceChangePercent', { value: percentageChange.toFixed(2) })}
       </p>
     </div>
   );

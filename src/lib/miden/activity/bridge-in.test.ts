@@ -1,6 +1,7 @@
 import {
-  existingTransactionIds,
+  findPendingBridgeInByEarnWithdrawTxId,
   registerPendingBridgeIn,
+  suppressingLinkedTxIds,
   takeAgglayerBridgeInInfo,
   takeBridgeInInfoForNotes
 } from './bridge-in';
@@ -15,12 +16,12 @@ jest.mock('../front/storage', () => ({
   })
 }));
 
-const mockPrimaryKeys = jest.fn();
+const mockAnyOfToArray = jest.fn();
 const mockTransactions: any[] = [];
 jest.mock('lib/agglayer/constant', () => ({ AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID: 'agg-sender' }));
 jest.mock('lib/miden/repo', () => ({
   transactions: {
-    where: jest.fn(() => ({ anyOf: jest.fn(() => ({ primaryKeys: mockPrimaryKeys })) })),
+    where: jest.fn(() => ({ anyOf: jest.fn(() => ({ toArray: mockAnyOfToArray })) })),
     filter: jest.fn((predicate: (tx: any) => boolean) => ({
       toArray: jest.fn(async () => mockTransactions.filter(predicate))
     }))
@@ -120,18 +121,66 @@ describe('takeBridgeInInfoForNotes', () => {
   });
 });
 
-describe('existingTransactionIds', () => {
-  it('returns the subset of ids that exist as rows', async () => {
-    mockPrimaryKeys.mockResolvedValue(['TX1']);
+describe('findPendingBridgeInByEarnWithdrawTxId', () => {
+  it('returns the NEWEST matching intent when a resubmit left a stale entry for the same row', async () => {
+    // Registry after a fail+retry on the same earn-withdraw row: the dead N1 (older,
+    // first in the array as it was appended first) and the live N2 (newer). The lookup
+    // must return N2 — returning the first match (N1) would re-strand the row on a dead
+    // nonce, which is exactly the bug this ordering guards against.
+    const now = Date.now();
+    mockStore[REGISTRY_KEY] = [
+      {
+        userAddress: EVM_OWNER,
+        intentNonce: 'N1',
+        registeredAt: now - 2000,
+        info: { provider: 'epoch', earnWithdrawTxId: 'T' }
+      },
+      {
+        userAddress: EVM_OWNER,
+        intentNonce: 'N2',
+        registeredAt: now - 1000,
+        info: { provider: 'epoch', earnWithdrawTxId: 'T' }
+      }
+    ];
 
-    const result = await existingTransactionIds(['TX1', 'TX2', 'TX1']);
+    expect(await findPendingBridgeInByEarnWithdrawTxId('T')).toEqual({ intentNonce: 'N2', userAddress: EVM_OWNER });
+  });
 
-    expect(result).toEqual(new Set(['TX1']));
+  it('returns undefined when no pending intent references the row', async () => {
+    const now = Date.now();
+    mockStore[REGISTRY_KEY] = [
+      {
+        userAddress: EVM_OWNER,
+        intentNonce: 'N1',
+        registeredAt: now - 1000,
+        info: { provider: 'epoch', earnWithdrawTxId: 'OTHER' }
+      }
+    ];
+
+    expect(await findPendingBridgeInByEarnWithdrawTxId('T')).toBeUndefined();
+  });
+});
+
+describe('suppressingLinkedTxIds', () => {
+  it('suppresses existing linked primaries but NOT a terminal-failed earn-withdraw row', async () => {
+    // A live withdraw row is the single trace (suppress its consume). A FAILED withdraw
+    // row is not — its delivered note must fall through to a visible receive — so it is
+    // excluded even though it exists. Non-earn-withdraw primaries suppress on existence.
+    // 'MISSING' has no row (the query returns only existing rows) so it is absent.
+    mockAnyOfToArray.mockResolvedValue([
+      { id: 'LIVE', type: 'earn-withdraw', extraInputs: { phase: 'delivering' } },
+      { id: 'FAILED', type: 'earn-withdraw', extraInputs: { phase: 'failed' } },
+      { id: 'SWAP', type: 'swap', extraInputs: {} }
+    ]);
+
+    const result = await suppressingLinkedTxIds(['LIVE', 'FAILED', 'SWAP', 'MISSING']);
+
+    expect(result).toEqual(new Set(['LIVE', 'SWAP']));
   });
 
   it('short-circuits on an empty id list', async () => {
-    const result = await existingTransactionIds([]);
+    const result = await suppressingLinkedTxIds([]);
     expect(result).toEqual(new Set());
-    expect(mockPrimaryKeys).not.toHaveBeenCalled();
+    expect(mockAnyOfToArray).not.toHaveBeenCalled();
   });
 });

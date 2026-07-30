@@ -67,6 +67,12 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   readonly extensionId: string;
   readonly userDataDir: string;
   /**
+   * The wallet's derived EVM address (`0x…`) — the Epoch earn EVM owner. Chrome
+   * only (the earn e2e is Chrome); add to WalletPage + the mobile POMs when earn
+   * specs run on device.
+   */
+  getEvmAddress(): Promise<string>;
+  /**
    * Complete the create-wallet flow choosing the Guardian recovery method,
    * pointing the account at `guardianUrl` (a locally-spawned guardian).
    */
@@ -333,6 +339,35 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     }
     await this.navigateHome();
     return match[0].trim();
+  }
+
+  /**
+   * Read the wallet's derived EVM address (`0x…`) from the Zustand
+   * `__TEST_STORE__` currentAccount, polling briefly (it's derived
+   * asynchronously after onboarding). The earn-withdraw e2e needs it to seed the
+   * position under the wallet's OWN EVM owner — `EarnWithdrawReview` aborts with
+   * `earnWithdrawNotOwned` unless `account.evmAddress === position.owner`.
+   */
+  async getEvmAddress(): Promise<string> {
+    const evm = await this.page
+      .waitForFunction(
+        () => {
+          const store = (
+            window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { evmAddress?: string } } } }
+          ).__TEST_STORE__;
+          const addr = store?.getState?.().currentAccount?.evmAddress ?? '';
+          return /^0x[0-9a-fA-F]{40}$/.test(addr) ? addr : false;
+        },
+        { timeout: 15_000 }
+      )
+      .then(handle => handle.jsonValue() as Promise<string>)
+      .catch(() => '');
+    if (!evm) {
+      throw new Error(
+        'Could not read currentAccount.evmAddress from __TEST_STORE__ (earn withdraw needs the wallet EVM owner).'
+      );
+    }
+    return evm.trim();
   }
 
   // ── Balance ───────────────────────────────────────────────────────────────

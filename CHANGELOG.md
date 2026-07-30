@@ -2,6 +2,10 @@
 
 ## 1.15.16 (TBD)
 
+### Features
+
+- [FEATURE][mobile][desktop] **Re-enabled bridge-in (Receive from EVM).** The "Cross Chain" deposit entry on the Receive page and the `/bridge/deposit` flow now ship to users — previously hidden behind a launch flag (`isBridgeDepositEnabled` gated on `MIDEN_E2E_TEST` / `MIDEN_ENABLE_BRIDGE_UI`).
+
 ### Fixes
 
 - [FIX][mobile] **Inputs no longer hide behind the soft keyboard.** The keyboard height now insets the layout (`--keyboard-height` CSS var driven by `@capacitor/keyboard` events), so bottom-pinned inputs/CTAs ride above the keyboard with a synced animation; the iOS accessory bar (Done) is enabled — the config previously set the unrelated `resizeOnFullScreen` key — and search/amount/recipient fields set `enterKeyHint`.
@@ -26,6 +30,10 @@
 - [FIX][mobile] **Guardian transactions with local (non-delegated) proving no longer freeze the UI on iOS.** The guardian pipeline drives the raw client directly, and its local-proving branch always used the single-threaded WASM prover — which on iOS WKWebView runs on the main thread and locks the UI for the whole multi-second prove (~13s). It now routes to the native Rust prover on mobile (off the main thread), matching the non-guardian path and the guardian delegated-proving fallback.
 
 ## 1.15.13 (TBD)
+
+### Features
+
+- [FEATURE][all] **Earn: Epoch lending positions, end to end.** Opening a position (`earn-deposit`) sends a recallable collateral note to the solver's allocator and tracks the solver-fulfilled lending leg; Smart Withdraw (`earn-withdraw`) redeems the position and bridges the underlying back to Miden as one gasless intent, tracked through a Redeeming → Delivering → Received lifecycle (Failed is retryable by re-submitting the redeem intent). Both types render throughout the wallet: the earn deposit/withdraw screens, an in-progress summary badge (`{amount} {token} ↑ {protocol}-USDC`), dedicated Activity rows (the withdraw row is the single trace — its delivery consume is suppressed), and Deposit/Withdrawal detail cards with market, position owner, intent nonce and Sepolia/Miden links.
 
 ### Fixes
 

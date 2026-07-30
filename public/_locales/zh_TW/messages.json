@@ -1,4 +1,489 @@
 {
+  "payload": {
+    "message": "有效载荷",
+    "englishSource": "Payload"
+  },
+  "bridgeDepositTitle": {
+    "message": "米登桥",
+    "englishSource": "Miden Bridge"
+  },
+  "bridgeDepositHeading": {
+    "message": "确认您的存款",
+    "englishSource": "Confirm your deposit"
+  },
+  "bridgeDepositSubheading": {
+    "message": "您的钱包将打开以批准确切的金额并在 Sepolia 上签名。",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+  },
+  "bridgeDepositYouReceive": {
+    "message": "您收到",
+    "englishSource": "You receive"
+  },
+  "bridgeDepositBridgeOption": {
+    "message": "桥接选项",
+    "englishSource": "Bridge option"
+  },
+  "bridgeDepositApprovingTitle": {
+    "message": "您批准的内容",
+    "englishSource": "What you're approving"
+  },
+  "bridgeDepositApprovingBody": {
+    "message": "您的钱包将要求批准 $tokenSymbol$ 并在Sepolia 上签署存款。确认后资金到达Miden。",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "placeholders": {
+      "tokensymbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "balanceCardTotalBalance": {
+    "message": "总余额",
+    "englishSource": "Total Balance"
+  },
+  "balanceCardDeltaPill": {
+    "message": "$absolute$ ($percentage$)",
+    "englishSource": "$absolute$ ($percentage$)",
+    "placeholders": {
+      "absolute": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
+  "balanceCardAccount": {
+    "message": "帐户 ＃： $number$ ",
+    "englishSource": "Account #: $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "balanceCardAccountOptions": {
+    "message": "账户选项",
+    "englishSource": "Account options"
+  },
+  "dappSwitcherLoading": {
+    "message": "加载中…",
+    "englishSource": "Loading…"
+  },
+  "dappSwitcherCardActivate": {
+    "message": "$name$. Activate to switch to this dApp.",
+    "englishSource": "$name$. Activate to switch to this dApp.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappSwitcherCloseCard": {
+    "message": "关闭 $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "promptCardDismiss": {
+    "message": "解雇",
+    "englishSource": "Dismiss"
+  },
+  "promptCardLoading": {
+    "message": "加载中",
+    "englishSource": "Loading"
+  },
+  "priceChangeAmountNeutral": {
+    "message": "$amount$",
+    "englishSource": "$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "priceChangeAmountPositive": {
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "priceChangeAmountNegative": {
+    "message": "- $amount$ ",
+    "englishSource": "-$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "priceChangePercent": {
+    "message": "$value$%",
+    "englishSource": "$value$%",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingTabApproxUsd": {
+    "message": "≈  $value$ ",
+    "englishSource": "≈ $value$",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailChange24h": {
+    "message": "$change$%",
+    "englishSource": "$change$%",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyDetailsIdLabel": {
+    "message": "ID： $id$ ",
+    "englishSource": "ID: $id$",
+    "placeholders": {
+      "id": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyDetailsAmountFilledValue": {
+    "message": "$filled$ / $total$$symbol$",
+    "englishSource": "$filled$ / $total$$symbol$",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
+  "historyDetailsLoadError": {
+    "message": "加载交易失败",
+    "englishSource": "Failed to load transaction"
+  },
+  "historyDetailsFiatApprox": {
+    "message": "≈  $amount$ 美元",
+    "englishSource": "≈ $amount$ USD",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappTileVerifiedLabel": {
+    "message": "$name$，已验证的 dApp",
+    "englishSource": "$name$, verified dApp",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappPeekCardOverflowBadge": {
+    "message": "+ $count$ ",
+    "englishSource": "+$count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "settingsVersion": {
+    "message": "版本 $version$ ",
+    "englishSource": "Version $version$",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
+  },
+  "unlockBrandName": {
+    "message": "面包",
+    "englishSource": "Bread"
+  },
+  "earnPositionHeaderTitle": {
+    "message": "我的 $protocol$  •  $asset$ 位置",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnAssetOnNetwork": {
+    "message": "$network$上的$asset$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnMetricDeposited": {
+    "message": "已存入",
+    "englishSource": "Deposited"
+  },
+  "earnMetricTotalEarned": {
+    "message": "总收入",
+    "englishSource": "Total Earned"
+  },
+  "earnMetricDailyAvg": {
+    "message": "每日平均",
+    "englishSource": "Daily Avg"
+  },
+  "earnMetricTimeActive": {
+    "message": "活跃时间",
+    "englishSource": "Time Active"
+  },
+  "earnMetricStarted": {
+    "message": "开始",
+    "englishSource": "Started"
+  },
+  "earnProjectedEarnings": {
+    "message": "~  $estimate$ · 在 $apy$ 平均年产量",
+    "englishSource": "~ $estimate$ · at $apy$ APY",
+    "placeholders": {
+      "estimate": {
+        "content": "$1"
+      },
+      "apy": {
+        "content": "$2"
+      }
+    }
+  },
+  "protocol": {
+    "message": "协议",
+    "englishSource": "Protocol"
+  },
+  "position": {
+    "message": "位置",
+    "englishSource": "Position"
+  },
+  "withdraw": {
+    "message": "提取",
+    "englishSource": "Withdraw"
+  },
+  "earnDepositMore": {
+    "message": "存入更多",
+    "englishSource": "Deposit more"
+  },
+  "earnWithdrawAmount": {
+    "message": "提款金额",
+    "englishSource": "Withdraw Amount"
+  },
+  "earnWithdrawalLabel": {
+    "message": "提款",
+    "englishSource": "Withdrawal"
+  },
+  "earnFullPositionGasless": {
+    "message": "全位（无气）",
+    "englishSource": "Full position (gasless)"
+  },
+  "earnEstimatedTimeLabel": {
+    "message": "预计时间",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeOneMinute": {
+    "message": "〜1分钟",
+    "englishSource": "~1 minute"
+  },
+  "withdrawing": {
+    "message": "撤回…",
+    "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "该头寸不属于当前钱包衍生的 EVM 账户。",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
+  },
+  "earnGaslessWithdrawalFailed": {
+    "message": "无气提款失败。",
+    "englishSource": "Gasless withdrawal failed."
+  },
+  "earnCurrentApy": {
+    "message": "当前年利率",
+    "englishSource": "Current APY"
+  },
+  "earnDeposit": {
+    "message": "订金",
+    "englishSource": "Deposit"
+  },
+  "earnTvlLabel": {
+    "message": "TVL",
+    "englishSource": "TVL"
+  },
+  "earnRiskLabel": {
+    "message": "风险",
+    "englishSource": "Risk"
+  },
+  "earnAuditedLabel": {
+    "message": "已审核",
+    "englishSource": "Audited"
+  },
+  "earnDepositAmountTitle": {
+    "message": "存款金额",
+    "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "持仓",
+    "englishSource": "Open position"
+  },
+  "earnProjection1Month": {
+    "message": "1个月",
+    "englishSource": "1 Month"
+  },
+  "earnProjection6Months": {
+    "message": "6个月",
+    "englishSource": "6 Months"
+  },
+  "earnProjection1Year": {
+    "message": "1年",
+    "englishSource": "1 Year"
+  },
+  "earnProjectionNow": {
+    "message": "现在",
+    "englishSource": "Now"
+  },
+  "earnProjectedRewardAmount": {
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnCollateralLabel": {
+    "message": "抵押品",
+    "englishSource": "Collateral"
+  },
+  "earnCollateralValue": {
+    "message": "Miden P2IDE（无气）",
+    "englishSource": "Miden P2IDE (gasless)"
+  },
+  "earnDepositRoute": {
+    "message": "米登-> $protocol$  ( $network$ )",
+    "englishSource": "Miden -> $protocol$ ($network$)",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnEstimatedTime": {
+    "message": "预计时间",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeValue": {
+    "message": "〜30秒",
+    "englishSource": "~30 seconds"
+  },
+  "earnNoEvmAddress": {
+    "message": "此帐户没有可用的 EVM 地址。",
+    "englishSource": "No EVM address available for this account."
+  },
+  "earnFailedToOpenPosition": {
+    "message": "建仓失败",
+    "englishSource": "Failed to open position"
+  },
+  "earnTotalEarnedRewards": {
+    "message": "获得的总奖励",
+    "englishSource": "Total Earned Rewards"
+  },
+  "earnEarningBlendedApy": {
+    "message": "收益 $apy$ 混合APY",
+    "englishSource": "Earning $apy$ blended APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnTotalDeposited": {
+    "message": "存入总额",
+    "englishSource": "Total Deposited"
+  },
+  "earnEstimatedRewards": {
+    "message": "预计奖励",
+    "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "我的职位",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "职位",
+    "englishSource": "Positions"
+  },
+  "earnPositionsApy": {
+    "message": "$apy$ APY",
+    "englishSource": "$apy$ APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnDeposited": {
+    "message": "已存入",
+    "englishSource": "Deposited"
+  },
+  "earnDepositAmountLabel": {
+    "message": "存款金额",
+    "englishSource": "Deposit Amount"
+  },
+  "earnSeeAll": {
+    "message": "查看全部",
+    "englishSource": "See All"
+  },
+  "earnVaultsTitle": {
+    "message": "特色金库",
+    "englishSource": "Featured Vaults"
+  },
+  "earnApyLabel": {
+    "message": "平均年产量",
+    "englishSource": "APY"
+  },
+  "earnVaultAssetOnNetwork": {
+    "message": "$network$上的$asset$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "目前职位",
+    "englishSource": "Current Positions"
+  },
   "advanced": {
     "message": "先进的",
     "englishSource": "Advanced"
@@ -381,6 +866,15 @@
   "transactionStepSyncingGuardian": {
     "message": "与监护人同步",
     "englishSource": "Syncing with Guardian"
+  },
+  "transactionStepDurationSec": {
+    "message": "$seconds$ sec",
+    "englishSource": "$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
   },
   "transactionStageSyncing": {
     "message": "正在同步帐户",
@@ -891,6 +1385,24 @@
   "other": {
     "message": "其他",
     "englishSource": "Other"
+  },
+  "thousandFormat": {
+    "message": "$thousand$k",
+    "englishSource": "$thousand$k",
+    "placeholders": {
+      "thousand": {
+        "content": "$1"
+      }
+    }
+  },
+  "millionFormat": {
+    "message": "$million$M",
+    "englishSource": "$million$M",
+    "placeholders": {
+      "million": {
+        "content": "$1"
+      }
+    }
   },
   "billionFormat": {
     "message": "$billion$B",
@@ -3089,6 +3601,10 @@
     "message": "失败的",
     "englishSource": "Failed"
   },
+  "earnDepositGuardianUnsupported": {
+    "message": "Guardian 账户尚不支持赚取存款。切换至标准账户进行存款。",
+    "englishSource": "Earn deposits aren’t available on Guardian accounts yet. Switch to a standard account to deposit."
+  },
   "reclaimFunds": {
     "message": "收回资金",
     "englishSource": "Reclaim funds"
@@ -3140,5 +3656,81 @@
   "opaqueSignatureWarning": {
     "message": "该网站要求您签署原始值。钱包无法显示其授权内容。仅当您完全信任该网站时才继续。",
     "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+  },
+  "note": {
+    "message": "Note",
+    "englishSource": "Note"
+  },
+  "earnMarketLabel": {
+    "message": "Market",
+    "englishSource": "Market"
+  },
+  "positionOwnerLabel": {
+    "message": "Position owner",
+    "englishSource": "Position owner"
+  },
+  "earnDepositDetailsTitle": {
+    "message": "Deposit details",
+    "englishSource": "Deposit details"
+  },
+  "earnWithdrawDetailsTitle": {
+    "message": "Withdrawal details",
+    "englishSource": "Withdrawal details"
+  },
+  "depositIntentLabel": {
+    "message": "Deposit intent",
+    "englishSource": "Deposit intent"
+  },
+  "redeemIntentLabel": {
+    "message": "Redeem intent",
+    "englishSource": "Redeem intent"
+  },
+  "earnWithdrawRowTitle": {
+    "message": "Withdraw from Earn",
+    "englishSource": "Withdraw from Earn"
+  },
+  "earnWithdrawRowVia": {
+    "message": "Via Epoch → Miden",
+    "englishSource": "Via Epoch → Miden"
+  },
+  "earnWithdrawStatusRedeeming": {
+    "message": "Redeeming",
+    "englishSource": "Redeeming"
+  },
+  "earnWithdrawStatusDelivering": {
+    "message": "Delivering",
+    "englishSource": "Delivering"
+  },
+  "withdrawalStarted": {
+    "message": "Withdrawal Started!",
+    "englishSource": "Withdrawal Started!"
+  },
+  "withdrawalStartedDescription": {
+    "message": "Your funds are being bridged back to Miden. Track delivery in Activity.",
+    "englishSource": "Your funds are being bridged back to Miden. Track delivery in Activity."
+  },
+  "withdrawalProcessing": {
+    "message": "Processing Withdrawal",
+    "englishSource": "Processing Withdrawal"
+  },
+  "withdrawalProcessingDescription": {
+    "message": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds.",
+    "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
+  },
+  "withdrawalFailed": {
+    "message": "Withdrawal Failed",
+    "englishSource": "Withdrawal Failed"
+  },
+  "transactionComplete": {
+    "message": "Transaction Complete!",
+    "englishSource": "Transaction Complete!"
+  },
+  "totalPaid": {
+    "message": "Total Paid",
+    "englishSource": "Total Paid"
+  },
+  "sourceTx": {
+    "message": "Source TX",
+    "englishSource": "Source TX"
   }
 }

@@ -233,16 +233,14 @@ export const DappActive: FC = () => {
         )}
         {error && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-solid px-6 text-center">
-            <div className="mb-2 text-lg font-semibold text-black">{t('dappLoadFailed') ?? "Can't load this dApp"}</div>
-            <div className="mb-6 text-sm text-text-muted">
-              {t('dappLoadFailedHint') ?? 'Check your connection and try again.'}
-            </div>
+            <div className="mb-2 text-lg font-semibold text-black">{t('dappLoadFailed')}</div>
+            <div className="mb-6 text-sm text-text-muted">{t('dappLoadFailedHint')}</div>
             <button
               type="button"
               onClick={handleReload}
               className="rounded-full bg-orange-500 px-6 py-3 text-sm font-semibold text-pure-white"
             >
-              {t('retry') ?? 'Retry'}
+              {t('retry')}
             </button>
           </div>
         )}

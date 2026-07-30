@@ -58,6 +58,13 @@ describe('earn-flow/types', () => {
 
     const position: EarnPosition = {
       id: 'pos-1',
+      vaultId: 'vault-1',
+      owner: '0x1234',
+      marketUid: 'market-1',
+      chainId: '11155111',
+      underlyingAddress: '0x5678',
+      withdrawable: '4800',
+      decimals: 6,
       protocol: 'Aave',
       asset: 'USDC',
       network: 'Ethereum',
@@ -108,23 +115,30 @@ describe('earn-flow/types', () => {
       expect(typeof pt.value).toBe('number');
     });
 
-    // The interface declares exactly these 17 members.
+    // The interface declares exactly these 24 members.
     expect(Object.keys(position).sort()).toEqual([
       'activeDuration',
       'age',
       'amount',
       'apy',
       'asset',
+      'chainId',
       'chartData',
       'dailyAverage',
+      'decimals',
       'depositedAmount',
       'id',
+      'marketUid',
       'network',
+      'owner',
       'protocol',
       'rewards',
       'route',
       'started',
+      'underlyingAddress',
+      'vaultId',
       'withdrawTime',
+      'withdrawable',
       'yearlyEstimate'
     ]);
   });

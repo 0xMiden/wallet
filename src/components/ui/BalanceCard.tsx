@@ -1,6 +1,7 @@
 import React, { FC, ReactNode, useLayoutEffect, useRef, useState } from 'react';
 
 import classNames from 'clsx';
+import { useTranslation } from 'react-i18next';
 
 import CopyButton from 'app/atoms/CopyButton';
 import { Icon, IconName } from 'app/icons/v2';
@@ -111,6 +112,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   state = 'default',
   className
 }) => {
+  const { t } = useTranslation();
   const isLoading = state === 'loading';
   const isHidden = state === 'hidden';
   const isZero = state === 'zero';
@@ -128,7 +130,9 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   return (
     <div className={classNames('relative w-full overflow-hidden text-surface-balance-fg rounded-lg-token', className)}>
       <div className={classNames('px-3.5 pt-4 pb-3.5', CARD_COLOR_TOP[cardColor])}>
-        <div className="text-sm font-medium text-surface-balance-fg-muted leading-none">Total Balance</div>
+        <div className="text-sm font-medium text-surface-balance-fg-muted leading-none">
+          {t('balanceCardTotalBalance')}
+        </div>
 
         <div ref={rowRef} className="mt-2.5 flex items-end gap-1 leading-none min-w-0">
           {isLoading ? (
@@ -140,6 +144,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
                 style={{ fontSize: `${fontSizeRem}rem` }}
                 className="font-heading font-extrabold leading-none whitespace-nowrap"
               >
+                {/* eslint-disable-next-line i18next/no-literal-string -- balance-mask glyphs / pre-formatted zero value, not translatable copy */}
                 {isHidden ? '••••••' : isZero ? '$0.00' : amount}
               </span>
               <span className="shrink-0 font-heading text-base font-semibold text-surface-balance-fg-muted">
@@ -158,7 +163,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
                 pillBg
               )}
             >
-              {delta.absolute} ({delta.percentage})
+              {t('balanceCardDeltaPill', { absolute: delta.absolute, percentage: delta.percentage })}
             </span>
           </div>
         )}
@@ -177,13 +182,13 @@ export const BalanceCard: FC<BalanceCardProps> = ({
             'text-surface-balance-fg hover:bg-transparent active:opacity-80 transition-opacity'
           )}
         >
-          Account #: {accountNumber}
+          {t('balanceCardAccount', { number: accountNumber })}
         </CopyButton>
         {onMore && (
           <button
             type="button"
             onClick={handleMoreClick}
-            aria-label="Account options"
+            aria-label={t('balanceCardAccountOptions')}
             className={classNames('shrink-0 flex items-center justify-center', 'w-5 h-5 rounded-full bg-[#F6F4F261] ')}
           >
             <Icon name={IconName.More} className="w-3 h-3" fill="currentColor" />

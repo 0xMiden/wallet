@@ -2,6 +2,10 @@ import React, { useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+/** Decorative disclosure carets (aria-hidden); glyphs, not translatable text. */
+const CARET_EXPANDED = '▾';
+const CARET_COLLAPSED = '▸';
+
 export interface AdvancedDetailsProps {
   label?: string;
   children: React.ReactNode;
@@ -19,7 +23,7 @@ export const AdvancedDetails: React.FC<AdvancedDetailsProps> = ({ label, childre
         onClick={() => setOpen(o => !o)}
       >
         <span>{label ?? t('advancedDetails')}</span>
-        <span aria-hidden>{open ? '▾' : '▸'}</span>
+        <span aria-hidden>{open ? CARET_EXPANDED : CARET_COLLAPSED}</span>
       </button>
       {open && (
         <div className="text-xs font-mono bg-gray-50 rounded-lg p-2 overflow-x-auto break-words whitespace-pre-wrap">
@@ -68,7 +72,7 @@ export const FoldableField: React.FC<FoldableFieldProps> = ({ label, value }) =>
         onClick={() => setOpen(o => !o)}
       >
         <span aria-hidden className="text-text-muted">
-          {open ? '▾' : '▸'}
+          {open ? CARET_EXPANDED : CARET_COLLAPSED}
         </span>
         <span className="text-text-muted">{label}:</span>
         {!open && <span className="break-all">{`"${str.slice(0, FOLD_THRESHOLD)}…"`}</span>}

@@ -3,10 +3,10 @@ import React, { memo, RefObject, useMemo, useState } from 'react';
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import {
   cancelTransactionById,
-  existingTransactionIds,
   getCompletedTransactions,
   getUncompletedTransactions,
   isUserCancelledTransaction,
+  suppressingLinkedTxIds,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
 import {
@@ -14,6 +14,8 @@ import {
   IBridgedReceiveExtraInputs,
   IBridgedSendExtraInputs,
   IBridgeInInfo,
+  IEarnDepositExtraInputs,
+  IEarnWithdrawExtraInputs,
   ITransaction,
   ITransactionStatus
 } from 'lib/miden/db/types';
@@ -24,7 +26,11 @@ import useSafeState from 'lib/ui/useSafeState';
 
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { isFaucetRequest as isFaucetEntry, resolveSwapHistoryFields } from './transactionUtils';
+import {
+  earnWithdrawAmountFields,
+  isFaucetRequest as isFaucetEntry,
+  resolveSwapHistoryFields
+} from './transactionUtils';
 
 type HistoryProps = {
   address: string;
@@ -181,6 +187,13 @@ async function fetchTransactionsAsHistoryEntries(
     const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
     const bridgedReceive =
       tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
+    const earnWithdraw: IEarnWithdrawExtraInputs | undefined = tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
+    const earnDeposit: IEarnDepositExtraInputs | undefined = tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
+    // Source side (USDC) while in flight, destination side once the bridged note
+    // was consumed — see `earnWithdrawAmountFields`.
+    const earnWithdrawFields = earnWithdraw
+      ? earnWithdrawAmountFields(earnWithdraw, tx.amount, tokenMetadata)
+      : undefined;
     // Swap faucets are usually absent from wallet metadata — resolve both
     // sides through the DEX registry instead of the generic path.
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
@@ -192,8 +205,24 @@ async function fetchTransactionsAsHistoryEntries(
       status: tx.status,
       type: HistoryEntryType.CompletedTransaction,
       transactionIcon: icon,
-      amount: swapFields ? swapFields.amount : tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
-      token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
+      amount: earnWithdrawFields
+        ? earnWithdrawFields.amount
+        : swapFields
+          ? swapFields.amount
+          : tx.amount
+            ? formatAmount(tx.amount, tokenMetadata?.decimals)
+            : undefined,
+      token: earnWithdrawFields
+        ? earnWithdrawFields.token
+        : swapFields
+          ? swapFields.token
+          : tokenMetadata
+            ? tokenMetadata.symbol
+            : undefined,
+      earnWithdrawPhase: earnWithdraw?.phase,
+      // The Miden collateral note landing is only half a deposit — the chip
+      // tracks the Sepolia lending leg.
+      earnDepositStatus: earnDeposit?.epochStatus,
       requestedAmount: swapFields?.requestedAmount,
       requestedToken: swapFields?.requestedToken,
       requestedFaucetId: swapFields?.requestedFaucetId,
@@ -244,6 +273,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
         : HistoryEntryType.PendingTransaction;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
+    const earnDeposit: IEarnDepositExtraInputs | undefined = tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
     return {
       key: `pending-${tx.id}`,
@@ -274,7 +304,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeFillTxHash: bridge?.fillTxHash,
       bridgeFillChainId: bridge?.fillChainId,
       bridgeEpochStatus: bridge?.epochStatus,
-      bridgeReclaimHeight: bridge?.reclaimHeight
+      bridgeReclaimHeight: bridge?.reclaimHeight,
+      earnDepositStatus: earnDeposit?.epochStatus
     } as IHistoryEntry;
   });
   const entries = await Promise.all(entryPromises);
@@ -294,23 +325,30 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
 async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
   const linkedTrackingIds = transactions.map(linkedPrimaryTxId).filter((id): id is string => Boolean(id));
   if (linkedTrackingIds.length === 0) return transactions;
-  const existingTrackingIds = await existingTransactionIds(linkedTrackingIds);
+  const suppressingIds = await suppressingLinkedTxIds(linkedTrackingIds);
   return transactions.filter(tx => {
     const linkedId = linkedPrimaryTxId(tx);
-    return !(linkedId && existingTrackingIds.has(linkedId));
+    return !(linkedId && suppressingIds.has(linkedId));
   });
 }
 
 /**
  * The primary row a `consume` transaction is the lifecycle tail of, if any —
  * swap-order settlement consumes (linked via `extraInputs.swapOrderTxId` by
- * `reconcileSwapOrderNotes`) and bridged-receive delivery consumes (linked via
- * `extraInputs.bridgeIn.bridgeReceiveTxId`). While the primary row exists it is
- * the single trace; a dangling reference falls through to a normal receive row.
+ * `reconcileSwapOrderNotes`), Smart Withdraw delivery consumes (linked via
+ * `extraInputs.bridgeIn.earnWithdrawTxId`) and bridged-receive delivery consumes
+ * (linked via `extraInputs.bridgeIn.bridgeReceiveTxId`). While the primary row
+ * exists AND is a valid trace it is the single trace; a dangling reference — or a
+ * terminal-`failed` earn-withdraw primary (see `suppressingLinkedTxIds`) — falls
+ * through to a normal receive row so the delivered funds stay visible.
  */
 function linkedPrimaryTxId(tx: ITransaction): string | undefined {
   if (tx.type !== 'consume') return undefined;
-  return tx.extraInputs?.swapOrderTxId ?? tx.extraInputs?.bridgeIn?.bridgeReceiveTxId;
+  return (
+    tx.extraInputs?.swapOrderTxId ??
+    tx.extraInputs?.bridgeIn?.earnWithdrawTxId ??
+    tx.extraInputs?.bridgeIn?.bridgeReceiveTxId
+  );
 }
 
 /**

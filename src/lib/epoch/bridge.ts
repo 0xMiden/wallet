@@ -129,9 +129,13 @@ export function buildEpochTaskDataParams(params: CrossChainIntentParams): GetTas
       protocolHashIdentifier: ZERO_HASH,
       recipient: params.evmRecipient
     },
-    // Mirror EpochSwapWidget Miden extraData pattern exactly
+    // Mirror EpochSwapWidget Miden extraData pattern exactly. The canonical
+    // `MIDEN_TO_EVM_EXTRA_TYPESTRING` suffix (the four miden* string fields) must
+    // stay LAST — the allocator's witness validator (`validateWitnessTypeString`,
+    // epoch-commons-sdk) asserts it, so `midenReclaimHeight` goes first.
     extraDataTypestring:
-      'string midenSourceAccount,string midenFaucetId,string midenNoteType,string midenNoteId,uint256 midenReclaimHeight',
+      'uint256 midenReclaimHeight,' +
+      'string midenSourceAccount,string midenFaucetId,string midenNoteType,string midenNoteId',
     extraData: {
       midenSourceAccount: midenSourceAccountHex,
       midenFaucetId: midenFaucetIdHex,

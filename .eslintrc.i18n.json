@@ -7,7 +7,7 @@
       "jsx": true
     }
   },
-  "plugins": ["i18next"],
+  "plugins": ["i18next", "@typescript-eslint", "import", "react-hooks", "jest"],
   "rules": {
     "i18next/no-literal-string": [
       "error",

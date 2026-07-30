@@ -17,8 +17,17 @@ import TokenDetail from './TokenDetail';
 // and `AllHistory.test.tsx` stub their children.
 // ---------------------------------------------------------------------------
 
+// react-i18next: echo the key back, and fold interpolation options into the
+// returned string so the price-change test can assert that the +/- sign and
+// value flowed through `tokenDetailChange24h`'s `{{change}}` (mirrors the
+// sibling ReviewSwap.test.tsx mock).
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) => {
+      const values = opts ? Object.values(opts) : [];
+      return values.length > 0 ? `${key}_${values.join('_')}` : key;
+    }
+  })
 }));
 
 const mockUseAppEnv = jest.fn();
@@ -313,7 +322,8 @@ describe('TokenDetail', () => {
     it('renders a positive 24h change with a plus sign and the formatted price', () => {
       renderPage({ priceInfo: { price: 12.3456, change24h: 3.2 } });
 
-      expect(screen.getByText('+3.2%')).toBeInTheDocument();
+      // `tokenDetailChange24h` interpolates `{{change}}` = sign + toFixed(1).
+      expect(screen.getByText('tokenDetailChange24h_+3.2')).toBeInTheDocument();
       // price.toFixed(3).
       expect(screen.getByText('$12.346')).toBeInTheDocument();
     });
@@ -321,7 +331,7 @@ describe('TokenDetail', () => {
     it('renders a negative 24h change without a plus sign', () => {
       renderPage({ priceInfo: { price: 2000, change24h: -1.5 } });
 
-      expect(screen.getByText('-1.5%')).toBeInTheDocument();
+      expect(screen.getByText('tokenDetailChange24h_-1.5')).toBeInTheDocument();
     });
 
     it('renders the flat-line fallback when kline data is empty (padding fallback branch)', () => {

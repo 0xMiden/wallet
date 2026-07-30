@@ -23,6 +23,7 @@ import {
   completeBridgedSendTransaction,
   completeConsumeTransaction,
   completeCustomTransaction,
+  completeEarnDepositTransaction,
   completeReplaceHotKeyTransaction,
   completeSendTransaction,
   completeSwapTransaction,
@@ -42,6 +43,7 @@ import { importAllNotes } from '../activity/notes';
 import {
   BridgedSendTransaction,
   ConsumeTransaction,
+  EarnDepositTransaction,
   ITransaction,
   ITransactionStatus,
   ITransactionType,
@@ -77,6 +79,7 @@ const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<I
   'send',
   'consume',
   'swap',
+  'earn-deposit',
   'execute'
 ]);
 
@@ -188,6 +191,7 @@ export const generateTransaction = async (
         (transaction.type === 'consume' ||
           transaction.type === 'send' ||
           transaction.type === 'swap' ||
+          transaction.type === 'earn-deposit' ||
           transaction.type === 'execute')
       ) {
         console.warn(
@@ -292,6 +296,9 @@ export const generateTransaction = async (
           transaction.requestBytes,
           transaction.delegateTransaction
         );
+      case 'earn-deposit':
+        // Always send-style (recallable P2IDE note to the Epoch allocator).
+        return midenClient.sendTransaction(transaction as SendTransaction);
       case 'execute':
       default:
         return await midenClient.newTransaction(
@@ -314,6 +321,9 @@ export const generateTransaction = async (
       break;
     case 'bridged-send':
       await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
+      break;
+    case 'earn-deposit':
+      await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
       break;
     case 'execute':
     default:
@@ -477,6 +487,20 @@ const generateGuardianTransaction = async (
         );
       }
       break;
+    }
+    case 'earn-deposit': {
+      // NOT SUPPORTED on Guardian accounts — see `GUARDIAN_EARN_DEPOSIT_UNSUPPORTED`
+      // in lib/epoch/earn.ts. The Epoch mandate advertises a P2IDE collateral note
+      // with an absolute `midenReclaimHeight`; the multisig client exposes only
+      // `createP2idProposal` (no recall height), so proposing this as a plain send
+      // would mint a P2ID that doesn't match the mandate AND leaves the collateral
+      // with no reclaim path. `openEarnPosition` refuses Guardian accounts before a
+      // row is ever queued; this is the backstop for any row that slips through
+      // (e.g. an account converted to Guardian while a deposit was queued).
+      throw new Error(
+        'Earn deposits are not available on Guardian accounts yet — the collateral note needs a reclaim ' +
+          'height that Guardian proposals cannot express.'
+      );
     }
     case 'swap': {
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
@@ -734,6 +758,8 @@ const generateGuardianTransaction = async (
     case 'bridged-send':
       await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
       break;
+    // No `earn-deposit` case: the proposal switch above throws for that type on
+    // Guardian accounts (no P2IDE proposal exists), so it can never reach here.
     case 'execute':
     default:
       await completeCustomTransaction(transaction, result);
@@ -810,8 +836,29 @@ export const generateTransactionsLoop = async (
     // ConsumedExternal. Retrying would hit the node's nullifier check
     // and produce a misleading "already consumed" error.
     if (errorCode === 'ApplyTransactionAfterSubmitFailed') {
-      logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
       const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
+
+      // `earn-deposit` is the one type whose caller (`createEarnP2IDNote` via
+      // `waitForTransactionCompletion`) reads `resultBytes`/`outputNoteIds` back off
+      // the completed row. This generic post-submit path has no `TransactionResult`
+      // to repopulate them from (the apply threw before we could capture it), so
+      // marking the row Completed here would leave the caller to
+      // `TransactionResult.deserialize(undefined)` — which throws *after* cleanup()
+      // fires, settling the wait promise as neither success nor timeout and hanging
+      // the Epoch solve callback (and `openEarnPosition`) forever. Fail the row
+      // instead so the caller resolves via the error branch and gives up cleanly;
+      // the on-chain P2IDE collateral note reclaims itself at its recall height.
+      // `earn-deposit` is excluded from `REQUEUEABLE_TYPES`, so a Failed row is never
+      // blindly re-queued into a duplicate collateral note.
+      if (tx && tx.type === 'earn-deposit') {
+        logger.warning(
+          'Earn-deposit submitted but local apply failed; marking Failed so the awaiting caller stops waiting'
+        );
+        if (tx.status !== ITransactionStatus.Failed) await cancelTransaction(tx, e);
+        return false;
+      }
+
+      logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
       if (tx && tx.status !== ITransactionStatus.Completed) {
         // Guardian ops never reach here — they're routed through the guardian branch
         // of `generateTransaction`, whose own catch handles apply-after-submit-failed

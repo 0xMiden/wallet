@@ -1,4 +1,489 @@
 {
+  "payload": {
+    "message": "Корисне навантаження",
+    "englishSource": "Payload"
+  },
+  "bridgeDepositTitle": {
+    "message": "Міденський міст",
+    "englishSource": "Miden Bridge"
+  },
+  "bridgeDepositHeading": {
+    "message": "Підтвердьте свій депозит",
+    "englishSource": "Confirm your deposit"
+  },
+  "bridgeDepositSubheading": {
+    "message": "Ваш гаманець відкриється, щоб підтвердити точну суму та підписати Sepolia.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+  },
+  "bridgeDepositYouReceive": {
+    "message": "Ви отримуєте",
+    "englishSource": "You receive"
+  },
+  "bridgeDepositBridgeOption": {
+    "message": "Мостовий варіант",
+    "englishSource": "Bridge option"
+  },
+  "bridgeDepositApprovingTitle": {
+    "message": "Те, що ви схвалюєте",
+    "englishSource": "What you're approving"
+  },
+  "bridgeDepositApprovingBody": {
+    "message": "Ваш гаманець попросить підтвердження $tokenSymbol$ і підписати депозит на Sepolia. Кошти надходять на Miden після підтвердження.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "placeholders": {
+      "tokensymbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "balanceCardTotalBalance": {
+    "message": "Загальний баланс",
+    "englishSource": "Total Balance"
+  },
+  "balanceCardDeltaPill": {
+    "message": "$absolute$ ($percentage$)",
+    "englishSource": "$absolute$ ($percentage$)",
+    "placeholders": {
+      "absolute": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
+  "balanceCardAccount": {
+    "message": "Рахунок №: $number$ ",
+    "englishSource": "Account #: $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "balanceCardAccountOptions": {
+    "message": "Параметри облікового запису",
+    "englishSource": "Account options"
+  },
+  "dappSwitcherLoading": {
+    "message": "Завантаження…",
+    "englishSource": "Loading…"
+  },
+  "dappSwitcherCardActivate": {
+    "message": "$name$. Активуйте, щоб перейти до цього dApp.",
+    "englishSource": "$name$. Activate to switch to this dApp.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappSwitcherCloseCard": {
+    "message": "Закрити $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "promptCardDismiss": {
+    "message": "Відхилити",
+    "englishSource": "Dismiss"
+  },
+  "promptCardLoading": {
+    "message": "Завантаження",
+    "englishSource": "Loading"
+  },
+  "priceChangeAmountNeutral": {
+    "message": "$amount$",
+    "englishSource": "$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "priceChangeAmountPositive": {
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "priceChangeAmountNegative": {
+    "message": "- $amount$ ",
+    "englishSource": "-$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "priceChangePercent": {
+    "message": "$value$%",
+    "englishSource": "$value$%",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingTabApproxUsd": {
+    "message": "≈  $value$ ",
+    "englishSource": "≈ $value$",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailChange24h": {
+    "message": "$change$%",
+    "englishSource": "$change$%",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyDetailsIdLabel": {
+    "message": "ID: $id$ ",
+    "englishSource": "ID: $id$",
+    "placeholders": {
+      "id": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyDetailsAmountFilledValue": {
+    "message": "$filled$ / $total$$symbol$",
+    "englishSource": "$filled$ / $total$$symbol$",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
+  "historyDetailsLoadError": {
+    "message": "Не вдалося завантажити транзакцію",
+    "englishSource": "Failed to load transaction"
+  },
+  "historyDetailsFiatApprox": {
+    "message": "≈  $amount$ доларів США",
+    "englishSource": "≈ $amount$ USD",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappTileVerifiedLabel": {
+    "message": "$name$, перевірений dApp",
+    "englishSource": "$name$, verified dApp",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappPeekCardOverflowBadge": {
+    "message": "+ $count$ ",
+    "englishSource": "+$count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "settingsVersion": {
+    "message": "Версія $version$ ",
+    "englishSource": "Version $version$",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
+  },
+  "unlockBrandName": {
+    "message": "Хліб",
+    "englishSource": "Bread"
+  },
+  "earnPositionHeaderTitle": {
+    "message": "мій $protocol$  •  $asset$ положення",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnAssetOnNetwork": {
+    "message": "$asset$ на $network$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnMetricDeposited": {
+    "message": "Депонований",
+    "englishSource": "Deposited"
+  },
+  "earnMetricTotalEarned": {
+    "message": "Всього зароблено",
+    "englishSource": "Total Earned"
+  },
+  "earnMetricDailyAvg": {
+    "message": "Середнє щоденне",
+    "englishSource": "Daily Avg"
+  },
+  "earnMetricTimeActive": {
+    "message": "Час активний",
+    "englishSource": "Time Active"
+  },
+  "earnMetricStarted": {
+    "message": "розпочато",
+    "englishSource": "Started"
+  },
+  "earnProjectedEarnings": {
+    "message": "~  $estimate$ · при $apy$ APY",
+    "englishSource": "~ $estimate$ · at $apy$ APY",
+    "placeholders": {
+      "estimate": {
+        "content": "$1"
+      },
+      "apy": {
+        "content": "$2"
+      }
+    }
+  },
+  "protocol": {
+    "message": "Протокол",
+    "englishSource": "Protocol"
+  },
+  "position": {
+    "message": "Позиція",
+    "englishSource": "Position"
+  },
+  "withdraw": {
+    "message": "Вилучити",
+    "englishSource": "Withdraw"
+  },
+  "earnDepositMore": {
+    "message": "Депозит більше",
+    "englishSource": "Deposit more"
+  },
+  "earnWithdrawAmount": {
+    "message": "Зняти суму",
+    "englishSource": "Withdraw Amount"
+  },
+  "earnWithdrawalLabel": {
+    "message": "Вилучення",
+    "englishSource": "Withdrawal"
+  },
+  "earnFullPositionGasless": {
+    "message": "Повне положення (без газу)",
+    "englishSource": "Full position (gasless)"
+  },
+  "earnEstimatedTimeLabel": {
+    "message": "Розрахунковий час",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeOneMinute": {
+    "message": "~1 хвилина",
+    "englishSource": "~1 minute"
+  },
+  "withdrawing": {
+    "message": "Зняття…",
+    "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "Ця позиція не належить поточному обліковому запису EVM, отриманому з гаманця.",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
+  },
+  "earnGaslessWithdrawalFailed": {
+    "message": "Не вдалося відвести без газу.",
+    "englishSource": "Gasless withdrawal failed."
+  },
+  "earnCurrentApy": {
+    "message": "Поточний APY",
+    "englishSource": "Current APY"
+  },
+  "earnDeposit": {
+    "message": "депозит",
+    "englishSource": "Deposit"
+  },
+  "earnTvlLabel": {
+    "message": "TVL",
+    "englishSource": "TVL"
+  },
+  "earnRiskLabel": {
+    "message": "Ризик",
+    "englishSource": "Risk"
+  },
+  "earnAuditedLabel": {
+    "message": "Перевірено",
+    "englishSource": "Audited"
+  },
+  "earnDepositAmountTitle": {
+    "message": "Сума депозиту",
+    "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "Відкрита позиція",
+    "englishSource": "Open position"
+  },
+  "earnProjection1Month": {
+    "message": "1 місяць",
+    "englishSource": "1 Month"
+  },
+  "earnProjection6Months": {
+    "message": "6 місяців",
+    "englishSource": "6 Months"
+  },
+  "earnProjection1Year": {
+    "message": "1 рік",
+    "englishSource": "1 Year"
+  },
+  "earnProjectionNow": {
+    "message": "Зараз",
+    "englishSource": "Now"
+  },
+  "earnProjectedRewardAmount": {
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnCollateralLabel": {
+    "message": "Застава",
+    "englishSource": "Collateral"
+  },
+  "earnCollateralValue": {
+    "message": "Miden P2IDE (безгазовий)",
+    "englishSource": "Miden P2IDE (gasless)"
+  },
+  "earnDepositRoute": {
+    "message": "Міден -> $protocol$  ( $network$ )",
+    "englishSource": "Miden -> $protocol$ ($network$)",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnEstimatedTime": {
+    "message": "Розрахунковий час",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeValue": {
+    "message": "~30 секунд",
+    "englishSource": "~30 seconds"
+  },
+  "earnNoEvmAddress": {
+    "message": "Для цього облікового запису немає адреси EVM.",
+    "englishSource": "No EVM address available for this account."
+  },
+  "earnFailedToOpenPosition": {
+    "message": "Не вдалося відкрити позицію",
+    "englishSource": "Failed to open position"
+  },
+  "earnTotalEarnedRewards": {
+    "message": "Загальна кількість зароблених винагород",
+    "englishSource": "Total Earned Rewards"
+  },
+  "earnEarningBlendedApy": {
+    "message": "Заробіток $apy$ змішаний APY",
+    "englishSource": "Earning $apy$ blended APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnTotalDeposited": {
+    "message": "Всього внесено",
+    "englishSource": "Total Deposited"
+  },
+  "earnEstimatedRewards": {
+    "message": "Приблизні винагороди",
+    "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "Мої позиції",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "посади",
+    "englishSource": "Positions"
+  },
+  "earnPositionsApy": {
+    "message": "$apy$ APY",
+    "englishSource": "$apy$ APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnDeposited": {
+    "message": "Депонований",
+    "englishSource": "Deposited"
+  },
+  "earnDepositAmountLabel": {
+    "message": "Сума депозиту",
+    "englishSource": "Deposit Amount"
+  },
+  "earnSeeAll": {
+    "message": "Переглянути всі",
+    "englishSource": "See All"
+  },
+  "earnVaultsTitle": {
+    "message": "Рекомендовані сховища",
+    "englishSource": "Featured Vaults"
+  },
+  "earnApyLabel": {
+    "message": "APY",
+    "englishSource": "APY"
+  },
+  "earnVaultAssetOnNetwork": {
+    "message": "$asset$ на $network$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "Поточні позиції",
+    "englishSource": "Current Positions"
+  },
   "advanced": {
     "message": "Просунутий",
     "englishSource": "Advanced"
@@ -900,6 +1385,33 @@
   "other": {
     "message": "Інше",
     "englishSource": "Other"
+  },
+  "thousandFormat": {
+    "message": "$thousand$k",
+    "englishSource": "$thousand$k",
+    "placeholders": {
+      "thousand": {
+        "content": "$1"
+      }
+    }
+  },
+  "millionFormat": {
+    "message": "$million$M",
+    "englishSource": "$million$M",
+    "placeholders": {
+      "million": {
+        "content": "$1"
+      }
+    }
+  },
+  "billionFormat": {
+    "message": "$billion$B",
+    "englishSource": "$billion$B",
+    "placeholders": {
+      "billion": {
+        "content": "$1"
+      }
+    }
   },
   "download": {
     "message": "Завантажити",
@@ -3090,6 +3602,10 @@
     "message": "Не вдалося",
     "englishSource": "Failed"
   },
+  "earnDepositGuardianUnsupported": {
+    "message": "Заробляти депозити ще не доступні для облікових записів Guardian. Перейдіть на стандартний рахунок для депозиту.",
+    "englishSource": "Earn deposits aren’t available on Guardian accounts yet. Switch to a standard account to deposit."
+  },
   "reclaimFunds": {
     "message": "Повернути кошти",
     "englishSource": "Reclaim funds"
@@ -3141,5 +3657,81 @@
   "opaqueSignatureWarning": {
     "message": "Цей сайт попросив вас підписати необроблене значення. Гаманець не може показати, що він авторизує. Продовжуйте, лише якщо ви повністю довіряєте цьому сайту.",
     "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+  },
+  "note": {
+    "message": "Note",
+    "englishSource": "Note"
+  },
+  "earnMarketLabel": {
+    "message": "Market",
+    "englishSource": "Market"
+  },
+  "positionOwnerLabel": {
+    "message": "Position owner",
+    "englishSource": "Position owner"
+  },
+  "earnDepositDetailsTitle": {
+    "message": "Deposit details",
+    "englishSource": "Deposit details"
+  },
+  "earnWithdrawDetailsTitle": {
+    "message": "Withdrawal details",
+    "englishSource": "Withdrawal details"
+  },
+  "depositIntentLabel": {
+    "message": "Deposit intent",
+    "englishSource": "Deposit intent"
+  },
+  "redeemIntentLabel": {
+    "message": "Redeem intent",
+    "englishSource": "Redeem intent"
+  },
+  "earnWithdrawRowTitle": {
+    "message": "Withdraw from Earn",
+    "englishSource": "Withdraw from Earn"
+  },
+  "earnWithdrawRowVia": {
+    "message": "Via Epoch → Miden",
+    "englishSource": "Via Epoch → Miden"
+  },
+  "earnWithdrawStatusRedeeming": {
+    "message": "Redeeming",
+    "englishSource": "Redeeming"
+  },
+  "earnWithdrawStatusDelivering": {
+    "message": "Delivering",
+    "englishSource": "Delivering"
+  },
+  "withdrawalStarted": {
+    "message": "Withdrawal Started!",
+    "englishSource": "Withdrawal Started!"
+  },
+  "withdrawalStartedDescription": {
+    "message": "Your funds are being bridged back to Miden. Track delivery in Activity.",
+    "englishSource": "Your funds are being bridged back to Miden. Track delivery in Activity."
+  },
+  "withdrawalProcessing": {
+    "message": "Processing Withdrawal",
+    "englishSource": "Processing Withdrawal"
+  },
+  "withdrawalProcessingDescription": {
+    "message": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds.",
+    "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
+  },
+  "withdrawalFailed": {
+    "message": "Withdrawal Failed",
+    "englishSource": "Withdrawal Failed"
+  },
+  "transactionComplete": {
+    "message": "Transaction Complete!",
+    "englishSource": "Transaction Complete!"
+  },
+  "totalPaid": {
+    "message": "Total Paid",
+    "englishSource": "Total Paid"
+  },
+  "sourceTx": {
+    "message": "Source TX",
+    "englishSource": "Source TX"
   }
 }

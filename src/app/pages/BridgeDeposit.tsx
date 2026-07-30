@@ -74,7 +74,7 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   return (
     <div className="flex h-full min-h-0 flex-col bg-app-bg text-heading-gray">
       <div className="shrink-0 px-4">
-        <ScreenHeader title="Miden Bridge" closeLabel={t('close')} onClose={handleClose} />
+        <ScreenHeader title={t('midenBridge')} closeLabel={t('close')} onClose={handleClose} />
       </div>
 
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">

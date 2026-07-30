@@ -37,6 +37,33 @@ jest.mock('lib/store', () => ({
     selector({ tokenPrices: mockTokenPrices })
 }));
 
+// Translate through a fixture matching the English templates in en.json so the
+// assertions below keep verifying the component's formatted output (sign +
+// currency + amount, percentage) rather than opaque translation keys.
+jest.mock('react-i18next', () => {
+  const templates: Record<string, string> = {
+    // The `$` currency symbol is supplied by the component (it passes `$${amount}`), so
+    // these mirror the en.json values, which interpolate the already-$-prefixed value.
+    priceChangeAmountNeutral: '{{amount}}',
+    priceChangeAmountPositive: '+{{amount}}',
+    priceChangeAmountNegative: '-{{amount}}',
+    priceChangePercent: '{{value}}%'
+  };
+  return {
+    useTranslation: () => ({
+      t: (key: string, opts?: Record<string, unknown>) => {
+        let out = templates[key] ?? key;
+        if (opts) {
+          for (const [name, value] of Object.entries(opts)) {
+            out = out.replace(`{{${name}}}`, String(value));
+          }
+        }
+        return out;
+      }
+    })
+  };
+});
+
 jest.mock('lib/ui/badge', () => ({
   Badge: ({ className, children }: { className?: string; children: React.ReactNode }) => (
     <span data-testid="badge" className={className}>

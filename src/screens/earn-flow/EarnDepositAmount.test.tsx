@@ -13,6 +13,11 @@ jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
 
+// i18n: assert on keys, not English copy.
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
+
 // `./components` transitively pulls in the `app/icons/v2` SVG barrel plus the
 // `CircleButton`/`TokenLogo` widgets. Stub `EarnFlowHeader` to a probe that
 // surfaces which vault the page resolved (`data-vault-id`) so we can prove the
@@ -69,10 +74,49 @@ jest.mock('screens/send-flow/SelectAmount', () => ({
   )
 }));
 
+// The page resolves its vault from live Epoch data via `useEarnPositions`
+// (`useAccount` + SWR under the hood). Serve the static demo fixture instead.
+jest.mock('./useEarnPositions', () => {
+  const { EARN_DATA } = jest.requireActual<typeof import('./data')>('./data');
+  return {
+    useEarnPositions: () => ({
+      summary: EARN_DATA.summary,
+      positions: EARN_DATA.positions,
+      vaults: EARN_DATA.vaults,
+      isLoading: false,
+      error: undefined
+    })
+  };
+});
+
+// The deposit token comes from the account's USDC balance row. Stub the wallet
+// hooks with a fixed USDC row so the token props are deterministic.
+jest.mock('lib/miden/front', () => ({
+  useAccount: () => ({ publicKey: 'mm1testaccount', evmAddress: '0xabc' }),
+  useAllTokensBaseMetadata: () => ({}),
+  useAllBalances: () => ({
+    data: [
+      {
+        tokenId: '0xusdcfaucet',
+        balance: 200,
+        fiatPrice: 1,
+        metadata: { symbol: 'USDC', decimals: 6 }
+      }
+    ]
+  })
+}));
+
+// `lib/epoch` is the Epoch SDK barrel (wasm + network clients). Only the USDC
+// faucet constants and the id normalizer are used here.
+jest.mock('lib/epoch', () => ({
+  MIDEN_USDC_DECIMALS: 6,
+  MIDEN_USDC_FAUCET: '0xusdcfaucet',
+  normalizeMidenIdToHex: (id: string) => id.toLowerCase()
+}));
+
 const mockNavigate = navigate as jest.Mock;
 
 const FOUND_VAULT = EARN_DATA.vaults[1]!; // 'aave-usdc-ethereum-2'
-const DEFAULT_VAULT = EARN_DATA.vaults[0]!; // 'aave-usdc-ethereum-1'
 
 const setAmount = (value: string) => fireEvent.change(screen.getByTestId('amount-input'), { target: { value } });
 
@@ -94,12 +138,12 @@ describe('EarnDepositAmount', () => {
     expect(header).toHaveAttribute('data-network', FOUND_VAULT.network);
   });
 
-  it('derives the deposit token from the resolved vault asset', () => {
+  it('derives the deposit token from the account USDC balance row', () => {
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
     const select = screen.getByTestId('select-amount');
-    expect(select).toHaveAttribute('data-token-id', FOUND_VAULT.asset.toLowerCase());
-    expect(select).toHaveAttribute('data-token-name', FOUND_VAULT.asset);
+    expect(select).toHaveAttribute('data-token-id', '0xusdcfaucet');
+    expect(select).toHaveAttribute('data-token-name', 'USDC');
     expect(select).toHaveAttribute('data-token-decimals', '6');
     expect(select).toHaveAttribute('data-token-balance', '200');
     expect(select).toHaveAttribute('data-token-fiat', '1');
@@ -109,17 +153,21 @@ describe('EarnDepositAmount', () => {
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
     const select = screen.getByTestId('select-amount');
-    expect(select).toHaveAttribute('data-label', 'Deposit Amount');
-    expect(select).toHaveAttribute('data-confirm-title', 'Confirm');
+    expect(select).toHaveAttribute('data-label', 'earnDepositAmountLabel');
+    expect(select).toHaveAttribute('data-confirm-title', 'confirm');
     expect(select).toHaveAttribute('data-show-network-pill', 'false');
     expect(select).toHaveAttribute('data-footer', 'pt-4 pb-6');
   });
 
-  it('falls back to the default vault when vaultId matches nothing', () => {
+  it('falls back to the placeholder vault when vaultId matches nothing', () => {
     render(<EarnDepositAmount vaultId="no-such-vault" />);
 
-    // `find` returns undefined, so `?? DEFAULT_VAULT` supplies the first vault.
-    expect(screen.getByTestId('earn-flow-header')).toHaveAttribute('data-vault-id', DEFAULT_VAULT.id);
+    // `find` returns undefined, so `?? placeholderVault()` supplies an empty-id
+    // vault whose display fields are the "—" placeholder.
+    const header = screen.getByTestId('earn-flow-header');
+    expect(header).toHaveAttribute('data-vault-id', '');
+    expect(header).toHaveAttribute('data-protocol', '—');
+    expect(header).toHaveAttribute('data-asset', '—');
   });
 
   it('shows the balance helper and blocks confirm while the amount is empty', () => {
