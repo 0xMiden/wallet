@@ -190,6 +190,14 @@ describe('RecallCalendarDrawer', () => {
     expect(screen.getByTestId('calendar-selected')).toHaveTextContent(recallDate.toISOString());
   });
 
+  it('anchors the visible month to the selected date, not the current month', async () => {
+    // Near month-end the default 7-day expiration lives in the NEXT month —
+    // the calendar must open on the selection's month so the day is visible.
+    const recallDate = new Date('2030-06-15T00:00:00');
+    await renderDrawer(makeProps({ recallDate }));
+    expect(screen.getByTestId('calendar-month').textContent).toBe(new Date(2030, 5, 1).toISOString());
+  });
+
   it('picking a calendar date updates the date and re-anchors the visible month', async () => {
     const props = makeProps();
     await renderDrawer(props);

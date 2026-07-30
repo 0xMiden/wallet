@@ -74,9 +74,19 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
   onRecallTimeChange
 }) => {
   const { t } = useTranslation();
-  const [calendarMonth, setCalendarMonth] = useState<Date>(
-    new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-  );
+  const [calendarMonth, setCalendarMonth] = useState<Date>(() => {
+    const anchor = recallDate ?? new Date();
+    return new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  });
+
+  // Re-anchor the visible month to the selected date each time the drawer
+  // opens: the mount-time initializer can run before the parent seeds the
+  // default 7-day date, and near month-end that default lives in the NEXT
+  // month — opening on the current month would hide the selected day.
+  useEffect(() => {
+    if (!open || !recallDate) return;
+    setCalendarMonth(new Date(recallDate.getFullYear(), recallDate.getMonth(), 1));
+  }, [open, recallDate]);
 
   // Time ticks while the drawer is open so a selection that WAS in the future
   // when typed goes red the moment the clock passes it (15s granularity is
