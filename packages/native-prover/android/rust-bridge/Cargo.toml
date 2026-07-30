@@ -16,14 +16,17 @@ crate-type = ["cdylib"]
 [workspace]
 
 [dependencies]
-# miden-client 0.15 is not on crates.io yet — pin the exact `next` rev the
-# published @miden-sdk/miden-sdk WASM is built from (see the web-sdk repo's
-# workspace Cargo.lock / MIDEN_CLIENT_REF). The TransactionInputs /
-# ProvenTransaction wire format must match the SDK byte-for-byte, and the
-# committed .so binaries must be reproducible, so a moving branch ref is
-# not acceptable here. `concurrent` cascades rayon-backed parallel proving
-# through miden-tx → miden-prover.
-miden-client = { git = "https://github.com/0xMiden/miden-client", rev = "733720a7ce5886a390c848402b61079be1e6aa38", default-features = false, features = ["std", "concurrent"] }
+# Pin the EXACT published miden-client the wallet's @miden-sdk/miden-sdk is
+# built from (web-sdk v0.15.8 → miden-client 0.15.4 on crates.io; check the
+# web-sdk tag's Cargo.lock). Both the TransactionInputs / ProvenTransaction
+# wire format AND the transaction-kernel / library MAST procedure roots must
+# match the SDK byte-for-byte — building against a divergent pre-release git
+# rev (even at the same 0.15.x version number) makes the prover reject valid
+# transactions with "procedure with root digest … could not be found".
+# Bump this in lockstep with the wallet's @miden-sdk/miden-sdk version.
+# `concurrent` cascades rayon-backed parallel proving through miden-tx →
+# miden-prover.
+miden-client = { version = "=0.15.4", default-features = false, features = ["std", "concurrent"] }
 futures-executor = { version = "0.3", default-features = false, features = ["std"] }
 
 # JNI binding crate. Only depended on here because this lib is

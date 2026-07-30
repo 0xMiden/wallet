@@ -21,6 +21,7 @@ import {
   MAX_WAIT_BEFORE_CANCEL,
   MAX_QUEUED_AGE,
   REMOTE_PROVER_FAILED_ERROR,
+  LOCAL_PROVER_FAILED_ERROR,
   MAX_CONSECUTIVE_CONSUME_FAILURES,
   RECENT_FAILURE_WINDOW_SEC,
   RETRY_COOLDOWN_SEC
@@ -832,43 +833,52 @@ describe('transactions utilities', () => {
       expect(dbTx.error).toBe('simple error string');
     });
 
-    it('rewrites a proving-stage failure to the friendly prover message and keeps the raw error', async () => {
-      const mockModify = jest.fn();
-      mockTransactionsWhere
-        // Finalized-guard lookup returns the live row, exposing the stage it died in.
-        .mockReturnValueOnce({
-          first: jest.fn().mockResolvedValueOnce({ id: 'tx-1', status: ITransactionStatus.Queued, stage: 'proving' })
-        })
-        .mockReturnValueOnce({ modify: mockModify });
+    it('rewrites a proving-stage failure to the matching prover message (remote vs local) and keeps the raw error', async () => {
+      const runProvingCancel = async (delegateTransaction: boolean | undefined) => {
+        const mockModify = jest.fn();
+        mockTransactionsWhere
+          // Finalized-guard lookup returns the live row, exposing the stage it died in.
+          .mockReturnValueOnce({
+            first: jest.fn().mockResolvedValueOnce({ id: 'tx-1', status: ITransactionStatus.Queued, stage: 'proving' })
+          })
+          .mockReturnValueOnce({ modify: mockModify });
+        await cancelTransaction({ id: 'tx-1', delegateTransaction } as Transaction, new Error('prover exploded'));
+        const dbTx: any = {};
+        mockModify.mock.calls[0]![0](dbTx);
+        return dbTx;
+      };
 
-      const tx = { id: 'tx-1' } as Transaction;
-      await cancelTransaction(tx, new Error('prover exploded'));
+      // Delegated (remote) proving → remote message.
+      const remote = await runProvingCancel(true);
+      expect(remote.error).toBe(REMOTE_PROVER_FAILED_ERROR);
+      expect(remote.rawError).toBe('Error: prover exploded');
 
-      const modifyFn = mockModify.mock.calls[0]![0];
-      const dbTx: any = {};
-      modifyFn(dbTx);
-
-      expect(dbTx.error).toBe(REMOTE_PROVER_FAILED_ERROR);
-      expect(dbTx.rawError).toBe('Error: prover exploded');
+      // Local (on-device / native) proving → local message, NOT the remote one.
+      const local = await runProvingCancel(false);
+      expect(local.error).toBe(LOCAL_PROVER_FAILED_ERROR);
+      expect(local.rawError).toBe('Error: prover exploded');
     });
 
-    it('rewrites a sending-stage timeout but passes through non-timeout sending failures raw', async () => {
-      const runCancel = async (message: string) => {
+    it('rewrites a sending-stage timeout to the matching prover message but passes through non-timeout sending failures raw', async () => {
+      const runCancel = async (message: string, delegateTransaction?: boolean) => {
         const mockModify = jest.fn();
         mockTransactionsWhere
           .mockReturnValueOnce({
             first: jest.fn().mockResolvedValueOnce({ id: 'tx-1', status: ITransactionStatus.Queued, stage: 'sending' })
           })
           .mockReturnValueOnce({ modify: mockModify });
-        await cancelTransaction({ id: 'tx-1' } as Transaction, new Error(message));
+        await cancelTransaction({ id: 'tx-1', delegateTransaction } as Transaction, new Error(message));
         const dbTx: any = {};
         mockModify.mock.calls[0]![0](dbTx);
         return dbTx;
       };
 
-      const timedOut = await runCancel('request timeout hit');
-      expect(timedOut.error).toBe(REMOTE_PROVER_FAILED_ERROR);
-      expect(timedOut.rawError).toBe('Error: request timeout hit');
+      const remoteTimedOut = await runCancel('request timeout hit', true);
+      expect(remoteTimedOut.error).toBe(REMOTE_PROVER_FAILED_ERROR);
+      expect(remoteTimedOut.rawError).toBe('Error: request timeout hit');
+
+      const localTimedOut = await runCancel('request timeout hit', false);
+      expect(localTimedOut.error).toBe(LOCAL_PROVER_FAILED_ERROR);
 
       const other = await runCancel('insufficient balance');
       expect(other.error).toBe('Error: insufficient balance');

@@ -44,7 +44,9 @@ export const cancelTransaction = async (transaction: Transaction, error: any) =>
   const failedStage = existing?.stage;
   const rawError = formatRawTransactionError(error);
   const displayError =
-    error === USER_CANCELLED_TRANSACTION_REASON ? error : resolveTransactionErrorMessage(error, failedStage);
+    error === USER_CANCELLED_TRANSACTION_REASON
+      ? error
+      : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction);
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
     dbTx.completedAt = Math.floor(Date.now() / 1000); // Convert to seconds
     dbTx.status = ITransactionStatus.Failed;
