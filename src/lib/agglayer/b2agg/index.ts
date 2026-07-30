@@ -1,14 +1,4 @@
-import {
-  AccountId,
-  AssetCallbackFlag,
-  EthAddress,
-  FungibleAsset,
-  Note,
-  NoteArray,
-  NoteAssets,
-  TransactionRequest,
-  TransactionRequestBuilder
-} from '@miden-sdk/miden-sdk/lazy';
+import { Note, NoteArray, TransactionRequest, TransactionRequestBuilder } from '@miden-sdk/miden-sdk/lazy';
 
 import {
   initiateBridgedSendTransaction,
@@ -17,30 +7,22 @@ import {
   waitForTransactionCompletion
 } from 'lib/miden/activity';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isExtension } from 'lib/platform';
 
-import { MIDEN_BRIDGE_ID, getAgglayerFaucetId, hasAgglayerFaucetOverride } from './constant';
+import { getAgglayerFaucetId } from './constant';
 
 export async function createB2AggNote(
   amount: bigint,
   destinationAddress: `0x${string}`,
   senderAddress: string,
   destinationNetwork: number
-) {
-  const asset = new FungibleAsset(AccountId.fromHex(getAgglayerFaucetId()), amount);
-  // The real bridge faucet issues Enabled-callback assets; a plain CLI test
-  // faucet (E2E override) issues Disabled ones, which live in a different vault
-  // slot — reference that slot so `createB2AggNote` finds the minted balance.
-  const callbackFlag = hasAgglayerFaucetOverride() ? AssetCallbackFlag.Disabled : AssetCallbackFlag.Enabled;
-  return Note.createB2AggNote(
-    accountIdStringToSdk(senderAddress),
-    AccountId.fromHex(MIDEN_BRIDGE_ID),
-    new NoteAssets([asset.withCallbacks(callbackFlag)]),
-    destinationNetwork,
-    EthAddress.fromHex(destinationAddress)
-  );
+): Promise<Note> {
+  // Reduced 0.16 test build: Note.createB2AggNote / AssetCallbackFlag / EthAddress /
+  // FungibleAsset.withCallbacks are absent on this SDK branch, so the AggLayer
+  // bridge-out path is unavailable.
+  void [amount, destinationAddress, senderAddress, destinationNetwork];
+  throw new Error('AggLayer bridge is disabled in this reduced 0.16 test build');
 }
 
 export interface B2AggBridgeDeps {

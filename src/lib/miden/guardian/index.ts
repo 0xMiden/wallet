@@ -282,9 +282,10 @@ export class MultisigService {
       if (!requestBytes) {
         throw new Error('Request Bytes are required for custom execution');
       }
-      const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
-      const request = TransactionRequest.deserialize(requestBytes);
-      return request.extendAdviceMap(advice);
+      // Reduced 0.16 test build: prepareCustomExecution / TransactionRequest.extendAdviceMap
+      // are absent on this SDK branch, so guardian custom (dApp) execution is disabled.
+      void requestBytes;
+      throw new Error('Guardian custom execution is disabled in this reduced 0.16 test build');
     }
     return withWasmClientLock(() => this.multisig.createTransactionProposalRequest(id));
   }

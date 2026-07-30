@@ -31,24 +31,38 @@ export function resolveNetworkName(raw: string | undefined): MIDEN_NETWORK_NAME 
  */
 export const DEFAULT_NETWORK = resolveNetworkName(process.env.MIDEN_NETWORK);
 
+// ============================================================================
+// LOCAL CONNECTION OVERRIDE (reduced 0.16 encrypted-tx test build)
+// Every network below resolves to these hardcoded endpoints regardless of
+// MIDEN_NETWORK, so RPC / note-transport / prover are pinned no matter which
+// consumer or network key is read. Revert by restoring the per-network values.
+//   RPC    -> http://rpc.localhost
+//   NTL    -> http://ntl.localhost
+//   Prover -> https://tx-prover.devnet.miden.io  (devnet prover)
+// ============================================================================
+const OVERRIDE_RPC_URL = 'http://rpc.localhost';
+const OVERRIDE_NTL_URL = 'http://ntl.localhost';
+const OVERRIDE_PROVER_URL = 'https://tx-prover.devnet.miden.io'; // devnet prover
+
 export enum MIDEN_TRANSPORT_LAYER_NAME {
   TESTNET = 'testnet',
   LOCALNET = 'localnet'
 }
 
 export const MIDEN_NETWORK_ENDPOINTS = new Map<string, string>([
-  [MIDEN_NETWORK_NAME.MAINNET, 'https://api.miden.io'], // Placeholder
-  [MIDEN_NETWORK_NAME.TESTNET, 'https://rpc.testnet.miden.io'],
-  [MIDEN_NETWORK_NAME.DEVNET, 'https://rpc.devnet.miden.io'],
-  [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:57291']
+  // OVERRIDE: every network -> http://rpc.localhost (reduced 0.16 test build)
+  [MIDEN_NETWORK_NAME.MAINNET, OVERRIDE_RPC_URL],
+  [MIDEN_NETWORK_NAME.TESTNET, OVERRIDE_RPC_URL],
+  [MIDEN_NETWORK_NAME.DEVNET, OVERRIDE_RPC_URL],
+  [MIDEN_NETWORK_NAME.LOCALNET, OVERRIDE_RPC_URL]
 ]);
 
 export const MIDEN_PROVING_ENDPOINTS = new Map<string, string>([
-  [MIDEN_NETWORK_NAME.TESTNET, 'https://tx-prover.testnet.miden.io'],
-  [MIDEN_NETWORK_NAME.DEVNET, 'https://tx-prover.devnet.miden.io'],
-  // :50052, not :50051 — a locally-run guardian binds host :50051 for its gRPC,
-  // so the localnet remote prover is published on :50052 to avoid the collision.
-  [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:50052']
+  // OVERRIDE: every network -> devnet prover (reduced 0.16 test build)
+  [MIDEN_NETWORK_NAME.MAINNET, OVERRIDE_PROVER_URL],
+  [MIDEN_NETWORK_NAME.TESTNET, OVERRIDE_PROVER_URL],
+  [MIDEN_NETWORK_NAME.DEVNET, OVERRIDE_PROVER_URL],
+  [MIDEN_NETWORK_NAME.LOCALNET, OVERRIDE_PROVER_URL]
 ]);
 
 export const MIDEN_FAUCET_ENDPOINTS = new Map<string, string>([
@@ -66,9 +80,11 @@ export const MIDEN_FAUCET_API_ENDPOINTS = new Map<string, string>([
 ]);
 
 export const MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS = new Map<string, string>([
-  [MIDEN_NETWORK_NAME.TESTNET, 'https://transport.miden.io'],
-  [MIDEN_NETWORK_NAME.DEVNET, 'https://transport.devnet.miden.io'],
-  [MIDEN_NETWORK_NAME.LOCALNET, 'http://127.0.0.1:57292']
+  // OVERRIDE: every network -> http://ntl.localhost (reduced 0.16 test build)
+  [MIDEN_NETWORK_NAME.MAINNET, OVERRIDE_NTL_URL],
+  [MIDEN_NETWORK_NAME.TESTNET, OVERRIDE_NTL_URL],
+  [MIDEN_NETWORK_NAME.DEVNET, OVERRIDE_NTL_URL],
+  [MIDEN_NETWORK_NAME.LOCALNET, OVERRIDE_NTL_URL]
 ]);
 
 export const MIDEN_EXPLORER_ENDPOINTS = new Map<string, string>([
@@ -93,23 +109,25 @@ export function getExplorerTxUrl(txHash: string, network: string = DEFAULT_NETWO
 const MIDEN_NOTE_TRANSPORT_URL_OVERRIDE = process.env.MIDEN_NOTE_TRANSPORT_URL || '';
 
 export function getNoteTransportUrl(network: string): string | undefined {
-  return MIDEN_NOTE_TRANSPORT_URL_OVERRIDE || MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(network);
+  // OVERRIDE: falls through to http://ntl.localhost even for an unmapped network.
+  return MIDEN_NOTE_TRANSPORT_URL_OVERRIDE || MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(network) || OVERRIDE_NTL_URL;
 }
 
 export const MIDEN_NETWORKS: MidenNetwork[] = [
+  // OVERRIDE: every network's rpcBaseURL -> http://rpc.localhost (reduced 0.16 test build)
   {
-    rpcBaseURL: 'https://rpc.testnet.miden.io',
+    rpcBaseURL: OVERRIDE_RPC_URL,
     id: MIDEN_NETWORK_NAME.TESTNET,
     name: 'Testnet',
     autoSync: true
   },
   {
-    rpcBaseURL: 'https://rpc.devnet.miden.io',
+    rpcBaseURL: OVERRIDE_RPC_URL,
     id: MIDEN_NETWORK_NAME.DEVNET,
     name: 'Devnet',
     autoSync: true
   },
-  { rpcBaseURL: 'http://localhost:57291', id: MIDEN_NETWORK_NAME.LOCALNET, name: 'Localnet', autoSync: true }
+  { rpcBaseURL: OVERRIDE_RPC_URL, id: MIDEN_NETWORK_NAME.LOCALNET, name: 'Localnet', autoSync: true }
 ];
 
 /**

@@ -1,10 +1,7 @@
-import { PswapLineageState } from '@miden-sdk/miden-sdk/lazy';
-
 import * as Repo from 'lib/miden/repo';
 
 import { compareAccountIds } from '../activity/utils';
 import { ITransaction, ITransactionStatus, Transaction } from '../db/types';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
 /**
  * Token-scoped history filter. A swap row belongs to BOTH sides' token views:
@@ -146,16 +143,7 @@ export interface SwapOrderTracking {
   remainingRequested: bigint;
 }
 
-const pswapStateToOrderState = (state: PswapLineageState): SwapOrderState => {
-  switch (state) {
-    case PswapLineageState.FullyFilled:
-      return 'filled';
-    case PswapLineageState.Reclaimed:
-      return 'reclaimed';
-    default:
-      return 'active';
-  }
-};
+// Reduced 0.16 test build: PswapLineageState is absent on this SDK branch.
 
 /**
  * Look up the live PSWAP lineage for a swap order so the activity detail page
@@ -165,16 +153,8 @@ const pswapStateToOrderState = (state: PswapLineageState): SwapOrderState => {
  * yet). Reads IndexedDB via the wasm client, so it takes the client lock.
  */
 export const trackOrderId = async (orderId: string | bigint): Promise<SwapOrderTracking | null> => {
-  return withWasmClientLock(async () => {
-    const client = await getMidenClient();
-    const lineage = await client.client.pswap.lineage(orderId);
-    if (!lineage) return null;
-    return {
-      orderId: lineage.orderId(),
-      state: pswapStateToOrderState(lineage.state()),
-      currentDepth: lineage.currentDepth(),
-      remainingOffered: lineage.remainingOffered(),
-      remainingRequested: lineage.remainingRequested()
-    };
-  });
+  // Reduced 0.16 test build: the client.pswap lineage resource is absent on this
+  // SDK branch, so swap-order status tracking is unavailable. Always returns null.
+  void orderId;
+  return null;
 };

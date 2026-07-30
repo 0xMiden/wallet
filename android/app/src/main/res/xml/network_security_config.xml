@@ -4,4 +4,12 @@
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">transport.miden.io</domain>
     </domain-config>
+    <!-- Reduced 0.16 test build: the RPC and note-transport endpoints are overridden
+         to cleartext local hosts (http://rpc.localhost, http://ntl.localhost). Android
+         blocks cleartext by default, so allowlist the localhost domain (incl. subdomains)
+         or those requests fail silently on-device. iOS permits this via ATS
+         NSAllowsArbitraryLoads. Remove when reverting the endpoint override. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+    </domain-config>
 </network-security-config>

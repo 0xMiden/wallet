@@ -589,40 +589,17 @@ const generateGuardianTransaction = async (
     await setTransactionStage(transaction.id, 'sending');
     submittedTransaction = await withWasmClientLock(async () => {
       const midenClient = await getMidenClient(options);
-      await setTransactionStage(transaction.id, 'executing');
-      const executedTx = await midenClient.client.transactions.executeRequest(transaction.accountId, tr);
-      await setTransactionStage(transaction.id, 'proving');
-      let provenTx;
-      if (!transaction.delegateTransaction) {
-        provenTx = await executedTx.prove({ prover: TransactionProver.newLocalProver() });
-      } else {
-        // Delegated (remote) proving. The client's default prover is the remote
-        // gRPC prover on every platform, and its ~10s deadline is too tight for a
-        // heavyweight guardian multisig proof when the machine is under load — a
-        // single "Deadline expired" used to kill the whole co-signed transaction
-        // (surfacing as the guardian 409 canonicalize-conflict retry loop and a
-        // claim timeout), because the guardian pipeline drives the raw client
-        // directly and had none of the local fallback the non-guardian path gets
-        // for free from `proveWithFallback`. Give it that resilience: on remote
-        // failure, re-prove the SAME executed tx locally. Re-proving is safe
-        // because `proveTransaction` borrows the executed result (only the prover
-        // is consumed, and each attempt passes a fresh one). The local prover
-        // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
-        // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
-        try {
-          provenTx = await executedTx.prove({});
-        } catch (proveError) {
-          console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
-          const fallbackProver = isMobile()
-            ? TransactionProver.newCallbackProver(buildNativeProverCallback())
-            : TransactionProver.newLocalProver();
-          provenTx = await executedTx.prove({ prover: fallbackProver });
-        }
-      }
+      // Reduced 0.16 test build: the staged executeRequest→prove→submit→apply handle
+      // is gone; use the all-in-one transactions.submit. Prover choice preserved —
+      // local (native on mobile) unless delegating, in which case undefined selects
+      // the client's default remote prover (the devnet prover from constants.ts).
       await setTransactionStage(transaction.id, 'submitting');
-      const submittedTx = await provenTx.submit();
-      await submittedTx.apply();
-      return executedTx;
+      const prover = !transaction.delegateTransaction
+        ? isMobile()
+          ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+          : TransactionProver.newLocalProver()
+        : undefined;
+      return await midenClient.client.transactions.submit(transaction.accountId, tr, prover ? { prover } : {});
     });
   } catch (error) {
     console.error('Error during Guardian transaction submission or execution', { error });
@@ -639,7 +616,7 @@ const generateGuardianTransaction = async (
     throw error;
   }
 
-  const { id, result } = submittedTransaction;
+  const { txId: id, result } = submittedTransaction;
 
   // For switch-guardian, the new guardian must be seeded with the POST-switch
   // account state. submit() returns after submission, not after inclusion, so

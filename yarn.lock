@@ -2568,7 +2568,7 @@
     semver "^7.5.4"
     uuid "^9.0.1"
 
-"@miden-sdk/miden-sdk@0.15.8", "@miden-sdk/miden-sdk@^0.15.8":
+"@miden-sdk/miden-sdk@^0.15.8":
   version "0.15.8"
   resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.15.8.tgz#c988f87741c27b01245482df87e8688ba0175899"
   integrity sha512-Z/cx8gA58W4q67E0HPaG6lCNiOopb6Tukb8yTkite0In7S59YcCeCsVXy4MHj/j3TGdDQ5yJOr134yDc70KTkA==
@@ -2579,6 +2579,12 @@
     "@miden-sdk/node-darwin-arm64" "0.15.8"
     "@miden-sdk/node-darwin-x64" "0.15.8"
     "@miden-sdk/node-linux-x64-gnu" "0.15.8"
+
+"@miden-sdk/miden-sdk@file:../web-sdk-etx/crates/web-client":
+  version "0.16.0-alpha.1"
+  dependencies:
+    dexie "^4.0.1"
+    glob "^11.0.0"
 
 "@miden-sdk/node-darwin-arm64@0.15.8":
   version "0.15.8"
@@ -2595,17 +2601,8 @@
   resolved "https://registry.yarnpkg.com/@miden-sdk/node-linux-x64-gnu/-/node-linux-x64-gnu-0.15.8.tgz#4f64253fae60bb28622a8b27ca3868c2eb551ea0"
   integrity sha512-dJVvnpXIm16LLkYW1UoPeOTIg6KgqqV1Gn4RVhXGrNookThVuOKQRdQX8dn6z3GYOGE9QzfVGpskOuMVasDfWw==
 
-"@miden-sdk/react@0.15.0":
-  version "0.15.0"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.15.0.tgz#a563663e5e36d97227423392664369f8eed43759"
-  integrity sha512-4YVXt0lwfOrzLhqHJa16jutHR2+tJZVqbbvJMdhCxM5qxYodFslvTBTGR0FwjYDe1wz+bYJASC98ZddGgitUCQ==
-  dependencies:
-    zustand "^5.0.0"
-
-"@miden-sdk/react@0.15.2":
-  version "0.15.2"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.15.2.tgz#c5aa6caeb0fb2bd0cd343de26cc10d2305f01332"
-  integrity sha512-L3vxV2QRE+qQ9YPo4VIsCfQ7u12oN0fGp8oRnUGAgSwT1oztHx/rOku02ggAdy1SWQnpe8AiUGiFfC9lNoXkqg==
+"@miden-sdk/react@file:../web-sdk-etx/packages/react-sdk":
+  version "0.16.0-alpha.1"
   dependencies:
     zustand "^5.0.0"
 

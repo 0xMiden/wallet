@@ -49,7 +49,7 @@ export async function fetchTokenMetadata(
     }
     let base: AssetMetadata;
     try {
-      const faucetDetails = BasicFungibleFaucetComponent.fromAccountStorage(underlyingAccount.storage());
+      const faucetDetails = BasicFungibleFaucetComponent.fromAccount(underlyingAccount);
       const decimals = faucetDetails.decimals();
       const symbol = faucetDetails.symbol().toString();
       base = {

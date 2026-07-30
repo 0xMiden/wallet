@@ -33,8 +33,10 @@ export default defineConfig({
       }
     },
     midenVitePlugin({
-      rpcProxyTarget:
-        process.env.MIDEN_NETWORK === 'devnet' ? 'https://rpc.devnet.miden.io' : 'https://rpc.testnet.miden.io'
+      // OVERRIDE (reduced 0.16 test build): dev-server RPC proxy target pinned to
+      // the local RPC. Inert in the production build:mobile output (proxy is a
+      // vite dev-server feature) but kept consistent so nothing points upstream.
+      rpcProxyTarget: 'http://rpc.localhost'
     }),
     tailwindcss(),
     react(),
