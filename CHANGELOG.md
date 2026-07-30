@@ -1,9 +1,10 @@
 # Changelog
 
-## 1.15.15 (TBD)
+## 1.15.15 (2026-07-30)
 
 ### Fixes
 
+- [FIX][mobile][android] **Android on-device (local) proving now works.** The Android native prover was built from a divergent pre-release miden revision, so its transaction-kernel MAST roots didn't match the SDK's — every local prove was rejected with `procedure with root digest … could not be found` (surfaced to the user as a proof-generation failure). Re-pinned the native-prover crate to the published `miden-client 0.15.4` the wallet's `@miden-sdk/miden-sdk` is built from and rebuilt the JNI `.so` binaries. Default (delegated/remote) proving was unaffected; only users who opted into local proving hit this.
 - [FIX][mobile] **Failed on-device (local) proving no longer misreports as a "Remote prover failed" timeout.** The transaction error text was hardcoded to blame the remote prover for any failure at the proving stage — so a failed local/native prove (e.g. a Guardian tx with delegated proving turned off) showed a misleading "Remote prover failed — timeout" message. The message now reflects the prover that actually ran (remote when proving was delegated, local otherwise).
 
 ## 1.15.14 (2026-07-29)
