@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { addDays, format, formatDistanceToNow } from 'date-fns';
+import { addDays, differenceInSeconds, format, formatDistanceToNow } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
@@ -28,7 +28,7 @@ import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/wooz
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { BRIDGE_OUTPUT_TOKEN_SYMBOL, getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
-import { dateTimeToRecallBlocks, RecallCalendarDrawer } from './RecallCalendarDrawer';
+import { combineDateAndTime, dateTimeToRecallBlocks, RecallCalendarDrawer } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
 import { BridgeRoute, UIToken } from './types';
 import { useEpochQuote } from './useEpochQuote';
@@ -155,6 +155,17 @@ export const ReviewTransaction: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
 
+  // Clock for the expiration label: once the expiration is under 30 minutes
+  // away the label counts down live (seconds under 3 min), so tick every
+  // second. Longer horizons render a coarse relative phrase — no tick needed.
+  const [expirationNow, setExpirationNow] = useState(() => new Date());
+  useEffect(() => {
+    if (isBridge || !recallDate) return;
+    if (differenceInSeconds(combineDateAndTime(recallDate, recallTime), new Date()) >= 1800) return;
+    const interval = setInterval(() => setExpirationNow(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, [isBridge, recallDate, recallTime]);
+
   // Hand off to the full-screen in-progress page. GeneratingTransactionPage is
   // self-driving: it runs the tx loop on SW-less platforms, polls per-stage
   // progress for `txId`, stashes the Midenscan hash and flips to the success
@@ -280,12 +291,21 @@ export const ReviewTransaction: React.FC = () => {
     return <Redirect to="/send" />;
   }
 
-  const expirationLabel = recallDate
-    ? (() => {
-        const rel = formatDistanceToNow(recallDate, { addSuffix: true });
-        return rel.charAt(0).toUpperCase() + rel.slice(1);
-      })()
-    : t('none');
+  // The drawer stores date and time separately — the label must combine them
+  // (the bare recallDate renders midnight, so a same-day time under 30 min
+  // away used to show a nonsense coarse distance). Near expirations render
+  // exactly: < 3 min in seconds, < 30 min in minutes, otherwise the usual
+  // relative phrase.
+  const expirationLabel = (() => {
+    if (!recallDate) return t('none');
+    const target = combineDateAndTime(recallDate, recallTime);
+    const secondsLeft = differenceInSeconds(target, expirationNow);
+    if (secondsLeft <= 0) return t('none');
+    if (secondsLeft < 180) return t('expiresInSeconds', { seconds: String(secondsLeft) });
+    if (secondsLeft < 1800) return t('expiresInMinutes', { minutes: String(Math.ceil(secondsLeft / 60)) });
+    const rel = formatDistanceToNow(target, { addSuffix: true });
+    return rel.charAt(0).toUpperCase() + rel.slice(1);
+  })();
 
   // Agglayer carries the bridgeable token 1:1; the Fast route forward-quotes the
   // USDC output. Show a skeleton only while the Fast quote is still loading.

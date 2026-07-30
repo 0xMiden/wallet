@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
+import { combineDateAndTime, dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -289,5 +289,76 @@ describe('RecallCalendarDrawer', () => {
     fireEvent.click(screen.getByTestId('drawer-onOpenChange-false'));
 
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  // -- Past-time selection (today + earlier time) ----------------------------
+
+  describe('past-time selection', () => {
+    // Pin the clock mid-day so "one hour ago" can never cross midnight and
+    // accidentally land on a future time.
+    beforeEach(() => {
+      jest.useFakeTimers({ now: new Date('2030-01-01T12:00:00') });
+    });
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    // Today's date with a time one hour in the past (11:00 vs frozen 12:00).
+    const pastProps = () => makeProps({ recallDate: new Date('2030-01-01T00:00:00'), recallTime: '11:00' });
+
+    it('renders the time red with an error message', async () => {
+      await renderDrawer(pastProps());
+
+      expect(screen.getByTestId('recall-time-input').className).toContain('text-red-500');
+      expect(screen.getByText('recallTimeInPast')).toBeInTheDocument();
+    });
+
+    it('disables Confirm and does not apply the selection', async () => {
+      const props = pastProps();
+      await renderDrawer(props);
+
+      const confirm = screen.getByText('confirm') as HTMLButtonElement;
+      expect(confirm.disabled).toBe(true);
+
+      fireEvent.click(confirm);
+      expect(props.onRecallBlocksChange).not.toHaveBeenCalled();
+      expect(props.onOpenChange).not.toHaveBeenCalled();
+    });
+
+    it('blocks dismissal until the time is fixed', async () => {
+      const props = pastProps();
+      await renderDrawer(props);
+
+      fireEvent.click(screen.getByTestId('drawer-onOpenChange-false'));
+      expect(props.onOpenChange).not.toHaveBeenCalled();
+    });
+
+    it('a valid (future) selection keeps the normal color and closes on confirm', async () => {
+      const recallDate = new Date('2035-06-15T00:00:00');
+      const props = makeProps({ recallDate, recallTime: '14:30' });
+      await renderDrawer(props);
+
+      expect(screen.getByTestId('recall-time-input').className).toContain('text-heading-gray');
+      expect(screen.queryByText('recallTimeInPast')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByText('confirm'));
+      expect(props.onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+});
+
+describe('combineDateAndTime', () => {
+  it('applies the HH:mm time onto the date with zeroed seconds', () => {
+    const combined = combineDateAndTime(new Date('2030-06-15T23:59:59'), '08:45');
+    expect(combined.getHours()).toBe(8);
+    expect(combined.getMinutes()).toBe(45);
+    expect(combined.getSeconds()).toBe(0);
+    expect(combined.getDate()).toBe(15);
+  });
+
+  it('falls back to midnight for an empty time string', () => {
+    const combined = combineDateAndTime(new Date('2030-06-15T10:00:00'), '');
+    expect(combined.getHours()).toBe(0);
+    expect(combined.getMinutes()).toBe(0);
   });
 });

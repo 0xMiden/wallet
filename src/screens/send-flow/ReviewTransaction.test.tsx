@@ -192,6 +192,12 @@ jest.mock('utils/miden', () => {
 
 jest.mock('./RecallCalendarDrawer', () => ({
   dateTimeToRecallBlocks: jest.fn(() => 999),
+  combineDateAndTime: (date: Date, time: string) => {
+    const [hours, minutes] = time.split(':').map(Number);
+    const withTime = new Date(date);
+    withTime.setHours(hours ?? 0, minutes ?? 0, 0, 0);
+    return withTime;
+  },
   RecallCalendarDrawer: (props: any) => (
     <div data-testid="recall-drawer" data-open={String(props.open)} data-recall-time={props.recallTime} />
   )

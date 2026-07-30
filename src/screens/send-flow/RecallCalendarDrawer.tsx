@@ -1,5 +1,6 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 
+import clsx from 'clsx';
 import { addDays, addHours, addMinutes, differenceInSeconds, format } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
@@ -22,6 +23,20 @@ export function dateTimeToRecallBlocks(targetDate: Date): number {
   const secondsUntilTarget = differenceInSeconds(targetDate, new Date());
   if (secondsUntilTarget <= 0) return 1;
   return Math.max(1, Math.floor(secondsUntilTarget / SECONDS_PER_BLOCK));
+}
+
+/**
+ * The full expiration instant: the calendar date with the 'HH:mm' time-input
+ * value applied. The drawer keeps date and time as separate pieces of state,
+ * so every consumer (blocks computation, review-row label, past-time
+ * validation) must combine them through this ONE helper — formatting the bare
+ * date alone renders midnight, not the chosen time.
+ */
+export function combineDateAndTime(date: Date, time: string): Date {
+  const [hours, minutes] = time.split(':').map(Number);
+  const dateWithTime = new Date(date);
+  dateWithTime.setHours(hours ?? 0, minutes ?? 0, 0, 0);
+  return dateWithTime;
 }
 
 const RECALL_PRESETS = (t: (key: string) => string) => [
@@ -63,11 +78,26 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
     new Date(new Date().getFullYear(), new Date().getMonth(), 1)
   );
 
+  // Time ticks while the drawer is open so a selection that WAS in the future
+  // when typed goes red the moment the clock passes it (15s granularity is
+  // plenty for an expiration picker).
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    if (!open) return;
+    setNow(new Date());
+    const interval = setInterval(() => setNow(new Date()), 15_000);
+    return () => clearInterval(interval);
+  }, [open]);
+
+  // The native time input happily accepts a time earlier than now for today's
+  // date — that selection is invalid (the note would be recallable instantly),
+  // so it renders red and blocks both Confirm and dismissal until fixed.
+  const selectionInPast = !!recallDate && combineDateAndTime(recallDate, recallTime) <= now;
+
   const applyDateTimeSelection = useCallback(
     (date: Date, time: string) => {
-      const [hours, minutes] = time.split(':').map(Number);
-      const dateWithTime = new Date(date);
-      dateWithTime.setHours(hours ?? 0, minutes ?? 0, 0, 0);
+      const dateWithTime = combineDateAndTime(date, time);
+      if (dateWithTime <= new Date()) return;
       onRecallDateChange(date);
       onRecallTimeChange(time);
       onRecallBlocksChange(String(dateTimeToRecallBlocks(dateWithTime)));
@@ -77,7 +107,16 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
   );
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer
+      open={open}
+      onOpenChange={next => {
+        // A past-time selection must be corrected before the drawer can close
+        // (swipe-down / backdrop included) — otherwise the stale valid
+        // recallBlocks silently disagrees with the red time shown.
+        if (!next && selectionInPast) return;
+        onOpenChange(next);
+      }}
+    >
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{t('expirationDate')}</DrawerTitle>
@@ -104,17 +143,26 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
             <span className="text-sm font-medium text-heading-gray">{t('time')}</span>
             <input
               type="time"
+              data-testid="recall-time-input"
               value={recallTime}
               onChange={e => onRecallTimeChange(e.target.value)}
-              className="ml-auto bg-input-bg rounded-[10px] px-3 py-2 text-sm text-heading-gray outline-none font-medium [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+              className={clsx(
+                'ml-auto bg-input-bg rounded-[10px] px-3 py-2 text-sm outline-none font-medium [&::-webkit-calendar-picker-indicator]:cursor-pointer',
+                selectionInPast ? 'text-red-500' : 'text-heading-gray'
+              )}
             />
           </div>
+          {selectionInPast && <p className="w-full mt-2 text-xs text-red-500">{t('recallTimeInPast')}</p>}
 
           {/* Confirm button */}
           {recallDate && (
             <button
               type="button"
-              className="w-full mt-3 py-2.5 rounded-[10px] bg-primary-500 text-pure-white text-sm font-medium cursor-pointer"
+              disabled={selectionInPast}
+              className={clsx(
+                'w-full mt-3 py-2.5 rounded-[10px] bg-primary-500 text-pure-white text-sm font-medium',
+                selectionInPast ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+              )}
               onClick={() => applyDateTimeSelection(recallDate, recallTime)}
             >
               {t('confirm')}
