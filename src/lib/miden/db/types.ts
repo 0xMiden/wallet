@@ -21,6 +21,8 @@ export type ITransactionType =
   | 'execute'
   | 'bridged-send'
   | 'bridged-receive'
+  | 'earn-deposit'
+  | 'earn-withdraw'
   | 'switch-guardian'
   | 'replace-hot-key'
   | 'swap'
@@ -103,6 +105,77 @@ export interface IBridgedSendExtraInputs {
 }
 
 /**
+ * `extraInputs` shape for an `EarnDepositTransaction`. Opening an Epoch lending
+ * position spends Miden-held collateral by sending a recallable P2IDE note to the
+ * solver's allocator (same mechanics as an Epoch `bridged-send`), while the EVM
+ * lending leg is solver-fulfilled — so there is no manual claim. The typed EVM
+ * address is the position owner / intent sponsor.
+ */
+export interface IEarnDepositExtraInputs {
+  /** 0x EVM address that owns the resulting lending position (intent sponsor). */
+  evmRecipient: string;
+  /** Epoch market identifier (`PROTOCOL:chainId:token`) the deposit targets. */
+  marketUid: string;
+  /** Miden faucet the deposited collateral was sourced from. */
+  sourceFaucetId: string;
+  /** blocks-until-reclaim for the P2IDE note — its presence makes the note recallable. */
+  recallBlocks?: number;
+  /** intent nonce (SIO `userAddress:intentNonce`) used to poll `getIntentStatus`. */
+  intentNonce?: string;
+  /** solver/intent hash (informational). */
+  evmTxHash?: string;
+  /** quoted destination deposit size (human-formatted) for the activity detail. */
+  outputAmount?: string;
+  /** destination token symbol (e.g. `USDC`). */
+  outputSymbol?: string;
+  /** settlement status derived from polling `getIntentStatus`. */
+  epochStatus?: 'pending' | 'confirmed' | 'failed';
+}
+
+/**
+ * Lifecycle of an `earn-withdraw` row. The row is born `Completed` (never enters
+ * the prove/submit FIFO loop — see `EarnWithdrawTransaction`); its in-flight look
+ * comes entirely from this phase, mirroring `bridged-send`'s `epochStatus` chip.
+ *   - redeeming  : row created, the gasless withdraw+swap+bridge intent is in flight
+ *   - delivering : the Epoch intent settled; the bridged note is on its way to Miden
+ *   - received   : the bridged note was auto-consumed; `outputAmount` patched from it
+ *   - failed     : the intent failed / expired, or the row was reconciled dead
+ */
+export type IEarnWithdrawPhase = 'redeeming' | 'delivering' | 'received' | 'failed';
+
+/**
+ * `extraInputs` shape for an `EarnWithdrawTransaction`. Smart Withdraw redeems an
+ * Epoch lending position and bridges the underlying back to Miden as a single
+ * gasless intent (`sdk.helpers.executeActions`), so there is no Miden-side note to
+ * prove/submit — the row is a tracking-only record whose lifecycle lives in `phase`.
+ */
+export interface IEarnWithdrawExtraInputs {
+  /** 0x EVM address that owned the redeemed lending position (intent sponsor). */
+  evmOwner: string;
+  /** Epoch market identifier (`PROTOCOL:chainId:token`) the withdrawal redeemed. */
+  marketUid: string;
+  /** Miden faucet the bridged funds land on (destination asset). */
+  destinationFaucetId: string;
+  /** Human-decimal amount the user asked to withdraw (source side). */
+  sourceAmount: string;
+  /** Source token symbol (e.g. `USDC`). */
+  sourceSymbol: string;
+  phase: IEarnWithdrawPhase;
+  /** intent nonce (SIO `userAddress:intentNonce`) used to poll `getIntentStatus`. */
+  withdrawIntentNonce?: string;
+  /** solver/settlement EVM tx hash, once known. */
+  evmTxHash?: string;
+  /** Miden note id of the bridged-in note, once it lands and is consumed. */
+  midenNoteId?: string;
+  /** actual bridged amount (human-formatted) from the consumed note. */
+  outputAmount?: string;
+  /** destination token symbol of the consumed note. */
+  outputSymbol?: string;
+  /** failure reason, set alongside `phase === 'failed'`. */
+  error?: string;
+}
+
+/**
  * Bridge-in (EVM → Miden) metadata attached to the `consume` row that claimed
  * the bridged note. Epoch auto-consumes the note, so that consume row is the
  * only Miden-side trace of the deposit — tagging it lets the activity views
@@ -120,6 +193,13 @@ export interface IBridgeInInfo {
   evmTxHash?: string;
   /** Miden-side note id the bridge-in resolved to, copied on by `takeBridgeInInfoForNotes`. */
   midenNoteId?: string;
+  /**
+   * When the bridged note originates from a Smart Withdraw, the `earn-withdraw`
+   * row id it belongs to. On consume, that row is patched to `received` and this
+   * consume row is suppressed from the activity list (the withdraw row is the
+   * single trace). Absent for plain EVM→Miden deposits.
+   */
+  earnWithdrawTxId?: string;
   /** Tracking-only `bridged-receive` row this consumed note completes. */
   bridgeReceiveTxId?: string;
 }
@@ -514,6 +594,115 @@ export class BridgedSendTransaction implements ITransaction {
       // Agglayer needs a manual L1 claim; Epoch auto-settles.
       claimStatus: provider === 'agglayer' ? 'pending' : 'not-applicable',
       recallBlocks: sendParams?.recallBlocks
+    };
+  }
+}
+
+/**
+ * Open an Epoch lending position. Always send-style: a recallable P2IDE note to the
+ * solver's allocator account, processed by the normal send pipeline
+ * (`sendTransaction`) like the Epoch `bridged-send`. The EVM lending deposit is
+ * solver-fulfilled, so there is no `requestBytes` and no manual claim.
+ */
+export class EarnDepositTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  /** Allocator account the P2IDE note is sent to. */
+  secondaryAccountId?: string;
+  noteType?: NoteType;
+  transactionId?: string;
+  outputNoteIds?: string[];
+  status: ITransactionStatus;
+  initiatedAt: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  delegateTransaction?: boolean;
+  extraInputs: IEarnDepositExtraInputs;
+
+  constructor(
+    accountId: string,
+    amount: bigint,
+    evmRecipient: string,
+    marketUid: string,
+    faucetId: string,
+    sendParams: IBridgedSendNoteParams,
+    delegateTransaction?: boolean
+  ) {
+    this.id = uuid();
+    this.type = 'earn-deposit';
+    this.accountId = accountId;
+    this.amount = amount;
+    this.faucetId = faucetId;
+    this.secondaryAccountId = sendParams.recipientId;
+    this.noteType = sendParams.noteType;
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.displayIcon = 'DEFAULT';
+    this.displayMessage = 'Depositing';
+    this.delegateTransaction = delegateTransaction;
+    this.extraInputs = {
+      evmRecipient,
+      marketUid,
+      sourceFaucetId: faucetId,
+      recallBlocks: sendParams.recallBlocks,
+      epochStatus: 'pending'
+    };
+  }
+}
+
+/**
+ * Tracking-only row for a Smart Withdraw (Epoch lending redeem → bridge to Miden).
+ * There is NO Miden-side note to prove/submit, so this row must **never** be born
+ * `Queued`: the FIFO prove/submit loop (`transaction/index.ts`) dispatches any
+ * `Queued` row type-blind and would crash on the missing request bytes, and the
+ * stale-queue canceller would kill a slow withdrawal. It is inserted `Completed`
+ * with `completedAt = initiatedAt`; the in-flight look comes from `extraInputs.phase`.
+ */
+export class EarnWithdrawTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  extraInputs: IEarnWithdrawExtraInputs;
+
+  constructor(
+    accountId: string,
+    amount: bigint,
+    evmOwner: string,
+    marketUid: string,
+    faucetId: string,
+    sourceAmount: string,
+    sourceSymbol = 'USDC'
+  ) {
+    const now = Math.floor(Date.now() / 1000); // seconds
+    this.id = uuid();
+    this.type = 'earn-withdraw';
+    this.accountId = accountId;
+    this.amount = amount;
+    this.faucetId = faucetId;
+    this.status = ITransactionStatus.Completed;
+    this.initiatedAt = now;
+    this.completedAt = now;
+    this.displayIcon = 'DEFAULT';
+    this.displayMessage = 'Withdrawing from lending';
+    this.extraInputs = {
+      evmOwner,
+      marketUid,
+      destinationFaucetId: faucetId,
+      sourceAmount,
+      sourceSymbol,
+      phase: 'redeeming'
     };
   }
 }

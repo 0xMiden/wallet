@@ -21,6 +21,10 @@
 
 ## 1.15.13 (TBD)
 
+### Features
+
+- [FEATURE][all] **Earn: Epoch lending positions, end to end.** Opening a position (`earn-deposit`) sends a recallable collateral note to the solver's allocator and tracks the solver-fulfilled lending leg; Smart Withdraw (`earn-withdraw`) redeems the position and bridges the underlying back to Miden as one gasless intent, tracked through a Redeeming → Delivering → Received lifecycle (Failed is retryable by re-submitting the redeem intent). Both types render throughout the wallet: the earn deposit/withdraw screens, an in-progress summary badge (`{amount} {token} ↑ {protocol}-USDC`), dedicated Activity rows (the withdraw row is the single trace — its delivery consume is suppressed), and Deposit/Withdrawal detail cards with market, position owner, intent nonce and Sepolia/Miden links.
+
 ### Fixes
 
 - [FIX][mobile] **iOS no longer crashes at launch / wallet load.** 1.15.12 dropped the `group.com.miden.wallet` App Group from the entitlements (it belongs to a former Apple team and isn't provisionable under the current one), but the native Reown/WalletConnect plugin still initialized its relay against that group — so on a real device the group's keychain / `UserDefaults(suiteName:)` ops failed and the app trapped (`EXC_BREAKPOINT` / `swift_unexpectedError`) within ~1s of launch, as soon as any EVM/bridge-aware screen mounted. Reown now uses the app's own already-entitled keychain access group (`$(AppIdentifierPrefix)com.miden.bread`), which needs no App Group or provisioning-profile change.

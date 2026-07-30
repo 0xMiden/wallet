@@ -338,6 +338,8 @@ describe('Explore', () => {
     it('shows all tokens (sorted) when the search box is empty', async () => {
       await renderExplore();
       expect(screen.getAllByTestId('asset-row')).toHaveLength(3);
+      // Placeholder text flows through i18n (mock echoes the key).
+      expect(screen.getByTestId('search-input')).toHaveAttribute('placeholder', 'searchForTokens');
     });
 
     it('filters by symbol (left match) and name (right match), excluding undefined-name tokens', async () => {

@@ -266,7 +266,9 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({ group, tokenPrices, s
           <span className="font-heading text-base font-bold text-heading-gray leading-tight">
             {formattedTotal} {symbol}
           </span>
-          <span className="font-heading text-sm text-black opacity-50 leading-tight">≈ {formatUsd(usdValue)}</span>
+          <span className="font-heading text-sm text-black opacity-50 leading-tight">
+            {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
+          </span>
         </div>
       </div>
       <div className="mt-3 w-full rounded-full bg-surface-interactive py-2 text-center text-base font-heading font-semibold text-black opacity-60">
@@ -337,8 +339,7 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
           </div>
 
           <div className="font-heading mt-2 text-sm text-heading-gray">
-            <span className="mr-1">≈</span>
-            {formatUsd(usdValue)}
+            {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
           </div>
 
           <div className="mt-5 rounded-2xl border border-rule-default bg-white overflow-hidden w-full">

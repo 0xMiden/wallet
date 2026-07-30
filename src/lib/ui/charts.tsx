@@ -157,6 +157,7 @@ function ChartTooltipContent({
         {payload
           .filter((item: any) => item.type !== 'none')
           .map((item: any, index: number) => {
+            // eslint-disable-next-line i18next/no-literal-string -- recharts default data-key fallback, not user-facing
             const key = `${nameKey || item.name || item.dataKey || 'value'}`;
             const itemConfig = getPayloadConfigFromPayload(config, item, key);
             const indicatorColor = color || item.payload.fill || item.color;
@@ -233,6 +234,7 @@ function ChartLegendContent({ className, hideIcon = false, payload, verticalAlig
       {payload
         .filter((item: any) => item.type !== 'none')
         .map((item: any) => {
+          // eslint-disable-next-line i18next/no-literal-string -- recharts default data-key fallback, not user-facing
           const key = `${nameKey || item.dataKey || 'value'}`;
           const itemConfig = getPayloadConfigFromPayload(config, item, key);
 

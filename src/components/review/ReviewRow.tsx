@@ -46,6 +46,7 @@ export const ReviewRow: React.FC<ReviewRowProps> = ({ label, value, onEdit, edit
       {children ?? value}
       {onEdit && (
         <>
+          {/* eslint-disable-next-line i18next/no-literal-string -- Decorative divider glyph between value and Edit link. */}
           <span className="mx-2 text-heading-gray">|</span>
           <button type="button" onClick={onEdit} className="align-baseline text-primary-500 cursor-pointer">
             {editLabel}

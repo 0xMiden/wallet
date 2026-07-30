@@ -13,6 +13,7 @@
 import React, { type FC, useState } from 'react';
 
 import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
 import { useSprings } from 'lib/animation';
 import { type FeaturedDapp, type RecentDapp } from 'lib/dapp-browser';
@@ -50,6 +51,7 @@ export const DappTile: FC<DappTileProps> = ({
   onOpen,
   enableSharedLayout = true
 }) => {
+  const { t } = useTranslation();
   const [iconBroken, setIconBroken] = useState(false);
   // PR-7: reduce-motion-aware springs so the shared-element morph from
   // tile → capsule collapses to an instant switch when the user has
@@ -65,7 +67,7 @@ export const DappTile: FC<DappTileProps> = ({
   const fallbackBg = brandColor ?? '#94A3B8';
   // PR-7: include the badge state in the accessible name so screen
   // readers announce verified status, not just the dApp name.
-  const accessibleLabel = badge === 'verified' ? `${name}, verified dApp` : name;
+  const accessibleLabel = badge === 'verified' ? t('dappTileVerifiedLabel', { name }) : name;
 
   // Use onClick (NOT onPointerDown) so a vertical scroll that grazes
   // a tile doesn't accidentally open the dApp. The browser fires
@@ -99,6 +101,7 @@ export const DappTile: FC<DappTileProps> = ({
           />
         )}
         {badge === 'verified' && (
+          // eslint-disable-next-line i18next/no-literal-string -- Decorative verified checkmark glyph, aria-hidden.
           <span className="absolute -bottom-0 -right-0 flex h-4 w-4 items-center justify-center rounded-full border-2 border-pure-white bg-primary-500 text-[10px] text-pure-white">
             ✓
           </span>

@@ -250,7 +250,7 @@ describe('Settings page — root menu (non-guardian)', () => {
     render(<Settings tabSlug={null} />);
 
     expect(screen.getByTestId('nav-title')).toHaveTextContent('settings');
-    expect(screen.getByText(/^Version /)).toBeInTheDocument();
+    expect(screen.getByText('settingsVersion')).toBeInTheDocument();
   });
 
   it('renders all four group headings', () => {
@@ -324,7 +324,7 @@ describe('Settings page — root menu (non-guardian)', () => {
 
     // A drawer slug does not resolve to an active tab → menu is shown.
     expect(screen.getByTestId('menuitem-generalSettings')).toBeInTheDocument();
-    expect(screen.getByText(/^Version /)).toBeInTheDocument();
+    expect(screen.getByText('settingsVersion')).toBeInTheDocument();
   });
 
   it('renders the root menu for an unknown slug', () => {

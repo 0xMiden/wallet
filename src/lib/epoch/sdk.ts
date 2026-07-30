@@ -6,12 +6,14 @@ import { sepolia } from 'viem/chains';
 
 import { buildEpochReadOnlyWalletClient, buildEpochWalletClient, getEvmConnection } from './client';
 import { EPOCH_ALLOCATOR_URL, MIDEN_DESTINATION_CHAIN_ID } from './config';
+import { buildVaultEvmWalletClient } from './evm-account';
 
 type SdkCache = { address: string; chainId: number; sdk: EpochIntentSDK };
 
 let defaultCache: SdkCache | null = null;
 let midenCache: SdkCache | null = null;
 let readOnlyCache: SdkCache | null = null;
+let signingCache: SdkCache | null = null;
 
 async function buildSdk(address: `0x${string}`, chainOverride?: number): Promise<EpochIntentSDK> {
   const walletClient = await buildEpochWalletClient(address, { chainOverride });
@@ -74,10 +76,61 @@ export async function getEpochReadOnlySdk(destinationAddress: `0x${string}`): Pr
   return sdk;
 }
 
+/**
+ * Write-capable SDK bound to the wallet-derived EVM account of a Miden
+ * account (the Epoch position owner). Needs NO connected external wallet —
+ * signing round-trips to the vault via the WalletClient from
+ * buildVaultEvmWalletClient. This is the withdraw path: the SDK's Compact
+ * writes (`withdrawToken` etc.) sign & broadcast on Sepolia as `evmAddress`.
+ * Caches one instance per owner address.
+ */
+export function getEpochSigningSdk(midenAccountPublicKey: string, evmAddress: `0x${string}`): EpochIntentSDK {
+  if (signingCache && signingCache.address === evmAddress && signingCache.chainId === sepolia.id) {
+    return signingCache.sdk;
+  }
+  const walletClient = buildVaultEvmWalletClient(midenAccountPublicKey, evmAddress);
+  const sdk = new EpochIntentSDK({ apiBaseUrl: EPOCH_ALLOCATOR_URL, walletClient });
+  signingCache = { address: evmAddress, chainId: sepolia.id, sdk };
+  return sdk;
+}
+
+/**
+ * Ensure the wallet-derived EVM owner is delegated to Epoch's EIP-7702 smart
+ * account on Sepolia. This is intentionally separate from the Miden-funded
+ * deposit path: only EVM write flows (notably Smart Withdraw) need the
+ * delegation. The status probe makes this safe to call before every write.
+ */
+export async function ensureEpochSmartAccount(
+  midenAccountPublicKey: string,
+  evmAddress: `0x${string}`
+): Promise<EpochIntentSDK> {
+  const sdk = getEpochSigningSdk(midenAccountPublicKey, evmAddress);
+  const status = await sdk.getWalletGaslessStatus(sepolia.id);
+
+  if (status.delegation === 'epoch') {
+    return sdk;
+  }
+  if (status.delegation === 'other') {
+    throw new Error('The EVM account is delegated to an unsupported smart-account implementation.');
+  }
+
+  const setup = await sdk.convertToSmartAccount({ chainId: sepolia.id });
+  if (!setup.ok) {
+    throw new Error(setup.reason ?? 'Failed to enable the Epoch smart account.');
+  }
+
+  const ready = await sdk.getWalletGaslessStatus(sepolia.id);
+  if (ready.delegation !== 'epoch') {
+    throw new Error('Epoch smart-account setup completed but the delegation is not active.');
+  }
+  return sdk;
+}
+
 export function resetEpochSdk(): void {
   defaultCache = null;
   midenCache = null;
   readOnlyCache = null;
+  signingCache = null;
 }
 
 /**

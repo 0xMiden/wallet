@@ -267,10 +267,10 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
 
   return (
     <div className={classNames('w-full', 'flex flex-col')}>
-      {t('Payload') && (
+      {t('payload') && (
         <h2 className={classNames('mb-2', 'leading-tight', 'flex flex-col')}>
           <span className="text-black font-medium" style={{ fontSize: '14px', lineHeight: '20px' }}>
-            {t('Payload')}
+            {t('payload')}
           </span>
         </h2>
       )}
@@ -367,9 +367,11 @@ const CustomTransactionContent: React.FC<{
       {/* These labels are intentional raw payload-field keys (a JSON-like dump
           of the dApp-declared request), not user-facing copy — deliberately
           not translated via t(). */}
+      {/* eslint-disable i18next/no-literal-string -- raw dApp payload-field keys, not user-facing copy */}
       <FoldableField label="recipient" value={payload.recipientAddress ?? '(none)'} />
       <FoldableField label="importNotes" value={payload.importNotes?.length ?? 0} />
       <FoldableField label="requestBytes" value={payload.requestBytes ?? '(none)'} />
+      {/* eslint-enable i18next/no-literal-string */}
     </AdvancedDetails>
   );
 

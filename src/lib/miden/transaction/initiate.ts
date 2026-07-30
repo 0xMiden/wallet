@@ -14,6 +14,8 @@ import {
   BridgedReceiveTransaction,
   BridgedSendTransaction,
   ConsumeTransaction,
+  EarnDepositTransaction,
+  EarnWithdrawTransaction,
   IBridgedSendNoteParams,
   IBridgeProvider,
   ITransactionStatus,
@@ -323,6 +325,56 @@ export const initiateBridgedSendTransaction = async (
   );
   await Repo.transactions.add(dbTransaction);
 
+  return dbTransaction.id;
+};
+
+/** Queue the recallable Miden P2IDE note that collateralizes an Earn deposit. */
+export const initiateEarnDepositTransaction = async (
+  accountId: string,
+  amount: bigint,
+  evmRecipient: string,
+  marketUid: string,
+  faucetId: string,
+  sendParams: IBridgedSendNoteParams,
+  delegateTransaction?: boolean
+): Promise<string> => {
+  const dbTransaction = new EarnDepositTransaction(
+    accountId,
+    amount,
+    evmRecipient,
+    marketUid,
+    faucetId,
+    sendParams,
+    delegateTransaction
+  );
+  await Repo.transactions.add(dbTransaction);
+  return dbTransaction.id;
+};
+
+/**
+ * Insert the tracking-only row for a Smart Withdraw. The row is born `Completed`
+ * (see `EarnWithdrawTransaction`) so it never enters the prove/submit FIFO loop;
+ * its lifecycle is driven by `updateEarnWithdrawPhase` (complete.ts).
+ */
+export const initiateEarnWithdrawTransaction = async (
+  accountId: string,
+  amount: bigint,
+  evmOwner: string,
+  marketUid: string,
+  faucetId: string,
+  sourceAmount: string,
+  sourceSymbol = 'USDC'
+): Promise<string> => {
+  const dbTransaction = new EarnWithdrawTransaction(
+    accountId,
+    amount,
+    evmOwner,
+    marketUid,
+    faucetId,
+    sourceAmount,
+    sourceSymbol
+  );
+  await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;
 };
 
