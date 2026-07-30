@@ -16,8 +16,7 @@ jest.mock('react-i18next', () => ({
 // This suite exercises selection between multiple presets, so pin the
 // component to testnet regardless of the MIDEN_NETWORK used to invoke Jest.
 jest.mock('lib/miden-chain/constants', () => {
-  const actual =
-    jest.requireActual<typeof import('lib/miden-chain/constants')>('lib/miden-chain/constants');
+  const actual = jest.requireActual<typeof import('lib/miden-chain/constants')>('lib/miden-chain/constants');
   return {
     ...actual,
     DEFAULT_NETWORK: actual.MIDEN_NETWORK_NAME.TESTNET,
