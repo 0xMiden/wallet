@@ -9,6 +9,10 @@ export class GuardianHttpClient {
   setSigner = jest.fn();
   getState = jest.fn();
   getPubkey = jest.fn();
+  // Used by the guardian auto-detection probe (lib/miden/guardian/discover).
+  // Defaults to "this operator doesn't hold the account", which is the real
+  // server's answer for an unknown key commitment.
+  lookupAccountByKeyCommitment = jest.fn(async () => ({ accounts: [] }));
 }
 
 export class GuardianHttpError extends Error {}

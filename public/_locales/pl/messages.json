@@ -2555,6 +2555,44 @@
     "message": "Użyj innego opiekuna",
     "englishSource": "Use a different guardian"
   },
+  "detectingGuardian": {
+    "message": "Szukasz swojego opiekuna…",
+    "englishSource": "Looking for your guardian…"
+  },
+  "guardianDetectedTitle": {
+    "message": "Znaleziono Twojego opiekuna: $name$ ",
+    "englishSource": "Found your guardian: $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianDetectedMultiple": {
+    "message": "To konto zna więcej niż jeden opiekun. Wybraliśmy ten, który zawiera Twój ostatni stan.",
+    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
+  },
+  "useCustomGuardianInstead": {
+    "message": "Zamiast tego użyć innego?",
+    "englishSource": "Use a different one instead?"
+  },
+  "guardianNotDetected": {
+    "message": "Nie mogliśmy automatycznie wykryć Twojego opiekuna. Wybierz ten, którego użyłeś lub wprowadź jego adres URL.",
+    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianProbePartialFailure": {
+    "message": "Nie udało się skontaktować z opiekunami: $count$, więc wykrywanie może być niekompletne.",
+    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "retryGuardianDetection": {
+    "message": "Spróbuj wykryć ponownie",
+    "englishSource": "Try detecting again"
+  },
   "guardianAccountNotFound": {
     "message": "Nie znaleźliśmy Twojego konta na tym opiekunie. Zamiast tego sprawdź adres URL lub zaimportuj jako konto publiczne.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."

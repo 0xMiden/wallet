@@ -2555,6 +2555,44 @@
     "message": "Use a different guardian",
     "englishSource": "Use a different guardian"
   },
+  "detectingGuardian": {
+    "message": "Looking for your guardian…",
+    "englishSource": "Looking for your guardian…"
+  },
+  "guardianDetectedTitle": {
+    "message": "Found your guardian: $name$",
+    "englishSource": "Found your guardian: $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianDetectedMultiple": {
+    "message": "More than one guardian knows this account. We picked the one holding your most recent state.",
+    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
+  },
+  "useCustomGuardianInstead": {
+    "message": "Use a different one instead?",
+    "englishSource": "Use a different one instead?"
+  },
+  "guardianNotDetected": {
+    "message": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL.",
+    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianProbePartialFailure": {
+    "message": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
+    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "retryGuardianDetection": {
+    "message": "Try detecting again",
+    "englishSource": "Try detecting again"
+  },
   "guardianAccountNotFound": {
     "message": "We couldn't find your account on this guardian. Check the URL or import as a public account instead.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."

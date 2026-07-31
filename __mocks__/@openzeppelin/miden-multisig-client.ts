@@ -42,7 +42,13 @@ export class FalconSigner {
 }
 
 export class EcdsaSigner {
+  // The guardian auto-detection probe reads `commitment` and authenticates the
+  // lookup with `signLookupMessage`; both are cheap stubs here.
+  readonly commitment = 'ecdsa-commitment';
+  readonly publicKey = 'ecdsa-public-key';
   constructor(..._args: unknown[]) {}
+  signLookupMessage = jest.fn(async () => 'ecdsa-lookup-signature');
+  signCommitment = jest.fn(async () => 'ecdsa-signature');
 }
 
 export class ParaSigner {

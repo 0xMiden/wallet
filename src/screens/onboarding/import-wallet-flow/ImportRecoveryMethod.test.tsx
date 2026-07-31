@@ -1,11 +1,12 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 
-import { DEFAULT_NETWORK, GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
+import type { GuardianDiscoveryResult, GuardianProbeMatch } from 'lib/miden/guardian/discover';
+import { DEFAULT_NETWORK, GUARDIAN_OPTIONS, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 
 import { ImportRecoveryMethodScreen } from './ImportRecoveryMethod';
-import { WalletType } from '../types';
+import { GuardianProbeState, WalletType } from '../types';
 
 // `react-i18next` drags in the full i18n runtime; stub `useTranslation` so
 // `t(key)` echoes the key and we can assert against raw i18n keys.
@@ -13,8 +14,9 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// This suite exercises selection between multiple presets, so pin the
-// component to testnet regardless of the MIDEN_NETWORK used to invoke Jest.
+// Pin the network to testnet: jest loads dotenv (`setupFiles`), so a developer
+// `.env` with MIDEN_NETWORK=devnet would otherwise shrink the preset grid to
+// the single devnet operator and break the multi-preset assertions below.
 jest.mock('lib/miden-chain/constants', () => {
   const actual = jest.requireActual<typeof import('lib/miden-chain/constants')>('lib/miden-chain/constants');
   return {
@@ -261,5 +263,266 @@ describe('ImportRecoveryMethodScreen', () => {
     expect(screen.getByText('guardianEndpoint')).toBeInTheDocument();
     expect(screen.getByTestId('chevron-icon')).toHaveAttribute('data-name', 'ChevronDown');
     expect(ozPreset()).toBeInTheDocument();
+  });
+});
+
+/**
+ * Guardian auto-detection (issue #418). The screen is a pure function of the
+ * `probe` prop: absent => the classic manual picker exercised above; probing =>
+ * spinner with Continue held back; done-with-a-winner => the detected card;
+ * anything else => the manual picker plus a retry affordance.
+ */
+describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
+  const OZ_ENDPOINT = DEFAULT_ENDPOINT;
+  const GATEWAY_OPTION = getGuardianOptionsForNetwork(DEFAULT_NETWORK).find(option => option.id === 'gateway');
+  const OZ_OPTION = getGuardianOptionsForNetwork(DEFAULT_NETWORK).find(option => option.id === 'open-zeppelin')!;
+
+  const match = (over: Partial<GuardianProbeMatch> = {}): GuardianProbeMatch => ({
+    endpoint: OZ_ENDPOINT,
+    option: OZ_OPTION,
+    accountIds: ['acct-1'],
+    hdIndices: [0],
+    nonce: 7n,
+    ...over
+  });
+
+  const done = (over: Partial<GuardianDiscoveryResult> = {}): GuardianProbeState => ({
+    status: 'done',
+    result: { matches: [], probedEndpoints: [OZ_ENDPOINT], failures: [], ...over }
+  });
+
+  const detected = (best: GuardianProbeMatch = match(), extras: GuardianProbeMatch[] = []): GuardianProbeState =>
+    done({ best, matches: [best, ...extras] });
+
+  const customToggleAfterDetection = () => screen.getByRole('button', { name: /useCustomGuardianInstead/ });
+
+  it('shows a spinner and holds Continue back while probing', () => {
+    renderScreen({ probe: { status: 'probing' } });
+
+    expect(screen.getByTestId('guardian-probe-spinner')).toBeInTheDocument();
+    expect(screen.getByText('detectingGuardian')).toBeInTheDocument();
+    expect(continueButton()).toBeDisabled();
+
+    // No picker while we're still deciding what to preselect.
+    expect(screen.queryByRole('button', { name: /Open-Zeppelin/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('guardian-input')).not.toBeInTheDocument();
+  });
+
+  it('treats an idle probe as not-running: classic picker, Continue enabled (post-reset state)', () => {
+    renderScreen({ probe: { status: 'idle' } });
+
+    // 'idle' is the initial / post-reset state — nothing will ever resolve it,
+    // so it must NOT pin an eternal spinner.
+    expect(screen.queryByTestId('guardian-probe-spinner')).not.toBeInTheDocument();
+    expect(ozPreset()).toBeInTheDocument();
+    expect(continueButton()).toBeEnabled();
+  });
+
+  it('reveals a manual escape hatch if the probe is still running after 10s', () => {
+    jest.useFakeTimers();
+    try {
+      renderScreen({ probe: { status: 'probing' } });
+
+      expect(screen.queryByRole('button', { name: /useCustomGuardianInstead/ })).not.toBeInTheDocument();
+
+      act(() => {
+        jest.advanceTimersByTime(10_000);
+      });
+
+      fireEvent.click(customToggleAfterDetection());
+      expect(screen.getByRole('button', { name: /Open-Zeppelin/ })).toBeInTheDocument();
+      expect(screen.getByTestId('guardian-input')).toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('lets a manual choice through the escape hatch continue while the probe is still running', () => {
+    jest.useFakeTimers();
+    try {
+      const { onSubmit } = renderScreen({ probe: { status: 'probing' } });
+
+      // Continue is blocked while the probe runs and nothing manual happened.
+      expect(continueButton()).toBeDisabled();
+
+      act(() => {
+        jest.advanceTimersByTime(10_000);
+      });
+
+      // Opening the escape hatch IS the manual choice: the prefilled endpoint
+      // is valid, so Continue works immediately — no redundant extra click.
+      fireEvent.click(customToggleAfterDetection());
+      expect(continueButton()).toBeEnabled();
+
+      // A preset pick still works and wins over the in-flight probe.
+      fireEvent.click(screen.getByRole('button', { name: /Open-Zeppelin/ }));
+      fireEvent.click(continueButton());
+      expect(onSubmit).toHaveBeenCalledWith({
+        walletType: WalletType.Guardian,
+        guardianEndpoint: OZ_ENDPOINT
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('hides the detected banner once the user overrides, so the banner never contradicts the submission', () => {
+    const best = match({ endpoint: 'https://detected.example.com', option: undefined });
+    const { onSubmit } = renderScreen({ probe: detected(best) });
+
+    expect(screen.getByTestId('guardian-detected')).toBeInTheDocument();
+
+    // User opens the disclosure and picks a different preset: the "found your
+    // guardian" headline must go away — Continue now submits the manual pick.
+    fireEvent.click(customToggleAfterDetection());
+    fireEvent.click(screen.getByRole('button', { name: /Gateway Operator/ }));
+
+    expect(screen.queryByTestId('guardian-detected')).not.toBeInTheDocument();
+    fireEvent.click(continueButton());
+    expect(onSubmit).toHaveBeenCalledWith({
+      walletType: WalletType.Guardian,
+      guardianEndpoint: expect.stringContaining('gateway')
+    });
+  });
+
+  it('presents the detected guardian and submits its endpoint', () => {
+    const best = match({ endpoint: 'https://detected.example.com', option: undefined });
+    const { onSubmit } = renderScreen({ probe: detected(best) });
+
+    expect(screen.getByTestId('guardian-detected')).toBeInTheDocument();
+    expect(screen.getByText('guardianDetectedTitle')).toBeInTheDocument();
+    expect(screen.getByText('https://detected.example.com')).toBeInTheDocument();
+    expect(continueButton()).toBeEnabled();
+
+    fireEvent.click(continueButton());
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      walletType: WalletType.Guardian,
+      guardianEndpoint: 'https://detected.example.com'
+    });
+  });
+
+  it('strips a trailing slash from the detected endpoint before submitting', () => {
+    const { onSubmit } = renderScreen({ probe: detected(match({ endpoint: 'https://detected.example.com/' })) });
+
+    fireEvent.click(continueButton());
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      walletType: WalletType.Guardian,
+      guardianEndpoint: 'https://detected.example.com'
+    });
+  });
+
+  it("shows the operator's location and a note when more than one guardian answered", () => {
+    renderScreen({ probe: detected(match(), [match({ endpoint: 'https://stale.example.com', nonce: 2n })]) });
+
+    expect(screen.getByText(OZ_OPTION.location)).toBeInTheDocument();
+    expect(screen.getByText('guardianDetectedMultiple')).toBeInTheDocument();
+  });
+
+  it('hides the multi-match note when exactly one guardian answered', () => {
+    renderScreen({ probe: detected() });
+
+    expect(screen.queryByText('guardianDetectedMultiple')).not.toBeInTheDocument();
+  });
+
+  it('keeps the preset grid behind a disclosure once a guardian is detected', () => {
+    renderScreen({ probe: detected() });
+
+    expect(screen.queryByRole('button', { name: /Open-Zeppelin/ })).not.toBeInTheDocument();
+
+    fireEvent.click(customToggleAfterDetection());
+
+    expect(screen.getByRole('button', { name: /Open-Zeppelin/ })).toBeInTheDocument();
+    expect(screen.getByTestId('guardian-input')).toBeInTheDocument();
+  });
+
+  it('never clobbers an endpoint the user chose, even when a probe result lands later', () => {
+    if (!GATEWAY_OPTION) return; // Networks with a single operator have nothing to override with.
+    const { rerender, onSubmit } = renderScreen({ probe: { status: 'error', message: 'boom' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /Gateway Operator/ }));
+    expect(screen.getByText(GATEWAY_OPTION.endpoint)).toBeInTheDocument();
+
+    // A late probe result must not silently move the user off their choice.
+    rerender(<ImportRecoveryMethodScreen onSubmit={onSubmit} probe={detected()} />);
+
+    expect(screen.getByText(GATEWAY_OPTION.endpoint)).toBeInTheDocument();
+    fireEvent.click(continueButton());
+    expect(onSubmit).toHaveBeenCalledWith({
+      walletType: WalletType.Guardian,
+      guardianEndpoint: GATEWAY_OPTION.endpoint
+    });
+  });
+
+  it('never clobbers a custom URL the user typed', () => {
+    const { rerender, onSubmit } = renderScreen({ probe: done() });
+
+    fireEvent.click(customToggle());
+    fireEvent.change(guardianInput(), { target: { value: 'https://mine.example.com' } });
+
+    rerender(<ImportRecoveryMethodScreen onSubmit={onSubmit} probe={detected()} />);
+
+    expect(guardianInput()).toHaveValue('https://mine.example.com');
+  });
+
+  it('falls back to the manual picker with a retry link when nothing was detected', () => {
+    const onRetryProbe = jest.fn();
+    renderScreen({ probe: done(), onRetryProbe });
+
+    expect(screen.getByTestId('guardian-not-detected')).toBeInTheDocument();
+    expect(screen.getByText('guardianNotDetected')).toBeInTheDocument();
+    // Exactly today's screen underneath.
+    expect(screen.getByRole('button', { name: /Open-Zeppelin/ })).toBeInTheDocument();
+    expect(screen.getByText('guardianEndpoint')).toBeInTheDocument();
+    expect(continueButton()).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: /retryGuardianDetection/ }));
+    expect(onRetryProbe).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns that detection may be incomplete when some operators were unreachable', () => {
+    renderScreen({
+      probe: done({ failures: [{ endpoint: OZ_ENDPOINT, reason: 'timeout', message: 'timed out' }] })
+    });
+
+    expect(screen.getByText('guardianProbePartialFailure')).toBeInTheDocument();
+  });
+
+  it('omits the partial-failure warning when every operator answered', () => {
+    renderScreen({ probe: done() });
+
+    expect(screen.queryByText('guardianProbePartialFailure')).not.toBeInTheDocument();
+  });
+
+  it('omits the retry link when the host cannot re-run the probe', () => {
+    renderScreen({ probe: done() });
+
+    expect(screen.queryByRole('button', { name: /retryGuardianDetection/ })).not.toBeInTheDocument();
+  });
+
+  it('falls back to the manual picker when the probe itself errored', () => {
+    renderScreen({ probe: { status: 'error', message: 'network down' } });
+
+    expect(screen.getByTestId('guardian-not-detected')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Open-Zeppelin/ })).toBeInTheDocument();
+    expect(continueButton()).toBeEnabled();
+  });
+
+  it('still surfaces the post-register not-found error alongside a detected guardian', () => {
+    renderScreen({ probe: detected(), isError: true });
+
+    expect(screen.getByText('guardianAccountNotFound')).toBeInTheDocument();
+  });
+
+  it('leaves the on-chain option untouched while a probe is running', () => {
+    const { onSubmit } = renderScreen({ probe: { status: 'probing' } });
+
+    selectOnChain();
+
+    expect(screen.queryByTestId('guardian-probe-spinner')).not.toBeInTheDocument();
+    expect(continueButton()).toBeEnabled();
+    fireEvent.click(continueButton());
+    expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.OnChain });
   });
 });

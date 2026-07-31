@@ -2608,6 +2608,44 @@
     "message": "Verwenden Sie einen anderen Vormund",
     "englishSource": "Use a different guardian"
   },
+  "detectingGuardian": {
+    "message": "Auf der Suche nach Ihrem Vormund…",
+    "englishSource": "Looking for your guardian…"
+  },
+  "guardianDetectedTitle": {
+    "message": "Habe deinen Vormund gefunden: $name$ ",
+    "englishSource": "Found your guardian: $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianDetectedMultiple": {
+    "message": "Mehr als ein Erziehungsberechtigter kennt dieses Konto. Wir haben denjenigen ausgewählt, der Ihren aktuellsten Status enthält.",
+    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
+  },
+  "useCustomGuardianInstead": {
+    "message": "Stattdessen ein anderes verwenden?",
+    "englishSource": "Use a different one instead?"
+  },
+  "guardianNotDetected": {
+    "message": "Wir konnten Ihren Vormund nicht automatisch erkennen. Wählen Sie die von Ihnen verwendete aus oder geben Sie deren URL ein.",
+    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianProbePartialFailure": {
+    "message": "$count$ Erziehungsberechtigte konnten nicht erreicht werden, daher ist die Erkennung möglicherweise unvollständig.",
+    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "retryGuardianDetection": {
+    "message": "Versuchen Sie es erneut mit der Erkennung",
+    "englishSource": "Try detecting again"
+  },
   "guardianAccountNotFound": {
     "message": "Wir konnten Ihr Konto bei diesem Guardian nicht finden. Überprüfen Sie die URL oder importieren Sie stattdessen als öffentliches Konto.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."

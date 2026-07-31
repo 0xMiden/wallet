@@ -2609,6 +2609,44 @@
     "message": "Используйте другого опекуна",
     "englishSource": "Use a different guardian"
   },
+  "detectingGuardian": {
+    "message": "Ищу своего опекуна…",
+    "englishSource": "Looking for your guardian…"
+  },
+  "guardianDetectedTitle": {
+    "message": "Нашел своего опекуна: $name$ ",
+    "englishSource": "Found your guardian: $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianDetectedMultiple": {
+    "message": "Эту учетную запись знают более одного опекуна. Мы выбрали тот, который содержит ваше последнее состояние.",
+    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
+  },
+  "useCustomGuardianInstead": {
+    "message": "Вместо этого использовать другой?",
+    "englishSource": "Use a different one instead?"
+  },
+  "guardianNotDetected": {
+    "message": "Нам не удалось обнаружить вашего опекуна автоматически. Выберите тот, который вы использовали, или введите его URL.",
+    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianProbePartialFailure": {
+    "message": "Не удалось связаться с $count$ опекуном(ами), поэтому обнаружение может быть неполным.",
+    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "retryGuardianDetection": {
+    "message": "Попробуйте обнаружить еще раз",
+    "englishSource": "Try detecting again"
+  },
   "guardianAccountNotFound": {
     "message": "Нам не удалось найти вашу учетную запись на этом опекуне. Вместо этого проверьте URL-адрес или импортируйте его как общедоступную учетную запись.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."

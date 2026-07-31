@@ -9,6 +9,7 @@ import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { canHandoffToSidePanel } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import { putToStorage } from 'lib/miden/front/storage';
+import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
@@ -108,6 +109,17 @@ const Welcome: FC = () => {
   const [protectionMethod, setProtectionMethod] = useState<'passcode' | 'biometric' | 'password' | null>(null);
   const { registerWallet } = useMidenContext();
   const { trackEvent } = useAnalytics();
+  // Guardian auto-detection (issue #418): kicked off in the background the
+  // moment a seed phrase is submitted, so it is usually already resolved by the
+  // time the user gets through the password/passcode step to the
+  // recovery-method screen.
+  const guardianProbe = useGuardianProbe();
+  const resetGuardianProbe = guardianProbe.reset;
+  // Without a seed phrase in memory (e.g. the popup was reopened directly on the
+  // recovery-method screen) there is nothing to detect — leave the probe prop
+  // undefined so that screen renders its classic manual picker rather than an
+  // endless spinner.
+  const guardianProbeState = seedPhrase ? guardianProbe.state : undefined;
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
 
   // Chrome side panel handoff: create the wallet while the confirmation screen
@@ -182,6 +194,24 @@ const Welcome: FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testBypassTriggered, password]);
+
+  // Fire-and-forget: navigation must not wait on the network. The result lands
+  // in `guardianProbe.state`, which the recovery-method screen renders.
+  const startGuardianProbe = useCallback(
+    (words: string[]) => {
+      void guardianProbe.start(words).then(result => {
+        if (!result) return;
+        // Deliberately no endpoint / account id — only shape, so we can tell
+        // how often detection actually helps.
+        trackEvent('guardian-probe', AnalyticsEventCategory.General, {
+          detected: Boolean(result.best),
+          matchCount: result.matches.length,
+          failureCount: result.failures.length
+        });
+      });
+    },
+    [guardianProbe, trackEvent]
+  );
 
   const register = useCallback(async () => {
     if (password && seedPhrase) {
@@ -307,6 +337,10 @@ const Welcome: FC = () => {
         break;
       case 'import-seed-phrase-submit':
         setSeedPhrase(action.payload.split(' '));
+        // Start guardian auto-detection here rather than on the recovery-method
+        // screen: it then runs behind the password/passcode step and is usually
+        // already resolved when that screen mounts.
+        startGuardianProbe(action.payload.split(' '));
         // Check if hardware security is available - if so, skip password step
         {
           const hardwareAvailable = await checkHardwareSecurityAvailable();
@@ -335,6 +369,9 @@ const Welcome: FC = () => {
         } else {
           navigate('/#confirmation');
         }
+        break;
+      case 'retry-guardian-probe':
+        if (seedPhrase) startGuardianProbe(seedPhrase);
         break;
       case 'import-select-recovery-method':
         setWalletType(action.payload.walletType);
@@ -468,6 +505,9 @@ const Welcome: FC = () => {
       case '#import-from-seed':
         setOnboardingType(OnboardingType.Import);
         setStep(OnboardingStep.ImportFromSeed);
+        // Backing out to seed entry invalidates any detection for the previous
+        // phrase — abort it so a stale result can't be shown for a new seed.
+        resetGuardianProbe();
         break;
       case '#create-password':
         // Onboarding state is in-memory only; reloading on this screen loses
@@ -493,7 +533,7 @@ const Welcome: FC = () => {
       default:
         break;
     }
-  }, [hash, password, onboardingType]);
+  }, [hash, password, onboardingType, resetGuardianProbe]);
 
   // Handle mobile back button/gesture in onboarding flow
   useMobileBackHandler(() => {
@@ -525,6 +565,7 @@ const Welcome: FC = () => {
           biometricAttempts={biometricAttempts}
           biometricError={biometricError}
           guardianLookupError={guardianLookupError}
+          guardianProbe={guardianProbeState}
           confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
           onBiometricChange={setUseBiometric}
           onAction={onAction}

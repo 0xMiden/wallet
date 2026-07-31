@@ -1,3 +1,17 @@
+import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
+
+/**
+ * Progress of the background guardian auto-detection probe kicked off right
+ * after seed-phrase entry (issue #418). Type-only import, so referencing this
+ * never pulls the probe (and its SDK/guardian-client deps) into the onboarding
+ * bundle — the probe itself is loaded dynamically.
+ */
+export type GuardianProbeState =
+  | { status: 'idle' }
+  | { status: 'probing' }
+  | { status: 'done'; result: GuardianDiscoveryResult }
+  | { status: 'error'; message: string };
+
 export enum OnboardingType {
   Create = 'create',
   Import = 'import'
@@ -48,6 +62,7 @@ export type OnboardingActionId =
   | 'choose-guardian'
   | 'import-select-recovery-method'
   | 'confirmation'
+  | 'retry-guardian-probe'
   | 'import-from-seed';
 
 export type CreateWalletAction = {
@@ -148,6 +163,11 @@ export type SwitchToPasswordAction = {
   id: 'switch-to-password';
 };
 
+/** Re-run the guardian auto-detection probe for the already-entered seed phrase. */
+export type RetryGuardianProbeAction = {
+  id: 'retry-guardian-probe';
+};
+
 export type OnboardingAction =
   | CreateWalletAction
   | ChooseProtectionAction
@@ -171,6 +191,7 @@ export type OnboardingAction =
   | ImportSeedPhraseSubmitAction
   | BackAction
   | ImportFromSeedAction
+  | RetryGuardianProbeAction
   | SwitchToPasswordAction;
 
 // TODO: Potentially make this into what the onboarding flows use to render the

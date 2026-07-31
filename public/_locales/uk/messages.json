@@ -2609,6 +2609,44 @@
     "message": "Використовуйте іншого опікуна",
     "englishSource": "Use a different guardian"
   },
+  "detectingGuardian": {
+    "message": "Шукаєте свого опікуна…",
+    "englishSource": "Looking for your guardian…"
+  },
+  "guardianDetectedTitle": {
+    "message": "Знайшов свого опікуна: $name$ ",
+    "englishSource": "Found your guardian: $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianDetectedMultiple": {
+    "message": "Більш ніж один опікун знає цей обліковий запис. Ми вибрали той, який містить ваш останній стан.",
+    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
+  },
+  "useCustomGuardianInstead": {
+    "message": "Використати замість цього інший?",
+    "englishSource": "Use a different one instead?"
+  },
+  "guardianNotDetected": {
+    "message": "Нам не вдалося автоматично визначити вашого опікуна. Виберіть той, який ви використовували, або введіть його URL-адресу.",
+    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianProbePartialFailure": {
+    "message": "$count$ опікуна(ів) не вдалося зв’язатися, тому виявлення може бути неповним.",
+    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "retryGuardianDetection": {
+    "message": "Спробуйте визначити ще раз",
+    "englishSource": "Try detecting again"
+  },
   "guardianAccountNotFound": {
     "message": "Нам не вдалося знайти ваш обліковий запис у цього опікуна. Перевірте URL-адресу або імпортуйте як публічний обліковий запис.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."

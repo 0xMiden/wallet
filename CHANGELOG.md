@@ -12,6 +12,7 @@
 ### Features
 
 - [FEATURE][all] **Send a plain P2ID note ("Never" expiration).** The send flow always attached a reclaim/expiration height (defaulting to 7 days → a P2IDE note), with no way to remove it. The "Expiration Date" picker now offers a **"Never"** option that clears the reclaim height, so the send goes out as a plain **P2ID** note (recipient keeps it; the sender has no recall window). Default behaviour (7-day recall → P2IDE) is unchanged unless the user picks "Never".
+- [FEATURE][all] **Your guardian is detected automatically when you recover from a seed phrase.** Entering your seed phrase now probes every known guardian operator in the background and preselects the one that actually holds your account — picking the highest account nonce, so after a guardian switch the new operator wins over the old one's stale state. The recovery-method screen shows the detected operator with a "use a different one instead?" disclosure over the classic picker, falls back to the manual picker (with a retry link) when nothing is found, and the Forgot-password recovery flow adopts the detected guardian silently.
 
 ## 1.15.16 (2026-07-30)
 

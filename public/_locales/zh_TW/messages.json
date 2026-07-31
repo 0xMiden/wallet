@@ -2608,6 +2608,44 @@
     "message": "使用不同的监护人",
     "englishSource": "Use a different guardian"
   },
+  "detectingGuardian": {
+    "message": "寻找你的监护人...",
+    "englishSource": "Looking for your guardian…"
+  },
+  "guardianDetectedTitle": {
+    "message": "已找到您的监护人： $name$ ",
+    "englishSource": "Found your guardian: $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianDetectedMultiple": {
+    "message": "不止一位监护人知道该账户。我们选择了保存您最近状态的那个。",
+    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
+  },
+  "useCustomGuardianInstead": {
+    "message": "使用不同的代替吗？",
+    "englishSource": "Use a different one instead?"
+  },
+  "guardianNotDetected": {
+    "message": "我们无法自动检测您的监护人。选择您使用的那个，或输入其 URL。",
+    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianProbePartialFailure": {
+    "message": "无法联系到 $count$ 个监护人，因此检测可能不完整。",
+    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "retryGuardianDetection": {
+    "message": "再次尝试检测",
+    "englishSource": "Try detecting again"
+  },
   "guardianAccountNotFound": {
     "message": "我们在该监护人上找不到您的帐户。请检查 URL 或导入为公共帐户。",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
