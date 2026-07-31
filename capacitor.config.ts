@@ -24,9 +24,12 @@ const config: CapacitorConfig = {
     },
     Keyboard: {
       // Prevent keyboard from pushing content - overlay instead
-      resize: 'none',
-      // Show accessory bar (Done button) on iOS
-      resizeOnFullScreen: true
+      resize: 'none'
+      // The iOS accessory bar (Done + arrows) — the only way to dismiss the
+      // number pad, which has no return key — is enabled at RUNTIME via
+      // Keyboard.setAccessoryBarVisible() in lib/mobile/keyboard-inset.ts.
+      // There is no `accessoryBarVisible` Keyboard *config* key; setting one
+      // here typechecks (PluginsConfig has an index signature) but is ignored.
     },
     SplashScreen: {
       // Auto-hide after app is ready

@@ -40,6 +40,18 @@
     "message": "총 잔액",
     "englishSource": "Total Balance"
   },
+  "balanceCardDeltaPill": {
+    "message": "$absolute$ ($percentage$)",
+    "englishSource": "$absolute$ ($percentage$)",
+    "placeholders": {
+      "absolute": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "balanceCardAccount": {
     "message": "계정 #: $number$ ",
     "englishSource": "Account #: $number$",
@@ -57,6 +69,15 @@
     "message": "로드 중…",
     "englishSource": "Loading…"
   },
+  "dappSwitcherCardActivate": {
+    "message": "$name$. Activate to switch to this dApp.",
+    "englishSource": "$name$. Activate to switch to this dApp.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
   "dappSwitcherCloseCard": {
     "message": "닫다 $name$ ",
     "englishSource": "Close $name$",
@@ -73,6 +94,15 @@
   "promptCardLoading": {
     "message": "로드 중",
     "englishSource": "Loading"
+  },
+  "priceChangeAmountNeutral": {
+    "message": "$amount$",
+    "englishSource": "$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "priceChangeAmountPositive": {
     "message": "+ $amount$ ",
@@ -92,11 +122,29 @@
       }
     }
   },
+  "priceChangePercent": {
+    "message": "$value$%",
+    "englishSource": "$value$%",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
   "pendingTabApproxUsd": {
     "message": "≈  $value$ ",
     "englishSource": "≈ $value$",
     "placeholders": {
       "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailChange24h": {
+    "message": "$change$%",
+    "englishSource": "$change$%",
+    "placeholders": {
+      "change": {
         "content": "$1"
       }
     }

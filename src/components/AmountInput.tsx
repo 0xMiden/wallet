@@ -91,6 +91,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
             decimalsLimit={6}
             allowNegativeValue={false}
             maxLength={16}
+            enterKeyHint="done"
             autoFocus={autoFocus}
             disabled={disabled}
             data-testid={dataTestId}
