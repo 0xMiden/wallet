@@ -228,6 +228,22 @@ describe('RecallCalendarDrawer', () => {
     expect(screen.getByTestId('calendar-month').textContent).toBe(new Date(2030, 5, 1).toISOString());
   });
 
+  it('picking a calendar date also syncs recallBlocks so date and blocks never orphan', async () => {
+    // Regression: onSelect previously set only recallDate; dismissing without
+    // Confirm then left recallBlocks stale (e.g. undefined after "Never"), so the
+    // review row displayed a recall the send never performed. onSelect must emit
+    // both, keeping recallDate <-> recallBlocks consistent even without Confirm.
+    const props = makeProps();
+    await renderDrawer(props);
+
+    fireEvent.click(screen.getByTestId('calendar-select-date'));
+
+    expect(props.onRecallDateChange).toHaveBeenCalledWith(new Date('2030-06-15T09:00:00'));
+    expect(props.onRecallBlocksChange).toHaveBeenCalledWith(expect.any(String));
+    const blocks = (props.onRecallBlocksChange as jest.Mock).mock.calls[0][0];
+    expect(Number(blocks)).toBeGreaterThan(0);
+  });
+
   it('clearing the calendar selection (onSelect(undefined)) is a no-op', async () => {
     const props = makeProps();
     await renderDrawer(props);

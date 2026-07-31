@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { addDays, differenceInSeconds, format, formatDistanceToNow } from 'date-fns';
+import { addDays, addSeconds, differenceInSeconds, format, formatDistanceToNow } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
@@ -28,7 +28,7 @@ import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/wooz
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { BRIDGE_OUTPUT_TOKEN_SYMBOL, getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
-import { combineDateAndTime, dateTimeToRecallBlocks, RecallCalendarDrawer } from './RecallCalendarDrawer';
+import { combineDateAndTime, dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
 import { BridgeRoute, UIToken } from './types';
 import { useEpochQuote } from './useEpochQuote';
@@ -325,13 +325,20 @@ export const ReviewTransaction: React.FC = () => {
   // relative phrase. "Never" (explicit no-recall → P2ID) is distinct from the
   // not-yet-set default, which shows "None".
   const expirationLabel = (() => {
-    if (!recallDate) return recallNever ? t('never') : t('none');
+    // Gate on recallBlocks — the value that actually decides P2ID (undefined →
+    // no recall) vs P2IDE (set → recallable) at send time — so the label can
+    // never claim a recall the send won't perform, or vice-versa.
+    if (!recallBlocks || !recallDate) return recallNever ? t('never') : t('none');
     const target = combineDateAndTime(recallDate, recallTime);
     const secondsLeft = differenceInSeconds(target, expirationNow);
-    if (secondsLeft <= 0) return t('none');
-    if (secondsLeft < 180) return t('expiresInSeconds', { seconds: String(secondsLeft) });
-    if (secondsLeft < 1800) return t('expiresInMinutes', { minutes: String(Math.ceil(secondsLeft / 60)) });
-    const rel = formatDistanceToNow(target, { addSuffix: true });
+    // recallBlocks is a fixed RELATIVE offset applied at SEND. If the chosen
+    // instant lapsed while the user lingered on this page, the note is still
+    // recallable ~offset after send — surface that from the offset rather than
+    // "None" (which means no recall at all).
+    const secs = secondsLeft > 0 ? secondsLeft : parseInt(recallBlocks, 10) * SECONDS_PER_BLOCK;
+    if (secs < 180) return t('expiresInSeconds', { seconds: String(Math.max(1, secs)) });
+    if (secs < 1800) return t('expiresInMinutes', { minutes: String(Math.ceil(secs / 60)) });
+    const rel = formatDistanceToNow(secondsLeft > 0 ? target : addSeconds(new Date(), secs), { addSuffix: true });
     return rel.charAt(0).toUpperCase() + rel.slice(1);
   })();
 
@@ -391,7 +398,7 @@ export const ReviewTransaction: React.FC = () => {
               label={t('expirationDate')}
               onEdit={() => setShowCalendar(true)}
               editLabel={t('edit')}
-              note={recallDate ? t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` }) : undefined}
+              note={recallBlocks ? t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` }) : undefined}
             >
               {expirationLabel}
             </ReviewRow>

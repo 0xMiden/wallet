@@ -141,6 +141,10 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
             onSelect={date => {
               if (date) {
                 onRecallDateChange(date);
+                // Keep recallBlocks in lockstep with the date so the review row's
+                // label/note can never disagree with what is actually sent — even
+                // if the drawer is dismissed without pressing Confirm.
+                onRecallBlocksChange(String(dateTimeToRecallBlocks(combineDateAndTime(date, recallTime))));
                 setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
               }
             }}
@@ -158,7 +162,13 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
               type="time"
               data-testid="recall-time-input"
               value={recallTime}
-              onChange={e => onRecallTimeChange(e.target.value)}
+              onChange={e => {
+                onRecallTimeChange(e.target.value);
+                // Keep recallBlocks in lockstep with the time too (see onSelect).
+                if (recallDate) {
+                  onRecallBlocksChange(String(dateTimeToRecallBlocks(combineDateAndTime(recallDate, e.target.value))));
+                }
+              }}
               className={clsx(
                 'ml-auto bg-input-bg rounded-[10px] px-3 py-2 text-sm outline-none font-medium [&::-webkit-calendar-picker-indicator]:cursor-pointer',
                 selectionInPast ? 'text-red-500' : 'text-heading-gray'

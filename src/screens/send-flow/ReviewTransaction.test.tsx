@@ -198,6 +198,7 @@ jest.mock('utils/miden', () => {
 });
 
 jest.mock('./RecallCalendarDrawer', () => ({
+  SECONDS_PER_BLOCK: 3,
   dateTimeToRecallBlocks: jest.fn(() => 999),
   combineDateAndTime: (date: Date, time: string) => {
     if (mockExpirationTarget) return mockExpirationTarget;
@@ -417,8 +418,7 @@ describe('ReviewTransaction — rendering', () => {
 
   it.each([
     [120_000, 'expiresInSeconds'],
-    [10 * 60_000, 'expiresInMinutes'],
-    [-1_000, 'none']
+    [10 * 60_000, 'expiresInMinutes']
   ])('renders the precise expiration label for a target offset by %d ms', async (offset, expectedLabel) => {
     const now = new Date('2030-01-01T12:00:00');
     jest.useFakeTimers({ now });
@@ -429,6 +429,27 @@ describe('ReviewTransaction — rendering', () => {
       await flush();
 
       expect(screen.getByText(expectedLabel)).toBeInTheDocument();
+      unmount();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('shows a recall window (not "None") when the chosen target lapses while a recall offset is still attached', async () => {
+    const now = new Date('2030-01-01T12:00:00');
+    jest.useFakeTimers({ now });
+    try {
+      // Absolute target 1s in the past, but recallBlocks is still set. Recall is a
+      // fixed offset applied at SEND, so the note IS recallable (P2IDE) — the label
+      // must surface the window, never "None" (which would imply a plain P2ID).
+      mockExpirationTarget = new Date(now.getTime() - 1_000);
+      dateTimeToRecallBlocksMock.mockReturnValue(20); // 20 blocks * 3s = 60s window
+      setValidRoute();
+      const { unmount } = render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.queryByText('none')).not.toBeInTheDocument();
+      expect(screen.getByText('expiresInSeconds')).toBeInTheDocument();
       unmount();
     } finally {
       jest.useRealTimers();
