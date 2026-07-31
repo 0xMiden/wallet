@@ -410,10 +410,7 @@ describe('generateTransaction — Guardian routing', () => {
       expect(terminate).toHaveBeenCalledTimes(1);
       expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'recallable_send');
       expect(multisigService.createSendProposal).not.toHaveBeenCalled();
-      expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith(
-        'recall-proposal',
-        requestBytes
-      );
+      expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('recall-proposal', requestBytes);
       expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
     }
   );
