@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { addDays, addSeconds, differenceInSeconds, format, formatDistanceToNow } from 'date-fns';
+import { addDays, addSeconds, format, formatDistanceToNow } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
@@ -28,7 +28,7 @@ import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/wooz
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { BRIDGE_OUTPUT_TOKEN_SYMBOL, getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
-import { combineDateAndTime, dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
+import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
 import { BridgeRoute, UIToken } from './types';
 import { useEpochQuote } from './useEpochQuote';
@@ -182,17 +182,6 @@ export const ReviewTransaction: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
 
-  // Clock for the expiration label: once the expiration is under 30 minutes
-  // away the label counts down live (seconds under 3 min), so tick every
-  // second. Longer horizons render a coarse relative phrase — no tick needed.
-  const [expirationNow, setExpirationNow] = useState(() => new Date());
-  useEffect(() => {
-    if (isBridge || !recallDate) return;
-    if (differenceInSeconds(combineDateAndTime(recallDate, recallTime), new Date()) >= 1800) return;
-    const interval = setInterval(() => setExpirationNow(new Date()), 1000);
-    return () => clearInterval(interval);
-  }, [isBridge, recallDate, recallTime]);
-
   // Hand off to the full-screen in-progress page. GeneratingTransactionPage is
   // self-driving: it runs the tx loop on SW-less platforms, polls per-stage
   // progress for `txId`, stashes the Midenscan hash and flips to the success
@@ -318,27 +307,20 @@ export const ReviewTransaction: React.FC = () => {
     return <Redirect to="/send" />;
   }
 
-  // The drawer stores date and time separately — the label must combine them
-  // (the bare recallDate renders midnight, so a same-day time under 30 min
-  // away used to show a nonsense coarse distance). Near expirations render
-  // exactly: < 3 min in seconds, < 30 min in minutes, otherwise the usual
-  // relative phrase. "Never" (explicit no-recall → P2ID) is distinct from the
-  // not-yet-set default, which shows "None".
+  // Label is derived from recallBlocks — the single source of truth for the send:
+  //   undefined → plain P2ID (no recall) → "None" (or "Never" if explicitly chosen)
+  //   set        → P2IDE, recallable ~(recallBlocks * SECONDS_PER_BLOCK) after SUBMIT
+  // The offset is RELATIVE and gets converted to an absolute height at send time, so
+  // reading the window off the offset (not the picked absolute instant) keeps the
+  // displayed value matching what's actually broadcast no matter how long the user
+  // lingers here. Near windows render precisely (< 3 min in seconds, < 30 min in
+  // minutes), longer ones as a coarse relative phrase.
   const expirationLabel = (() => {
-    // Gate on recallBlocks — the value that actually decides P2ID (undefined →
-    // no recall) vs P2IDE (set → recallable) at send time — so the label can
-    // never claim a recall the send won't perform, or vice-versa.
-    if (!recallBlocks || !recallDate) return recallNever ? t('never') : t('none');
-    const target = combineDateAndTime(recallDate, recallTime);
-    const secondsLeft = differenceInSeconds(target, expirationNow);
-    // recallBlocks is a fixed RELATIVE offset applied at SEND. If the chosen
-    // instant lapsed while the user lingered on this page, the note is still
-    // recallable ~offset after send — surface that from the offset rather than
-    // "None" (which means no recall at all).
-    const secs = secondsLeft > 0 ? secondsLeft : parseInt(recallBlocks, 10) * SECONDS_PER_BLOCK;
+    if (!recallBlocks) return recallNever ? t('never') : t('none');
+    const secs = parseInt(recallBlocks, 10) * SECONDS_PER_BLOCK;
     if (secs < 180) return t('expiresInSeconds', { seconds: String(Math.max(1, secs)) });
     if (secs < 1800) return t('expiresInMinutes', { minutes: String(Math.ceil(secs / 60)) });
-    const rel = formatDistanceToNow(secondsLeft > 0 ? target : addSeconds(new Date(), secs), { addSuffix: true });
+    const rel = formatDistanceToNow(addSeconds(new Date(), secs), { addSuffix: true });
     return rel.charAt(0).toUpperCase() + rel.slice(1);
   })();
 

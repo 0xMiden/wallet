@@ -27,7 +27,6 @@ let mockFullPage = false;
 let mockPublicKey: string | null = 'pubkey-1';
 let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
-let mockExpirationTarget: Date | undefined;
 let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
 let mockEpochQuote: { amount?: string; loading: boolean; error: null } = {
   amount: undefined,
@@ -200,13 +199,6 @@ jest.mock('utils/miden', () => {
 jest.mock('./RecallCalendarDrawer', () => ({
   SECONDS_PER_BLOCK: 3,
   dateTimeToRecallBlocks: jest.fn(() => 999),
-  combineDateAndTime: (date: Date, time: string) => {
-    if (mockExpirationTarget) return mockExpirationTarget;
-    const [hours, minutes] = time.split(':').map(Number);
-    const withTime = new Date(date);
-    withTime.setHours(hours ?? 0, minutes ?? 0, 0, 0);
-    return withTime;
-  },
   RecallCalendarDrawer: (props: any) => (
     <div data-testid="recall-drawer" data-open={String(props.open)} data-recall-time={props.recallTime} />
   )
@@ -290,7 +282,6 @@ beforeEach(() => {
   mockPublicKey = 'pubkey-1';
   mockBalanceData = undefined;
   mockTokensMeta = [];
-  mockExpirationTarget = undefined;
   mockDetectedChain = 'miden';
   mockEpochQuote = { amount: undefined, loading: false, error: null };
 
@@ -417,43 +408,32 @@ describe('ReviewTransaction — rendering', () => {
   });
 
   it.each([
-    [120_000, 'expiresInSeconds'],
-    [10 * 60_000, 'expiresInMinutes']
-  ])('renders the precise expiration label for a target offset by %d ms', async (offset, expectedLabel) => {
-    const now = new Date('2030-01-01T12:00:00');
-    jest.useFakeTimers({ now });
-    try {
-      mockExpirationTarget = new Date(now.getTime() + offset);
-      setValidRoute();
-      const { unmount } = render(<ReviewTransaction />);
-      await flush();
+    [40, 'expiresInSeconds'], // 40 blocks * 3s = 120s  (< 180 → seconds)
+    [400, 'expiresInMinutes'] // 400 blocks * 3s = 1200s (< 1800 → minutes)
+  ])('renders the precise expiration label derived from recallBlocks=%d', async (blocks, expectedLabel) => {
+    // The label reads the relative recall offset (recallBlocks), NOT the picked
+    // absolute instant, so it always matches the window the send will apply.
+    dateTimeToRecallBlocksMock.mockReturnValue(blocks);
+    setValidRoute();
+    const { unmount } = render(<ReviewTransaction />);
+    await flush();
 
-      expect(screen.getByText(expectedLabel)).toBeInTheDocument();
-      unmount();
-    } finally {
-      jest.useRealTimers();
-    }
+    expect(screen.getByText(expectedLabel)).toBeInTheDocument();
+    unmount();
   });
 
-  it('shows a recall window (not "None") when the chosen target lapses while a recall offset is still attached', async () => {
-    const now = new Date('2030-01-01T12:00:00');
-    jest.useFakeTimers({ now });
-    try {
-      // Absolute target 1s in the past, but recallBlocks is still set. Recall is a
-      // fixed offset applied at SEND, so the note IS recallable (P2IDE) — the label
-      // must surface the window, never "None" (which would imply a plain P2ID).
-      mockExpirationTarget = new Date(now.getTime() - 1_000);
-      dateTimeToRecallBlocksMock.mockReturnValue(20); // 20 blocks * 3s = 60s window
-      setValidRoute();
-      const { unmount } = render(<ReviewTransaction />);
-      await flush();
+  it('never shows "None" while a recall offset is attached (label derives from the offset, not the clock)', async () => {
+    // recallBlocks set → P2IDE, so the note IS recallable — the label must surface
+    // the window and never "None" (which would imply a plain P2ID). Being offset-
+    // derived, it also can't count down to "None" or snap backwards as time passes.
+    dateTimeToRecallBlocksMock.mockReturnValue(1); // 1 block * 3s = 3s window
+    setValidRoute();
+    const { unmount } = render(<ReviewTransaction />);
+    await flush();
 
-      expect(screen.queryByText('none')).not.toBeInTheDocument();
-      expect(screen.getByText('expiresInSeconds')).toBeInTheDocument();
-      unmount();
-    } finally {
-      jest.useRealTimers();
-    }
+    expect(screen.queryByText('none')).not.toBeInTheDocument();
+    expect(screen.getByText('expiresInSeconds')).toBeInTheDocument();
+    unmount();
   });
 
   it('renders the slow bridge route without a Miden expiration row', async () => {
