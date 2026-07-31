@@ -2808,6 +2808,10 @@
     "message": "Za 2 tygodnie",
     "englishSource": "In 2 weeks"
   },
+  "never": {
+    "message": "Nigdy",
+    "englishSource": "Never"
+  },
   "30mins": {
     "message": "30 minut",
     "englishSource": "30 mins"

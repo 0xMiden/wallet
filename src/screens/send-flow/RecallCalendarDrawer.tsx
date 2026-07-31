@@ -35,6 +35,8 @@ export interface RecallCalendarDrawerProps {
   onRecallBlocksChange: (blocks: string) => void;
   onRecallDateChange: (date: Date | undefined) => void;
   onRecallTimeChange: (time: string) => void;
+  /** Clear the reclaim height entirely — sends a plain P2ID note (no recall window). */
+  onRecallNever: () => void;
 }
 
 /**
@@ -50,7 +52,8 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
   recallTime,
   onRecallBlocksChange,
   onRecallDateChange,
-  onRecallTimeChange
+  onRecallTimeChange,
+  onRecallNever
 }) => {
   const { t } = useTranslation();
   const [syncHeight, setSyncHeight] = useState(0);
@@ -149,6 +152,19 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
               </button>
             ))}
           </div>
+
+          {/* No expiration — clears the reclaim height so the send goes out as a
+              plain P2ID note (recipient keeps it; the sender has no recall window). */}
+          <button
+            type="button"
+            className="w-full mt-2 py-2.5 rounded-[10px] border border-border-card text-heading-gray text-sm font-medium hover:bg-input-bg transition-colors cursor-pointer"
+            onClick={() => {
+              onRecallNever();
+              onOpenChange(false);
+            }}
+          >
+            {t('never')}
+          </button>
         </div>
       </DrawerContent>
     </Drawer>

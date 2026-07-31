@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 import { addDays, format, formatDistanceToNow } from 'date-fns';
@@ -129,6 +129,13 @@ export const ReviewTransaction: React.FC = () => {
   const [recallTime, setRecallTime] = useState('12:00');
   const [recallBlocks, setRecallBlocks] = useState<string | undefined>(undefined);
   const [showCalendar, setShowCalendar] = useState(false);
+  // "Never" = no reclaim height → the send goes out as a plain P2ID note. Tracked
+  // separately from `recallDate` (undefined both before seeding AND when "Never" is
+  // chosen) so the expiration label can tell the two apart.
+  const [recallNever, setRecallNever] = useState(false);
+  // Marks the recall height as user-chosen (a date or "Never") so the async
+  // default-seeding effect below never clobbers an explicit choice (race guard).
+  const recallTouchedRef = useRef(false);
 
   // Default every same-chain send to a 7-day reclaim (expiration) height. Fetch
   // the current block height once on mount and seed recallDate/recallBlocks. The
@@ -139,10 +146,10 @@ export const ReviewTransaction: React.FC = () => {
     let cancelled = false;
     ensureSdkWasmReady()
       .then(() => {
-        if (cancelled) return;
+        if (cancelled || recallTouchedRef.current) return;
         const rpc = new RpcClient(getRpcEndpoint());
         return rpc.getBlockHeaderByNumber().then(header => {
-          if (cancelled) return;
+          if (cancelled || recallTouchedRef.current) return;
           const date = addDays(new Date(), 7);
           setRecallDate(date);
           setRecallTime(format(date, 'HH:mm'));
@@ -154,6 +161,24 @@ export const ReviewTransaction: React.FC = () => {
       cancelled = true;
     };
   }, [isBridge]);
+
+  // Recall-height handlers. All mark the choice as user-made so the seeding
+  // effect above won't overwrite it. "Never" clears the height entirely → P2ID.
+  const handleRecallDateChange = useCallback((date: Date | undefined) => {
+    recallTouchedRef.current = true;
+    if (date) setRecallNever(false);
+    setRecallDate(date);
+  }, []);
+  const handleRecallBlocksChange = useCallback((blocks: string) => {
+    recallTouchedRef.current = true;
+    setRecallBlocks(blocks);
+  }, []);
+  const handleRecallNever = useCallback(() => {
+    recallTouchedRef.current = true;
+    setRecallNever(true);
+    setRecallDate(undefined);
+    setRecallBlocks(undefined);
+  }, []);
 
   // Leaving review = leaving the send flow: drop any cached speculative prove
   // and mark in-flight ones stale. (SendManager's typing-time speculation
@@ -297,7 +322,9 @@ export const ReviewTransaction: React.FC = () => {
         const rel = formatDistanceToNow(recallDate, { addSuffix: true });
         return rel.charAt(0).toUpperCase() + rel.slice(1);
       })()
-    : t('none');
+    : recallNever
+      ? t('never')
+      : t('none');
 
   // Agglayer carries the bridgeable token 1:1; the Fast route forward-quotes the
   // USDC output. Show a skeleton only while the Fast quote is still loading.
@@ -369,9 +396,10 @@ export const ReviewTransaction: React.FC = () => {
           onOpenChange={setShowCalendar}
           recallDate={recallDate}
           recallTime={recallTime}
-          onRecallBlocksChange={setRecallBlocks}
-          onRecallDateChange={setRecallDate}
+          onRecallBlocksChange={handleRecallBlocksChange}
+          onRecallDateChange={handleRecallDateChange}
           onRecallTimeChange={setRecallTime}
+          onRecallNever={handleRecallNever}
         />
       )}
     </div>

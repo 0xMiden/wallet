@@ -2885,6 +2885,10 @@
     "message": "2週間後",
     "englishSource": "In 2 weeks"
   },
+  "never": {
+    "message": "一度もない",
+    "englishSource": "Never"
+  },
   "30mins": {
     "message": "30分",
     "englishSource": "30 mins"
