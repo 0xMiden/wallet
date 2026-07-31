@@ -1,6 +1,6 @@
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { InAppBrowser } from '@miden/dapp-browser';
 
+import { InAppBrowser } from '@miden/dapp-browser';
 import { hapticSuccess } from 'lib/mobile/haptics';
 import { isMobile, isAndroid } from 'lib/platform';
 import { useWalletStore } from 'lib/store';

@@ -1,5 +1,4 @@
 import { MidenNativeProver } from '@miden/native-prover';
-
 import { isMobile } from 'lib/platform';
 
 // Local prove-timing recorder — mirrors the one in miden-client-interface.ts.
