@@ -286,3 +286,11 @@ describe('SwapAmounts', () => {
     });
   });
 });
+
+describe('SwapAmounts — navbar cushion (regression)', () => {
+  it('tags the CTA footer so it snugs to the bottom when the navbar hides (keyboard up)', () => {
+    renderComponent();
+    const footer = screen.getByTestId('swap-review-submit').parentElement;
+    expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
+  });
+});

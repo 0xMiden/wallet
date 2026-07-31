@@ -204,6 +204,10 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
             onChange={handleChange}
             onFocus={handleFocus}
             onBlur={handleBlur}
+            // Default Done label on mobile keyboards; textareas keep the
+            // platform return key (Enter inserts a newline there). Callers
+            // can override via the enterKeyHint prop (spread below).
+            enterKeyHint={textarea ? undefined : 'done'}
             {...rest}
           />
 

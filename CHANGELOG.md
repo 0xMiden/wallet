@@ -7,6 +7,10 @@
 - [FEATURE][all] **Send a plain P2ID note ("Never" expiration).** The send flow always attached a reclaim/expiration height (defaulting to 7 days → a P2IDE note), with no way to remove it. The "Expiration Date" picker now offers a **"Never"** option that clears the reclaim height, so the send goes out as a plain **P2ID** note (recipient keeps it; the sender has no recall window). Default behaviour (7-day recall → P2IDE) is unchanged unless the user picks "Never".
 - [FEATURE][mobile][desktop] **Re-enabled bridge-in (Receive from EVM).** The "Cross Chain" deposit entry on the Receive page and the `/bridge/deposit` flow now ship to users — previously hidden behind a launch flag (`isBridgeDepositEnabled` gated on `MIDEN_E2E_TEST` / `MIDEN_ENABLE_BRIDGE_UI`).
 
+### Fixes
+
+- [FIX][mobile] **Inputs no longer hide behind the soft keyboard.** The keyboard height now insets the layout (`--keyboard-height` CSS var driven by `@capacitor/keyboard` events), so bottom-pinned inputs/CTAs ride above the keyboard with a synced animation; the iOS accessory bar (Done) is enabled — the config previously set the unrelated `resizeOnFullScreen` key — and search/amount/recipient fields set `enterKeyHint`.
+
 ## 1.15.15 (2026-07-30)
 
 ### Features

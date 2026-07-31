@@ -40,6 +40,18 @@
     "message": "Saldo total",
     "englishSource": "Total Balance"
   },
+  "balanceCardDeltaPill": {
+    "message": "$absolute$ ($percentage$)",
+    "englishSource": "$absolute$ ($percentage$)",
+    "placeholders": {
+      "absolute": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "balanceCardAccount": {
     "message": "Cuenta #: $number$ ",
     "englishSource": "Account #: $number$",
@@ -57,6 +69,15 @@
     "message": "Cargando…",
     "englishSource": "Loading…"
   },
+  "dappSwitcherCardActivate": {
+    "message": "$name$. Activate to switch to this dApp.",
+    "englishSource": "$name$. Activate to switch to this dApp.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
   "dappSwitcherCloseCard": {
     "message": "Cerca $name$ ",
     "englishSource": "Close $name$",
@@ -73,6 +94,15 @@
   "promptCardLoading": {
     "message": "Cargando",
     "englishSource": "Loading"
+  },
+  "priceChangeAmountNeutral": {
+    "message": "$amount$",
+    "englishSource": "$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "priceChangeAmountPositive": {
     "message": "+ $amount$ ",
@@ -92,11 +122,29 @@
       }
     }
   },
+  "priceChangePercent": {
+    "message": "$value$%",
+    "englishSource": "$value$%",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
   "pendingTabApproxUsd": {
     "message": "≈  $value$ ",
     "englishSource": "≈ $value$",
     "placeholders": {
       "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailChange24h": {
+    "message": "$change$%",
+    "englishSource": "$change$%",
+    "placeholders": {
+      "change": {
         "content": "$1"
       }
     }
@@ -110,6 +158,21 @@
       }
     }
   },
+  "historyDetailsAmountFilledValue": {
+    "message": "$filled$ / $total$$symbol$",
+    "englishSource": "$filled$ / $total$$symbol$",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
   "historyDetailsLoadError": {
     "message": "No se pudo cargar la transacción",
     "englishSource": "Failed to load transaction"
@@ -119,6 +182,15 @@
     "englishSource": "≈ $amount$ USD",
     "placeholders": {
       "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappTileVerifiedLabel": {
+    "message": "$name$, dApp verificada",
+    "englishSource": "$name$, verified dApp",
+    "placeholders": {
+      "name": {
         "content": "$1"
       }
     }
@@ -153,6 +225,18 @@
         "content": "$1"
       },
       "asset": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnAssetOnNetwork": {
+    "message": "$asset$ en $network$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
         "content": "$2"
       }
     }
@@ -383,6 +467,18 @@
   "earnApyLabel": {
     "message": "APY",
     "englishSource": "APY"
+  },
+  "earnVaultAssetOnNetwork": {
+    "message": "$asset$ en $network$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnCurrentPositionsTitle": {
     "message": "Posiciones actuales",

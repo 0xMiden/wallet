@@ -130,3 +130,29 @@ describe('SelectRecipient', () => {
     expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
   });
 });
+
+describe('SelectRecipient — mobile keyboard (regression)', () => {
+  it('labels the return key Done on the address field', () => {
+    renderRecipient();
+    expect(screen.getByTestId('send-recipient-input').getAttribute('enterkeyhint')).toBe('done');
+  });
+
+  it('Enter dismisses the keyboard instead of inserting a newline', () => {
+    renderRecipient({ address: MIDEN_ADDRESS });
+    const textarea = screen.getByTestId('send-recipient-input') as HTMLTextAreaElement;
+    textarea.focus();
+    expect(document.activeElement).toBe(textarea);
+
+    // fireEvent returns false when the handler called preventDefault (no newline).
+    const notPrevented = fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    expect(notPrevented).toBe(false);
+    expect(document.activeElement).not.toBe(textarea);
+  });
+
+  it('has a navbar cushion on the confirm footer so it snugs up when the navbar hides', () => {
+    renderRecipient();
+    const footer = screen.getByTestId('send-recipient-confirm').parentElement;
+    expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
+  });
+});

@@ -183,6 +183,16 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                   id="custom-guardian-endpoint"
                   value={customUrl}
                   placeholder="https://"
+                  inputMode="url"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  enterKeyHint="done"
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') {
+                      event.currentTarget.blur();
+                    }
+                  }}
                   onChange={event => {
                     setCustomUrl(event.target.value);
                     if (customError) setCustomError(null);
