@@ -19,6 +19,16 @@ export async function initKeyboardInset(): Promise<void> {
 
   const root = document.documentElement;
 
+  // The iOS number pad has no return key; the WebKit accessory bar (Done +
+  // arrows) is the only way to dismiss it. This must be enabled at runtime —
+  // there is no `accessoryBarVisible` Keyboard config key (it is silently
+  // ignored). No-op on Android; iPhone-only; throws (caught) with no native impl.
+  try {
+    await Keyboard.setAccessoryBarVisible({ isVisible: true });
+  } catch {
+    // non-iPhone platform or no native implementation — leave the bar as-is
+  }
+
   try {
     await Keyboard.addListener('keyboardWillShow', info => {
       root.style.setProperty('--keyboard-height', `${info.keyboardHeight || 0}px`);

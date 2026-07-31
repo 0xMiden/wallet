@@ -9,7 +9,8 @@ import { initKeyboardInset } from './keyboard-inset';
 
 jest.mock('@capacitor/keyboard', () => ({
   Keyboard: {
-    addListener: jest.fn()
+    addListener: jest.fn(),
+    setAccessoryBarVisible: jest.fn()
   }
 }));
 
@@ -19,6 +20,7 @@ jest.mock('lib/platform', () => ({
 
 const isMobileMock = isMobile as jest.Mock;
 const addListenerMock = Keyboard.addListener as jest.Mock;
+const setAccessoryBarVisibleMock = Keyboard.setAccessoryBarVisible as jest.Mock;
 
 /** Keyboard listeners captured per event name by the addListener mock. */
 let listeners: Record<string, (info?: { keyboardHeight?: number }) => void>;
@@ -120,5 +122,41 @@ describe('keyboard-inset', () => {
     addListenerMock.mockRejectedValue(new Error('"Keyboard" plugin is not implemented on web'));
 
     await expect(initKeyboardInset()).resolves.toBeUndefined();
+  });
+
+  it('enables the iOS keyboard accessory bar (Done key) on mobile', async () => {
+    isMobileMock.mockReturnValue(true);
+
+    await initKeyboardInset();
+
+    // The accessory bar is set at runtime — there is no `accessoryBarVisible`
+    // Keyboard config key (this is the fix for the number pad having no way to
+    // dismiss on iOS).
+    expect(setAccessoryBarVisibleMock).toHaveBeenCalledWith({ isVisible: true });
+  });
+
+  it('does not touch the accessory bar off mobile', async () => {
+    isMobileMock.mockReturnValue(false);
+
+    await initKeyboardInset();
+
+    expect(setAccessoryBarVisibleMock).not.toHaveBeenCalled();
+  });
+
+  it('still registers the focusin scroll fallback when addListener rejects', async () => {
+    isMobileMock.mockReturnValue(true);
+    addListenerMock.mockRejectedValue(new Error('"Keyboard" plugin is not implemented on web'));
+
+    await initKeyboardInset();
+
+    // The fallback is registered after the listener try/catch, so a plugin
+    // without a native impl must not disable it.
+    const input = document.createElement('input');
+    input.scrollIntoView = jest.fn();
+    document.body.appendChild(input);
+    input.focus();
+    jest.advanceTimersByTime(300);
+
+    expect(input.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
   });
 });

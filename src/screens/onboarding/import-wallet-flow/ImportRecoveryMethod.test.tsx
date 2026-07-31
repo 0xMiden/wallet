@@ -38,8 +38,11 @@ jest.mock('components/Button', () => ({
 }));
 
 jest.mock('components/Input', () => ({
-  Input: ({ id, value, placeholder, onChange }: any) => (
-    <input data-testid="guardian-input" id={id} value={value} placeholder={placeholder} onChange={onChange} />
+  // Forward rest props so the keyboard attributes (inputmode, autocapitalize,
+  // autocorrect, spellcheck) and the Enter-to-blur handler reach the DOM and
+  // are assertable.
+  Input: ({ id, value, placeholder, onChange, ...rest }: any) => (
+    <input data-testid="guardian-input" id={id} value={value} placeholder={placeholder} onChange={onChange} {...rest} />
   )
 }));
 
@@ -179,6 +182,23 @@ describe('ImportRecoveryMethodScreen', () => {
     expect(screen.queryByTestId('guardian-input')).not.toBeInTheDocument();
     expect(screen.getByText('guardianEndpoint')).toBeInTheDocument();
     expect(screen.getByTestId('chevron-icon')).toHaveAttribute('data-name', 'ChevronDown');
+  });
+
+  it('gives the custom endpoint field a url keyboard, autocorrect off, and Enter-to-blur', () => {
+    renderScreen();
+    fireEvent.click(customToggle());
+
+    const input = guardianInput();
+    expect(input.getAttribute('inputmode')).toBe('url');
+    expect(input.getAttribute('autocapitalize')).toBe('none');
+    expect(input.getAttribute('autocorrect')).toBe('off');
+    expect(input.getAttribute('spellcheck')).toBe('false');
+
+    // Enter blurs the field so the mobile keyboard's 'Done' key dismisses it.
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(document.activeElement).not.toBe(input);
   });
 
   it('submits a custom endpoint with trailing slashes stripped', () => {

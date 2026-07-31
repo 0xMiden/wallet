@@ -77,6 +77,11 @@ export const GuardianNeedsUrlBanner: FC<Props> = ({ className }) => {
         autoCorrect="off"
         spellCheck={false}
         placeholder={t('guardianEndpoint')}
+        onKeyDown={event => {
+          if (event.key === 'Enter') {
+            event.currentTarget.blur();
+          }
+        }}
         onChange={event => setUrlInput(event.target.value)}
       />
       {error && <p className="text-red-500 text-xs">{error}</p>}

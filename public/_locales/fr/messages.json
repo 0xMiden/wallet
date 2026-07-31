@@ -230,7 +230,7 @@
     }
   },
   "earnAssetOnNetwork": {
-    "message": "$asset$ on $network$",
+    "message": "$asset$ sur $network$",
     "englishSource": "$asset$ on $network$",
     "placeholders": {
       "asset": {
@@ -469,7 +469,7 @@
     "englishSource": "APY"
   },
   "earnVaultAssetOnNetwork": {
-    "message": "$asset$ on $network$",
+    "message": "$asset$ sur $network$",
     "englishSource": "$asset$ on $network$",
     "placeholders": {
       "asset": {

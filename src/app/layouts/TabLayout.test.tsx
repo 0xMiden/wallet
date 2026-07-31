@@ -17,6 +17,7 @@ const mockPlatform = { isMobile: false, isDesktop: false, isExtension: false, is
 const mockEnv = { fullPage: false, sidePanel: false };
 const mockReturning = { value: false };
 const mockHasUnclaimed = { value: false };
+const mockKeyboardVisible = { value: false };
 
 // `lib/woozie` pulls in the full location/history/analytics stack. Stub the two
 // symbols the layout uses: `navigate` (a spy) and `useLocation` (reads state).
@@ -50,6 +51,13 @@ jest.mock('app/env', () => ({
 
 jest.mock('app/hooks/useHasUnclaimedNotes', () => ({
   useHasUnclaimedNotes: () => mockHasUnclaimed.value
+}));
+
+// Mobile soft-keyboard visibility. Driven by mock state so the hide-navbar
+// wiring is testable; useHideNavbarWhileOpen is left REAL so it actually
+// toggles body[data-hide-navbar].
+jest.mock('lib/mobile/useKeyboardVisible', () => ({
+  useKeyboardVisible: () => mockKeyboardVisible.value
 }));
 
 // `springs` is animation config only; the value is irrelevant to behaviour.
@@ -146,6 +154,7 @@ beforeEach(() => {
   mockEnv.sidePanel = false;
   mockReturning.value = false;
   mockHasUnclaimed.value = false;
+  mockKeyboardVisible.value = false;
 });
 
 describe('TabLayout — active tab derivation (activeTabFromPath)', () => {
@@ -452,5 +461,26 @@ describe('TabLayout — footer scaffolding', () => {
   it('exposes the tabbar footer measurement hook for the dApp bubble host', () => {
     const { container } = renderLayout();
     expect(container.querySelector('[data-tabbar-footer="true"]')).toBeInTheDocument();
+  });
+});
+
+describe('TabLayout — hides the bottom nav while the mobile keyboard is up', () => {
+  it('flags body[data-hide-navbar] when the keyboard is visible and clears it on unmount', () => {
+    mockKeyboardVisible.value = true;
+    const { unmount } = renderLayout();
+
+    // useHideNavbarWhileOpen(useKeyboardVisible()) drives the
+    // body[data-hide-navbar] rule in main.css.
+    expect(document.body.hasAttribute('data-hide-navbar')).toBe(true);
+
+    unmount();
+    expect(document.body.hasAttribute('data-hide-navbar')).toBe(false);
+  });
+
+  it('leaves the bottom nav visible when the keyboard is down', () => {
+    mockKeyboardVisible.value = false;
+    renderLayout();
+
+    expect(document.body.hasAttribute('data-hide-navbar')).toBe(false);
   });
 });

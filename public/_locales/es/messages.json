@@ -187,7 +187,7 @@
     }
   },
   "dappTileVerifiedLabel": {
-    "message": "$name$, verified dApp",
+    "message": "$name$, dApp verificada",
     "englishSource": "$name$, verified dApp",
     "placeholders": {
       "name": {
@@ -230,7 +230,7 @@
     }
   },
   "earnAssetOnNetwork": {
-    "message": "$asset$ on $network$",
+    "message": "$asset$ en $network$",
     "englishSource": "$asset$ on $network$",
     "placeholders": {
       "asset": {
@@ -469,7 +469,7 @@
     "englishSource": "APY"
   },
   "earnVaultAssetOnNetwork": {
-    "message": "$asset$ on $network$",
+    "message": "$asset$ en $network$",
     "englishSource": "$asset$ on $network$",
     "placeholders": {
       "asset": {
