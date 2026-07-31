@@ -187,3 +187,20 @@ describe('SearchInput — Enter/onSubmit handling', () => {
     expect(notPrevented).toBe(true); // default not prevented for non-Enter keys
   });
 });
+
+describe('SearchInput — mobile enter key (regression)', () => {
+  it('labels the return key Done when there is no submit action', () => {
+    render(<SearchInput value="" onChange={jest.fn()} />);
+    expect(getInput().getAttribute('enterkeyhint')).toBe('done');
+  });
+
+  it('labels the return key Search when an onSubmit is wired', () => {
+    render(<SearchInput value="" onChange={jest.fn()} onSubmit={jest.fn()} />);
+    expect(getInput().getAttribute('enterkeyhint')).toBe('search');
+  });
+
+  it('labels the return key Go in url mode with an onSubmit', () => {
+    render(<SearchInput value="" onChange={jest.fn()} onSubmit={jest.fn()} inputMode="url" />);
+    expect(getInput().getAttribute('enterkeyhint')).toBe('go');
+  });
+});

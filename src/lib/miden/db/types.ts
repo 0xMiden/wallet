@@ -14,36 +14,212 @@ export enum ITransactionStatus {
   Failed
 }
 
-/**
- * Off-chain bridge provider for a bridged send. `epoch` settles quickly
- * (FAST badge); `agglayer` settles on the slower path (SLOW badge). See
- * `TransactionSuccess` for the badge mapping.
- */
-export type IBridgeProvider = 'epoch' | 'agglayer';
-
-/**
- * `extraInputs` payload carried by a bridged send (sending an asset out of
- * Miden to another network). Populated when the user routes a send through a
- * bridge; absent for plain in-network sends.
- */
-export interface IBridgedSendExtraInputs {
-  /** Recipient address on the destination network. */
-  destinationAddress: string;
-  /** Destination network chain id. */
-  destinationNetwork: number;
-  /** Which bridge provider carries the transfer. */
-  provider: IBridgeProvider;
-}
-
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
 export type ITransactionType =
   | 'send'
   | 'consume'
   | 'execute'
+  | 'bridged-send'
+  | 'bridged-receive'
+  | 'earn-deposit'
+  | 'earn-withdraw'
   | 'switch-guardian'
   | 'replace-hot-key'
   | 'swap'
   | 'update-procedure-threshold';
+
+/** Which cross-chain bridge route a `bridged-send` used. */
+export type IBridgeProvider = 'epoch' | 'agglayer';
+
+/** Lifecycle of a tracking-only EVM → Miden bridge row. */
+export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
+
+/** Metadata persisted on a tracking-only EVM → Miden bridge row. */
+export interface IBridgedReceiveExtraInputs {
+  provider: IBridgeProvider;
+  /** Connected EVM account that funded the bridge. */
+  sourceAddress: string;
+  /** Human-readable source-chain input, retained even if the Miden output differs. */
+  sourceAmount: string;
+  sourceSymbol: string;
+  phase: IBridgedReceivePhase;
+  /** Expected destination output shown until the real note is consumed. */
+  outputAmount?: string;
+  outputSymbol?: string;
+  evmTxHash?: string;
+  intentNonce?: string;
+  midenNoteId?: string;
+  error?: string;
+}
+
+/**
+ * Lifecycle of the EVM-side claim for a `bridged-send`. Epoch (Fast) auto-settles
+ * on the destination chain, so it is `'not-applicable'`. Agglayer (Slow) requires
+ * the recipient to claim on L1: it starts `'pending'`, flips to `'ready'` once the
+ * deposit is claimable, then `'claiming'` → `'claimed'` (or `'failed'`).
+ */
+export type IBridgeClaimStatus = 'not-applicable' | 'pending' | 'ready' | 'claiming' | 'claimed' | 'failed';
+
+/** `extraInputs` shape for a `BridgedSendTransaction`. */
+export interface IBridgedSendExtraInputs {
+  provider: IBridgeProvider;
+  /** 0x EVM recipient. */
+  destinationAddress: string;
+  /** EVM destination network: `EVM_AGGLAYER_NETWORK_ID` (agglayer) or chain id (epoch). */
+  destinationNetwork: number;
+  /** Miden faucet the bridged asset was sourced from. */
+  sourceFaucetId: string;
+  claimStatus: IBridgeClaimStatus;
+  /** agglayer: a deposit to `destinationAddress` is claimable on L1. */
+  depositReady?: boolean;
+  /** agglayer: L1 claim tx hash once claimed. */
+  claimTxHash?: string;
+  /** epoch: solver/intent hash (informational). */
+  evmTxHash?: string;
+  /**
+   * epoch: blocks-until-reclaim for the send-style P2IDE bridge note. Read by
+   * `sendTransaction` (its presence makes the note a recallable P2IDE).
+   */
+  recallBlocks?: number;
+  /**
+   * epoch: absolute Miden block after which the P2IDE bridge note becomes
+   * reclaimable by the sender. Recorded when the row is demoted to Failed so the
+   * activity detail can gate the "Reclaim funds" affordance.
+   */
+  reclaimHeight?: number;
+  /**
+   * epoch: intent nonce (SIO `userAddress:intentNonce`) used to poll
+   * `getIntentStatus` for the receiving-chain fill, captured at send time.
+   */
+  intentNonce?: string;
+  /** epoch: quoted destination output amount (human-formatted) for the activity hero. */
+  outputAmount?: string;
+  /** epoch: destination output token symbol (e.g. `USDC`). */
+  outputSymbol?: string;
+  /** epoch: receiving-chain (destination EVM) settlement tx hash, once the intent fills. */
+  fillTxHash?: string;
+  /** epoch: chain id the fill tx landed on (drives the destination explorer link). */
+  fillChainId?: number;
+  /** epoch: settlement status derived from polling `getIntentStatus`. */
+  epochStatus?: 'pending' | 'confirmed' | 'failed';
+}
+
+/**
+ * `extraInputs` shape for an `EarnDepositTransaction`. Opening an Epoch lending
+ * position spends Miden-held collateral by sending a recallable P2IDE note to the
+ * solver's allocator (same mechanics as an Epoch `bridged-send`), while the EVM
+ * lending leg is solver-fulfilled — so there is no manual claim. The typed EVM
+ * address is the position owner / intent sponsor.
+ */
+export interface IEarnDepositExtraInputs {
+  /** 0x EVM address that owns the resulting lending position (intent sponsor). */
+  evmRecipient: string;
+  /** Epoch market identifier (`PROTOCOL:chainId:token`) the deposit targets. */
+  marketUid: string;
+  /** Miden faucet the deposited collateral was sourced from. */
+  sourceFaucetId: string;
+  /** blocks-until-reclaim for the P2IDE note — its presence makes the note recallable. */
+  recallBlocks?: number;
+  /** intent nonce (SIO `userAddress:intentNonce`) used to poll `getIntentStatus`. */
+  intentNonce?: string;
+  /** solver/intent hash (informational). */
+  evmTxHash?: string;
+  /** quoted destination deposit size (human-formatted) for the activity detail. */
+  outputAmount?: string;
+  /** destination token symbol (e.g. `USDC`). */
+  outputSymbol?: string;
+  /** settlement status derived from polling `getIntentStatus`. */
+  epochStatus?: 'pending' | 'confirmed' | 'failed';
+}
+
+/**
+ * Lifecycle of an `earn-withdraw` row. The row is born `Completed` (never enters
+ * the prove/submit FIFO loop — see `EarnWithdrawTransaction`); its in-flight look
+ * comes entirely from this phase, mirroring `bridged-send`'s `epochStatus` chip.
+ *   - redeeming  : row created, the gasless withdraw+swap+bridge intent is in flight
+ *   - delivering : the Epoch intent settled; the bridged note is on its way to Miden
+ *   - received   : the bridged note was auto-consumed; `outputAmount` patched from it
+ *   - failed     : the intent failed / expired, or the row was reconciled dead
+ */
+export type IEarnWithdrawPhase = 'redeeming' | 'delivering' | 'received' | 'failed';
+
+/**
+ * `extraInputs` shape for an `EarnWithdrawTransaction`. Smart Withdraw redeems an
+ * Epoch lending position and bridges the underlying back to Miden as a single
+ * gasless intent (`sdk.helpers.executeActions`), so there is no Miden-side note to
+ * prove/submit — the row is a tracking-only record whose lifecycle lives in `phase`.
+ */
+export interface IEarnWithdrawExtraInputs {
+  /** 0x EVM address that owned the redeemed lending position (intent sponsor). */
+  evmOwner: string;
+  /** Epoch market identifier (`PROTOCOL:chainId:token`) the withdrawal redeemed. */
+  marketUid: string;
+  /** Miden faucet the bridged funds land on (destination asset). */
+  destinationFaucetId: string;
+  /** Human-decimal amount the user asked to withdraw (source side). */
+  sourceAmount: string;
+  /** Source token symbol (e.g. `USDC`). */
+  sourceSymbol: string;
+  phase: IEarnWithdrawPhase;
+  /** intent nonce (SIO `userAddress:intentNonce`) used to poll `getIntentStatus`. */
+  withdrawIntentNonce?: string;
+  /** solver/settlement EVM tx hash, once known. */
+  evmTxHash?: string;
+  /** Miden note id of the bridged-in note, once it lands and is consumed. */
+  midenNoteId?: string;
+  /** actual bridged amount (human-formatted) from the consumed note. */
+  outputAmount?: string;
+  /** destination token symbol of the consumed note. */
+  outputSymbol?: string;
+  /** failure reason, set alongside `phase === 'failed'`. */
+  error?: string;
+}
+
+/**
+ * Bridge-in (EVM → Miden) metadata attached to the `consume` row that claimed
+ * the bridged note. Epoch auto-consumes the note, so that consume row is the
+ * only Miden-side trace of the deposit — tagging it lets the activity views
+ * render it as a bridge row instead of a plain receive.
+ */
+export interface IBridgeInInfo {
+  provider: IBridgeProvider;
+  /** Human-readable EVM-side input amount the user deposited. */
+  sourceAmount?: string;
+  /** EVM-side input token symbol (e.g. USDC). */
+  sourceSymbol?: string;
+  /** epoch: intent nonce (SIO `userAddress:intentNonce`) of the originating intent. */
+  intentNonce?: string;
+  /** EVM-side deposit/fill tx hash, when known. */
+  evmTxHash?: string;
+  /** Miden-side note id the bridge-in resolved to, copied on by `takeBridgeInInfoForNotes`. */
+  midenNoteId?: string;
+  /**
+   * When the bridged note originates from a Smart Withdraw, the `earn-withdraw`
+   * row id it belongs to. On consume, that row is patched to `received` and this
+   * consume row is suppressed from the activity list (the withdraw row is the
+   * single trace). Absent for plain EVM→Miden deposits.
+   */
+  earnWithdrawTxId?: string;
+  /** Tracking-only `bridged-receive` row this consumed note completes. */
+  bridgeReceiveTxId?: string;
+}
+
+/** `extraInputs` shape for a `consume` row that claimed a bridged-in note. */
+export interface IConsumeBridgeInExtraInputs {
+  bridgeIn: IBridgeInInfo;
+}
+
+/**
+ * `extraInputs` shape for a `consume` row queued by swap settlement
+ * (`reconcileSwapOrderNotes`). History suppresses these rows while the linked
+ * swap row exists — the swap row is the single trace of the whole order.
+ */
+export interface IConsumeSwapSettleExtraInputs {
+  /** The `SwapTransaction.id` whose order this consume settles. */
+  swapOrderTxId: string;
+  /** Payback claim on fill vs. expiry-driven reclaim of the remaining tip. */
+  swapSettleKind: 'settle' | 'reclaim';
+}
 
 /**
  * Sub-phase of a transaction while `status === GeneratingTransaction` (or
@@ -87,6 +263,8 @@ export interface ITransaction {
   secondaryAccountId?: string;
   faucetId?: string;
   noteId?: string;
+  /** All note ids for batch consume transactions (noteId is the first) */
+  noteIds?: string[];
   noteType?: NoteType;
   transactionId?: string;
   requestBytes?: Uint8Array;
@@ -99,7 +277,10 @@ export interface ITransaction {
   inputNoteIds?: string[];
   outputNoteIds?: string[];
   extraInputs?: any;
+  /** User-facing failure reason (possibly a friendly rewrite — see `rawError`). */
   error?: string;
+  /** The untouched thrown error, kept when `error` was rewritten to a friendlier message. */
+  rawError?: string;
   resultBytes?: Uint8Array;
   /**
    * Current sub-phase during active processing. Readers should treat this
@@ -107,6 +288,15 @@ export interface ITransaction {
    * `status`, and is stale once `status` reaches `Completed`/`Failed`.
    */
   stage?: ITransactionStage;
+  /**
+   * Earliest time (unix seconds) this Queued tx may be re-selected by the
+   * processing loop. Set when a transient guardian pending-delta 409 requeues
+   * the tx, so a persistently-conflicting op backs off and yields its slot to
+   * other accounts instead of being re-picked every cycle as the oldest row
+   * (head-of-line starvation). Absent ⇒ always eligible (backward compatible);
+   * `MAX_QUEUED_AGE` remains the terminal cap.
+   */
+  nextEligibleAt?: number;
 }
 
 export interface ISuccessTransactionOutput {
@@ -209,7 +399,10 @@ export class ConsumeTransaction implements ITransaction {
   type: ITransactionType;
   accountId: string;
   amount?: bigint;
+  /** First note id — kept for back-compat (dedup index, single-note readers) */
   noteId: string;
+  /** Every note consumed by this transaction (batch claims consume many in one tx) */
+  noteIds: string[];
   secondaryAccountId?: string;
   faucetId: string;
   transactionId?: string;
@@ -226,14 +419,25 @@ export class ConsumeTransaction implements ITransaction {
   // hot key was Face-ID-gated (`.userPresence`). Hot signing is silent again, so
   // every consume signs the same way. Old persisted rows may still carry a stray
   // `background` property; it's ignored.
-  constructor(accountId: string, note: ConsumableNote, delegateTransaction?: boolean) {
+  constructor(accountId: string, notes: ConsumableNote | ConsumableNote[], delegateTransaction?: boolean) {
+    const list = Array.isArray(notes) ? notes : [notes];
+    const first = list[0];
+    if (!first) {
+      throw new Error('ConsumeTransaction requires at least one note');
+    }
     this.id = uuid();
     this.type = 'consume';
     this.accountId = accountId;
-    this.noteId = note.id;
-    this.faucetId = note.faucetId;
-    this.secondaryAccountId = note.senderAddress;
-    this.amount = note.amount !== '' ? BigInt(note.amount) : undefined;
+    this.noteId = first.id;
+    this.noteIds = list.map(n => n.id);
+    this.faucetId = first.faucetId;
+    this.secondaryAccountId = first.senderAddress;
+    // Display amount: sum of the notes sharing the first note's faucet. Notes
+    // of other faucets in a mixed batch aren't reflected here (display only).
+    this.amount =
+      first.amount !== ''
+        ? list.filter(n => n.faucetId === first.faucetId && n.amount !== '').reduce((s, n) => s + BigInt(n.amount), 0n)
+        : undefined;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'RECEIVE';
@@ -266,7 +470,19 @@ export class SwapTransaction implements ITransaction {
   // Requested side of the swap. `orderId` is strictly output info (the PSWAP
   // lineage id resolved by `completeSwapTransaction`) rather than an input, but
   // it rides here to avoid a Dexie schema change; it's absent until completion.
-  extraInputs: { requestedFaucetId: string; requestedAmount: bigint; orderId?: bigint };
+  extraInputs: {
+    requestedFaucetId: string;
+    requestedAmount: bigint;
+    orderId?: bigint | string;
+    expirySeconds?: number;
+    expiresAt?: number;
+    expiryTriggeredAt?: number;
+    autoConsume?: boolean;
+    /** Stamped when a payback-claim settlement consume completes. */
+    settledAt?: number;
+    /** Stamped when an expiry-reclaim settlement consume completes. */
+    reclaimedAt?: number;
+  };
   delegateTransaction?: boolean;
   /**
    * Serialized PSWAP-create `TransactionRequest`, populated lazily by the
@@ -283,19 +499,262 @@ export class SwapTransaction implements ITransaction {
     offeredAmount: bigint,
     requestedFaucetId: string,
     requestedAmount: bigint,
-    delegateTransaction?: boolean
+    delegateTransaction?: boolean,
+    expirySeconds: number = 120,
+    autoConsume: boolean = true
   ) {
     this.id = uuid();
     this.type = 'swap';
     this.accountId = accountId;
     this.faucetId = offeredFaucetId;
     this.amount = offeredAmount;
-    this.extraInputs = { requestedFaucetId, requestedAmount };
+    this.extraInputs = { requestedFaucetId, requestedAmount, expirySeconds, autoConsume };
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'SWAP';
     this.displayMessage = 'Swapping';
     this.delegateTransaction = delegateTransaction;
+  }
+}
+
+/**
+ * Cross-chain Miden → EVM send. Two routes share this record:
+ *   - agglayer (Slow): built from a pre-built B2AGG `TransactionRequest` (own
+ *     output note) in `requestBytes`, so the standard pipeline proves + submits it
+ *     via `newTransaction` like a custom `execute` tx, then `completeBridgedSendTransaction`
+ *     records it. The EVM-side asset is claimed later by the recipient on L1.
+ *   - epoch (Fast): driven out-of-band by `bridgeEpochSend` (no `requestBytes`);
+ *     auto-settles on the destination chain, so there is no manual claim.
+ * `extraInputs` (`IBridgedSendExtraInputs`) carries the route/provider, EVM
+ * destination + network, and claim status for the activity detail view.
+ */
+/**
+ * Send-style fields for an Epoch `bridged-send`. Epoch bridges by sending a
+ * recallable P2IDE note to the solver's allocator account, so the row is
+ * processed by the normal send pipeline (`sendTransaction`) rather than a
+ * pre-built request. Absent for Agglayer, which carries `requestBytes`.
+ */
+export interface IBridgedSendNoteParams {
+  /** Allocator account the P2IDE note is sent to. */
+  recipientId: string;
+  noteType: NoteType;
+  recallBlocks: number;
+}
+
+export class BridgedSendTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  /** Set for the send-style (Epoch) path so `sendTransaction` can route the note. */
+  secondaryAccountId?: string;
+  noteType?: NoteType;
+  requestBytes?: Uint8Array;
+  transactionId?: string;
+  outputNoteIds?: string[];
+  status: ITransactionStatus;
+  initiatedAt: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  delegateTransaction?: boolean;
+  extraInputs: IBridgedSendExtraInputs;
+
+  constructor(
+    accountId: string,
+    amount: bigint,
+    destinationAddress: string,
+    destinationNetwork: number,
+    provider: IBridgeProvider,
+    faucetId: string,
+    requestBytes?: Uint8Array,
+    delegateTransaction?: boolean,
+    sendParams?: IBridgedSendNoteParams
+  ) {
+    this.id = uuid();
+    this.type = 'bridged-send';
+    this.accountId = accountId;
+    this.requestBytes = requestBytes;
+    this.amount = amount;
+    this.faucetId = faucetId;
+    this.secondaryAccountId = sendParams?.recipientId;
+    this.noteType = sendParams?.noteType;
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.displayIcon = 'SEND';
+    this.displayMessage = 'Bridging';
+    this.delegateTransaction = delegateTransaction;
+    this.extraInputs = {
+      provider,
+      destinationAddress,
+      destinationNetwork,
+      sourceFaucetId: faucetId,
+      // Agglayer needs a manual L1 claim; Epoch auto-settles.
+      claimStatus: provider === 'agglayer' ? 'pending' : 'not-applicable',
+      recallBlocks: sendParams?.recallBlocks
+    };
+  }
+}
+
+/**
+ * Open an Epoch lending position. Always send-style: a recallable P2IDE note to the
+ * solver's allocator account, processed by the normal send pipeline
+ * (`sendTransaction`) like the Epoch `bridged-send`. The EVM lending deposit is
+ * solver-fulfilled, so there is no `requestBytes` and no manual claim.
+ */
+export class EarnDepositTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  /** Allocator account the P2IDE note is sent to. */
+  secondaryAccountId?: string;
+  noteType?: NoteType;
+  transactionId?: string;
+  outputNoteIds?: string[];
+  status: ITransactionStatus;
+  initiatedAt: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  delegateTransaction?: boolean;
+  extraInputs: IEarnDepositExtraInputs;
+
+  constructor(
+    accountId: string,
+    amount: bigint,
+    evmRecipient: string,
+    marketUid: string,
+    faucetId: string,
+    sendParams: IBridgedSendNoteParams,
+    delegateTransaction?: boolean
+  ) {
+    this.id = uuid();
+    this.type = 'earn-deposit';
+    this.accountId = accountId;
+    this.amount = amount;
+    this.faucetId = faucetId;
+    this.secondaryAccountId = sendParams.recipientId;
+    this.noteType = sendParams.noteType;
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.displayIcon = 'DEFAULT';
+    this.displayMessage = 'Depositing';
+    this.delegateTransaction = delegateTransaction;
+    this.extraInputs = {
+      evmRecipient,
+      marketUid,
+      sourceFaucetId: faucetId,
+      recallBlocks: sendParams.recallBlocks,
+      epochStatus: 'pending'
+    };
+  }
+}
+
+/**
+ * Tracking-only row for a Smart Withdraw (Epoch lending redeem → bridge to Miden).
+ * There is NO Miden-side note to prove/submit, so this row must **never** be born
+ * `Queued`: the FIFO prove/submit loop (`transaction/index.ts`) dispatches any
+ * `Queued` row type-blind and would crash on the missing request bytes, and the
+ * stale-queue canceller would kill a slow withdrawal. It is inserted `Completed`
+ * with `completedAt = initiatedAt`; the in-flight look comes from `extraInputs.phase`.
+ */
+export class EarnWithdrawTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  extraInputs: IEarnWithdrawExtraInputs;
+
+  constructor(
+    accountId: string,
+    amount: bigint,
+    evmOwner: string,
+    marketUid: string,
+    faucetId: string,
+    sourceAmount: string,
+    sourceSymbol = 'USDC'
+  ) {
+    const now = Math.floor(Date.now() / 1000); // seconds
+    this.id = uuid();
+    this.type = 'earn-withdraw';
+    this.accountId = accountId;
+    this.amount = amount;
+    this.faucetId = faucetId;
+    this.status = ITransactionStatus.Completed;
+    this.initiatedAt = now;
+    this.completedAt = now;
+    this.displayIcon = 'DEFAULT';
+    this.displayMessage = 'Withdrawing from lending';
+    this.extraInputs = {
+      evmOwner,
+      marketUid,
+      destinationFaucetId: faucetId,
+      sourceAmount,
+      sourceSymbol,
+      phase: 'redeeming'
+    };
+  }
+}
+
+/**
+ * Tracking-only EVM → Miden bridge row. It is born Completed so the Miden
+ * prove/submit FIFO never sees it; `extraInputs.phase` owns its live state.
+ */
+export class BridgedReceiveTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  completedAt: number;
+  displayMessage: string;
+  displayIcon: ITransactionIcon;
+  extraInputs: IBridgedReceiveExtraInputs;
+
+  constructor(
+    accountId: string,
+    amount: bigint,
+    faucetId: string,
+    provider: IBridgeProvider,
+    sourceAddress: string,
+    sourceAmount: string,
+    sourceSymbol: string,
+    outputAmount?: string,
+    outputSymbol?: string
+  ) {
+    const now = Math.floor(Date.now() / 1000);
+    this.id = uuid();
+    this.type = 'bridged-receive';
+    this.accountId = accountId;
+    this.amount = amount;
+    this.faucetId = faucetId;
+    this.status = ITransactionStatus.Completed;
+    this.initiatedAt = now;
+    this.completedAt = now;
+    this.displayMessage = 'Bridging from EVM';
+    this.displayIcon = 'RECEIVE';
+    this.extraInputs = {
+      provider,
+      sourceAddress,
+      sourceAmount,
+      sourceSymbol,
+      outputAmount,
+      outputSymbol,
+      phase: 'submitting'
+    };
   }
 }
 

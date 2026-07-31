@@ -5,11 +5,15 @@ import { act } from 'react-dom/test-utils';
 
 import { Receive } from './Receive';
 
-// Pending (claimable) notes moved to their own `/pending` page — see
+// Pending (claimable) notes moved to their own `/pending-notes` page — see
 // Pending.test.tsx for the claim-flow coverage. Receive is now address-only.
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
+}));
+
+jest.mock('@capacitor/share', () => ({
+  Share: { share: jest.fn() }
 }));
 
 jest.mock('app/atoms/FormField', () => React.forwardRef(() => null));
@@ -21,6 +25,35 @@ jest.mock('app/env', () => ({
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
   IconName: { Add: 'Add', CrossChain: 'CrossChain', Share: 'Share' }
+}));
+
+jest.mock('app/templates/EvmConnectModal', () => ({
+  __esModule: true,
+  default: () => null
+}));
+
+jest.mock('app/pages/BridgeDeposit', () => ({
+  __esModule: true,
+  default: () => <div data-testid="bridge-deposit" />
+}));
+
+jest.mock('components/Button', () => ({
+  Button: ({
+    children,
+    disabled,
+    onClick,
+    title
+  }: {
+    children?: React.ReactNode;
+    disabled?: boolean;
+    onClick?: () => void;
+    title?: string;
+  }) => (
+    <button onClick={onClick} disabled={disabled}>
+      {children ?? title}
+    </button>
+  ),
+  ButtonVariant: { Ghost: 'ghost', Primary: 'primary', Secondary: 'secondary' }
 }));
 
 jest.mock('components/QRCode', () => ({
@@ -43,6 +76,14 @@ jest.mock('lib/mobile/haptics', () => ({
 jest.mock('lib/ui/useCopyToClipboard', () => ({
   __esModule: true,
   default: () => ({ fieldRef: { current: null }, copy: jest.fn(), copied: false })
+}));
+
+jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
+  useEvmWalletConnection: () => ({ address: undefined, connected: false })
+}));
+
+jest.mock('lib/woozie', () => ({
+  navigate: jest.fn()
 }));
 
 jest.mock('utils/string', () => ({

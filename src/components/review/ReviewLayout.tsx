@@ -10,6 +10,10 @@ export interface ReviewAction {
   onPress: () => void;
   /** Defaults to 'button'. Use 'submit' when the screen is inside a <form>. */
   type?: 'button' | 'submit';
+  /** Show a spinner and block taps — e.g. while an Epoch bridge quote/solve runs. */
+  loading?: boolean;
+  /** Disable (without a spinner). */
+  disabled?: boolean;
   /** Optional stable selector for E2E; set by the caller, not hardcoded here. */
   'data-testid'?: string;
 }
@@ -25,6 +29,8 @@ export interface ReviewLayoutProps {
   children: React.ReactNode;
   primary: ReviewAction;
   secondary?: ReviewAction;
+  /** Optional message shown just above the CTAs — e.g. a failed bridge submit. */
+  error?: React.ReactNode;
 }
 
 /**
@@ -41,7 +47,8 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   dividers = true,
   children,
   primary,
-  secondary
+  secondary,
+  error
 }) => {
   // Hide the bottom tab navbar while this review screen is mounted (no-op on
   // full-screen routes that render outside TabLayout).
@@ -54,15 +61,18 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
 
         {heroDivider && <div className="mt-4 h-2 w-full rounded-full bg-primary-500" />}
 
-        <div className={classNames(dividers && 'divide-y divide-[#F1F1F1]')}>{children}</div>
+        <div className={classNames(dividers && 'divide-y divide-rule-default')}>{children}</div>
       </div>
 
       <div className="shrink-0 pt-6 flex flex-col gap-y-2">
+        {error && <p className="text-center text-sm text-red-500">{error}</p>}
         <Button
           type={primary.type ?? 'button'}
           title={primary.label}
           variant={ButtonVariant.Primary}
           onClick={primary.onPress}
+          isLoading={primary.loading}
+          disabled={primary.disabled || primary.loading}
           data-testid={primary['data-testid']}
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
@@ -72,6 +82,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
             title={secondary.label}
             variant={ButtonVariant.Secondary}
             onClick={secondary.onPress}
+            disabled={secondary.disabled}
             className="w-full max-w-none rounded-full text-base font-semibold"
           />
         )}

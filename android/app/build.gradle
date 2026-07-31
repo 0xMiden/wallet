@@ -26,8 +26,8 @@ android {
         applicationId "com.miden.wallet"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 11508001
-        versionName "1.15.8"
+        versionCode 11516001
+        versionName "1.15.16"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -41,6 +41,21 @@ android {
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.release
+        }
+    }
+    packaging {
+        jniLibs {
+            pickFirsts += [
+                'lib/arm64-v8a/libuniffi_yttrium.so',
+                'lib/armeabi-v7a/libuniffi_yttrium.so',
+                'lib/x86_64/libuniffi_yttrium.so'
+            ]
+        }
+        resources {
+            excludes += [
+                '/META-INF/{AL2.0,LGPL2.1}',
+                'META-INF/versions/9/OSGI-INF/MANIFEST.MF'
+            ]
         }
     }
 }
@@ -63,6 +78,10 @@ dependencies {
     implementation project(':capacitor-cordova-android-plugins')
     // Kotlin
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    // Reown AppKit native dApp connector for Android WalletConnect.
+    implementation platform('com.reown:android-bom:1.6.13')
+    implementation 'com.reown:android-core'
+    implementation 'com.reown:appkit'
     // Biometric authentication for hardware security
     implementation 'androidx.biometric:biometric:1.1.0'
     // secp256k1 ECDSA + Keccak-256 for the Guardian hot-key signing path

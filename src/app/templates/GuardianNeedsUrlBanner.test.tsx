@@ -116,4 +116,16 @@ describe('GuardianNeedsUrlBanner', () => {
     resolveApply(true);
     await waitFor(() => expect(getSubmitButton()).not.toBeDisabled());
   });
+
+  it('blurs the URL field on Enter (and ignores other keys) so the Done key dismisses the keyboard', () => {
+    render(<GuardianNeedsUrlBanner />);
+    const input = getUrlInput();
+
+    input.focus();
+    fireEvent.keyDown(input, { key: 'a' });
+    expect(document.activeElement).toBe(input); // non-Enter key: no blur
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(document.activeElement).not.toBe(input); // Enter: blurs
+  });
 });

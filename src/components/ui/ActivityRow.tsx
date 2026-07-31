@@ -6,7 +6,7 @@ import classNames from 'clsx';
 import { hapticLight } from 'lib/mobile/haptics';
 
 export type ActivityAmountDirection = 'positive' | 'negative' | 'neutral';
-export type ActivityStatusTone = 'confirmed' | 'pending' | 'failed';
+export type ActivityStatusTone = 'confirmed' | 'pending' | 'failed' | 'cancelled';
 
 export interface ActivityRowProps {
   /** Glyph rendered inside the colored square. Pass a white-stroked SVG; it is forced to 16x16. */
@@ -24,10 +24,12 @@ export interface ActivityRowProps {
     symbol?: string;
     direction?: ActivityAmountDirection;
   };
-  status: {
+  status?: {
     label: string;
     tone: ActivityStatusTone;
   };
+  /** Right-aligned relative time (e.g. "Just now") — alternative to `status`. */
+  timestamp?: string;
   onClick?: () => void;
   className?: string;
 }
@@ -41,13 +43,15 @@ const AMOUNT_COLOR: Record<ActivityAmountDirection, string> = {
 const STATUS_DOT: Record<ActivityStatusTone, string> = {
   confirmed: 'bg-status-positive',
   pending: 'bg-status-pending',
-  failed: 'bg-status-negative'
+  failed: 'bg-status-negative',
+  cancelled: 'bg-gray-400'
 };
 
 const STATUS_TEXT: Record<ActivityStatusTone, string> = {
   confirmed: 'text-status-positive',
   pending: 'text-status-pending',
-  failed: 'text-status-negative'
+  failed: 'text-status-negative',
+  cancelled: 'text-gray-500'
 };
 
 const DISPLAY_DECIMAL_PLACES = 3;
@@ -70,6 +74,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   subtitle,
   amount,
   status,
+  timestamp,
   onClick,
   className
 }) => {
@@ -112,15 +117,18 @@ export const ActivityRow: FC<ActivityRowProps> = ({
             {amount.symbol ? <span className="text-heading-gray">{` ${amount.symbol}`}</span> : null}
           </span>
         )}
-        <span
-          className={classNames(
-            'flex items-center gap-1 text-[10px] font-normal leading-none',
-            STATUS_TEXT[status.tone]
-          )}
-        >
-          <span className={classNames('w-1.5 h-1.5 rounded-full', STATUS_DOT[status.tone])} />
-          {status.label}
-        </span>
+        {status && (
+          <span
+            className={classNames(
+              'flex items-center gap-1 text-[10px] font-normal leading-none',
+              STATUS_TEXT[status.tone]
+            )}
+          >
+            <span className={classNames('w-1.5 h-1.5 rounded-full', STATUS_DOT[status.tone])} />
+            {status.label}
+          </span>
+        )}
+        {timestamp && <span className="text-[10px] text-[#8E8E93] font-regular">{timestamp}</span>}
       </div>
     </div>
   );

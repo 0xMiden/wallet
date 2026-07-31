@@ -3,9 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { ReactComponent as GatewayLogo } from 'app/icons/guardian-operator-logs/gateway.svg';
-import { ReactComponent as LambdaClassLogo } from 'app/icons/guardian-operator-logs/lambdaclass.svg';
-import { ReactComponent as OpenZeppelinLogo } from 'app/icons/guardian-operator-logs/open-zeppelin.svg';
+import { GUARDIAN_LOGOS, guardianLogoColorClass } from 'app/icons/guardian-operator-logs';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
 import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
@@ -17,15 +15,6 @@ import { cn } from 'lib/ui/util';
 import { GuardianInfoDrawer } from './GuardianInfoDrawer';
 
 export type { GuardianOption };
-
-// Brand wordmark per guardian option id. Paths are hardcoded brand-grey
-// (#484848); `[&_path]:fill-heading-gray` recolors them to the auto-flipping
-// heading token so they stay legible in both themes.
-const GUARDIAN_LOGOS: Record<string, { Logo: ImportedSVGComponent; paddingXClass: string }> = {
-  'open-zeppelin': { Logo: OpenZeppelinLogo, paddingXClass: 'px-4' },
-  gateway: { Logo: GatewayLogo, paddingXClass: 'px-3' },
-  'lambda-class': { Logo: LambdaClassLogo, paddingXClass: 'px-5' }
-};
 
 export interface ChooseGuardianScreenProps {
   onSubmit?: (payload: { guardianId: string; guardianEndpoint: string }) => void;
@@ -134,7 +123,8 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             const isSelected = selectedId === option.id;
             const isDefault = option.id === defaultId;
             const isCurrent = currentEndpoint != null && option.endpoint === currentEndpoint;
-            const { Logo, paddingXClass } = GUARDIAN_LOGOS[option.id]!;
+            const logoEntry = GUARDIAN_LOGOS[option.id]!;
+            const { Logo, paddingXClass } = logoEntry;
             return (
               <div key={option.id} className="flex flex-col">
                 <button
@@ -157,7 +147,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                     </div>
                   )}
                   <div className="flex flex-1 items-center justify-center">
-                    <Logo className={clsx('[&_path]:fill-heading-gray', paddingXClass)} />
+                    <Logo className={clsx(guardianLogoColorClass(logoEntry), paddingXClass)} />
                   </div>
                 </button>
                 <div className="mt-2 px-1 text-center text-gray-secondary dark:text-pure-white text-[10px] leading-tight">
@@ -193,6 +183,16 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                   id="custom-guardian-endpoint"
                   value={customUrl}
                   placeholder="https://"
+                  inputMode="url"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  enterKeyHint="done"
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') {
+                      event.currentTarget.blur();
+                    }
+                  }}
                   onChange={event => {
                     setCustomUrl(event.target.value);
                     if (customError) setCustomError(null);

@@ -1,5 +1,5 @@
 import { getFaucetIdSetting, getTokensBaseMetadata } from '../front';
-import { MIDEN_METADATA } from './defaults';
+import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from './defaults';
 import { AssetMetadata, DetailedAssetMetdata } from './types';
 import { getAssetSymbol, getAssetName, toBaseMetadata, getTokenMetadata } from './utils';
 
@@ -159,12 +159,12 @@ describe('metadata/utils', () => {
       expect(mockGetTokensBaseMetadata).toHaveBeenCalledWith('other-token-id');
     });
 
-    it('returns MIDEN_METADATA when token metadata lookup returns null', async () => {
+    it('returns DEFAULT_TOKEN_METADATA when token metadata lookup returns null', async () => {
       mockGetTokensBaseMetadata.mockResolvedValue(null);
 
       const result = await getTokenMetadata('unknown-token-id');
 
-      expect(result).toBe(MIDEN_METADATA);
+      expect(result).toBe(DEFAULT_TOKEN_METADATA);
     });
   });
 });

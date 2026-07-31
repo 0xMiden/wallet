@@ -4,169 +4,93 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
-import PromptCardDefault, { PromptCard } from './PromptCard';
+import { PromptCard } from './PromptCard';
 
-// Surface each icon's `name` so the two Trail branches (Close vs ChevronRight)
-// are distinguishable from the DOM. All other icon props are ignored.
 jest.mock('app/icons/v2', () => ({
-  Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
-  IconName: {
-    Close: 'Close',
-    ChevronRight: 'ChevronRight'
-  }
+  Icon: ({ name }: { name: string }) => <span data-testid={`icon-${name}`} />,
+  IconName: { Checkmark: 'Checkmark', ChevronRight: 'ChevronRight', Close: 'Close', Loader: 'Loader' }
 }));
 
-// Native haptic buzz — spy so we can assert exactly when it fires.
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
-const mockHapticLight = hapticLight as jest.MockedFunction<typeof hapticLight>;
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
 
-const renderCard = (props: Partial<React.ComponentProps<typeof PromptCard>> = {}) =>
-  render(<PromptCard title="Back up your wallet" {...props} />);
+describe('PromptCard', () => {
+  beforeEach(() => jest.clearAllMocks());
 
-beforeEach(() => {
-  jest.clearAllMocks();
-});
-
-describe('PromptCard — exports & structure', () => {
-  it('exposes the same component as the default and named export', () => {
-    expect(PromptCardDefault).toBe(PromptCard);
-  });
-
-  it('renders the title and the base container classes', () => {
-    const { container } = renderCard();
-
-    const title = screen.getByText('Back up your wallet');
-    expect(title).toBeTruthy();
-    expect(title.className).toContain('font-bold');
-    expect(title.className).toContain('truncate');
-
-    const root = container.firstChild as HTMLElement;
-    expect(root.className).toContain('bg-surface-input');
-    expect(root.className).toContain('rounded-10');
-  });
-
-  it('appends a caller-supplied className to the container', () => {
-    const { container } = renderCard({ className: 'my-extra-class' });
-
-    const root = container.firstChild as HTMLElement;
-    expect(root.className).toContain('my-extra-class');
-    // Base classes still present alongside the override.
-    expect(root.className).toContain('flex');
-  });
-
-  it('accepts a variant prop without altering output (unused styling hook)', () => {
-    // `variant` is part of the public props but has no rendered effect today;
-    // passing each value must not throw or change the title.
-    (['default', 'warning', 'critical'] as const).forEach(variant => {
-      const { unmount } = renderCard({ variant });
-      expect(screen.getByText('Back up your wallet')).toBeTruthy();
-      unmount();
-    });
-  });
-});
-
-describe('PromptCard — body rendering', () => {
-  it('renders the body text when provided', () => {
-    renderCard({ body: 'Write down your recovery phrase' });
-
-    const body = screen.getByText('Write down your recovery phrase');
-    expect(body).toBeTruthy();
-    expect(body.className).toContain('text-xs');
-  });
-
-  it('omits the body element entirely when no body is passed', () => {
-    renderCard();
-    expect(screen.queryByText('Write down your recovery phrase')).toBeNull();
-  });
-
-  it('omits the body element when body is an empty string (falsy branch)', () => {
-    const { container } = renderCard({ body: '' });
-    // Only the title lives in the text column — no second text node.
-    const column = container.querySelector('.flex-col') as HTMLElement;
-    expect(column.querySelectorAll('div')).toHaveLength(1);
-  });
-});
-
-describe('PromptCard — Trail: dismiss vs chevron', () => {
-  it('renders the chevron affordance (no dismiss) when onDismiss is absent', () => {
-    renderCard();
-
-    expect(screen.getByTestId('icon').getAttribute('data-name')).toBe('ChevronRight');
-    expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
-  });
-
-  it('renders a Dismiss button with the Close icon when onDismiss is provided', () => {
-    renderCard({ onDismiss: jest.fn() });
-
-    const dismiss = screen.getByRole('button', { name: 'Dismiss' });
-    expect(dismiss.getAttribute('type')).toBe('button');
-    expect(screen.getByTestId('icon').getAttribute('data-name')).toBe('Close');
-  });
-});
-
-describe('PromptCard — onClick behaviour', () => {
-  it('exposes a button role and buzzes then calls onClick when clicked', () => {
+  it('runs the card action when its content is clicked', () => {
     const onClick = jest.fn();
-    const { container } = renderCard({ onClick });
+    render(<PromptCard title="Fund your wallet" onClick={onClick} />);
 
-    const root = container.firstChild as HTMLElement;
-    expect(root.getAttribute('role')).toBe('button');
+    fireEvent.click(screen.getByText('Fund your wallet'));
 
-    fireEvent.click(root);
-
-    expect(mockHapticLight).toHaveBeenCalledTimes(1);
     expect(onClick).toHaveBeenCalledTimes(1);
+    expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
-  it('has no button role and does not buzz when onClick is absent', () => {
-    const { container } = renderCard();
-
-    const root = container.firstChild as HTMLElement;
-    expect(root.getAttribute('role')).toBeNull();
-
-    // Clicking the row is a no-op — no handler wired, no haptic.
-    fireEvent.click(root);
-    expect(mockHapticLight).not.toHaveBeenCalled();
-  });
-});
-
-describe('PromptCard — onDismiss behaviour', () => {
-  it('buzzes then calls onDismiss when the dismiss button is clicked', () => {
-    const onDismiss = jest.fn();
-    renderCard({ onDismiss });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
-
-    expect(mockHapticLight).toHaveBeenCalledTimes(1);
-    expect(onDismiss).toHaveBeenCalledTimes(1);
-  });
-
-  it('stops propagation so a co-present onClick does NOT fire when dismissing', () => {
+  it('runs the CTA exactly once without bubbling to the card action', () => {
     const onClick = jest.fn();
-    const onDismiss = jest.fn();
-    renderCard({ onClick, onDismiss });
+    const onAction = jest.fn();
+    render(<PromptCard title="Fund your wallet" onClick={onClick} actionLabel="Fund now" onAction={onAction} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Fund now' }));
 
-    // Only the dismiss path runs; the row's onClick is shielded by stopPropagation.
-    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledTimes(1);
     expect(onClick).not.toHaveBeenCalled();
-    // A single buzz — from the dismiss handler only.
-    expect(mockHapticLight).toHaveBeenCalledTimes(1);
+    expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
-  it('still routes a row click to onClick when the row itself (not dismiss) is clicked', () => {
+  it('dismisses without invoking either card action', () => {
     const onClick = jest.fn();
+    const onAction = jest.fn();
     const onDismiss = jest.fn();
-    const { container } = renderCard({ onClick, onDismiss });
+    render(
+      <PromptCard
+        title="Fund your wallet"
+        onClick={onClick}
+        actionLabel="Fund now"
+        onAction={onAction}
+        onDismiss={onDismiss}
+      />
+    );
 
-    fireEvent.click(container.firstChild as HTMLElement);
+    fireEvent.click(screen.getByRole('button', { name: 'promptCardDismiss' }));
 
-    expect(onClick).toHaveBeenCalledTimes(1);
-    expect(onDismiss).not.toHaveBeenCalled();
-    expect(mockHapticLight).toHaveBeenCalledTimes(1);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onAction).not.toHaveBeenCalled();
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('does not invoke a disabled CTA', () => {
+    const onAction = jest.fn();
+    render(<PromptCard title="Fund your wallet" actionLabel="Fund now" onAction={onAction} actionDisabled />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fund now' }));
+
+    expect(onAction).not.toHaveBeenCalled();
+    expect(hapticLight).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['loading', 'promptCardLoading', 'Loader'],
+    ['success', 'success', 'Checkmark'],
+    ['failure', 'failed', 'Close']
+  ] as const)('renders the %s status indicator', (status, label, icon) => {
+    render(<PromptCard title="Fund your wallet" status={status} />);
+
+    expect(screen.getByRole('status', { name: label })).toContainElement(screen.getByTestId(`icon-${icon}`));
+  });
+
+  it('keeps the action available after a failure so it can be retried', () => {
+    const onAction = jest.fn();
+    render(<PromptCard title="Fund your wallet" status="failure" actionLabel="Try again" onAction={onAction} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    expect(onAction).toHaveBeenCalledTimes(1);
   });
 });

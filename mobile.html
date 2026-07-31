@@ -56,10 +56,18 @@
        */
       body {
         padding-top: env(safe-area-inset-top) !important;
-        padding-bottom: max(16px, env(safe-area-inset-bottom)) !important;
+        /* --keyboard-height is set by the inline keyboard script below when
+           the soft keyboard shows (Keyboard resize is 'none', so the WebView
+           itself never resizes). max() keeps the safe-area floor and avoids
+           double-counting the bottom inset, which iOS includes in the
+           reported keyboard height. */
+        padding-bottom: max(16px, env(safe-area-inset-bottom), var(--keyboard-height, 0px)) !important;
         padding-left: env(safe-area-inset-left) !important;
         padding-right: env(safe-area-inset-right) !important;
         box-sizing: border-box;
+        /* Ride up in sync with the iOS keyboard slide (~250ms, decelerating
+           curve close to UIKit's keyboard animation). */
+        transition: padding-bottom 250ms cubic-bezier(0.38, 0.7, 0.125, 1);
       }
 
       /* Ensure #root children take full height */

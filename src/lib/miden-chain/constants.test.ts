@@ -251,7 +251,8 @@ describe('miden-chain/constants', () => {
         expect(MIDEN_GUARDIAN_ENDPOINTS.get('testnet')).toEqual([
           'https://guardian.openzeppelin.com',
           'https://miden-guardian.dev.eu-north-3.gateway.fm',
-          'https://miden-guardian.lambdaclass.com'
+          'https://miden-guardian.lambdaclass.com',
+          'https://guardian-testnet.kodax.com'
         ]);
         // Only OpenZeppelin runs a devnet Guardian.
         expect(MIDEN_GUARDIAN_ENDPOINTS.get('devnet')).toEqual(['https://guardian-stg.openzeppelin.com']);

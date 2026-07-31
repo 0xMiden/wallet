@@ -7,7 +7,12 @@ export default defineConfig({
   // blockchain runs (they're run via playwright.guardian.config.ts). Swap
   // specs are gated on swap-related path changes, so exclude them too
   // (they're run via playwright.swap.config.ts by the dedicated swap job).
-  testIgnore: ['**/guardian-*.spec.ts', '**/swap/**'],
+  // Bridge specs drive real cross-chain bridging against the hosted Epoch
+  // allocator (testnet-only), so they run via playwright.bridge.config.ts on a
+  // dedicated job, not the general blockchain/localhost runs. Earn specs need
+  // fake Epoch allocator/positions services + a local Anvil, so they run via
+  // playwright.earn.config.ts on the dedicated earn job, not here.
+  testIgnore: ['**/guardian-*.spec.ts', '**/swap/**', '**/bridge/**', '**/earn/**'],
   timeout: 300_000, // 5 min per test (blockchain ops are slow)
   expect: {
     timeout: 60_000

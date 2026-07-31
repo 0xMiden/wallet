@@ -8,6 +8,7 @@ import { type TokenPrices } from 'lib/prices/binance';
 import {
   GuardianSyncStatus,
   SerializedConsumableNote,
+  SignEvmOperation,
   WalletAccount,
   WalletSettings,
   WalletStatus
@@ -72,13 +73,9 @@ export interface SyncSlice {
 }
 
 /**
- * Transaction modal state
+ * Transaction and dApp browser UI state
  */
-export interface TransactionModalSlice {
-  /** Whether the transaction progress modal is open */
-  isTransactionModalOpen: boolean;
-  /** Whether the user explicitly dismissed the modal (prevents auto-reopen until transactions complete) */
-  isTransactionModalDismissedByUser: boolean;
+export interface TransactionUiSlice {
   /**
    * Whether the dApp browser is open (mobile only).
    *
@@ -101,6 +98,10 @@ export interface TransactionModalSlice {
    * or closes, so a stale hash never leaks across sends.
    */
   lastCompletedTxHash: string | null;
+  /** Whether the transaction progress modal is open */
+  isTransactionModalOpen: boolean;
+  /** Whether the user explicitly dismissed the modal (prevents auto-reopen until transactions complete) */
+  isTransactionModalDismissedByUser: boolean;
 }
 
 /**
@@ -156,6 +157,7 @@ export interface WalletActions {
   signData: (publicKey: string, signingInputs: string) => Promise<string>;
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
   signWord: (publicKey: string, wordHex: string) => Promise<string>;
+  signEvm: (accountPublicKey: string, operation: SignEvmOperation) => Promise<`0x${string}`>;
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
   swapHotKey: (accountPublicKey: string, newHotPubKey: string) => Promise<void>;
   setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<void>;
@@ -168,6 +170,7 @@ export interface WalletActions {
 
   // DApp actions
   getDAppPayload: (id: string) => Promise<any>;
+  simulateCustomTransaction: (id: string) => Promise<{ summaryBytes?: string; error?: string }>;
   confirmDAppPermission: (
     id: string,
     confirmed: boolean,
@@ -221,14 +224,9 @@ export interface SyncActions {
 }
 
 /**
- * Transaction modal actions
+ * Transaction and dApp browser UI actions
  */
-export interface TransactionModalActions {
-  openTransactionModal: () => void;
-  /** Close the modal. If dismissedByUser is true, prevents auto-reopen until transactions complete */
-  closeTransactionModal: (dismissedByUser?: boolean) => void;
-  /** Reset the dismissed flag (called when all transactions complete) */
-  resetTransactionModalDismiss: () => void;
+export interface TransactionUiActions {
   setDappBrowserOpen: (isOpen: boolean) => void;
   /**
    * Set the active dApp session id (or clear it). Updates `isDappBrowserOpen`
@@ -236,6 +234,11 @@ export interface TransactionModalActions {
    */
   setActiveDappSession: (sessionId: string | null) => void;
   setLastCompletedTxHash: (txHash: string | null) => void;
+  openTransactionModal: () => void;
+  /** Close the modal. If dismissedByUser is true, prevents auto-reopen until transactions complete */
+  closeTransactionModal: (dismissedByUser?: boolean) => void;
+  /** Reset the dismissed flag (called when all transactions complete) */
+  resetTransactionModalDismiss: () => void;
 }
 
 /**
@@ -282,7 +285,7 @@ export interface WalletStore
     UISlice,
     FiatCurrencySlice,
     SyncSlice,
-    TransactionModalSlice,
+    TransactionUiSlice,
     NoteToastSlice,
     ExtensionSyncSlice,
     WalletActions,
@@ -290,6 +293,6 @@ export interface WalletStore
     AssetActions,
     FiatCurrencyActions,
     SyncActions,
-    TransactionModalActions,
+    TransactionUiActions,
     NoteToastActions,
     ExtensionSyncActions {}

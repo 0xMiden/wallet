@@ -13,19 +13,19 @@ import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
 /**
  * Carousel container that mounts the home-group pages (Overview / Send /
- * Receive / Earn / Swap) in a horizontal track and lets the user drag
- * between them with their finger. The page tracks the finger in real
- * time and snaps to the next/previous index on release if dragged or
- * flicked past a threshold; otherwise it snaps back.
+ * Receive / Earn / Swap) in a horizontal track and lets the user drag between
+ * them with their finger. The page tracks the finger in real time and
+ * snaps to the next/previous index on release if dragged or flicked past
+ * a threshold; otherwise it snaps back.
  *
  * Pathname is the source of truth for which page is centered — the
  * SegmentedActionBar in TabLayout reads the same path and stays in sync
  * via its framer-motion layoutId pill.
  *
- * Swap is omitted on iOS (App Store Guideline 3.1.5(iii) — see isSwapEnabled).
- * Track length, page widths and the index math all derive from the same
- * filtered `pages` array, so the carousel stays consistent no matter how many
- * pages are present.
+ * Earn ships unconditionally; only the Swap (isSwapEnabled) pane is
+ * feature-gated and can be absent. Track length, page widths and the index
+ * math all derive from the same filtered `pages` array, so the carousel stays
+ * consistent no matter how many panes are present.
  */
 
 interface HomePage {
@@ -49,8 +49,9 @@ const HomeSwipeContainer: FC = () => {
   const x = useMotionValue(0);
   const [width, setWidth] = useState(0);
 
-  // The Swap pane is dropped on iOS; every downstream calculation reads
-  // `pages`, so removing it can't desync the track width / index math.
+  // Only the Swap pane is feature-gated (isSwapEnabled); every downstream
+  // calculation reads `pages`, so dropping a pane can't desync the track
+  // width / index math.
   const pages: HomePage[] = [
     { id: 'overview', path: '/', node: <Explore /> },
     { id: 'send', path: '/send', node: <SendFlow isLoading={false} /> },
@@ -127,7 +128,16 @@ const HomeSwipeContainer: FC = () => {
     <div ref={containerRef} className="h-full w-full overflow-hidden touch-pan-y bg-app-bg">
       <motion.div
         className="h-full flex"
-        style={{ x, width: `${pages.length * 100}%` }}
+        // Pre-promote the track to its own compositor layer so a programmatic
+        // slide (tapping Send/Receive) doesn't pay for layer creation — a full
+        // repaint — on its first frame; a finger drag is already on a live
+        // layer, which is why it feels smoother. Intentionally ALWAYS-on:
+        // toggling `willChange` at tap time would create the layer on that
+        // first frame, defeating the purpose. Caveat: the non-`none` transform
+        // already makes this the containing block for `position: fixed`
+        // descendants, so any future home-page child needing viewport-fixed
+        // placement must portal out of the track (today's drawers/modals do).
+        style={{ x, width: `${pages.length * 100}%`, willChange: 'transform' }}
         drag="x"
         dragDirectionLock
         dragConstraints={{ left: dragMaxLeft, right: 0 }}

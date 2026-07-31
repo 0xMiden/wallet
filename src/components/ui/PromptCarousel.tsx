@@ -18,6 +18,7 @@ export interface PromptCarouselProps {
 
 const COMMIT_THRESHOLD = 0.3;
 const VELOCITY_PROJECTION_MS = 300;
+const SLIDE_GAP_PX = 12;
 
 /**
  * Horizontal carousel that wraps a list of prompts with optional drag-paging
@@ -28,7 +29,13 @@ const VELOCITY_PROJECTION_MS = 300;
  */
 export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className }) => {
   const slides = Children.toArray(children).filter(Boolean);
-  const containerRef = useRef<HTMLDivElement>(null);
+  // Held as state (callback ref) rather than a plain ref: the track div only
+  // exists once there are 2+ slides, so setup effects must re-run when it
+  // (un)mounts — with a plain ref and [] deps they'd observe null forever
+  // whenever the carousel mounts with 0/1 slides.
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
+  const suppressClickRef = useRef(false);
+  const releaseClickTimerRef = useRef<number | null>(null);
   const x = useMotionValue(0);
   const [width, setWidth] = useState(0);
   const [index, setIndex] = useState(0);
@@ -45,42 +52,83 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
   }, [activeIndex, index]);
 
   useLayoutEffect(() => {
-    if (!containerRef.current) return;
-    setWidth(containerRef.current.clientWidth);
-  }, []);
+    if (!container) return;
+    setWidth(container.clientWidth);
+  }, [container]);
 
   useEffect(() => {
-    if (!containerRef.current) return;
-    const el = containerRef.current;
+    if (!container) return;
     const ro = new ResizeObserver(entries => {
       const w = entries[0]?.contentRect.width ?? 0;
       if (w > 0) setWidth(w);
     });
-    ro.observe(el);
+    ro.observe(container);
     return () => ro.disconnect();
-  }, []);
+  }, [container]);
+
+  useEffect(() => {
+    if (!container) return;
+
+    // HomePrompts sits inside HomeSwipeContainer, which is another horizontal
+    // Framer Motion drag surface. Let the prompt track start its drag session,
+    // then stop pointer-down from bubbling into the page-level carousel.
+    const claimPromptGesture = (event: PointerEvent) => event.stopPropagation();
+    container.addEventListener('pointerdown', claimPromptGesture);
+    return () => container.removeEventListener('pointerdown', claimPromptGesture);
+  }, [container]);
+
+  useEffect(
+    () => () => {
+      if (releaseClickTimerRef.current !== null) window.clearTimeout(releaseClickTimerRef.current);
+    },
+    []
+  );
+
+  // Each slide occupies `width` px followed by a SLIDE_GAP_PX gutter, so
+  // paging steps by width + gap rather than width alone.
+  const step = width + SLIDE_GAP_PX;
 
   useEffect(() => {
     if (!width) {
-      x.set(-activeIndex * (containerRef.current?.clientWidth ?? 0));
+      const fallbackWidth = container?.clientWidth ?? 0;
+      x.set(-activeIndex * (fallbackWidth ? fallbackWidth + SLIDE_GAP_PX : 0));
       return;
     }
-    const controls = animate(x, -activeIndex * width, springs.standard);
+    const controls = animate(x, -activeIndex * step, springs.standard);
     return () => controls.stop();
-  }, [activeIndex, width, x]);
+  }, [activeIndex, container, step, width, x]);
+
+  const handleDragStart = () => {
+    if (releaseClickTimerRef.current !== null) window.clearTimeout(releaseClickTimerRef.current);
+    suppressClickRef.current = true;
+  };
 
   const handleDragEnd = (_e: unknown, info: PanInfo) => {
-    if (!width) return;
-    const projected = info.offset.x + info.velocity.x * (VELOCITY_PROJECTION_MS / 1000);
-    let nextIdx = activeIndex;
-    if (projected < -width * COMMIT_THRESHOLD && activeIndex < slides.length - 1) nextIdx = activeIndex + 1;
-    else if (projected > width * COMMIT_THRESHOLD && activeIndex > 0) nextIdx = activeIndex - 1;
-    if (nextIdx !== activeIndex) {
-      hapticSelection();
-      setIndex(nextIdx);
-    } else {
-      animate(x, -activeIndex * width, springs.standard);
+    if (width) {
+      const projected = info.offset.x + info.velocity.x * (VELOCITY_PROJECTION_MS / 1000);
+      let nextIdx = activeIndex;
+      if (projected < -width * COMMIT_THRESHOLD && activeIndex < slides.length - 1) nextIdx = activeIndex + 1;
+      else if (projected > width * COMMIT_THRESHOLD && activeIndex > 0) nextIdx = activeIndex - 1;
+      if (nextIdx !== activeIndex) {
+        hapticSelection();
+        setIndex(nextIdx);
+      } else {
+        animate(x, -activeIndex * step, springs.standard);
+      }
     }
+
+    // Browsers may dispatch a click immediately after pointer-up. Keep the
+    // guard through that click, then restore normal card/CTA interaction.
+    releaseClickTimerRef.current = window.setTimeout(() => {
+      suppressClickRef.current = false;
+      releaseClickTimerRef.current = null;
+    }, 0);
+  };
+
+  const handleClickCapture = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!suppressClickRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   const handleDotTap = (i: number) => {
@@ -92,23 +140,25 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
   if (slides.length === 0) return null;
   if (slides.length === 1) return <div className={className}>{slides[0]}</div>;
 
-  const dragMaxLeft = width ? -(slides.length - 1) * width : 0;
+  const dragMaxLeft = width ? -(slides.length - 1) * step : 0;
 
   return (
     <div className={classNames('flex flex-col gap-2', className)}>
-      <div ref={containerRef} className="w-full overflow-hidden touch-pan-y">
+      <div ref={setContainer} className="w-full overflow-hidden touch-pan-y">
         <motion.div
           className="flex items-start"
-          style={{ x, width: `${slides.length * 100}%` }}
+          style={{ x, gap: SLIDE_GAP_PX }}
           drag="x"
           dragDirectionLock
           dragConstraints={{ left: dragMaxLeft, right: 0 }}
           dragElastic={0.15}
           dragMomentum={false}
+          onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
+          onClickCapture={handleClickCapture}
         >
           {slides.map((slide, i) => (
-            <div key={i} className="shrink-0" style={{ width: `${100 / slides.length}%` }}>
+            <div key={i} className="shrink-0" style={{ width: width || '100%' }}>
               {slide}
             </div>
           ))}

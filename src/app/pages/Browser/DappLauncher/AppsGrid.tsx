@@ -1,5 +1,5 @@
 /**
- * 2-column grid of the curated Explore apps (`EXPLORE_GRID_DAPPS`).
+ * 2-column grid containing the two faucet apps from `EXPLORE_GRID_DAPPS`.
  *
  * Replaces the old FeaturedCarousel + CategoryRow + MyDappsGrid stack:
  * the simplified Explore page shows a hand-picked set of apps as

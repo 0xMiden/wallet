@@ -6,6 +6,10 @@ import { hapticLight } from 'lib/mobile/haptics';
 
 import { BalanceCard } from './BalanceCard';
 
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
+
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
   IconName: {
@@ -137,7 +141,7 @@ describe('BalanceCard states, delta, and interactions', () => {
 
     const pill = container.querySelector('.rounded-full');
     expect(pill).not.toBeNull();
-    expect(pill?.textContent).toBe('+$12.34 (+2.5%)');
+    expect(pill?.textContent).toBe('balanceCardDeltaPill');
     expect(pill?.className).toContain('bg-[#A8BBA3]');
   });
 
@@ -170,7 +174,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     const onMore = jest.fn();
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={onMore} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Account options' }));
+    fireEvent.click(screen.getByRole('button', { name: 'balanceCardAccountOptions' }));
 
     expect(onMore).toHaveBeenCalledTimes(1);
     expect(hapticLight).toHaveBeenCalledTimes(1);
@@ -179,7 +183,7 @@ describe('BalanceCard states, delta, and interactions', () => {
   it('omits the more button when onMore is not provided', () => {
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" />);
 
-    expect(screen.queryByRole('button', { name: 'Account options' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'balanceCardAccountOptions' })).toBeNull();
   });
 
   it('renders a custom currency and the account label', () => {
@@ -193,7 +197,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     );
 
     expect(screen.getByText('EUR')).toBeTruthy();
-    expect(screen.getByText(/Account #:/)).toBeTruthy();
+    expect(screen.getByText('balanceCardAccount')).toBeTruthy();
   });
 
   it('observes row and text and disconnects on unmount when ResizeObserver exists', () => {

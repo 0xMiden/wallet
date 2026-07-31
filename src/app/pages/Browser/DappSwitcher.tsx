@@ -30,6 +30,11 @@ import {
 import { getSnapshot } from 'lib/dapp-browser/snapshot-store';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 
+/** Decorative close glyph (aria-hidden). U+00D7 multiplication sign — a
+ * universally available glyph, not translatable text. See the render-site
+ * notes on why this replaces the IconName.Close SVG / U+2715. */
+const CLOSE_GLYPH = '×';
+
 interface DappSwitcherProps {
   open: boolean;
   onClose: () => void;
@@ -66,8 +71,8 @@ export const DappSwitcher: FC<DappSwitcherProps> = ({ open, onClose }) => {
 
   const headerCountLabel =
     sessionStates.length === 1
-      ? (t('openDappCountOne') ?? '1 open dApp')
-      : (t('openDappCountPlural') ?? '{count} open dApps').replace('{count}', String(sessionStates.length));
+      ? t('openDappCountOne')
+      : t('openDappCountPlural').replace('{count}', String(sessionStates.length));
 
   return (
     <AnimatePresence>
@@ -77,7 +82,7 @@ export const DappSwitcher: FC<DappSwitcherProps> = ({ open, onClose }) => {
           // focus and announce the switcher as a modal experience.
           role="dialog"
           aria-modal="true"
-          aria-label={t('dappSwitcher') ?? 'dApp switcher'}
+          aria-label={t('dappSwitcher')}
           className="fixed inset-0 flex flex-col items-center justify-start"
           style={{ zIndex: 80, backgroundColor: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(24px)' }}
           initial={{ opacity: 0 }}
@@ -99,7 +104,7 @@ export const DappSwitcher: FC<DappSwitcherProps> = ({ open, onClose }) => {
             </div>
             <button
               type="button"
-              aria-label={t('closeDappSwitcher') ?? 'Close dApp switcher'}
+              aria-label={t('closeDappSwitcher')}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10"
               onClick={e => {
                 e.stopPropagation();
@@ -113,7 +118,7 @@ export const DappSwitcher: FC<DappSwitcherProps> = ({ open, onClose }) => {
                   SVG which has `fill="none"` on the path and renders
                   invisible — needs a separate fix to the asset itself. */}
               <span className="text-2xl leading-none text-pure-white" aria-hidden="true">
-                ×
+                {CLOSE_GLYPH}
               </span>
             </button>
           </div>
@@ -147,6 +152,7 @@ interface SwitcherCardProps {
 }
 
 const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
+  const { t } = useTranslation();
   // PR-7: reduce-motion-aware springs. The card enter animation is
   // coupled to the switcher's AnimatePresence so the whole surface
   // snaps instantly when reduce motion is on.
@@ -184,7 +190,7 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
         type="button"
         className="absolute inset-0 cursor-pointer"
         onClick={() => onTap(session)}
-        aria-label={`${displayName}. Activate to switch to this dApp.`}
+        aria-label={t('dappSwitcherCardActivate', { name: displayName })}
       />
       {/* Snapshot or fallback. `background-position: top center` makes
           the card show the TOP of the page (favicon / header / hero)
@@ -225,7 +231,7 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
         </div>
         <button
           type="button"
-          aria-label={`Close ${displayName}`}
+          aria-label={t('dappSwitcherCloseCard', { name: displayName })}
           className="pointer-events-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/40"
           onClick={e => onClose(e, session)}
           onKeyDown={e => {
@@ -238,7 +244,7 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
               multiplication sign (×, U+00D7) for a universally
               available glyph instead of an Icon component or U+2715. */}
           <span className="text-base leading-none text-pure-white" aria-hidden="true">
-            ×
+            {CLOSE_GLYPH}
           </span>
         </button>
       </div>
@@ -246,7 +252,7 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
       {/* Loading indicator (bottom-left) */}
       {state.isLoading && (
         <div className="pointer-events-none absolute bottom-3 left-3 rounded-full bg-black/50 px-2 py-0.5 text-[10px] text-pure-white">
-          Loading…
+          {t('dappSwitcherLoading')}
         </div>
       )}
     </motion.div>

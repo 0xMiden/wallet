@@ -11,6 +11,8 @@ import { BottomNav, SegmentedActionBar } from 'components/ui';
 import { springs } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
+import { useKeyboardVisible } from 'lib/mobile/useKeyboardVisible';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
@@ -61,6 +63,12 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { pathname } = useLocation();
   const hasUnclaimedNotes = useHasUnclaimedNotes();
   const prevPathnameRef = useRef<string | null>(null);
+
+  // Hide the floating BottomNav whenever the mobile soft keyboard is up —
+  // the keyboard inset (mobile.html) shrinks the layout, and the navbar
+  // hovering right above the keyboard looks odd. Refcounted with the other
+  // useHideNavbarWhileOpen callers (drawers, flows), so it composes.
+  useHideNavbarWhileOpen(useKeyboardVisible());
 
   // During render `prevPathnameRef.current` still holds the previous path
   // (the effect below updates it AFTER commit). That's exactly what we need
@@ -116,12 +124,12 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       label: 'Receive',
       icon: <Icon name={IconName.Receive} className="w-5 h-5" />
     },
-    // {
-    //   id: 'earn',
-    //   label: 'Earn',
-    //   icon: <Icon name={IconName.Earn} className="w-5 h-5" />
-    // },
-    // Swap is hidden on iOS (App Store Guideline 3.1.5(iii) — see isSwapEnabled).
+    {
+      id: 'earn',
+      label: 'Earn',
+      icon: <Icon name={IconName.Earn} className="w-5 h-5" />
+    },
+    // Only the Swap segment is feature-gated (isSwapEnabled); Earn ships unconditionally.
     ...(isSwapEnabled()
       ? [
           {

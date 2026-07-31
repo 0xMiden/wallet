@@ -89,7 +89,7 @@ export async function showNoteReceivedNotification(title: string, body: string):
           // Extra data for handling tap
           extra: {
             type: 'note_received',
-            navigateTo: '/receive?fromNotification=true'
+            navigateTo: '/pending-notes'
           }
         }
       ]

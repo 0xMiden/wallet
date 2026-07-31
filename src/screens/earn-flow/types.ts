@@ -7,6 +7,15 @@ export interface EarnSummary {
 
 export interface EarnPosition {
   id: string;
+  /** Id of the vault this position lives in — links "Deposit more" back into `/earn/vaults/{vaultId}/deposit`. */
+  vaultId: string;
+  /** Raw Epoch fields retained for Smart Withdraw once its SDK methods ship. */
+  owner: string;
+  marketUid: string;
+  chainId: string;
+  underlyingAddress: string;
+  withdrawable: string;
+  decimals: number;
   protocol: string;
   asset: string;
   network: string;

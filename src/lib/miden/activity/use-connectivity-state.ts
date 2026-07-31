@@ -1,14 +1,23 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
-  clearConnectivityIssue,
   CONNECTIVITY_STATE_KEY,
   ConnectivityCategory,
   ConnectivityStateSnapshot,
   getConnectivityState,
   subscribeConnectivityState
 } from './connectivity-state';
-import { putToStorage, useStorage } from '../front/storage';
+import { isExtension } from '../../platform';
+import { useStorage } from '../front/storage';
+
+export const CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY = 'miden-connectivity-dismissed-activations';
+
+type DismissedActivations = Partial<Record<ConnectivityCategory, number | null>>;
+
+// Stable fallback: an inline `{}` would be a new object every render, and
+// useStorage returns `data ?? fallback`, so the sync effect below would fire
+// on each render and setState forever ("Maximum update depth exceeded").
+const NO_DISMISSED_ACTIVATIONS: DismissedActivations = {};
 
 /**
  * React hook exposing the current connectivity-state snapshot.
@@ -35,7 +44,12 @@ export function useConnectivityState(): {
   dismiss: (category: ConnectivityCategory) => void;
 } {
   const [storageSnapshot] = useStorage<ConnectivityStateSnapshot | null>(CONNECTIVITY_STATE_KEY, null);
+  const [storedDismissedActivations, setStoredDismissedActivations] = useStorage<DismissedActivations>(
+    CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY,
+    NO_DISMISSED_ACTIVATIONS
+  );
   const [memorySnapshot, setMemorySnapshot] = useState<ConnectivityStateSnapshot>(() => getConnectivityState());
+  const [dismissedActivations, setDismissedActivations] = useState<DismissedActivations>(storedDismissedActivations);
 
   useEffect(() => {
     return subscribeConnectivityState(setMemorySnapshot);
@@ -45,16 +59,49 @@ export function useConnectivityState(): {
   // SW's authoritative view in the extension), memory fills the rest. In
   // the non-extension case storage is just a mirror of the same in-process
   // state machine, so the two agree by construction.
-  const merged: ConnectivityStateSnapshot = storageSnapshot ?? memorySnapshot;
+  useEffect(() => {
+    setDismissedActivations(storedDismissedActivations);
+  }, [storedDismissedActivations]);
 
-  const hasAnyIssue = merged.network.active || merged.node.active || merged.prover.active || merged.resolving.active;
+  const merged: ConnectivityStateSnapshot = isExtension() ? (storageSnapshot ?? memorySnapshot) : memorySnapshot;
+  const mergedRef = useRef(merged);
+  mergedRef.current = merged;
 
-  const dismiss = useCallback((category: ConnectivityCategory) => {
-    // Update both the in-process machine and the storage mirror, so
-    // dismissal sticks regardless of which side reads first.
-    clearConnectivityIssue(category);
-    void putToStorage(CONNECTIVITY_STATE_KEY, getConnectivityState());
-  }, []);
+  useEffect(() => {
+    const recovered = (Object.keys(dismissedActivations) as ConnectivityCategory[]).filter(
+      category => !merged[category].active
+    );
+    if (recovered.length === 0) return;
+    const next = { ...dismissedActivations };
+    for (const category of recovered) delete next[category];
+    setDismissedActivations(next);
+    void setStoredDismissedActivations(next);
+  }, [dismissedActivations, merged, setStoredDismissedActivations]);
 
-  return { state: merged, hasAnyIssue, dismiss };
+  const visible = useMemo(() => {
+    if (Object.keys(dismissedActivations).length === 0) return merged;
+    const next = { ...merged };
+    for (const category of Object.keys(dismissedActivations) as ConnectivityCategory[]) {
+      if (next[category].active && next[category].since === dismissedActivations[category]) {
+        next[category] = { active: false, since: null };
+      }
+    }
+    return next;
+  }, [dismissedActivations, merged]);
+
+  const hasAnyIssue =
+    visible.network.active || visible.node.active || visible.prover.active || visible.resolving.active;
+
+  const dismiss = useCallback(
+    (category: ConnectivityCategory) => {
+      const activation = mergedRef.current[category];
+      if (!activation.active) return;
+      const next = { ...dismissedActivations, [category]: activation.since };
+      setDismissedActivations(next);
+      void setStoredDismissedActivations(next);
+    },
+    [dismissedActivations, setStoredDismissedActivations]
+  );
+
+  return { state: visible, hasAnyIssue, dismiss };
 }

@@ -44,6 +44,7 @@ const SearchField: FC<SearchFieldProps> = ({
       <div className={classNames('relative', 'flex items-stretch')}>
         <input
           type="text"
+          enterKeyHint="search"
           className={classNames('appearance-none w-full', className)}
           value={value}
           spellCheck={false}

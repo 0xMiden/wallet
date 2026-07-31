@@ -1,6 +1,8 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
+
+import { isExtension } from 'lib/platform';
 
 import GuardianReplaceHotKey from './GuardianReplaceHotKey';
 
@@ -52,13 +54,16 @@ jest.mock('lib/miden/activity', () => ({
 
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: { __provider: true } }));
 
-const mockIsExtension = jest.fn();
-jest.mock('lib/platform', () => ({ isExtension: () => mockIsExtension() }));
+jest.mock('lib/platform', () => ({ isExtension: jest.fn() }));
+const mockIsExtension = isExtension as jest.MockedFunction<typeof isExtension>;
 
 const mockIsDelegateProofEnabled = jest.fn();
 jest.mock('lib/settings/helpers', () => ({
   isDelegateProofEnabled: () => mockIsDelegateProofEnabled()
 }));
+
+const mockNavigate = jest.fn();
+jest.mock('lib/woozie', () => ({ navigate: (...a: unknown[]) => mockNavigate(...a) }));
 
 // Store that satisfies both the hook-selector call form and `.getState()`.
 const mockState: any = {
@@ -177,7 +182,7 @@ describe('GuardianReplaceHotKey — rotation', () => {
     await click(); // second tap → rotation
   };
 
-  it('completes a rotation: opens the tx modal and shows the success message', async () => {
+  it('completes a rotation and navigates to transaction progress', async () => {
     render(<GuardianReplaceHotKey />);
 
     await confirmRotate();
@@ -185,15 +190,12 @@ describe('GuardianReplaceHotKey — rotation', () => {
     // Cold-signed rotation: publicKey, delegate flag (false), provider.
     expect(mockInitiate).toHaveBeenCalledTimes(1);
     expect(mockInitiate).toHaveBeenCalledWith('pk_1', false, { __provider: true });
-    expect(mockState.openTransactionModal).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/tx-1');
     // Non-extension build skips the service-worker processing nudge.
     expect(mockRequestSWProcessing).not.toHaveBeenCalled();
-    expect(mockWaitForCompletion).toHaveBeenCalledWith('tx-1');
-
-    expect(screen.getByText('hotKeyRotated')).toBeInTheDocument();
-    // confirming cleared on success → confirmation copy hidden, label reset.
-    expect(screen.queryByText('replaceHotKeyConfirmation')).not.toBeInTheDocument();
-    expect(label()).toBe('replaceHotKey');
+    // The screen remains armed for confirmation while navigation takes over.
+    expect(screen.getByText('replaceHotKeyConfirmation')).toBeInTheDocument();
+    expect(label()).toBe('confirmReplaceHotKey');
     expect(fsbHolder.props.loading).toBe(false);
   });
 
@@ -213,12 +215,12 @@ describe('GuardianReplaceHotKey — rotation', () => {
     await confirmRotate();
 
     expect(mockRequestSWProcessing).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('hotKeyRotated')).toBeInTheDocument();
+    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/tx-1');
   });
 
   it('marks the button loading while the rotation is in flight', async () => {
-    const gate = deferred<{ status: string }>();
-    mockWaitForCompletion.mockReturnValue(gate.promise);
+    const gate = deferred<string>();
+    mockInitiate.mockReturnValue(gate.promise);
     render(<GuardianReplaceHotKey />);
 
     await click(); // confirming
@@ -234,28 +236,15 @@ describe('GuardianReplaceHotKey — rotation', () => {
     await flush();
 
     expect(fsbHolder.props.loading).toBe(true);
-    expect(screen.queryByText('hotKeyRotated')).not.toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
 
     // Resolve the in-flight tx → success, loading cleared.
     await act(async () => {
-      gate.resolve({ status: 'ok' });
+      gate.resolve('tx-1');
     });
     await flush();
 
-    expect(screen.getByText('hotKeyRotated')).toBeInTheDocument();
-    expect(fsbHolder.props.loading).toBe(false);
-  });
-
-  it('surfaces a chain error carried on the completion result and stays confirming', async () => {
-    mockWaitForCompletion.mockResolvedValue({ errorMessage: 'chain rejected the rotation' });
-    render(<GuardianReplaceHotKey />);
-
-    await confirmRotate();
-
-    expect(screen.getByText('chain rejected the rotation')).toBeInTheDocument();
-    expect(screen.queryByText('hotKeyRotated')).not.toBeInTheDocument();
-    // errorMessage branch returns before clearing confirming.
-    expect(label()).toBe('confirmReplaceHotKey');
+    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/tx-1');
     expect(fsbHolder.props.loading).toBe(false);
   });
 
@@ -266,7 +255,7 @@ describe('GuardianReplaceHotKey — rotation', () => {
     await confirmRotate();
 
     expect(screen.getByText('initiate exploded')).toBeInTheDocument();
-    expect(screen.queryByText('hotKeyRotated')).not.toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('stringifies a non-Error rejection', async () => {
@@ -279,8 +268,8 @@ describe('GuardianReplaceHotKey — rotation', () => {
   });
 
   it('clears a prior error when a fresh rotation is submitted', async () => {
-    // First rotation fails with a chain error (leaves component confirming).
-    mockWaitForCompletion.mockResolvedValueOnce({ errorMessage: 'first boom' });
+    // First rotation fails (leaves component confirming).
+    mockInitiate.mockRejectedValueOnce(new Error('first boom'));
     render(<GuardianReplaceHotKey />);
 
     await confirmRotate();
@@ -291,44 +280,6 @@ describe('GuardianReplaceHotKey — rotation', () => {
     await click();
 
     expect(screen.queryByText('first boom')).not.toBeInTheDocument();
-    expect(screen.getByText('hotKeyRotated')).toBeInTheDocument();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Success animation → onClose plumbing.
-// ---------------------------------------------------------------------------
-describe('GuardianReplaceHotKey — onClose', () => {
-  const confirmRotate = async () => {
-    await click();
-    await click();
-  };
-
-  it('invokes onClose when the success message finishes animating', async () => {
-    const onClose = jest.fn();
-    render(<GuardianReplaceHotKey onClose={onClose} />);
-
-    await confirmRotate();
-    const success = screen.getByText('hotKeyRotated');
-
-    act(() => {
-      fireEvent.animationEnd(success);
-    });
-
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not crash on the success animation end when onClose is omitted', async () => {
-    render(<GuardianReplaceHotKey />);
-
-    await confirmRotate();
-    const success = screen.getByText('hotKeyRotated');
-
-    // `onClose?.()` — optional-chaining no-op, must not throw.
-    expect(() =>
-      act(() => {
-        fireEvent.animationEnd(success);
-      })
-    ).not.toThrow();
+    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/tx-1');
   });
 });

@@ -47,6 +47,10 @@ export class Vault {
   // the 3-key model — a no-op in the mock (no real accounts/keys to migrate).
   async migrateLegacyGuardianAccounts() {}
 
+  // Best-effort on-unlock backfill of wallet-derived EVM addresses onto
+  // pre-existing HD accounts — a no-op in the mock (no seed to derive from).
+  async backfillEvmAddresses() {}
+
   async fetchSettings() {
     return state.settings;
   }

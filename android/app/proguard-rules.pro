@@ -20,6 +20,21 @@
     native <methods>;
 }
 
+# Reown AppKit / WalletConnect native SDK
+-keepattributes *Annotation*
+-keep class com.sun.jna.** { *; }
+-keepclassmembers class com.sun.jna.** {
+    native <methods>;
+    *;
+}
+-keep class uniffi.** { *; }
+-keepclassmembers class ** {
+    public *;
+    protected *;
+}
+-dontwarn uniffi.**
+-dontwarn com.sun.jna.**
+
 # Keep Parcelable implementations
 -keepclassmembers class * implements android.os.Parcelable {
     static ** CREATOR;
@@ -81,3 +96,12 @@
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
 -dontwarn javax.lang.model.element.Modifier
+
+# JVM-only classes referenced by Reown/WalletConnect transitive deps
+# (jackson-databind, junit, slf4j, msgpack) — never hit at runtime on Android
+-dontwarn java.beans.ConstructorProperties
+-dontwarn java.beans.Transient
+-dontwarn java.lang.management.ManagementFactory
+-dontwarn java.lang.management.ThreadMXBean
+-dontwarn org.slf4j.impl.StaticLoggerBinder
+-dontwarn sun.nio.ch.DirectBuffer

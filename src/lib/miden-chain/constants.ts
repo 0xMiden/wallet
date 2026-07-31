@@ -57,6 +57,14 @@ export const MIDEN_FAUCET_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:8080']
 ]);
 
+// REST API of the official faucet service — a different host from the
+// MIDEN_FAUCET_ENDPOINTS website (locally the API binds :8000, frontend :8080).
+export const MIDEN_FAUCET_API_ENDPOINTS = new Map<string, string>([
+  [MIDEN_NETWORK_NAME.TESTNET, 'https://faucet-api.testnet.miden.io'],
+  [MIDEN_NETWORK_NAME.DEVNET, 'https://faucet-api.devnet.miden.io'],
+  [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:8000']
+]);
+
 export const MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.TESTNET, 'https://transport.miden.io'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://transport.devnet.miden.io'],
@@ -140,6 +148,13 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
     endpoint: new Map<MIDEN_NETWORK_NAME, string>([
       [MIDEN_NETWORK_NAME.TESTNET, 'https://miden-guardian.lambdaclass.com']
     ])
+  },
+  {
+    id: 'kodax',
+    name: 'Koda',
+    operatedBy: 'Korea Digital Asset (Koda)',
+    location: 'Asia (SK)',
+    endpoint: new Map<MIDEN_NETWORK_NAME, string>([[MIDEN_NETWORK_NAME.TESTNET, 'https://guardian-testnet.kodax.com']])
   }
 ];
 

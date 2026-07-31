@@ -14,6 +14,8 @@
  */
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+
 import {
   buildOperatorKeyMap,
   identifyGuardianOperator,
@@ -28,7 +30,8 @@ jest.mock('@openzeppelin/guardian-client', () => ({
       const byUrl: Record<string, string> = {
         'https://guardian.openzeppelin.com': '0xAAA',
         'https://miden-guardian.dev.eu-north-3.gateway.fm': '0xBBB',
-        'https://miden-guardian.lambdaclass.com': '0xCCC'
+        'https://miden-guardian.lambdaclass.com': '0xCCC',
+        'https://guardian-testnet.kodax.com': '0xDDD'
       };
       return { commitment: byUrl[this.url] };
     }
@@ -51,11 +54,12 @@ describe('normalizeHex', () => {
 
 describe('buildOperatorKeyMap', () => {
   it('maps each reachable operator commitment (normalized) to its ResolvedGuardianOption', async () => {
-    const map = await buildOperatorKeyMap();
+    const map = await buildOperatorKeyMap(MIDEN_NETWORK_NAME.TESTNET);
 
     expect(map.get('aaa')?.id).toBe('open-zeppelin');
     expect(map.get('bbb')?.id).toBe('gateway');
     expect(map.get('ccc')?.id).toBe('lambda-class');
+    expect(map.get('ddd')?.id).toBe('kodax');
   });
 
   it('skips an operator whose endpoint is unreachable, without throwing', async () => {
@@ -63,24 +67,25 @@ describe('buildOperatorKeyMap', () => {
       throw new Error('network unreachable');
     });
 
-    const map = await buildOperatorKeyMap();
+    const map = await buildOperatorKeyMap(MIDEN_NETWORK_NAME.TESTNET);
 
-    // The first operator (open-zeppelin) fails and is skipped; the other two
+    // The first operator (open-zeppelin) fails and is skipped; the other
     // built-in operators are still present.
     expect(map.get('aaa')).toBeUndefined();
     expect(map.get('bbb')?.id).toBe('gateway');
     expect(map.get('ccc')?.id).toBe('lambda-class');
+    expect(map.get('ddd')?.id).toBe('kodax');
   });
 });
 
 describe('identifyGuardianOperator', () => {
   it('identifies the operator whose pubkey matches the on-chain commitment', async () => {
-    const op = await identifyGuardianOperator('aaa'); // unprefixed on-chain form
+    const op = await identifyGuardianOperator('aaa', MIDEN_NETWORK_NAME.TESTNET); // unprefixed on-chain form
     expect(op?.id).toBe('open-zeppelin');
   });
 
   it('returns undefined when no operator matches (custom/rotated)', async () => {
-    expect(await identifyGuardianOperator('deadbeef')).toBeUndefined();
+    expect(await identifyGuardianOperator('deadbeef', MIDEN_NETWORK_NAME.TESTNET)).toBeUndefined();
   });
 });
 

@@ -12,8 +12,8 @@
  *   CS_ENTRY=addToWindow  vite build --config vite.contentScripts.config.ts
  */
 import { resolve } from 'path';
-import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import { defineConfig, type Plugin } from 'vite';
+import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 const pkg = require('./package.json');
 const TARGET_BROWSER = process.env.TARGET_BROWSER ?? 'chrome';
@@ -47,6 +47,10 @@ function stubIntercomPlatformAdapters(): Plugin {
 }
 
 export default defineConfig({
+  // Public assets (especially the vendor-prefixed manifest) are handled by
+  // vite.extension.config.ts. This partial build must not copy them verbatim.
+  publicDir: false,
+
   plugins: [
     stubIntercomPlatformAdapters(),
     nodePolyfills({
@@ -93,6 +97,11 @@ export default defineConfig({
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
+    'process.env.EPOCH_POSITIONS_URL': JSON.stringify(
+      process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
+    ),
+    'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
     'process.browser': 'true',

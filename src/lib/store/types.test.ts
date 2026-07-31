@@ -33,7 +33,7 @@ import type {
   UISlice,
   FiatCurrencySlice,
   SyncSlice,
-  TransactionModalSlice,
+  TransactionUiSlice,
   NoteToastSlice,
   ExtensionSyncSlice,
   WalletActions,
@@ -41,7 +41,7 @@ import type {
   AssetActions,
   FiatCurrencyActions,
   SyncActions,
-  TransactionModalActions,
+  TransactionUiActions,
   NoteToastActions,
   ExtensionSyncActions,
   WalletStore
@@ -169,15 +169,15 @@ describe('lib/store/types', () => {
       expect(synced.hasCompletedInitialSync).toBe(true);
     });
 
-    it('TransactionModalSlice keeps modal + dApp session flags in lockstep', () => {
-      const closed: TransactionModalSlice = {
+    it('TransactionUiSlice keeps modal + dApp session flags in lockstep', () => {
+      const closed: TransactionUiSlice = {
         isTransactionModalOpen: false,
         isTransactionModalDismissedByUser: false,
         isDappBrowserOpen: false,
         activeDappSessionId: null,
         lastCompletedTxHash: null
       };
-      const open: TransactionModalSlice = {
+      const open: TransactionUiSlice = {
         isTransactionModalOpen: true,
         isTransactionModalDismissedByUser: true,
         isDappBrowserOpen: true,
@@ -363,7 +363,7 @@ describe('lib/store/types', () => {
       expect(actions.setSyncStatus).toHaveBeenCalledWith(true);
     });
 
-    it('TransactionModalActions declares modal + dApp-session controls', () => {
+    it('TransactionUiActions declares modal + dApp-session controls', () => {
       const actions = {
         openTransactionModal: jest.fn(),
         closeTransactionModal: jest.fn(),
@@ -371,7 +371,7 @@ describe('lib/store/types', () => {
         setDappBrowserOpen: jest.fn(),
         setActiveDappSession: jest.fn(),
         setLastCompletedTxHash: jest.fn()
-      } as unknown as TransactionModalActions;
+      } as unknown as TransactionUiActions;
       expectAllFunctions(actions as unknown as Record<string, unknown>, [
         'openTransactionModal',
         'closeTransactionModal',

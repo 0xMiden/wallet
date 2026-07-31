@@ -1,0 +1,3 @@
+export class WagmiAdapter {
+  wagmiConfig = {};
+}

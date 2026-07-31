@@ -74,16 +74,23 @@ describe('earn-flow/data', () => {
         'amount',
         'apy',
         'asset',
+        'chainId',
         'chartData',
         'dailyAverage',
+        'decimals',
         'depositedAmount',
         'id',
+        'marketUid',
         'network',
+        'owner',
         'protocol',
         'rewards',
         'route',
         'started',
+        'underlyingAddress',
+        'vaultId',
         'withdrawTime',
+        'withdrawable',
         'yearlyEstimate'
       ];
       EARN_DATA.positions.forEach((position: EarnPosition) => {
@@ -91,11 +98,18 @@ describe('earn-flow/data', () => {
       });
     });
 
-    it('every string field on each position is a non-empty string', () => {
+    it('every display string field on each position is a non-empty string', () => {
       EARN_DATA.positions.forEach(position => {
-        const { chartData, ...stringFields } = position;
+        // `chartData` is a series, `decimals` is numeric, and the raw Epoch
+        // passthrough fields (`owner`/`marketUid`/`underlyingAddress`) are
+        // intentionally blank placeholders in the demo fixture.
+        const { chartData, decimals, owner, marketUid, underlyingAddress, ...displayFields } = position;
         void chartData;
-        Object.values(stringFields).forEach(value => {
+        expect(typeof decimals).toBe('number');
+        [owner, marketUid, underlyingAddress].forEach(value => {
+          expect(typeof value).toBe('string');
+        });
+        Object.values(displayFields).forEach(value => {
           expect(isNonEmptyString(value)).toBe(true);
         });
       });

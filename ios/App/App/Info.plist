@@ -20,10 +20,21 @@
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.miden.wallet</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.miden.wallet</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleShortVersionString</key>
-	<string>$(MARKETING_VERSION)</string>
+	<string>1.15.13</string>
 	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<string>9</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
@@ -62,5 +73,17 @@
 		<key>NSAllowsArbitraryLoadsInWebContent</key>
 		<true/>
 	</dict>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>metamask</string>
+		<string>rainbow</string>
+		<string>trust</string>
+		<string>safe</string>
+		<string>zerion</string>
+		<string>ledgerlive</string>
+		<string>uniswap</string>
+		<string>okx</string>
+		<string>cbwallet</string>
+	</array>
 </dict>
 </plist>

@@ -41,6 +41,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           )}
           <input
             ref={ref}
+            enterKeyHint="done"
             className={classNames(
               'flex-1',
               'py-3',
@@ -87,6 +88,7 @@ export const CurrencyInput: React.FC<CurrencyInputProps> = ({
         )}
       >
         <ICurrencyInput
+          enterKeyHint="done"
           className={classNames(
             'flex-1',
             'pl-4 pr-2 py-3',

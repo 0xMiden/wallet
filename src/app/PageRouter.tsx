@@ -6,12 +6,11 @@ import FullScreenPage from 'app/layouts/FullScreenPage';
 import TabLayout from 'app/layouts/TabLayout';
 import Explore from 'app/pages/Explore';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
-import { Pending } from 'app/pages/Pending';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
-import { isSwapEnabled } from 'lib/feature-flags';
+import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import * as Woozie from 'lib/woozie';
 import EarnDepositAmount from 'screens/earn-flow/EarnDepositAmount';
@@ -19,16 +18,22 @@ import EarnDepositReview from 'screens/earn-flow/EarnDepositReview';
 import EarnPositionDetail from 'screens/earn-flow/EarnPositionDetail';
 import EarnPositions from 'screens/earn-flow/EarnPositions';
 import EarnVaultDetail from 'screens/earn-flow/EarnVaultDetail';
+import EarnWithdrawReview from 'screens/earn-flow/EarnWithdrawReview';
+import EarnWithdrawStatus from 'screens/earn-flow/EarnWithdrawStatus';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
 import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
 import AllHistory from './pages/AllHistory';
+import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
+import PendingNotes from './pages/PendingNotes';
 import ResetRequired from './pages/ResetRequired';
+import RotateGuardian from './pages/RotateGuardian';
+import RotateGuardianReview from './pages/RotateGuardianReview';
 import TokenDetail from './pages/TokenDetail';
 import { resolveRootView } from './root-view';
 import { HistoryDetails } from './templates/history/HistoryDetails';
@@ -156,12 +161,40 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
-    '/pending',
+    '/pending-notes',
     onlyReady(() => (
       <FullScreenPage>
-        <Pending />
+        <PendingNotes />
       </FullScreenPage>
     ))
+  ],
+  [
+    '/rotate-guardian',
+    onlyReady(() => (
+      <FullScreenPage>
+        <RotateGuardian />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/rotate-guardian/review',
+    onlyReady(() => (
+      <FullScreenPage>
+        <RotateGuardianReview />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/bridge/deposit',
+    onlyReady(() =>
+      isBridgeDepositEnabled() ? (
+        <FullScreenPage>
+          <BridgeDeposit />
+        </FullScreenPage>
+      ) : (
+        <Woozie.Redirect to="/receive" />
+      )
+    )
   ],
   [
     '/history-details/:transactionId',
@@ -234,6 +267,22 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(({ vaultId }) => (
       <FullScreenPage>
         <EarnVaultDetail vaultId={vaultId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/earn/withdraw-status/:txId',
+    onlyReady(({ txId }) => (
+      <FullScreenPage>
+        <EarnWithdrawStatus txId={txId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/earn/positions/:positionId/withdraw/review',
+    onlyReady(({ positionId }) => (
+      <FullScreenPage>
+        <EarnWithdrawReview positionId={positionId!} />
       </FullScreenPage>
     ))
   ],
