@@ -57,6 +57,12 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   // eslint-disable-next-line i18next/no-literal-string -- Product-specified scanner copy.
   const scanQrCodeLabel = 'Scan QR Code';
 
+  // Done label on the mobile keyboard. Set via the ref because this repo's
+  // @types/react version types enterKeyHint on inputs but not textareas.
+  useEffect(() => {
+    textareaRef.current?.setAttribute('enterkeyhint', 'done');
+  }, []);
+
   // Auto-grow the borderless address field as it wraps across lines.
   useEffect(() => {
     const ta = textareaRef.current;
@@ -105,6 +111,14 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             spellCheck={false}
             autoCapitalize="none"
             autoCorrect="off"
+            onKeyDown={event => {
+              // Addresses are single-line: Done/Enter dismisses the keyboard
+              // instead of inserting a newline.
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                event.currentTarget.blur();
+              }
+            }}
           />
         </div>
 
@@ -157,7 +171,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
         </div>
       </div>
 
-      <div className="shrink-0 pb-24">
+      <div className="shrink-0 pb-24" data-navbar-cushion="true">
         <Button
           title={t('confirm')}
           variant={ButtonVariant.Primary}

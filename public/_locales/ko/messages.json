@@ -40,6 +40,18 @@
     "message": "총 잔액",
     "englishSource": "Total Balance"
   },
+  "balanceCardDeltaPill": {
+    "message": "$absolute$ ($percentage$)",
+    "englishSource": "$absolute$ ($percentage$)",
+    "placeholders": {
+      "absolute": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "balanceCardAccount": {
     "message": "계정 #: $number$ ",
     "englishSource": "Account #: $number$",
@@ -57,6 +69,15 @@
     "message": "로드 중…",
     "englishSource": "Loading…"
   },
+  "dappSwitcherCardActivate": {
+    "message": "$name$. Activate to switch to this dApp.",
+    "englishSource": "$name$. Activate to switch to this dApp.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
   "dappSwitcherCloseCard": {
     "message": "닫다 $name$ ",
     "englishSource": "Close $name$",
@@ -73,6 +94,15 @@
   "promptCardLoading": {
     "message": "로드 중",
     "englishSource": "Loading"
+  },
+  "priceChangeAmountNeutral": {
+    "message": "$amount$",
+    "englishSource": "$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "priceChangeAmountPositive": {
     "message": "+ $amount$ ",
@@ -92,11 +122,29 @@
       }
     }
   },
+  "priceChangePercent": {
+    "message": "$value$%",
+    "englishSource": "$value$%",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
   "pendingTabApproxUsd": {
     "message": "≈  $value$ ",
     "englishSource": "≈ $value$",
     "placeholders": {
       "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailChange24h": {
+    "message": "$change$%",
+    "englishSource": "$change$%",
+    "placeholders": {
+      "change": {
         "content": "$1"
       }
     }
@@ -1532,6 +1580,28 @@
       }
     }
   },
+  "recallTimeInPast": {
+    "message": "이 시간은 이미 지났습니다. 미래의 시간을 선택하세요.",
+    "englishSource": "This time has already passed — pick a future time"
+  },
+  "expiresInSeconds": {
+    "message": "~ 안에 $seconds$ 초",
+    "englishSource": "In $seconds$ seconds",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "expiresInMinutes": {
+    "message": "~ 안에 $minutes$ 분",
+    "englishSource": "In $minutes$ minutes",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
   "edit": {
     "message": "편집하다",
     "englishSource": "Edit"
@@ -2333,6 +2403,10 @@
     "message": "잘못된 Miden 계정 ID",
     "englishSource": "Invalid Miden account ID"
   },
+  "cannotSendToSelf": {
+    "message": "자신의 주소로 보낼 수 없습니다.",
+    "englishSource": "You can't send to your own address"
+  },
   "amountMustBeLessThanBalance": {
     "message": "금액은 잔액보다 적어야 합니다.",
     "englishSource": "Amount must be less than balance"
@@ -2913,6 +2987,10 @@
   "in2Weeks": {
     "message": "2주 안에",
     "englishSource": "In 2 weeks"
+  },
+  "never": {
+    "message": "절대",
+    "englishSource": "Never"
   },
   "30mins": {
     "message": "30분",

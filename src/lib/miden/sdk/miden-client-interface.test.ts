@@ -1,3 +1,5 @@
+type MidenClientInterfaceType = import('./miden-client-interface').MidenClientInterface;
+
 describe('MidenClientInterface', () => {
   afterEach(() => {
     jest.resetModules();
@@ -74,6 +76,7 @@ describe('MidenClientInterface', () => {
         ...overrides.transactions
       },
       sync: jest.fn(async () => ({ blockNum: () => 5 })),
+      getSyncHeight: jest.fn(async () => 5),
       storeIdentifier: jest.fn(() => 'test-store'),
       terminate: jest.fn(),
       defaultProver: null,
@@ -94,6 +97,18 @@ describe('MidenClientInterface', () => {
       TransactionProver: {
         newRemoteProver: jest.fn(() => 'remote'),
         newLocalProver: jest.fn(() => 'local')
+      },
+      getWasmOrThrow: jest.fn(async () => ({
+        AccountId: {
+          fromHex: jest.fn((id: string) => id),
+          fromBech32: jest.fn((id: string) => id)
+        }
+      })),
+      WasmWebClient: {
+        createClient: jest.fn(async () => ({
+          getConsumableNotes: jest.fn(async () => []),
+          terminate: jest.fn()
+        }))
       },
       exportStore: jest.fn(async () => '{"version":1,"data":"dump"}'),
       importStore: jest.fn()
@@ -216,6 +231,29 @@ describe('MidenClientInterface', () => {
 
     await client.importAccountById('acc-123');
     expect(fakeMidenClient.accounts.import).toHaveBeenCalled();
+  });
+
+  it('uses the SDK available-note listing for mock clients', async () => {
+    const availableNote = { id: 'available-note' };
+    const fakeMidenClient = buildFakeMidenClient({
+      notes: {
+        listAvailable: jest.fn(async () => [availableNote])
+      }
+    });
+
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client: MidenClientInterfaceType = Reflect.apply(MidenClientInterface.fromClient, MidenClientInterface, [
+      fakeMidenClient,
+      'mock'
+    ]);
+
+    await expect(client.getConsumableNotes('mock-account')).resolves.toEqual([availableNote]);
+    expect(fakeMidenClient.notes.listAvailable).toHaveBeenCalledWith({ account: 'mock-account' });
   });
 
   it('getInputNoteDetails skips partial notes whose id() is undefined', async () => {
@@ -1667,5 +1705,65 @@ describe('MidenClientInterface', () => {
       );
       expect(importMock).not.toHaveBeenCalled();
     });
+  });
+
+  // Keep this module-mock-backed case last: jest.doMock registrations survive
+  // jest.resetModules(), and this deliberately narrow SDK surface must not
+  // replace the richer mocks used by the tests above.
+  it('filters notes gated beyond the sync height and terminates the transient client', async () => {
+    const currentlyConsumable = { id: 'currently-consumable' };
+    const ungated = { id: 'ungated' };
+    const futureGated = { id: 'future-gated' };
+    const consumableRecord = (note: object, consumableAfterBlock: number | undefined) => ({
+      inputNoteRecord: () => note,
+      noteConsumability: () => [
+        {
+          consumptionStatus: () => ({
+            consumableAfterBlock: () => consumableAfterBlock
+          })
+        }
+      ]
+    });
+    const getConsumableNotes = jest.fn(async () => [
+      consumableRecord(futureGated, 11),
+      consumableRecord(currentlyConsumable, 10),
+      consumableRecord(ungated, undefined)
+    ]);
+    const terminate = jest.fn();
+    const createClient = jest.fn(async () => ({ getConsumableNotes, terminate }));
+    const fromBech32 = jest.fn((accountId: string) => ({ accountId }));
+
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
+      getWasmOrThrow: jest.fn(async () => ({
+        AccountId: { fromBech32, fromHex: jest.fn() }
+      })),
+      WasmWebClient: { createClient }
+    }));
+    jest.doMock('lib/miden-chain/constants', () => ({
+      DEFAULT_NETWORK: 'testnet',
+      MIDEN_NETWORK_ENDPOINTS: new Map([['testnet', 'https://rpc.example']]),
+      MIDEN_PROVING_ENDPOINTS: new Map(),
+      getNoteTransportUrl: () => undefined
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const fakeMidenClient = buildFakeMidenClient({
+      getSyncHeight: jest.fn(async () => 10)
+    });
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client: MidenClientInterfaceType = Reflect.apply(MidenClientInterface.fromClient, MidenClientInterface, [
+      fakeMidenClient,
+      'testnet'
+    ]);
+
+    await expect(client.getConsumableNotes('mtst1account')).resolves.toEqual([currentlyConsumable, ungated]);
+    expect(createClient).toHaveBeenCalledWith('https://rpc.example');
+    expect(fromBech32).toHaveBeenCalledWith('mtst1account');
+    expect(getConsumableNotes).toHaveBeenCalledWith({ accountId: 'mtst1account' });
+    expect(terminate).toHaveBeenCalledTimes(1);
   });
 });

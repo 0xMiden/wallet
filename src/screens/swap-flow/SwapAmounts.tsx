@@ -125,7 +125,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
         )}
       </div>
 
-      <div className="shrink-0 pt-4 pb-24">
+      <div className="shrink-0 pt-4 pb-24" data-navbar-cushion="true">
         <Button
           title={t('reviewSwap')}
           variant={ButtonVariant.Primary}

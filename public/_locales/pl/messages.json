@@ -40,6 +40,18 @@
     "message": "Całkowite saldo",
     "englishSource": "Total Balance"
   },
+  "balanceCardDeltaPill": {
+    "message": "$absolute$ ($percentage$)",
+    "englishSource": "$absolute$ ($percentage$)",
+    "placeholders": {
+      "absolute": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "balanceCardAccount": {
     "message": "Konto #: $number$ ",
     "englishSource": "Account #: $number$",
@@ -57,6 +69,15 @@
     "message": "Załadunek…",
     "englishSource": "Loading…"
   },
+  "dappSwitcherCardActivate": {
+    "message": "$name$. Activate to switch to this dApp.",
+    "englishSource": "$name$. Activate to switch to this dApp.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
   "dappSwitcherCloseCard": {
     "message": "Zamknąć $name$ ",
     "englishSource": "Close $name$",
@@ -73,6 +94,15 @@
   "promptCardLoading": {
     "message": "Załadunek",
     "englishSource": "Loading"
+  },
+  "priceChangeAmountNeutral": {
+    "message": "$amount$",
+    "englishSource": "$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "priceChangeAmountPositive": {
     "message": "+ $amount$ ",
@@ -92,11 +122,29 @@
       }
     }
   },
+  "priceChangePercent": {
+    "message": "$value$%",
+    "englishSource": "$value$%",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
   "pendingTabApproxUsd": {
     "message": "≈  $value$ ",
     "englishSource": "≈ $value$",
     "placeholders": {
       "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailChange24h": {
+    "message": "$change$%",
+    "englishSource": "$change$%",
+    "placeholders": {
+      "change": {
         "content": "$1"
       }
     }
@@ -107,6 +155,21 @@
     "placeholders": {
       "id": {
         "content": "$1"
+      }
+    }
+  },
+  "historyDetailsAmountFilledValue": {
+    "message": "$filled$ / $total$$symbol$",
+    "englishSource": "$filled$ / $total$$symbol$",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
       }
     }
   },
@@ -1500,6 +1563,28 @@
       }
     }
   },
+  "recallTimeInPast": {
+    "message": "Ten czas już minął — wybierz czas w przyszłości",
+    "englishSource": "This time has already passed — pick a future time"
+  },
+  "expiresInSeconds": {
+    "message": "W $seconds$ towary drugiej jakości",
+    "englishSource": "In $seconds$ seconds",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "expiresInMinutes": {
+    "message": "W $minutes$ protokół",
+    "englishSource": "In $minutes$ minutes",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
   "edit": {
     "message": "Redagować",
     "englishSource": "Edit"
@@ -2270,6 +2355,10 @@
     "message": "Nieprawidłowy identyfikator konta Miden",
     "englishSource": "Invalid Miden account ID"
   },
+  "cannotSendToSelf": {
+    "message": "Nie możesz wysłać na swój własny adres",
+    "englishSource": "You can't send to your own address"
+  },
   "amountMustBeLessThanBalance": {
     "message": "Kwota musi być mniejsza niż saldo",
     "englishSource": "Amount must be less than balance"
@@ -2845,6 +2934,10 @@
   "in2Weeks": {
     "message": "Za 2 tygodnie",
     "englishSource": "In 2 weeks"
+  },
+  "never": {
+    "message": "Nigdy",
+    "englishSource": "Never"
   },
   "30mins": {
     "message": "30 minut",

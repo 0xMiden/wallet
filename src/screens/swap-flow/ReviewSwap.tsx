@@ -147,6 +147,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             min={1}
             step={1}
             inputMode="numeric"
+            enterKeyHint="done"
             value={expirySeconds}
             onChange={event => onExpirySecondsChange(event.target.value)}
             className="w-24 appearance-none rounded-lg border border-border-light bg-transparent px-3 py-2 text-right outline-none [appearance:textfield] focus:border-primary-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"

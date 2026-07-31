@@ -40,6 +40,18 @@
     "message": "合計残高",
     "englishSource": "Total Balance"
   },
+  "balanceCardDeltaPill": {
+    "message": "$absolute$ ($percentage$)",
+    "englishSource": "$absolute$ ($percentage$)",
+    "placeholders": {
+      "absolute": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "balanceCardAccount": {
     "message": "アカウント ＃： $number$ ",
     "englishSource": "Account #: $number$",
@@ -56,6 +68,15 @@
   "dappSwitcherLoading": {
     "message": "読み込み中…",
     "englishSource": "Loading…"
+  },
+  "dappSwitcherCardActivate": {
+    "message": "$name$. Activate to switch to this dApp.",
+    "englishSource": "$name$. Activate to switch to this dApp.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "dappSwitcherCloseCard": {
     "message": "近い $name$ ",
@@ -74,6 +95,15 @@
     "message": "読み込み中",
     "englishSource": "Loading"
   },
+  "priceChangeAmountNeutral": {
+    "message": "$amount$",
+    "englishSource": "$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "priceChangeAmountPositive": {
     "message": "+ $amount$ ",
     "englishSource": "+$amount$",
@@ -88,6 +118,15 @@
     "englishSource": "-$amount$",
     "placeholders": {
       "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "priceChangePercent": {
+    "message": "$value$%",
+    "englishSource": "$value$%",
+    "placeholders": {
+      "value": {
         "content": "$1"
       }
     }
@@ -1541,6 +1580,28 @@
       }
     }
   },
+  "recallTimeInPast": {
+    "message": "この時間はすでに過ぎています — 将来の時間を選択してください",
+    "englishSource": "This time has already passed — pick a future time"
+  },
+  "expiresInSeconds": {
+    "message": "で $seconds$ 秒",
+    "englishSource": "In $seconds$ seconds",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "expiresInMinutes": {
+    "message": "で $minutes$ 分",
+    "englishSource": "In $minutes$ minutes",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
   "edit": {
     "message": "編集",
     "englishSource": "Edit"
@@ -2342,6 +2403,10 @@
     "message": "無効なMidenアカウントIDです",
     "englishSource": "Invalid Miden account ID"
   },
+  "cannotSendToSelf": {
+    "message": "自分の住所には送れない",
+    "englishSource": "You can't send to your own address"
+  },
   "amountMustBeLessThanBalance": {
     "message": "金額は残高よりも少ない必要があります",
     "englishSource": "Amount must be less than balance"
@@ -2922,6 +2987,10 @@
   "in2Weeks": {
     "message": "2週間後",
     "englishSource": "In 2 weeks"
+  },
+  "never": {
+    "message": "一度もない",
+    "englishSource": "Never"
   },
   "30mins": {
     "message": "30分",

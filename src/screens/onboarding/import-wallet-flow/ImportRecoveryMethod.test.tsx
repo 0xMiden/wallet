@@ -40,8 +40,11 @@ jest.mock('components/Button', () => ({
 }));
 
 jest.mock('components/Input', () => ({
-  Input: ({ id, value, placeholder, onChange }: any) => (
-    <input data-testid="guardian-input" id={id} value={value} placeholder={placeholder} onChange={onChange} />
+  // Forward rest props so the keyboard attributes (inputmode, autocapitalize,
+  // autocorrect, spellcheck) and the Enter-to-blur handler reach the DOM and
+  // are assertable.
+  Input: ({ id, value, placeholder, onChange, ...rest }: any) => (
+    <input data-testid="guardian-input" id={id} value={value} placeholder={placeholder} onChange={onChange} {...rest} />
   )
 }));
 
@@ -59,7 +62,7 @@ jest.mock('lib/ui/badge', () => ({
 }));
 
 // Endpoint the component seeds `endpointInput` with (OpenZeppelin on the
-// active network — testnet under jest, since MIDEN_NETWORK is unset).
+// test network pinned above.
 const DEFAULT_ENDPOINT = GUARDIAN_OPTIONS[0]!.endpoint.get(DEFAULT_NETWORK)!;
 
 const renderScreen = (overrides: Partial<React.ComponentProps<typeof ImportRecoveryMethodScreen>> = {}) => {
@@ -103,10 +106,11 @@ describe('ImportRecoveryMethodScreen', () => {
   it('defaults to Guardian: shows presets, the endpoint readout, a down chevron, and no custom input', () => {
     renderScreen();
 
-    // All three testnet Guardian providers are offered as presets.
+    // All testnet Guardian providers are offered as presets.
     expect(ozPreset()).toBeInTheDocument();
     expect(gatewayPreset()).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Lambda Class/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Koda/ })).toBeInTheDocument();
 
     // The seeded OpenZeppelin preset is active; the others are not.
     expect(ozPreset()).toHaveClass('border-primary-500');
@@ -180,6 +184,23 @@ describe('ImportRecoveryMethodScreen', () => {
     expect(screen.queryByTestId('guardian-input')).not.toBeInTheDocument();
     expect(screen.getByText('guardianEndpoint')).toBeInTheDocument();
     expect(screen.getByTestId('chevron-icon')).toHaveAttribute('data-name', 'ChevronDown');
+  });
+
+  it('gives the custom endpoint field a url keyboard, autocorrect off, and Enter-to-blur', () => {
+    renderScreen();
+    fireEvent.click(customToggle());
+
+    const input = guardianInput();
+    expect(input.getAttribute('inputmode')).toBe('url');
+    expect(input.getAttribute('autocapitalize')).toBe('none');
+    expect(input.getAttribute('autocorrect')).toBe('off');
+    expect(input.getAttribute('spellcheck')).toBe('false');
+
+    // Enter blurs the field so the mobile keyboard's 'Done' key dismisses it.
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(document.activeElement).not.toBe(input);
   });
 
   it('submits a custom endpoint with trailing slashes stripped', () => {

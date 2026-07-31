@@ -52,6 +52,7 @@ const AddressBook: React.FC = () => {
         <span className="text-heading-gray font-medium text-base">{t('currentContacts')}</span>
         <input
           type="text"
+          enterKeyHint="search"
           placeholder={t('searchContacts')}
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}

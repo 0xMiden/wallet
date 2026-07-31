@@ -40,6 +40,18 @@
     "message": "Solde total",
     "englishSource": "Total Balance"
   },
+  "balanceCardDeltaPill": {
+    "message": "$absolute$ ($percentage$)",
+    "englishSource": "$absolute$ ($percentage$)",
+    "placeholders": {
+      "absolute": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "balanceCardAccount": {
     "message": "Compte #: $number$ ",
     "englishSource": "Account #: $number$",
@@ -56,6 +68,15 @@
   "dappSwitcherLoading": {
     "message": "Chargement…",
     "englishSource": "Loading…"
+  },
+  "dappSwitcherCardActivate": {
+    "message": "$name$. Activate to switch to this dApp.",
+    "englishSource": "$name$. Activate to switch to this dApp.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "dappSwitcherCloseCard": {
     "message": "Fermer $name$ ",
@@ -74,6 +95,15 @@
     "message": "Chargement",
     "englishSource": "Loading"
   },
+  "priceChangeAmountNeutral": {
+    "message": "$amount$",
+    "englishSource": "$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "priceChangeAmountPositive": {
     "message": "+ $amount$ ",
     "englishSource": "+$amount$",
@@ -88,6 +118,15 @@
     "englishSource": "-$amount$",
     "placeholders": {
       "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "priceChangePercent": {
+    "message": "$value$%",
+    "englishSource": "$value$%",
+    "placeholders": {
+      "value": {
         "content": "$1"
       }
     }
@@ -116,6 +155,21 @@
     "placeholders": {
       "id": {
         "content": "$1"
+      }
+    }
+  },
+  "historyDetailsAmountFilledValue": {
+    "message": "$filled$ / $total$$symbol$",
+    "englishSource": "$filled$ / $total$$symbol$",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
       }
     }
   },
@@ -171,6 +225,18 @@
         "content": "$1"
       },
       "asset": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnAssetOnNetwork": {
+    "message": "$asset$ sur $network$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
         "content": "$2"
       }
     }
@@ -401,6 +467,18 @@
   "earnApyLabel": {
     "message": "APY",
     "englishSource": "APY"
+  },
+  "earnVaultAssetOnNetwork": {
+    "message": "$asset$ sur $network$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "earnCurrentPositionsTitle": {
     "message": "Postes actuels",
@@ -1502,6 +1580,28 @@
       }
     }
   },
+  "recallTimeInPast": {
+    "message": "Cette période est déjà révolue – choisissez une date ultérieure",
+    "englishSource": "This time has already passed — pick a future time"
+  },
+  "expiresInSeconds": {
+    "message": "Dans $seconds$ secondes",
+    "englishSource": "In $seconds$ seconds",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "expiresInMinutes": {
+    "message": "Dans $minutes$ minutes",
+    "englishSource": "In $minutes$ minutes",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
   "edit": {
     "message": "Modifier",
     "englishSource": "Edit"
@@ -2302,6 +2402,10 @@
     "message": "Identifiant de compte Miden invalide",
     "englishSource": "Invalid Miden account ID"
   },
+  "cannotSendToSelf": {
+    "message": "Vous ne pouvez pas envoyer à votre propre adresse",
+    "englishSource": "You can't send to your own address"
+  },
   "amountMustBeLessThanBalance": {
     "message": "Le montant doit être inférieur au solde",
     "englishSource": "Amount must be less than balance"
@@ -2882,6 +2986,10 @@
   "in2Weeks": {
     "message": "Dans 2 semaines",
     "englishSource": "In 2 weeks"
+  },
+  "never": {
+    "message": "Jamais",
+    "englishSource": "Never"
   },
   "30mins": {
     "message": "30 minutes",

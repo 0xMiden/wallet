@@ -44,6 +44,7 @@ export const SearchInput: FC<SearchInputProps> = ({
         aria-label={placeholder}
         autoFocus={autoFocus}
         inputMode={inputMode}
+        enterKeyHint={onSubmit ? (inputMode === 'url' ? 'go' : 'search') : 'done'}
         autoCapitalize={inputMode === 'url' ? 'none' : undefined}
         autoCorrect={inputMode === 'url' ? 'off' : undefined}
         spellCheck={inputMode === 'url' ? false : undefined}

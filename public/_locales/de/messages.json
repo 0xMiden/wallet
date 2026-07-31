@@ -40,6 +40,18 @@
     "message": "Gesamtsaldo",
     "englishSource": "Total Balance"
   },
+  "balanceCardDeltaPill": {
+    "message": "$absolute$ ($percentage$)",
+    "englishSource": "$absolute$ ($percentage$)",
+    "placeholders": {
+      "absolute": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "balanceCardAccount": {
     "message": "Konto #: $number$ ",
     "englishSource": "Account #: $number$",
@@ -83,6 +95,15 @@
     "message": "Laden",
     "englishSource": "Loading"
   },
+  "priceChangeAmountNeutral": {
+    "message": "$amount$",
+    "englishSource": "$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "priceChangeAmountPositive": {
     "message": "+ $amount$ ",
     "englishSource": "+$amount$",
@@ -101,11 +122,29 @@
       }
     }
   },
+  "priceChangePercent": {
+    "message": "$value$%",
+    "englishSource": "$value$%",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
   "pendingTabApproxUsd": {
     "message": "≈  $value$ ",
     "englishSource": "≈ $value$",
     "placeholders": {
       "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailChange24h": {
+    "message": "$change$%",
+    "englishSource": "$change$%",
+    "placeholders": {
+      "change": {
         "content": "$1"
       }
     }
@@ -116,6 +155,21 @@
     "placeholders": {
       "id": {
         "content": "$1"
+      }
+    }
+  },
+  "historyDetailsAmountFilledValue": {
+    "message": "$filled$ / $total$$symbol$",
+    "englishSource": "$filled$ / $total$$symbol$",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
       }
     }
   },
@@ -1526,6 +1580,28 @@
       }
     }
   },
+  "recallTimeInPast": {
+    "message": "Diese Zeit ist bereits vergangen – wählen Sie eine zukünftige Zeit",
+    "englishSource": "This time has already passed — pick a future time"
+  },
+  "expiresInSeconds": {
+    "message": "In $seconds$ Sekunden",
+    "englishSource": "In $seconds$ seconds",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "expiresInMinutes": {
+    "message": "In $minutes$ Minuten",
+    "englishSource": "In $minutes$ minutes",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
   "edit": {
     "message": "Bearbeiten",
     "englishSource": "Edit"
@@ -2327,6 +2403,10 @@
     "message": "Ungültige Miden-Konto-ID",
     "englishSource": "Invalid Miden account ID"
   },
+  "cannotSendToSelf": {
+    "message": "Sie können nicht an Ihre eigene Adresse senden",
+    "englishSource": "You can't send to your own address"
+  },
   "amountMustBeLessThanBalance": {
     "message": "Der Betrag muss unter dem Restbetrag liegen",
     "englishSource": "Amount must be less than balance"
@@ -2907,6 +2987,10 @@
   "in2Weeks": {
     "message": "In 2 Wochen",
     "englishSource": "In 2 weeks"
+  },
+  "never": {
+    "message": "Niemals",
+    "englishSource": "Never"
   },
   "30mins": {
     "message": "30 Min",

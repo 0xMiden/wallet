@@ -1,4 +1,4 @@
-import { Account, MidenClient, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+import { Account, MidenClient, NoteType, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 import {
   Multisig,
   MultisigClient,
@@ -188,7 +188,9 @@ export class MultisigService {
       this.multisig.createP2idProposal(
         accountIdStringToSdk(recipientId).toString(),
         accountIdStringToSdk(faucetId).toString(),
-        amount
+        amount,
+        undefined,
+        { noteType: NoteType.Private }
       )
     );
   }

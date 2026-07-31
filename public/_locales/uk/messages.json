@@ -40,6 +40,18 @@
     "message": "Загальний баланс",
     "englishSource": "Total Balance"
   },
+  "balanceCardDeltaPill": {
+    "message": "$absolute$ ($percentage$)",
+    "englishSource": "$absolute$ ($percentage$)",
+    "placeholders": {
+      "absolute": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "balanceCardAccount": {
     "message": "Рахунок №: $number$ ",
     "englishSource": "Account #: $number$",
@@ -83,6 +95,15 @@
     "message": "Завантаження",
     "englishSource": "Loading"
   },
+  "priceChangeAmountNeutral": {
+    "message": "$amount$",
+    "englishSource": "$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "priceChangeAmountPositive": {
     "message": "+ $amount$ ",
     "englishSource": "+$amount$",
@@ -119,12 +140,36 @@
       }
     }
   },
+  "tokenDetailChange24h": {
+    "message": "$change$%",
+    "englishSource": "$change$%",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      }
+    }
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$ ",
     "englishSource": "ID: $id$",
     "placeholders": {
       "id": {
         "content": "$1"
+      }
+    }
+  },
+  "historyDetailsAmountFilledValue": {
+    "message": "$filled$ / $total$$symbol$",
+    "englishSource": "$filled$ / $total$$symbol$",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
       }
     }
   },
@@ -1535,6 +1580,28 @@
       }
     }
   },
+  "recallTimeInPast": {
+    "message": "Цей час уже минув — виберіть час у майбутньому",
+    "englishSource": "This time has already passed — pick a future time"
+  },
+  "expiresInSeconds": {
+    "message": "в $seconds$ секунд",
+    "englishSource": "In $seconds$ seconds",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "expiresInMinutes": {
+    "message": "в $minutes$ хвилин",
+    "englishSource": "In $minutes$ minutes",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
   "edit": {
     "message": "Редагувати",
     "englishSource": "Edit"
@@ -2337,6 +2404,10 @@
     "message": "Недійсний ідентифікатор облікового запису Miden",
     "englishSource": "Invalid Miden account ID"
   },
+  "cannotSendToSelf": {
+    "message": "Ви не можете відправити на свою адресу",
+    "englishSource": "You can't send to your own address"
+  },
   "amountMustBeLessThanBalance": {
     "message": "Сума має бути меншою за баланс",
     "englishSource": "Amount must be less than balance"
@@ -2917,6 +2988,10 @@
   "in2Weeks": {
     "message": "Через 2 тижні",
     "englishSource": "In 2 weeks"
+  },
+  "never": {
+    "message": "Ніколи",
+    "englishSource": "Never"
   },
   "30mins": {
     "message": "30 хв",
