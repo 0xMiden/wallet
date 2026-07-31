@@ -159,4 +159,13 @@ describe('keyboard-inset', () => {
 
     expect(input.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
   });
+
+  it('tolerates the accessory bar being unavailable and still wires the inset', async () => {
+    isMobileMock.mockReturnValue(true);
+    setAccessoryBarVisibleMock.mockRejectedValue(new Error('accessory bar unavailable (non-iPhone)'));
+
+    // The accessory-bar call is best-effort; a rejection must not abort init.
+    await expect(initKeyboardInset()).resolves.toBeUndefined();
+    expect(addListenerMock).toHaveBeenCalledWith('keyboardWillShow', expect.any(Function));
+  });
 });
