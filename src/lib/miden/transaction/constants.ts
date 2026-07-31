@@ -18,6 +18,12 @@ export const TRANSACTION_EXPIRED_ERROR = 'Transaction expired after being queued
 
 export const TRANSACTION_INTERRUPTED_ERROR = 'Transaction was interrupted';
 
+// The cold-start sweep reason (failInterruptedTransactions). Special-cased in
+// cancelTransaction so a tx interrupted while its stage was 'proving' is NOT
+// relabelled as a prover failure ("please try again") — which would invite the
+// retry the cold-start sweep deliberately avoids (submit() may already be on chain).
+export const TRANSACTION_INTERRUPTED_ON_STARTUP = 'Transaction was interrupted when the browser closed';
+
 export const INVALID_NOTE_ERROR = 'Note is invalid';
 
 export const TRANSACTION_FORCE_CANCELLED_ERROR = 'Transaction force-cancelled for debugging';

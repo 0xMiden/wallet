@@ -10,6 +10,7 @@ import {
   TRANSACTION_EXPIRED_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_STUCK_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
@@ -44,7 +45,7 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
   const failedStage = existing?.stage;
   const rawError = formatRawTransactionError(error);
   const displayError =
-    error === USER_CANCELLED_TRANSACTION_REASON
+    error === USER_CANCELLED_TRANSACTION_REASON || error === TRANSACTION_INTERRUPTED_ON_STARTUP
       ? error
       : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction);
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
@@ -114,11 +115,7 @@ export const failInterruptedTransactions = async () => {
   const transactions = await getTransactionsInProgress();
   await Promise.all(
     transactions.map(async tx =>
-      cancelTransaction(
-        tx,
-        'Transaction was interrupted when the browser closed',
-        'Interrupted — check your activity after it syncs'
-      )
+      cancelTransaction(tx, TRANSACTION_INTERRUPTED_ON_STARTUP, 'Interrupted — check your activity after it syncs')
     )
   );
 };
