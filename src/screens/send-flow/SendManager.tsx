@@ -11,7 +11,7 @@ import { stringToBigInt } from 'lib/i18n/numbers';
 import { requestSpeculateInvalidate, requestSpeculateSend } from 'lib/miden/activity';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { accountIdStringToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
@@ -501,40 +501,56 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       }
       const addressChain = detectAddressChain(trimmed);
       const valid = addressChain === 'ethereum' ? isValidEthereumAddress(trimmed) : isValidMidenAddress(trimmed);
-      if (valid) {
-        clearErrors('recipientAddress');
-      } else {
+      if (!valid) {
         setError('recipientAddress', {
           type: 'manual',
           message: addressChain === 'ethereum' ? 'invalidEthereumAddress' : 'invalidMidenAccountId'
         });
+      } else if (addressChain === 'miden' && sameWalletAccountId(trimmed, publicKey)) {
+        // Self-send guard: a P2IDE to yourself consumes through the kernel's
+        // target branch, so recall semantics are meaningless and auto-consume
+        // would claim it right back. Block it at entry.
+        setError('recipientAddress', { type: 'manual', message: 'cannotSendToSelf' });
+      } else {
+        clearErrors('recipientAddress');
       }
     },
-    [onAction, setError, clearErrors]
+    [onAction, setError, clearErrors, publicKey]
   );
 
   const onScan = useCallback(async () => {
     const result = await scanQRCode();
     if (result.success && result.address) {
-      clearErrors('recipientAddress');
       onAction({
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: result.address }
       });
+      // Scanning your own receive QR is the easy way to self-send — same guard
+      // as typed entry.
+      if (sameWalletAccountId(result.address, publicKey)) {
+        setError('recipientAddress', { type: 'manual', message: 'cannotSendToSelf' });
+      } else {
+        clearErrors('recipientAddress');
+      }
     } else if (result.errorKey && result.errorKey !== 'scanCancelled') {
       setError('recipientAddress', { type: 'manual', message: result.errorKey });
     }
-  }, [onAction, setError, clearErrors]);
+  }, [onAction, setError, clearErrors, publicKey]);
 
   const onSelectContact = useCallback(
     (contact: Contact) => {
-      clearErrors('recipientAddress');
       onAction({
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: contact.id }
       });
+      // A saved contact can be the account's own address — same guard as typed entry.
+      if (sameWalletAccountId(contact.id, publicKey)) {
+        setError('recipientAddress', { type: 'manual', message: 'cannotSendToSelf' });
+      } else {
+        clearErrors('recipientAddress');
+      }
     },
-    [onAction, clearErrors]
+    [onAction, setError, clearErrors, publicKey]
   );
 
   const onAmountChange = useCallback(

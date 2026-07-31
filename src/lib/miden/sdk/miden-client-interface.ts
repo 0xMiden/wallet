@@ -2,6 +2,7 @@ import {
   Account,
   AccountFile,
   AuthSecretKey,
+  type ConsumableNoteRecord,
   exportStore,
   getWasmOrThrow,
   importStore,
@@ -16,7 +17,8 @@ import {
   NoteType,
   TransactionProver,
   TransactionRequest,
-  TransactionResult
+  TransactionResult,
+  WasmWebClient
 } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
 
@@ -474,12 +476,56 @@ export class MidenClientInterface {
   }
 
   async getConsumableNotes(accountId: string): Promise<InputNoteRecord[]> {
-    return await this.client.notes.listAvailable({ account: accountId });
+    // Use the consumability-annotated listing (raw WebClient) instead of the
+    // bare `notes.listAvailable`: a sender-side P2IDE note is "available" but
+    // only consumable-as-reclaimer AFTER its reclaim height. The bare listing
+    // surfaced those as claimable-now, so consume attempts before the height
+    // fail on the kernel's reclaim assertion (#308's 126 failed attempts).
+    // Drop every note whose consumability for this account starts at a future
+    // block; once the height is reached it reappears and becomes recallable.
+    // NOTE: a note whose reclaim height is ALREADY reached is consumable-now
+    // by design and passes this filter — self-sends (where auto-consume would
+    // claim the note right back) are blocked at the send-flow entry instead.
+    //
+    // Reads through a transient raw WasmWebClient (same IndexedDB store as
+    // the main client, separate WASM object so it can't trip the
+    // single-threaded aliasing guard) — the SDK wrapper exposes no
+    // consumability-annotated listing.
+    if (this.network === 'mock') {
+      return await this.client.notes.listAvailable({ account: accountId });
+    }
+    const wasm = await getWasmOrThrow();
+    const syncHeight = await this.client.getSyncHeight();
+    const inner = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(this.network)!);
+    try {
+      const records: ConsumableNoteRecord[] = await inner.getConsumableNotes(resolveAccountId(wasm, accountId));
+      return records
+        .filter(record => {
+          // One consumability entry per relevant account; we queried a single
+          // account, so any entry gated on a future block hides the note.
+          // `consumableAfterBlock()` is undefined for consumable-now (and for
+          // never-consumable — those keep the pre-existing behavior).
+          const gatedUntil = record
+            .noteConsumability()
+            .map(entry => entry.consumptionStatus().consumableAfterBlock())
+            .find(after => after !== undefined);
+          return gatedUntil === undefined || gatedUntil <= syncHeight;
+        })
+        .map(record => record.inputNoteRecord());
+    } finally {
+      inner.terminate();
+    }
   }
 
   async sendTransaction(dbTransaction: SendTransaction): Promise<TransactionResult> {
     const { accountId, secondaryAccountId, faucetId, noteType, amount, extraInputs } = dbTransaction;
 
+    // extraInputs.recallBlocks is a RELATIVE blocks-until-recall offset (every
+    // producer — send UI, dApp path, epoch bridge — passes an offset). This is
+    // the ONE place it becomes an absolute reclaim height; the SDK bakes
+    // `reclaimAfter` verbatim into the P2IDE note inputs. Adding an
+    // already-absolute value here doubles the chain height and makes recall
+    // fail for days (#308).
     let reclaimAfter: number | undefined;
     if (extraInputs?.recallBlocks) {
       const syncResult = await this.client.sync();

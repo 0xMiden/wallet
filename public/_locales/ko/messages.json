@@ -1580,6 +1580,28 @@
       }
     }
   },
+  "recallTimeInPast": {
+    "message": "이 시간은 이미 지났습니다. 미래의 시간을 선택하세요.",
+    "englishSource": "This time has already passed — pick a future time"
+  },
+  "expiresInSeconds": {
+    "message": "~ 안에 $seconds$ 초",
+    "englishSource": "In $seconds$ seconds",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "expiresInMinutes": {
+    "message": "~ 안에 $minutes$ 분",
+    "englishSource": "In $minutes$ minutes",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
   "edit": {
     "message": "편집하다",
     "englishSource": "Edit"
@@ -2380,6 +2402,10 @@
   "invalidMidenAccountId": {
     "message": "잘못된 Miden 계정 ID",
     "englishSource": "Invalid Miden account ID"
+  },
+  "cannotSendToSelf": {
+    "message": "자신의 주소로 보낼 수 없습니다.",
+    "englishSource": "You can't send to your own address"
   },
   "amountMustBeLessThanBalance": {
     "message": "금액은 잔액보다 적어야 합니다.",

@@ -1580,6 +1580,28 @@
       }
     }
   },
+  "recallTimeInPast": {
+    "message": "这个时间已经过去了——选择一个未来的时间",
+    "englishSource": "This time has already passed — pick a future time"
+  },
+  "expiresInSeconds": {
+    "message": "在 $seconds$ 秒",
+    "englishSource": "In $seconds$ seconds",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "expiresInMinutes": {
+    "message": "在 $minutes$ 分钟",
+    "englishSource": "In $minutes$ minutes",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
   "edit": {
     "message": "编辑",
     "englishSource": "Edit"
@@ -2380,6 +2402,10 @@
   "invalidMidenAccountId": {
     "message": "Miden 帐户 ID 无效",
     "englishSource": "Invalid Miden account ID"
+  },
+  "cannotSendToSelf": {
+    "message": "您无法发送至您自己的地址",
+    "englishSource": "You can't send to your own address"
   },
   "amountMustBeLessThanBalance": {
     "message": "金额必须小于余额",
