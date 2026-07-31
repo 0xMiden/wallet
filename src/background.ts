@@ -5,6 +5,7 @@ import browser, { tabs, runtime } from 'webextension-polyfill';
 import { start } from 'lib/miden/back/main';
 import { doSync, setupSyncManager } from 'lib/miden/back/sync-manager';
 import { setupTransactionProcessor } from 'lib/miden/back/transaction-processor';
+import { failInterruptedTransactions } from 'lib/miden/transaction';
 
 // NOTE: onInstalled and other synchronous MV3 listeners are registered in
 // background-entry.ts (the actual SW entry point) before this module loads.
@@ -28,6 +29,16 @@ if (process.env.TARGET_BROWSER === 'chrome') {
 runtime.onUpdateAvailable.addListener(() => {
   // Swaps in the new version immediately
   runtime.reload();
+});
+
+// A real browser/profile cold-start (NOT an SW idle-wake) means any transaction
+// still in `GeneratingTransaction` was orphaned when the browser closed — the
+// tab/SW driving it is gone and nothing will resume it. Fail those immediately
+// so a send interrupted mid-prove doesn't sit on "Sending" for up to 30 min
+// waiting on the age-based reaper (issue #282). Registered synchronously at the
+// top level so it survives MV3 SW eviction.
+runtime.onStartup.addListener(() => {
+  failInterruptedTransactions().catch(err => console.warn('[Background] Interrupted-transaction sweep error:', err));
 });
 
 // IMPORTANT: Chrome MV3 requires event listeners to be registered synchronously
