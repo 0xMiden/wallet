@@ -37,6 +37,11 @@
  *   index falls through to the manual picker — and still recovers FULLY once an
  *   endpoint is chosen, because `recoverGuardianAccountsBySeed` walks 20
  *   indices with its own gap limit. Detection depth is not recovery depth.
+ * - An operator that is unreachable for the WHOLE probe window (both attempts of
+ *   its lookup fail) can't be detected — there is nothing to rank. One retry
+ *   absorbs a transient blip; a sustained outage of the current operator while a
+ *   stale one answers can still mislead detection, but the user always retains
+ *   the manual picker, so this degrades convenience, not recoverability.
  */
 import { Account, AuthSecretKey } from '@miden-sdk/miden-sdk/lazy';
 import type { LookupResponse, StateObject } from '@openzeppelin/guardian-client';
@@ -106,12 +111,15 @@ export const GUARDIAN_PROBE_TIMEOUT_MS = 8_000;
 /** Max in-flight probe requests, so a wider endpoint × index grid doesn't open every socket at once. */
 export const GUARDIAN_PROBE_CONCURRENCY = 6;
 /**
- * Total getState attempts per lookup-confirmed account (1 = no retry). A getState
- * failure leaves the nonce UNKNOWN, and an unknown nonce can silently lose the
- * ranking to a stale operator whose state happened to load — so a lookup-confirmed
- * operator gets one retry before its nonce is written off as unknown.
+ * Total attempts per guardian request — lookup AND getState — before it is
+ * treated as failed (1 = no retry). A single transient failure of the CURRENT
+ * operator would otherwise silently hand recovery to a stale one: a failed lookup
+ * drops it from the ranking entirely (→ a stale operator becomes the lone match
+ * that `selectBest` auto-picks), and a failed getState leaves its nonce unknown.
+ * One retry absorbs the common blip; a persistently unreachable operator is
+ * genuinely undetectable (see "Limits, by design").
  */
-export const GUARDIAN_PROBE_STATE_ATTEMPTS = 2;
+export const GUARDIAN_PROBE_REQUEST_ATTEMPTS = 2;
 
 export class GuardianProbeTimeoutError extends Error {
   constructor(message: string) {
@@ -143,6 +151,40 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: st
       }
     );
   });
+}
+
+/**
+ * Attempt `makeRequest` up to {@link GUARDIAN_PROBE_REQUEST_ATTEMPTS} times, each
+ * under a `timeoutMs` deadline, returning the first success. Retries a transient
+ * failure so a single blip on the CURRENT operator's request doesn't drop it from
+ * the ranking (which would silently hand recovery to a stale operator). Stops
+ * retrying — and rethrows the last error — once every attempt has failed or the
+ * probe is aborted; the caller decides whether that is fatal (lookup → the
+ * endpoint becomes a failure) or merely a lost refinement (getState → unknown nonce).
+ */
+async function attemptWithRetries<T>(
+  makeRequest: () => Promise<T>,
+  timeoutMs: number,
+  label: string,
+  signal?: AbortSignal
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < GUARDIAN_PROBE_REQUEST_ATTEMPTS; attempt++) {
+    try {
+      return await withTimeout(makeRequest(), timeoutMs, label);
+    } catch (error) {
+      lastError = error;
+      const lastAttempt = attempt === GUARDIAN_PROBE_REQUEST_ATTEMPTS - 1 || Boolean(signal?.aborted);
+      console.warn(
+        `[guardian/discover] ${label} failed (attempt ${attempt + 1}/${GUARDIAN_PROBE_REQUEST_ATTEMPTS})` +
+          `${lastAttempt ? '' : ', retrying'}:`,
+        error
+      );
+      if (lastAttempt) throw error;
+    }
+  }
+  // Unreachable: the loop always returns a value or throws. Satisfies the type checker.
+  throw lastError;
 }
 
 function readNumericStatus(error: unknown): number | undefined {
@@ -339,10 +381,14 @@ export async function discoverGuardianForSeed(
       const client = new GuardianHttpClient(target.endpoint);
       client.setSigner(signer);
 
-      const lookup: LookupResponse = await withTimeout(
-        client.lookupAccountByKeyCommitment(signer.commitment),
+      // Retry the lookup too, not just getState: a transient lookup failure of
+      // the CURRENT operator drops it from `matches` entirely, leaving a stale
+      // operator as a lone match that `selectBest` would auto-pick.
+      const lookup: LookupResponse = await attemptWithRetries(
+        () => client.lookupAccountByKeyCommitment(signer.commitment),
         timeoutMs,
-        `guardian lookup at ${target.endpoint}`
+        `guardian lookup at ${target.endpoint}`,
+        signal
       );
 
       const hits: ProbeHit[] = [];
@@ -350,29 +396,21 @@ export async function discoverGuardianForSeed(
       // a miss, not an error.
       for (const account of lookup?.accounts ?? []) {
         if (signal?.aborted) break;
-        // The lookup already PROVED this operator holds the account; a failed
-        // or timed-out state fetch must not throw that certainty away. It only
-        // costs the nonce/updatedAt refinement for the ranking — but an unknown
-        // nonce can demote the current operator below a stale one, so a
-        // lookup-confirmed account gets one getState retry before we give up.
+        // The lookup already PROVED this operator holds the account; a state
+        // fetch that fails even after a retry must not throw that certainty away.
+        // It only leaves the nonce UNKNOWN for the ranking — and `selectBest`
+        // refuses to auto-pick when that ambiguity could hide a higher-nonce
+        // operator, so a lost nonce never silently promotes a stale one.
         let state: StateObject | undefined;
-        for (let attempt = 0; attempt < GUARDIAN_PROBE_STATE_ATTEMPTS; attempt++) {
-          if (signal?.aborted) break;
-          try {
-            state = await withTimeout(
-              client.getState(account.accountId),
-              timeoutMs,
-              `guardian state at ${target.endpoint}`
-            );
-            break;
-          } catch (error) {
-            const lastAttempt = attempt === GUARDIAN_PROBE_STATE_ATTEMPTS - 1;
-            console.warn(
-              `[guardian/discover] getState failed at ${target.endpoint} (attempt ${attempt + 1}/${GUARDIAN_PROBE_STATE_ATTEMPTS})` +
-                `${lastAttempt ? ', leaving the nonce unknown for this match' : ', retrying'}:`,
-              error
-            );
-          }
+        try {
+          state = await attemptWithRetries(
+            () => client.getState(account.accountId),
+            timeoutMs,
+            `guardian state at ${target.endpoint}`,
+            signal
+          );
+        } catch {
+          // Already logged per-attempt by attemptWithRetries; nonce stays unknown.
         }
         hits.push({ endpoint: target.endpoint, hdIndex, accountId: account.accountId, state });
       }

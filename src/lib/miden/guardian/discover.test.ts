@@ -49,9 +49,13 @@ interface FakeOperator {
   stateFailWith?: Error;
   /** Makes getState reject the first N calls, then succeed — exercises the retry. */
   stateFailFirst?: number;
+  /** Makes the lookup reject the first N calls, then succeed — exercises the lookup retry. */
+  lookupFailFirst?: number;
   delayMs?: number;
   /** Internal: how many times getState has been called on this operator. */
   stateCalls?: number;
+  /** Internal: how many times the lookup has been called on this operator. */
+  lookupCalls?: number;
 }
 
 const mockBackend = new Map<string, FakeOperator>();
@@ -98,7 +102,11 @@ jest.mock('@openzeppelin/guardian-client', () => ({
     async lookupAccountByKeyCommitment(commitmentHex: string) {
       const operator = mockBackend.get(this.url);
       if (!operator) return { accounts: [] };
+      operator.lookupCalls = (operator.lookupCalls ?? 0) + 1;
       if (operator.failWith) throw operator.failWith;
+      if (operator.lookupFailFirst && operator.lookupCalls <= operator.lookupFailFirst) {
+        throw new Error('transient lookup failure');
+      }
       if (operator.delayMs) await new Promise(resolve => setTimeout(resolve, operator.delayMs));
       const hdIndex = Number(commitmentHex.replace('commitment-', ''));
       const ids = operator.accountsByIndex
@@ -284,6 +292,22 @@ describe('discoverGuardianForSeed', () => {
     expect(result.best?.endpoint).toBe(OZ);
     expect(result.best?.nonce).toBe(6n);
     expect(mockBackend.get(OZ)?.stateCalls).toBe(2);
+  });
+
+  it('retries the lookup once, so a transient lookup blip on the current operator still detects it', async () => {
+    // Post-switch: OZ is stale (nonce 3), GATEWAY is current (nonce 9) but its
+    // lookup fails once before succeeding. Without the lookup retry GATEWAY would
+    // land in `failures`, leaving stale OZ as a lone match that gets auto-picked;
+    // with it, both match and the higher nonce wins.
+    mockBackend.set(OZ, { accounts: ['acct-old'], nonces: { 'acct-old': 3n } });
+    mockBackend.set(GATEWAY, { accounts: ['acct-new'], nonces: { 'acct-new': 9n }, lookupFailFirst: 1 });
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, testnet);
+
+    expect(result.best?.endpoint).toBe(GATEWAY);
+    expect(result.best?.nonce).toBe(9n);
+    expect(result.failures).toEqual([]);
+    expect(mockBackend.get(GATEWAY)?.lookupCalls).toBe(2);
   });
 
   it('does NOT pick a stale operator over the current one when the current getState keeps failing', async () => {
