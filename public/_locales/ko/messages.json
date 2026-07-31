@@ -2924,6 +2924,10 @@
     "message": "2주 안에",
     "englishSource": "In 2 weeks"
   },
+  "never": {
+    "message": "절대",
+    "englishSource": "Never"
+  },
   "30mins": {
     "message": "30분",
     "englishSource": "30 mins"

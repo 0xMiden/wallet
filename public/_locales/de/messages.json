@@ -2924,6 +2924,10 @@
     "message": "In 2 Wochen",
     "englishSource": "In 2 weeks"
   },
+  "never": {
+    "message": "Niemals",
+    "englishSource": "Never"
+  },
   "30mins": {
     "message": "30 Min",
     "englishSource": "30 mins"
