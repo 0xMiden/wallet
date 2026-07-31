@@ -89,6 +89,7 @@ const makeProps = (overrides: Partial<Props> = {}): Props => ({
   onRecallBlocksChange: jest.fn(),
   onRecallDateChange: jest.fn(),
   onRecallTimeChange: jest.fn(),
+  onRecallNever: jest.fn(),
   ...overrides
 });
 
@@ -292,6 +293,16 @@ describe('RecallCalendarDrawer', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('the "Never" option clears the reclaim height (→ P2ID) and closes the drawer', async () => {
+    const props = makeProps({ recallDate: new Date('2035-06-15T00:00:00') });
+    await renderDrawer(props);
+
+    fireEvent.click(screen.getByText('never'));
+
+    expect(props.onRecallNever).toHaveBeenCalledTimes(1);
+    expect(props.onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it('confirm handles a time with no minutes segment (minutes ?? 0 fallback)', async () => {

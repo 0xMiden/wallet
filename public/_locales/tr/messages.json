@@ -2887,6 +2887,10 @@
     "message": "2 hafta içinde",
     "englishSource": "In 2 weeks"
   },
+  "never": {
+    "message": "Asla",
+    "englishSource": "Never"
+  },
   "30mins": {
     "message": "30 dakika",
     "englishSource": "30 mins"

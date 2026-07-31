@@ -2887,6 +2887,10 @@
     "message": "2周内",
     "englishSource": "In 2 weeks"
   },
+  "never": {
+    "message": "绝不",
+    "englishSource": "Never"
+  },
   "30mins": {
     "message": "30分钟",
     "englishSource": "30 mins"

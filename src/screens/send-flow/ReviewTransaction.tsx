@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { addDays, differenceInSeconds, format, formatDistanceToNow } from 'date-fns';
 import { useTranslation } from 'react-i18next';
@@ -127,6 +127,13 @@ export const ReviewTransaction: React.FC = () => {
   const [recallTime, setRecallTime] = useState('12:00');
   const [recallBlocks, setRecallBlocks] = useState<string | undefined>(undefined);
   const [showCalendar, setShowCalendar] = useState(false);
+  // "Never" = no reclaim height → the send goes out as a plain P2ID note. Tracked
+  // separately from `recallDate` (undefined both before seeding AND when "Never" is
+  // chosen) so the expiration label can tell the two apart.
+  const [recallNever, setRecallNever] = useState(false);
+  // Marks the recall height as user-chosen (a date or "Never") so the async
+  // default-seeding effect below never clobbers an explicit choice (race guard).
+  const recallTouchedRef = useRef(false);
 
   // Default every same-chain send to a 7-day reclaim (expiration) offset. The
   // user can override via the "Edit" link, which opens RecallCalendarDrawer.
@@ -135,11 +142,31 @@ export const ReviewTransaction: React.FC = () => {
   // fetch is needed here. A bridge has no Miden-side expiration row.
   useEffect(() => {
     if (isBridge) return;
+    // Don't clobber an explicit user choice (a date or "Never") if this re-runs.
+    if (recallTouchedRef.current) return;
     const date = addDays(new Date(), 7);
     setRecallDate(date);
     setRecallTime(format(date, 'HH:mm'));
     setRecallBlocks(String(dateTimeToRecallBlocks(date)));
   }, [isBridge]);
+
+  // Recall-height handlers. All mark the choice as user-made so the seeding
+  // effect above won't overwrite it. "Never" clears the height entirely → P2ID.
+  const handleRecallDateChange = useCallback((date: Date | undefined) => {
+    recallTouchedRef.current = true;
+    if (date) setRecallNever(false);
+    setRecallDate(date);
+  }, []);
+  const handleRecallBlocksChange = useCallback((blocks: string) => {
+    recallTouchedRef.current = true;
+    setRecallBlocks(blocks);
+  }, []);
+  const handleRecallNever = useCallback(() => {
+    recallTouchedRef.current = true;
+    setRecallNever(true);
+    setRecallDate(undefined);
+    setRecallBlocks(undefined);
+  }, []);
 
   // Leaving review = leaving the send flow: drop any cached speculative prove
   // and mark in-flight ones stale. (SendManager's typing-time speculation
@@ -295,9 +322,10 @@ export const ReviewTransaction: React.FC = () => {
   // (the bare recallDate renders midnight, so a same-day time under 30 min
   // away used to show a nonsense coarse distance). Near expirations render
   // exactly: < 3 min in seconds, < 30 min in minutes, otherwise the usual
-  // relative phrase.
+  // relative phrase. "Never" (explicit no-recall → P2ID) is distinct from the
+  // not-yet-set default, which shows "None".
   const expirationLabel = (() => {
-    if (!recallDate) return t('none');
+    if (!recallDate) return recallNever ? t('never') : t('none');
     const target = combineDateAndTime(recallDate, recallTime);
     const secondsLeft = differenceInSeconds(target, expirationNow);
     if (secondsLeft <= 0) return t('none');
@@ -377,9 +405,10 @@ export const ReviewTransaction: React.FC = () => {
           onOpenChange={setShowCalendar}
           recallDate={recallDate}
           recallTime={recallTime}
-          onRecallBlocksChange={setRecallBlocks}
-          onRecallDateChange={setRecallDate}
+          onRecallBlocksChange={handleRecallBlocksChange}
+          onRecallDateChange={handleRecallDateChange}
           onRecallTimeChange={setRecallTime}
+          onRecallNever={handleRecallNever}
         />
       )}
     </div>
