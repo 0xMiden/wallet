@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
-import { addDays, format, formatDistanceToNow } from 'date-fns';
+import { addDays, addSeconds, format, formatDistanceToNow } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
@@ -20,9 +19,8 @@ import {
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { accountIdStringToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { NoteTypeEnum } from 'lib/miden/types';
-import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
@@ -30,7 +28,7 @@ import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/wooz
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { BRIDGE_OUTPUT_TOKEN_SYMBOL, getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
-import { dateTimeToRecallBlocks, RecallCalendarDrawer } from './RecallCalendarDrawer';
+import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
 import { BridgeRoute, UIToken } from './types';
 import { useEpochQuote } from './useEpochQuote';
@@ -137,29 +135,19 @@ export const ReviewTransaction: React.FC = () => {
   // default-seeding effect below never clobbers an explicit choice (race guard).
   const recallTouchedRef = useRef(false);
 
-  // Default every same-chain send to a 7-day reclaim (expiration) height. Fetch
-  // the current block height once on mount and seed recallDate/recallBlocks. The
+  // Default every same-chain send to a 7-day reclaim (expiration) offset. The
   // user can override via the "Edit" link, which opens RecallCalendarDrawer.
-  // A bridge has no Miden-side expiration row, so skip the RPC round-trip.
+  // recallBlocks is a RELATIVE blocks-until-recall offset — the SDK-interface
+  // layer converts it to an absolute height at send time, so no block-height
+  // fetch is needed here. A bridge has no Miden-side expiration row.
   useEffect(() => {
     if (isBridge) return;
-    let cancelled = false;
-    ensureSdkWasmReady()
-      .then(() => {
-        if (cancelled || recallTouchedRef.current) return;
-        const rpc = new RpcClient(getRpcEndpoint());
-        return rpc.getBlockHeaderByNumber().then(header => {
-          if (cancelled || recallTouchedRef.current) return;
-          const date = addDays(new Date(), 7);
-          setRecallDate(date);
-          setRecallTime(format(date, 'HH:mm'));
-          setRecallBlocks(String(dateTimeToRecallBlocks(date, header.blockNum())));
-        });
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
+    // Don't clobber an explicit user choice (a date or "Never") if this re-runs.
+    if (recallTouchedRef.current) return;
+    const date = addDays(new Date(), 7);
+    setRecallDate(date);
+    setRecallTime(format(date, 'HH:mm'));
+    setRecallBlocks(String(dateTimeToRecallBlocks(date)));
   }, [isBridge]);
 
   // Recall-height handlers. All mark the choice as user-made so the seeding
@@ -307,8 +295,10 @@ export const ReviewTransaction: React.FC = () => {
 
   // Deep-link guards — after all hooks. Address/amount are checkable
   // immediately; token existence and balance only once balances load. A 0x
-  // recipient is valid here too: it routes through the bridge.
-  const paramsInvalid = !tokenId || !(parseFloat(amount) > 0) || !isValidRecipientAddress(to);
+  // recipient is valid here too: it routes through the bridge. Self-sends are
+  // rejected (SendManager blocks them at entry; this covers direct routing).
+  const paramsInvalid =
+    !tokenId || !(parseFloat(amount) > 0) || !isValidRecipientAddress(to) || sameWalletAccountId(to, publicKey ?? '');
   // A cross-chain send must know its destination network, otherwise the review
   // rows and the submit path have nothing to act on.
   const bridgeParamsInvalid = isBridge && !bridgeNetworkObj;
@@ -317,14 +307,22 @@ export const ReviewTransaction: React.FC = () => {
     return <Redirect to="/send" />;
   }
 
-  const expirationLabel = recallDate
-    ? (() => {
-        const rel = formatDistanceToNow(recallDate, { addSuffix: true });
-        return rel.charAt(0).toUpperCase() + rel.slice(1);
-      })()
-    : recallNever
-      ? t('never')
-      : t('none');
+  // Label is derived from recallBlocks — the single source of truth for the send:
+  //   undefined → plain P2ID (no recall) → "None" (or "Never" if explicitly chosen)
+  //   set        → P2IDE, recallable ~(recallBlocks * SECONDS_PER_BLOCK) after SUBMIT
+  // The offset is RELATIVE and gets converted to an absolute height at send time, so
+  // reading the window off the offset (not the picked absolute instant) keeps the
+  // displayed value matching what's actually broadcast no matter how long the user
+  // lingers here. Near windows render precisely (< 3 min in seconds, < 30 min in
+  // minutes), longer ones as a coarse relative phrase.
+  const expirationLabel = (() => {
+    if (!recallBlocks) return recallNever ? t('never') : t('none');
+    const secs = parseInt(recallBlocks, 10) * SECONDS_PER_BLOCK;
+    if (secs < 180) return t('expiresInSeconds', { seconds: String(Math.max(1, secs)) });
+    if (secs < 1800) return t('expiresInMinutes', { minutes: String(Math.ceil(secs / 60)) });
+    const rel = formatDistanceToNow(addSeconds(new Date(), secs), { addSuffix: true });
+    return rel.charAt(0).toUpperCase() + rel.slice(1);
+  })();
 
   // Agglayer carries the bridgeable token 1:1; the Fast route forward-quotes the
   // USDC output. Show a skeleton only while the Fast quote is still loading.
@@ -382,7 +380,7 @@ export const ReviewTransaction: React.FC = () => {
               label={t('expirationDate')}
               onEdit={() => setShowCalendar(true)}
               editLabel={t('edit')}
-              note={recallDate ? t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` }) : undefined}
+              note={recallBlocks ? t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` }) : undefined}
             >
               {expirationLabel}
             </ReviewRow>

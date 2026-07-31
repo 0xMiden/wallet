@@ -25,6 +25,7 @@ import {
   ITransactionStatus,
   ReplaceHotKeyTransaction,
   SwitchGuardianTransaction,
+  Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 
@@ -78,6 +79,7 @@ jest.mock('lib/miden/guardian', () => ({
 
 const mockWithWasmClientLock = jest.fn(async (fn: () => Promise<unknown>) => fn());
 const mockGetMidenClient = jest.fn();
+const mockCreateWasmWebClient = jest.fn();
 // Match the relative path used by transactions.ts so the mock intercepts.
 jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
@@ -105,6 +107,9 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     TransactionProver: {
       newLocalProver: jest.fn(() => 'local-prover'),
       newCallbackProver: jest.fn(() => 'callback-prover')
+    },
+    WasmWebClient: {
+      createClient: (endpoint: string) => mockCreateWasmWebClient(endpoint)
     }
   };
 });
@@ -274,6 +279,7 @@ describe('completeSwitchGuardianTransaction', () => {
 describe('generateTransaction — Guardian routing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockCreateWasmWebClient.mockReset();
     txStore.length = 0;
   });
 
@@ -332,6 +338,126 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.createSendProposal).toHaveBeenCalledWith('recipient', 'faucet', 1000n);
     expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-1', undefined);
     expect(multisigService.sync).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['public', 'Public'],
+    ['private', 'Private']
+  ])(
+    'Guardian recallable %s send builds one P2IDE request with an absolute reclaim height',
+    async (noteType, expectedSdkNoteType) => {
+      const txId = `recallable-${noteType}`;
+      const result = makeResult();
+      const requestBytes = new Uint8Array([7, 8, 9]);
+      const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+        id: txId,
+        type: 'send',
+        amount: 1000n,
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        noteType,
+        requestBytes: undefined,
+        extraInputs: { recallBlocks: 25 },
+        delegateTransaction: false
+      });
+      txStore.push({
+        ...transaction,
+        status: ITransactionStatus.Queued
+      });
+
+      const newSendTransactionRequest = jest.fn(async () => ({
+        serialize: () => requestBytes
+      }));
+      const terminate = jest.fn();
+      mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate });
+
+      const multisigService = {
+        createCustomProposal: jest.fn(async () => ({ id: 'recall-proposal' })),
+        createSendProposal: jest.fn(),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+      const client = Object.assign(makeClientApi(result), {
+        getSyncHeight: jest.fn(async () => 100)
+      });
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        client
+      });
+
+      await generateTransaction(
+        transaction,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+
+      expect(mockCreateWasmWebClient).toHaveBeenCalledWith(expect.any(String));
+      expect(newSendTransactionRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ toString: expect.any(Function) }),
+        expect.objectContaining({ toString: expect.any(Function) }),
+        expect.objectContaining({ toString: expect.any(Function) }),
+        expectedSdkNoteType,
+        1000n,
+        125,
+        null
+      );
+      expect(terminate).toHaveBeenCalledTimes(1);
+      expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'recallable_send');
+      expect(multisigService.createSendProposal).not.toHaveBeenCalled();
+      expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('recall-proposal', requestBytes);
+      expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
+    }
+  );
+
+  it('Guardian recallable send reuses persisted request bytes after a retry', async () => {
+    const txId = 'recallable-retry';
+    const result = makeResult();
+    const requestBytes = new Uint8Array([4, 5, 6]);
+    const transaction = Object.assign(new Transaction('guardian-acc', requestBytes), {
+      id: txId,
+      type: 'send',
+      amount: 1000n,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      noteType: 'private',
+      extraInputs: { recallBlocks: 25 },
+      delegateTransaction: false
+    });
+    txStore.push({
+      ...transaction,
+      status: ITransactionStatus.Queued
+    });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'retry-proposal' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(result)
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
+    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'recallable_send');
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('retry-proposal', requestBytes);
   });
 
   it('Guardian send (delegated): a remote-prover timeout falls back to the local prover and completes', async () => {
