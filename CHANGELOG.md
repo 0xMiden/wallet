@@ -23,6 +23,7 @@
 ### Fixes
 
 - [FIX][mobile] **Inputs no longer hide behind the soft keyboard.** The keyboard height now insets the layout (`--keyboard-height` CSS var driven by `@capacitor/keyboard` events), so bottom-pinned inputs/CTAs ride above the keyboard with a synced animation; the iOS accessory bar (Done) is enabled — the config previously set the unrelated `resizeOnFullScreen` key — and search/amount/recipient fields set `enterKeyHint`.
+- [FIX][extension] **A send interrupted by closing the browser mid-prove is now failed on restart instead of hanging on "Sending" for ~30 minutes.** An orphaned in-flight send kept its `processingStartedAt`, so the 30-minute stuck-transaction reaper wouldn't touch it and the loop skipped it as "in progress". A `runtime.onStartup` sweep now fails any still-in-flight transaction on cold start with a clear message so the user can retry immediately.
 
 ## 1.15.15 (2026-07-30)
 

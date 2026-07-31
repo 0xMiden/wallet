@@ -17,6 +17,7 @@ import {
   initiateUpdateProcedureThresholdTransaction,
   cancelStuckTransactions,
   cancelStaleQueuedTransactions,
+  failInterruptedTransactions,
   generateTransaction,
   MAX_WAIT_BEFORE_CANCEL,
   MAX_QUEUED_AGE,
@@ -745,6 +746,155 @@ describe('transactions utilities', () => {
       await cancelStuckTransactions();
 
       expect(mockModify).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('failInterruptedTransactions', () => {
+    it('leaves a freshly-orphaned send untouched under cancelStuckTransactions (documents the #282 gap)', async () => {
+      // A private send orphaned when the browser closed mid-prove has
+      // processingStartedAt set to "now" (stamped atomically at
+      // generateTransaction). The 30-min gate means the reaper does nothing,
+      // so the row sits on "Sending" with no feedback until it finally ages out.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const orphan = {
+        id: 'orphan-send',
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        stage: 'sending',
+        initiatedAt: nowSec - 5,
+        processingStartedAt: nowSec
+      };
+
+      mockTransactionsFilter.mockReturnValueOnce({
+        toArray: jest.fn().mockResolvedValueOnce([orphan])
+      });
+      const mockModify = jest.fn();
+      mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
+
+      await cancelStuckTransactions();
+
+      expect(mockModify).not.toHaveBeenCalled();
+    });
+
+    it('immediately fails a freshly-orphaned in-progress send with the interrupted message', async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const orphan = {
+        id: 'orphan-send',
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        stage: 'sending',
+        initiatedAt: nowSec - 5,
+        processingStartedAt: nowSec
+      };
+
+      mockTransactionsFilter.mockReturnValueOnce({
+        toArray: jest.fn().mockResolvedValueOnce([orphan])
+      });
+      const dbTx: any = { transactionId: 'preexisting-should-not-be-touched' };
+      const mockModify = jest.fn(async (fn: (t: any) => void) => fn(dbTx));
+      mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
+
+      await failInterruptedTransactions();
+
+      expect(mockModify).toHaveBeenCalledTimes(1);
+      expect(dbTx.status).toBe(ITransactionStatus.Failed);
+      expect(dbTx.displayMessage).toMatch(/interrupted/i);
+      // We do NOT resubmit, so cancelTransaction must not stamp or alter an on-chain tx id.
+      expect(dbTx.transactionId).toBe('preexisting-should-not-be-touched');
+    });
+
+    it('no-ops when there are no in-progress transactions', async () => {
+      mockTransactionsFilter.mockReturnValueOnce({
+        toArray: jest.fn().mockResolvedValueOnce([])
+      });
+      const mockModify = jest.fn();
+      mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
+
+      await failInterruptedTransactions();
+
+      expect(mockModify).not.toHaveBeenCalled();
+    });
+
+    it('sweeps ONLY GeneratingTransaction rows — Queued/Completed are excluded by the predicate', async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const gen = {
+        id: 'gen',
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: nowSec - 1,
+        processingStartedAt: nowSec
+      };
+      const queued = { id: 'queued', type: 'send', status: ITransactionStatus.Queued, initiatedAt: nowSec - 2 };
+      const completed = { id: 'done', type: 'send', status: ITransactionStatus.Completed, initiatedAt: nowSec - 3 };
+
+      // Actually apply getTransactionsInProgress's predicate to a mixed dataset,
+      // so a regression that broadened the sweep (e.g. getAllUncompletedTransactions)
+      // would be caught.
+      mockTransactionsFilter.mockImplementationOnce((pred: (t: any) => boolean) => ({
+        toArray: jest.fn().mockResolvedValueOnce([gen, queued, completed].filter(pred))
+      }));
+      const modifiedIds: string[] = [];
+      mockTransactionsWhere.mockImplementation(({ id }: { id: string }) => ({
+        first: jest.fn().mockResolvedValue(undefined),
+        modify: jest.fn(async (fn: (t: any) => void) => {
+          modifiedIds.push(id);
+          fn({});
+        })
+      }));
+
+      await failInterruptedTransactions();
+
+      expect(modifiedIds).toEqual(['gen']);
+    });
+
+    it('leaves a row that completed between the snapshot and the sweep untouched (finalized guard)', async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const gen = {
+        id: 'raced',
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: nowSec - 1,
+        processingStartedAt: nowSec
+      };
+      mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([gen]) });
+      const mockModify = jest.fn();
+      // The row was marked Completed after the snapshot → cancelTransaction's finalized
+      // guard must block the downgrade so the on-chain-landed tx isn't flipped to Failed.
+      mockTransactionsWhere.mockReturnValue({
+        first: jest.fn().mockResolvedValue({ id: 'raced', status: ITransactionStatus.Completed }),
+        modify: mockModify
+      });
+
+      await failInterruptedTransactions();
+
+      expect(mockModify).not.toHaveBeenCalled();
+    });
+
+    it('keeps the interrupted error (not a prover-failure) for a tx interrupted mid-prove', async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      // Guardian txs stamp an explicit 'proving' stage while still GeneratingTransaction,
+      // which would otherwise make resolveTransactionErrorMessage relabel the error.
+      const orphan = {
+        id: 'guardian-send',
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        stage: 'proving',
+        initiatedAt: nowSec - 1,
+        processingStartedAt: nowSec
+      };
+      mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([orphan]) });
+      const dbTx: any = {};
+      const mockModify = jest.fn(async (fn: (t: any) => void) => fn(dbTx));
+      mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(orphan), modify: mockModify });
+
+      await failInterruptedTransactions();
+
+      expect(dbTx.status).toBe(ITransactionStatus.Failed);
+      expect(dbTx.displayMessage).toMatch(/interrupted/i);
+      // Must NOT be relabelled as a prover failure ("please try again") just because the
+      // tx died in the 'proving' stage — that would invite the retry the sweep avoids.
+      expect(dbTx.error).toMatch(/interrupted/i);
+      expect(dbTx.error).not.toMatch(/prov(e|ing)|try again/i);
     });
   });
 
