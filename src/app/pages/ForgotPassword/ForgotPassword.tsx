@@ -57,7 +57,14 @@ const ForgotPassword: FC = () => {
     ]);
     if (deadline !== undefined) clearTimeout(deadline);
     if (result?.best) {
-      await putToStorage(GUARDIAN_URL_STORAGE_KEY, result.best.endpoint);
+      try {
+        await putToStorage(GUARDIAN_URL_STORAGE_KEY, result.best.endpoint);
+      } catch (error) {
+        // Best-effort refinement: a failed write (quota, private mode, native
+        // disk error) must never abort recovery — fall back to the previously
+        // stored endpoint, exactly as when nothing is detected.
+        console.warn('[guardian/probe] Failed to persist detected guardian endpoint; using stored endpoint:', error);
+      }
     }
   }, []);
 

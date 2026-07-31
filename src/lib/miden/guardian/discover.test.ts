@@ -24,6 +24,7 @@ import {
   decodeMaxNonce,
   discoverGuardianForSeed,
   GuardianProbeTimeoutError,
+  selectBest,
   withTimeout,
   type GuardianProbeMatch
 } from './discover';
@@ -46,7 +47,11 @@ interface FakeOperator {
   failWith?: Error;
   /** Makes getState reject while the lookup still succeeds. */
   stateFailWith?: Error;
+  /** Makes getState reject the first N calls, then succeed — exercises the retry. */
+  stateFailFirst?: number;
   delayMs?: number;
+  /** Internal: how many times getState has been called on this operator. */
+  stateCalls?: number;
 }
 
 const mockBackend = new Map<string, FakeOperator>();
@@ -105,7 +110,11 @@ jest.mock('@openzeppelin/guardian-client', () => ({
     }
     async getState(accountId: string) {
       const operator = mockBackend.get(this.url)!;
+      operator.stateCalls = (operator.stateCalls ?? 0) + 1;
       if (operator.stateFailWith) throw operator.stateFailWith;
+      if (operator.stateFailFirst && operator.stateCalls <= operator.stateFailFirst) {
+        throw new Error('transient state failure');
+      }
       return {
         accountId,
         commitment: `state-${accountId}`,
@@ -253,20 +262,47 @@ describe('discoverGuardianForSeed', () => {
     expect(mockSeedsRequested).toEqual([0, 1, 2]);
   });
 
-  it('keeps a positive lookup match even when the follow-up getState fails', async () => {
+  it('keeps a lone lookup match even when the follow-up getState fails, with an unknown nonce', async () => {
     mockBackend.set(OZ, { accounts: ['acct-1'], stateFailWith: new Error('state endpoint down') });
 
     const result = await discoverGuardianForSeed(fakeDeriveSeed, testnet);
 
-    // The lookup proved OZ holds the account; losing the state only costs the
-    // nonce refinement, not the detection itself.
+    // The lookup proved OZ holds the account and nothing competes with it, so it
+    // is still selected — losing the state only leaves the nonce unknown (not 0n).
     expect(result.best?.endpoint).toBe(OZ);
     expect(result.best?.accountIds).toEqual(['acct-1']);
-    expect(result.best?.nonce).toBe(0n);
+    expect(result.best?.nonce).toBeUndefined();
     expect(result.best?.updatedAt).toBeUndefined();
   });
 
-  it('treats an undecodable account state as nonce 0 instead of failing the probe', async () => {
+  it('retries getState once, so a transient state failure still yields the real nonce', async () => {
+    // Fails the first getState, succeeds on the retry.
+    mockBackend.set(OZ, { accounts: ['acct-1'], nonces: { 'acct-1': 6n }, stateFailFirst: 1 });
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, testnet);
+
+    expect(result.best?.endpoint).toBe(OZ);
+    expect(result.best?.nonce).toBe(6n);
+    expect(mockBackend.get(OZ)?.stateCalls).toBe(2);
+  });
+
+  it('does NOT pick a stale operator over the current one when the current getState keeps failing', async () => {
+    // Post-switch: stale OZ answers getState (nonce 3); current GATEWAY holds the
+    // higher state but its getState never loads. A 0n-for-unknown ranking would
+    // silently pick the stale OZ — instead detection refuses (best undefined) and
+    // the UI falls back to the manual picker.
+    mockBackend.set(OZ, { accounts: ['acct-old'], nonces: { 'acct-old': 3n } });
+    mockBackend.set(GATEWAY, { accounts: ['acct-new'], stateFailWith: new Error('state endpoint down') });
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, testnet);
+
+    expect(result.best).toBeUndefined();
+    expect(result.matches.map(match => match.endpoint).sort()).toEqual([GATEWAY, OZ].sort());
+    // The retry was actually attempted before giving up.
+    expect(mockBackend.get(GATEWAY)?.stateCalls).toBe(2);
+  });
+
+  it('treats an undecodable account state as an unknown nonce, still detecting a lone operator', async () => {
     mockBackend.set(OZ, { accounts: ['acct-broken'] });
     mockDeserialize.mockImplementation(() => {
       throw new Error('bad state blob');
@@ -275,7 +311,7 @@ describe('discoverGuardianForSeed', () => {
     const result = await discoverGuardianForSeed(fakeDeriveSeed, testnet);
 
     expect(result.best?.endpoint).toBe(OZ);
-    expect(result.best?.nonce).toBe(0n);
+    expect(result.best?.nonce).toBeUndefined();
   });
 
   it('returns no matches when aborted mid-probe', async () => {
@@ -402,8 +438,8 @@ describe('decodeMaxNonce', () => {
     expect(decodeMaxNonce([state('a'), state('b')])).toBe(11n);
   });
 
-  it('returns 0 for an empty list', () => {
-    expect(decodeMaxNonce([])).toBe(0n);
+  it('returns undefined (unknown) for an empty list', () => {
+    expect(decodeMaxNonce([])).toBeUndefined();
   });
 
   it('survives a free() that throws', () => {
@@ -445,5 +481,45 @@ describe('compareMatches', () => {
     const b = match({ endpoint: GATEWAY, updatedAt: 'also-not-a-date' });
 
     expect(compareMatches(a, b, [OZ, GATEWAY])).toBeLessThan(0);
+  });
+
+  it('ranks a known nonce above an unknown one, even a low known nonce', () => {
+    const known = match({ endpoint: GATEWAY, nonce: 0n });
+    const unknown = match({ endpoint: OZ, nonce: undefined });
+
+    expect(compareMatches(known, unknown, [OZ, GATEWAY])).toBeLessThan(0);
+    expect(compareMatches(unknown, known, [OZ, GATEWAY])).toBeGreaterThan(0);
+  });
+});
+
+describe('selectBest', () => {
+  const match = (over: Partial<GuardianProbeMatch>): GuardianProbeMatch => ({
+    endpoint: OZ,
+    accountIds: [],
+    hdIndices: [],
+    nonce: 0n,
+    ...over
+  });
+
+  it('returns undefined for no matches', () => {
+    expect(selectBest([])).toBeUndefined();
+  });
+
+  it('picks a lone match regardless of its nonce being unknown', () => {
+    const only = match({ endpoint: LAMBDA, nonce: undefined });
+    expect(selectBest([only])).toBe(only);
+  });
+
+  it('picks the top match when every competing nonce is known', () => {
+    const top = match({ endpoint: GATEWAY, nonce: 9n });
+    const other = match({ endpoint: OZ, nonce: 3n });
+    expect(selectBest([top, other])).toBe(top);
+  });
+
+  it('refuses to auto-pick when several matches compete and any nonce is unknown', () => {
+    const known = match({ endpoint: OZ, nonce: 3n });
+    const unknown = match({ endpoint: GATEWAY, nonce: undefined });
+    expect(selectBest([known, unknown])).toBeUndefined();
+    expect(selectBest([unknown, known])).toBeUndefined();
   });
 });

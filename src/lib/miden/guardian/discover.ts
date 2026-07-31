@@ -14,6 +14,14 @@
  * holding the current state. `updatedAt` (then GUARDIAN_OPTIONS order) breaks
  * exact ties.
  *
+ * When a nonce can't be read (getState fails, after one retry) it stays UNKNOWN,
+ * never `0n` — because a stale operator whose state loads could otherwise outrank
+ * the current operator whose state flaked. With several operators answering, an
+ * unknown nonce makes the winner genuinely ambiguous, so `selectBest` refuses to
+ * auto-pick and the caller falls back to the manual picker rather than silently
+ * recovering against an operator that will never co-sign. A lone operator is
+ * always picked — its nonce is moot when nothing competes with it.
+ *
  * Frontend-only: no intercom, no vault, no shared WASM `WebClient`. The
  * guardian lookup/state endpoints are plain authenticated HTTP; the only WASM
  * touched is `AuthSecretKey.ecdsaWithRNG` (deterministic, static) and
@@ -50,8 +58,13 @@ export interface GuardianProbeMatch {
   accountIds: string[];
   /** HD indices that matched, ascending. */
   hdIndices: number[];
-  /** Highest account nonce across this operator's matched accounts. */
-  nonce: bigint;
+  /**
+   * Highest account nonce across this operator's matched accounts, or `undefined`
+   * when no state could be decoded (every getState failed / was undecodable).
+   * `undefined` means "unknown", which is deliberately NOT the same as `0n` — an
+   * unknown nonce must not outrank, nor be silently outranked by, a known one.
+   */
+  nonce: bigint | undefined;
   /** Newest `StateObject.updatedAt` across the matches — tiebreak only. */
   updatedAt?: string;
 }
@@ -92,6 +105,13 @@ export const GUARDIAN_PROBE_MAX_HD_INDEX = 1;
 export const GUARDIAN_PROBE_TIMEOUT_MS = 8_000;
 /** Max in-flight probe requests, so a wider endpoint × index grid doesn't open every socket at once. */
 export const GUARDIAN_PROBE_CONCURRENCY = 6;
+/**
+ * Total getState attempts per lookup-confirmed account (1 = no retry). A getState
+ * failure leaves the nonce UNKNOWN, and an unknown nonce can silently lose the
+ * ranking to a stale operator whose state happened to load — so a lookup-confirmed
+ * operator gets one retry before its nonce is written off as unknown.
+ */
+export const GUARDIAN_PROBE_STATE_ATTEMPTS = 2;
 
 export class GuardianProbeTimeoutError extends Error {
   constructor(message: string) {
@@ -144,20 +164,22 @@ export function classifyProbeError(error: unknown): { reason: GuardianProbeFailu
 }
 
 /**
- * Highest account nonce across `states`. A state we can't decode contributes
- * `0n` rather than failing the probe — the operator still counts as a match and
- * `updatedAt` ordering takes over.
+ * Highest account nonce across `states`, or `undefined` when NONE could be
+ * decoded (empty list, or every blob failed to deserialize). `undefined` marks
+ * the nonce as UNKNOWN rather than zero: a state we can't read must not be
+ * treated as nonce `0n`, because that silently loses the nonce ranking to any
+ * operator that did decode — which is exactly how a stale operator could win.
  */
-export function decodeMaxNonce(states: readonly StateObject[]): bigint {
-  let max = 0n;
+export function decodeMaxNonce(states: readonly StateObject[]): bigint | undefined {
+  let max: bigint | undefined;
   for (const state of states) {
     let account: Account | undefined;
     try {
       account = Account.deserialize(new Uint8Array(Buffer.from(state.stateJson.data, 'base64')));
       const nonce = account.nonce().asInt();
-      if (nonce > max) max = nonce;
+      if (max === undefined || nonce > max) max = nonce;
     } catch (error) {
-      console.warn('[guardian/discover] Could not decode account state for nonce, treating as 0:', error);
+      console.warn('[guardian/discover] Could not decode account state for nonce, leaving it unknown:', error);
     } finally {
       try {
         account?.free();
@@ -185,12 +207,17 @@ function newestUpdatedAt(states: readonly StateObject[]): string | undefined {
 }
 
 /**
- * Ranking rule: highest nonce (current state) → newest `updatedAt` → the order
- * the operators appear in GUARDIAN_OPTIONS (stable, so the default operator
- * wins a total tie).
+ * Ranking rule: a KNOWN nonce outranks an unknown one → highest known nonce
+ * (current state) → newest `updatedAt` → the order the operators appear in
+ * GUARDIAN_OPTIONS (stable, so the default operator wins a total tie). Ordering
+ * an unknown nonce last is only half the fix — `selectBest` additionally refuses
+ * to auto-pick when an unknown nonce leaves the winner genuinely ambiguous.
  */
 export function compareMatches(a: GuardianProbeMatch, b: GuardianProbeMatch, endpointOrder: readonly string[]): number {
-  if (a.nonce !== b.nonce) return a.nonce > b.nonce ? -1 : 1;
+  const aKnown = a.nonce !== undefined;
+  const bKnown = b.nonce !== undefined;
+  if (aKnown !== bKnown) return aKnown ? -1 : 1;
+  if (aKnown && bKnown && a.nonce !== b.nonce) return a.nonce! > b.nonce! ? -1 : 1;
 
   const aUpdated = a.updatedAt ? Date.parse(a.updatedAt) : Number.NaN;
   const bUpdated = b.updatedAt ? Date.parse(b.updatedAt) : Number.NaN;
@@ -200,6 +227,25 @@ export function compareMatches(a: GuardianProbeMatch, b: GuardianProbeMatch, end
   if (aValid !== bValid) return aValid ? -1 : 1;
 
   return endpointOrder.indexOf(a.endpoint) - endpointOrder.indexOf(b.endpoint);
+}
+
+/**
+ * Pick the operator to auto-select from the already-ranked `matches`, or
+ * `undefined` when the pick is not safe to make silently.
+ *
+ * - 0 matches → nothing to pick.
+ * - exactly 1 match → that operator is the sole holder; its nonce is irrelevant,
+ *   so a failed getState never blocks the common (no-switch) case.
+ * - 2+ matches (a guardian switch, or a misconfig) → the pick is only trustworthy
+ *   when EVERY match's nonce is known. A single unknown nonce could belong to the
+ *   real current operator and silently lose the ranking to a stale one — so we
+ *   refuse and let the caller fall back to the manual picker / stored endpoint
+ *   rather than risk recovering against an operator that will never co-sign.
+ */
+export function selectBest(matches: readonly GuardianProbeMatch[]): GuardianProbeMatch | undefined {
+  if (matches.length === 0) return undefined;
+  if (matches.length === 1) return matches[0];
+  return matches.some(match => match.nonce === undefined) ? undefined : matches[0];
 }
 
 interface ProbeTarget {
@@ -306,16 +352,27 @@ export async function discoverGuardianForSeed(
         if (signal?.aborted) break;
         // The lookup already PROVED this operator holds the account; a failed
         // or timed-out state fetch must not throw that certainty away. It only
-        // costs the nonce/updatedAt refinement for the ranking.
+        // costs the nonce/updatedAt refinement for the ranking — but an unknown
+        // nonce can demote the current operator below a stale one, so a
+        // lookup-confirmed account gets one getState retry before we give up.
         let state: StateObject | undefined;
-        try {
-          state = await withTimeout(
-            client.getState(account.accountId),
-            timeoutMs,
-            `guardian state at ${target.endpoint}`
-          );
-        } catch (error) {
-          console.warn(`[guardian/discover] getState failed at ${target.endpoint}, keeping the lookup match:`, error);
+        for (let attempt = 0; attempt < GUARDIAN_PROBE_STATE_ATTEMPTS; attempt++) {
+          if (signal?.aborted) break;
+          try {
+            state = await withTimeout(
+              client.getState(account.accountId),
+              timeoutMs,
+              `guardian state at ${target.endpoint}`
+            );
+            break;
+          } catch (error) {
+            const lastAttempt = attempt === GUARDIAN_PROBE_STATE_ATTEMPTS - 1;
+            console.warn(
+              `[guardian/discover] getState failed at ${target.endpoint} (attempt ${attempt + 1}/${GUARDIAN_PROBE_STATE_ATTEMPTS})` +
+                `${lastAttempt ? ', leaving the nonce unknown for this match' : ', retrying'}:`,
+              error
+            );
+          }
         }
         hits.push({ endpoint: target.endpoint, hdIndex, accountId: account.accountId, state });
       }
@@ -369,5 +426,5 @@ export async function discoverGuardianForSeed(
 
   matches.sort((a, b) => compareMatches(a, b, probedEndpoints));
 
-  return { best: matches[0], matches, probedEndpoints, failures };
+  return { best: selectBest(matches), matches, probedEndpoints, failures };
 }
