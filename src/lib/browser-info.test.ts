@@ -92,6 +92,13 @@ describe('isSafeBrowserVersion', () => {
       // and `NaN >= 11` is false.
       expect(loadWith({ userAgent: IE_NO_RV })).toBe(false);
     });
+
+    it('falls back to an empty version when a Trident UA has no rv token', () => {
+      // Engine resolves to "Trident" (so the trident->IE branch is taken) but
+      // `/rv[ :]+(\d+)/` finds nothing, so `tem` is null and version comes from
+      // the `tem?.[1] ?? ''` fallback -> parseInt('') is NaN -> unsafe.
+      expect(loadWith({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Trident/7.0) like Gecko' })).toBe(false);
+    });
   });
 
   describe('Chromium-based re-brands', () => {

@@ -12,7 +12,10 @@ describe('isLikelyNetworkError', () => {
     'transport error: closed stream',
     'rpc error: deadline exceeded',
     'prover responded with status code 502: Bad Gateway',
-    'service unavailable 503'
+    'service unavailable 503',
+    // 'status code' phrase without a 5xx number — falls past the numeric check
+    // to the explicit 'status code' keyword.
+    'unexpected status code from the gateway'
   ])('returns true for %p', message => {
     expect(isLikelyNetworkError(new Error(message))).toBe(true);
   });
