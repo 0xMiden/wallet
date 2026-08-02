@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.15.18 (TBD)
+
+### Fixes
+
+- [FIX][mobile] **Bridge-in "Cross Chain" no longer hangs forever on "Preparing connection…" (iOS).** The native WalletConnect `configure` call passed `icons: APP_METADATA.icons`, but that shared `APP_METADATA` object is also handed to the web `@reown/appkit` modal (`createAppKit`), which wraps it in a reactive proxy in place — so `APP_METADATA.icons` is no longer a plain array. Capacitor's iOS bridge **silently drops** a plugin call whose arguments contain such a non-plain array, so `configure` never reached the native plugin and its promise hung forever, blocking `present()` and leaving the EVM connect stuck on "Preparing connection…". The arguments now pass a fresh plain array (`icons: [...APP_METADATA.icons]`), so the call serializes cleanly across the bridge. (The web E2E suite missed this because it drives the `connectUri` test hook, not the UI `configure` path.)
+- [FIX][mobile] **Deduplicate `@capacitor/core` in the mobile bundle.** Without a `resolve.dedupe` entry, Rollup inlined a second copy of the Capacitor runtime into the walletconnect chunk; only one `createCapacitor()` becomes the live `window.Capacitor`, so any plugin that resolved against the other copy dispatched into a dead bridge. Added `resolve.dedupe: ['@capacitor/core']` in `vite.mobile.config.ts` (the same guard the repo already applies to `dexie` / `@miden-sdk`).
+
 ## 1.15.17 (2026-08-02)
 
 ### Fixes

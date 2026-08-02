@@ -164,6 +164,14 @@ export default defineConfig({
   },
 
   resolve: {
+    // @capacitor/core MUST resolve to a single instance. Without this, Rollup
+    // inlines a second copy of the Capacitor runtime into the walletconnect
+    // chunk; that second `createCapacitor()` is NOT the one wired to
+    // `window.Capacitor`, so `registerPlugin('Reown')` on it dispatches into a
+    // dead bridge and every native Reown call hangs forever (bridge/EVM connect
+    // stuck on "Preparing connection…"). Deduping collapses it to the live
+    // runtime. (Same class of bug as the dexie/@miden-sdk duplication.)
+    dedupe: ['@capacitor/core'],
     // NOTE: the eager→lazy @miden-sdk/miden-sdk redirect is done by the
     // `miden-sdk-eager-to-lazy` plugin above (resolveId), NOT here. A
     // resolve.alias entry can't win: @miden-sdk/vite-plugin installs its own

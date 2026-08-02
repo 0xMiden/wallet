@@ -15,16 +15,19 @@ let configurePromise: Promise<void> | null = null;
 
 export function configureNativeReown(): Promise<void> {
   if (!configurePromise) {
-    // Reset the cache on rejection: a rejected promise is truthy and would be
-    // returned by every later call, permanently poisoning EVM/bridge connect
-    // after a single transient boot failure (native plugin not yet ready /
-    // relay offline). Nulling it on failure lets the next call retry cleanly.
     configurePromise = NativeReown.configure({
       projectId: WC_PROJECT_ID,
       appName: APP_METADATA.name,
       appDescription: APP_METADATA.description,
       appUrl: APP_METADATA.url,
-      icons: APP_METADATA.icons,
+      // `APP_METADATA` is also handed to the web @reown/appkit modal
+      // (`createAppKit` in ./appkit), which reactively wraps the object in place —
+      // so `APP_METADATA.icons` is no longer a plain array. Capacitor's iOS bridge
+      // SILENTLY DROPS a native plugin call whose arguments contain such a non-plain
+      // array: `configure` never reaches native and its promise hangs forever,
+      // leaving EVM/bridge connect stuck on "Preparing connection…". Spread into a
+      // fresh plain array so the arguments serialize cleanly across the bridge.
+      icons: [...APP_METADATA.icons],
       verifyUrl: 'verify.walletconnect.com',
       nativeRedirect: NATIVE_REDIRECT,
       linkMode: false,
@@ -32,6 +35,10 @@ export function configureNativeReown(): Promise<void> {
       methods: ['eth_sendTransaction', 'personal_sign', 'eth_signTypedData'],
       events: ['chainChanged', 'accountsChanged']
     }).catch(err => {
+      // Reset the cache on rejection: a rejected promise is truthy and would be
+      // returned by every later call, permanently poisoning EVM/bridge connect
+      // after a single transient boot failure (native plugin not yet ready /
+      // relay offline). Nulling it on failure lets the next call retry cleanly.
       configurePromise = null;
       throw err;
     });
