@@ -1,505 +1,358 @@
-# Miden Wallet — E2E Harness Architecture
+# Inside the Miden Wallet Test Lab
 
-> **How we test the wallet against *reality*, not mocks.**
+**Who this is for:** engineers who want to understand how we test the wallet — no prior Miden knowledge assumed.
+
+The Miden wallet does something genuinely hard: it moves real money around a **privacy-focused blockchain (Miden)** *and* bridges it to and from **Ethereum**. Proving that works — automatically, on every code change, without a human clicking buttons — is a big challenge.
+
+So we built a **test lab**. The guiding idea:
+
+> **Run the real thing, fake only what we physically can't.**
 >
-> Every per-PR E2E run stands up a **real Miden network** (the actual node binaries in Docker), a **real OpenZeppelin guardian**, a **real Foundry EVM chain**, and drives the **real production wallet bundle** through its **real UI** — no stubbed wallet internals, no fake chain. The only things we fake are the *third‑party, hosted‑only* services we can't legally or physically run in CI (the Epoch allocator/solver, mainnet EVM contracts), and even those are **on‑chain byte‑for‑byte doubles** or **endpoint‑accurate HTTP stand‑ins** deployed at the *same addresses* the production code hardcodes.
+> We never mock the blockchain. On every pull request, our desktop tests boot a *genuine* Miden network in the cloud — the same node software real users rely on — seed it, and drive the *real* wallet app through its *real* screens against it. (The post-merge and mobile tests run that same real app against the genuine public Miden test networks instead.) We add a *real* security co-signer and a *real* local Ethereum for the flows that need them. The only things we stand in for are a handful of **hosted services that live on someone else's servers** — and even those stand-ins are faithful down to the exact addresses and responses the app expects.
 
-This document maps each harness family: what it exercises, every component it touches (real service vs. hermetic double), and the hard problems we solved to make it faithful.
+This page is a tour of that lab: what each group of tests proves, which pieces are involved, and the parts we're a little proud of.
 
 ---
 
-## Legend
+## The cast of characters
+
+A quick glossary so the diagrams make sense:
+
+| Piece | In plain terms |
+|---|---|
+| **The wallet app** | The actual shipped app — the Chrome extension or the iOS app — built with a few hidden test hooks (stripped from real releases) so the tests can click buttons and read state. Otherwise unchanged. This is what's being tested. |
+| **A "note"** | How money moves on Miden. Think of it as a sealed envelope of coins addressed to someone. Notes can be **public** (visible on the chain) or **private** (delivered off to the side). |
+| **Proving** | Miden hides transaction details, so instead of *showing* the network what happened, your device computes a cryptographic proof that it followed the rules. That computation — "proving" — is expensive, so it can run on your own machine or be handed to a remote **prover**. |
+| **The Miden blockchain** | The privacy chain the wallet lives on — the genuine node software, either booted fresh for the test or the real public test network. |
+| **The guardian** | An optional **security co-signer**. A "guardian" account needs *two* signatures to move money — your device *and* a guardian server — so a stolen phone isn't enough. |
+| **Bridging** | Moving value between Miden and Ethereum. "Bridge-out" = Miden → Ethereum; "bridge-in" = Ethereum → Miden. |
+| **USDC** | A dollar-pegged coin on Ethereum — think digital dollars. It's what value becomes when it lands on the Ethereum side. |
+| **Smart contract** | A small program that lives on Ethereum at a fixed address (e.g. the USDC coin, or the bridge). The wallet calls these by address. |
+| **The bridge / lending service** | A third-party service ("Epoch") that carries value across the two chains and runs lending. It's hosted on their servers, so most tests use a faithful **stand-in**. |
+| **Collateral / position** | To earn yield you lock some coins up as backing ("collateral"); your locked-up stake is a "position." |
+| **WalletConnect** | The standard way a wallet and another app agree to sign a transaction together, by passing messages through a shared relay. |
+| **The command-line client** | The official Miden client, scripted to act as an **independent other party** — it mints coins, or plays the person on the other end of a trade. |
+
+### How to read the diagrams
 
 ```mermaid
 flowchart LR
-  R["Real local service<br/>(node, prover, guardian, wallet)"]:::real
-  D["Hermetic double<br/>(HTTP / process stand-in)"]:::double
-  E["On-chain EVM double<br/>(anvil_setCode at real address)"]:::evm
-  W["Wallet under test<br/>(real production bundle)"]:::wallet
-  H["Test hook<br/>(MIDEN_E2E_TEST-gated)"]:::hook
-  C["miden-client CLI<br/>(independent counterparty)"]:::cli
-  X["External real infra<br/>(testnet / Sepolia / WC relay)"]:::ext
-  I["Harness / fixture / DB"]:::infra
+  R["The real thing<br/>(app, blockchain, guardian)"]:::real
+  F["A faithful stand-in<br/>(for a hosted service)"]:::fake
+  W["The real outside world<br/>(only in post-merge runs)"]:::world
+  T["Test machinery<br/>(the director + robot counterparties)"]:::test
+
+  A1["normal action"] ==>|"direct hand-off"| A2["(thick arrow)"]
+  A3["optional / co-sign step"] -.->|"dotted arrow"| A4[" "]
 
   classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
-  classDef double fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#ffedd5;
-  classDef evm fill:#831843,stroke:#f472b6,stroke-width:2px,color:#fce7f3;
-  classDef wallet fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
-  classDef hook fill:#134e4a,stroke:#2dd4bf,stroke-width:2px,color:#ccfbf1;
-  classDef cli fill:#3f3f46,stroke:#a1a1aa,stroke-width:2px,color:#e4e4e7;
-  classDef ext fill:#4c1d95,stroke:#a78bfa,stroke-width:3px,color:#ede9fe;
-  classDef infra fill:#1f2937,stroke:#6b7280,stroke-width:1px,color:#e5e7eb,stroke-dasharray:4 3;
+  classDef fake fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#ffedd5;
+  classDef world fill:#4c1d95,stroke:#a78bfa,stroke-width:3px,color:#ede9fe;
+  classDef test fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
 ```
 
-| Color | Kind | Meaning |
-|---|---|---|
-| 🟩 green | **Real local service** | The genuine binary/service, run in Docker or from source — no behavior faked |
-| 🟧 amber | **Hermetic double** | An HTTP / process stand-in for a hosted-only third party, endpoint-accurate |
-| 🟥 pink | **On-chain EVM double** | Real bytecode deployed on Anvil via `anvil_setCode`, at the *production* contract address |
-| 🟦 blue | **Wallet under test** | The real production wallet bundle (Chrome MV3 / iOS WKWebView) |
-| 🟦 teal | **Test hook** | `MIDEN_E2E_TEST`-gated `window`/SW handle, dead-stripped from prod builds |
-| ⬛ slate | **miden-client CLI** | The real Rust client acting as an independent on-chain counterparty/solver |
-| 🟪 purple | **External real infra** | Genuine production infra used by the nightly/testnet tier (thick border = "this one is real production") |
+**Box color** = how real the piece is (green real · orange stand-in · purple real outside world · blue test machinery). **Arrows:** a solid arrow is a normal action; a **thick** arrow is a direct hand-off; a **dotted** arrow is an optional or co-signing step.
+
+---
+
+## The lab at a glance
+
+Every test assembles the same lab and drives the real app through it. The guardian and Ethereum only join in for the tests that need them:
+
+```mermaid
+flowchart TB
+  DIR["🎬 Test director<br/>(launches everything, clicks the buttons, checks the result)"]:::test
+  ROBOT["🤖 Robot counterparties<br/>(a scripted client + a WalletConnect wallet)"]:::test
+
+  APP["📱 The real wallet app"]:::real
+
+  CHAIN["⛓️ Miden blockchain<br/>(booted fresh per pull request, or the public test network)"]:::real
+  GUARD["🔐 Multisig guardian<br/>(real — for guardian accounts)"]:::real
+  ETH["🔌 Ethereum, run locally<br/>(real software — for bridging & earning)"]:::real
+  BRIDGE["🌉 Bridge / lending service<br/>(faithful stand-in)"]:::fake
+
+  DIR --> APP
+  DIR --> ROBOT
+  APP -->|"move money, send notes"| CHAIN
+  APP -.->|"co-sign secured transfers"| GUARD
+  APP -->|"bridge to/from Ethereum"| ETH
+  APP -->|"quote & carry value across"| BRIDGE
+  ROBOT -->|"trade / sign as the other party"| APP
+
+  classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
+  classDef fake fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#ffedd5;
+  classDef test fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
+```
+
+> ### 🏆 A real blockchain, not a mock
+> We don't fake the chain — ever. On every pull request the desktop tests boot a genuine Miden network in the cloud, seed it from scratch, and tear it down afterward. If the wallet talks to the chain correctly, it's because it *actually did*.
 
 ---
 
 ## Contents
 
-- [The shared substrate — one real Miden network per PR](#the-shared-substrate--one-real-miden-network-per-pr)
-- [1 · Core blockchain suite](#1--core-blockchain-suite)
-- [2 · Swap / PSWAP (in-protocol DEX)](#2--swap--pswap-in-protocol-dex)
-- [3 · Bridge-out (Miden → EVM)](#3--bridge-out-miden--evm)
-- [4 · Earn (Epoch lending)](#4--earn-epoch-lending)
-- [5 · Guardian co-sign (3-key multisig)](#5--guardian-co-sign-3-key-multisig)
-- [6 · iOS bridge-in (EVM → Miden)](#6--ios-bridge-in-evm--miden)
-- [Fidelity scorecard](#fidelity-scorecard)
+- [1 · Everyday money — send, receive, claim](#1--everyday-money--send-receive-claim)
+- [2 · Trading — swaps between two people](#2--trading--swaps-between-two-people)
+- [3 · Bridging out — Miden money becomes Ethereum money](#3--bridging-out--miden-money-becomes-ethereum-money)
+- [4 · Earning — lending your coins out](#4--earning--lending-your-coins-out)
+- [5 · Guardian security — two signatures to move money](#5--guardian-security--two-signatures-to-move-money)
+- [6 · Bringing value in on iPhone](#6--bringing-value-in-on-iphone)
+- [How real is it, really?](#how-real-is-it-really)
 
 ---
 
-## The shared substrate — one real Miden network per PR
+## 1 · Everyday money — send, receive, claim
 
-Every chrome suite boots the same hermetic-but-real stack from `playwright/e2e/local-stack/docker-compose.local.yml`, with **exact version pins** (`versions.env`) so a gate never drifts with upstream.
+**What these tests prove:** two people can hold the wallet, and money actually moves between them — publicly or privately.
 
-```mermaid
-flowchart TB
-  subgraph BOOT["⚙️ one-shot bootstrap (default genesis, cached in volume)"]
-    direction LR
-    BV["bootstrap-validator"]:::infra --> BN["bootstrap-node"]:::infra --> BX["bootstrap-ntx-builder"]:::infra
-  end
-
-  subgraph NODE["🟢 Local Miden stack · real miden-node (Docker)"]
-    SEQ["sequencer / node RPC<br/>127.0.0.1:57291"]:::real
-    VAL["validator<br/>:50101 (internal)"]:::real
-    NTX["ntx-builder<br/>:50301 (internal)"]:::real
-    PROV["remote prover<br/>127.0.0.1:50052"]:::real
-  end
-
-  NTL["🟢 note-transport relay (NTL)<br/>127.0.0.1:57292 · built from source"]:::real
-
-  subgraph GUARD["🟢 Guardian tier · real OpenZeppelin guardian (--profile guardian)"]
-    GD["guardian<br/>:3000 HTTP / :50051 gRPC (host net)"]:::real
-    PG[("postgres :5432")]:::infra
-  end
-
-  WALLET["👛 wallet extension (DUT)<br/>real localnet bundle · MIDEN_NETWORK=localhost"]:::wallet
-  CLI["miden-client CLI<br/>independent counterparty"]:::cli
-
-  BOOT -.->|"seeds"| NODE
-  SEQ --> VAL
-  SEQ --> NTX
-  NTX -->|"internal proving"| PROV
-  GD --> PG
-  GD -->|"MidenLocal → node RPC"| SEQ
-  WALLET -->|"sync / submit · gRPC"| SEQ
-  WALLET -->|"delegated proving (guardian txs)"| PROV
-  WALLET -->|"private-note delivery"| NTL
-  WALLET -->|"co-sign · HTTP"| GD
-  CLI -->|"mint / counterparty · gRPC"| SEQ
-  CLI -->|"note hand-off"| NTL
-
-  classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
-  classDef wallet fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
-  classDef cli fill:#3f3f46,stroke:#a1a1aa,stroke-width:2px,color:#e4e4e7;
-  classDef infra fill:#1f2937,stroke:#6b7280,stroke-width:1px,color:#e5e7eb,stroke-dasharray:4 3;
-```
-
-**What we solved / built**
-
-- **A full real Miden devnet in Docker, per PR** — validator + sequencer + ntx-builder + remote-prover, bootstrapped from default genesis into a cached volume so reruns skip re-genesis. Not a mock chain — the actual node binaries.
-- **The off-chain note-transport relay (NTL)** built from source at a ref whose `miden-protocol` matches the node, so **private-note delivery** between two wallets (and the CLI) works exactly as on testnet.
-- **Port choreography** — the remote prover is deliberately published on host `:50052` (not `:50051`) because the host-networked guardian claims `:50051`; the ntx-builder still reaches the prover internally.
-- **Exact version pinning** (`versions.env` + a pinned CLI rev in `package.json`) so the gate is reproducible and never floats.
-- **Headed-extension Playwright** (Chrome MV3 requires headed mode) run under `xvfb` in CI, `workers:1` + `maxFailures:1` for deterministic, fail-fast signal.
-
-| Component | Kind | Port | Role |
-|---|---|---|---|
-| sequencer (node RPC) | real service | `57291` | the chain endpoint the wallet + CLI sync/submit against |
-| validator | real service | `50101` (internal) | block validation for the sequencer |
-| ntx-builder | real service | `50301` (internal) | network notes / network-account txs |
-| remote prover | real service | `50052` | delegated proving (guardian txs, ntx-builder) |
-| note-transport (NTL) | real service | `57292` | off-chain private-note delivery, built from source |
-| guardian | real service | `3000` / `50051` | OpenZeppelin co-signer (Tier-2 profile) |
-| postgres | infra | `5432` | guardian state / proposals / signatures |
-| miden-client CLI | cli | — | independent counterparty: mint, send, sync |
-
----
-
-## 1 · Core blockchain suite
-
-Two **fully-isolated Chrome instances** are wallets A and B; the **real Rust `miden-client` CLI** is an independent third party (funds via faucet mints, or acts as counterparty). Everything runs through the **real Send/Claim/onboarding UI**.
-
-| Spec | What it proves |
-|---|---|
-| `wallet-lifecycle` | onboarding bypass → two distinct wallets → lock/unlock |
-| `mint-and-balance` | CLI deploys a faucet + mints public notes → balances land |
-| `send-public` | A drives real Send UI → public note → B receives on sync |
-| `send-private` | same, `isPrivate` → delivered over the **note-transport layer** |
-| `send-public-local-prove` | forces **in-browser WASM proving** (offscreen-doc path) instead of delegating |
-| `multi-claim` | CLI mints 3 notes → the drain-loop `claimAllNotes` claims all |
-| `multi-account` | second account + account-selector flow |
-| `group-claim` | per-faucet grouped claim in the Pending tab |
+We run **two completely separate copies** of the real app (call them A and B) and a scripted command-line client as an independent third party. The command-line client mints some coins; A claims them and sends some to B — either as a **public** note (posted to the chain) or a **private** note (delivered quietly off to the side). B has to genuinely receive it.
 
 ```mermaid
 flowchart LR
-  FIX["two-wallets fixture<br/>+ timeline / steps / network capture"]:::infra
-  CLI["miden-client CLI<br/>(isolated .miden store)"]:::cli
+  DIR["🎬 Test director"]:::test
+  CLI["🤖 Command-line client<br/>(mints coins, acts as a 3rd party)"]:::test
+  A["📱 App A — sender"]:::real
+  B["📱 App B — receiver"]:::real
+  CHAIN["⛓️ Miden blockchain"]:::real
+  SIDE["✉️ Private-note delivery"]:::real
 
-  subgraph WA["👛 Wallet A (sender)"]
-    PA["fullpage.html UI"]:::wallet
-    SWA["service worker + vault"]:::wallet
-    WASM["in-browser WASM prover<br/>(offscreen-doc)"]:::wallet
-  end
-  WB["👛 Wallet B (recipient)"]:::wallet
-
-  HOOKS["__TEST_STORE__ / __TEST_INTERCOM__<br/>__test_skip_onboarding / __TEST_SET_SHARE_PRIVATELY__"]:::hook
-
-  SEQ["node RPC :57291"]:::real
-  PROV["remote prover :50052"]:::real
-  NTL["note-transport :57292"]:::real
-
-  FIX --> PA & WB
-  FIX --> CLI
-  CLI -->|"deploy faucet · mint · sync"| SEQ
-  CLI -->|"deliver private notes"| NTL
-  PA -->|"intercom port"| SWA
-  SWA -->|"submit send/claim"| SEQ
-  SWA -->|"delegated proving (default)"| PROV
-  SWA -.->|"local proving path"| WASM
-  PA -->|"public note"| SEQ
-  PA -->|"private note"| NTL
-  SEQ -->|"B syncs public note"| WB
-  NTL -->|"B syncs private note"| WB
-  HOOKS -.->|"drive sync / read balances"| PA
+  DIR --> A
+  DIR --> B
+  CLI -->|"mint coins to A"| CHAIN
+  A -->|"public note"| CHAIN
+  A -->|"private note"| SIDE
+  CHAIN -->|"B sees it & claims"| B
+  SIDE -->|"B receives it privately"| B
 
   classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
-  classDef wallet fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
-  classDef hook fill:#134e4a,stroke:#2dd4bf,stroke-width:2px,color:#ccfbf1;
-  classDef cli fill:#3f3f46,stroke:#a1a1aa,stroke-width:2px,color:#e4e4e7;
-  classDef infra fill:#1f2937,stroke:#6b7280,stroke-width:1px,color:#e5e7eb,stroke-dasharray:4 3;
+  classDef test fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
 ```
 
-**What we solved / built**
+> ### 🏆 Two real wallets, really trading
+> Most test suites poke a single app talking to a fake server. Ours runs **two independent copies of the shipped wallet plus the official Miden client as a third party**, all on one real chain — so a "send" is a real end-to-end transfer someone actually receives. We even cover both ways the app can do its proving: handed off to a remote prover, *and* computed entirely inside the browser.
 
-- **Two independent real wallets + a real CLI counterparty** on one chain — genuine end-to-end value transfer, not a single wallet talking to a mock.
-- **Both proving paths covered** — delegated (remote prover) *and* in-browser WASM proving via the offscreen-doc/methods-worker, toggled per spec.
-- **Public vs. private note fidelity** — private notes actually traverse the note-transport relay; the harness asserts the recipient discovers them on sync.
-- **An observability layer** (timeline + step runner + per-realm network/IndexedDB capture) that demuxes page vs. service-worker vs. worker traffic for post-mortem.
+<details>
+<summary>The tests in this group</summary>
+
+Create-and-unlock, minting & balances, public send, private send, in-browser proving, claiming several notes at once, multiple accounts, and grouped claims.
+</details>
 
 ---
 
-## 2 · Swap / PSWAP (in-protocol DEX)
+## 2 · Trading — swaps between two people
 
-Maker/taker across two real wallets: a maker mints a **PSWAP order note** through the real `#/swap` UI; a taker fills it (full / partial / reverse), cancels + reclaims, and a **guardian-backed maker** co-signs its create + payback.
+**What these tests prove:** one person can post an offer ("10 of coin A for 9 of coin B") and another can fill it — fully, partially, in either direction — or the maker can cancel and get their coins back. It also works when the maker is a **guardian-secured** account.
 
-| Spec | Scenario |
-|---|---|
-| `swap-full-fill` / `-reverse` | A↔B full fill both directions → lineage `filled`, balances credited |
-| `swap-partial-fill` | fill 4 of 10 → order stays active with correct remainder |
-| `swap-cancel` | unfilled order locks funds → `cancelSwapOrder` reclaims them |
-| `swap-create-guards` | create-form validation (`canProceed`) |
-| `swap-guardian` | **guardian maker**: co-signed `pswapCreate` + P2ID payback |
-| `swap-smoke` | green-baseline route mount |
+```mermaid
+flowchart LR
+  MK["📱 Maker<br/>(posts the offer)"]:::real
+  TK["📱 Taker<br/>(fills the offer)"]:::real
+  CHAIN["⛓️ Miden blockchain"]:::real
+  GUARD["🔐 Guardian<br/>(if the maker is secured)"]:::real
+
+  MK -->|"post offer on-chain"| CHAIN
+  MK ==>|"hand the offer note<br/>straight to the taker"| TK
+  TK -->|"fill it"| CHAIN
+  MK -.->|"co-sign the offer"| GUARD
+  CHAIN -->|"both sides settle"| MK & TK
+
+  classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
+```
+
+> ### 🏆 We fixed a real-world timing race
+> On a live network, whoever fills an order finds it by watching the chain — but there's a split-second where a freshly-posted order isn't visible yet. Instead of adding flaky "wait and hope" delays, the test **hands the order note directly from the maker to the taker** (the thick arrow above), exactly the way a professional market-making bot would. Reliable, and closer to real trading, not further from it.
+
+<details>
+<summary>The tests in this group</summary>
+
+Full fill (both directions), partial fill with remainder, cancel-and-reclaim, create-form validation, a guardian-secured maker, and a smoke test.
+</details>
+
+---
+
+## 3 · Bridging out — Miden money becomes Ethereum money
+
+**What these tests prove:** you can send value *out* of Miden and have it arrive on Ethereum as USDC.
+
+This runs at **two levels of realism**:
+
+- **Post-merge (after every merge to main):** against the **real** hosted bridge service and the **real** Ethereum test network (Sepolia) — and we then check that **actual USDC really shows up** at the destination.
+- **Every pull request:** a fully self-contained version using a **stand-in** bridge service and a **local** Ethereum, so the guardian-secured bridge path is checked on every commit.
+
+(There are also two bridge *routes*: a **fast** one, via the Epoch service, and a **slower** one via a bridge network called **AggLayer** — both covered.)
+
+```mermaid
+flowchart LR
+  APP["📱 The wallet app"]:::real
+  CHAIN["⛓️ Miden blockchain"]:::real
+  BRIDGE["🌉 Bridge service<br/>real hosted · post-merge<br/>stand-in · every PR"]:::fake
+  ETH["🔷 Ethereum + USDC<br/>real Sepolia · post-merge<br/>local · every PR"]:::world
+  CHECK["🔎 Result check<br/>(did real USDC arrive?)"]:::test
+
+  APP -->|"lock coins in a note"| CHAIN
+  APP -->|"ask to bridge"| BRIDGE
+  BRIDGE -->|"deliver USDC on the other side"| ETH
+  CHECK -->|"read the balance"| ETH
+
+  classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
+  classDef fake fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#ffedd5;
+  classDef world fill:#4c1d95,stroke:#a78bfa,stroke-width:3px,color:#ede9fe;
+  classDef test fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
+```
+
+> ### 🏆 We follow the money all the way to Ethereum
+> The post-merge test doesn't stop at "the app said it worked." It bridges real value and then **reads the destination wallet on a real Ethereum test network to confirm the USDC actually landed.** That's the strongest possible proof a bridge works.
+
+> ### 🏆 An on-chain "note inspector" that caught a real bug
+> The bridge service is picky about the *exact shape* of the coin-note the wallet hands it. We built a check that reads the note straight off the chain and verifies its shape is exactly right. It catches a category of mistake that once slipped into a release (a guardian bridge quietly minting the wrong kind of note) — now it can't happen silently again.
+
+<details>
+<summary>The tests in this group</summary>
+
+Fast bridge (real USDC on Sepolia, post-merge), the slower AggLayer route, and a guardian-secured bridge that runs fully offline on every pull request.
+</details>
+
+---
+
+## 4 · Earning — lending your coins out
+
+**What these tests prove:** you can deposit coins as collateral to earn yield, and later withdraw — including a **gasless** withdrawal where someone else pays the Ethereum fee.
+
+Because the lending service is hosted on someone else's servers, this whole flow runs against **stand-ins**: a faithful fake of the lending service, plus a **local** Ethereum with convincing fake versions of the relevant contracts.
 
 ```mermaid
 flowchart TB
-  HELP["swap.ts driver<br/>fundSwapPair / createSwapOrder / fillSwapOrder"]:::infra
-  CLI["miden-client CLI<br/>faucet/mint oracle"]:::cli
+  APP["📱 The wallet app"]:::real
+  CHAIN["⛓️ Miden blockchain"]:::real
+  LEND["🏦 Lending service<br/>(faithful stand-in)"]:::fake
+  ETH["🔌 Ethereum, run locally<br/>+ fake USDC & contracts"]:::fake
+  RELAY["⛽ Fee-paying relayer<br/>(stand-in)"]:::fake
 
-  MK["👛 Wallet A · MAKER"]:::wallet
-  TK["👛 Wallet B · TAKER"]:::wallet
-  HOOKS["PSWAP SW hooks<br/>__TEST_PSWAP_ORDER_INFO__ · __TEST_EXPORT_NOTE__<br/>__TEST_PSWAP_CONSUME__ · __TEST_PSWAP_LINEAGE__"]:::hook
-  PRICE["external price feed<br/>(intercepted + aborted)"]:::double
-
-  SEQ["node RPC :57291"]:::real
-  PROV["remote prover :50052"]:::real
-  GD["guardian :3000<br/>(guardian-maker scenario)"]:::real
-
-  HELP --> CLI
-  CLI -->|"deploy 2 faucets · mint offer/request"| SEQ
-  HELP -->|"drive #/swap UI"| MK
-  MK -->|"prove pswapCreate"| PROV
-  MK -->|"submit + publish PSWAP note"| SEQ
-  MK -.->|"co-sign create + payback"| GD
-  MK ==>|"deterministic hand-off:<br/>export Full NoteFile (hex)"| TK
-  TK -->|"pswapConsume fill (vault-signed)"| SEQ
-  TK -->|"prove fill"| PROV
-  HOOKS -.->|"order info / lineage / balances"| MK
-  MK -.-> PRICE
+  subgraph DEP["Depositing"]
+    direction LR
+    APP -->|"1 · lock collateral in a note"| CHAIN
+    APP -->|"2 · open a position"| LEND
+  end
+  subgraph WD["Withdrawing (gasless)"]
+    direction LR
+    APP -->|"3 · ask to withdraw"| RELAY
+    RELAY -->|"4 · submits the tx & pays the fee"| ETH
+    LEND -->|"5 · coins bridge back to you"| CHAIN
+  end
 
   classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
-  classDef double fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#ffedd5;
-  classDef wallet fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
-  classDef hook fill:#134e4a,stroke:#2dd4bf,stroke-width:2px,color:#ccfbf1;
-  classDef cli fill:#3f3f46,stroke:#a1a1aa,stroke-width:2px,color:#e4e4e7;
-  classDef infra fill:#1f2937,stroke:#6b7280,stroke-width:1px,color:#e5e7eb,stroke-dasharray:4 3;
+  classDef fake fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#ffedd5;
 ```
 
-**What we solved / built**
+> ### 🏆 A "gasless" withdrawal, faked convincingly offline
+> Normally you pay a fee to move money on Ethereum. This flow uses a brand-new Ethereum feature (account "delegation") to let a **relayer pay the fee for you**. We reproduce that flow — the delegation, the relayer, the token contracts — with local stand-ins, so a genuinely cutting-edge feature is tested without touching a real network or spending a cent.
 
-- **Deterministic maker→taker hand-off** — a guardian maker's public note commits with canonicalization delay, and the SDK doesn't back-fill a public note committed *before* a reactive taker subscribes to its tag. We solved the race by **exporting the maker's Full `NoteFile` and importing it on the taker** (then consuming by id) — timing-independent, exactly how a live solver reads it from the mempool.
-- **SW-side taker hooks** — filling requires the SW vault signer (the page→intercom path yields an empty signature), so `__TEST_PSWAP_CONSUME__` runs *inside the service worker* with the injected vault signer.
-- **Guardian maker swaps** — the co-signed `pswapCreate` (mints the maker note) and the P2ID payback claim, proving multisig works through the DEX.
-- **On-chain lineage + balance assertions** via SW hooks; the external price feed is intercepted so specs don't depend on a third party.
+<details>
+<summary>The tests in this group</summary>
+
+Deposit collateral and confirm the position opens; withdraw a funded position gasless-ly and confirm the coins bridge back.
+</details>
 
 ---
 
-## 3 · Bridge-out (Miden → EVM)
+## 5 · Guardian security — two signatures to move money
 
-Three specs across **two realism tiers**. The standard-account Fast/Epoch + Slow/AggLayer specs run against **real testnet + real hosted infra** (nightly). The **guardian** Fast/Epoch spec is **fully hermetic** and per-PR.
+**What these tests prove:** a "guardian" account — one that needs **two signatures** (your device *and* a guardian server) — can still fund, claim, and send. A stolen device alone can't move the money.
 
-| Spec | Tier | Flow |
+The clever part: we don't fake the guardian. Each test can spin up the **real guardian server** (the same software that protects real users) and do the genuine two-signature handshake.
+
+```mermaid
+flowchart LR
+  APP["📱 App — guardian account"]:::real
+  DEVICE["🔑 Signature 1<br/>(your device key)"]:::real
+  GUARD["🔐 Signature 2<br/>(real guardian server)"]:::real
+  CHAIN["⛓️ Miden blockchain<br/>(checks both signatures)"]:::real
+  B["📱 Recipient"]:::real
+
+  APP --> DEVICE
+  APP -.->|"ask to co-sign"| GUARD
+  DEVICE & GUARD -->|"two signatures"| CHAIN
+  CHAIN -->|"transfer approved"| B
+
+  classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
+```
+
+> ### 🏆 Real multisig security, tested on every change
+> Standing up a real co-signing server in an automated test is unusual. We do it — so the "two signatures to move money" promise is verified against the actual guardian software, not a stub. This is the foundation the guardian **trade** and **bridge** tests build on too.
+
+<details>
+<summary>The tests in this group</summary>
+
+A guardian account funds, claims notes, and sends to a normal wallet — every step co-signed for real.
+</details>
+
+---
+
+## 6 · Bringing value in on iPhone
+
+**What these tests prove:** on an **iPhone**, you can bring value *in* from Ethereum. The app connects to an Ethereum wallet via WalletConnect, that wallet signs a deposit, and the coins arrive on Miden.
+
+There's a chicken-and-egg problem: to test "connect to another wallet and have it sign," you'd normally need a *second real wallet and a human*. So we built one.
+
+> ### 🏆 We built a robot Ethereum wallet that speaks WalletConnect
+> To be the other party in a cross-chain deal, the test needs an Ethereum wallet on the far side. So we built a **robot wallet** that speaks the real WalletConnect protocol: it pairs with the app over the genuine public WalletConnect relay, approves the session, and **signs real Ethereum transactions** — with no human and no MetaMask anywhere in the loop. (The signed transactions go to our local Ethereum, not the real one.)
+
+```mermaid
+flowchart TB
+  PHONE["📱 iPhone simulator<br/>running the real app"]:::real
+  DIR["🎬 Test director"]:::test
+  ROBOT["🤖 Our WalletConnect robot wallet<br/>(signs on the Ethereum side)"]:::test
+  RELAY["📡 WalletConnect message relay<br/>(real, public)"]:::world
+  ETH["🔌 Ethereum, run locally<br/>+ stand-in bridge & USDC contracts"]:::fake
+  CHAIN["⛓️ Miden blockchain"]:::real
+
+  DIR --> PHONE
+  DIR --> ROBOT
+  PHONE <-->|"find each other & agree to sign"| RELAY
+  ROBOT <-->|"find each other & agree to sign"| RELAY
+  ROBOT -->|"sign the deposit"| ETH
+  ETH -->|"coins delivered as a note"| CHAIN
+  CHAIN -->|"app shows 'received'"| PHONE
+
+  classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
+  classDef fake fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#ffedd5;
+  classDef world fill:#4c1d95,stroke:#a78bfa,stroke-width:3px,color:#ede9fe;
+  classDef test fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
+```
+
+> ### 🏆 Driving the real app on a real iPhone (well, simulator)
+> These tests run on **actual iPhone simulators** — two of them, so the two-wallets story works on mobile too — and reach inside the app's screen the way a developer's debugger would, tapping real buttons and reading real state. Some buttons even live *outside* the web page, in the phone's own native interface; we built a special hook so the test can press those too.
+
+> ### 🏆 Convincing fakes that enforce the real rules
+> Ethereum contracts live at fixed addresses. Our stand-ins for the bridge and USDC are deployed at **the exact same addresses the app expects** — so the app runs its real bridging code, unaware anything is a test. And the fakes aren't pushovers: the bridge stand-in *rejects* a malformed deposit on-chain, and the test decodes the app's actual transaction to confirm it asked for exactly the right thing. A bug can't pass by doing *something* — it has to do the *right* thing.
+
+> ⚠️ **Honest status:** this mobile bridge-in suite is still being hardened (the shared WalletConnect relay is flaky on our free tier) and the feature ships behind a flag, so it isn't yet a blocking gate. The harness engineering above is built and in place.
+
+<details>
+<summary>The tests in this group</summary>
+
+Bridge-in via the two routes, a WalletConnect-pairing-only check, a delivery-only check, and the guardian flow — all on iPhone. (An Android two-emulator harness also exists in the codebase, not yet wired into CI.)
+</details>
+
+---
+
+## How real is it, really?
+
+The honest breakdown of what's genuine versus stood-in:
+
+| Layer | In the test lab | |
 |---|---|---|
-| `bridge-out-epoch` | 🟪 real testnet | mint BRDG → Fast route → **real USDC arrives on Sepolia** (read via viem) |
-| `bridge-out-agglayer` | 🟪 real testnet | Slow/AggLayer route → Miden-side `bridged-send` row completes |
-| `bridge-out-epoch-guardian` | 🟠 hermetic | **guardian** account → asserts the minted collateral note is a **public recallable P2IDE** |
+| **The wallet app** | the real, shipped app (built with test-observation hooks, stripped from releases) | ✅ real |
+| **The Miden blockchain** | booted fresh per run for pull-request tests; the genuine public test network otherwise | ✅ real |
+| **The proving (cryptography)** | both the remote and in-browser paths | ✅ real |
+| **Private-note delivery** | the real delivery service | ✅ real |
+| **The guardian co-signer** | the real guardian server | ✅ real |
+| **The independent counterparty** | the official command-line client | ✅ real |
+| **WalletConnect** | the real app ↔ real public relay ↔ our robot wallet | ✅ real link, 🎭 robot far side |
+| **Ethereum** | genuine Ethereum software, run locally (for bridging & earning) | ✅ real (local) |
+| **Ethereum contracts (bridge, USDC…)** | faithful fakes at the *real* addresses, enforcing real rules | 🎭 stand-in |
+| **The hosted bridge service** | real in post-merge bridge runs; stand-in per pull request | 🌍 real / 🎭 stand-in |
+| **The hosted lending service** | always a stand-in | 🎭 stand-in |
+| **Money actually arriving on Ethereum (post-merge bridge)** | real USDC on a real test network | ✅ real |
 
-```mermaid
-flowchart TB
-  subgraph REALTIER["🟪 real-testnet tier (nightly)"]
-    direction TB
-    HALLOC["hosted Epoch allocator + solver<br/>testnet-dev.epochprotocol.xyz"]:::ext
-    SEP["Sepolia + USDC ERC20"]:::ext
-    VIEM["viem read client<br/>(asserts USDC balanceOf ↑)"]:::infra
-    AGGL["AggLayer L1 relayer + bridge"]:::ext
-  end
-
-  WA["👛 wallet A · #/send"]:::wallet
-  NOTE["P2IDE collateral note<br/>(public, recallable)"]:::infra
-  MT["Miden chain + delegated prover"]:::real
-  CLI["miden-client CLI (funds BRDG)"]:::cli
-
-  subgraph HERM["🟠 hermetic guardian tier (per-PR)"]
-    ALLOC["FakeEpochAllocator :8548"]:::double
-    ANVIL["Anvil :8545 (chainId 11155111)"]:::double
-    COMPACT["MockCompact @ 0x…9788"]:::evm
-    GD["local guardian :3000"]:::real
-    INSPECT["__TEST_INSPECT_SENT_NOTE__<br/>(asserts public + P2IDE on-chain)"]:::hook
-  end
-
-  CLI --> MT
-  WA -->|"build + prove + submit"| MT
-  WA -->|"mints"| NOTE
-  NOTE -.->|"solver reads on-chain"| HALLOC
-  WA -->|"forward quote + solveIntent"| HALLOC
-  HALLOC -->|"settles EVM leg"| SEP
-  VIEM --> SEP
-  WA -.->|"Slow route"| AGGL
-
-  WA -->|"guardian: co-sign send proposal"| GD
-  WA -->|"quote / miden-recipient / compact"| ALLOC
-  WA -->|"getForcedWithdrawalStatus"| ANVIL
-  ANVIL -.-> COMPACT
-  INSPECT -.->|"listSent → note type + script root"| MT
-
-  classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
-  classDef double fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#ffedd5;
-  classDef evm fill:#831843,stroke:#f472b6,stroke-width:2px,color:#fce7f3;
-  classDef wallet fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
-  classDef hook fill:#134e4a,stroke:#2dd4bf,stroke-width:2px,color:#ccfbf1;
-  classDef cli fill:#3f3f46,stroke:#a1a1aa,stroke-width:2px,color:#e4e4e7;
-  classDef ext fill:#4c1d95,stroke:#a78bfa,stroke-width:3px,color:#ede9fe;
-  classDef infra fill:#1f2937,stroke:#6b7280,stroke-width:1px,color:#e5e7eb,stroke-dasharray:4 3;
-```
-
-**What we solved / built**
-
-- **A real-value end-to-end assertion** on the nightly tier: bridge out, then read **actual USDC landing on Sepolia** with viem — the strongest possible proof.
-- **A hermetic guardian tier** that stands in the fake Epoch allocator + Anvil/MockCompact for the hosted solver, so the guardian bridged-send path is a **per-PR gate** (not just nightly).
-- **On-chain note-shape verification** — `__TEST_INSPECT_SENT_NOTE__` reads the committed note's `noteType` and compares its script MAST root to `NoteScript.p2id()/.p2ide()`, asserting **public + P2IDE**. This is the guard that would have caught the private-P2ID guardian bug that shipped.
-- **Fresh-sync reclaim height** — the guardian collateral note's absolute reclaim height is measured against a *current* chain head so the remaining recall window can't fall below the allocator's minimum.
-
----
-
-## 4 · Earn (Epoch lending)
-
-The real `/earn` UI across two flows: a **Miden→Sepolia collateral deposit** (recallable P2IDE, solver-fulfilled EVM leg) and a **gasless EIP-7702 Sepolia→Miden "Smart Withdraw."** Fully hermetic — three programmable doubles.
-
-| Spec | Flow |
-|---|---|
-| `earn-deposit` | catalog → vault → deposit → mint recallable P2IDE collateral → Epoch confirms |
-| `earn-withdraw` | seed a funded position → **gasless 7702 relay** redeem → bridge back → `received` |
-
-```mermaid
-flowchart TB
-  WA["👛 wallet A · /earn UI<br/>+ Epoch read-only SDK"]:::wallet
-  OWNER["vault-derived EVM owner<br/>getEvmAddress()"]:::wallet
-  CLI["miden-client CLI<br/>(collateral faucet)"]:::cli
-  HOOKS["SW + page earn hooks<br/>__TEST_LATEST_EARN_DEPOSIT__ · __TEST_SET_EARN_FAUCET__"]:::hook
-
-  subgraph EPOCH["🟠 Epoch doubles (node:http)"]
-    ALLOC["FakeEpochAllocator :8548<br/>quote · miden-recipient · compact<br/>intentStatus · gasless-status · relay-execute"]:::double
-    POS["FakeEpochPositions :8549<br/>vault catalog + seeded position"]:::double
-  end
-
-  subgraph EVM["🟠 Anvil :8545 · EVM doubles (anvil_setCode)"]
-    ANVIL["Anvil (chainId 11155111)"]:::double
-    COMPACT["MockCompact<br/>getForcedWithdrawalStatus→Disabled"]:::evm
-    USDC["MockUsdc @ 0x2BB4…fd69"]:::evm
-    D7702["EIP-7702 delegation<br/>0xef0100 + MetaMask impl"]:::evm
-  end
-
-  MT["🟢 local Miden node"]:::real
-
-  WA -->|"catalog"| POS
-  WA -->|"deposit: nonce/quote/compact/status"| ALLOC
-  WA -->|"withdraw: gasless-status / relay-execute"| ALLOC
-  WA -->|"getForcedWithdrawalStatus"| ANVIL
-  WA -->|"balanceOf / approve / redeem"| USDC
-  ANVIL -.-> COMPACT & USDC & D7702
-  CLI -->|"mint collateral faucet"| MT
-  WA -->|"mint recallable P2IDE collateral"| MT
-  HOOKS -.-> WA
-
-  classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
-  classDef double fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#ffedd5;
-  classDef evm fill:#831843,stroke:#f472b6,stroke-width:2px,color:#fce7f3;
-  classDef wallet fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
-  classDef hook fill:#134e4a,stroke:#2dd4bf,stroke-width:2px,color:#ccfbf1;
-  classDef cli fill:#3f3f46,stroke:#a1a1aa,stroke-width:2px,color:#e4e4e7;
-  classDef infra fill:#1f2937,stroke:#6b7280,stroke-width:1px,color:#e5e7eb,stroke-dasharray:4 3;
-```
-
-**What we solved / built**
-
-- **A multi-endpoint fake allocator** that answers *every* endpoint the Epoch SDK hits on **both** the deposit and withdraw paths (`/checkIfDepositNeeded`, `/miden-recipient`, `/compact`, `/intentStatus`, `/suggested-nonce`, `/gasless-status`, `/relay-execute`) with **programmable** per-leg status — so a spec can drive the intent to `completed` deterministically.
-- **"The Compact" stubbed on-chain** at the SDK's hardcoded `COMPACT_ADDRESS` via `anvil_setCode`, returning `getForcedWithdrawalStatus → Disabled` so `solveIntent` proceeds — the one genuine EVM read the deposit makes.
-- **A full EIP-7702 gasless withdraw simulation** — 7702 delegation code written at the vault-derived EVM owner (`anvil_setCode`), a Mock USDC, and a fake relayer — reproducing the sponsored redeem without a real relayer or mainnet.
-- **Guardian earn deposits** mint the same recallable P2IDE via the shared guardian custom-proposal path.
-
----
-
-## 5 · Guardian co-sign (3-key multisig)
-
-The full **3-key** path: the device **HOT** key signs, a **real OpenZeppelin guardian** co-signs over HTTP, and the **on-chain multisig** verifies per-procedure thresholds — for both consume and send proposals.
-
-| Spec | Flow |
-|---|---|
-| `guardian-send-consume` | create a Guardian wallet → fund + **consume** notes (co-signed) → **send** to B (co-signed) → B receives |
-
-```mermaid
-flowchart TB
-  WA["👛 wallet A · Guardian 3-key<br/>(hot + cold + guardian)"]:::wallet
-  MS["MultisigService<br/>(wallet-side guardian client)"]:::wallet
-  SIGNER["WalletSigner (ECDSA)<br/>hot key via SW vault"]:::wallet
-  WASM["WASM client + TransactionProver"]:::wallet
-  HOOK["__TEST_GUARDIAN_AUTH__<br/>(asserts 2 signers on-chain)"]:::hook
-
-  GD["🟢 guardian :3000 / :50051<br/>(OpenZeppelin, real)"]:::real
-  PG[("postgres :5432")]:::infra
-  SEQ["🟢 node RPC :57291"]:::real
-  PROV["🟢 remote prover :50052"]:::real
-  CLI["miden-client CLI (funds A)"]:::cli
-  WB["👛 wallet B (recipient)"]:::wallet
-
-  CLI -->|"mint to A"| SEQ
-  WA --> MS
-  MS -->|"bind hot signer"| SIGNER
-  SIGNER -->|"signWord via SW vault"| WA
-  MS -->|"register / propose / co-sign"| GD
-  GD --> PG
-  GD -->|"canonicalize delta"| SEQ
-  MS -->|"execute → prove → submit"| WASM
-  WASM -->|"submit co-signed tx"| SEQ
-  WASM -->|"delegated proving"| PROV
-  WA -->|"co-signed P2ID send"| WB
-  HOOK -.-> WA
-
-  classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
-  classDef wallet fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
-  classDef hook fill:#134e4a,stroke:#2dd4bf,stroke-width:2px,color:#ccfbf1;
-  classDef cli fill:#3f3f46,stroke:#a1a1aa,stroke-width:2px,color:#e4e4e7;
-  classDef infra fill:#1f2937,stroke:#6b7280,stroke-width:1px,color:#e5e7eb,stroke-dasharray:4 3;
-```
-
-**What we solved / built**
-
-- **A real OpenZeppelin guardian backend in Docker** (+ postgres) for **per-PR co-signed E2E** — the actual server-held co-signer, not a mock signature.
-- **The complete 3-key handshake** — hot key signs a word via the SW vault, the guardian co-signs over HTTP, the multisig proof is proven (delegated) and the on-chain state verifies; `__TEST_GUARDIAN_AUTH__` asserts two signers landed.
-- **Canonicalization handling** — the guardian canonicalizes accepted deltas against the chain; the harness waits it out rather than racing it.
-- This is the substrate the guardian **swap**, **bridge**, and **earn** scenarios build on.
-
----
-
-## 6 · iOS bridge-in (EVM → Miden)
-
-Drives the wallet's **real WKWebView on two real iOS simulators** over a simulator-compatible CDP bridge, exercising **bridge-in** (EVM→Miden): the app's native **Reown** pairs with a **headless WalletConnect counterparty** over the real relay and signs a **real** bridge tx on Anvil.
-
-| Spec | Flow |
-|---|---|
-| `bridge-in-deposit` | Receive → Cross-Chain → ETH → Slow/AggLayer → confirm → reconciles to `received` |
-| `bridge-in-deposit-epoch` | Fast/Epoch: real `depositERC20AndRegister` on Anvil against stubbed Compact+USDC |
-| `bridge-in-wc-pairing` | WC-only de-risk: native Reown pairs with the headless counterparty → `connected` |
-| `bridge-in-receive` | Miden-leg-only smoke: a delivered note reconciles the bridged-receive row |
-| `guardian-send-consume.ios` | the guardian co-sign chain inside the WKWebView |
-
-```mermaid
-flowchart TB
-  subgraph SIMS["📱 two real iOS 26 simulators"]
-    SA["iPhone 17 · wallet A<br/>App.app (WKWebView)"]:::wallet
-    SB["iPhone 17 Pro · wallet B"]:::wallet
-  end
-  CDP["CdpBridge (appium-remote-debugger)<br/>over RWI UNIX socket"]:::hook
-  POM["IosWalletPage (POM)<br/>+ __TEST_TRIGGER_NAVBAR_ACTION__"]:::hook
-
-  WC["WcCounterparty<br/>(headless WalletConnect v2 responder)"]:::double
-  VC["viem counterparty (Anvil dev key)"]:::wallet
-  RELAY["WalletConnect public relay<br/>wss://relay.walletconnect.org"]:::ext
-
-  subgraph EVM["🟠 Anvil :8545 · on-chain doubles"]
-    ANVIL["Anvil (chainId 11155111)"]:::double
-    AGG["MockAggLayerBridge @ 0x1348…5d1f"]:::evm
-    USDC["MockUsdc @ 0x2BB4…fd69"]:::evm
-    COMPACT["MockCompact @ 0x…9788"]:::evm
-  end
-  ALLOC["FakeEpochAllocator :8548"]:::double
-  SOLVER["miden-client CLI<br/>(Miden-side bridge solver)"]:::cli
-  MT["Miden network RPC<br/>+ delegated prover"]:::ext
-
-  POM --> CDP --> SA
-  SA -->|"native Reown pairing"| RELAY
-  WC -->|"pair off wc: URI, approve session"| RELAY
-  WC --> VC
-  VC -->|"sign bridgeAsset / depositERC20AndRegister"| ANVIL
-  SA -->|"EVM reads (balanceOf / receipt)"| ANVIL
-  SA -->|"Epoch allocator calls"| ALLOC
-  ANVIL -.-> AGG & USDC & COMPACT
-  SOLVER -->|"mint delivered note"| MT
-  SA -->|"sync + Claim-All + reconcile"| MT
-
-  classDef double fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#ffedd5;
-  classDef evm fill:#831843,stroke:#f472b6,stroke-width:2px,color:#fce7f3;
-  classDef wallet fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
-  classDef hook fill:#134e4a,stroke:#2dd4bf,stroke-width:2px,color:#ccfbf1;
-  classDef cli fill:#3f3f46,stroke:#a1a1aa,stroke-width:2px,color:#e4e4e7;
-  classDef ext fill:#4c1d95,stroke:#a78bfa,stroke-width:3px,color:#ede9fe;
-```
-
-**What we solved / built**
-
-- **Simulator-compatible CDP** — a bridge over `appium-remote-debugger` on the WebKit RWI UNIX socket to eval JS / click `data-testid` nodes in a real WKWebView (the stock CDP adapters don't work on the simulator).
-- **A headless WalletConnect counterparty** that plays the *wallet/responder* side of the **real** WC v2 handshake the app's native Reown initiates — pairing over the genuine public relay, approving an `eip155:11155111` session, then **signing and broadcasting real bridge txs** on Anvil with a viem account.
-- **On-chain EVM doubles at production addresses** — the AggLayer unified-bridge, USDC, and The Compact are deployed via `anvil_setCode` at the *exact* addresses the wallet's config hardcodes, so the real `depositERC20AndRegister` path executes unmodified.
-- **The native-navbar test trigger** — iOS CTAs ("Claim All", "Continue") render in a `UIWindow` *outside* the WebView where CDP can't reach; `__TEST_TRIGGER_NAVBAR_ACTION__` exposes them.
-- **The CLI as the Miden-side bridge solver** — mints the delivered note so the app reconciles the bridged-receive to `received`.
-
----
-
-## Fidelity scorecard
-
-How close to production each layer runs:
-
-| Layer | In the harness | Real or double? |
-|---|---|---|
-| **Wallet** | the shipped production bundle (Chrome MV3 / iOS WKWebView), driven through its real UI | 🟦 **real** |
-| **Miden chain** | `miden-node` (validator + sequencer + ntx-builder) in Docker | 🟩 **real** |
-| **Prover** | `miden-remote-prover` (delegated) *and* in-browser WASM (local) | 🟩 **real** (both paths) |
-| **Note transport** | `miden-note-transport` built from source, protocol-matched | 🟩 **real** |
-| **Guardian** | OpenZeppelin `guardian` + postgres | 🟩 **real** |
-| **Counterparty** | the real Rust `miden-client` CLI | ⬛ **real** (independent) |
-| **WalletConnect** | real Reown ↔ real public relay ↔ headless responder | 🟪 real relay + 🟧 responder |
-| **EVM chain** | Foundry Anvil at Sepolia's chain-id | 🟧 hermetic (real EVM) |
-| **EVM contracts** | AggLayer bridge / USDC / The Compact | 🟥 doubles at **production addresses** |
-| **Epoch allocator/solver** | hosted-only third party | 🟪 real (nightly) · 🟧 endpoint-accurate double (per-PR) |
-| **EVM settlement (nightly)** | real Sepolia + real USDC, asserted via viem | 🟪 **real** |
-
-> **The short version:** the wallet, the chain, the prover, the note relay, the guardian, and the counterparty are all *real*. We fake only the hosted third‑party services we can't run — and even those are endpoint‑accurate stand‑ins or on‑chain bytecode deployed at the *same addresses* production uses. The nightly tier closes the loop against real testnet + real Sepolia USDC.
+> **The short version:** the app, the blockchain, the cryptography, the security co-signer, and the counterparty are all *real*. We stand in only for the outside services we can't run ourselves — and we make those stand-ins convincing enough, at the real addresses and enforcing the real rules, that the app never knows the difference.
