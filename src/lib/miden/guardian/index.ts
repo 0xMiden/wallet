@@ -181,7 +181,12 @@ export class MultisigService {
   }
 
   /**
-   * Create a send (P2ID) transaction proposal.
+   * Create a send (P2ID) transaction proposal. Always private — the multisig
+   * client's send proposal has no reclaim-height option, so this is only used
+   * for a plain (non-recallable) Guardian send. Anything that needs a recall
+   * window or a public, allocator-readable note (recallable send, Epoch bridge,
+   * earn deposit) is built as a P2IDE send request and routed through
+   * `createCustomProposal`.
    */
   async createSendProposal(recipientId: string, faucetId: string, amount: bigint): Promise<Proposal> {
     return withWasmClientLock(() =>

@@ -397,6 +397,75 @@ const buildColdServiceForAccount = async (
 };
 
 /**
+ * Build (and persist for retry) the serialized P2IDE send-request bytes for a
+ * Guardian recallable send. `createP2idProposal` can only mint a plain P2ID, so
+ * any note that needs a reclaim height — a user "recall by" send, or an Epoch
+ * bridge/allocator collateral note the solver validates on-chain — is built here
+ * as a P2IDE send request and driven through `createCustomProposal` instead.
+ *
+ * The P2IDE note's serial number is random, so the request must be built ONCE and
+ * the SAME bytes reused for both `createCustomProposal` and
+ * `signAndCreateTransactionRequest` — persisted on the row so a retry after a
+ * restart reuses them (same rule as the PSWAP case). `recallBlocks` is a RELATIVE
+ * blocks-until-recall offset, converted to an absolute reclaim height here
+ * (`syncHeight + recallBlocks`) — the guardian-path counterpart of the
+ * relative→absolute conversion in `MidenClientInterface.sendTransaction`.
+ */
+const ensureGuardianRecallableSendRequestBytes = async (
+  transaction: ITransaction,
+  recipientId: string,
+  faucetId: string,
+  amount: bigint,
+  noteType: NoteType,
+  recallBlocks: number,
+  opts: { freshSync?: boolean } = {}
+): Promise<Uint8Array> => {
+  if (transaction.requestBytes) return transaction.requestBytes;
+  const requestBytes = await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient();
+    // `freshSync` (Epoch bridge + earn collateral): the solver's allocator
+    // validates the note's REMAINING reclaim window against its own (later) chain
+    // head, so the absolute reclaim height must be measured against a CURRENT head
+    // — a stale cached height on a cold-started wallet could understate it below the
+    // allocator's minimum and get the note rejected. A network sync can fail, and
+    // that must NOT fail an otherwise-submittable request, so fall back to the
+    // last-synced height (the recall buffer absorbs mild lag). A plain recallable
+    // user send has no such validator, so it reads the cached height directly.
+    let syncHeight: number;
+    if (opts.freshSync) {
+      try {
+        syncHeight = (await midenClient.client.sync()).blockNum();
+      } catch (syncError) {
+        console.warn('[Guardian] fresh sync before P2IDE note build failed; using last-synced height', syncError);
+        syncHeight = await midenClient.client.getSyncHeight();
+      }
+    } else {
+      syncHeight = await midenClient.client.getSyncHeight();
+    }
+    const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
+    try {
+      const tr = await client.newSendTransactionRequest(
+        accountIdStringToSdk(transaction.accountId),
+        accountIdStringToSdk(recipientId),
+        accountIdStringToSdk(faucetId),
+        noteType,
+        amount,
+        syncHeight + recallBlocks,
+        null
+      );
+      return tr.serialize();
+    } finally {
+      client.terminate();
+    }
+  });
+  transaction.requestBytes = requestBytes;
+  await Repo.transactions.where({ id: transaction.id }).modify(t => {
+    t.requestBytes = requestBytes;
+  });
+  return requestBytes;
+};
+
+/**
  * Generate a transaction for a Guardian account using the MultisigService.
  * Routes the transaction through MultisigService proposal methods.
  */
@@ -458,38 +527,16 @@ const generateGuardianTransaction = async (
         // counterpart of the relative→absolute conversion in
         // `MidenClientInterface.sendTransaction`.
         //
-        // The P2IDE note's serial number is random, so the request must be
-        // built ONCE and the exact same bytes reused for BOTH
-        // `createCustomProposal` and `signAndCreateTransactionRequest` below —
-        // persist them so a retry after a restart reuses the same request
-        // (same rule as the PSWAP case).
-        if (!transaction.requestBytes) {
-          const requestBytes = await withWasmClientLock(async () => {
-            const midenClient = await getMidenClient();
-            const syncHeight = await midenClient.client.getSyncHeight();
-            const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
-            try {
-              const tr = await client.newSendTransactionRequest(
-                accountIdStringToSdk(sendTx.accountId),
-                accountIdStringToSdk(sendTx.secondaryAccountId),
-                accountIdStringToSdk(sendTx.faucetId),
-                sendTx.noteType === NoteTypeEnum.Public ? NoteType.Public : NoteType.Private,
-                BigInt(sendTx.amount),
-                syncHeight + recallBlocks,
-                null
-              );
-              return tr.serialize();
-            } finally {
-              client.terminate();
-            }
-          });
-          transaction.requestBytes = requestBytes;
-          await Repo.transactions.where({ id: transaction.id }).modify(t => {
-            t.requestBytes = requestBytes;
-          });
-        }
+        const requestBytes = await ensureGuardianRecallableSendRequestBytes(
+          transaction,
+          sendTx.secondaryAccountId,
+          sendTx.faucetId,
+          BigInt(sendTx.amount),
+          sendTx.noteType === NoteTypeEnum.Public ? NoteType.Public : NoteType.Private,
+          recallBlocks
+        );
         proposalResult = await withGuardianConflictRetry(() =>
-          service.createCustomProposal(transaction.requestBytes!, 'recallable_send')
+          service.createCustomProposal(requestBytes, 'recallable_send')
         );
       } else {
         proposalResult = await withGuardianConflictRetry(() =>
@@ -563,18 +610,40 @@ const generateGuardianTransaction = async (
     case 'bridged-send': {
       const bridgeTx = transaction as BridgedSendTransaction;
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      if (bridgeTx.requestBytes) {
-        // Agglayer: preview the pre-built request into a custom multisig proposal.
-        proposalResult = await service.createCustomProposal(bridgeTx.requestBytes);
-      } else {
-        // Epoch: a recallable P2IDE note to the solver's allocator — propose it as
-        // a send. (The multisig send proposal is P2ID today, so the Epoch recall
-        // safety net is not yet available on Guardian accounts.)
-        proposalResult = await service.createSendProposal(
+      // Discriminate on the provider, NOT on `requestBytes` presence: the Epoch
+      // branch persists the P2IDE bytes it builds, so a retry would otherwise be
+      // mistaken for the Agglayer (pre-built request) path.
+      if (bridgeTx.extraInputs?.provider === 'epoch') {
+        // The solver's allocator requires a recallable, PUBLIC P2IDE collateral
+        // note — it reads the note on-chain (a private note is "not found on-chain")
+        // AND validates its recall window (a plain P2ID has none and is rejected,
+        // "P2IDE reclaim window too small"). `createP2idProposal` can only mint a
+        // plain P2ID, so build the same public P2IDE send request the standard-
+        // account path builds (from the row's recall height) and route it through a
+        // custom proposal — same mechanism as the Agglayer branch below.
+        const recallBlocks = bridgeTx.extraInputs?.recallBlocks;
+        if (!recallBlocks) {
+          throw new Error(
+            'Epoch bridged-send is missing recallBlocks; cannot build the recallable P2IDE collateral note the allocator requires.'
+          );
+        }
+        const requestBytes = await ensureGuardianRecallableSendRequestBytes(
+          transaction,
           bridgeTx.secondaryAccountId!,
           bridgeTx.faucetId,
-          BigInt(bridgeTx.amount)
+          BigInt(bridgeTx.amount),
+          NoteType.Public,
+          recallBlocks,
+          // Allocator-validated collateral: measure the reclaim height against a
+          // fresh chain head (same rule as earn-deposit below).
+          { freshSync: true }
         );
+        proposalResult = await withGuardianConflictRetry(() =>
+          service.createCustomProposal(requestBytes, 'bridged_send')
+        );
+      } else {
+        // Agglayer: preview the pre-built request into a custom multisig proposal.
+        proposalResult = await service.createCustomProposal(bridgeTx.requestBytes!);
       }
       break;
     }
@@ -610,57 +679,22 @@ const generateGuardianTransaction = async (
           'Earn deposit was already abandoned by the caller (epochStatus=failed) — refusing to submit an orphan collateral note.'
         );
       }
-      // The P2IDE note's serial number is random, so build the request ONCE and
-      // reuse the exact same bytes for BOTH `createCustomProposal` and
-      // `signAndCreateTransactionRequest` below; persist them so a retry after a
-      // process restart reuses the same request (same rule as send/swap).
-      if (!transaction.requestBytes) {
-        const requestBytes = await withWasmClientLock(async () => {
-          const midenClient = await getMidenClient();
-          // Prefer a fresh sync (like the non-Guardian earn path,
-          // MidenClientInterface.sendTransaction) so the absolute reclaim height is
-          // measured against a CURRENT chain head — a stale cached height on a
-          // cold-started wallet could understate it enough that the note's remaining
-          // reclaim window falls below the allocator's minimum and the deposit is
-          // rejected. But a network sync can fail/time out, and that must NOT fail an
-          // otherwise-submittable deposit, so fall back to the last-synced height (the
-          // recall buffer absorbs mild lag). This keeps the guardian path no more
-          // network-fragile than the pre-fresh-sync behavior.
-          let syncHeight: number;
-          try {
-            syncHeight = (await midenClient.client.sync()).blockNum();
-          } catch (syncError) {
-            console.warn(
-              '[Guardian] fresh sync before earn-deposit note build failed; using last-synced height',
-              syncError
-            );
-            syncHeight = await midenClient.client.getSyncHeight();
-          }
-          const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
-          try {
-            const tr = await client.newSendTransactionRequest(
-              accountIdStringToSdk(earnTx.accountId),
-              accountIdStringToSdk(earnTx.secondaryAccountId!),
-              accountIdStringToSdk(earnTx.faucetId),
-              // Earn collateral is always a PUBLIC P2IDE note — the Epoch allocator
-              // discovers and consumes it on-chain (createEarnP2IDNote hardcodes it).
-              NoteType.Public,
-              BigInt(earnTx.amount),
-              syncHeight + recallBlocks,
-              null
-            );
-            return tr.serialize();
-          } finally {
-            client.terminate();
-          }
-        });
-        transaction.requestBytes = requestBytes;
-        await Repo.transactions.where({ id: transaction.id }).modify(t => {
-          t.requestBytes = requestBytes;
-        });
-      }
+      // Build the P2IDE collateral request via the shared guardian helper (same as
+      // the recallable send / Epoch bridge paths). `freshSync`: earn collateral is
+      // allocator-validated, so measure the reclaim height against a current head.
+      // Earn collateral is always PUBLIC — the allocator discovers + consumes it
+      // on-chain (createEarnP2IDNote hardcodes it), regardless of the row's noteType.
+      const requestBytes = await ensureGuardianRecallableSendRequestBytes(
+        transaction,
+        earnTx.secondaryAccountId!,
+        earnTx.faucetId,
+        BigInt(earnTx.amount),
+        NoteType.Public,
+        recallBlocks,
+        { freshSync: true }
+      );
       proposalResult = await withGuardianConflictRetry(() =>
-        service.createCustomProposal(transaction.requestBytes!, 'earn_deposit')
+        service.createCustomProposal(requestBytes, 'earn_deposit')
       );
       break;
     }
