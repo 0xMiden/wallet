@@ -3670,10 +3670,6 @@
     "message": "Неуспешный",
     "englishSource": "Failed"
   },
-  "earnDepositGuardianUnsupported": {
-    "message": "Заработок на депозитах пока недоступен на счетах Guardian. Переключитесь на стандартный счет для внесения депозита.",
-    "englishSource": "Earn deposits aren’t available on Guardian accounts yet. Switch to a standard account to deposit."
-  },
   "reclaimFunds": {
     "message": "Возврат средств",
     "englishSource": "Reclaim funds"
