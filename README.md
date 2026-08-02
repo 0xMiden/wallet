@@ -204,6 +204,8 @@ if (isDesktop()) {
 
 ## Testing
 
+> 📐 **How the E2E harness works** — for a high-level tour of the end-to-end test lab (what each suite proves, which components are real vs. stand-ins, and how the local Ethereum is set up), see **[Inside the Miden Wallet Test Lab](playwright/e2e/docs/e2e-architecture.md)**.
+
 ```bash
 # Unit tests
 yarn test
