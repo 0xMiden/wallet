@@ -27,7 +27,9 @@ import { ConsumableNote } from '../types';
 export function NativeNoteAutoConsumeManager(): null {
   const { currentAccount, signTransaction } = useMidenContext();
   const publicKey = currentAccount?.publicKey;
-  const { data: claimableNotes } = useClaimableNotes(publicKey ?? '');
+  // Inert on the extension — the SW owns that path and the effect below bails on
+  // isExtension() — so we avoid the hook's wasted 3s chrome.storage poll there.
+  const { data: claimableNotes } = useClaimableNotes(publicKey ?? '', !isExtension());
   const running = useRef(false);
   // Latest claimable notes, read inside the tick so between-tick arrivals are picked up
   // without re-running the effect (which would clear the interval mid-consume).
@@ -65,10 +67,14 @@ export function NativeNoteAutoConsumeManager(): null {
             console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
           }
         }
-        // Drive the queue only when there is actually uncompleted work — a Completed note
-        // lingering in getConsumableNotes during chain-sync lag would otherwise spawn a
-        // redundant processing loop every tick (startBackgroundTransactionProcessing has no
-        // singleton guard). Kick regardless of `disposed`: enqueued work must be drained.
+        // Drive the queue whenever there is uncompleted work. This suppresses the main
+        // over-kick: a Completed note lingering in getConsumableNotes during chain-sync lag
+        // leaves the queue empty, so no loop is spawned. While a consume is genuinely
+        // in-flight the queue is non-empty, so a few ticks may still each spawn a fresh
+        // (unguarded) processLoop; those serialize via navigator.locks and self-terminate,
+        // and re-kicking is the SAFE choice on mobile (no SW orphan-recovery watchdog) —
+        // it guarantees a stranded Queued row is always re-driven. Kick regardless of
+        // `disposed`: enqueued work must be drained.
         if ((await getUncompletedTransactions(publicKey)).length > 0) {
           startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
         }
