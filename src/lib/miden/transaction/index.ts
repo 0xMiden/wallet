@@ -252,6 +252,19 @@ export const generateTransaction = async (
           stage: 'creating-proposal',
           nextEligibleAt: Math.floor(Date.now() / 1000) + PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC
         });
+        // An earn-deposit's requestBytes freeze an ABSOLUTE reclaim height at build
+        // time (syncHeight + recallBlocks). Unlike send/swap — whose reused note stays
+        // valid indefinitely — the Epoch allocator rejects a collateral note whose
+        // REMAINING reclaim window has shrunk below its minimum, so reusing the frozen
+        // bytes across a long requeue loop (up to MAX_QUEUED_AGE) would strand the
+        // collateral at the allocator. Drop the cached request so the next cycle rebuilds
+        // the P2IDE note against a fresh sync height. Safe here: a pending-conflict 409
+        // means no proposal was registered and no note was submitted.
+        if (transaction.type === 'earn-deposit') {
+          await Repo.transactions.where({ id: transaction.id }).modify(t => {
+            t.requestBytes = undefined;
+          });
+        }
         return;
       }
       await cancelTransaction(transaction, error);

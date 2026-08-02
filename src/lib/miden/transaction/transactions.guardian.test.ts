@@ -425,7 +425,9 @@ describe('generateTransaction — Guardian routing', () => {
       amount: 1000n,
       secondaryAccountId: 'allocator',
       faucetId: 'faucet',
-      noteType: 'public',
+      // Row says 'private', but earn collateral is always minted PUBLIC — the 4th-arg
+      // assertion ('Public') below only holds if the source ignores the row's noteType.
+      noteType: 'private',
       requestBytes: undefined,
       extraInputs: { recallBlocks: 25 },
       delegateTransaction: true
@@ -479,6 +481,15 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.createSendProposal).not.toHaveBeenCalled();
     expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('earn-proposal', requestBytes);
     expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
+
+    // Completion must route to completeEarnDepositTransaction, NOT the generic custom-tx
+    // completion — otherwise the row finishes without the collateral note id that
+    // createEarnP2IDNote reads back for the Epoch handoff (stranding the deposit).
+    // 'Deposited to lending' is set only by completeEarnDepositTransaction, so it pins
+    // the routing: deleting the completion case fails this assertion.
+    const completed = txStore.find(row => row.id === txId);
+    expect(completed?.status).toBe(ITransactionStatus.Completed);
+    expect(completed?.displayMessage).toBe('Deposited to lending');
   });
 
   it('Guardian earn-deposit reuses persisted request bytes after a retry', async () => {
@@ -563,6 +574,119 @@ describe('generateTransaction — Guardian routing', () => {
     expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
     expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
     expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('Guardian earn-deposit refuses to build a note when the allocator (secondaryAccountId) is missing', async () => {
+    const txId = 'earn-guardian-noalloc';
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'earn-deposit',
+      amount: 1000n,
+      secondaryAccountId: undefined, // no allocator to send the collateral to
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      extraInputs: { recallBlocks: 25 }, // recallBlocks present — only the allocator is missing
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // Same fail-fast as the missing-recallBlocks case — the other half of the guard.
+    expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('Guardian earn-deposit: a still-pending 409 requeues AND drops the frozen requestBytes so the next cycle rebuilds a fresh reclaim height', async () => {
+    // An earn-deposit builds requestBytes (with an absolute reclaim height) BEFORE the
+    // custom proposal. If the proposal keeps hitting a transient pending-delta 409, the
+    // row is requeued — but the frozen bytes must be dropped, or a delayed re-submit
+    // would land a collateral note whose remaining reclaim window is below the Epoch
+    // allocator's minimum (stranding the collateral). Assert the drop.
+    jest.useFakeTimers();
+    try {
+      const txId = 'earn-pending-conflict';
+      const requestBytes = new Uint8Array([21, 22, 23]);
+      txStore.push({
+        id: txId,
+        type: 'earn-deposit',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        secondaryAccountId: 'allocator',
+        faucetId: 'faucet',
+        amount: 1000n,
+        noteType: 'public',
+        extraInputs: { recallBlocks: 25 },
+        delegateTransaction: true,
+        initiatedAt: Math.floor(Date.now() / 1000)
+      });
+
+      const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
+      mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate: jest.fn() });
+
+      const conflict = { status: 409, body: 'ConflictPendingDelta' };
+      const multisigService = {
+        createCustomProposal: jest.fn(async () => {
+          throw conflict;
+        }),
+        createSendProposal: jest.fn(),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      const client = Object.assign(makeClientApi(makeResult()), {
+        getSyncHeight: jest.fn(async () => 100)
+      });
+      mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+      const pending = generateTransaction(
+        Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+          id: txId,
+          type: 'earn-deposit',
+          amount: 1000n,
+          secondaryAccountId: 'allocator',
+          faucetId: 'faucet',
+          noteType: 'public',
+          extraInputs: { recallBlocks: 25 },
+          delegateTransaction: true
+        }),
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      // Fast-forward withGuardianConflictRetry's backoff so the retry budget exhausts.
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      // Requeued (transient lock), not terminally Failed...
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      // ...and the frozen absolute-height request was dropped so the next cycle rebuilds
+      // the note against a fresh sync height (send/swap keep theirs; earn must not).
+      expect(row.requestBytes).toBeUndefined();
+      expect(multisigService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('Guardian recallable send reuses persisted request bytes after a retry', async () => {
