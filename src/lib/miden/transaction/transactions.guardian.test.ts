@@ -415,6 +415,70 @@ describe('generateTransaction — Guardian routing', () => {
     }
   );
 
+  it('Guardian Epoch bridged-send builds a public recallable P2IDE custom proposal (the allocator rejects a plain P2ID)', async () => {
+    const txId = 'guardian-bridged-send';
+    const result = makeResult();
+    const requestBytes = new Uint8Array([4, 5, 6]);
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'bridged-send',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      // provider 'epoch' + recallBlocks select the P2IDE Epoch branch; the Agglayer
+      // path carries pre-built requestBytes with provider 'agglayer'.
+      extraInputs: { provider: 'epoch', recallBlocks: 30 },
+      delegateTransaction: false
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
+    const terminate = jest.fn();
+    mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate });
+
+    const multisigService = {
+      createSendProposal: jest.fn(),
+      createCustomProposal: jest.fn(async () => ({ id: 'bridge-proposal' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    // freshSync: the bridged-send helper (like earn-deposit) measures the reclaim
+    // height against a fresh chain head, so mock client.sync().blockNum().
+    const client = Object.assign(makeClientApi(result), { sync: jest.fn(async () => ({ blockNum: () => 200 })) });
+    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // A plain P2ID (createSendProposal) is rejected by the allocator; the note must
+    // be a PUBLIC recallable P2IDE built from the row's recallBlocks (absolute
+    // reclaim height = fresh syncHeight 200 + recallBlocks 30 = 230).
+    expect(newSendTransactionRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ toString: expect.any(Function) }),
+      expect.objectContaining({ toString: expect.any(Function) }),
+      expect.objectContaining({ toString: expect.any(Function) }),
+      'Public',
+      1000n,
+      230,
+      null
+    );
+    expect(terminate).toHaveBeenCalledTimes(1);
+    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'bridged_send');
+    expect(multisigService.createSendProposal).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
+  });
+
   it('Guardian earn-deposit builds a P2IDE collateral note to the allocator via a custom proposal', async () => {
     const txId = 'earn-guardian';
     const result = makeResult();

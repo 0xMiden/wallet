@@ -1,4 +1,4 @@
-import { buildSwapTag } from '@miden-sdk/miden-sdk/lazy';
+import { buildSwapTag, NoteScript, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { NoteExportType } from 'lib/miden/sdk/constants';
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
@@ -95,6 +95,43 @@ export function installSwapConsumeHooks(signCallback: SwapSignCallback): void {
           tag: safe(() => r.metadata().tag().asU32()),
           noteType: safe(() => r.metadata().noteType())
         }))
+      };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  };
+
+  // Inspect a committed SENT note's visibility + script kind. The Epoch bridge
+  // collateral note MUST be a PUBLIC recallable P2IDE: a private note is "not
+  // found on-chain" by the allocator, and a plain P2ID has no recall window for
+  // it to validate. This is the on-chain guard for the guardian bridged-send
+  // P2IDE path (the multisig send proposal used to mint a private P2ID — #439).
+  (globalThis as any).__TEST_INSPECT_SENT_NOTE__ = async (noteId: string) => {
+    try {
+      const mc = await getMidenClient();
+      await mc.syncState();
+      const client = (mc as unknown as { client: any }).client;
+      const sent: any[] = (await client.notes?.listSent?.().catch(() => [])) ?? [];
+      const record = sent.find((r: any) => safe(() => r.id().toString()) === noteId);
+      if (!record) {
+        return { ok: false, error: `sent note ${noteId} not found among ${sent.length} sent notes` };
+      }
+      let noteTypeRaw: number | null = null;
+      try {
+        noteTypeRaw = record.metadata().noteType();
+      } catch {
+        noteTypeRaw = null;
+      }
+      const scriptRoot = safe(() => record.recipient().script().root().toHex());
+      return {
+        ok: true,
+        // NoteType is a numeric enum (Private=0, Public=1) — expose both the raw
+        // value and a resolved boolean so the assertion doesn't depend on stringed enums.
+        noteType: noteTypeRaw,
+        isPublic: noteTypeRaw === NoteType.Public,
+        scriptRoot,
+        isP2id: scriptRoot !== '?' && scriptRoot === safe(() => NoteScript.p2id().root().toHex()),
+        isP2ide: scriptRoot !== '?' && scriptRoot === safe(() => NoteScript.p2ide().root().toHex())
       };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
