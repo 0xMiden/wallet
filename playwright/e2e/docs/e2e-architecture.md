@@ -2,7 +2,7 @@
 
 > **How we test the wallet against *reality*, not mocks.**
 >
-> Every per-PR E2E run stands up a **real Miden network** (pinned `v0.15.0` node binaries in Docker), a **real OpenZeppelin guardian**, a **real Foundry EVM chain**, and drives the **real production wallet bundle** through its **real UI** — no stubbed wallet internals, no fake chain. The only things we fake are the *third‑party, hosted‑only* services we can't legally or physically run in CI (the Epoch allocator/solver, mainnet EVM contracts), and even those are **on‑chain byte‑for‑byte doubles** or **endpoint‑accurate HTTP stand‑ins** deployed at the *same addresses* the production code hardcodes.
+> Every per-PR E2E run stands up a **real Miden network** (the actual node binaries in Docker), a **real OpenZeppelin guardian**, a **real Foundry EVM chain**, and drives the **real production wallet bundle** through its **real UI** — no stubbed wallet internals, no fake chain. The only things we fake are the *third‑party, hosted‑only* services we can't legally or physically run in CI (the Epoch allocator/solver, mainnet EVM contracts), and even those are **on‑chain byte‑for‑byte doubles** or **endpoint‑accurate HTTP stand‑ins** deployed at the *same addresses* the production code hardcodes.
 
 This document maps each harness family: what it exercises, every component it touches (real service vs. hermetic double), and the hard problems we solved to make it faithful.
 
@@ -67,16 +67,16 @@ flowchart TB
     BV["bootstrap-validator"]:::infra --> BN["bootstrap-node"]:::infra --> BX["bootstrap-ntx-builder"]:::infra
   end
 
-  subgraph NODE["🟢 Local Miden stack · real miden-node v0.15.0 (Docker)"]
+  subgraph NODE["🟢 Local Miden stack · real miden-node (Docker)"]
     SEQ["sequencer / node RPC<br/>127.0.0.1:57291"]:::real
     VAL["validator<br/>:50101 (internal)"]:::real
     NTX["ntx-builder<br/>:50301 (internal)"]:::real
     PROV["remote prover<br/>127.0.0.1:50052"]:::real
   end
 
-  NTL["🟢 note-transport relay (NTL)<br/>127.0.0.1:57292 · built from source @ v0.4.1"]:::real
+  NTL["🟢 note-transport relay (NTL)<br/>127.0.0.1:57292 · built from source"]:::real
 
-  subgraph GUARD["🟢 Guardian tier · real OpenZeppelin guardian v0.15.0 (--profile guardian)"]
+  subgraph GUARD["🟢 Guardian tier · real OpenZeppelin guardian (--profile guardian)"]
     GD["guardian<br/>:3000 HTTP / :50051 gRPC (host net)"]:::real
     PG[("postgres :5432")]:::infra
   end
@@ -105,8 +105,8 @@ flowchart TB
 
 **What we solved / built**
 
-- **A full real Miden devnet in Docker, per PR** — validator + sequencer + ntx-builder + remote-prover, bootstrapped from default genesis into a cached volume so reruns skip re-genesis. Not a mock chain — the actual `v0.15.0` binaries.
-- **The off-chain note-transport relay (NTL)** built from source at a ref (`v0.4.1`) whose `miden-protocol` matches the node, so **private-note delivery** between two wallets (and the CLI) works exactly as on testnet.
+- **A full real Miden devnet in Docker, per PR** — validator + sequencer + ntx-builder + remote-prover, bootstrapped from default genesis into a cached volume so reruns skip re-genesis. Not a mock chain — the actual node binaries.
+- **The off-chain note-transport relay (NTL)** built from source at a ref whose `miden-protocol` matches the node, so **private-note delivery** between two wallets (and the CLI) works exactly as on testnet.
 - **Port choreography** — the remote prover is deliberately published on host `:50052` (not `:50051`) because the host-networked guardian claims `:50051`; the ntx-builder still reaches the prover internally.
 - **Exact version pinning** (`versions.env` + a pinned CLI rev in `package.json`) so the gate is reproducible and never floats.
 - **Headed-extension Playwright** (Chrome MV3 requires headed mode) run under `xvfb` in CI, `workers:1` + `maxFailures:1` for deterministic, fail-fast signal.
@@ -491,10 +491,10 @@ How close to production each layer runs:
 | Layer | In the harness | Real or double? |
 |---|---|---|
 | **Wallet** | the shipped production bundle (Chrome MV3 / iOS WKWebView), driven through its real UI | 🟦 **real** |
-| **Miden chain** | `miden-node` `v0.15.0` (validator + sequencer + ntx-builder) in Docker | 🟩 **real** |
+| **Miden chain** | `miden-node` (validator + sequencer + ntx-builder) in Docker | 🟩 **real** |
 | **Prover** | `miden-remote-prover` (delegated) *and* in-browser WASM (local) | 🟩 **real** (both paths) |
 | **Note transport** | `miden-note-transport` built from source, protocol-matched | 🟩 **real** |
-| **Guardian** | OpenZeppelin `guardian` `v0.15.0` + postgres | 🟩 **real** |
+| **Guardian** | OpenZeppelin `guardian` + postgres | 🟩 **real** |
 | **Counterparty** | the real Rust `miden-client` CLI | ⬛ **real** (independent) |
 | **WalletConnect** | real Reown ↔ real public relay ↔ headless responder | 🟪 real relay + 🟧 responder |
 | **EVM chain** | Foundry Anvil at Sepolia's chain-id | 🟧 hermetic (real EVM) |
