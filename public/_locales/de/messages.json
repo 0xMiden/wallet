@@ -3669,10 +3669,6 @@
     "message": "Fehlgeschlagen",
     "englishSource": "Failed"
   },
-  "earnDepositGuardianUnsupported": {
-    "message": "Auf Guardian-Konten sind noch keine Einzahlungen möglich. Wechseln Sie zum Einzahlen zu einem Standardkonto.",
-    "englishSource": "Earn deposits aren’t available on Guardian accounts yet. Switch to a standard account to deposit."
-  },
   "reclaimFunds": {
     "message": "Gelder zurückfordern",
     "englishSource": "Reclaim funds"

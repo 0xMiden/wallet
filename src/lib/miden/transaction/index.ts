@@ -187,12 +187,37 @@ export const generateTransaction = async (
       // ApplyTransactionAfterSubmitFailed handler: mark Completed so the next sync
       // reconciles the note state via ConsumedExternal. (Structural ops are handled
       // above and never reach here on success.)
+      //
+      // Earn-deposit is the exception among value-moving guardian ops: its caller
+      // (`createEarnP2IDNote` via `waitForTransactionCompletion`) reads
+      // `resultBytes`/`outputNoteIds` back off the finished row. On a post-submit
+      // failure — a local apply throw OR a canonicalization race — there is NO
+      // TransactionResult to repopulate them, so marking the row Completed (as the
+      // branches below do for send/consume/swap/execute) would leave the caller to
+      // `TransactionResult.deserialize(undefined)`, which throws AFTER `cleanup()` and
+      // hangs the wait promise (and `openEarnPosition`) forever. Fail the row instead
+      // so the caller resolves via the error branch; the on-chain P2IDE collateral note
+      // reclaims itself at its recall height. Mirrors generateTransactionsLoop's
+      // non-guardian guard; earn-deposit is excluded from `REQUEUEABLE_TYPES` (retry.ts)
+      // so a Failed row is never re-queued into a duplicate collateral note. (It IS a
+      // member of REQUEUEABLE_ON_PENDING_CONFLICT, but that set only requeues still-Queued
+      // rows on a transient pre-submit 409; a Failed row is terminal.)
+      if (
+        transaction.type === 'earn-deposit' &&
+        (extractSdkErrorCode(error) === 'ApplyTransactionAfterSubmitFailed' || isGuardianCanonicalizationError(error))
+      ) {
+        console.warn(
+          '[Guardian] earn-deposit submitted but post-submit reconcile failed — marking Failed so the awaiting caller stops waiting:',
+          error
+        );
+        await cancelTransaction(transaction, error);
+        return;
+      }
       if (
         extractSdkErrorCode(error) === 'ApplyTransactionAfterSubmitFailed' &&
         (transaction.type === 'consume' ||
           transaction.type === 'send' ||
           transaction.type === 'swap' ||
-          transaction.type === 'earn-deposit' ||
           transaction.type === 'execute')
       ) {
         console.warn(
@@ -252,6 +277,21 @@ export const generateTransaction = async (
           stage: 'creating-proposal',
           nextEligibleAt: Math.floor(Date.now() / 1000) + PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC
         });
+        // An earn-deposit's requestBytes freeze an ABSOLUTE reclaim height at build
+        // time (syncHeight + recallBlocks). Unlike send/swap — whose reused note stays
+        // valid indefinitely — the Epoch allocator rejects a collateral note whose
+        // REMAINING reclaim window has shrunk below its minimum, so reusing the frozen
+        // bytes across a long requeue loop (up to MAX_QUEUED_AGE) would strand the
+        // collateral at the allocator. Drop the cached request so the next cycle rebuilds
+        // the P2IDE note against a fresh sync height. Safe here: no collateral note reached
+        // the chain — any proposal that a 409 from the un-retried
+        // signAndCreateTransactionRequest may have registered was already abandoned by the
+        // submit catch — so rebuilding a fresh note orphans nothing.
+        if (transaction.type === 'earn-deposit') {
+          await Repo.transactions.where({ id: transaction.id }).modify(t => {
+            t.requestBytes = undefined;
+          });
+        }
         return;
       }
       await cancelTransaction(transaction, error);
@@ -377,12 +417,31 @@ const ensureGuardianRecallableSendRequestBytes = async (
   faucetId: string,
   amount: bigint,
   noteType: NoteType,
-  recallBlocks: number
+  recallBlocks: number,
+  opts: { freshSync?: boolean } = {}
 ): Promise<Uint8Array> => {
   if (transaction.requestBytes) return transaction.requestBytes;
   const requestBytes = await withWasmClientLock(async () => {
     const midenClient = await getMidenClient();
-    const syncHeight = await midenClient.client.getSyncHeight();
+    // `freshSync` (Epoch bridge + earn collateral): the solver's allocator
+    // validates the note's REMAINING reclaim window against its own (later) chain
+    // head, so the absolute reclaim height must be measured against a CURRENT head
+    // — a stale cached height on a cold-started wallet could understate it below the
+    // allocator's minimum and get the note rejected. A network sync can fail, and
+    // that must NOT fail an otherwise-submittable request, so fall back to the
+    // last-synced height (the recall buffer absorbs mild lag). A plain recallable
+    // user send has no such validator, so it reads the cached height directly.
+    let syncHeight: number;
+    if (opts.freshSync) {
+      try {
+        syncHeight = (await midenClient.client.sync()).blockNum();
+      } catch (syncError) {
+        console.warn('[Guardian] fresh sync before P2IDE note build failed; using last-synced height', syncError);
+        syncHeight = await midenClient.client.getSyncHeight();
+      }
+    } else {
+      syncHeight = await midenClient.client.getSyncHeight();
+    }
     const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
     try {
       const tr = await client.newSendTransactionRequest(
@@ -574,7 +633,10 @@ const generateGuardianTransaction = async (
           bridgeTx.faucetId,
           BigInt(bridgeTx.amount),
           NoteType.Public,
-          recallBlocks
+          recallBlocks,
+          // Allocator-validated collateral: measure the reclaim height against a
+          // fresh chain head (same rule as earn-deposit below).
+          { freshSync: true }
         );
         proposalResult = await withGuardianConflictRetry(() =>
           service.createCustomProposal(requestBytes, 'bridged_send')
@@ -586,18 +648,55 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'earn-deposit': {
-      // NOT SUPPORTED on Guardian accounts — see `GUARDIAN_EARN_DEPOSIT_UNSUPPORTED`
-      // in lib/epoch/earn.ts. The Epoch mandate advertises a P2IDE collateral note
-      // with an absolute `midenReclaimHeight`; the multisig client exposes only
-      // `createP2idProposal` (no recall height), so proposing this as a plain send
-      // would mint a P2ID that doesn't match the mandate AND leaves the collateral
-      // with no reclaim path. `openEarnPosition` refuses Guardian accounts before a
-      // row is ever queued; this is the backstop for any row that slips through
-      // (e.g. an account converted to Guardian while a deposit was queued).
-      throw new Error(
-        'Earn deposits are not available on Guardian accounts yet — the collateral note needs a reclaim ' +
-          'height that Guardian proposals cannot express.'
+      // Guardian earn deposit: the Epoch mandate requires a P2IDE collateral note
+      // with a reclaim height, which the multisig client's P2ID proposal cannot
+      // express — so route it through a custom proposal built from a P2IDE send
+      // request, exactly like the recallable `send` case (see OpenZeppelin/
+      // guardian#366). `recallBlocks` (set on the row by `openEarnPosition`) is a
+      // RELATIVE blocks-until-reclaim offset; the note's absolute reclaim height is
+      // `syncHeight + recallBlocks` at build time, the same relative→absolute
+      // conversion the non-Guardian path uses. The Epoch allocator validates the
+      // REMAINING reclaim window against its own (later) chain head — not an exact
+      // height — so the extra guardian propose/sign/submit delay is absorbed by
+      // `MIDEN_RECLAIM_BUFFER_BLOCKS` baked into `recallBlocks` (see earn-note.ts).
+      const earnTx = transaction as EarnDepositTransaction;
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      const recallBlocks = earnTx.extraInputs?.recallBlocks;
+      if (!recallBlocks || !earnTx.secondaryAccountId) {
+        throw new Error(
+          'Earn deposit is missing recallBlocks/allocator — the collateral must be a recallable P2IDE note.'
+        );
+      }
+      // If openEarnPosition already abandoned this deposit — its 5-min
+      // waitForTransactionCompletion timed out, or the Epoch intent was aborted — it
+      // marked extraInputs.epochStatus 'failed'. A guardian requeue can keep this row
+      // live past that wait (up to MAX_QUEUED_AGE), so bail out rather than submit a
+      // collateral note the allocator has no live intent for: that would strand the note
+      // until its recall height AND falsely mark the row 'Deposited to lending'. This
+      // throw is terminal (→ cancelTransaction below), and a Failed row is never re-picked.
+      if (earnTx.extraInputs?.epochStatus === 'failed') {
+        throw new Error(
+          'Earn deposit was already abandoned by the caller (epochStatus=failed) — refusing to submit an orphan collateral note.'
+        );
+      }
+      // Build the P2IDE collateral request via the shared guardian helper (same as
+      // the recallable send / Epoch bridge paths). `freshSync`: earn collateral is
+      // allocator-validated, so measure the reclaim height against a current head.
+      // Earn collateral is always PUBLIC — the allocator discovers + consumes it
+      // on-chain (createEarnP2IDNote hardcodes it), regardless of the row's noteType.
+      const requestBytes = await ensureGuardianRecallableSendRequestBytes(
+        transaction,
+        earnTx.secondaryAccountId!,
+        earnTx.faucetId,
+        BigInt(earnTx.amount),
+        NoteType.Public,
+        recallBlocks,
+        { freshSync: true }
       );
+      proposalResult = await withGuardianConflictRetry(() =>
+        service.createCustomProposal(requestBytes, 'earn_deposit')
+      );
+      break;
     }
     case 'swap': {
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
@@ -855,8 +954,13 @@ const generateGuardianTransaction = async (
     case 'bridged-send':
       await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
       break;
-    // No `earn-deposit` case: the proposal switch above throws for that type on
-    // Guardian accounts (no P2IDE proposal exists), so it can never reach here.
+    case 'earn-deposit':
+      // Same completion as the non-Guardian path: extract the committed P2IDE
+      // collateral note id and mark the row Deposited. `createEarnP2IDNote` reads
+      // `outputNoteIds[0]` off this row to hand the note back to the Epoch SDK, so
+      // routing this to the generic custom-tx completion would strand the deposit.
+      await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
+      break;
     case 'execute':
     default:
       await completeCustomTransaction(transaction, result);

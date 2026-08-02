@@ -8,6 +8,10 @@
 - [FIX][mobile] **Deduplicate `@capacitor/core` in the mobile bundle.** Without a `resolve.dedupe` entry, Rollup inlined a second copy of the Capacitor runtime into the walletconnect chunk; only one `createCapacitor()` becomes the live `window.Capacitor`, so any plugin that resolved against the other copy dispatched into a dead bridge. Added `resolve.dedupe: ['@capacitor/core']` in `vite.mobile.config.ts` (the same guard the repo already applies to `dexie` / `@miden-sdk`).
 - [FIX][all] **Guardian Epoch fast-bridge sends now build a recallable P2IDE collateral note.** The Guardian send proposal could only mint a plain **private P2ID**, so the Epoch allocator rejected every Guardian fast bridge — it can't read a private note on-chain ("Miden note … not found on-chain"), and a plain P2ID has no recall window for the allocator to validate. The Epoch `bridged-send` branch now builds the same **public, recallable P2IDE** send request the standard-account path uses (from the row's recall height) and routes it through a custom multisig proposal, instead of `createP2idProposal` (which has no reclaim-height option). Regular Guardian sends are unchanged.
 
+### Features
+
+- [FEATURE][all] **Earn deposits now work on Guardian accounts.** Opening an Earn position from a Guardian account was blocked with "Earn deposits aren't available on Guardian accounts yet" because the collateral must be a recallable **P2IDE** note (with a reclaim height) and the multisig client's send proposal is P2ID-only. The deposit now routes through a custom proposal built from a P2IDE send request to the Epoch allocator — the same mechanism that made guardian sends recallable in 1.15.17 — converting the relative recall offset to an absolute height at build time and reusing the persisted request bytes across propose/sign/retry. The Deposit CTA is no longer gated on account type.
+
 ## 1.15.17 (2026-08-02)
 
 ### Fixes

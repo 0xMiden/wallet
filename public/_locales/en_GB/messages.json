@@ -3670,10 +3670,6 @@
     "message": "Failed",
     "englishSource": "Failed"
   },
-  "earnDepositGuardianUnsupported": {
-    "message": "Earn deposits aren’t available on Guardian accounts yet. Switch to a standard account to deposit.",
-    "englishSource": "Earn deposits aren’t available on Guardian accounts yet. Switch to a standard account to deposit."
-  },
   "reclaimFunds": {
     "message": "Reclaim funds",
     "englishSource": "Reclaim funds"
