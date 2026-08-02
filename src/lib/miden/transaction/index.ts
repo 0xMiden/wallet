@@ -357,6 +357,56 @@ const buildColdServiceForAccount = async (
 };
 
 /**
+ * Build (and persist for retry) the serialized P2IDE send-request bytes for a
+ * Guardian recallable send. `createP2idProposal` can only mint a plain P2ID, so
+ * any note that needs a reclaim height — a user "recall by" send, or an Epoch
+ * bridge/allocator collateral note the solver validates on-chain — is built here
+ * as a P2IDE send request and driven through `createCustomProposal` instead.
+ *
+ * The P2IDE note's serial number is random, so the request must be built ONCE and
+ * the SAME bytes reused for both `createCustomProposal` and
+ * `signAndCreateTransactionRequest` — persisted on the row so a retry after a
+ * restart reuses them (same rule as the PSWAP case). `recallBlocks` is a RELATIVE
+ * blocks-until-recall offset, converted to an absolute reclaim height here
+ * (`syncHeight + recallBlocks`) — the guardian-path counterpart of the
+ * relative→absolute conversion in `MidenClientInterface.sendTransaction`.
+ */
+const ensureGuardianRecallableSendRequestBytes = async (
+  transaction: ITransaction,
+  recipientId: string,
+  faucetId: string,
+  amount: bigint,
+  noteType: NoteType,
+  recallBlocks: number
+): Promise<Uint8Array> => {
+  if (transaction.requestBytes) return transaction.requestBytes;
+  const requestBytes = await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient();
+    const syncHeight = await midenClient.client.getSyncHeight();
+    const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
+    try {
+      const tr = await client.newSendTransactionRequest(
+        accountIdStringToSdk(transaction.accountId),
+        accountIdStringToSdk(recipientId),
+        accountIdStringToSdk(faucetId),
+        noteType,
+        amount,
+        syncHeight + recallBlocks,
+        null
+      );
+      return tr.serialize();
+    } finally {
+      client.terminate();
+    }
+  });
+  transaction.requestBytes = requestBytes;
+  await Repo.transactions.where({ id: transaction.id }).modify(t => {
+    t.requestBytes = requestBytes;
+  });
+  return requestBytes;
+};
+
+/**
  * Generate a transaction for a Guardian account using the MultisigService.
  * Routes the transaction through MultisigService proposal methods.
  */
@@ -418,38 +468,16 @@ const generateGuardianTransaction = async (
         // counterpart of the relative→absolute conversion in
         // `MidenClientInterface.sendTransaction`.
         //
-        // The P2IDE note's serial number is random, so the request must be
-        // built ONCE and the exact same bytes reused for BOTH
-        // `createCustomProposal` and `signAndCreateTransactionRequest` below —
-        // persist them so a retry after a restart reuses the same request
-        // (same rule as the PSWAP case).
-        if (!transaction.requestBytes) {
-          const requestBytes = await withWasmClientLock(async () => {
-            const midenClient = await getMidenClient();
-            const syncHeight = await midenClient.client.getSyncHeight();
-            const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
-            try {
-              const tr = await client.newSendTransactionRequest(
-                accountIdStringToSdk(sendTx.accountId),
-                accountIdStringToSdk(sendTx.secondaryAccountId),
-                accountIdStringToSdk(sendTx.faucetId),
-                sendTx.noteType === NoteTypeEnum.Public ? NoteType.Public : NoteType.Private,
-                BigInt(sendTx.amount),
-                syncHeight + recallBlocks,
-                null
-              );
-              return tr.serialize();
-            } finally {
-              client.terminate();
-            }
-          });
-          transaction.requestBytes = requestBytes;
-          await Repo.transactions.where({ id: transaction.id }).modify(t => {
-            t.requestBytes = requestBytes;
-          });
-        }
+        const requestBytes = await ensureGuardianRecallableSendRequestBytes(
+          transaction,
+          sendTx.secondaryAccountId,
+          sendTx.faucetId,
+          BigInt(sendTx.amount),
+          sendTx.noteType === NoteTypeEnum.Public ? NoteType.Public : NoteType.Private,
+          recallBlocks
+        );
         proposalResult = await withGuardianConflictRetry(() =>
-          service.createCustomProposal(transaction.requestBytes!, 'recallable_send')
+          service.createCustomProposal(requestBytes, 'recallable_send')
         );
       } else {
         proposalResult = await withGuardianConflictRetry(() =>
@@ -523,21 +551,37 @@ const generateGuardianTransaction = async (
     case 'bridged-send': {
       const bridgeTx = transaction as BridgedSendTransaction;
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      if (bridgeTx.requestBytes) {
-        // Agglayer: preview the pre-built request into a custom multisig proposal.
-        proposalResult = await service.createCustomProposal(bridgeTx.requestBytes);
-      } else {
-        // Epoch: a recallable P2IDE note to the solver's allocator — propose it as
-        // a send. (The multisig send proposal is P2ID today, so the Epoch recall
-        // safety net is not yet available on Guardian accounts.)
-        // MUST be a public note: the allocator reads the note's data on-chain and
-        // rejects the intent with "note not found on-chain" for private notes.
-        proposalResult = await service.createSendProposal(
+      // Discriminate on the provider, NOT on `requestBytes` presence: the Epoch
+      // branch persists the P2IDE bytes it builds, so a retry would otherwise be
+      // mistaken for the Agglayer (pre-built request) path.
+      if (bridgeTx.extraInputs?.provider === 'epoch') {
+        // The solver's allocator requires a recallable, PUBLIC P2IDE collateral
+        // note — it reads the note on-chain (a private note is "not found on-chain")
+        // AND validates its recall window (a plain P2ID has none and is rejected,
+        // "P2IDE reclaim window too small"). `createP2idProposal` can only mint a
+        // plain P2ID, so build the same public P2IDE send request the standard-
+        // account path builds (from the row's recall height) and route it through a
+        // custom proposal — same mechanism as the Agglayer branch below.
+        const recallBlocks = bridgeTx.extraInputs?.recallBlocks;
+        if (!recallBlocks) {
+          throw new Error(
+            'Epoch bridged-send is missing recallBlocks; cannot build the recallable P2IDE collateral note the allocator requires.'
+          );
+        }
+        const requestBytes = await ensureGuardianRecallableSendRequestBytes(
+          transaction,
           bridgeTx.secondaryAccountId!,
           bridgeTx.faucetId,
           BigInt(bridgeTx.amount),
-          NoteType.Public
+          NoteType.Public,
+          recallBlocks
         );
+        proposalResult = await withGuardianConflictRetry(() =>
+          service.createCustomProposal(requestBytes, 'bridged_send')
+        );
+      } else {
+        // Agglayer: preview the pre-built request into a custom multisig proposal.
+        proposalResult = await service.createCustomProposal(bridgeTx.requestBytes!);
       }
       break;
     }
