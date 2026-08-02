@@ -492,6 +492,68 @@ describe('generateTransaction — Guardian routing', () => {
     expect(completed?.displayMessage).toBe('Deposited to lending');
   });
 
+  it('Guardian earn-deposit: falls back to the last-synced height when the fresh sync fails', async () => {
+    // A transient network sync failure must NOT fail an otherwise-submittable deposit —
+    // the note build falls back to the cached getSyncHeight() (the recall buffer absorbs
+    // mild lag), keeping the guardian path no more network-fragile than before.
+    const txId = 'earn-guardian-syncfail';
+    const requestBytes = new Uint8Array([51, 52, 53]);
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'earn-deposit',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      extraInputs: { recallBlocks: 25 },
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
+    mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate: jest.fn() });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'earn-syncfail-proposal' })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    // Fresh sync throws; getSyncHeight (the fallback) returns 200.
+    const client = Object.assign(makeClientApi(makeResult()), {
+      sync: jest.fn(async () => {
+        throw new Error('sync timed out');
+      }),
+      getSyncHeight: jest.fn(async () => 200)
+    });
+    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // Built with the fallback height (200 + 25 = 225) and proceeded to a custom proposal.
+    expect(newSendTransactionRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ toString: expect.any(Function) }),
+      expect.objectContaining({ toString: expect.any(Function) }),
+      expect.objectContaining({ toString: expect.any(Function) }),
+      'Public',
+      1000n,
+      225,
+      null
+    );
+    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
+  });
+
   it('Guardian earn-deposit reuses persisted request bytes after a retry', async () => {
     const txId = 'earn-guardian-retry';
     const result = makeResult();
@@ -772,15 +834,12 @@ describe('generateTransaction — Guardian routing', () => {
     // Submit lands on-chain but the LOCAL apply throws ApplyTransactionAfterSubmitFailed.
     const applyErr: Error & { errorCode?: string } = new Error('apply failed');
     applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
-    const client = Object.assign(
-      makeClientApi(
-        makeResult(),
-        jest.fn(async () => {
-          throw applyErr;
-        })
-      ),
-      { sync: jest.fn(async () => ({ blockNum: () => 100 })) }
-    );
+    const applyFn = jest.fn(async () => {
+      throw applyErr;
+    });
+    const client = Object.assign(makeClientApi(makeResult(), applyFn), {
+      sync: jest.fn(async () => ({ blockNum: () => 100 }))
+    });
     mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
 
     await generateTransaction(
@@ -790,9 +849,17 @@ describe('generateTransaction — Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
-    // Failed, NOT Completed — a Completed row without resultBytes hangs the caller.
+    // The failure is specifically POST-submit — the proposal was signed and the tx
+    // submitted (apply runs only after submit lands), so the generic value-moving path
+    // would have marked it Completed. This pins the earn-deposit exception to the guard,
+    // distinguishing it from both a pre-submit early throw and the Completed fallback.
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalled();
+    expect(applyFn).toHaveBeenCalled();
     const row = txStore.find(r => r.id === txId);
     expect(row?.status).toBe(ITransactionStatus.Failed);
+    // Never a Completed-branch success message.
+    expect(row?.displayMessage).not.toBe('Deposited to lending');
+    expect(row?.displayMessage).not.toBe('Sent');
   });
 
   it('Guardian earn-deposit: a canonicalization race after submit also marks the row Failed (not Completed)', async () => {

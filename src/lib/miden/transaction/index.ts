@@ -618,13 +618,25 @@ const generateGuardianTransaction = async (
       if (!transaction.requestBytes) {
         const requestBytes = await withWasmClientLock(async () => {
           const midenClient = await getMidenClient();
-          // Force a fresh sync (like the non-Guardian earn path,
+          // Prefer a fresh sync (like the non-Guardian earn path,
           // MidenClientInterface.sendTransaction) so the absolute reclaim height is
-          // measured against a CURRENT chain head. A stale cached getSyncHeight() on a
-          // cold-started/degraded wallet could understate the height enough that the
-          // note's remaining reclaim window falls below the allocator's minimum and the
-          // deposit is rejected.
-          const syncHeight = (await midenClient.client.sync()).blockNum();
+          // measured against a CURRENT chain head — a stale cached height on a
+          // cold-started wallet could understate it enough that the note's remaining
+          // reclaim window falls below the allocator's minimum and the deposit is
+          // rejected. But a network sync can fail/time out, and that must NOT fail an
+          // otherwise-submittable deposit, so fall back to the last-synced height (the
+          // recall buffer absorbs mild lag). This keeps the guardian path no more
+          // network-fragile than the pre-fresh-sync behavior.
+          let syncHeight: number;
+          try {
+            syncHeight = (await midenClient.client.sync()).blockNum();
+          } catch (syncError) {
+            console.warn(
+              '[Guardian] fresh sync before earn-deposit note build failed; using last-synced height',
+              syncError
+            );
+            syncHeight = await midenClient.client.getSyncHeight();
+          }
           const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
           try {
             const tr = await client.newSendTransactionRequest(
