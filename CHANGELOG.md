@@ -7,6 +7,10 @@
 - [FIX][mobile] **Bridge-in "Cross Chain" no longer hangs forever on "Preparing connection…" (iOS).** The native WalletConnect `configure` call passed `icons: APP_METADATA.icons`, but that shared `APP_METADATA` object is also handed to the web `@reown/appkit` modal (`createAppKit`), which wraps it in a reactive proxy in place — so `APP_METADATA.icons` is no longer a plain array. Capacitor's iOS bridge **silently drops** a plugin call whose arguments contain such a non-plain array, so `configure` never reached the native plugin and its promise hung forever, blocking `present()` and leaving the EVM connect stuck on "Preparing connection…". The arguments now pass a fresh plain array (`icons: [...APP_METADATA.icons]`), so the call serializes cleanly across the bridge. (The web E2E suite missed this because it drives the `connectUri` test hook, not the UI `configure` path.)
 - [FIX][mobile] **Deduplicate `@capacitor/core` in the mobile bundle.** Without a `resolve.dedupe` entry, Rollup inlined a second copy of the Capacitor runtime into the walletconnect chunk; only one `createCapacitor()` becomes the live `window.Capacitor`, so any plugin that resolved against the other copy dispatched into a dead bridge. Added `resolve.dedupe: ['@capacitor/core']` in `vite.mobile.config.ts` (the same guard the repo already applies to `dexie` / `@miden-sdk`).
 
+### Features
+
+- [FEATURE][all] **Earn deposits now work on Guardian accounts.** Opening an Earn position from a Guardian account was blocked with "Earn deposits aren't available on Guardian accounts yet" because the collateral must be a recallable **P2IDE** note (with a reclaim height) and the multisig client's send proposal is P2ID-only. The deposit now routes through a custom proposal built from a P2IDE send request to the Epoch allocator — the same mechanism that made guardian sends recallable in 1.15.17 — converting the relative recall offset to an absolute height at build time and reusing the persisted request bytes across propose/sign/retry. The Deposit CTA is no longer gated on account type.
+
 ## 1.15.17 (2026-08-02)
 
 ### Fixes

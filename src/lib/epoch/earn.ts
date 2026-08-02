@@ -9,7 +9,6 @@ import { keccak256, toBytes } from 'viem';
 
 import { updateEarnDepositStatus } from 'lib/miden/activity';
 import { type IEarnDepositExtraInputs, ITransactionStatus } from 'lib/miden/db/types';
-import { isGuardianAccount } from 'lib/miden/front/guardian-manager';
 import * as Repo from 'lib/miden/repo';
 
 import { normalizeMidenIdToHex } from './bridge';
@@ -308,31 +307,6 @@ export function pollEarnIntentStatus(args: {
   }
 }
 
-/**
- * Why Guardian (multisig) accounts cannot open Earn positions yet.
- *
- * The Epoch mandate advertises the collateral note as a **P2IDE with an absolute
- * `midenReclaimHeight`** (see `buildEarnTaskDataParams`) — that reclaim height is
- * both what the allocator validates and the user's only escape hatch if the
- * lending leg never settles. The Guardian proposal API
- * (`@openzeppelin/miden-multisig-client`) exposes only `createP2idProposal`
- * (recipient/faucet/amount — no reclaim height) plus the structural proposals and
- * `createCustomProposal(requestBytes)`; there is NO P2IDE / recall-height
- * proposal. Routing an earn deposit through `createSendProposal` therefore mints
- * a plain P2ID: the note does not match the mandate (the allocator can reject the
- * intent) and the collateral has no reclaim path.
- *
- * Rather than ship that silent mismatch, earn deposits are refused for Guardian
- * accounts here, at the earliest point that has a guardian provider (before any
- * quote or intent exists), and again in the Guardian branch of
- * `generateTransaction`. Lifting this needs a P2IDE-capable proposal (or a
- * hand-built P2IDE `requestBytes` fed through `createCustomProposal`, the way the
- * Agglayer `bridged-send` path does).
- */
-export const GUARDIAN_EARN_DEPOSIT_UNSUPPORTED =
-  'Earn deposits are not available on Guardian accounts yet — the collateral note needs a reclaim height ' +
-  'that Guardian proposals cannot express. Use a standard account to deposit.';
-
 export interface OpenEarnPositionArgs {
   /** Collateral amount in `MIDEN_USDC_DECIMALS` base units. */
   amount: bigint;
@@ -362,9 +336,6 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   }
   if (!isEvmAddress(args.evmAddress)) {
     throw new Error('Enter a valid EVM address (0x followed by 40 hex characters).');
-  }
-  if (await isGuardianAccount(args.senderPublicKey, args.deps.guardianProvider)) {
-    throw new Error(GUARDIAN_EARN_DEPOSIT_UNSUPPORTED);
   }
   const evmRecipient = args.evmAddress;
 

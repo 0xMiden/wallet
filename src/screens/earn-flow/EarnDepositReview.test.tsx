@@ -194,16 +194,19 @@ describe('EarnDepositReview', () => {
   });
 
   describe('open position CTA', () => {
-    it('disables the CTA and explains why on a Guardian account', () => {
+    // Guardian accounts are supported: the collateral note is built as a
+    // recallable P2IDE custom proposal in `generateTransaction`, so the CTA is
+    // never gated on account type. This fails if the old guardian block returns.
+    it('lets a Guardian account open a position', async () => {
       mockAccount.type = 'guardian';
       renderReview('aave-usdc-ethereum-1', '?amount=1000');
 
       const cta = screen.getByTestId('open-position-btn');
-      expect(cta).toBeDisabled();
-      expect(screen.getByText('earnDepositGuardianUnsupported')).toBeInTheDocument();
+      expect(cta).toBeEnabled();
+      expect(screen.queryByText('earnDepositGuardianUnsupported')).not.toBeInTheDocument();
 
       fireEvent.click(cta);
-      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+      await waitFor(() => expect(mockOpenEarnPosition).toHaveBeenCalledTimes(1));
     });
 
     it('fires haptics and opens the Epoch position with the scaled amount + account owner', async () => {

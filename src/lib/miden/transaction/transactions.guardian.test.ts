@@ -415,6 +415,156 @@ describe('generateTransaction — Guardian routing', () => {
     }
   );
 
+  it('Guardian earn-deposit builds a P2IDE collateral note to the allocator via a custom proposal', async () => {
+    const txId = 'earn-guardian';
+    const result = makeResult();
+    const requestBytes = new Uint8Array([11, 12, 13]);
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'earn-deposit',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      extraInputs: { recallBlocks: 25 },
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
+    const terminate = jest.fn();
+    mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'earn-proposal' })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const client = Object.assign(makeClientApi(result), {
+      getSyncHeight: jest.fn(async () => 100)
+    });
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // P2IDE collateral note to the allocator with an absolute reclaim height
+    // (syncHeight 100 + recallBlocks 25 = 125), proposed as a custom proposal —
+    // never a plain P2ID send proposal.
+    expect(newSendTransactionRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ toString: expect.any(Function) }),
+      expect.objectContaining({ toString: expect.any(Function) }),
+      expect.objectContaining({ toString: expect.any(Function) }),
+      'Public',
+      1000n,
+      125,
+      null
+    );
+    expect(terminate).toHaveBeenCalledTimes(1);
+    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
+    expect(multisigService.createSendProposal).not.toHaveBeenCalled();
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('earn-proposal', requestBytes);
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
+  });
+
+  it('Guardian earn-deposit reuses persisted request bytes after a retry', async () => {
+    const txId = 'earn-guardian-retry';
+    const result = makeResult();
+    const requestBytes = new Uint8Array([7, 8, 9]);
+    const transaction = Object.assign(new Transaction('guardian-acc', requestBytes), {
+      id: txId,
+      type: 'earn-deposit',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      extraInputs: { recallBlocks: 25 },
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'earn-retry-proposal' })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(result)
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // Persisted bytes are reused verbatim — no fresh P2IDE request is built.
+    expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
+    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('earn-retry-proposal', requestBytes);
+  });
+
+  it('Guardian earn-deposit refuses to build a non-recallable note when recallBlocks is missing', async () => {
+    const txId = 'earn-guardian-norecall';
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'earn-deposit',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      extraInputs: {}, // no recallBlocks — a P2ID note would lock the collateral with no reclaim path
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // The row fails fast; no P2IDE request or proposal is built.
+    expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
+  });
+
   it('Guardian recallable send reuses persisted request bytes after a retry', async () => {
     const txId = 'recallable-retry';
     const result = makeResult();

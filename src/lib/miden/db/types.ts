@@ -615,6 +615,8 @@ export class EarnDepositTransaction implements ITransaction {
   noteType?: NoteType;
   transactionId?: string;
   outputNoteIds?: string[];
+  /** Guardian path: serialized P2IDE send request reused across propose/sign/retry. */
+  requestBytes?: Uint8Array;
   status: ITransactionStatus;
   initiatedAt: number;
   processingStartedAt?: number;

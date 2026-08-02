@@ -17,7 +17,6 @@ export {
   buildEarnTaskDataParams,
   getEarnQuote,
   buildEarnIntent,
-  GUARDIAN_EARN_DEPOSIT_UNSUPPORTED,
   MIDEN_USDC_FAUCET,
   MIDEN_USDC_DECIMALS,
   EARN_MARKET_UID,
