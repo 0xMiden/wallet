@@ -8,9 +8,11 @@ const mockInitiateConsume = jest.fn(
   async (_account: string, _note: { id: string }, _delegate?: boolean): Promise<string> => 'consume-tx'
 );
 const mockStartBg = jest.fn();
+const mockGetUncompleted = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => [{ id: 'tx' }]);
 jest.mock('../transaction', () => ({
   initiateConsumeTransaction: mockInitiateConsume,
-  startBackgroundTransactionProcessing: (...args: unknown[]) => mockStartBg(...args)
+  startBackgroundTransactionProcessing: (...args: unknown[]) => mockStartBg(...args),
+  getUncompletedTransactions: (...args: unknown[]) => mockGetUncompleted(...args)
 }));
 
 const mockGetFaucetIdSetting = jest.fn(async (): Promise<string | null> => 'native-faucet');
@@ -55,11 +57,13 @@ describe('NativeNoteAutoConsumeManager', () => {
     mockDelegate = true;
     mockClaimable = [];
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockGetUncompleted.mockResolvedValue([{ id: 'tx' }]);
   });
 
-  it('consumes only native, non-swap, not-being-claimed notes — one tx per note', async () => {
+  it('consumes the eligible native notes ONE TX PER NOTE (not a batch), skipping the rest', async () => {
     mockClaimable = [
       note('n1'), // native ✓
+      note('n1b'), // native ✓ (second eligible so per-note vs batch is distinguishable)
       note('n2', 'other-faucet'), // wrong faucet ✗
       note('n3', 'native-faucet', { swapOrder: { orderId: 'x' } }), // swap-managed ✗
       note('n4', 'native-faucet', { isBeingClaimed: true }) // already claiming ✗
@@ -67,13 +71,25 @@ describe('NativeNoteAutoConsumeManager', () => {
 
     render(<NativeNoteAutoConsumeManager />);
 
-    await waitFor(() => expect(mockInitiateConsume).toHaveBeenCalled());
-    // Only n1 is eligible; every consume is per-note and for n1 — never n2/n3/n4.
+    await waitFor(() => expect(mockInitiateConsume.mock.calls.length).toBeGreaterThanOrEqual(2));
+    // Per-note: each call takes a single note object (never a batch array), for pk-1.
     mockInitiateConsume.mock.calls.forEach(c => {
       expect(c[0]).toBe('pk-1');
-      expect(c[1].id).toBe('n1');
+      expect(Array.isArray(c[1])).toBe(false);
     });
+    // Exactly the two eligible native notes — never n2/n3/n4.
+    expect(new Set(mockInitiateConsume.mock.calls.map(c => c[1].id))).toEqual(new Set(['n1', 'n1b']));
     expect(mockStartBg).toHaveBeenCalled();
+  });
+
+  it('does not kick the tx processor when nothing needs driving (all deduped)', async () => {
+    mockGetUncompleted.mockResolvedValue([]); // no uncompleted work after enqueue
+    mockClaimable = [note('n1')];
+
+    render(<NativeNoteAutoConsumeManager />);
+
+    await waitFor(() => expect(mockInitiateConsume).toHaveBeenCalled());
+    expect(mockStartBg).not.toHaveBeenCalled();
   });
 
   it('follows the user local/delegated proving setting', async () => {

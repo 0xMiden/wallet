@@ -50,17 +50,28 @@ export function NativeNoteAutoConsumeManager(): null {
           n => n.faucetId === nativeFaucetId && !n.swapOrder && !n.isBeingClaimed
         );
         if (nativeNotes.length === 0) return;
-        const { initiateConsumeTransaction, startBackgroundTransactionProcessing } = await import('../transaction');
+        const { initiateConsumeTransaction, startBackgroundTransactionProcessing, getUncompletedTransactions } =
+          await import('../transaction');
         const delegate = isDelegateProofEnabled();
         // One consume tx PER NOTE (mirroring Explore), not a batch: a Miden tx is atomic,
         // so batching lets one un-consumable note fail the whole tx and throttle its
-        // healthy mates via the shared row's #215 backoff. Per-note isolates failures.
+        // healthy mates via the shared row's #215 backoff. Per-note isolates failures —
+        // including at enqueue: a per-note try/catch keeps one note's failure from
+        // skipping its mates.
         for (const note of nativeNotes) {
-          await initiateConsumeTransaction(publicKey, note, delegate);
+          try {
+            await initiateConsumeTransaction(publicKey, note, delegate);
+          } catch (noteErr) {
+            console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+          }
         }
-        // Drive the queue whether or not we were disposed mid-run — work is enqueued and
-        // must be drained (there is no service worker to pick it up later here).
-        startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
+        // Drive the queue only when there is actually uncompleted work — a Completed note
+        // lingering in getConsumableNotes during chain-sync lag would otherwise spawn a
+        // redundant processing loop every tick (startBackgroundTransactionProcessing has no
+        // singleton guard). Kick regardless of `disposed`: enqueued work must be drained.
+        if ((await getUncompletedTransactions(publicKey)).length > 0) {
+          startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
+        }
       } catch (err) {
         console.warn('[native-auto-consume] frontend pass failed', err);
       } finally {

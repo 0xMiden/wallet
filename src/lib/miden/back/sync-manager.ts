@@ -395,12 +395,18 @@ async function runSync(): Promise<void> {
         try {
           const delegate = await isDelegateProofEnabledAsync();
           for (const note of nativeAutoConsumeNotes) {
-            await initiateConsumeTransaction(accountPubKey, note, delegate);
+            // Per-note try/catch so one note's enqueue failure can't skip its mates or the
+            // processing kick below — matching the per-note isolation intent above.
+            try {
+              await initiateConsumeTransaction(accountPubKey, note, delegate);
+            } catch (noteErr) {
+              console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+            }
           }
           const { startTransactionProcessing } = await import('./transaction-processor');
           startTransactionProcessing().catch(err => console.warn('[native-auto-consume] processing failed', err));
         } catch (err) {
-          console.warn('[native-auto-consume] enqueue failed', err);
+          console.warn('[native-auto-consume] native pass failed', err);
         }
       }
     } else {

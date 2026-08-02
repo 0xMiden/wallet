@@ -165,6 +165,14 @@ beforeEach(() => {
   mockMergeAndPersistSeenNoteIds.mockResolvedValue([]);
   mockHasClients.mockReturnValue(true);
   mockGetQuarantinedNoteIds.mockResolvedValue(new Set());
+  // Reset the native-consume mocks to defaults — jest.clearAllMocks() clears calls but
+  // NOT mockResolvedValue impls, so a per-test override (e.g. areBgMirrored=false) would
+  // otherwise leak and silently gate off later tests' native path.
+  mockAreBgMirrored.mockResolvedValue(true);
+  mockIsAutoConsumeAsync.mockResolvedValue(false);
+  mockIsDelegateProofAsync.mockResolvedValue(true);
+  mockGetFaucetIdSetting.mockResolvedValue(null);
+  mockInitiateConsume.mockResolvedValue('consume-tx');
 });
 
 describe('doSync', () => {
@@ -791,6 +799,7 @@ describe('doSync — native-note auto-consume', () => {
     mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
 
     await expect(doSync()).resolves.toBeUndefined();
+    expect(mockGetFaucetIdSetting).toHaveBeenCalled(); // the rejecting path WAS exercised
     expect(mockInitiateConsume).not.toHaveBeenCalled();
     expect(mockStorageSet).toHaveBeenCalled(); // sync still completed
   });
@@ -802,5 +811,6 @@ describe('doSync — native-note auto-consume', () => {
     mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
 
     await expect(doSync()).resolves.toBeUndefined();
+    expect(mockInitiateConsume).toHaveBeenCalled(); // the rejecting path WAS exercised
   });
 });
