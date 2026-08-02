@@ -225,8 +225,9 @@ flowchart TB
   APP["📱 The wallet app"]:::real
   CHAIN["⛓️ Miden blockchain"]:::real
   LEND["🏦 Lending service<br/>(faithful stand-in)"]:::fake
-  ETH["🔌 Ethereum, run locally<br/>+ fake USDC & contracts"]:::fake
+  ETH["🔌 Ethereum, run locally"]:::real
   RELAY["⛽ Fee-paying relayer<br/>(stand-in)"]:::fake
+  CONTRACTS["🎭 Fake USDC & contracts<br/>(deployed at the real addresses)"]:::fake
 
   subgraph DEP["Depositing"]
     direction LR
@@ -239,6 +240,7 @@ flowchart TB
     RELAY -->|"4 · submits the tx & pays the fee"| ETH
     LEND -->|"5 · coins bridge back to you"| CHAIN
   end
+  CONTRACTS -->|"live on"| ETH
 
   classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
   classDef fake fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#ffedd5;
@@ -303,7 +305,8 @@ flowchart TB
   DIR["🎬 Test director"]:::test
   ROBOT["🤖 Our WalletConnect robot wallet<br/>(signs on the Ethereum side)"]:::test
   RELAY["📡 WalletConnect message relay<br/>(real, public)"]:::world
-  ETH["🔌 Ethereum, run locally<br/>+ stand-in bridge & USDC contracts"]:::fake
+  ETH["🔌 Ethereum, run locally"]:::real
+  CONTRACTS["🎭 Stand-in bridge & USDC contracts<br/>(deployed at the real addresses)"]:::fake
   CHAIN["⛓️ Miden blockchain"]:::real
 
   DIR --> PHONE
@@ -313,6 +316,7 @@ flowchart TB
   ROBOT -->|"sign the deposit"| ETH
   ETH -->|"coins delivered as a note"| CHAIN
   CHAIN -->|"app shows 'received'"| PHONE
+  CONTRACTS -->|"live on"| ETH
 
   classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
   classDef fake fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#ffedd5;
