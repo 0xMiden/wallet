@@ -1,22 +1,22 @@
 # Inside the Miden Wallet Test Lab
 
-**Who this is for:** engineers who want to understand how we test the wallet — no prior Miden knowledge assumed.
+**Who this is for:** engineers who want to understand how the wallet is tested end to end — no prior Miden knowledge assumed.
 
-The Miden wallet does something genuinely hard: it moves real money around a **privacy-focused blockchain (Miden)** *and* bridges it to and from **Ethereum**. Proving that works — automatically, on every code change, without a human clicking buttons — is a big challenge.
+The Miden wallet moves real value across two very different systems: a **privacy-focused blockchain (Miden)** and **Ethereum**. Cross-chain money movement is unforgiving — a note delivered in the wrong shape, signatures gathered in the wrong order, or a bridge that reports success without settling can each cost real funds. Verifying that the wallet gets this right, automatically and on every change, is the job of the end-to-end (E2E) test harness described here.
 
-So we built a **test lab**. The guiding idea:
+The harness is organized around a single principle:
 
-> **Run the real thing, fake only what we physically can't.**
+> **Run the real thing; stand in only for what can't be run in CI.**
 >
-> We never mock the blockchain. On every pull request, our desktop tests boot a *genuine* Miden network in the cloud — the same node software real users rely on — seed it, and drive the *real* wallet app through its *real* screens against it. (The post-merge and mobile tests run that same real app against the genuine public Miden test networks instead.) We add a *real* security co-signer and a *real* local Ethereum for the flows that need them. The only things we stand in for are a handful of **hosted services that live on someone else's servers** — and even those stand-ins are faithful down to the exact addresses and responses the app expects.
+> The blockchain is never mocked. On every pull request, the desktop suites boot a genuine Miden network in CI — the same node software real users rely on — seed it from a fresh genesis, and drive the actual wallet app through its real screens against it. The post-merge and mobile suites run that same app against the genuine public Miden test networks. A real security co-signer and a real (local) Ethereum node are added for the flows that need them. The only components stood in for are a handful of **third-party services hosted on external servers** — and those stand-ins are built to match the real services' addresses and responses closely enough that the app cannot tell the difference.
 
-This page is a tour of that lab: what each group of tests proves, which pieces are involved, and the parts we're a little proud of.
+The rest of this page walks through each group of tests: what it verifies, which components take part, and the design choices worth noting.
 
 ---
 
 ## The cast of characters
 
-A quick glossary so the diagrams make sense:
+A short glossary so the diagrams read clearly:
 
 | Piece | In plain terms |
 |---|---|
@@ -57,7 +57,7 @@ flowchart LR
 
 ## The lab at a glance
 
-Every test assembles the same lab and drives the real app through it. The guardian and Ethereum only join in for the tests that need them:
+Every suite assembles the same set of components and drives the real app through them. The guardian and Ethereum take part only in the tests that require them:
 
 ```mermaid
 flowchart TB
@@ -84,8 +84,8 @@ flowchart TB
   classDef test fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
 ```
 
-> ### 🏆 A real blockchain, not a mock
-> We don't fake the chain — ever. On every pull request the desktop tests boot a genuine Miden network in the cloud, seed it from scratch, and tear it down afterward. If the wallet talks to the chain correctly, it's because it *actually did*.
+> #### A real blockchain, not a mock
+> The chain is never faked. On every pull request the desktop suites boot a genuine Miden network in CI, seed it from a fresh genesis, and tear it down afterward. When the wallet syncs, submits, or reads balances, it does so against real node software — so a passing test reflects real on-chain behaviour rather than a mock's assumptions.
 
 ---
 
@@ -103,9 +103,9 @@ flowchart TB
 
 ## 1 · Everyday money — send, receive, claim
 
-**What these tests prove:** two people can hold the wallet, and money actually moves between them — publicly or privately.
+**What these tests verify:** two independent people can hold the wallet and move money between them, publicly or privately.
 
-We run **two completely separate copies** of the real app (call them A and B) and a scripted command-line client as an independent third party. The command-line client mints some coins; A claims them and sends some to B — either as a **public** note (posted to the chain) or a **private** note (delivered quietly off to the side). B has to genuinely receive it.
+The harness runs two completely separate copies of the real app — instances A and B — alongside the official Miden command-line client acting as an independent third party. The command-line client mints some coins; instance A claims them and sends some to B, either as a **public** note (posted to the chain) or a **private** note (delivered through the off-chain transport service). B then has to genuinely receive and claim it. Running two real instances, rather than one app against a mock, means every send is a true end-to-end transfer with a real recipient on the other side.
 
 ```mermaid
 flowchart LR
@@ -128,8 +128,8 @@ flowchart LR
   classDef test fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
 ```
 
-> ### 🏆 Two real wallets, really trading
-> Most test suites poke a single app talking to a fake server. Ours runs **two independent copies of the shipped wallet plus the official Miden client as a third party**, all on one real chain — so a "send" is a real end-to-end transfer someone actually receives. We even cover both ways the app can do its proving: handed off to a remote prover, *and* computed entirely inside the browser.
+> #### Two independent wallets on one chain
+> Many test suites exercise a single app against a mocked backend. This suite runs two independent copies of the shipped wallet, plus the official Miden client as a third party, all against one real chain — so a "send" is a genuine end-to-end transfer that another party receives. Both of the app's proving paths are covered: proofs handed to a remote prover, and proofs computed entirely in the browser.
 
 <details>
 <summary>The tests in this group</summary>
@@ -141,7 +141,7 @@ Create-and-unlock, minting & balances, public send, private send, in-browser pro
 
 ## 2 · Trading — swaps between two people
 
-**What these tests prove:** one person can post an offer ("10 of coin A for 9 of coin B") and another can fill it — fully, partially, in either direction — or the maker can cancel and get their coins back. It also works when the maker is a **guardian-secured** account.
+**What these tests verify:** a maker can post an offer ("10 of coin A for 9 of coin B") and a taker can fill it — fully, partially, or in the opposite direction — and an unfilled offer can be cancelled and reclaimed. The same flow is also exercised with a **guardian-secured** maker, so multi-signature accounts are covered on the trading path.
 
 ```mermaid
 flowchart LR
@@ -159,8 +159,8 @@ flowchart LR
   classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
 ```
 
-> ### 🏆 We fixed a real-world timing race
-> On a live network, whoever fills an order finds it by watching the chain — but there's a split-second where a freshly-posted order isn't visible yet. Instead of adding flaky "wait and hope" delays, the test **hands the order note directly from the maker to the taker** (the thick arrow above), exactly the way a professional market-making bot would. Reliable, and closer to real trading, not further from it.
+> #### Handling the order-discovery timing race
+> On a live network, a taker discovers an order by watching the chain — but there is a brief window after an order is posted before it becomes visible. Rather than paper over this with fixed "wait and hope" delays (which make tests slow and flaky), the harness hands the order note directly from the maker to the taker (the thick arrow above), the same approach a production market-making bot uses. The result is deterministic and, if anything, closer to real trading behaviour than a polling loop would be.
 
 <details>
 <summary>The tests in this group</summary>
@@ -172,14 +172,14 @@ Full fill (both directions), partial fill with remainder, cancel-and-reclaim, cr
 
 ## 3 · Bridging out — Miden money becomes Ethereum money
 
-**What these tests prove:** you can send value *out* of Miden and have it arrive on Ethereum as USDC.
+**What these tests verify:** value can be sent *out* of Miden and arrive on Ethereum as USDC.
 
-This runs at **two levels of realism**:
+The flow is exercised at **two levels of realism**, each suited to a different point in the pipeline:
 
-- **Post-merge (after every merge to main):** against the **real** hosted bridge service and the **real** Ethereum test network (Sepolia) — and we then check that **actual USDC really shows up** at the destination.
-- **Every pull request:** a fully self-contained version using a **stand-in** bridge service and a **local** Ethereum, so the guardian-secured bridge path is checked on every commit.
+- **Post-merge (after every merge to main):** against the **real** hosted bridge service and the **real** Ethereum test network (Sepolia). The test then confirms that **actual USDC arrives** at the destination — an end-to-end check that includes the third-party solver settling the Ethereum side.
+- **Every pull request:** a fully self-contained version using a **stand-in** bridge service and a **local** Ethereum node, so the guardian-secured bridge path is verified on every commit without depending on external infrastructure.
 
-(There are also two bridge *routes*: a **fast** one, via the Epoch service, and a **slower** one via a bridge network called **AggLayer** — both covered.)
+There are also two bridge *routes* — a **fast** one via the Epoch service and a **slower** one via a bridge network called **AggLayer** — and both are covered.
 
 ```mermaid
 flowchart LR
@@ -200,11 +200,11 @@ flowchart LR
   classDef test fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
 ```
 
-> ### 🏆 We follow the money all the way to Ethereum
-> The post-merge test doesn't stop at "the app said it worked." It bridges real value and then **reads the destination wallet on a real Ethereum test network to confirm the USDC actually landed.** That's the strongest possible proof a bridge works.
+> #### Verifying settlement on Ethereum
+> The post-merge test does not stop at the app reporting success. After bridging, it reads the destination account on a real Ethereum test network and confirms the USDC balance actually increased. This validates the entire path — including the external solver that settles the Ethereum side — so the app cannot pass merely by believing it succeeded.
 
-> ### 🏆 An on-chain "note inspector" that caught a real bug
-> The bridge service is picky about the *exact shape* of the coin-note the wallet hands it. We built a check that reads the note straight off the chain and verifies its shape is exactly right. It catches a category of mistake that once slipped into a release (a guardian bridge quietly minting the wrong kind of note) — now it can't happen silently again.
+> #### On-chain verification of the minted note
+> The bridge service accepts only a specific shape of collateral note. The harness reads the committed note directly from the chain and verifies its type and structure are exactly what the service requires. This check was added after a defect — a guardian bridge minting the wrong kind of note — reached a release; with the check in place, that class of mistake now fails a test rather than shipping silently.
 
 <details>
 <summary>The tests in this group</summary>
@@ -216,9 +216,9 @@ Fast bridge (real USDC on Sepolia, post-merge), the slower AggLayer route, and a
 
 ## 4 · Earning — lending your coins out
 
-**What these tests prove:** you can deposit coins as collateral to earn yield, and later withdraw — including a **gasless** withdrawal where someone else pays the Ethereum fee.
+**What these tests verify:** coins can be deposited as collateral to earn yield, and later withdrawn — including a **gasless** withdrawal in which someone else pays the Ethereum fee.
 
-Because the lending service is hosted on someone else's servers, this whole flow runs against **stand-ins**: a faithful fake of the lending service, plus a **local** Ethereum with convincing fake versions of the relevant contracts.
+Because the lending service is hosted on external servers, this flow runs entirely against **stand-ins**: a faithful fake of the lending service, plus a **local** Ethereum node carrying stand-in versions of the relevant contracts. The point is to exercise the wallet's real deposit and withdraw logic against services that behave like the real ones.
 
 ```mermaid
 flowchart TB
@@ -246,8 +246,8 @@ flowchart TB
   classDef fake fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#ffedd5;
 ```
 
-> ### 🏆 A "gasless" withdrawal, faked convincingly offline
-> Normally you pay a fee to move money on Ethereum. This flow uses a brand-new Ethereum feature (account "delegation") to let a **relayer pay the fee for you**. We reproduce that flow — the delegation, the relayer, the token contracts — with local stand-ins, so a genuinely cutting-edge feature is tested without touching a real network or spending a cent.
+> #### Reproducing a gasless (sponsored) withdrawal offline
+> Moving funds on Ethereum normally requires the sender to pay a fee. This flow uses a recent Ethereum feature (account "delegation") so that a relayer pays the fee on the user's behalf. The harness reproduces the full sequence — the delegation, the relayer, and the token contracts — against local stand-ins, so this relatively new mechanism is exercised on every relevant change without touching a live network or spending funds.
 
 <details>
 <summary>The tests in this group</summary>
@@ -259,9 +259,9 @@ Deposit collateral and confirm the position opens; withdraw a funded position ga
 
 ## 5 · Guardian security — two signatures to move money
 
-**What these tests prove:** a "guardian" account — one that needs **two signatures** (your device *and* a guardian server) — can still fund, claim, and send. A stolen device alone can't move the money.
+**What these tests verify:** a "guardian" account — one that requires **two signatures** (your device *and* a guardian server) — can still fund, claim, and send. A stolen device alone cannot move the money.
 
-The clever part: we don't fake the guardian. Each test can spin up the **real guardian server** (the same software that protects real users) and do the genuine two-signature handshake.
+The notable part is that the guardian is not faked. Each of these tests can start the **real guardian server** — the same software that protects production accounts — and perform the genuine two-signature handshake, rather than asserting against a stub.
 
 ```mermaid
 flowchart LR
@@ -279,8 +279,8 @@ flowchart LR
   classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
 ```
 
-> ### 🏆 Real multisig security, tested on every change
-> Standing up a real co-signing server in an automated test is unusual. We do it — so the "two signatures to move money" promise is verified against the actual guardian software, not a stub. This is the foundation the guardian **trade** and **bridge** tests build on too.
+> #### Testing against a real co-signing server
+> Running an actual co-signing server inside an automated test is uncommon; this harness does it. Each guardian test can start the real guardian server and complete the real two-signature handshake, so the "two signatures to move money" guarantee is verified against the production co-signer rather than a stub. This co-signing path is also the foundation the guardian **trade** and **bridge** tests build on.
 
 <details>
 <summary>The tests in this group</summary>
@@ -292,12 +292,12 @@ A guardian account funds, claims notes, and sends to a normal wallet — every s
 
 ## 6 · Bringing value in on iPhone
 
-**What these tests prove:** on an **iPhone**, you can bring value *in* from Ethereum. The app connects to an Ethereum wallet via WalletConnect, that wallet signs a deposit, and the coins arrive on Miden.
+**What these tests verify:** on iOS, value can be brought *in* from Ethereum. The app connects to an Ethereum wallet over WalletConnect, that wallet signs a deposit, and the resulting funds arrive on Miden.
 
-There's a chicken-and-egg problem: to test "connect to another wallet and have it sign," you'd normally need a *second real wallet and a human*. So we built one.
+Testing "connect to another wallet and have it sign" would normally require a second real wallet and a person to operate it. The harness removes that dependency by providing the counterparty itself.
 
-> ### 🏆 We built a robot Ethereum wallet that speaks WalletConnect
-> To be the other party in a cross-chain deal, the test needs an Ethereum wallet on the far side. So we built a **robot wallet** that speaks the real WalletConnect protocol: it pairs with the app over the genuine public WalletConnect relay, approves the session, and **signs real Ethereum transactions** — with no human and no MetaMask anywhere in the loop. (The signed transactions go to our local Ethereum, not the real one.)
+> #### A headless Ethereum wallet that speaks WalletConnect
+> To act as the far side of a cross-chain deposit, the harness includes a headless Ethereum wallet that implements the real WalletConnect protocol. It pairs with the app over the genuine public WalletConnect relay, approves the session, and signs Ethereum transactions — with no person and no browser extension involved. The signed transactions are submitted to the local Ethereum node rather than a live network.
 
 ```mermaid
 flowchart TB
@@ -324,13 +324,13 @@ flowchart TB
   classDef test fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
 ```
 
-> ### 🏆 Driving the real app on a real iPhone (well, simulator)
-> These tests run on **actual iPhone simulators** — two of them, so the two-wallets story works on mobile too — and reach inside the app's screen the way a developer's debugger would, tapping real buttons and reading real state. Some buttons even live *outside* the web page, in the phone's own native interface; we built a special hook so the test can press those too.
+> #### Driving the real app on iOS simulators
+> These tests run on iOS simulators — two of them, so the two-wallet scenarios apply on mobile as well — and interact with the app the way a debugger would, tapping real controls and reading real state. Some controls render outside the web view, in the phone's native interface; a dedicated hook lets the tests operate those too.
 
-> ### 🏆 Convincing fakes that enforce the real rules
-> Ethereum contracts live at fixed addresses. Our stand-ins for the bridge and USDC are deployed at **the exact same addresses the app expects** — so the app runs its real bridging code, unaware anything is a test. And the fakes aren't pushovers: the bridge stand-in *rejects* a malformed deposit on-chain, and the test decodes the app's actual transaction to confirm it asked for exactly the right thing. A bug can't pass by doing *something* — it has to do the *right* thing.
+> #### Stand-in contracts that enforce real invariants
+> Ethereum contracts live at fixed addresses. The stand-ins for the bridge and USDC are deployed at the exact addresses the app expects, so the app runs its real bridging code unchanged. These stand-ins are not permissive: the bridge stand-in rejects a malformed deposit on-chain, and the test decodes the app's actual transaction to confirm it requested precisely the right operation. A defect cannot pass by doing something plausible — it has to do the correct thing.
 
-> ⚠️ **Honest status:** this mobile bridge-in suite is still being hardened (the shared WalletConnect relay is flaky on our free tier) and the feature ships behind a flag, so it isn't yet a blocking gate. The harness engineering above is built and in place.
+> **Status:** the mobile bridge-in suite is still being stabilised — the shared WalletConnect relay is unreliable on the current free tier — and the feature ships behind a flag, so this suite is not yet a required gate. The harness components described above are implemented and in place.
 
 <details>
 <summary>The tests in this group</summary>
@@ -342,7 +342,7 @@ Bridge-in via the two routes, a WalletConnect-pairing-only check, a delivery-onl
 
 ## How real is it, really?
 
-The honest breakdown of what's genuine versus stood-in:
+The following summarises what is genuine versus stood in:
 
 | Layer | In the test lab | |
 |---|---|---|
@@ -352,11 +352,11 @@ The honest breakdown of what's genuine versus stood-in:
 | **Private-note delivery** | the real delivery service | ✅ real |
 | **The guardian co-signer** | the real guardian server | ✅ real |
 | **The independent counterparty** | the official command-line client | ✅ real |
-| **WalletConnect** | the real app ↔ real public relay ↔ our robot wallet | ✅ real link, 🎭 robot far side |
+| **WalletConnect** | the real app ↔ real public relay ↔ the harness's robot wallet | ✅ real link, 🎭 robot far side |
 | **Ethereum** | genuine Ethereum software, run locally (for bridging & earning) | ✅ real (local) |
-| **Ethereum contracts (bridge, USDC…)** | faithful fakes at the *real* addresses, enforcing real rules | 🎭 stand-in |
+| **Ethereum contracts (bridge, USDC…)** | faithful fakes at the *real* addresses, enforcing real invariants | 🎭 stand-in |
 | **The hosted bridge service** | real in post-merge bridge runs; stand-in per pull request | 🌍 real / 🎭 stand-in |
 | **The hosted lending service** | always a stand-in | 🎭 stand-in |
 | **Money actually arriving on Ethereum (post-merge bridge)** | real USDC on a real test network | ✅ real |
 
-> **The short version:** the app, the blockchain, the cryptography, the security co-signer, and the counterparty are all *real*. We stand in only for the outside services we can't run ourselves — and we make those stand-ins convincing enough, at the real addresses and enforcing the real rules, that the app never knows the difference.
+> **In summary:** the app, the blockchain, the cryptography, the co-signer, and the counterparty client are all real. The harness stands in only for the external services it cannot run itself, and it builds those stand-ins at the real addresses and to the real invariants — so the app behaves the same as it would in production.
