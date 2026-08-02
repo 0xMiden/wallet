@@ -11,5 +11,8 @@ import base from './playwright.e2e.config';
 export default defineConfig({
   ...base,
   testDir: './playwright/e2e/tests/bridge',
-  testIgnore: undefined
+  // `bridge-out-epoch-guardian.spec.ts` is hermetic (local stack + fake Epoch
+  // allocator + guardian profile), NOT a real-testnet spec — it runs via
+  // playwright.bridge-guardian.config.ts on its own job, so exclude it here.
+  testIgnore: '**/bridge-out-epoch-guardian.spec.ts'
 });

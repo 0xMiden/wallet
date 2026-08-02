@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 
 import type { MidenCli } from './miden-cli';
+import { swOf } from './swap';
 import type { ChromeWalletPageApi } from './wallet-page';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 
@@ -206,6 +207,35 @@ export interface BridgedSendRow {
     /** AggLayer L1 claim lifecycle: 'pending' | 'ready' | 'claimed'. */
     claimStatus?: string;
   };
+}
+
+export interface SentNoteShape {
+  ok: boolean;
+  error?: string;
+  /** NoteType enum: Private=0, Public=1 (null if unreadable). */
+  noteType?: number | null;
+  isPublic?: boolean;
+  /** The note script's MAST root (hex), for the P2ID/P2IDE discrimination below. */
+  scriptRoot?: string;
+  isP2id?: boolean;
+  isP2ide?: boolean;
+}
+
+/**
+ * Inspect a committed SENT note's visibility + script kind via the SW hook
+ * `__TEST_INSPECT_SENT_NOTE__`. The Epoch bridge collateral note MUST be a
+ * PUBLIC recallable P2IDE: the allocator can't read a private note ("not found
+ * on-chain") and rejects a plain P2ID for having no recall window. This is the
+ * on-chain guard for the guardian bridged-send path (#439).
+ */
+export async function inspectSentNote(wallet: Wallet, noteId: string): Promise<SentNoteShape> {
+  return (await swOf(wallet).evaluate(
+    (id: string) =>
+      (
+        globalThis as unknown as { __TEST_INSPECT_SENT_NOTE__: (n: string) => Promise<SentNoteShape> }
+      ).__TEST_INSPECT_SENT_NOTE__(id),
+    noteId
+  )) as SentNoteShape;
 }
 
 /**
