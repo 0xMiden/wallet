@@ -896,9 +896,7 @@ describe('generateTransaction — Guardian routing', () => {
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
 
-    const canonErr = new Error(
-      'Refusing to overwrite local state: incoming nonce 5 is not greater than local nonce 7'
-    );
+    const canonErr = new Error('Refusing to overwrite local state: incoming nonce 5 is not greater than local nonce 7');
     const client = Object.assign(
       makeClientApi(
         makeResult(),

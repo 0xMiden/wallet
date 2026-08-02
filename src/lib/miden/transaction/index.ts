@@ -204,8 +204,7 @@ export const generateTransaction = async (
       // rows on a transient pre-submit 409; a Failed row is terminal.)
       if (
         transaction.type === 'earn-deposit' &&
-        (extractSdkErrorCode(error) === 'ApplyTransactionAfterSubmitFailed' ||
-          isGuardianCanonicalizationError(error))
+        (extractSdkErrorCode(error) === 'ApplyTransactionAfterSubmitFailed' || isGuardianCanonicalizationError(error))
       ) {
         console.warn(
           '[Guardian] earn-deposit submitted but post-submit reconcile failed — marking Failed so the awaiting caller stops waiting:',
