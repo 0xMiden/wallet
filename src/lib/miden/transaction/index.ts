@@ -187,12 +187,36 @@ export const generateTransaction = async (
       // ApplyTransactionAfterSubmitFailed handler: mark Completed so the next sync
       // reconciles the note state via ConsumedExternal. (Structural ops are handled
       // above and never reach here on success.)
+      //
+      // Earn-deposit is the exception among value-moving guardian ops: its caller
+      // (`createEarnP2IDNote` via `waitForTransactionCompletion`) reads
+      // `resultBytes`/`outputNoteIds` back off the finished row. On a post-submit
+      // failure — a local apply throw OR a canonicalization race — there is NO
+      // TransactionResult to repopulate them, so marking the row Completed (as the
+      // branches below do for send/consume/swap/execute) would leave the caller to
+      // `TransactionResult.deserialize(undefined)`, which throws AFTER `cleanup()` and
+      // hangs the wait promise (and `openEarnPosition`) forever. Fail the row instead
+      // so the caller resolves via the error branch; the on-chain P2IDE collateral note
+      // reclaims itself at its recall height. Mirrors generateTransactionsLoop's
+      // non-guardian guard; earn-deposit is excluded from REQUEUEABLE_ON_PENDING_CONFLICT
+      // so a Failed row is never re-queued into a duplicate collateral note.
+      if (
+        transaction.type === 'earn-deposit' &&
+        (extractSdkErrorCode(error) === 'ApplyTransactionAfterSubmitFailed' ||
+          isGuardianCanonicalizationError(error))
+      ) {
+        console.warn(
+          '[Guardian] earn-deposit submitted but post-submit reconcile failed — marking Failed so the awaiting caller stops waiting:',
+          error
+        );
+        await cancelTransaction(transaction, error);
+        return;
+      }
       if (
         extractSdkErrorCode(error) === 'ApplyTransactionAfterSubmitFailed' &&
         (transaction.type === 'consume' ||
           transaction.type === 'send' ||
           transaction.type === 'swap' ||
-          transaction.type === 'earn-deposit' ||
           transaction.type === 'execute')
       ) {
         console.warn(
@@ -258,8 +282,10 @@ export const generateTransaction = async (
         // REMAINING reclaim window has shrunk below its minimum, so reusing the frozen
         // bytes across a long requeue loop (up to MAX_QUEUED_AGE) would strand the
         // collateral at the allocator. Drop the cached request so the next cycle rebuilds
-        // the P2IDE note against a fresh sync height. Safe here: a pending-conflict 409
-        // means no proposal was registered and no note was submitted.
+        // the P2IDE note against a fresh sync height. Safe here: no collateral note reached
+        // the chain — any proposal that a 409 from the un-retried
+        // signAndCreateTransactionRequest may have registered was already abandoned by the
+        // submit catch — so rebuilding a fresh note orphans nothing.
         if (transaction.type === 'earn-deposit') {
           await Repo.transactions.where({ id: transaction.id }).modify(t => {
             t.requestBytes = undefined;
