@@ -25,12 +25,48 @@ function getSetting(key: string, defaultValue: boolean) {
   return stored ? (JSON.parse(stored) as boolean) : defaultValue;
 }
 
+/**
+ * Write a boolean setting to the platform KV store so the extension service worker
+ * (which has no `localStorage`) can read it via `readMirroredSetting`. Guarded:
+ * `getStorageProvider()` can throw before platform detection is ready.
+ */
+function mirrorSetting(key: string, value: boolean): void {
+  try {
+    void getStorageProvider()
+      .set({ [key]: value })
+      .catch(() => {});
+  } catch {
+    /* storage not ready — the startup mirror / defaults cover it */
+  }
+}
+
+/** Service-worker-safe read of a mirrored boolean setting (default on read-miss). */
+async function readMirroredSetting(key: string, defaultValue: boolean): Promise<boolean> {
+  try {
+    const items = await getStorageProvider().get([key]);
+    const value = items[key];
+    return typeof value === 'boolean' ? value : defaultValue;
+  } catch {
+    return defaultValue;
+  }
+}
+
 export function setDelegateProofSetting(enabled: boolean) {
   setSetting(DELEGATE_PROOF_STORAGE_KEY, enabled);
+  mirrorSetting(DELEGATE_PROOF_STORAGE_KEY, enabled);
 }
 
 export function isDelegateProofEnabled() {
   return getSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
+}
+
+/**
+ * Service-worker-safe read of the delegated-proving toggle (the SW cannot read
+ * `localStorage`). Background native-note auto-consume proves via this so it honors
+ * the user's delegated/local choice, exactly like every in-page proving path.
+ */
+export function isDelegateProofEnabledAsync(): Promise<boolean> {
+  return readMirroredSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
 }
 
 export function setAutoCloseSetting(enabled: boolean) {
@@ -43,18 +79,7 @@ export function isAutoCloseEnabled() {
 
 export function setAutoConsumeSetting(enabled: boolean) {
   setSetting(AUTO_CONSUME_STORAGE_KEY, enabled);
-  // Mirror to the platform KV store. The extension service worker (background
-  // native-note auto-consume in sync-manager runSync) has NO `localStorage`, so it
-  // reads the toggle from here via `isAutoConsumeEnabledAsync`. Fire-and-forget;
-  // frontend `isAutoConsumeEnabled` remains the source of truth for the in-page UI.
-  // Guarded: getStorageProvider() can throw before platform detection is ready.
-  try {
-    void getStorageProvider()
-      .set({ [AUTO_CONSUME_STORAGE_KEY]: enabled })
-      .catch(() => {});
-  } catch {
-    /* storage not ready — the startup mirror / SW default (ON) cover it */
-  }
+  mirrorSetting(AUTO_CONSUME_STORAGE_KEY, enabled);
 }
 
 export function isAutoConsumeEnabled() {
@@ -63,35 +88,25 @@ export function isAutoConsumeEnabled() {
 
 /**
  * Service-worker-safe read of the auto-consume toggle (the SW cannot read
- * `localStorage`). Reads the platform KV mirror written by `setAutoConsumeSetting` /
- * `mirrorAutoConsumeSetting`. Defaults to ON when the mirror is absent (matches
- * `DEFAULT_AUTO_CONSUME`) so existing users who never toggled the setting are not
- * silently opted out of background auto-consume.
+ * `localStorage`). Defaults to ON when the mirror is absent (matches
+ * `DEFAULT_AUTO_CONSUME`) so existing users who never toggled it are not silently
+ * opted out of background auto-consume.
  */
-export async function isAutoConsumeEnabledAsync(): Promise<boolean> {
-  try {
-    const items = await getStorageProvider().get([AUTO_CONSUME_STORAGE_KEY]);
-    const value = items[AUTO_CONSUME_STORAGE_KEY];
-    return typeof value === 'boolean' ? value : DEFAULT_AUTO_CONSUME;
-  } catch {
-    return DEFAULT_AUTO_CONSUME;
-  }
+export function isAutoConsumeEnabledAsync(): Promise<boolean> {
+  return readMirroredSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
 }
 
 /**
- * One-shot migration: copy the current `localStorage` auto-consume value into the
- * platform KV mirror so an existing user who had turned auto-consume OFF is honored
- * by the extension service worker (which otherwise defaults ON). Call from a
- * frontend context (the popup) where `localStorage` is available.
+ * One-shot migration: copy the current `localStorage` values of the settings the
+ * extension service worker needs — auto-consume (whether to run) and delegated-proving
+ * (how to prove) — into the platform KV mirror, so the SW honors a user's choices it
+ * otherwise can't read. Setting changes also write-through via their setters; this
+ * covers existing users who never re-toggle. Call from a frontend context (the popup)
+ * where `localStorage` is available.
  */
-export function mirrorAutoConsumeSetting(): void {
-  try {
-    void getStorageProvider()
-      .set({ [AUTO_CONSUME_STORAGE_KEY]: isAutoConsumeEnabled() })
-      .catch(() => {});
-  } catch {
-    /* storage not ready — write-through on the next setting change covers it */
-  }
+export function mirrorBackgroundSettings(): void {
+  mirrorSetting(AUTO_CONSUME_STORAGE_KEY, isAutoConsumeEnabled());
+  mirrorSetting(DELEGATE_PROOF_STORAGE_KEY, isDelegateProofEnabled());
 }
 
 export function setHapticFeedbackSetting(enabled: boolean) {

@@ -4,7 +4,7 @@ import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
-import { isAutoConsumeEnabledAsync } from 'lib/settings/helpers';
+import { isAutoConsumeEnabledAsync, isDelegateProofEnabledAsync } from 'lib/settings/helpers';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { toNoteTypeString } from '../helpers';
@@ -378,12 +378,13 @@ async function runSync(): Promise<void> {
       // Enqueue the native-note auto-consume computed above (after swap so swap-managed
       // native notes are already excluded by the `!swapOrder` filter). Dedup +
       // bounded-retry backoff (#215) live inside initiateConsumeNotesTransaction, so a
-      // repeated ~30s tick never spawns duplicate consume rows. delegate=true: local
-      // proving in the MV3 service worker is heavy and the SW cannot read the
-      // delegate-proof toggle, matching background consumes elsewhere (dapp.ts).
+      // repeated ~30s tick never spawns duplicate consume rows. Proving follows the
+      // user's delegated/local setting via the SW-readable mirror — like every other
+      // proving path in the wallet.
       if (nativeAutoConsumeNotes.length > 0) {
         try {
-          await initiateConsumeNotesTransaction(accountPubKey, nativeAutoConsumeNotes, true);
+          const delegate = await isDelegateProofEnabledAsync();
+          await initiateConsumeNotesTransaction(accountPubKey, nativeAutoConsumeNotes, delegate);
           const { startTransactionProcessing } = await import('./transaction-processor');
           startTransactionProcessing().catch(err => console.warn('[native-auto-consume] processing failed', err));
         } catch (err) {

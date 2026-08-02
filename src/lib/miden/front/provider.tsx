@@ -16,7 +16,7 @@ import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { isExtension, isMobile } from 'lib/platform';
 import { PriceProvider } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
-import { mirrorAutoConsumeSetting } from 'lib/settings/helpers';
+import { mirrorBackgroundSettings } from 'lib/settings/helpers';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
 import { TokensMetadataProvider } from './assets';
@@ -47,13 +47,13 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
     primeNativeAssetId();
   }, []);
 
-  // Mirror the auto-consume toggle into the platform KV store so the extension
-  // service worker (which has no `localStorage`) honors a user's OFF choice for
-  // background native-note auto-consume. Runs from the popup where `localStorage` is
-  // available; harmless on mobile/desktop. Setting changes also write-through via
-  // `setAutoConsumeSetting`; this covers existing users who never re-toggle.
+  // Mirror the settings the extension service worker needs (auto-consume + delegated
+  // proving) into the platform KV store, since the SW has no `localStorage`. Runs from
+  // the popup where `localStorage` is available; harmless on mobile/desktop. Setting
+  // changes also write-through via their setters; this covers existing users who never
+  // re-toggle.
   useEffect(() => {
-    mirrorAutoConsumeSetting();
+    mirrorBackgroundSettings();
   }, []);
 
   // Eagerly initialize the Miden client singleton when the app starts

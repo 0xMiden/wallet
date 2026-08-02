@@ -98,9 +98,11 @@ const mockStorageSet = jest.fn();
 // Native-note auto-consume deps (background pass). Defaults keep the pass a no-op
 // for the rest of the suite; the native-note tests below flip them on.
 const mockIsAutoConsumeAsync = jest.fn(async (): Promise<boolean> => false);
+const mockIsDelegateProofAsync = jest.fn(async (): Promise<boolean> => true);
 jest.mock('lib/settings/helpers', () => ({
   ...jest.requireActual('lib/settings/helpers'),
-  isAutoConsumeEnabledAsync: () => mockIsAutoConsumeAsync()
+  isAutoConsumeEnabledAsync: () => mockIsAutoConsumeAsync(),
+  isDelegateProofEnabledAsync: () => mockIsDelegateProofAsync()
 }));
 
 const mockGetFaucetIdSetting = jest.fn(async (): Promise<string | null> => null);
@@ -718,8 +720,9 @@ describe('doSync — syncState timeout + circuit breaker', () => {
 });
 
 describe('doSync — native-note auto-consume', () => {
-  it('auto-consumes native-asset notes in the background when the toggle is on', async () => {
+  it('auto-consumes native-asset notes in the background, following the user delegated-proving setting', async () => {
     mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockIsDelegateProofAsync.mockResolvedValue(false); // user picked LOCAL proving
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
     mockClient.getConsumableNotes.mockResolvedValueOnce([
       fakeNote({ id: 'native-note', faucetId: 'native-faucet' }),
@@ -728,12 +731,13 @@ describe('doSync — native-note auto-consume', () => {
 
     await doSync();
 
-    // Only the native-faucet note is enqueued (delegate=true for the SW), exactly once.
+    // Only the native-faucet note is enqueued, exactly once, and proving honors the
+    // user's setting (local here) rather than being forced to delegated.
     expect(mockInitiateConsumeNotes).toHaveBeenCalledTimes(1);
     const [account, notes, delegate] = mockInitiateConsumeNotes.mock.calls[0]!;
     expect(account).toBe('pk-1');
     expect(notes.map((n: { id: string }) => n.id)).toEqual(['native-note']);
-    expect(delegate).toBe(true);
+    expect(delegate).toBe(false);
   });
 
   it('does not auto-consume when the toggle is off', async () => {

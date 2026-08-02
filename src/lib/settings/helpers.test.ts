@@ -22,7 +22,8 @@ import {
   isValidGuardianUrl,
   sanitizeGuardianUrl,
   isAutoConsumeEnabledAsync,
-  mirrorAutoConsumeSetting
+  isDelegateProofEnabledAsync,
+  mirrorBackgroundSettings
 } from './helpers';
 
 const mockKvStore: Record<string, unknown> = {};
@@ -146,11 +147,26 @@ describe('settings helpers', () => {
       expect(await isAutoConsumeEnabledAsync()).toBe(true);
     });
 
-    it('mirrorAutoConsumeSetting copies the current localStorage value into the mirror', async () => {
+    it('mirrorBackgroundSettings copies the current localStorage values into the mirror', async () => {
       localStorage.setItem(AUTO_CONSUME_STORAGE_KEY, JSON.stringify(false));
-      mirrorAutoConsumeSetting();
+      localStorage.setItem(DELEGATE_PROOF_STORAGE_KEY, JSON.stringify(false));
+      mirrorBackgroundSettings();
       await Promise.resolve();
       expect(await isAutoConsumeEnabledAsync()).toBe(false);
+      expect(await isDelegateProofEnabledAsync()).toBe(false);
+    });
+  });
+
+  describe('delegate proof setting mirror (service-worker readable)', () => {
+    it('isDelegateProofEnabledAsync defaults to the delegate default when the mirror is absent', async () => {
+      expect(await isDelegateProofEnabledAsync()).toBe(DEFAULT_DELEGATE_PROOF);
+    });
+
+    it('setDelegateProofSetting write-throughs to the SW-readable mirror', async () => {
+      setDelegateProofSetting(false);
+      expect(await isDelegateProofEnabledAsync()).toBe(false);
+      setDelegateProofSetting(true);
+      expect(await isDelegateProofEnabledAsync()).toBe(true);
     });
   });
 
