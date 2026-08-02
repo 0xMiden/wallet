@@ -97,6 +97,7 @@ flowchart TB
 - [4 · Earning — lending your coins out](#4--earning--lending-your-coins-out)
 - [5 · Guardian security — two signatures to move money](#5--guardian-security--two-signatures-to-move-money)
 - [6 · Bringing value in on iPhone](#6--bringing-value-in-on-iphone)
+- [Under the hood — running Ethereum locally](#under-the-hood--running-ethereum-locally)
 - [How real is it, really?](#how-real-is-it-really)
 
 ---
@@ -336,6 +337,77 @@ flowchart TB
 <summary>The tests in this group</summary>
 
 Bridge-in via the two routes, a WalletConnect-pairing-only check, a delivery-only check, and the guardian flow — all on iPhone. (An Android two-emulator harness also exists in the codebase, not yet wired into CI.)
+</details>
+
+---
+
+## Under the hood — running Ethereum locally
+
+Several flows — bridging, earning, and the iPhone bridge-in — need an Ethereum chain to talk to. Rather than depend on the public Ethereum test network (which is slow, shared, and occasionally down), those suites run their own Ethereum locally. This section explains how that works.
+
+### A real Ethereum node, not a simulator
+
+The local chain is **Anvil**, the EVM node that ships with Foundry. It is a genuine Ethereum implementation — it executes transactions, reverts on bad input, and keeps real state — simply running on the test machine. The harness starts it on `127.0.0.1:8545` and gives it **chain id 11155111**, which is Sepolia's id, so the wallet believes it is talking to the Sepolia test network. (On iOS the simulator shares the host's network stack, so that same `127.0.0.1:8545` is reachable from both the test process and the app's web view.)
+
+The wallet is aimed at this node by a build-time setting — an RPC-URL override compiled into the test build — so all of its Ethereum reads and writes go to Anvil instead of the public network. Nothing in the wallet's Ethereum code is stubbed: it runs exactly as it would in production, and only the chain it connects to is local.
+
+```mermaid
+flowchart TB
+  DIR["🎬 Test director"]:::test
+
+  subgraph ANVIL["🔌 Anvil — a real local Ethereum node (Foundry, poses as Sepolia)"]
+    USDC["🎭 MockUSDC<br/>at the real USDC address"]:::fake
+    COMPACT["🎭 MockCompact — 'The Compact'<br/>at the real address"]:::fake
+    AGG["🎭 MockAggLayerBridge<br/>at the real bridge address"]:::fake
+  end
+
+  APP["📱 The wallet app<br/>(pointed here by an RPC override)"]:::real
+  ROBOT["🤖 WalletConnect robot wallet"]:::test
+
+  DIR ==>|"anvil_setCode:<br/>write contract bytecode"| ANVIL
+  APP -->|"real EVM reads & calls"| ANVIL
+  ROBOT -->|"broadcast signed transactions"| ANVIL
+
+  style ANVIL fill:#052e16,stroke:#22c55e,stroke-width:2px,color:#dcfce7
+  classDef real fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7;
+  classDef fake fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#ffedd5;
+  classDef test fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;
+```
+
+### Supplying the contracts the app expects
+
+A wallet on Ethereum talks to **smart contracts** — small on-chain programs at fixed addresses — for things like the USDC coin and the bridge. The real versions live on public networks and can't be copied onto a local chain, so the harness deploys its own stand-ins. It does this with an Anvil capability called **`anvil_setCode`**, which writes a contract's compiled bytecode directly to any address, with no deployment transaction needed.
+
+The important detail is *where*: each stand-in is placed at the **exact address the wallet hardcodes for the real contract**. Because the address matches, the wallet's real code calls the stand-in with no special-casing — it cannot tell the difference.
+
+Three contracts are supplied this way (compiled from short Solidity sources kept in the repo):
+
+- **MockUSDC**, at the real USDC address — a minimal ERC-20 stand-in. It reports a balance for the deposit screen, returns a maximum allowance (so the deposit path skips its `approve` step), and lets transfers succeed so the other contracts can pull funds.
+- **MockCompact** ("The Compact"), at the address the bridge/lending SDK expects. It answers a status check with "withdrawals not forced" — which the deposit flow requires before it will proceed — and its deposit function verifies it received the expected token, pulls it in, and counts the deposit.
+- **MockAggLayerBridge**, at the real AggLayer bridge address. It implements the real bridge function's signature *and its rule that a native-ETH deposit must carry exactly the stated amount* — so a malformed deposit **reverts on-chain** and the wallet marks the transaction failed, rather than passing against an empty address.
+
+### Seeding an account "delegation" for the gasless withdraw
+
+The gasless withdraw relies on a recent Ethereum feature (EIP-7702 account delegation) that lets an ordinary account behave like a smart account, so a relayer can pay its fee. Establishing that delegation normally requires a special signed transaction that the stand-in relayer can't broadcast. Instead, the harness uses `anvil_setCode` again to write the delegation marker directly onto the owner's account, so the wallet sees the account as already delegated and continues down the gasless path.
+
+### Why this is trustworthy, not a shortcut
+
+Deploying byte-for-byte contracts at the real addresses, on a real EVM that reports Sepolia's identity, means the wallet's Ethereum code runs unchanged and unaware. The stand-ins deliberately enforce the real invariants — the bridge reverts on a wrong-value deposit, the Compact rejects an unexpected token — so a defect fails a test rather than slipping through against permissive dead code. Where a test needs to confirm that something happened, it reads counters the stand-ins keep (for example, how many deposits were registered) and decodes the wallet's actual transaction data to check it requested precisely the right operation. The signing itself — ordinary Ethereum transactions, and the 7702 authorization — is entirely real.
+
+<details>
+<summary>Concrete details (addresses &amp; mechanism)</summary>
+
+- **Anvil:** `127.0.0.1:8545`, chain id `11155111` (Sepolia), started via Foundry's `anvil`; the wallet is pointed at it by the `E2E_EVM_RPC_URL` build override.
+- **Contracts installed via `anvil_setCode`** (runtime bytecode written directly at fixed addresses):
+
+  | Stand-in | Address (matches the app's hardcoded value) | Role |
+  |---|---|---|
+  | MockUSDC | `0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69` | balance read; MAX allowance (skips `approve`); transfers succeed |
+  | MockCompact | `0x00000000000000171ede64904551eeDF3C6C9788` | `getForcedWithdrawalStatus → Disabled`; `depositERC20AndRegister` asserts the token, pulls it, counts deposits |
+  | MockAggLayerBridge | `0x1348947e282138d8f377b467f7d9c2eb0f335d1f` | real `bridgeAsset` signature + `msg.value == amount` invariant → reverts on a malformed deposit |
+
+- **EIP-7702 delegation** for the gasless withdraw is seeded by writing `0xef0100` + the approved implementation address at the owner account (again via `anvil_setCode`), so the SDK sees the account as already delegated.
+- Sources: `playwright/e2e/ios/helpers/anvil.ts`, `playwright/e2e/ios/helpers/evm-doubles.ts`, `playwright/e2e/ios/helpers/contracts/*.sol`.
 </details>
 
 ---
