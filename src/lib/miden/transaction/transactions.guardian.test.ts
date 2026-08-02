@@ -450,7 +450,7 @@ describe('generateTransaction — Guardian routing', () => {
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
 
     const client = Object.assign(makeClientApi(result), {
-      getSyncHeight: jest.fn(async () => 100)
+      sync: jest.fn(async () => ({ blockNum: () => 100 }))
     });
     mockGetMidenClient.mockResolvedValue({
       syncState: jest.fn(async () => {}),
@@ -616,6 +616,50 @@ describe('generateTransaction — Guardian routing', () => {
     expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
   });
 
+  it('Guardian earn-deposit: refuses to submit once the caller abandoned the deposit (epochStatus=failed)', async () => {
+    // openEarnPosition marks epochStatus 'failed' when it gives up (its 5-min wait timed
+    // out / the Epoch intent was aborted). A guardian requeue can outlive that wait, so
+    // the loop must NOT then build+submit an orphan collateral note (no live intent) —
+    // it fails the row instead.
+    const txId = 'earn-guardian-abandoned';
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'earn-deposit',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      extraInputs: { recallBlocks: 25, epochStatus: 'failed' },
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // No note built or proposed; the row is Failed (terminal), never Completed.
+    expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
+  });
+
   it('Guardian earn-deposit: a still-pending 409 requeues AND drops the frozen requestBytes so the next cycle rebuilds a fresh reclaim height', async () => {
     // An earn-deposit builds requestBytes (with an absolute reclaim height) BEFORE the
     // custom proposal. If the proposal keeps hitting a transient pending-delta 409, the
@@ -654,7 +698,7 @@ describe('generateTransaction — Guardian routing', () => {
       };
       mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
       const client = Object.assign(makeClientApi(makeResult()), {
-        getSyncHeight: jest.fn(async () => 100)
+        sync: jest.fn(async () => ({ blockNum: () => 100 }))
       });
       mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
 
@@ -735,7 +779,7 @@ describe('generateTransaction — Guardian routing', () => {
           throw applyErr;
         })
       ),
-      { getSyncHeight: jest.fn(async () => 100) }
+      { sync: jest.fn(async () => ({ blockNum: () => 100 })) }
     );
     mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
 
@@ -795,7 +839,7 @@ describe('generateTransaction — Guardian routing', () => {
           throw canonErr;
         })
       ),
-      { getSyncHeight: jest.fn(async () => 100) }
+      { sync: jest.fn(async () => ({ blockNum: () => 100 })) }
     );
     mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
 

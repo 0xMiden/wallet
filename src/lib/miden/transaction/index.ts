@@ -198,8 +198,10 @@ export const generateTransaction = async (
       // hangs the wait promise (and `openEarnPosition`) forever. Fail the row instead
       // so the caller resolves via the error branch; the on-chain P2IDE collateral note
       // reclaims itself at its recall height. Mirrors generateTransactionsLoop's
-      // non-guardian guard; earn-deposit is excluded from REQUEUEABLE_ON_PENDING_CONFLICT
-      // so a Failed row is never re-queued into a duplicate collateral note.
+      // non-guardian guard; earn-deposit is excluded from `REQUEUEABLE_TYPES` (retry.ts)
+      // so a Failed row is never re-queued into a duplicate collateral note. (It IS a
+      // member of REQUEUEABLE_ON_PENDING_CONFLICT, but that set only requeues still-Queued
+      // rows on a transient pre-submit 409; a Failed row is terminal.)
       if (
         transaction.type === 'earn-deposit' &&
         (extractSdkErrorCode(error) === 'ApplyTransactionAfterSubmitFailed' ||
@@ -597,6 +599,18 @@ const generateGuardianTransaction = async (
           'Earn deposit is missing recallBlocks/allocator — the collateral must be a recallable P2IDE note.'
         );
       }
+      // If openEarnPosition already abandoned this deposit — its 5-min
+      // waitForTransactionCompletion timed out, or the Epoch intent was aborted — it
+      // marked extraInputs.epochStatus 'failed'. A guardian requeue can keep this row
+      // live past that wait (up to MAX_QUEUED_AGE), so bail out rather than submit a
+      // collateral note the allocator has no live intent for: that would strand the note
+      // until its recall height AND falsely mark the row 'Deposited to lending'. This
+      // throw is terminal (→ cancelTransaction below), and a Failed row is never re-picked.
+      if (earnTx.extraInputs?.epochStatus === 'failed') {
+        throw new Error(
+          'Earn deposit was already abandoned by the caller (epochStatus=failed) — refusing to submit an orphan collateral note.'
+        );
+      }
       // The P2IDE note's serial number is random, so build the request ONCE and
       // reuse the exact same bytes for BOTH `createCustomProposal` and
       // `signAndCreateTransactionRequest` below; persist them so a retry after a
@@ -604,7 +618,13 @@ const generateGuardianTransaction = async (
       if (!transaction.requestBytes) {
         const requestBytes = await withWasmClientLock(async () => {
           const midenClient = await getMidenClient();
-          const syncHeight = await midenClient.client.getSyncHeight();
+          // Force a fresh sync (like the non-Guardian earn path,
+          // MidenClientInterface.sendTransaction) so the absolute reclaim height is
+          // measured against a CURRENT chain head. A stale cached getSyncHeight() on a
+          // cold-started/degraded wallet could understate the height enough that the
+          // note's remaining reclaim window falls below the allocator's minimum and the
+          // deposit is rejected.
+          const syncHeight = (await midenClient.client.sync()).blockNum();
           const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
           try {
             const tr = await client.newSendTransactionRequest(
