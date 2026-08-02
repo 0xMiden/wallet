@@ -20,12 +20,29 @@ import {
   setThemeSetting,
   getThemeSetting,
   isValidGuardianUrl,
-  sanitizeGuardianUrl
+  sanitizeGuardianUrl,
+  isAutoConsumeEnabledAsync,
+  mirrorAutoConsumeSetting
 } from './helpers';
+
+const mockKvStore: Record<string, unknown> = {};
+jest.mock('lib/platform/storage-adapter', () => ({
+  getStorageProvider: () => ({
+    get: async (keys: string[]) => {
+      const out: Record<string, unknown> = {};
+      for (const k of keys) if (k in mockKvStore) out[k] = mockKvStore[k];
+      return out;
+    },
+    set: async (obj: Record<string, unknown>) => {
+      Object.assign(mockKvStore, obj);
+    }
+  })
+}));
 
 describe('settings helpers', () => {
   beforeEach(() => {
     localStorage.clear();
+    for (const k of Object.keys(mockKvStore)) delete mockKvStore[k];
   });
 
   describe('isValidGuardianUrl', () => {
@@ -114,6 +131,26 @@ describe('settings helpers', () => {
       setAutoConsumeSetting(false);
       expect(isAutoConsumeEnabled()).toBe(false);
       expect(localStorage.getItem(AUTO_CONSUME_STORAGE_KEY)).toBe('false');
+    });
+  });
+
+  describe('auto consume setting mirror (service-worker readable)', () => {
+    it('isAutoConsumeEnabledAsync defaults ON when the mirror is absent', async () => {
+      expect(await isAutoConsumeEnabledAsync()).toBe(DEFAULT_AUTO_CONSUME);
+    });
+
+    it('setAutoConsumeSetting write-throughs to the SW-readable mirror', async () => {
+      setAutoConsumeSetting(false);
+      expect(await isAutoConsumeEnabledAsync()).toBe(false);
+      setAutoConsumeSetting(true);
+      expect(await isAutoConsumeEnabledAsync()).toBe(true);
+    });
+
+    it('mirrorAutoConsumeSetting copies the current localStorage value into the mirror', async () => {
+      localStorage.setItem(AUTO_CONSUME_STORAGE_KEY, JSON.stringify(false));
+      mirrorAutoConsumeSetting();
+      await Promise.resolve();
+      expect(await isAutoConsumeEnabledAsync()).toBe(false);
     });
   });
 

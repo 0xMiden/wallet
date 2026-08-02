@@ -4,6 +4,7 @@ import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
+import { isAutoConsumeEnabledAsync } from 'lib/settings/helpers';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { toNoteTypeString } from '../helpers';
@@ -11,10 +12,12 @@ import { fetchTokenMetadata } from '../metadata';
 import { getIntercom } from './defaults';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
+import { getFaucetIdSetting } from '../assets';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
 import { reconcileSwapOrderNotes } from '../swap/settlement';
+import { initiateConsumeNotesTransaction } from '../transaction/initiate';
 import { ConsumableNote, NoteTypeEnum } from '../types';
 
 // `init_vault` is the ESM module factory for `./vault`, injected by Vite's
@@ -263,9 +266,42 @@ async function runSync(): Promise<void> {
       // otherwise a transient classification failure (note untagged for one
       // cycle) makes an already-known note look brand new. Swap-managed
       // auto-consume notes are excluded only from the notification below.
-      const managedAutoConsumeIds = new Set(
-        parsedNotes.filter(n => n.swapOrder && n.swapOrder.autoConsume !== false).map(n => n.id)
-      );
+      // Native-asset (MIDEN) note auto-consume — the background counterpart to the
+      // frontend NativeNoteAutoConsumeManager (mobile/desktop). Resolve eligibility
+      // here so the "click to claim" notification below can exclude notes we are about
+      // to auto-consume; the actual consume is enqueued after the swap block. The SW
+      // has no localStorage, so the toggle is read from the platform KV mirror.
+      let nativeAutoConsumeNotes: ConsumableNote[] = [];
+      try {
+        if (await isAutoConsumeEnabledAsync()) {
+          const nativeFaucetId = await getFaucetIdSetting();
+          if (nativeFaucetId) {
+            nativeAutoConsumeNotes = parsedNotes.flatMap(n => {
+              if (n.faucetId !== nativeFaucetId || n.swapOrder) return [];
+              const type: ConsumableNote['type'] =
+                n.noteType === NoteTypeEnum.Public || n.noteType === NoteTypeEnum.Private ? n.noteType : 'unknown';
+              return [
+                {
+                  id: n.id,
+                  faucetId: n.faucetId,
+                  amount: n.amountBaseUnits,
+                  senderAddress: n.senderAddress,
+                  isBeingClaimed: false,
+                  type,
+                  swapOrder: undefined
+                }
+              ];
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('[native-auto-consume] eligibility check failed', err);
+      }
+
+      const managedAutoConsumeIds = new Set([
+        ...parsedNotes.filter(n => n.swapOrder && n.swapOrder.autoConsume !== false).map(n => n.id),
+        ...nativeAutoConsumeNotes.map(n => n.id)
+      ]);
       const newIds = (await mergeAndPersistSeenNoteIds(parsedNotes.map(n => n.id))).filter(
         id => !managedAutoConsumeIds.has(id)
       );
@@ -336,6 +372,22 @@ async function runSync(): Promise<void> {
           }
         } catch (err) {
           console.warn('[swap-settlement] reconcile failed', err);
+        }
+      }
+
+      // Enqueue the native-note auto-consume computed above (after swap so swap-managed
+      // native notes are already excluded by the `!swapOrder` filter). Dedup +
+      // bounded-retry backoff (#215) live inside initiateConsumeNotesTransaction, so a
+      // repeated ~30s tick never spawns duplicate consume rows. delegate=true: local
+      // proving in the MV3 service worker is heavy and the SW cannot read the
+      // delegate-proof toggle, matching background consumes elsewhere (dapp.ts).
+      if (nativeAutoConsumeNotes.length > 0) {
+        try {
+          await initiateConsumeNotesTransaction(accountPubKey, nativeAutoConsumeNotes, true);
+          const { startTransactionProcessing } = await import('./transaction-processor');
+          startTransactionProcessing().catch(err => console.warn('[native-auto-consume] processing failed', err));
+        } catch (err) {
+          console.warn('[native-auto-consume] enqueue failed', err);
         }
       }
     } else {

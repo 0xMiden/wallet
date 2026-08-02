@@ -95,6 +95,33 @@ const mockStorageSet = jest.fn();
   }
 };
 
+// Native-note auto-consume deps (background pass). Defaults keep the pass a no-op
+// for the rest of the suite; the native-note tests below flip them on.
+const mockIsAutoConsumeAsync = jest.fn(async (): Promise<boolean> => false);
+jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual('lib/settings/helpers'),
+  isAutoConsumeEnabledAsync: () => mockIsAutoConsumeAsync()
+}));
+
+const mockGetFaucetIdSetting = jest.fn(async (): Promise<string | null> => null);
+jest.mock('../assets', () => ({
+  ...jest.requireActual('../assets'),
+  getFaucetIdSetting: () => mockGetFaucetIdSetting()
+}));
+
+const mockInitiateConsumeNotes = jest.fn((..._args: any[]) => Promise.resolve('consume-tx'));
+jest.mock('../transaction/initiate', () => ({
+  ...jest.requireActual('../transaction/initiate'),
+  // Lazy wrapper (not a direct ref): a direct `mockInitiateConsumeNotes` here hits a
+  // temporal-dead-zone error because requireActual('../assets') transitively loads this
+  // mocked module before the const is initialized.
+  initiateConsumeNotesTransaction: (...args: any[]) => mockInitiateConsumeNotes(...args)
+}));
+
+jest.mock('./transaction-processor', () => ({
+  startTransactionProcessing: jest.fn(async () => {})
+}));
+
 // ── Imports under test ─────────────────────────────────────────────
 
 import { doSync, setupSyncManager } from './sync-manager';
@@ -687,5 +714,35 @@ describe('doSync — syncState timeout + circuit breaker', () => {
 
       nowSpy.mockRestore();
     });
+  });
+});
+
+describe('doSync — native-note auto-consume', () => {
+  it('auto-consumes native-asset notes in the background when the toggle is on', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockClient.getConsumableNotes.mockResolvedValueOnce([
+      fakeNote({ id: 'native-note', faucetId: 'native-faucet' }),
+      fakeNote({ id: 'other-note', faucetId: 'other-faucet' })
+    ]);
+
+    await doSync();
+
+    // Only the native-faucet note is enqueued (delegate=true for the SW), exactly once.
+    expect(mockInitiateConsumeNotes).toHaveBeenCalledTimes(1);
+    const [account, notes, delegate] = mockInitiateConsumeNotes.mock.calls[0]!;
+    expect(account).toBe('pk-1');
+    expect(notes.map((n: { id: string }) => n.id)).toEqual(['native-note']);
+    expect(delegate).toBe(true);
+  });
+
+  it('does not auto-consume when the toggle is off', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(false);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+
+    await doSync();
+
+    expect(mockInitiateConsumeNotes).not.toHaveBeenCalled();
   });
 });

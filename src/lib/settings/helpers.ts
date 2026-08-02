@@ -1,3 +1,5 @@
+import { getStorageProvider } from 'lib/platform/storage-adapter';
+
 import {
   DEFAULT_DELEGATE_PROOF,
   DELEGATE_PROOF_STORAGE_KEY,
@@ -41,10 +43,55 @@ export function isAutoCloseEnabled() {
 
 export function setAutoConsumeSetting(enabled: boolean) {
   setSetting(AUTO_CONSUME_STORAGE_KEY, enabled);
+  // Mirror to the platform KV store. The extension service worker (background
+  // native-note auto-consume in sync-manager runSync) has NO `localStorage`, so it
+  // reads the toggle from here via `isAutoConsumeEnabledAsync`. Fire-and-forget;
+  // frontend `isAutoConsumeEnabled` remains the source of truth for the in-page UI.
+  // Guarded: getStorageProvider() can throw before platform detection is ready.
+  try {
+    void getStorageProvider()
+      .set({ [AUTO_CONSUME_STORAGE_KEY]: enabled })
+      .catch(() => {});
+  } catch {
+    /* storage not ready — the startup mirror / SW default (ON) cover it */
+  }
 }
 
 export function isAutoConsumeEnabled() {
   return getSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
+}
+
+/**
+ * Service-worker-safe read of the auto-consume toggle (the SW cannot read
+ * `localStorage`). Reads the platform KV mirror written by `setAutoConsumeSetting` /
+ * `mirrorAutoConsumeSetting`. Defaults to ON when the mirror is absent (matches
+ * `DEFAULT_AUTO_CONSUME`) so existing users who never toggled the setting are not
+ * silently opted out of background auto-consume.
+ */
+export async function isAutoConsumeEnabledAsync(): Promise<boolean> {
+  try {
+    const items = await getStorageProvider().get([AUTO_CONSUME_STORAGE_KEY]);
+    const value = items[AUTO_CONSUME_STORAGE_KEY];
+    return typeof value === 'boolean' ? value : DEFAULT_AUTO_CONSUME;
+  } catch {
+    return DEFAULT_AUTO_CONSUME;
+  }
+}
+
+/**
+ * One-shot migration: copy the current `localStorage` auto-consume value into the
+ * platform KV mirror so an existing user who had turned auto-consume OFF is honored
+ * by the extension service worker (which otherwise defaults ON). Call from a
+ * frontend context (the popup) where `localStorage` is available.
+ */
+export function mirrorAutoConsumeSetting(): void {
+  try {
+    void getStorageProvider()
+      .set({ [AUTO_CONSUME_STORAGE_KEY]: isAutoConsumeEnabled() })
+      .catch(() => {});
+  } catch {
+    /* storage not ready — write-through on the next setting change covers it */
+  }
 }
 
 export function setHapticFeedbackSetting(enabled: boolean) {

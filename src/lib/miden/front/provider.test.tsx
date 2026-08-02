@@ -52,6 +52,10 @@ jest.mock('./useSyncTrigger', () => ({
   useSyncTrigger: jest.fn()
 }));
 
+jest.mock('./NativeNoteAutoConsumeManager', () => ({
+  NativeNoteAutoConsumeManager: () => null
+}));
+
 jest.mock('lib/miden-chain/native-asset', () => ({
   primeNativeAssetId: jest.fn()
 }));

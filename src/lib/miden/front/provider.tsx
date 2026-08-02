@@ -16,9 +16,11 @@ import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { isExtension, isMobile } from 'lib/platform';
 import { PriceProvider } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
+import { mirrorAutoConsumeSetting } from 'lib/settings/helpers';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
 import { TokensMetadataProvider } from './assets';
+import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
 import { SwapSettlementManager } from './SwapSettlementManager';
 import { useSyncTrigger } from './useSyncTrigger';
 import { getMidenClient } from '../sdk/miden-client';
@@ -43,6 +45,15 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   // Cache-hit on repeat opens; one RPC call on first install per network.
   useEffect(() => {
     primeNativeAssetId();
+  }, []);
+
+  // Mirror the auto-consume toggle into the platform KV store so the extension
+  // service worker (which has no `localStorage`) honors a user's OFF choice for
+  // background native-note auto-consume. Runs from the popup where `localStorage` is
+  // available; harmless on mobile/desktop. Setting changes also write-through via
+  // `setAutoConsumeSetting`; this covers existing users who never re-toggle.
+  useEffect(() => {
+    mirrorAutoConsumeSetting();
   }, []);
 
   // Eagerly initialize the Miden client singleton when the app starts
@@ -135,6 +146,7 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
             <PriceProvider />
             {children}
             <SwapSettlementManager />
+            <NativeNoteAutoConsumeManager />
             {/* NoteToastProvider monitors for new notes and shows toast on mobile */}
             <NoteToastProvider />
           </FiatCurrencyProvider>
