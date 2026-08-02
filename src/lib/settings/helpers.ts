@@ -7,6 +7,7 @@ import {
   AUTO_CLOSE_STORAGE_KEY,
   AUTO_CONSUME_STORAGE_KEY,
   DEFAULT_AUTO_CONSUME,
+  BG_SETTINGS_MIRRORED_KEY,
   HAPTIC_FEEDBACK_STORAGE_KEY,
   DEFAULT_HAPTIC_FEEDBACK,
   THEME_STORAGE_KEY,
@@ -107,6 +108,20 @@ export function isAutoConsumeEnabledAsync(): Promise<boolean> {
 export function mirrorBackgroundSettings(): void {
   mirrorSetting(AUTO_CONSUME_STORAGE_KEY, isAutoConsumeEnabled());
   mirrorSetting(DELEGATE_PROOF_STORAGE_KEY, isDelegateProofEnabled());
+  // Marker last: the SW treats an absent marker as "settings not yet mirrored" and
+  // holds off background native-consume, so it never acts on read-miss defaults for a
+  // user who opted out of auto-consume or remote proving.
+  mirrorSetting(BG_SETTINGS_MIRRORED_KEY, true);
+}
+
+/**
+ * True once `mirrorBackgroundSettings` has run (from the popup). The extension service
+ * worker gates its background native-note auto-consume on this — before the first
+ * mirror the SW would otherwise read defaults and could auto-consume / remote-prove
+ * against a user who opted out. Defaults false (not mirrored) on read-miss.
+ */
+export function areBackgroundSettingsMirrored(): Promise<boolean> {
+  return readMirroredSetting(BG_SETTINGS_MIRRORED_KEY, false);
 }
 
 export function setHapticFeedbackSetting(enabled: boolean) {

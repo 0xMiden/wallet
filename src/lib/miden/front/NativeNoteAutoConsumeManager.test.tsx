@@ -4,12 +4,12 @@ import { render, waitFor } from '@testing-library/react';
 
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
 
-const mockInitiateConsumeNotes = jest.fn(
-  async (_account: string, _notes: Array<{ id: string }>, _delegate?: boolean): Promise<string> => 'consume-tx'
+const mockInitiateConsume = jest.fn(
+  async (_account: string, _note: { id: string }, _delegate?: boolean): Promise<string> => 'consume-tx'
 );
 const mockStartBg = jest.fn();
 jest.mock('../transaction', () => ({
-  initiateConsumeNotesTransaction: mockInitiateConsumeNotes,
+  initiateConsumeTransaction: mockInitiateConsume,
   startBackgroundTransactionProcessing: (...args: unknown[]) => mockStartBg(...args)
 }));
 
@@ -20,9 +20,10 @@ let mockExtension = false;
 jest.mock('lib/platform', () => ({ isExtension: () => mockExtension }));
 
 let mockAutoConsume = true;
+let mockDelegate = true;
 jest.mock('lib/settings/helpers', () => ({
   isAutoConsumeEnabled: () => mockAutoConsume,
-  isDelegateProofEnabled: () => true
+  isDelegateProofEnabled: () => mockDelegate
 }));
 
 let mockClaimable: unknown[] = [];
@@ -51,11 +52,12 @@ describe('NativeNoteAutoConsumeManager', () => {
     jest.clearAllMocks();
     mockExtension = false;
     mockAutoConsume = true;
+    mockDelegate = true;
     mockClaimable = [];
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
   });
 
-  it('consumes only native, non-swap, not-being-claimed notes on mobile/desktop', async () => {
+  it('consumes only native, non-swap, not-being-claimed notes — one tx per note', async () => {
     mockClaimable = [
       note('n1'), // native ✓
       note('n2', 'other-faucet'), // wrong faucet ✗
@@ -65,12 +67,23 @@ describe('NativeNoteAutoConsumeManager', () => {
 
     render(<NativeNoteAutoConsumeManager />);
 
-    await waitFor(() => expect(mockInitiateConsumeNotes).toHaveBeenCalledTimes(1));
-    const [account, notes, delegate] = mockInitiateConsumeNotes.mock.calls[0]!;
-    expect(account).toBe('pk-1');
-    expect(notes.map(n => n.id)).toEqual(['n1']);
-    expect(delegate).toBe(true);
+    await waitFor(() => expect(mockInitiateConsume).toHaveBeenCalled());
+    // Only n1 is eligible; every consume is per-note and for n1 — never n2/n3/n4.
+    mockInitiateConsume.mock.calls.forEach(c => {
+      expect(c[0]).toBe('pk-1');
+      expect(c[1].id).toBe('n1');
+    });
     expect(mockStartBg).toHaveBeenCalled();
+  });
+
+  it('follows the user local/delegated proving setting', async () => {
+    mockDelegate = false; // user picked LOCAL proving
+    mockClaimable = [note('n1')];
+
+    render(<NativeNoteAutoConsumeManager />);
+
+    await waitFor(() => expect(mockInitiateConsume).toHaveBeenCalled());
+    expect(mockInitiateConsume.mock.calls[0]![2]).toBe(false);
   });
 
   it('is a no-op on the extension (the service worker owns that path)', async () => {
@@ -80,7 +93,7 @@ describe('NativeNoteAutoConsumeManager', () => {
     render(<NativeNoteAutoConsumeManager />);
 
     await new Promise(resolve => setTimeout(resolve, 20));
-    expect(mockInitiateConsumeNotes).not.toHaveBeenCalled();
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
   });
 
   it('is a no-op when auto-consume is disabled', async () => {
@@ -90,6 +103,6 @@ describe('NativeNoteAutoConsumeManager', () => {
     render(<NativeNoteAutoConsumeManager />);
 
     await new Promise(resolve => setTimeout(resolve, 20));
-    expect(mockInitiateConsumeNotes).not.toHaveBeenCalled();
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
   });
 });

@@ -4,7 +4,11 @@ import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
-import { isAutoConsumeEnabledAsync, isDelegateProofEnabledAsync } from 'lib/settings/helpers';
+import {
+  areBackgroundSettingsMirrored,
+  isAutoConsumeEnabledAsync,
+  isDelegateProofEnabledAsync
+} from 'lib/settings/helpers';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { toNoteTypeString } from '../helpers';
@@ -17,7 +21,7 @@ import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
 import { reconcileSwapOrderNotes } from '../swap/settlement';
-import { initiateConsumeNotesTransaction } from '../transaction/initiate';
+import { initiateConsumeTransaction } from '../transaction/initiate';
 import { ConsumableNote, NoteTypeEnum } from '../types';
 
 // `init_vault` is the ESM module factory for `./vault`, injected by Vite's
@@ -269,11 +273,14 @@ async function runSync(): Promise<void> {
       // Native-asset (MIDEN) note auto-consume — the background counterpart to the
       // frontend NativeNoteAutoConsumeManager (mobile/desktop). Resolve eligibility
       // here so the "click to claim" notification below can exclude notes we are about
-      // to auto-consume; the actual consume is enqueued after the swap block. The SW
-      // has no localStorage, so the toggle is read from the platform KV mirror.
+      // to auto-consume; the actual consume is enqueued after the swap block. The SW has
+      // no localStorage, so the toggle is read from the platform KV mirror — and only
+      // once the popup has mirrored the user's REAL settings (areBackgroundSettingsMirrored),
+      // so we never act on read-miss defaults for a user who opted out of auto-consume or
+      // remote proving (the frontend still covers the app-open case in the meantime).
       let nativeAutoConsumeNotes: ConsumableNote[] = [];
       try {
-        if (await isAutoConsumeEnabledAsync()) {
+        if ((await areBackgroundSettingsMirrored()) && (await isAutoConsumeEnabledAsync())) {
           const nativeFaucetId = await getFaucetIdSetting();
           if (nativeFaucetId) {
             nativeAutoConsumeNotes = parsedNotes.flatMap(n => {
@@ -376,15 +383,20 @@ async function runSync(): Promise<void> {
       }
 
       // Enqueue the native-note auto-consume computed above (after swap so swap-managed
-      // native notes are already excluded by the `!swapOrder` filter). Dedup +
-      // bounded-retry backoff (#215) live inside initiateConsumeNotesTransaction, so a
-      // repeated ~30s tick never spawns duplicate consume rows. Proving follows the
-      // user's delegated/local setting via the SW-readable mirror — like every other
-      // proving path in the wallet.
+      // native notes are already excluded by the `!swapOrder` filter). ONE consume tx
+      // PER NOTE (mirroring the Home-page consumer), NOT a batch: a Miden tx is atomic,
+      // so batching lets a single un-consumable note fail the whole tx and — because the
+      // #215 backoff gate keys on the shared row's noteIds — throttle its healthy
+      // batch-mates (and the frontend consumer) too. Per-note isolates failures. Dedup +
+      // backoff live inside initiateConsumeTransaction, so a repeated ~30s tick never
+      // spawns duplicate rows. Proving follows the user's delegated/local setting via the
+      // SW-readable mirror — like every other proving path in the wallet.
       if (nativeAutoConsumeNotes.length > 0) {
         try {
           const delegate = await isDelegateProofEnabledAsync();
-          await initiateConsumeNotesTransaction(accountPubKey, nativeAutoConsumeNotes, delegate);
+          for (const note of nativeAutoConsumeNotes) {
+            await initiateConsumeTransaction(accountPubKey, note, delegate);
+          }
           const { startTransactionProcessing } = await import('./transaction-processor');
           startTransactionProcessing().catch(err => console.warn('[native-auto-consume] processing failed', err));
         } catch (err) {

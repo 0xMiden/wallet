@@ -23,27 +23,33 @@ import {
   sanitizeGuardianUrl,
   isAutoConsumeEnabledAsync,
   isDelegateProofEnabledAsync,
-  mirrorBackgroundSettings
+  mirrorBackgroundSettings,
+  areBackgroundSettingsMirrored
 } from './helpers';
 
 const mockKvStore: Record<string, unknown> = {};
+let mockStorageThrows = false;
 jest.mock('lib/platform/storage-adapter', () => ({
-  getStorageProvider: () => ({
-    get: async (keys: string[]) => {
-      const out: Record<string, unknown> = {};
-      for (const k of keys) if (k in mockKvStore) out[k] = mockKvStore[k];
-      return out;
-    },
-    set: async (obj: Record<string, unknown>) => {
-      Object.assign(mockKvStore, obj);
-    }
-  })
+  getStorageProvider: () => {
+    if (mockStorageThrows) throw new Error('storage provider not ready');
+    return {
+      get: async (keys: string[]) => {
+        const out: Record<string, unknown> = {};
+        for (const k of keys) if (k in mockKvStore) out[k] = mockKvStore[k];
+        return out;
+      },
+      set: async (obj: Record<string, unknown>) => {
+        Object.assign(mockKvStore, obj);
+      }
+    };
+  }
 }));
 
 describe('settings helpers', () => {
   beforeEach(() => {
     localStorage.clear();
     for (const k of Object.keys(mockKvStore)) delete mockKvStore[k];
+    mockStorageThrows = false;
   });
 
   describe('isValidGuardianUrl', () => {
@@ -167,6 +173,34 @@ describe('settings helpers', () => {
       expect(await isDelegateProofEnabledAsync()).toBe(false);
       setDelegateProofSetting(true);
       expect(await isDelegateProofEnabledAsync()).toBe(true);
+    });
+  });
+
+  describe('background-settings mirror marker', () => {
+    it('areBackgroundSettingsMirrored defaults false until the popup mirrors', async () => {
+      expect(await areBackgroundSettingsMirrored()).toBe(false);
+    });
+
+    it('mirrorBackgroundSettings sets the marker so the SW may act', async () => {
+      mirrorBackgroundSettings();
+      await Promise.resolve();
+      expect(await areBackgroundSettingsMirrored()).toBe(true);
+    });
+  });
+
+  describe('mirror is resilient to an unavailable storage provider', () => {
+    it('setters and mirrorBackgroundSettings do not throw when getStorageProvider throws', () => {
+      mockStorageThrows = true;
+      expect(() => setAutoConsumeSetting(false)).not.toThrow();
+      expect(() => setDelegateProofSetting(false)).not.toThrow();
+      expect(() => mirrorBackgroundSettings()).not.toThrow();
+    });
+
+    it('async readers return defaults when getStorageProvider throws', async () => {
+      mockStorageThrows = true;
+      expect(await isAutoConsumeEnabledAsync()).toBe(DEFAULT_AUTO_CONSUME);
+      expect(await isDelegateProofEnabledAsync()).toBe(DEFAULT_DELEGATE_PROOF);
+      expect(await areBackgroundSettingsMirrored()).toBe(false);
     });
   });
 
