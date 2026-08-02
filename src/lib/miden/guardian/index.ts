@@ -181,16 +181,23 @@ export class MultisigService {
   }
 
   /**
-   * Create a send (P2ID) transaction proposal.
+   * Create a send (P2ID) transaction proposal. Defaults to a private note;
+   * pass `NoteType.Public` when the recipient must read the note on-chain
+   * (e.g. the Epoch allocator consuming an earn-deposit collateral note).
    */
-  async createSendProposal(recipientId: string, faucetId: string, amount: bigint): Promise<Proposal> {
+  async createSendProposal(
+    recipientId: string,
+    faucetId: string,
+    amount: bigint,
+    noteType: NoteType = NoteType.Private
+  ): Promise<Proposal> {
     return withWasmClientLock(() =>
       this.multisig.createP2idProposal(
         accountIdStringToSdk(recipientId).toString(),
         accountIdStringToSdk(faucetId).toString(),
         amount,
         undefined,
-        { noteType: NoteType.Private }
+        { noteType }
       )
     );
   }

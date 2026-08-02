@@ -530,10 +530,13 @@ const generateGuardianTransaction = async (
         // Epoch: a recallable P2IDE note to the solver's allocator — propose it as
         // a send. (The multisig send proposal is P2ID today, so the Epoch recall
         // safety net is not yet available on Guardian accounts.)
+        // MUST be a public note: the allocator reads the note's data on-chain and
+        // rejects the intent with "note not found on-chain" for private notes.
         proposalResult = await service.createSendProposal(
           bridgeTx.secondaryAccountId!,
           bridgeTx.faucetId,
-          BigInt(bridgeTx.amount)
+          BigInt(bridgeTx.amount),
+          NoteType.Public
         );
       }
       break;
