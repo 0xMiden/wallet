@@ -1,11 +1,9 @@
 import { updateEarnDepositStatus } from 'lib/miden/activity';
-import { isGuardianAccount } from 'lib/miden/front/guardian-manager';
 import * as Repo from 'lib/miden/repo';
 
 import { getCurrentMidenBlock } from './chain';
 import {
   EARN_DESTINATION_CHAIN_ID,
-  GUARDIAN_EARN_DEPOSIT_UNSUPPORTED,
   openEarnPosition,
   pollEarnIntentStatus,
   reconcileEarnDeposits,
@@ -27,7 +25,6 @@ jest.mock('./chain', () => ({
 jest.mock('./earn-note', () => ({ createEarnP2IDNote: jest.fn() }));
 jest.mock('./sdk', () => ({ getEpochReadOnlySdk: jest.fn() }));
 jest.mock('lib/miden/activity', () => ({ updateEarnDepositStatus: jest.fn() }));
-jest.mock('lib/miden/front/guardian-manager', () => ({ isGuardianAccount: jest.fn() }));
 jest.mock('lib/miden/repo', () => ({ transactions: { filter: jest.fn(), where: jest.fn() } }));
 
 const SEPOLIA = EARN_DESTINATION_CHAIN_ID;
@@ -268,68 +265,53 @@ describe('reconcileEarnDeposits', () => {
   });
 });
 
-const mockIsGuardian = isGuardianAccount as jest.MockedFunction<typeof isGuardianAccount>;
 const mockGetBlock = getCurrentMidenBlock as jest.MockedFunction<typeof getCurrentMidenBlock>;
 
 /**
- * The guardian refusal and the amount/address validation are the wallet's only
- * guard against minting a non-recallable P2ID collateral note (funds locked with
- * no reclaim path) — a regression that dropped either would strand user funds, so
- * each guard gets an explicit test that fails if the guard is removed.
+ * The amount/address validation is the wallet's only guard against minting a
+ * collateral note for a zero/invalid deposit — a regression that dropped either
+ * would strand user funds, so each guard gets an explicit test that fails if the
+ * guard is removed. (Guardian accounts are supported: the collateral note is a
+ * recallable P2IDE built as a custom proposal in `generateTransaction` — covered
+ * by transactions.guardian.test.ts, not here.)
  */
 describe('openEarnPosition guards', () => {
-  // Shared reference so the `isGuardian` call assertion can match the exact
-  // provider object without reading it back off the `as never` deps cast.
-  const guardianProvider = {};
   const baseArgs = () => ({
     amount: 1_000_000n,
     evmAddress: SPONSOR,
     senderPublicKey: 'mtst1sender',
-    deps: { signTransaction: jest.fn(), guardianProvider } as never,
+    deps: { signTransaction: jest.fn(), guardianProvider: {} } as never,
     onRowCreated: jest.fn()
   });
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockIsGuardian.mockResolvedValue(false);
     mockGetBlock.mockResolvedValue(1000);
   });
 
-  it('refuses a guardian account before any SDK or quote work', async () => {
-    mockIsGuardian.mockResolvedValue(true);
-
-    await expect(openEarnPosition(baseArgs())).rejects.toThrow(GUARDIAN_EARN_DEPOSIT_UNSUPPORTED);
-
-    // No collateral note may be minted and no read-only SDK spun up for a guardian.
-    expect(mockGetSdk).not.toHaveBeenCalled();
-  });
-
-  it('rejects a non-positive deposit amount before touching the guardian provider', async () => {
+  it('rejects a non-positive deposit amount before any SDK work', async () => {
     await expect(openEarnPosition({ ...baseArgs(), amount: 0n })).rejects.toThrow(
       'Deposit amount must be greater than zero.'
     );
 
-    expect(mockIsGuardian).not.toHaveBeenCalled();
     expect(mockGetSdk).not.toHaveBeenCalled();
   });
 
-  it('rejects an invalid EVM address before touching the guardian provider', async () => {
+  it('rejects an invalid EVM address before any SDK work', async () => {
     await expect(openEarnPosition({ ...baseArgs(), evmAddress: 'not-an-address' })).rejects.toThrow(
       'valid EVM address'
     );
 
-    expect(mockIsGuardian).not.toHaveBeenCalled();
     expect(mockGetSdk).not.toHaveBeenCalled();
   });
 
-  it('lets a non-guardian account past the guard and into SDK setup', async () => {
+  it('lets a valid deposit past the guards and into SDK setup', async () => {
     const args = baseArgs();
-    // Fail at the first SDK call so the assertion is only that the guard was cleared.
+    // Fail at the first SDK call so the assertion is only that the guards were cleared.
     mockGetSdk.mockResolvedValue({ getTaskData: jest.fn().mockRejectedValue(new Error('stop')) } as never);
 
     await expect(openEarnPosition(args)).rejects.toThrow('stop');
 
-    expect(mockIsGuardian).toHaveBeenCalledWith(args.senderPublicKey, guardianProvider);
     expect(mockGetSdk).toHaveBeenCalledWith(SPONSOR);
   });
 });

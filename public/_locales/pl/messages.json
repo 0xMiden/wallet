@@ -3616,10 +3616,6 @@
     "message": "Przegrany",
     "englishSource": "Failed"
   },
-  "earnDepositGuardianUnsupported": {
-    "message": "Zarabiaj wpłaty nie są jeszcze dostępne na kontach Guardian. Przejdź na konto standardowe, aby dokonać wpłaty.",
-    "englishSource": "Earn deposits aren’t available on Guardian accounts yet. Switch to a standard account to deposit."
-  },
   "reclaimFunds": {
     "message": "Odzyskaj środki",
     "englishSource": "Reclaim funds"

@@ -15,7 +15,6 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { ChartContainer } from 'lib/ui/charts';
 import { navigate, useLocation } from 'lib/woozie';
-import { WalletType } from 'screens/onboarding/types';
 
 import { EarnFlowHeader } from './components';
 import { placeholderVault } from './earn-mapping';
@@ -51,14 +50,9 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Earn deposits need a P2IDE collateral note with a reclaim height; Guardian
-  // proposals can only express a plain P2ID (see GUARDIAN_EARN_DEPOSIT_UNSUPPORTED).
-  // `openEarnPosition` refuses these too — this just avoids a dead-end CTA.
-  const isGuardian = account.type === WalletType.Guardian;
-
   const handleOpenPosition = async () => {
     hapticLight();
-    if (isSubmitting || isGuardian) return;
+    if (isSubmitting) return;
     if (!account.evmAddress) {
       setSubmitError(t('earnNoEvmAddress'));
       return;
@@ -100,11 +94,6 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       </div>
 
       <div className={clsx('shrink-0 pt-4 pb-6', isMobile() ? 'px-8' : 'px-6')}>
-        {isGuardian && (
-          <div className="mb-2 text-center text-sm leading-tight text-status-negative">
-            {t('earnDepositGuardianUnsupported')}
-          </div>
-        )}
         {submitError && (
           <div className="mb-2 text-center text-sm leading-tight text-status-negative">{submitError}</div>
         )}
@@ -113,7 +102,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
           title={t('earnOpenPosition')}
           variant={ButtonVariant.Primary}
           onClick={handleOpenPosition}
-          disabled={isSubmitting || amountValue <= 0 || !vault.id || isGuardian}
+          disabled={isSubmitting || amountValue <= 0 || !vault.id}
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
       </div>

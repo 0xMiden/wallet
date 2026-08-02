@@ -3669,10 +3669,6 @@
     "message": "실패한",
     "englishSource": "Failed"
   },
-  "earnDepositGuardianUnsupported": {
-    "message": "Guardian 계정에서는 아직 적립금을 사용할 수 없습니다. 입금하려면 일반 계좌로 전환하세요.",
-    "englishSource": "Earn deposits aren’t available on Guardian accounts yet. Switch to a standard account to deposit."
-  },
   "reclaimFunds": {
     "message": "자금 회수",
     "englishSource": "Reclaim funds"

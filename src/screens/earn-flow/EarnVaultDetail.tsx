@@ -7,11 +7,9 @@ import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { CircleButton } from 'components/CircleButton';
-import { useAccount } from 'lib/miden/front';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
-import { WalletType } from 'screens/onboarding/types';
 
 import { MetricCard } from './components';
 import { placeholderVault } from './earn-mapping';
@@ -30,11 +28,6 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
   const { t } = useTranslation();
   const { vaults } = useEarnPositions();
   const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
-
-  // Earn deposits need a P2IDE collateral note with a reclaim height; Guardian
-  // proposals can only express a plain P2ID (see GUARDIAN_EARN_DEPOSIT_UNSUPPORTED).
-  const account = useAccount();
-  const isGuardian = account.type === WalletType.Guardian;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-vault-detail-page">
@@ -96,16 +89,11 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
           <VaultAbout vault={vault} />
 
           <div className="mt-auto pt-16">
-            {isGuardian && (
-              <div className="mb-3 text-center text-sm leading-tight text-status-negative">
-                {t('earnDepositGuardianUnsupported')}
-              </div>
-            )}
             <Button
               data-testid="earn-vault-deposit-btn"
               title={t('earnDeposit')}
               variant={ButtonVariant.Primary}
-              disabled={!vault.id || isGuardian}
+              disabled={!vault.id}
               onClick={() => navigate(`/earn/vaults/${vaultId}/deposit`)}
               className="h-14 max-w-none rounded-full text-lg font-bold"
             />

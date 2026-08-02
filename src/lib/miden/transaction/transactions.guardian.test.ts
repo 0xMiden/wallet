@@ -415,6 +415,509 @@ describe('generateTransaction — Guardian routing', () => {
     }
   );
 
+  it('Guardian earn-deposit builds a P2IDE collateral note to the allocator via a custom proposal', async () => {
+    const txId = 'earn-guardian';
+    const result = makeResult();
+    const requestBytes = new Uint8Array([11, 12, 13]);
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'earn-deposit',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      // Row says 'private', but earn collateral is always minted PUBLIC — the 4th-arg
+      // assertion ('Public') below only holds if the source ignores the row's noteType.
+      noteType: 'private',
+      requestBytes: undefined,
+      extraInputs: { recallBlocks: 25 },
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
+    const terminate = jest.fn();
+    mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'earn-proposal' })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const client = Object.assign(makeClientApi(result), {
+      sync: jest.fn(async () => ({ blockNum: () => 100 }))
+    });
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // P2IDE collateral note to the allocator with an absolute reclaim height
+    // (syncHeight 100 + recallBlocks 25 = 125), proposed as a custom proposal —
+    // never a plain P2ID send proposal.
+    expect(newSendTransactionRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ toString: expect.any(Function) }),
+      expect.objectContaining({ toString: expect.any(Function) }),
+      expect.objectContaining({ toString: expect.any(Function) }),
+      'Public',
+      1000n,
+      125,
+      null
+    );
+    expect(terminate).toHaveBeenCalledTimes(1);
+    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
+    expect(multisigService.createSendProposal).not.toHaveBeenCalled();
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('earn-proposal', requestBytes);
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
+
+    // Completion must route to completeEarnDepositTransaction, NOT the generic custom-tx
+    // completion — otherwise the row finishes without the collateral note id that
+    // createEarnP2IDNote reads back for the Epoch handoff (stranding the deposit).
+    // 'Deposited to lending' is set only by completeEarnDepositTransaction, so it pins
+    // the routing: deleting the completion case fails this assertion.
+    const completed = txStore.find(row => row.id === txId);
+    expect(completed?.status).toBe(ITransactionStatus.Completed);
+    expect(completed?.displayMessage).toBe('Deposited to lending');
+  });
+
+  it('Guardian earn-deposit: falls back to the last-synced height when the fresh sync fails', async () => {
+    // A transient network sync failure must NOT fail an otherwise-submittable deposit —
+    // the note build falls back to the cached getSyncHeight() (the recall buffer absorbs
+    // mild lag), keeping the guardian path no more network-fragile than before.
+    const txId = 'earn-guardian-syncfail';
+    const requestBytes = new Uint8Array([51, 52, 53]);
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'earn-deposit',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      extraInputs: { recallBlocks: 25 },
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
+    mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate: jest.fn() });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'earn-syncfail-proposal' })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    // Fresh sync throws; getSyncHeight (the fallback) returns 200.
+    const client = Object.assign(makeClientApi(makeResult()), {
+      sync: jest.fn(async () => {
+        throw new Error('sync timed out');
+      }),
+      getSyncHeight: jest.fn(async () => 200)
+    });
+    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // Built with the fallback height (200 + 25 = 225) and proceeded to a custom proposal.
+    expect(newSendTransactionRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ toString: expect.any(Function) }),
+      expect.objectContaining({ toString: expect.any(Function) }),
+      expect.objectContaining({ toString: expect.any(Function) }),
+      'Public',
+      1000n,
+      225,
+      null
+    );
+    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
+  });
+
+  it('Guardian earn-deposit reuses persisted request bytes after a retry', async () => {
+    const txId = 'earn-guardian-retry';
+    const result = makeResult();
+    const requestBytes = new Uint8Array([7, 8, 9]);
+    const transaction = Object.assign(new Transaction('guardian-acc', requestBytes), {
+      id: txId,
+      type: 'earn-deposit',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      extraInputs: { recallBlocks: 25 },
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'earn-retry-proposal' })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(result)
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // Persisted bytes are reused verbatim — no fresh P2IDE request is built.
+    expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
+    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('earn-retry-proposal', requestBytes);
+  });
+
+  it('Guardian earn-deposit refuses to build a non-recallable note when recallBlocks is missing', async () => {
+    const txId = 'earn-guardian-norecall';
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'earn-deposit',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      extraInputs: {}, // no recallBlocks — a P2ID note would lock the collateral with no reclaim path
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // The row fails fast; no P2IDE request or proposal is built.
+    expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('Guardian earn-deposit refuses to build a note when the allocator (secondaryAccountId) is missing', async () => {
+    const txId = 'earn-guardian-noalloc';
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'earn-deposit',
+      amount: 1000n,
+      secondaryAccountId: undefined, // no allocator to send the collateral to
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      extraInputs: { recallBlocks: 25 }, // recallBlocks present — only the allocator is missing
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // Same fail-fast as the missing-recallBlocks case — the other half of the guard.
+    expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('Guardian earn-deposit: refuses to submit once the caller abandoned the deposit (epochStatus=failed)', async () => {
+    // openEarnPosition marks epochStatus 'failed' when it gives up (its 5-min wait timed
+    // out / the Epoch intent was aborted). A guardian requeue can outlive that wait, so
+    // the loop must NOT then build+submit an orphan collateral note (no live intent) —
+    // it fails the row instead.
+    const txId = 'earn-guardian-abandoned';
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'earn-deposit',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      extraInputs: { recallBlocks: 25, epochStatus: 'failed' },
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // No note built or proposed; the row is Failed (terminal), never Completed.
+    expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('Guardian earn-deposit: a still-pending 409 requeues AND drops the frozen requestBytes so the next cycle rebuilds a fresh reclaim height', async () => {
+    // An earn-deposit builds requestBytes (with an absolute reclaim height) BEFORE the
+    // custom proposal. If the proposal keeps hitting a transient pending-delta 409, the
+    // row is requeued — but the frozen bytes must be dropped, or a delayed re-submit
+    // would land a collateral note whose remaining reclaim window is below the Epoch
+    // allocator's minimum (stranding the collateral). Assert the drop.
+    jest.useFakeTimers();
+    try {
+      const txId = 'earn-pending-conflict';
+      const requestBytes = new Uint8Array([21, 22, 23]);
+      txStore.push({
+        id: txId,
+        type: 'earn-deposit',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        secondaryAccountId: 'allocator',
+        faucetId: 'faucet',
+        amount: 1000n,
+        noteType: 'public',
+        extraInputs: { recallBlocks: 25 },
+        delegateTransaction: true,
+        initiatedAt: Math.floor(Date.now() / 1000)
+      });
+
+      const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
+      mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate: jest.fn() });
+
+      const conflict = { status: 409, body: 'ConflictPendingDelta' };
+      const multisigService = {
+        createCustomProposal: jest.fn(async () => {
+          throw conflict;
+        }),
+        createSendProposal: jest.fn(),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      const client = Object.assign(makeClientApi(makeResult()), {
+        sync: jest.fn(async () => ({ blockNum: () => 100 }))
+      });
+      mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+      const pending = generateTransaction(
+        Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+          id: txId,
+          type: 'earn-deposit',
+          amount: 1000n,
+          secondaryAccountId: 'allocator',
+          faucetId: 'faucet',
+          noteType: 'public',
+          extraInputs: { recallBlocks: 25 },
+          delegateTransaction: true
+        }),
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      // Fast-forward withGuardianConflictRetry's backoff so the retry budget exhausts.
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      // Requeued (transient lock), not terminally Failed...
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      // ...and the frozen absolute-height request was dropped so the next cycle rebuilds
+      // the note against a fresh sync height (send/swap keep theirs; earn must not).
+      expect(row.requestBytes).toBeUndefined();
+      expect(multisigService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian earn-deposit: submit lands but local apply fails — row is marked Failed (not Completed) so the awaiting caller stops waiting', async () => {
+    // A Completed earn-deposit row without resultBytes would hang createEarnP2IDNote's
+    // waitForTransactionCompletion (TransactionResult.deserialize(undefined) throws after
+    // cleanup(), so the wait promise never settles and openEarnPosition hangs forever).
+    // A post-submit apply failure must therefore Fail the row, NOT Complete it — unlike
+    // send/consume/swap/execute, which mark Completed and let the next sync reconcile.
+    const txId = 'earn-guardian-applyfail';
+    const requestBytes = new Uint8Array([31, 32, 33]);
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'earn-deposit',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      extraInputs: { recallBlocks: 25 },
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
+    mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate: jest.fn() });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'earn-applyfail-proposal', nonce: 5 })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    // Submit lands on-chain but the LOCAL apply throws ApplyTransactionAfterSubmitFailed.
+    const applyErr: Error & { errorCode?: string } = new Error('apply failed');
+    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    const applyFn = jest.fn(async () => {
+      throw applyErr;
+    });
+    const client = Object.assign(makeClientApi(makeResult(), applyFn), {
+      sync: jest.fn(async () => ({ blockNum: () => 100 }))
+    });
+    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // The failure is specifically POST-submit — the proposal was signed and the tx
+    // submitted (apply runs only after submit lands), so the generic value-moving path
+    // would have marked it Completed. This pins the earn-deposit exception to the guard,
+    // distinguishing it from both a pre-submit early throw and the Completed fallback.
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalled();
+    expect(applyFn).toHaveBeenCalled();
+    const row = txStore.find(r => r.id === txId);
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    // Never a Completed-branch success message.
+    expect(row?.displayMessage).not.toBe('Deposited to lending');
+    expect(row?.displayMessage).not.toBe('Sent');
+  });
+
+  it('Guardian earn-deposit: a canonicalization race after submit also marks the row Failed (not Completed)', async () => {
+    // The other arm of the same guard: a canonicalization nonce-lag error would mark
+    // any other guardian tx Completed, but for earn-deposit that Completed-without-
+    // resultBytes state hangs the caller, so it must Fail here too.
+    const txId = 'earn-guardian-canon';
+    const requestBytes = new Uint8Array([41, 42, 43]);
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'earn-deposit',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      extraInputs: { recallBlocks: 25 },
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
+    mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate: jest.fn() });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'earn-canon-proposal', nonce: 6 })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const canonErr = new Error('Refusing to overwrite local state: incoming nonce 5 is not greater than local nonce 7');
+    const client = Object.assign(
+      makeClientApi(
+        makeResult(),
+        jest.fn(async () => {
+          throw canonErr;
+        })
+      ),
+      { sync: jest.fn(async () => ({ blockNum: () => 100 })) }
+    );
+    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(txStore.find(r => r.id === txId)?.status).toBe(ITransactionStatus.Failed);
+  });
+
   it('Guardian recallable send reuses persisted request bytes after a retry', async () => {
     const txId = 'recallable-retry';
     const result = makeResult();

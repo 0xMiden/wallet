@@ -19,20 +19,11 @@ import EarnVaultDetail from './EarnVaultDetail';
 // props via data-* attributes so we can assert what `EarnVaultDetail` passed
 // (label / value / valueClassName), which is where the audited-branch styling
 // lives.
-// --- Wallet context: the screen reads the account only to disable the Deposit
-//     CTA on Guardian accounts (earn deposits need a P2IDE collateral note that
-//     Guardian proposals can't express). Mutated per-test to flip that branch.
-const mockAccount: { publicKey: string; type?: string } = { publicKey: 'mm1testaccount' };
-
 // i18n: the component and the shared Button/CircleButton call `useTranslation`.
 // Stub it so `t(key)` echoes the key, letting us assert on stable keys instead
 // of translated English.
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
-}));
-
-jest.mock('lib/miden/front', () => ({
-  useAccount: () => mockAccount
 }));
 
 jest.mock('./components', () => ({
@@ -176,26 +167,15 @@ const metricValue = (label: string) => {
 describe('EarnVaultDetail', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockAccount.type = undefined;
   });
 
-  it('disables the Deposit CTA and explains why on a Guardian account', () => {
-    mockAccount.type = 'guardian';
-    render(<EarnVaultDetail vaultId="v-audited" />);
-
-    const deposit = screen.getByRole('button', { name: 'earnDeposit' });
-    expect(deposit).toBeDisabled();
-    expect(screen.getByText('earnDepositGuardianUnsupported')).toBeInTheDocument();
-
-    fireEvent.click(deposit);
-    expect(navigate).not.toHaveBeenCalled();
-  });
-
-  it('leaves the Deposit CTA enabled (and unexplained) on a standard account', () => {
+  // Guardian accounts are supported: earn deposits are built as a recallable
+  // P2IDE custom proposal in `generateTransaction`, so the CTA is never gated on
+  // account type — it only disables while the vault id is still loading.
+  it('leaves the Deposit CTA enabled once the vault has loaded', () => {
     render(<EarnVaultDetail vaultId="v-audited" />);
 
     expect(screen.getByRole('button', { name: 'earnDeposit' })).not.toBeDisabled();
-    expect(screen.queryByText('earnDepositGuardianUnsupported')).not.toBeInTheDocument();
   });
 
   it('renders the audited vault: header, APY block, stats, about and chart', () => {
