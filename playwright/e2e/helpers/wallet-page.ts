@@ -41,6 +41,23 @@ export type TransactionStage =
   | 'complete';
 
 /**
+ * `ITransaction.type` values `waitForStage` knows how to filter on --
+ * duplicated (not imported) for the same reason as `TransactionStage` above.
+ * Both types drive the same stage machine in `src/lib/miden/transaction/index.ts`
+ * (`setTransactionStage` calls are keyed by stage name, not transaction type),
+ * but only `switch-guardian` gets an explicit `'registering-guardian'` stamp
+ * immediately before its guardian-register call
+ * (`completeSwitchGuardianTransaction`, `transaction/complete.ts:369`) --
+ * `replace-hot-key`'s equivalent call (`reRegisterCurrentStateOnGuardian` inside
+ * `completeReplaceHotKeyTransaction`, `transaction/complete.ts:236-323`) has no
+ * stage stamp of its own, so `'confirming'` (the last stage stamped before that
+ * function runs, shared by both types at `transaction/index.ts:890`) is the
+ * closest available proxy for "about to attempt guardian registration" on a
+ * rotation row.
+ */
+export type StageTrackedTransactionType = 'switch-guardian' | 'replace-hot-key';
+
+/**
  * Platform-neutral wallet interaction surface.
  *
  * Both ChromeWalletPage (extension via Playwright) and IosWalletPage
@@ -257,20 +274,31 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    */
   kill(): Promise<void>;
   /**
-   * Poll for a `switch-guardian` transaction row (`ITransaction.stage` in
+   * Poll for a transaction row of `transactionType` (`ITransaction.stage` in
    * `src/lib/miden/db/types.ts`) to reach `stage` while its status is still
    * GeneratingTransaction -- read straight from the SDK's Dexie
    * `transactions` store via raw IndexedDB (same idiom as the private
    * `waitForTransactionRowComplete` this class already uses for
    * `switchGuardian`'s own completion wait).
    *
-   * Exists for stress specs that call `switchGuardian(...)` **without**
-   * awaiting it (so they can `kill()` mid-flight) -- such a caller never gets
-   * a transaction id back, but there is exactly one switch-guardian row in
-   * flight per account at a time, so matching on type + status is
-   * unambiguous without one.
+   * Exists for stress specs that call `switchGuardian(...)` (or, via
+   * `recoverGuardianFromSeed`/`HotKeyRotationGate`, a `replace-hot-key`
+   * rotation) **without** awaiting it (so they can `kill()` mid-flight) --
+   * such a caller never gets a transaction id back, but there is exactly one
+   * row of a given `transactionType` in flight per account at a time, so
+   * matching on type + status is unambiguous without one.
+   *
+   * `transactionType` defaults to `'switch-guardian'` (this method's
+   * original, and still most common, caller); pass `'replace-hot-key'` to
+   * track a device-key rotation row instead -- see `StageTrackedTransactionType`'s
+   * doc comment for why `'confirming'` is the closest available stage for that
+   * type (it has no `'registering-guardian'`-equivalent stamp of its own).
    */
-  waitForStage(stage: TransactionStage, timeoutMs?: number): Promise<void>;
+  waitForStage(
+    stage: TransactionStage,
+    timeoutMs?: number,
+    transactionType?: StageTrackedTransactionType
+  ): Promise<void>;
   /**
    * Wait until no transaction row is left `Queued`/`GeneratingTransaction`
    * (`ITransactionStatus` 0/1) -- i.e. the FIFO processing loop
@@ -977,35 +1005,50 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.close().catch(() => {});
   }
 
-  async waitForStage(stage: TransactionStage, timeoutMs: number = 90_000): Promise<void> {
+  async waitForStage(
+    stage: TransactionStage,
+    timeoutMs: number = 90_000,
+    transactionType: StageTrackedTransactionType = 'switch-guardian'
+  ): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-      const reached = await this.page.evaluate(async (targetStage: TransactionStage) => {
-        const idb = (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB;
-        const db: IDBDatabase = await new Promise((res, rej) => {
-          const r = idb.open('TridentMain');
-          r.onsuccess = () => res(r.result);
-          r.onerror = () => rej(r.error);
-        });
-        try {
-          if (!db.objectStoreNames.contains('transactions')) return false;
-          const rows: Array<{ type?: string; status?: number; stage?: string }> = await new Promise((res, rej) => {
-            const r = db.transaction('transactions', 'readonly').objectStore('transactions').getAll();
+      const reached = await this.page.evaluate(
+        async ({
+          targetStage,
+          targetType
+        }: {
+          targetStage: TransactionStage;
+          targetType: StageTrackedTransactionType;
+        }) => {
+          const idb = (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB;
+          const db: IDBDatabase = await new Promise((res, rej) => {
+            const r = idb.open('TridentMain');
             r.onsuccess = () => res(r.result);
             r.onerror = () => rej(r.error);
           });
-          // status 1 === GeneratingTransaction (ITransactionStatus) -- `stage`
-          // is only meaningful while a row is actively processing (see the
-          // ITransaction.stage doc comment in src/lib/miden/db/types.ts).
-          return rows.some(row => row.type === 'switch-guardian' && row.status === 1 && row.stage === targetStage);
-        } finally {
-          db.close();
-        }
-      }, stage);
+          try {
+            if (!db.objectStoreNames.contains('transactions')) return false;
+            const rows: Array<{ type?: string; status?: number; stage?: string }> = await new Promise((res, rej) => {
+              const r = db.transaction('transactions', 'readonly').objectStore('transactions').getAll();
+              r.onsuccess = () => res(r.result);
+              r.onerror = () => rej(r.error);
+            });
+            // status 1 === GeneratingTransaction (ITransactionStatus) -- `stage`
+            // is only meaningful while a row is actively processing (see the
+            // ITransaction.stage doc comment in src/lib/miden/db/types.ts).
+            return rows.some(row => row.type === targetType && row.status === 1 && row.stage === targetStage);
+          } finally {
+            db.close();
+          }
+        },
+        { targetStage: stage, targetType: transactionType }
+      );
 
       if (reached) return;
       if (Date.now() >= deadline) {
-        throw new Error(`waitForStage: no switch-guardian transaction reached stage "${stage}" within ${timeoutMs}ms`);
+        throw new Error(
+          `waitForStage: no ${transactionType} transaction reached stage "${stage}" within ${timeoutMs}ms`
+        );
       }
       await this.page.waitForTimeout(500);
     }
