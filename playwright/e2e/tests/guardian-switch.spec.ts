@@ -128,3 +128,100 @@ test.describe('Guardian switch - happy path + usability', () => {
     });
   });
 });
+
+/**
+ * Cross-guardian correctness: after a switch A -> B, the wallet must route
+ * every subsequent co-sign exclusively through B and never contact A again.
+ * "Usable on B" (the happy-path describe above) only proves a send SUCCEEDS
+ * post-switch -- it doesn't rule out the wallet still consulting the OLD
+ * guardian alongside (or instead of) the new one. This test tells the two
+ * apart by making A actively hostile post-switch (an armed HTTP fault) and
+ * asserting the send still lands: if the wallet were still routing to A,
+ * the fault would surface as a send failure / hang; a routing-correct
+ * wallet never calls A at all, so the fault is inert and the send via B
+ * succeeds.
+ *
+ * Scope boundary (per the design doc / Product-Fix Protocol): this asserts
+ * WALLET-observable behavior only -- which guardian the wallet contacts and
+ * whether the tx completes. It does NOT assert `released_at` or any other
+ * old-guardian server-side state; that split-brain gap is tracked
+ * server-side as `OpenZeppelin/guardian#369` and is out of scope here.
+ */
+test.describe('Guardian switch - cross-guardian correctness', () => {
+  test('after switch, wallet co-signs only with B (A no longer authoritative for new txs)', async ({
+    walletA,
+    walletB,
+    midenCli,
+    steps
+  }) => {
+    test.setTimeout(600_000);
+
+    const commitmentB = await guardianCommitment(B);
+
+    let addressA: string;
+    let addressB: string;
+    let faucetId: string;
+
+    await steps.step('create_on_a_and_fund', async () => {
+      const createdA = await walletA.createGuardianWallet(A);
+      addressA = createdA.address;
+      const createdB = await walletB.createNewWallet();
+      addressB = createdB.address;
+
+      await midenCli.init();
+      faucetId = await midenCli.createFaucet();
+      await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+      await midenCli.sync();
+
+      await walletA.claimAllNotes(180_000);
+    });
+
+    await steps.step(
+      'switch_to_b',
+      async () => {
+        await walletA.switchGuardian(B);
+        // Precondition for the fault-injection step below to mean anything:
+        // confirm the switch actually landed (guardian commitment now B's)
+        // BEFORE arming a fault on A, so a subsequent send failure can only
+        // be attributed to mis-routing, not an incomplete switch.
+        await walletA.assertGuardianAuth(addressA!, { signerCount: 2, threshold: 2, guardianCommitment: commitmentB });
+      },
+      {
+        screenshotWallets: [{ target: walletA.page, label: 'A' }]
+      }
+    );
+
+    await steps.step(
+      'post_switch_send_with_a_faulted',
+      async () => {
+        // Fault every call to A. The guardian propose/sign round-trip lives
+        // under `/delta/proposal` -- `pathOf()` matches path segments in
+        // declaration order and 'delta' precedes 'sign' in
+        // GUARDIAN_FAULT_PATHS, so a `/delta/proposal` URL matches 'delta'
+        // first. Arming 'sign' here would never match and the fault would
+        // silently no-op, defeating the point of the test.
+        walletA.armGuardianFault({ target: 'A', path: 'delta', mode: 'abort' });
+
+        // A real value transfer to a second, independent wallet -- must
+        // succeed via B alone. If the wallet still contacted A for this
+        // tx's co-sign, A's aborted /delta calls would surface as a send
+        // failure or hang and the recipient balance would never arrive.
+        await walletA.sendTokens({ recipientAddress: addressB!, amount: '1', isPrivate: false, tokenSymbol: 'TST' });
+        const balanceB = await walletB.waitForBalanceAbove(0, 120_000);
+        expect(balanceB).toBeGreaterThan(0);
+
+        walletA.clearFaults();
+
+        // Still authoritatively on B after the faulted send (not knocked
+        // back to A, not left in some half-switched state).
+        await walletA.assertGuardianAuth(addressA!, { signerCount: 2, threshold: 2, guardianCommitment: commitmentB });
+      },
+      {
+        screenshotWallets: [
+          { target: walletA.page, label: 'A' },
+          { target: walletB.page, label: 'B' }
+        ]
+      }
+    );
+  });
+});
