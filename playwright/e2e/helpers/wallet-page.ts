@@ -7,6 +7,18 @@ const PASSWORD = '123456';
 const SYNC_WAIT_MS = 3_500;
 
 /**
+ * Strip an optional `0x` prefix and lowercase, so a guardian commitment read
+ * from on-chain storage (`getGuardianCommitmentFromAccount`) compares equal to
+ * one obtained from a guardian operator's `GET /pubkey` response — mirrors
+ * `normalizeHex` in `src/lib/miden/guardian/operator-map.ts` (duplicated here
+ * rather than imported so the E2E harness doesn't reach into `src/lib` — no
+ * other file under `playwright/` does).
+ */
+function normalizeHex(h: string): string {
+  return (h.startsWith('0x') ? h.slice(2) : h).toLowerCase();
+}
+
+/**
  * Platform-neutral wallet interaction surface.
  *
  * Both ChromeWalletPage (extension via Playwright) and IosWalletPage
@@ -147,10 +159,21 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   /**
    * Assert a Guardian account's on-chain auth shape via `getGuardianAuthInfo`:
    * the active signer count and the `update_guardian` procedure threshold
-   * (the two fields the real E2E hook exposes — mirrors the pattern already
-   * used in guardian-send-consume.spec.ts). `guardianCommitment`, if given, is
-   * asserted as present among the account's current signer commitments —
-   * `GuardianAuthInfo` has no separate "active guardian" field of its own.
+   * (mirrors the pattern already used in guardian-send-consume.spec.ts).
+   * `guardianCommitment`, if given, is asserted against `info.guardianCommitment`
+   * — the active guardian-operator commitment read from the on-chain
+   * `GUARDIAN_SLOT_NAMES.PUBLIC_KEY` storage slot. This is a SEPARATE slot from
+   * the multisig `signerCommitments` (`[hot, cold]`): a guardian switch changes
+   * the guardian commitment while the signer set / `update_guardian` threshold
+   * stay put, so this is the field that actually proves a switch landed — do
+   * NOT assert `guardianCommitment` as a member of `signerCommitments`, it
+   * never is. The expected value is whatever the spec obtains from the target
+   * guardian's `GET /pubkey?scheme=ecdsa` (`{ commitment, pubkey }`) — the
+   * same hex representation (mod `0x` prefix / case; compared normalized),
+   * per production's own `resolveGuardianDrift` / `identifyGuardianOperator`
+   * (`src/lib/miden/back/guardian-drift.ts`,
+   * `src/lib/miden/guardian/operator-map.ts`), which perform this exact
+   * cross-check between the two sources.
    */
   assertGuardianAuth(
     pk: string,
@@ -162,6 +185,13 @@ export interface GuardianAuthInfo {
   threshold: number;
   signerCommitments: string[];
   procedureThresholds: Record<string, number>;
+  /**
+   * Active guardian-operator commitment (`GUARDIAN_SLOT_NAMES.PUBLIC_KEY`) —
+   * a SEPARATE on-chain storage slot from `signerCommitments` above (which is
+   * the multisig `[hot, cold]` signer set). Undefined if the account has no
+   * guardian slot set, or the hook predates this field (older builds).
+   */
+  guardianCommitment?: string;
   error?: string;
 }
 
@@ -703,10 +733,25 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     expect(info.signerCommitments.length, `signer count for ${pk}`).toBe(expected.signerCount);
     expect(info.procedureThresholds.update_guardian, `update_guardian threshold for ${pk}`).toBe(expected.threshold);
     if (expected.guardianCommitment) {
+      if (!info.guardianCommitment) {
+        throw new Error(
+          `assertGuardianAuth: expected guardian commitment ${expected.guardianCommitment} for ${pk}, ` +
+            `but getGuardianAuthInfo returned no guardianCommitment (account has no guardian slot set, ` +
+            `or the build predates the field)`
+        );
+      }
+      // Compare the REAL guardian-operator commitment (on-chain
+      // `GUARDIAN_SLOT_NAMES.PUBLIC_KEY`), not `signerCommitments` — the
+      // multisig signer set (`[hot, cold]`) never contains the guardian's key,
+      // so a switch (which changes the guardian commitment while the signer
+      // set/threshold stay put) would pass this assertion wrongly if checked
+      // against `signerCommitments`. Normalized (strip `0x` + lowercase) since
+      // `expected.guardianCommitment` typically comes from a guardian
+      // operator's `GET /pubkey` response, which may format hex differently.
       expect(
-        info.signerCommitments,
-        `expected guardian commitment ${expected.guardianCommitment} to be an active signer for ${pk}`
-      ).toContain(expected.guardianCommitment);
+        normalizeHex(info.guardianCommitment),
+        `expected active guardian commitment ${expected.guardianCommitment} for ${pk}, got ${info.guardianCommitment}`
+      ).toBe(normalizeHex(expected.guardianCommitment));
     }
   }
 

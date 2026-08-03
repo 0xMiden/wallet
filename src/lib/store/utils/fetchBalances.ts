@@ -4,6 +4,7 @@ import BigNumber from 'bignumber.js';
 import { getFaucetIdSetting } from 'lib/miden/assets';
 import { fetchFromStorage } from 'lib/miden/front';
 import { TokenBalanceData } from 'lib/miden/front/balance';
+import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getMidenClient, tryWithWasmClientLock } from 'lib/miden/sdk/miden-client';
@@ -26,6 +27,13 @@ type SdkAccount = NonNullable<Awaited<ReturnType<Awaited<ReturnType<typeof getMi
  * signing/load — and stash it on `globalThis.__TEST_GUARDIAN_AUTH_STRUCTURE__`
  * keyed by address, so `__TEST_GUARDIAN_AUTH__` can serve it without any WASM
  * call. No-op for non-multisig accounts. Tree-shaken from production.
+ *
+ * Also stashes the active guardian-operator commitment via
+ * `getGuardianCommitmentFromAccount` — a SEPARATE storage slot
+ * (`GUARDIAN_SLOT_NAMES.PUBLIC_KEY`) from the multisig `signerCommitments`
+ * (`[hot, cold]`) that `AccountInspector` reads. A guardian switch changes
+ * this commitment while the signer set / `update_guardian` threshold stay
+ * put, so verifying a switch requires this field, not `signerCommitments`.
  */
 async function captureGuardianAuthStructureForTest(address: string, account: SdkAccount): Promise<void> {
   try {
@@ -39,7 +47,12 @@ async function captureGuardianAuthStructureForTest(address: string, account: Sdk
     const holder = globalThis as {
       __TEST_GUARDIAN_AUTH_STRUCTURE__?: Record<
         string,
-        { threshold: number; signerCommitments: string[]; procedureThresholds: Record<string, number> }
+        {
+          threshold: number;
+          signerCommitments: string[];
+          procedureThresholds: Record<string, number>;
+          guardianCommitment?: string;
+        }
       >;
     };
     holder.__TEST_GUARDIAN_AUTH_STRUCTURE__ = {
@@ -47,7 +60,8 @@ async function captureGuardianAuthStructureForTest(address: string, account: Sdk
       [address]: {
         threshold: config.threshold,
         signerCommitments: config.signerCommitments,
-        procedureThresholds: Object.fromEntries(config.procedureThresholds)
+        procedureThresholds: Object.fromEntries(config.procedureThresholds),
+        guardianCommitment: getGuardianCommitmentFromAccount(account)
       }
     };
     // eslint-disable-next-line no-console
