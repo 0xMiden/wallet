@@ -1,10 +1,14 @@
 # Local E2E stack — node topology (validator + sequencer + ntx-builder) + remote
-# prover, plus a Tier-2 `guardian` profile (OpenZeppelin guardian + postgres).
+# prover, plus a Tier-2 `guardian` profile (OpenZeppelin guardian + postgres) and
+# a Tier-3 `guardian-switch` profile (second, distinct-keypair guardian for
+# switch/recovery specs).
 #
 # Usage:
 #   docker compose --env-file versions.env -f docker-compose.local.yml up --wait --wait-timeout 300
 #   # Tier-2 guardian (after the node is up):
 #   docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian up -d guardian
+#   # Tier-3 second guardian, for switch-target scenarios (implies Tier-2 too):
+#   docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian-switch up -d guardian guardian-postgres guardian-b guardian-b-postgres
 #
 # Ports exposed on 127.0.0.1 only:
 #   - node RPC (sequencer):  127.0.0.1:57291
@@ -12,10 +16,15 @@
 # Guardian profile (network_mode: host — binds directly on the host, see below):
 #   - guardian HTTP:         :3000
 #   - guardian-postgres:     127.0.0.1:5432
+# guardian-switch profile (guardian-b is bridge-networked + port-published, see below):
+#   - guardian-b HTTP:       127.0.0.1:3001 (container :3000)
+#   - guardian-b gRPC:       127.0.0.1:50053 (container :50051)
+#   - guardian-b-postgres:   127.0.0.1:5433
 #
 # Environment variables consumed (from versions.env or the job env):
 #   NODE_IMAGE_TAG      — exact ghcr.io/0xmiden/* image tag (e.g. v0.15.0)
-#   GUARDIAN_IMAGE_TAG  — exact ghcr.io/openzeppelin/guardian tag (guardian profile)
+#   GUARDIAN_IMAGE_TAG  — exact ghcr.io/openzeppelin/guardian tag (guardian AND
+#                         guardian-b both pin to this same tag — see versions.env)
 #   MIDEN_NTX_AUTH      — shared auth secret between sequencer ↔ ntx-builder
 #                         (defaults to 'e2e-ntx-secret'; must match on both sides)
 #
@@ -30,6 +39,11 @@
 #   7. Tier-2 `guardian` profile: OpenZeppelin guardian (network_mode: host, HTTP
 #      :3000) + postgres:16 backend (:5432), gated behind the profile so the base
 #      `up --wait` skips them; started explicitly after the node is ready.
+#   8. Tier-3 `guardian-switch` profile: a second OpenZeppelin guardian
+#      (`guardian-b`) + its own postgres, for switch/recovery specs that need two
+#      *distinct* guardians. See the `guardian-b` service comment below for why
+#      it can't just be a second `network_mode: host` copy of `guardian`, and for
+#      how it still reaches the node despite that.
 
 services:
   bootstrap-validator:
@@ -230,6 +244,92 @@ services:
       - GUARDIAN_KEYSTORE_PATH=/var/guardian/keystore
       - DATABASE_URL=postgres://guardian:guardian@localhost:5432/guardian
 
+  # --- Tier-3: second guardian for switch/recovery specs (HTTP :3001) --------
+  # Discovery (Step 1 of the switch-container task): the v0.15.0 image has NO
+  # env var for HTTP/gRPC ports — `docker inspect`'d env is only
+  # {DATABASE_URL, RUST_LOG, GUARDIAN_ENV, GUARDIAN_NETWORK_TYPE,
+  # GUARDIAN_KEYSTORE_PATH}, its Dockerfile ExposedPorts are hardcoded
+  # 3000/50051, and its Cmd is the bare `/app/server` with no CLI flags — the
+  # binary's startup log always prints `listeners http=3000 grpc=50051`
+  # regardless of env/args. So `guardian-b` can't reuse `network_mode: host`
+  # like `guardian` (two host-mode containers hard-conflict on those same
+  # ports — confirmed via `docker logs`: "Failed to bind HTTP server: Os {
+  # code: 98, kind: AddrInUse }"). This is the brief's anticipated fallback:
+  # a distinct (default/bridge) network + published-port remap, 3001->3000 and
+  # 50053->50051.
+  #
+  # That remap alone isn't sufficient, though: `GUARDIAN_NETWORK_TYPE=MidenLocal`
+  # is ALSO hardcoded in the binary to dial the node at literal
+  # `http://localhost:57291` (confirmed via the same startup log line and by
+  # binary string inspection — no env var overrides it either). On
+  # `network_mode: host` that hardcoded "localhost" reaches the real node
+  # because the container shares the host's loopback; on a normal bridge
+  # network "localhost" is only the container's own loopback, so guardian-b
+  # would never be able to reach the sequencer. The entrypoint below patches
+  # `/etc/hosts` at container start so "localhost" resolves to the `sequencer`
+  # service's address on this network instead of 127.0.0.1/::1 (falls back to
+  # a no-op if `sequencer` isn't resolvable yet, e.g. when only the guardian
+  # services are started standalone) — verified end-to-end against a
+  # throwaway container pair (rewritten "localhost" TCP-reachable at the
+  # target's real address, not a bind failure).
+  #
+  # Distinct keypair: nothing above configures a signing key at all —
+  # `GUARDIAN_ACK_ECDSA_BACKEND` (unset here) defaults to "in-memory", i.e. an
+  # ephemeral key generated fresh per process (`ecdsa_backend=in-memory` in the
+  # startup log), so guardian and guardian-b independently generate different
+  # ECDSA keys with no shared seed. The Falcon key is instead persisted under
+  # `GUARDIAN_KEYSTORE_PATH`; guardian-b gets its OWN `guardian-b-keystore`
+  # volume (not `guardian-keystore`) so that one is independent too. Verified:
+  # `/pubkey?scheme=ecdsa` differs between :3000 and :3001 (see task report).
+  guardian-b-postgres:
+    image: postgres:16-alpine
+    profiles: ["guardian-switch"]
+    environment:
+      - POSTGRES_USER=guardian
+      - POSTGRES_PASSWORD=guardian
+      - POSTGRES_DB=guardian_b
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guardian -d guardian_b"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  guardian-b:
+    image: ghcr.io/openzeppelin/guardian:${GUARDIAN_IMAGE_TAG}
+    pull_policy: if_not_present
+    profiles: ["guardian-switch"]
+    restart: on-failure
+    depends_on:
+      guardian-b-postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3001:3000"
+      - "127.0.0.1:50053:50051"
+    volumes:
+      - guardian-b-keystore:/var/guardian/keystore
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        seq_ip=$$(getent hosts sequencer 2>/dev/null | awk '{print $$1}' | head -n1)
+        if [ -n "$$seq_ip" ]; then
+          sed "s/^127\.0\.0\.1[[:space:]]\+localhost\$$/$$seq_ip localhost/" /etc/hosts | sed '/^::1[[:space:]]/d' > /etc/hosts.new
+          cat /etc/hosts.new > /etc/hosts
+          echo "guardian-b: remapped 'localhost' -> $$seq_ip (sequencer), MidenLocal hardcodes localhost:57291"
+        else
+          echo "guardian-b: 'sequencer' not resolvable yet; leaving /etc/hosts untouched (node RPC calls will fail until it is)"
+        fi
+        exec /app/server
+    environment:
+      - RUST_LOG=info
+      - GUARDIAN_ENV=dev
+      - GUARDIAN_NETWORK_TYPE=MidenLocal
+      - GUARDIAN_KEYSTORE_PATH=/var/guardian/keystore
+      - DATABASE_URL=postgres://guardian:guardian@guardian-b-postgres:5432/guardian_b
+
 volumes:
   node-data:
   guardian-keystore:
+  guardian-b-keystore:
