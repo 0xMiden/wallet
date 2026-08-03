@@ -195,11 +195,10 @@ test.describe('Guardian switch - cross-guardian correctness', () => {
       'post_switch_send_with_a_faulted',
       async () => {
         // Fault every call to A. The guardian propose/sign round-trip lives
-        // under `/delta/proposal` -- `pathOf()` matches path segments in
-        // declaration order and 'delta' precedes 'sign' in
-        // GUARDIAN_FAULT_PATHS, so a `/delta/proposal` URL matches 'delta'
-        // first. Arming 'sign' here would never match and the fault would
-        // silently no-op, defeating the point of the test.
+        // under `/delta/proposal` -- there is no distinct `/proposals` or
+        // `/sign` endpoint on the wire (see guardian-fault.ts's
+        // GuardianFaultPath doc comment), so faulting propose/sign is done
+        // via `path: 'delta'`, which matches every `/delta*` sub-route.
         walletA.armGuardianFault({ target: 'A', path: 'delta', mode: 'abort' });
 
         // A real value transfer to a second, independent wallet -- must

@@ -35,23 +35,23 @@ test.describe('targetOf', () => {
 test.describe('pathOf', () => {
   test('matches each declared path segment', () => {
     expect(pathOf('http://localhost:3000/pubkey?scheme=ecdsa')).toBe('pubkey');
-    expect(pathOf('http://localhost:3000/register')).toBe('register');
+    expect(pathOf('http://localhost:3000/configure')).toBe('configure');
     expect(pathOf('http://localhost:3000/delta?account_id=abc')).toBe('delta');
-    expect(pathOf('http://localhost:3000/proposals')).toBe('proposals');
-    expect(pathOf('http://localhost:3000/sign')).toBe('sign');
   });
 
   test('returns null when no known path segment is present', () => {
     expect(pathOf('http://localhost:3000/status')).toBeNull();
   });
 
-  test('matches the first declared path in order when a URL contains more than one segment', () => {
-    // '/delta' is declared before 'proposals'/'sign', so a delta-proposal URL
-    // resolves to 'delta', not 'proposals' -- callers arming path: 'proposals'
-    // or path: 'sign' should be aware the live guardian's actual endpoint for
-    // both propose and sign is `/delta/proposal` (see guardian-fault.smoke's
-    // sibling report for the live-endpoint finding).
+  test('matches "delta" for every /delta* sub-route, including propose/sign', () => {
+    // There is no distinct `/proposals` or `/sign` endpoint on the wire --
+    // propose (`GET|POST /delta/proposal`), sign (`PUT /delta/proposal`) and
+    // push (`POST /delta`) all live under `/delta*`, so all of them resolve
+    // to 'delta' (see guardian-fault.ts's GuardianFaultPath doc comment for
+    // the confirmed real endpoint list).
     expect(pathOf('http://localhost:3000/delta/proposal')).toBe('delta');
+    expect(pathOf('http://localhost:3000/delta/proposal/single?account_id=abc&commitment=0x1')).toBe('delta');
+    expect(pathOf('http://localhost:3000/delta/since?account_id=abc&nonce=1')).toBe('delta');
   });
 });
 
@@ -80,7 +80,7 @@ test.describe('decideGuardianFault', () => {
   });
 
   test('passes through when path does not match', () => {
-    const policy: GuardianFaultPolicy = { path: 'register', mode: 'status500' };
+    const policy: GuardianFaultPolicy = { path: 'configure', mode: 'status500' };
     const result = decideGuardianFault(PUBKEY_A, policy, 0);
     expect(result).toEqual({ action: { kind: 'continue' }, hits: 0 });
   });

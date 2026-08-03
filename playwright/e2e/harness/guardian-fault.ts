@@ -22,8 +22,30 @@ export type GuardianFaultTarget = 'A' | 'B';
 /**
  * Guardian HTTP endpoint family a fault matches, keyed on a URL path
  * segment (matched as a `/${path}` substring of the request URL).
+ *
+ * These are the guardian's REAL endpoint path segments, confirmed against
+ * `GuardianHttpClient` (`@openzeppelin/guardian-client/src/http.ts`):
+ *   - `pubkey`    -> `GET /pubkey`      (`getPubkey`)
+ *   - `configure` -> `POST /configure`  (`configure`, used by
+ *                    `Multisig.registerOnGuardian` -- the wallet's
+ *                    register/re-register call, invoked from
+ *                    `registerOnGuardianWithRetry`)
+ *   - `delta`     -> everything under `/delta*`: `POST /delta` (push),
+ *                    `GET /delta`, `GET /delta/since`,
+ *                    `GET|POST|PUT /delta/proposal[/single]` (propose/sign),
+ *                    `POST /delta/candidate/abandon`. There is no distinct
+ *                    `/proposals` or `/sign` endpoint on the wire -- propose
+ *                    and sign both live under `/delta/proposal`, so faulting
+ *                    them is done via `path: 'delta'` (optionally narrowed
+ *                    with `target`).
+ *
+ * A prior taxonomy had `'register'` (never matched -- the real endpoint is
+ * `/configure`, so any `path: 'register'` fault was silently a no-op) and
+ * `'proposals'`/`'sign'` (never matched either, since `/delta` always wins
+ * as an earlier substring of any `/delta/proposal*` URL -- see `pathOf`).
+ * Fixed to the real endpoint names below.
  */
-export type GuardianFaultPath = 'pubkey' | 'register' | 'delta' | 'proposals' | 'sign';
+export type GuardianFaultPath = 'pubkey' | 'configure' | 'delta';
 
 export type GuardianFaultMode = 'status500' | 'abort' | 'delay' | 'failFirstN';
 
@@ -59,7 +81,7 @@ export interface GuardianRouteLike {
   fulfill(response: { status: number; body: string }): Promise<void>;
 }
 
-const GUARDIAN_FAULT_PATHS: readonly GuardianFaultPath[] = ['pubkey', 'register', 'delta', 'proposals', 'sign'];
+const GUARDIAN_FAULT_PATHS: readonly GuardianFaultPath[] = ['pubkey', 'configure', 'delta'];
 
 /** Guardian A listens on :3000, guardian B on :3001 (see local-stack/docker-compose.local.yml). */
 export function targetOf(url: string): GuardianFaultTarget | null {

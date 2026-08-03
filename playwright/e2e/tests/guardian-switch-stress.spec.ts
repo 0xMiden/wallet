@@ -21,9 +21,9 @@ async function guardianCommitment(endpoint: string): Promise<string> {
 }
 
 /**
- * Kill mid-switch -> reopen resumes to a consistent state (never stuck).
+ * Kill mid-switch, then reopen resumes to a consistent state (never stuck).
  *
- * Holds guardian B's `/register` call open (a 60s Playwright-routed delay --
+ * Holds guardian B's `/configure` call open (a 60s Playwright-routed delay --
  * see `harness/guardian-fault.ts`) so the switch is provably still mid-flight
  * -- `completeSwitchGuardianTransaction` (`transaction/complete.ts`) persists
  * `stage: 'registering-guardian'` to the tx row BEFORE issuing that call, so
@@ -43,7 +43,7 @@ async function guardianCommitment(endpoint: string): Promise<string> {
  * Load-bearing subtlety about what `kill()` does and doesn't prove: per its
  * doc comment (`helpers/wallet-page.ts`), `kill()` closes only the Playwright
  * PAGE -- the extension service worker (which is what's actually awaiting
- * the delayed `/register` fetch inside `completeSwitchGuardianTransaction`)
+ * the delayed `/configure` fetch inside `completeSwitchGuardianTransaction`)
  * is left completely untouched, so that in-flight call keeps running in the
  * background regardless of the page's lifecycle and will resolve on its own
  * once the armed delay elapses. That means this scenario primarily proves
@@ -61,7 +61,7 @@ async function guardianCommitment(endpoint: string): Promise<string> {
  * actually exercises.
  */
 test.describe('Guardian switch stress - kill mid-switch resumes', () => {
-  test('kill during finalizeGuardianSwitch (registering-guardian) -> reopen resumes to a consistent state', async ({
+  test('kill during finalizeGuardianSwitch (registering-guardian), then reopen resumes to a consistent state', async ({
     walletA,
     midenCli,
     steps
@@ -94,10 +94,11 @@ test.describe('Guardian switch stress - kill mid-switch resumes', () => {
     );
 
     await steps.step('initiate_switch_then_kill_mid_register', async () => {
-      // Hold every call to B's /register endpoint open for 60s. `pathOf()`
-      // matches 'register' as its own endpoint (unlike propose/sign, which
-      // live under /delta/proposal) -- see guardian-fault.ts's doc comment.
-      walletA.armGuardianFault({ target: 'B', path: 'register', mode: 'delay', delayMs: 60_000 });
+      // Hold every call to B's /configure endpoint open for 60s. `pathOf()`
+      // matches 'configure' as its own endpoint (unlike propose/sign, which
+      // live under /delta/proposal and are faulted via path: 'delta') -- see
+      // guardian-fault.ts's doc comment.
+      walletA.armGuardianFault({ target: 'B', path: 'configure', mode: 'delay', delayMs: 60_000 });
 
       // Fire-and-forget: don't await switchGuardian's own UI-drive +
       // completion-wait, so we can kill() out from under it mid-flight.
@@ -120,7 +121,7 @@ test.describe('Guardian switch stress - kill mid-switch resumes', () => {
       walletA.clearFaults();
 
       // The 60s delay armed above is already in flight against the ORIGINAL
-      // /register request the service worker dispatched before kill() --
+      // /configure request the service worker dispatched before kill() --
       // clearFaults() only stops NEW requests from being faulted, it can't
       // rescind an already-scheduled delay. Poll generously so this
       // assertion is meaningful whichever path the wallet actually took:
@@ -161,7 +162,7 @@ test.describe('Guardian switch stress - kill mid-switch resumes', () => {
  * (~521-543) -- and that path must itself survive a bounded number of
  * transient register failures via its own backoff, without the caller doing
  * anything special. `armGuardianFault({ mode: 'failFirstN', count: 2 })`
- * fails B's first 2 `/register` calls (HTTP 500 -- see `guardian-fault.ts`'s
+ * fails B's first 2 `/configure` calls (HTTP 500 -- see `guardian-fault.ts`'s
  * `fulfill500` action for `failFirstN`) and lets every call after that
  * through untouched, so the ONLY way `switchGuardian(B)` resolves is if the
  * wallet retried at least twice before giving up. If the wallet's retry
@@ -213,11 +214,11 @@ test.describe('Guardian switch stress - register fault retries', () => {
     await steps.step(
       'switch_survives_two_register_faults',
       async () => {
-        // Arm BEFORE switchGuardian so the very first /register call (fired
+        // Arm BEFORE switchGuardian so the very first /configure call (fired
         // from inside completeSwitchGuardianTransaction once the confirmed
         // proposal executes) already lands on the faulted path -- there is no
         // window where an unfaulted register could sneak through first.
-        walletA.armGuardianFault({ target: 'B', path: 'register', mode: 'failFirstN', count: 2 });
+        walletA.armGuardianFault({ target: 'B', path: 'configure', mode: 'failFirstN', count: 2 });
 
         // Must survive exactly 2 register failures via the wallet's own
         // retry/backoff; switchGuardian awaits the transaction to Completed
