@@ -331,7 +331,13 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
       </div>
 
       <div className="flex flex-col gap-2 self-center w-full mt-auto">
-        <Button title={t('continue')} onClick={handleContinue} disabled={!canContinue} className="text-base" />
+        <Button
+          data-testid="recovery-method-continue"
+          title={t('continue')}
+          onClick={handleContinue}
+          disabled={!canContinue}
+          className="text-base"
+        />
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 import type { IdbDumpSource } from './idb-dump';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
@@ -108,6 +108,54 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   // IdbDumpSource — driven store-at-a-time by streamIndexedDBToFile so a long
   // run's dump can't OOM the page. This is where the Miden SDK keeps per-tx
   // commit status — the ground truth for "did this tx land?".
+
+  /**
+   * Drive the real Settings → RotateGuardian → RotateGuardianReview → confirm
+   * flow to switch the current account's guardian to `newEndpoint`, then await
+   * the resulting `switch-guardian` transaction reaching Completed (throws on
+   * Failed or timeout). `newEndpoint` must match one entry's `endpoint` from
+   * `getGuardianOptionsForNetwork()` — e.g. the localnet-only second guardian
+   * (gated on `MIDEN_E2E_TEST`) at `http://localhost:3001`.
+   */
+  switchGuardian(newEndpoint: string): Promise<void>;
+  /**
+   * Recover a Guardian account from its seed phrase.
+   *
+   * `viaUI: false` — fast path via the onboarding `__test_skip_onboarding`
+   * bypass (`walletType=guardian&seed=…`), mirroring `createGuardianWallet`.
+   * `guardianUrl`, if given, seeds `GUARDIAN_URL_STORAGE_KEY` before the
+   * bypass navigation — required on a fresh profile/context so the vault's
+   * import-recovery scan (`Vault.spawn`) probes the RIGHT guardian instead of
+   * silently falling back to `DEFAULT_GUARDIAN_ENDPOINT`. Omit it only when
+   * this page's browser profile already carries the correct value (e.g. a
+   * `createGuardianWallet` call earlier in the same context).
+   *
+   * `viaUI: true` — drives the real recovery journey: Welcome → "Recover your
+   * account" → 12-word seed grid → submit → (extension: full password step,
+   * unavoidable off-mobile) → ImportRecoveryMethod (probe-detected or manual)
+   * → Continue → Confirmation → submit → `completeHotKeyRotation()`.
+   */
+  recoverGuardianFromSeed(seed: string, opts: { viaUI: boolean; guardianUrl?: string }): Promise<void>;
+  /**
+   * Observe the `HotKeyRotationGate` blocking overlay to its cleared
+   * (unmounted) state — the authoritative "rotation complete" signal (the
+   * flag clears only once `replace_signer` lands on-chain). Throws if the
+   * gate instead reaches its terminal-failure surface (`hot-key-rotation-failed`)
+   * within the timeout, or if the gate never appears at all.
+   */
+  completeHotKeyRotation(): Promise<void>;
+  /**
+   * Assert a Guardian account's on-chain auth shape via `getGuardianAuthInfo`:
+   * the active signer count and the `update_guardian` procedure threshold
+   * (the two fields the real E2E hook exposes — mirrors the pattern already
+   * used in guardian-send-consume.spec.ts). `guardianCommitment`, if given, is
+   * asserted as present among the account's current signer commitments —
+   * `GuardianAuthInfo` has no separate "active guardian" field of its own.
+   */
+  assertGuardianAuth(
+    pk: string,
+    expected: { signerCount: number; threshold: number; guardianCommitment?: string }
+  ): Promise<void>;
 }
 
 export interface GuardianAuthInfo {
@@ -184,12 +232,17 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     seed?: string[];
   }): Promise<{ address: string; seedPhrase: string[] }> {
     // Guardian accounts read GUARDIAN_URL_STORAGE_KEY ('guardian_url_setting')
-    // from chrome.storage.local at register() time. Seed it BEFORE the bypass
-    // navigation so the account is created against the local guardian endpoint.
-    if (opts.walletType === 'guardian') {
-      if (!opts.guardianUrl) {
-        throw new Error('createWalletViaBypass: guardianUrl is required for the guardian wallet type');
-      }
+    // from chrome.storage.local at register() time — for a fresh create this is
+    // what points a new account at the right guardian; for a seed-recovery
+    // import it's also what Vault.spawn's recovery scan probes against (else it
+    // silently falls back to DEFAULT_GUARDIAN_ENDPOINT). Seed it BEFORE the
+    // bypass navigation whenever the caller supplies one. `createGuardianWallet`
+    // / `createNewWallet` always pass one (required by their own signatures);
+    // `recoverGuardianFromSeed(..., { viaUI: false })` may omit it when this
+    // profile's storage already carries the right endpoint (e.g. a prior
+    // `createGuardianWallet` call in the same browser context) — in that case
+    // whatever's already in storage is left untouched.
+    if (opts.walletType === 'guardian' && opts.guardianUrl) {
       await this.navigateHome();
       const guardianUrl = opts.guardianUrl;
       await this.page.evaluate(
@@ -510,6 +563,202 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       }
       return await fn(pk);
     }, accountPublicKey);
+  }
+
+  // ── Guardian switch / recovery ───────────────────────────────────────────────
+
+  /**
+   * Drive Settings → RotateGuardian → RotateGuardianReview → confirm to switch
+   * the current account's guardian to `newEndpoint`, then await the resulting
+   * `switch-guardian` transaction reaching Completed.
+   */
+  async switchGuardian(newEndpoint: string): Promise<void> {
+    await this.navigateTo('/settings/guardian-settings');
+    const rotateButton = this.page.getByTestId('rotateGuardian');
+    await rotateButton.waitFor({ timeout: 20_000 });
+    await rotateButton.click();
+
+    // ChooseGuardian (RotateGuardian.tsx): pick the option whose endpoint
+    // matches, then continue to the review screen.
+    await this.page.getByTestId('onboarding-choose-guardian').waitFor({ timeout: 20_000 });
+    const endpointOption = this.page.locator(`[data-guardian-endpoint="${newEndpoint}"]`);
+    const optionCount = await endpointOption.count().catch(() => 0);
+    if (optionCount === 0) {
+      throw new Error(
+        `switchGuardian: no guardian picker option with endpoint "${newEndpoint}" ` +
+          `(check getGuardianOptionsForNetwork() / MIDEN_E2E_TEST for the localnet 2nd guardian)`
+      );
+    }
+    await endpointOption.first().click();
+    await this.page.getByTestId('choose-guardian-continue').click();
+
+    // RotateGuardianReview: confirm, then follow the tx to the generating-
+    // transaction screen and read its final status straight from IndexedDB
+    // (mirrors the pattern in helpers/bridge.ts / helpers/swap.ts).
+    const confirmButton = this.page.getByTestId('rotate-guardian-confirm');
+    await confirmButton.waitFor({ timeout: 20_000 });
+    await confirmButton.click();
+
+    await this.page.waitForURL(/generating-transaction/, { timeout: 60_000 });
+    const txId = this.extractTransactionIdFromUrl();
+    if (!txId) {
+      throw new Error(`switchGuardian: could not extract a transaction id from URL ${this.page.url()}`);
+    }
+    await this.waitForTransactionRowComplete(txId);
+  }
+
+  /**
+   * Recover a Guardian account from its seed phrase. See the interface doc
+   * comment (ChromeWalletPageApi) for the `viaUI` split.
+   */
+  async recoverGuardianFromSeed(seed: string, opts: { viaUI: boolean; guardianUrl?: string }): Promise<void> {
+    const words = seed.trim().split(/\s+/);
+
+    if (!opts.viaUI) {
+      await this.createWalletViaBypass({
+        walletType: 'guardian',
+        password: PASSWORD,
+        guardianUrl: opts.guardianUrl,
+        seed: words
+      });
+      return;
+    }
+
+    // Welcome → "Recover your account" → ImportSeedPhrase (12-word grid).
+    await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
+    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
+    await this.page.locator('#import-link').click();
+    await this.page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
+
+    for (let i = 0; i < words.length; i++) {
+      // `id="seed-phrase-input-N"` is the component's own stable per-word id
+      // (see ImportSeedPhrase.tsx) — reused as-is rather than adding a
+      // redundant data-testid.
+      await this.page.locator(`#seed-phrase-input-${i}`).fill(words[i]!);
+    }
+    await this.page.getByTestId('import-seed-submit').click();
+
+    // Extension builds have no hardware-security path (checkHardwareSecurityAvailable
+    // is unconditionally false off mobile/desktop), so the import flow always
+    // routes through the full password step before recovery-method selection.
+    await this.page.getByTestId('create-password-input').waitFor({ timeout: 15_000 });
+    await this.page.getByTestId('create-password-input').fill(PASSWORD);
+    await this.page.getByTestId('create-password-verify-input').fill(PASSWORD);
+    await this.page.getByTestId('create-password-submit').click();
+
+    // ImportRecoveryMethod: wait for the guardian auto-detection probe to
+    // reach a terminal state (detected or not), then accept it as-is — the
+    // detected/default endpoint is prefilled and valid either way.
+    await this.page
+      .getByTestId('guardian-detected')
+      .or(this.page.getByTestId('guardian-not-detected'))
+      .first()
+      .waitFor({ timeout: 30_000 });
+    await this.page.getByTestId('recovery-method-continue').click();
+
+    // Confirmation: submit runs register() (isImport=true, walletType=Guardian).
+    await this.page.getByTestId('onboarding-confirmation').waitFor({ timeout: 30_000 });
+    await this.page.getByTestId('onboarding-confirmation-submit').click();
+
+    // A seed-only recovery can never recover the device-bound hot key, so the
+    // recovered account always carries requiresHotKeyRotation — see
+    // HotKeyRotationGate.tsx.
+    await this.completeHotKeyRotation();
+  }
+
+  /**
+   * Observe the `HotKeyRotationGate` blocking overlay to its cleared
+   * (unmounted) state. Throws if it instead reaches its terminal-failure
+   * surface within the timeout.
+   */
+  async completeHotKeyRotation(): Promise<void> {
+    const gate = this.page.getByTestId('hot-key-rotation-gate');
+    await gate.waitFor({ state: 'visible', timeout: 30_000 });
+
+    await Promise.race([
+      gate.waitFor({ state: 'detached', timeout: 120_000 }),
+      this.page
+        .getByTestId('hot-key-rotation-failed')
+        .waitFor({ state: 'visible', timeout: 120_000 })
+        .then(() => {
+          throw new Error('completeHotKeyRotation: rotation reached its terminal-failure surface');
+        })
+    ]);
+  }
+
+  /**
+   * Assert a Guardian account's on-chain auth shape via `getGuardianAuthInfo`.
+   * See the interface doc comment for why `threshold` maps to the
+   * `update_guardian` procedure threshold rather than the overall multisig
+   * threshold, and how `guardianCommitment` is checked.
+   */
+  async assertGuardianAuth(
+    pk: string,
+    expected: { signerCount: number; threshold: number; guardianCommitment?: string }
+  ): Promise<void> {
+    const info = await this.getGuardianAuthInfo(pk);
+    if (info.error) {
+      throw new Error(`assertGuardianAuth: getGuardianAuthInfo(${pk}) failed: ${info.error}`);
+    }
+    expect(info.signerCommitments.length, `signer count for ${pk}`).toBe(expected.signerCount);
+    expect(info.procedureThresholds.update_guardian, `update_guardian threshold for ${pk}`).toBe(expected.threshold);
+    if (expected.guardianCommitment) {
+      expect(
+        info.signerCommitments,
+        `expected guardian commitment ${expected.guardianCommitment} to be an active signer for ${pk}`
+      ).toContain(expected.guardianCommitment);
+    }
+  }
+
+  /** Extract the `:txId` path param from the current `/generating-transaction[-full]/:txId` URL. */
+  private extractTransactionIdFromUrl(): string {
+    const match = this.page.url().match(/generating-transaction(?:-full)?\/([^/?#]+)/);
+    return match?.[1] ? decodeURIComponent(match[1]) : '';
+  }
+
+  /**
+   * Poll the SDK's Dexie `transactions` store (raw IndexedDB — same idiom as
+   * helpers/bridge.ts / helpers/swap.ts) for `txId` reaching Completed;
+   * throws on Failed or on timeout. `ITransactionStatus`: Queued=0,
+   * GeneratingTransaction=1, Completed=2, Failed=3.
+   */
+  private async waitForTransactionRowComplete(txId: string, timeoutMs: number = 120_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const row = await this.page.evaluate(async (id: string) => {
+        const idb = (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB;
+        const db: IDBDatabase = await new Promise((res, rej) => {
+          const r = idb.open('TridentMain');
+          r.onsuccess = () => res(r.result);
+          r.onerror = () => rej(r.error);
+        });
+        try {
+          if (!db.objectStoreNames.contains('transactions')) return null;
+          const found: { status?: number; error?: string; displayMessage?: string } | undefined = await new Promise(
+            (res, rej) => {
+              const r = db.transaction('transactions', 'readonly').objectStore('transactions').get(id);
+              r.onsuccess = () => res(r.result);
+              r.onerror = () => rej(r.error);
+            }
+          );
+          return found ? { status: found.status, error: found.error, displayMessage: found.displayMessage } : null;
+        } finally {
+          db.close();
+        }
+      }, txId);
+
+      if (row?.status === 2 /* Completed */) return;
+      if (row?.status === 3 /* Failed */) {
+        throw new Error(`Guardian transaction ${txId} failed: ${row.error ?? row.displayMessage ?? 'unknown error'}`);
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Guardian transaction ${txId} did not complete within ${timeoutMs}ms ` +
+            `(last status=${row?.status ?? 'row not found'})`
+        );
+      }
+      await this.page.waitForTimeout(2_000);
+    }
   }
 
   /**

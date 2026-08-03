@@ -42,7 +42,7 @@ const GuardianSettings: FC = () => {
       <hr className="my-4" />
 
       <div className="mt-6">
-        <Button title={t('rotateGuardian')} onClick={handleRotate} />
+        <Button data-testid="rotateGuardian" title={t('rotateGuardian')} onClick={handleRotate} />
       </div>
     </div>
   );

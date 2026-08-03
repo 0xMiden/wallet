@@ -106,6 +106,7 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
       <div className="mt-auto w-full">
         <Button
           id={'submit-button'}
+          data-testid="import-seed-submit"
           title={t('continue')}
           onClick={handleSubmit}
           disabled={!isValid}

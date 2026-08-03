@@ -130,6 +130,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                 <button
                   type="button"
                   onClick={() => handleSelect(option.id)}
+                  data-guardian-endpoint={option.endpoint}
                   className={cn(
                     'relative flex h-30.5 w-44.25 flex-col overflow-hidden rounded-[20px] transition-all duration-150',
                     'border-2',
@@ -205,7 +206,11 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
         )}
 
         <div className="w-full flex flex-col items-center gap-4 pt-6 mt-auto shrink-0">
-          <Button title={submitLabel ?? t('continue')} onClick={handleContinue} />
+          <Button
+            data-testid="choose-guardian-continue"
+            title={submitLabel ?? t('continue')}
+            onClick={handleContinue}
+          />
         </div>
       </div>
 
