@@ -304,6 +304,12 @@ services:
     depends_on:
       guardian-b-postgres:
         condition: service_healthy
+      # Enforce node-before-guardian ordering (matches how the node services
+      # depend on each other); service_started not service_healthy to mirror the
+      # rest of the stack and avoid a hang on the image healthcheck. guardian-b's
+      # restart: on-failure still backstops the started-but-RPC-not-yet-ready gap.
+      sequencer:
+        condition: service_started
     ports:
       - "127.0.0.1:3001:3000"
       - "127.0.0.1:50053:50051"
@@ -316,8 +322,12 @@ services:
         seq_ip=$$(getent hosts sequencer 2>/dev/null | awk '{print $$1}' | head -n1)
         if [ -n "$$seq_ip" ]; then
           sed "s/^127\.0\.0\.1[[:space:]]\+localhost\$$/$$seq_ip localhost/" /etc/hosts | sed '/^::1[[:space:]]/d' > /etc/hosts.new
-          cat /etc/hosts.new > /etc/hosts
-          echo "guardian-b: remapped 'localhost' -> $$seq_ip (sequencer), MidenLocal hardcodes localhost:57291"
+          if grep -qF "$$seq_ip localhost" /etc/hosts.new; then
+            cat /etc/hosts.new > /etc/hosts
+            echo "guardian-b: remapped 'localhost' -> $$seq_ip (sequencer), MidenLocal hardcodes localhost:57291"
+          else
+            echo "guardian-b: WARNING localhost rewrite did NOT match the 127.0.0.1 line (base image/sed change?); leaving /etc/hosts untouched -- node RPC will fail loudly"
+          fi
         else
           echo "guardian-b: 'sequencer' not resolvable yet; leaving /etc/hosts untouched (node RPC calls will fail until it is)"
         fi
