@@ -238,3 +238,95 @@ test.describe('Guardian switch stress - register fault retries', () => {
     );
   });
 });
+
+/**
+ * Best-effort push fault on the OLD guardian (A) -> switch to B still
+ * completes.
+ *
+ * This is a REGRESSION GUARD, not a discovery test: per the #369
+ * investigation, `executeProposal`'s post-submit path does a BEST-EFFORT
+ * `getDeltaProposal` + `pushDelta` against the PRE-SWITCH (old) guardian,
+ * wrapped in a swallowing try/catch specifically so an unreachable/faulty old
+ * guardian can never block the switch -- the new guardian (B) is the one
+ * `completeSwitchGuardianTransaction`'s register step actually depends on.
+ * Faulting `path: 'delta'` on `target: 'A'` hits exactly that best-effort
+ * push: A3's caveat (see guardian-fault.ts / the smoke suite) is that
+ * propose/sign/push all live under `/delta*`, so `'delta'` matches all three
+ * -- irrelevant here since this scenario never issues a NEW proposal against
+ * A after the switch, only the one best-effort push the switch itself makes.
+ * `mode: 'status500'` (not `failFirstN`) is deliberate: it fails EVERY
+ * matching request for as long as the fault stays armed, so there is no
+ * window where an unfaulted push could sneak through and mask a real
+ * swallow-failure -- if the wallet's try/catch around this push has a gap
+ * (e.g. it awaits before the catch, or rethrows), this permanent-fail policy
+ * is what would surface it as a hang or thrown error instead of letting one
+ * lucky retry paper over it.
+ *
+ * Expected GREEN on `main`: the push is already best-effort/swallowed in
+ * `executeProposal`. If this goes red, that is a real regression -- the
+ * switch wrongly blocks on the old guardian's unrelated push -- and the
+ * Product-Fix Protocol applies against that candidate location, not a new
+ * invention.
+ *
+ * `assertGuardianAuth`'s `guardianCommitment` pin (not just signerCount/
+ * threshold) is required for the same reason as the sibling specs in this
+ * suite: signerCount/threshold describe the `[hot, cold]` multisig shape,
+ * which a guardian switch never touches -- only the separate guardian-
+ * commitment slot changes, so that's the field that actually proves the
+ * switch (not just "didn't hang") landed on B.
+ */
+test.describe('Guardian switch stress - old-guardian push fault', () => {
+  test('old-guardian best-effort push failing must not block the switch', async ({ walletA, midenCli, steps }) => {
+    // Create/fund/claim plus the switch itself -- comfortable headroom over
+    // the base config's 300s default, matching the sibling specs' budget.
+    test.setTimeout(600_000);
+
+    const commitmentB = await guardianCommitment(B);
+
+    let addressA: string;
+
+    await steps.step(
+      'create_on_a_and_fund',
+      async () => {
+        const createdA = await walletA.createGuardianWallet(A);
+        addressA = createdA.address;
+
+        await midenCli.init();
+        const faucetId = await midenCli.createFaucet();
+        await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+        await midenCli.sync();
+
+        await walletA.claimAllNotes(180_000);
+      },
+      {
+        screenshotWallets: [{ target: walletA.page, label: 'A' }]
+      }
+    );
+
+    await steps.step(
+      'switch_survives_faulted_old_guardian_push',
+      async () => {
+        // Arm BEFORE switchGuardian so the switch's best-effort push back to
+        // A -- issued as part of executeProposal's post-submit path -- is
+        // already faulted on its first (and every subsequent) attempt.
+        walletA.armGuardianFault({ target: 'A', path: 'delta', mode: 'status500' });
+
+        // Must complete regardless: the push to the OLD guardian is
+        // best-effort and swallowed, so the switch's own success criterion
+        // (register on B, transaction reaches Completed) is unaffected.
+        await walletA.switchGuardian(B);
+
+        walletA.clearFaults();
+
+        await walletA.assertGuardianAuth(addressA!, {
+          signerCount: 2,
+          threshold: 2,
+          guardianCommitment: commitmentB
+        });
+      },
+      {
+        screenshotWallets: [{ target: walletA.page, label: 'A' }]
+      }
+    );
+  });
+});
