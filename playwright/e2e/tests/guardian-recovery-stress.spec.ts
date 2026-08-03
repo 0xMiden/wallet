@@ -183,3 +183,141 @@ test.describe('Guardian recovery stress - kill mid-rotation resumes', () => {
     );
   });
 });
+
+/**
+ * Transient register faults during a device-key rotation's re-register step
+ * -- the wallet's own retry/backoff recovers, the rotation still completes.
+ *
+ * Mirrors `guardian-switch-stress.spec.ts`'s "register fault retries" test
+ * (same `failFirstN` shape, same assertion), but targets the OTHER caller of
+ * the shared retry wrapper: `replace-hot-key` (device-key rotation), not
+ * `switch-guardian`. A seed-only recovery (this suite's `#103` scenario) can
+ * never recover the device-bound hot key, so it always rotates -- and that
+ * rotation's completion handler (`completeReplaceHotKeyTransaction`,
+ * `src/lib/miden/transaction/complete.ts:236-323`) re-registers the
+ * POST-rotation `[new-hot, cold]` signer set on the guardian via
+ * `coldService.reRegisterCurrentStateOnGuardian()` (called at line 283,
+ * inside a best-effort `try/catch` spanning lines 264-289 -- see that call
+ * site's own doc comment: without this push, every request signed by the new
+ * hot key 401s "session expired" forever). `reRegisterCurrentStateOnGuardian`
+ * (`src/lib/miden/guardian/index.ts:564-575`) is a thin wrapper that syncs
+ * the now-rotated on-chain account and hands its serialized state to
+ * `registerOnGuardianWithRetry` (line 574) -- the SAME retry helper
+ * `finalizeGuardianSwitch` calls for `switch-guardian` (line 521): up to
+ * `MAX_GUARDIAN_REGISTER_RETRIES` (5) attempts, a fixed
+ * `GUARDIAN_REGISTER_RETRY_DELAY_MS` (2000ms) apart, no exponential backoff
+ * (`guardian/index.ts:51-52,528-543`).
+ *
+ * `armGuardianFault({ path: 'configure', mode: 'failFirstN', count: 2 })`
+ * fails the recovered wallet's first 2 `/configure` calls (HTTP 500) and lets
+ * every call after that through untouched, so the ONLY way
+ * `completeHotKeyRotation()` resolves to the gate's cleared state is if the
+ * wallet retried at least twice before giving up -- attempt 3 lands on the
+ * now-unfaulted path and the retry loop returns normally, well inside its own
+ * 5-attempt budget (worst case here: ~4s of backoff, nowhere near
+ * `completeHotKeyRotation`'s 120s completion wait). If the wallet's retry
+ * budget were smaller than 2 (or had no backoff at all), the re-register
+ * would exhaust its retries and hit the surrounding `try/catch` -- which is
+ * itself best-effort (a guardian blip must not fail an on-chain-successful
+ * rotation, per that call site's own comment), so the ROTATION would still
+ * reach `Completed` while silently leaving the new hot key unauthorized on
+ * the guardian. This test cannot distinguish that silent-failure mode from a
+ * genuine recovery purely from `completeHotKeyRotation()` resolving; the
+ * `assertGuardianAuth` pin on the on-chain `signerCount`/`threshold`/
+ * `guardianCommitment` proves the on-chain rotation shape, same as every
+ * sibling spec in this suite.
+ *
+ * **Expectation:** GREEN on `main` -- `reRegisterCurrentStateOnGuardian`
+ * shares `registerOnGuardianWithRetry` with the already-covered
+ * `switch-guardian` path (nothing about `replace-hot-key` re-registration is
+ * a distinct, unretried code path), and 2 induced failures are comfortably
+ * inside the 5-attempt budget. Per this branch's Product-Fix Protocol, if
+ * this instead goes RED, root-cause from `reRegisterCurrentStateOnGuardian` /
+ * `registerOnGuardianWithRetry` (`src/lib/miden/guardian/index.ts`) and
+ * `completeReplaceHotKeyTransaction`'s re-register call site
+ * (`src/lib/miden/transaction/complete.ts:264-289`) before writing any fix.
+ */
+test.describe('Guardian recovery stress - rotation register fault retries', () => {
+  test('transient register failures during device key rotation, retry recovers, rotation completes', async ({
+    walletA,
+    walletB,
+    midenCli,
+    steps
+  }) => {
+    // Two faulted register attempts plus their fixed backoff, on top of
+    // create/fund/claim and the recovery + rotation wait -- comfortable
+    // headroom over the base config's 300s default, matching the sibling
+    // guardian-switch-stress / guardian-recovery-stress specs' budget.
+    test.setTimeout(600_000);
+
+    const commitmentA = await guardianCommitment(A);
+
+    let addressA: string;
+    let seed = '';
+
+    await steps.step(
+      'create_and_fund_on_a_capture_seed',
+      async () => {
+        const created = await walletA.createGuardianWallet(A);
+        addressA = created.address;
+        seed = created.seedPhrase.join(' ');
+        expect(
+          created.seedPhrase.length,
+          'createGuardianWallet must return a usable 12-word mnemonic -- without it there is nothing to ' +
+            'recover walletB from'
+        ).toBe(12);
+
+        await midenCli.init();
+        const faucetId = await midenCli.createFaucet();
+        await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+        await midenCli.sync();
+        await walletA.claimAllNotes(180_000);
+      },
+      { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
+    );
+
+    await steps.step(
+      'recover_and_rotate_survives_two_register_faults',
+      async () => {
+        // Arm BEFORE firing the recovery so the very first /configure call
+        // (issued from inside completeReplaceHotKeyTransaction's re-register
+        // step, once the rotation transaction itself commits on-chain)
+        // already lands on the faulted path -- there is no window where an
+        // unfaulted register could sneak through first.
+        walletB.armGuardianFault({ target: 'A', path: 'configure', mode: 'failFirstN', count: 2 });
+
+        // recoverGuardianFromSeed({viaUI:false}) only drives the fast bypass
+        // to the home surface -- it does NOT itself await the rotation (that
+        // only happens on the viaUI:true branch), so completeHotKeyRotation()
+        // is called explicitly, same split as this file's kill-mid-rotation
+        // test above.
+        await walletB.recoverGuardianFromSeed(seed, { viaUI: false, guardianUrl: A });
+
+        // Must survive exactly 2 register failures via the wallet's own
+        // retry/backoff; throws if the gate instead reaches its
+        // terminal-failure surface within its own bounded wait.
+        await walletB.completeHotKeyRotation();
+
+        walletB.clearFaults();
+
+        const addressB = await walletB.getAccountAddress();
+        expect(
+          addressB,
+          'recovering the SAME seed on a clean profile must derive the SAME account id as A'
+        ).toBe(addressA!);
+
+        // Rotation replaces the HOT key but keeps the same guardian + cold
+        // key + threshold -- so the auth shape (2 signers, update_guardian
+        // threshold 2, guardian commitment = A's) must match A's baseline,
+        // same as the non-stress recovery journey and this file's
+        // kill-mid-rotation test.
+        await walletB.assertGuardianAuth(addressB, {
+          signerCount: 2,
+          threshold: 2,
+          guardianCommitment: commitmentA
+        });
+      },
+      { screenshotWallets: [{ target: walletB.page, label: 'B' }] }
+    );
+  });
+});
