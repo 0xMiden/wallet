@@ -19,6 +19,28 @@ function normalizeHex(h: string): string {
 }
 
 /**
+ * Sub-phase of an in-flight transaction (`ITransaction.stage` in
+ * `src/lib/miden/db/types.ts`) while its `status` is still
+ * Queued/GeneratingTransaction. Duplicated here rather than imported --
+ * mirrors `normalizeHex` above: no file under `playwright/` reaches into
+ * `src/lib`.
+ */
+export type TransactionStage =
+  | 'syncing'
+  | 'sending'
+  | 'creating-proposal'
+  | 'signing-proposal'
+  | 'executing'
+  | 'proving'
+  | 'submitting'
+  | 'confirming'
+  | 'registering-guardian'
+  | 'delivering'
+  | 'guardian-syncing'
+  | 'guardian-synced'
+  | 'complete';
+
+/**
  * Platform-neutral wallet interaction surface.
  *
  * Both ChromeWalletPage (extension via Playwright) and IosWalletPage
@@ -204,6 +226,36 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * the one that made the change.
    */
   reopen(): Promise<void>;
+  /**
+   * Terminate the wallet mid-flight: closes the current page and, unlike
+   * `reopen()`, does NOT open a fresh one -- models a user closing the
+   * wallet tab (or the tab crashing) while an operation is in progress.
+   * The extension service worker is a SEPARATE process/context and is left
+   * completely untouched (no `chrome.runtime.reload()`, same rationale as
+   * `reopen()`'s doc comment) -- only the page is torn down, so anything the
+   * SW itself is awaiting (e.g. a guardian HTTP round-trip) keeps running
+   * regardless of this call.
+   *
+   * Callers must follow up with `reopen()` (or their own fresh page) to
+   * interact with the wallet again; `this.page` is left pointing at the
+   * closed page in the meantime.
+   */
+  kill(): Promise<void>;
+  /**
+   * Poll for a `switch-guardian` transaction row (`ITransaction.stage` in
+   * `src/lib/miden/db/types.ts`) to reach `stage` while its status is still
+   * GeneratingTransaction -- read straight from the SDK's Dexie
+   * `transactions` store via raw IndexedDB (same idiom as the private
+   * `waitForTransactionRowComplete` this class already uses for
+   * `switchGuardian`'s own completion wait).
+   *
+   * Exists for stress specs that call `switchGuardian(...)` **without**
+   * awaiting it (so they can `kill()` mid-flight) -- such a caller never gets
+   * a transaction id back, but there is exactly one switch-guardian row in
+   * flight per account at a time, so matching on type + status is
+   * unambiguous without one.
+   */
+  waitForStage(stage: TransactionStage, timeoutMs?: number): Promise<void>;
 }
 
 export interface GuardianAuthInfo {
@@ -825,8 +877,16 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // user. The service worker (and any in-memory vault key it holds) is
     // untouched, since only the page is torn down; IndexedDB persists
     // regardless.
+    //
+    // `this.page` may already be closed here -- a caller that invoked
+    // `kill()` first (to prove state survives a page that's ALREADY gone,
+    // not just one this method tears down itself) would otherwise make the
+    // `.close()` below redundant. `Page.close()` on an already-closed page is
+    // documented as a no-op, but guard explicitly rather than rely on that.
     const context = this.page.context();
-    await this.page.close();
+    if (!this.page.isClosed()) {
+      await this.page.close();
+    }
 
     const freshPage = await context.newPage();
     this.currentPage = freshPage;
@@ -845,6 +905,50 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       await this.unlockWallet();
     } else {
       await explore.waitFor({ timeout: 15_000 });
+    }
+  }
+
+  async kill(): Promise<void> {
+    // Mirrors the closing half of reopen() -- see that method's doc comment
+    // for why this deliberately does NOT touch the service worker (no
+    // chrome.runtime.reload()). Swallow a close error rather than let it mask
+    // whatever the test is actually asserting: a page that's already mid-
+    // teardown (e.g. from a crash) throwing here shouldn't fail the "kill"
+    // step, only the "did the wallet recover" step that follows it.
+    await this.page.close().catch(() => {});
+  }
+
+  async waitForStage(stage: TransactionStage, timeoutMs: number = 90_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const reached = await this.page.evaluate(async (targetStage: TransactionStage) => {
+        const idb = (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB;
+        const db: IDBDatabase = await new Promise((res, rej) => {
+          const r = idb.open('TridentMain');
+          r.onsuccess = () => res(r.result);
+          r.onerror = () => rej(r.error);
+        });
+        try {
+          if (!db.objectStoreNames.contains('transactions')) return false;
+          const rows: Array<{ type?: string; status?: number; stage?: string }> = await new Promise((res, rej) => {
+            const r = db.transaction('transactions', 'readonly').objectStore('transactions').getAll();
+            r.onsuccess = () => res(r.result);
+            r.onerror = () => rej(r.error);
+          });
+          // status 1 === GeneratingTransaction (ITransactionStatus) -- `stage`
+          // is only meaningful while a row is actively processing (see the
+          // ITransaction.stage doc comment in src/lib/miden/db/types.ts).
+          return rows.some(row => row.type === 'switch-guardian' && row.status === 1 && row.stage === targetStage);
+        } finally {
+          db.close();
+        }
+      }, stage);
+
+      if (reached) return;
+      if (Date.now() >= deadline) {
+        throw new Error(`waitForStage: no switch-guardian transaction reached stage "${stage}" within ${timeoutMs}ms`);
+      }
+      await this.page.waitForTimeout(500);
     }
   }
 
