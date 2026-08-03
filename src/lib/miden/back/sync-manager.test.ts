@@ -95,6 +95,38 @@ const mockStorageSet = jest.fn();
   }
 };
 
+// Native-note auto-consume deps (background pass). Defaults keep the pass a no-op
+// for the rest of the suite; the native-note tests below flip them on.
+const mockIsAutoConsumeAsync = jest.fn(async (): Promise<boolean> => false);
+const mockIsDelegateProofAsync = jest.fn(async (): Promise<boolean> => true);
+const mockAreBgMirrored = jest.fn(async (): Promise<boolean> => true);
+jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual('lib/settings/helpers'),
+  isAutoConsumeEnabledAsync: () => mockIsAutoConsumeAsync(),
+  isDelegateProofEnabledAsync: () => mockIsDelegateProofAsync(),
+  areBackgroundSettingsMirrored: () => mockAreBgMirrored()
+}));
+
+const mockGetFaucetIdSetting = jest.fn(async (): Promise<string | null> => null);
+jest.mock('../assets', () => ({
+  ...jest.requireActual('../assets'),
+  getFaucetIdSetting: () => mockGetFaucetIdSetting()
+}));
+
+const mockInitiateConsume = jest.fn((..._args: any[]) => Promise.resolve('consume-tx'));
+jest.mock('../transaction/initiate', () => ({
+  ...jest.requireActual('../transaction/initiate'),
+  // Lazy wrapper (not a direct ref): a direct `mockInitiateConsume` here hits a
+  // temporal-dead-zone error because requireActual('../assets') transitively loads this
+  // mocked module before the const is initialized. The native pass consumes per-note via
+  // initiateConsumeTransaction (single-note), so mock that.
+  initiateConsumeTransaction: (...args: any[]) => mockInitiateConsume(...args)
+}));
+
+jest.mock('./transaction-processor', () => ({
+  startTransactionProcessing: jest.fn(async () => {})
+}));
+
 // ── Imports under test ─────────────────────────────────────────────
 
 import { doSync, setupSyncManager } from './sync-manager';
@@ -133,6 +165,14 @@ beforeEach(() => {
   mockMergeAndPersistSeenNoteIds.mockResolvedValue([]);
   mockHasClients.mockReturnValue(true);
   mockGetQuarantinedNoteIds.mockResolvedValue(new Set());
+  // Reset the native-consume mocks to defaults — jest.clearAllMocks() clears calls but
+  // NOT mockResolvedValue impls, so a per-test override (e.g. areBgMirrored=false) would
+  // otherwise leak and silently gate off later tests' native path.
+  mockAreBgMirrored.mockResolvedValue(true);
+  mockIsAutoConsumeAsync.mockResolvedValue(false);
+  mockIsDelegateProofAsync.mockResolvedValue(true);
+  mockGetFaucetIdSetting.mockResolvedValue(null);
+  mockInitiateConsume.mockResolvedValue('consume-tx');
 });
 
 describe('doSync', () => {
@@ -687,5 +727,90 @@ describe('doSync — syncState timeout + circuit breaker', () => {
 
       nowSpy.mockRestore();
     });
+  });
+});
+
+describe('doSync — native-note auto-consume', () => {
+  it('auto-consumes native notes PER NOTE, following the user delegated-proving setting', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockIsDelegateProofAsync.mockResolvedValue(false); // user picked LOCAL proving
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockClient.getConsumableNotes.mockResolvedValueOnce([
+      fakeNote({ id: 'native-a', faucetId: 'native-faucet' }),
+      fakeNote({ id: 'native-b', faucetId: 'native-faucet' }),
+      fakeNote({ id: 'other-note', faucetId: 'other-faucet' })
+    ]);
+
+    await doSync();
+
+    // One consume tx PER native note (not a batch, so a poison note can't block its
+    // mates), and proving honors the user's LOCAL choice rather than forced delegated.
+    expect(mockInitiateConsume).toHaveBeenCalledTimes(2);
+    const consumed = mockInitiateConsume.mock.calls.map(c => (c[1] as { id: string }).id).sort();
+    expect(consumed).toEqual(['native-a', 'native-b']);
+    mockInitiateConsume.mock.calls.forEach((c: unknown[]) => {
+      expect(c[0]).toBe('pk-1');
+      expect(c[2]).toBe(false); // delegate follows the user setting
+    });
+  });
+
+  it('does not auto-consume when the toggle is off', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(false);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+
+    await doSync();
+
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
+  });
+
+  it('suppresses the "click to claim" notification for a native note it is auto-consuming', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockHasClients.mockReturnValue(false); // popup closed
+    mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['native-note']); // note is "new" this tick
+    (globalThis as any).chrome.notifications = { create: jest.fn() };
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+
+    await doSync();
+
+    // It is being auto-consumed, so it is excluded from newIds and must NOT also raise a
+    // "click to claim" prompt — while still being consumed.
+    expect((globalThis as any).chrome.notifications.create).not.toHaveBeenCalled();
+    expect(mockInitiateConsume).toHaveBeenCalledTimes(1);
+    expect((mockInitiateConsume.mock.calls[0]![1] as { id: string }).id).toBe('native-note');
+  });
+
+  it('holds off until the popup has mirrored the user settings (migration window)', async () => {
+    mockAreBgMirrored.mockResolvedValue(false); // settings not yet mirrored into the SW store
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+
+    await doSync();
+
+    // Never act on read-miss defaults for a user who may have opted out.
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
+  });
+
+  it('resolves cleanly when the eligibility resolve (getFaucetIdSetting) rejects', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockRejectedValue(new Error('storage boom'));
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+
+    await expect(doSync()).resolves.toBeUndefined();
+    expect(mockGetFaucetIdSetting).toHaveBeenCalled(); // the rejecting path WAS exercised
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(mockStorageSet).toHaveBeenCalled(); // sync still completed
+  });
+
+  it('resolves cleanly when the per-note enqueue rejects', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockInitiateConsume.mockRejectedValueOnce(new Error('enqueue boom'));
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+
+    await expect(doSync()).resolves.toBeUndefined();
+    expect(mockInitiateConsume).toHaveBeenCalled(); // the rejecting path WAS exercised
   });
 });
