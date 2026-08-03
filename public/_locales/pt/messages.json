@@ -1684,8 +1684,8 @@
     "englishSource": "Verify your recovery phrase"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Confirme que você salvou sua frase de recuperação para poder restaurar esta carteira mais tarde.",
-    "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+    "message": "Note escreva sua frase de recuperação e verifique seu conhecimento de suas primeiras e últimas palavras para que você possa restaurar esta carteira mais tarde.",
+    "englishSource": "Note down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Assinatura segura indisponível",
@@ -1708,16 +1708,16 @@
     "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
-    "message": "Você revelará sua frase de recuperação antes de verificá-la. Certifique-se de que ninguém possa ver sua tela.",
-    "englishSource": "You will reveal your recovery phrase before verifying it. Make sure no one can see your screen."
+    "message": "Você note anotará sua frase de recuperação e, em seguida, verificará seu conhecimento selecionando a primeira e a última palavras. Certifique-se de que ninguém possa ver sua tela.",
+    "englishSource": "You will note down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
   },
   "verifySeedPhrasePasswordBody": {
     "message": "Desbloqueie sua carteira para revelar sua frase de recuperação e iniciar a verificação.",
     "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
   },
   "verifySeedPhraseReviewBody": {
-    "message": "Escreva essas palavras em ordem. Você verificará a primeira e a última palavras a seguir.",
-    "englishSource": "Write down these words in order. You will verify the first and last words next."
+    "message": "Note escreva essas palavras em ordem.",
+    "englishSource": "Note down these words in order."
   },
   "word": {
     "message": "Palavra $number$ ",

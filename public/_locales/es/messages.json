@@ -1667,8 +1667,8 @@
     "englishSource": "Verify your recovery phrase"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Confirma que guardaste tu frase de recuperación para que puedas restaurar esta billetera más tarde.",
-    "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+    "message": "Note anota tu frase de recuperación y verifica tu conocimiento de su primera y última palabra para que puedas restaurar esta billetera más tarde.",
+    "englishSource": "Note down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Firma segura no disponible",
@@ -1691,16 +1691,16 @@
     "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
-    "message": "Revelarás tu frase de recuperación antes de verificarla. Asegúrate de que nadie pueda ver tu pantalla.",
-    "englishSource": "You will reveal your recovery phrase before verifying it. Make sure no one can see your screen."
+    "message": "note anotará su frase de recuperación y luego verificará su conocimiento seleccionando su primera y última palabra. Asegúrate de que nadie pueda ver tu pantalla.",
+    "englishSource": "You will note down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
   },
   "verifySeedPhrasePasswordBody": {
     "message": "Desbloquee su billetera para revelar su frase de recuperación e iniciar la verificación.",
     "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
   },
   "verifySeedPhraseReviewBody": {
-    "message": "Escribe estas palabras en orden. A continuación verificarás la primera y la última palabra.",
-    "englishSource": "Write down these words in order. You will verify the first and last words next."
+    "message": "Note anota estas palabras en orden.",
+    "englishSource": "Note down these words in order."
   },
   "word": {
     "message": "Palabra $number$ ",

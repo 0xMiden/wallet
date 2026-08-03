@@ -1667,8 +1667,8 @@
     "englishSource": "Verify your recovery phrase"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Confirm you saved your recovery phrase so you can restore this wallet later.",
-    "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+    "message": "Note down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later.",
+    "englishSource": "Note down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Secure signing unavailable",
@@ -1691,16 +1691,16 @@
     "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
-    "message": "You will reveal your recovery phrase before verifying it. Make sure no one can see your screen.",
-    "englishSource": "You will reveal your recovery phrase before verifying it. Make sure no one can see your screen."
+    "message": "You will note down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen.",
+    "englishSource": "You will note down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
   },
   "verifySeedPhrasePasswordBody": {
     "message": "Unlock your wallet to reveal your recovery phrase and start verification.",
     "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
   },
   "verifySeedPhraseReviewBody": {
-    "message": "Write down these words in order. You will verify the first and last words next.",
-    "englishSource": "Write down these words in order. You will verify the first and last words next."
+    "message": "Note down these words in order.",
+    "englishSource": "Note down these words in order."
   },
   "word": {
     "message": "Word $number$",

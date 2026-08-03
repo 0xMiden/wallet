@@ -1684,8 +1684,8 @@
     "englishSource": "Verify your recovery phrase"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Bu cüzdanı daha sonra geri yükleyebilmeniz için kurtarma ifadenizi kaydettiğinizi onaylayın.",
-    "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+    "message": "Note kurtarma ifadenizi yazın ve ilk ve son kelimelerine ilişkin bilginizi doğrulayın, böylece bu cüzdanı daha sonra geri yükleyebilirsiniz.",
+    "englishSource": "Note down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Güvenli imzalama kullanılamıyor",
@@ -1708,16 +1708,16 @@
     "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
-    "message": "Doğrulamadan önce kurtarma ifadenizi açıklayacaksınız. Kimsenin ekranınızı göremediğinden emin olun.",
-    "englishSource": "You will reveal your recovery phrase before verifying it. Make sure no one can see your screen."
+    "message": "Kurtarma ifadenizi note yazacak, ardından ilk ve son kelimelerini seçerek bilginizi doğrulayacaksınız. Kimsenin ekranınızı göremediğinden emin olun.",
+    "englishSource": "You will note down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
   },
   "verifySeedPhrasePasswordBody": {
     "message": "Kurtarma ifadenizi ortaya çıkarmak ve doğrulamayı başlatmak için cüzdanınızın kilidini açın.",
     "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
   },
   "verifySeedPhraseReviewBody": {
-    "message": "Bu kelimeleri sırasıyla yazın. Daha sonra ilk ve son kelimeleri doğrulayacaksınız.",
-    "englishSource": "Write down these words in order. You will verify the first and last words next."
+    "message": "Note bu kelimeleri sırayla aşağıya yazın.",
+    "englishSource": "Note down these words in order."
   },
   "word": {
     "message": "Kelime $number$ ",
