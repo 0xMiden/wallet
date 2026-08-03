@@ -179,7 +179,7 @@ test.describe('Guardian switch stress - kill mid-switch resumes', () => {
  * switch (not just the retry) landed on B.
  */
 test.describe('Guardian switch stress - register fault retries', () => {
-  test('transient register failures on B -> backoff recovers, switch completes', async ({
+  test('transient register failures on B then backoff recovers, switch completes', async ({
     walletA,
     midenCli,
     steps
@@ -360,7 +360,7 @@ test.describe('Guardian switch stress - old-guardian push fault', () => {
  * (`SendManager.tsx`'s `cannotSendToSelf` guard).
  */
 test.describe('Guardian switch stress - repeat round-trip', () => {
-  test('A -> B -> A round-trip keeps guardian state consistent, still usable', async ({
+  test('A to B to A round-trip keeps guardian state consistent, still usable', async ({
     walletA,
     walletB,
     midenCli,
