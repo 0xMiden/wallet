@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.18 (TBD)
+
+### Fixes
+
+- [FIX][all] **Assets on the Home page are ordered by fiat value.** The asset list keeps the native asset first, then ranks all other holdings by their current USD value from highest to lowest.
+
 ## 1.15.17 (2026-08-03)
 
 ### Fixes
