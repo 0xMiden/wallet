@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { GUARDIAN_LOGOS, guardianLogoColorClass } from 'app/icons/guardian-operator-logs';
+import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
 import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
@@ -123,8 +124,12 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             const isSelected = selectedId === option.id;
             const isDefault = option.id === defaultId;
             const isCurrent = currentEndpoint != null && option.endpoint === currentEndpoint;
-            const logoEntry = GUARDIAN_LOGOS[option.id]!;
-            const { Logo, paddingXClass } = logoEntry;
+            // GUARDIAN_LOGOS is keyed by provider id but has no compile-time tie to
+            // GUARDIAN_OPTIONS/getGuardianOptionsForNetwork(), so a provider without
+            // a registered wordmark (e.g. an E2E-only test operator) must not crash
+            // this screen -- fall back to the generic avatar, mirroring
+            // GuardianSettings.tsx's existing safe lookup for the same map.
+            const logoEntry = GUARDIAN_LOGOS[option.id];
             return (
               <div key={option.id} className="flex flex-col">
                 <button
@@ -148,7 +153,11 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                     </div>
                   )}
                   <div className="flex flex-1 items-center justify-center">
-                    <Logo className={clsx(guardianLogoColorClass(logoEntry), paddingXClass)} />
+                    {logoEntry ? (
+                      <logoEntry.Logo className={clsx(guardianLogoColorClass(logoEntry), logoEntry.paddingXClass)} />
+                    ) : (
+                      <GuardianAvatar className="w-10 h-10" />
+                    )}
                   </div>
                 </button>
                 <div className="mt-2 px-1 text-center text-gray-secondary dark:text-pure-white text-[10px] leading-tight">
