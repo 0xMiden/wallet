@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.15.18 (TBD)
+
+### Fixes
+
+- [FIX][mobile] **Bottom-sheet drawers no longer slide under the Android navigation bar.** The shared `DrawerContent` is `position: fixed; bottom: 0`, which anchors to the viewport — body's safe-area padding (mobile.html) never applies to fixed elements, so drawer CTAs (e.g. Guardian Settings' "Rotate Guardian") were clipped by the system nav bar. The drawer now pads itself with `env(safe-area-inset-bottom)` (0 on extension), and `GuardianInfoDrawer`'s per-instance workaround was removed to avoid double padding.
+- [FIX][mobile] **Android launcher icon no longer renders as a cropped orange blob.** The adaptive-icon foreground PNGs drew the logo across ~66% of the canvas — right at the edge of the launcher's mask, so circular masks zoomed into the middle of the artwork. The foreground artwork is now scaled into the mask-safe area (~44% of the canvas, transparent padding), so the full logo shows inside the round/squircle mask.
+
 ## 1.15.17 (2026-08-03)
 
 ### Fixes
