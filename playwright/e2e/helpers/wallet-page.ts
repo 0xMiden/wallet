@@ -256,6 +256,28 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * unambiguous without one.
    */
   waitForStage(stage: TransactionStage, timeoutMs?: number): Promise<void>;
+  /**
+   * Wait until no transaction row is left `Queued`/`GeneratingTransaction`
+   * (`ITransactionStatus` 0/1) -- i.e. the FIFO processing loop
+   * (`safeGenerateTransactionsLoop`, `src/lib/miden/transaction/index.ts`) has
+   * driven every currently-known transaction to a terminal state (`Completed`
+   * or `Failed`).
+   *
+   * Exists for stress specs that fire multiple transactions concurrently
+   * (e.g. a `sendTokens(...)` and a `switchGuardian(...)` in the same
+   * `Promise.all`) and need to wait for BOTH to actually finish processing
+   * before reading final account state. Unlike `switchGuardian`, which awaits
+   * its own transaction row internally (`waitForTransactionRowComplete`),
+   * `sendTokens` resolves as soon as its submit button detaches -- the UI's
+   * "accepted" signal -- well before the underlying tx clears the
+   * per-account guardian lock (`withGuardianAccountLock`,
+   * `lib/miden/guardian/serialize.ts`) that serializes it against any other
+   * in-flight guardian transaction for the same account. Polling raw
+   * IndexedDB (same idiom as `waitForStage` / the private
+   * `waitForTransactionRowComplete`) is what actually proves both operations
+   * settled, rather than just both UI submissions having been accepted.
+   */
+  waitForQueueDrained(timeoutMs?: number): Promise<void>;
 }
 
 export interface GuardianAuthInfo {
@@ -949,6 +971,59 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         throw new Error(`waitForStage: no switch-guardian transaction reached stage "${stage}" within ${timeoutMs}ms`);
       }
       await this.page.waitForTimeout(500);
+    }
+  }
+
+  /**
+   * See the interface doc comment. Requires `STABLE_EMPTY_THRESHOLD`
+   * consecutive empty polls (not just one) before declaring the queue
+   * drained -- a single empty pass is ambiguous when two operations were
+   * kicked off via `Promise.all`: the queue can look momentarily empty
+   * between the first op's row completing and the second op's row actually
+   * being written (they don't necessarily enqueue in the same tick).
+   */
+  async waitForQueueDrained(timeoutMs: number = 180_000): Promise<void> {
+    const STABLE_EMPTY_THRESHOLD = 3;
+    const POLL_INTERVAL_MS = 1_000;
+    const deadline = Date.now() + timeoutMs;
+    let stableEmpty = 0;
+
+    for (;;) {
+      const uncompletedCount = await this.page.evaluate(async () => {
+        const idb = (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB;
+        const db: IDBDatabase = await new Promise((res, rej) => {
+          const r = idb.open('TridentMain');
+          r.onsuccess = () => res(r.result);
+          r.onerror = () => rej(r.error);
+        });
+        try {
+          if (!db.objectStoreNames.contains('transactions')) return 0;
+          const rows: Array<{ status?: number }> = await new Promise((res, rej) => {
+            const r = db.transaction('transactions', 'readonly').objectStore('transactions').getAll();
+            r.onsuccess = () => res(r.result);
+            r.onerror = () => rej(r.error);
+          });
+          // status 0 === Queued, 1 === GeneratingTransaction (ITransactionStatus).
+          return rows.filter(row => row.status === 0 || row.status === 1).length;
+        } finally {
+          db.close();
+        }
+      });
+
+      if (uncompletedCount === 0) {
+        stableEmpty++;
+        if (stableEmpty >= STABLE_EMPTY_THRESHOLD) return;
+      } else {
+        stableEmpty = 0;
+      }
+
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `waitForQueueDrained: ${uncompletedCount} transaction(s) still Queued/GeneratingTransaction ` +
+            `after ${timeoutMs}ms`
+        );
+      }
+      await this.page.waitForTimeout(POLL_INTERVAL_MS);
     }
   }
 

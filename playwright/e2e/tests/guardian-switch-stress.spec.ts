@@ -330,3 +330,210 @@ test.describe('Guardian switch stress - old-guardian push fault', () => {
     );
   });
 });
+
+/**
+ * Repeat A -> B -> A round-trip -> no drift, still usable.
+ *
+ * The happy-path spec (`guardian-switch.spec.ts`) only ever switches once
+ * (A -> B). A single switch can't rule out state that only drifts on a
+ * SECOND transition -- e.g. a per-account endpoint write that overwrites
+ * cleanly the first time but leaves a stale value (or a stale in-memory
+ * `MultisigService` pointed at the wrong operator) behind after switching
+ * back. Round-tripping back to the ORIGINAL guardian (A) is the one
+ * switch-target that lets an assertion catch that: any drift would land on
+ * `commitmentA` failing to match after the second switch, since A's real
+ * commitment never changes underneath the test.
+ *
+ * `assertGuardianAuth`'s `guardianCommitment` pin (not just signerCount/
+ * threshold) is required for the same reason as every sibling spec in this
+ * suite: signerCount/threshold describe the `[hot, cold]` multisig shape,
+ * which a guardian switch never touches -- only the separate guardian-
+ * commitment slot changes, so that's the field that actually proves each
+ * leg of the round-trip landed (not just "didn't hang").
+ *
+ * The final `sendTokens` re-proves the account is genuinely usable after the
+ * round-trip -- exercising `createSendProposal` against A's co-signature one
+ * more time -- rather than trusting the auth-shape assertion alone. Sending
+ * to a second, independent wallet (mirroring `guardian-switch.spec.ts`)
+ * because the wallet deliberately blocks a self-send
+ * (`SendManager.tsx`'s `cannotSendToSelf` guard).
+ */
+test.describe('Guardian switch stress - repeat round-trip', () => {
+  test('A -> B -> A round-trip keeps guardian state consistent, still usable', async ({
+    walletA,
+    walletB,
+    midenCli,
+    steps
+  }) => {
+    // Two full switches (each with its own canonicalization wait against a
+    // local guardian) plus create/fund/claim and a final send -- comfortable
+    // headroom over the base config's 300s default, matching the sibling
+    // specs' budget.
+    test.setTimeout(600_000);
+
+    const commitmentA = await guardianCommitment(A);
+    const commitmentB = await guardianCommitment(B);
+    expect(commitmentA, 'guardian A and B must be distinct operators for this test to mean anything').not.toBe(
+      commitmentB
+    );
+
+    let addressA: string;
+    let addressB: string;
+    let faucetId: string;
+
+    await steps.step('create_on_a_and_fund', async () => {
+      const createdA = await walletA.createGuardianWallet(A);
+      addressA = createdA.address;
+      const createdB = await walletB.createNewWallet();
+      addressB = createdB.address;
+
+      await midenCli.init();
+      faucetId = await midenCli.createFaucet();
+      await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+      await midenCli.sync();
+
+      await walletA.claimAllNotes(180_000);
+    });
+
+    await steps.step(
+      'round_trip_a_to_b_to_a',
+      async () => {
+        await walletA.switchGuardian(B);
+        await walletA.assertGuardianAuth(addressA!, { signerCount: 2, threshold: 2, guardianCommitment: commitmentB });
+
+        await walletA.switchGuardian(A);
+        await walletA.assertGuardianAuth(addressA!, { signerCount: 2, threshold: 2, guardianCommitment: commitmentA });
+      },
+      {
+        screenshotWallets: [{ target: walletA.page, label: 'A' }]
+      }
+    );
+
+    await steps.step(
+      'usable_after_round_trip',
+      async () => {
+        await walletA.sendTokens({ recipientAddress: addressB!, amount: '1', isPrivate: false, tokenSymbol: 'TST' });
+        const balanceB = await walletB.waitForBalanceAbove(0, 120_000);
+        expect(balanceB).toBeGreaterThan(0);
+      },
+      {
+        screenshotWallets: [
+          { target: walletA.page, label: 'A' },
+          { target: walletB.page, label: 'B' }
+        ]
+      }
+    );
+  });
+});
+
+/**
+ * Concurrent send + switch on the SAME account -> serialize cleanly, both
+ * settle, account ends internally consistent.
+ *
+ * Both `sendTokens` and `switchGuardian` on a Guardian account route through
+ * `generateTransaction`'s guardian branch (`src/lib/miden/transaction/index.ts`
+ * ~144), which wraps the actual work in `withGuardianAccountLock(canonicalWalletAccountId(...))`
+ * (~153) -- a per-account promise chain that serializes every guardian
+ * transaction so at most one is ever in flight (see `guardian/serialize.ts`'s
+ * doc comment: the guardian only co-signs one delta per account at a time,
+ * and concurrent same-account deltas stall canonicalization for minutes --
+ * OpenZeppelin/guardian#303). Firing both from the SAME account via
+ * `Promise.all` is the direct way to exercise that lock rather than trust it
+ * by inspection.
+ *
+ * `sendTokens` resolves as soon as its submit button detaches (the UI's
+ * "accepted" signal), well before the underlying tx clears the guardian
+ * lock -- unlike `switchGuardian`, which awaits its own transaction row to
+ * `Completed` internally. So `Promise.all` settling only proves both UI
+ * submissions were accepted, not that both finished processing;
+ * `waitForQueueDrained()` is what actually waits for the lock to release
+ * both queued rows to a terminal state.
+ *
+ * This test deliberately does NOT assert which operation "won" the race --
+ * either order (send-then-switch or switch-then-send) is a legitimate
+ * outcome of a first-come-first-served lock, and the design doc's scope
+ * boundary (§2) only requires the wallet-observable outcome to be
+ * consistent, not a specific interleaving. So the expected guardian
+ * commitment is derived from whatever `currentGuardianEndpoint()` resolves
+ * to post-drain (A if the switch lost the race or itself failed, B if it
+ * won) -- what corruption under a broken lock would actually look like is
+ * `currentGuardianEndpoint()` reporting one guardian while the on-chain
+ * commitment (`assertGuardianAuth`'s `guardianCommitment`) reflects the
+ * other, which this catches regardless of which guardian ends up active.
+ */
+test.describe('Guardian switch stress - concurrent send + switch', () => {
+  test('concurrent send + switch on the same account serialize cleanly', async ({
+    walletA,
+    walletB,
+    midenCli,
+    steps
+  }) => {
+    // Two guardian transactions serialized through the same account lock,
+    // plus create/fund/claim and the post-drain settle poll -- comfortable
+    // headroom over the base config's 300s default, matching the sibling
+    // specs' budget.
+    test.setTimeout(600_000);
+
+    let addressA: string;
+    let addressB: string;
+
+    await steps.step('create_on_a_and_fund', async () => {
+      const createdA = await walletA.createGuardianWallet(A);
+      addressA = createdA.address;
+      const createdB = await walletB.createNewWallet();
+      addressB = createdB.address;
+
+      await midenCli.init();
+      const faucetId = await midenCli.createFaucet();
+      await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+      await midenCli.sync();
+
+      await walletA.claimAllNotes(180_000);
+    });
+
+    await steps.step(
+      'concurrent_send_and_switch_serialize_cleanly',
+      async () => {
+        // Fire both concurrently against the SAME account. Each `.catch(() =>
+        // {})` swallows a legitimate loser-of-the-race rejection (e.g. a send
+        // that ends up queued behind the switch and is still processing when
+        // this Promise.all would otherwise reject on an unrelated timeout) --
+        // the real assertions below independently re-derive ground truth
+        // after the queue drains, so they don't depend on either promise
+        // resolving a particular way.
+        await Promise.all([
+          walletA
+            .sendTokens({ recipientAddress: addressB!, amount: '1', isPrivate: false, tokenSymbol: 'TST' })
+            .catch(() => {}),
+          walletA.switchGuardian(B).catch(() => {})
+        ]);
+
+        // Both operations' rows may still be Queued/GeneratingTransaction at
+        // this point (see the describe-level doc comment on why
+        // `sendTokens`'s own resolution doesn't prove that) -- wait for the
+        // per-account guardian lock to actually finish serializing them.
+        await walletA.waitForQueueDrained();
+
+        const finalEndpoint = await walletA.currentGuardianEndpoint();
+        expect([A, B], 'currentGuardianEndpoint must resolve to one of the two known guardians').toContain(
+          finalEndpoint
+        );
+
+        // Internal-consistency check: whichever guardian the wallet believes
+        // it's on must match the guardian ACTUALLY active on chain -- the
+        // failure mode a broken lock produces is exactly this kind of split
+        // (persisted endpoint says one guardian, on-chain commitment says
+        // the other), not necessarily a hang or thrown error.
+        const finalCommitment = await guardianCommitment(finalEndpoint);
+        await walletA.assertGuardianAuth(addressA!, {
+          signerCount: 2,
+          threshold: 2,
+          guardianCommitment: finalCommitment
+        });
+      },
+      {
+        screenshotWallets: [{ target: walletA.page, label: 'A' }]
+      }
+    );
+  });
+});
