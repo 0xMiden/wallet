@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.18 (TBD)
+
+### Fixes
+
+- [FIX][all] **The guardian picker no longer crashes when a guardian operator has no registered wordmark.** The Choose-Guardian screen asserted a logo entry for every option (`GUARDIAN_LOGOS[option.id]!`), so any guardian without a registered logo threw and blanked the screen; it now falls back to a generic avatar, mirroring the guardian-settings row's existing safe lookup.
+
 ## 1.15.17 (2026-08-03)
 
 ### Fixes
