@@ -24,7 +24,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
   ) => {
     return (
       <div className={classNames('flex flex-col gap-2', containerClassName)}>
-        {label && <label className={classNames('text-sm font-medium', labelClassName)}>{label}</label>}
+        {label && (
+          <label className={classNames('text-sm font-medium text-heading-gray', labelClassName)}>{label}</label>
+        )}
         <div
           className={classNames(
             'relative',
@@ -46,6 +48,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               'flex-1',
               'py-3',
               'placeholder-grey-400',
+              'text-black',
               'text-base',
               'outline-none',
               prefix ? 'pl-10' : 'pl-4',
@@ -55,7 +58,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             {...props}
           />
           {icon && (
-            <div className={classNames('flex items-center justify-center', 'py-2 pr-2', iconClassName)}>{icon}</div>
+            <div
+              className={classNames('flex items-center justify-center text-heading-gray', 'py-2 pr-2', iconClassName)}
+            >
+              {icon}
+            </div>
           )}
           {suffix && <div className="flex text-heading-gray text-sm font-bold mr-4">{suffix}</div>}
         </div>

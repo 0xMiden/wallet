@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.18 (TBD)
+
+### Fixes
+
+- [FIX][all] **Dark-theme password and transaction screens keep their text and visibility icons readable.** Shared input labels, entered text, and icon slots now use theme-aware color tokens; both visibility-icon sets inherit the active text color instead of hardcoding black; and the transaction-processing helper no longer overrides its light/dark text token with the dark surface color. This fixes low-contrast unlock, reveal-key, send-processing, and swap-processing UI. (#430)
+
 ## 1.15.17 (2026-08-03)
 
 ### Fixes
