@@ -147,3 +147,94 @@ test.describe('Guardian switch stress - kill mid-switch resumes', () => {
     });
   });
 });
+
+/**
+ * Transient register faults on B -> the wallet's own retry/backoff recovers,
+ * switch still completes.
+ *
+ * Unlike the kill-mid-switch scenario above (which proves the FRONTEND never
+ * gets stuck across a page teardown), this one targets a narrower claim:
+ * `completeSwitchGuardianTransaction`'s register step
+ * (`src/lib/miden/transaction/complete.ts`) calls into the guardian client's
+ * register-with-retry path -- candidate `registerOnGuardianWithRetry` /
+ * `MAX_GUARDIAN_REGISTER_RETRIES` in `src/lib/miden/guardian/index.ts`
+ * (~521-543) -- and that path must itself survive a bounded number of
+ * transient register failures via its own backoff, without the caller doing
+ * anything special. `armGuardianFault({ mode: 'failFirstN', count: 2 })`
+ * fails B's first 2 `/register` calls (HTTP 500 -- see `guardian-fault.ts`'s
+ * `fulfill500` action for `failFirstN`) and lets every call after that
+ * through untouched, so the ONLY way `switchGuardian(B)` resolves is if the
+ * wallet retried at least twice before giving up. If the wallet's retry
+ * budget is smaller than 2 (or has no backoff at all), `switchGuardian` will
+ * throw (the transaction lands `Failed`, or `waitForTransactionRowComplete`
+ * times out) and this test goes red -- the Product-Fix Protocol then applies
+ * against that candidate location, not a new invention.
+ *
+ * `assertGuardianAuth`'s `guardianCommitment` pin (not just signerCount/
+ * threshold) is required for the same reason as the sibling specs in this
+ * suite: signerCount/threshold describe the `[hot, cold]` multisig shape,
+ * which a guardian switch never touches -- only the separate guardian-
+ * commitment slot changes, so that's the field that actually proves the
+ * switch (not just the retry) landed on B.
+ */
+test.describe('Guardian switch stress - register fault retries', () => {
+  test('transient register failures on B -> backoff recovers, switch completes', async ({
+    walletA,
+    midenCli,
+    steps
+  }) => {
+    // Two faulted register attempts plus whatever backoff delay the wallet
+    // uses between them, on top of create/fund/claim -- comfortable headroom
+    // over the base config's 300s default, matching the sibling specs' budget.
+    test.setTimeout(600_000);
+
+    const commitmentB = await guardianCommitment(B);
+
+    let addressA: string;
+
+    await steps.step(
+      'create_on_a_and_fund',
+      async () => {
+        const createdA = await walletA.createGuardianWallet(A);
+        addressA = createdA.address;
+
+        await midenCli.init();
+        const faucetId = await midenCli.createFaucet();
+        await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+        await midenCli.sync();
+
+        await walletA.claimAllNotes(180_000);
+      },
+      {
+        screenshotWallets: [{ target: walletA.page, label: 'A' }]
+      }
+    );
+
+    await steps.step(
+      'switch_survives_two_register_faults',
+      async () => {
+        // Arm BEFORE switchGuardian so the very first /register call (fired
+        // from inside completeSwitchGuardianTransaction once the confirmed
+        // proposal executes) already lands on the faulted path -- there is no
+        // window where an unfaulted register could sneak through first.
+        walletA.armGuardianFault({ target: 'B', path: 'register', mode: 'failFirstN', count: 2 });
+
+        // Must survive exactly 2 register failures via the wallet's own
+        // retry/backoff; switchGuardian awaits the transaction to Completed
+        // and throws on Failed or timeout (see waitForTransactionRowComplete).
+        await walletA.switchGuardian(B);
+
+        walletA.clearFaults();
+
+        await walletA.assertGuardianAuth(addressA!, {
+          signerCount: 2,
+          threshold: 2,
+          guardianCommitment: commitmentB
+        });
+      },
+      {
+        screenshotWallets: [{ target: walletA.page, label: 'A' }]
+      }
+    );
+  });
+});
