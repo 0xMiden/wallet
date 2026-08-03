@@ -231,6 +231,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           if (/^m[a-z]{1,4}1[a-z0-9]+/i.test(pk)) return true;
           return !!document.querySelector('[data-testid="explore-page"]');
         },
+        // `arg` (3rd overload param is `options`) must be passed explicitly:
+        // omitting it shifts `{ timeout }` into the `arg` slot for a
+        // zero-parameter pageFunction, silently dropping the timeout override
+        // (only ever surfaced a hang, never a fast reject -- see guardian-fault
+        // A3's smoke test, the first caller to exercise the failure path).
+        undefined,
         { timeout: 120_000 }
       );
     } catch (e) {

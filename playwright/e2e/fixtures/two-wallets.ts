@@ -7,6 +7,7 @@ import { getEnvironmentConfig } from '../config/environments';
 import { attachConsoleCapture } from '../harness/browser-capture';
 import { CLIRunner } from '../harness/cli-runner';
 import { buildFailureReport, saveFailureReport } from '../harness/failure-report';
+import { installGuardianFaults, type GuardianFaultPolicy } from '../harness/guardian-fault';
 import {
   SW_FETCH_LOG_PREFIX,
   attachNetworkCapture,
@@ -22,9 +23,21 @@ import { ChromeWalletPage, type ChromeWalletPageApi } from '../helpers/wallet-pa
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
+/**
+ * Test-only controls layered onto the wallet page object so specs can arm/
+ * clear guardian HTTP faults (see harness/guardian-fault.ts) without reaching
+ * into the BrowserContext directly.
+ */
+export interface GuardianFaultTestApi {
+  armGuardianFault(policy: GuardianFaultPolicy): void;
+  clearFaults(): void;
+}
+
+export type GuardianAwareWalletPage = ChromeWalletPageApi & GuardianFaultTestApi;
+
 type TwoWalletFixtures = {
-  walletA: ChromeWalletPageApi;
-  walletB: ChromeWalletPageApi;
+  walletA: GuardianAwareWalletPage;
+  walletB: GuardianAwareWalletPage;
   midenCli: MidenCli;
   timeline: TimelineRecorder;
   steps: TestStepRunner;
@@ -300,7 +313,14 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
     data: { extensionId, userDataDir }
   });
 
-  const walletPage = new ChromeWalletPage(page, extensionId, userDataDir);
+  // Guardian fault-injection: intercepts guardian HTTP calls (made from the
+  // extension's service worker) by target/path, applying whatever
+  // GuardianFaultPolicy the spec arms via the wallet page object below.
+  const faults = installGuardianFaults(context);
+  const walletPage: GuardianAwareWalletPage = Object.assign(new ChromeWalletPage(page, extensionId, userDataDir), {
+    armGuardianFault: (policy: GuardianFaultPolicy) => faults.arm(policy),
+    clearFaults: () => faults.clear()
+  });
 
   return { walletPage, context, extensionId, userDataDir, page };
 }
