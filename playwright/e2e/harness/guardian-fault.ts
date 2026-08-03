@@ -47,7 +47,18 @@ export type GuardianFaultTarget = 'A' | 'B';
  */
 export type GuardianFaultPath = 'pubkey' | 'configure' | 'delta';
 
-export type GuardianFaultMode = 'status500' | 'abort' | 'delay' | 'failFirstN';
+/**
+ * `conflictPendingDelta` fulfills a `409` shaped exactly like the guardian's
+ * REAL `conflict_pending_delta` response (see `CONFLICT_PENDING_DELTA_BODY`
+ * below) -- distinct from `status500`/`failFirstN`, which fulfill a generic
+ * `500` and so can never exercise `isGuardianPendingConflict`
+ * (`src/lib/miden/guardian/serialize.ts`), the wallet's conflict-vs-generic-
+ * failure branch. Like `failFirstN`, it self-clears after `count` matching
+ * requests (see the `count` field doc below) -- a real guardian's conflict is
+ * transient (it clears once the prior delta canonicalizes), so a fault that
+ * never clears wouldn't model the real failure mode.
+ */
+export type GuardianFaultMode = 'status500' | 'abort' | 'delay' | 'failFirstN' | 'conflictPendingDelta';
 
 export interface GuardianFaultPolicy {
   /** Guardian instance to fault. Omit to match either A or B. */
@@ -57,7 +68,10 @@ export interface GuardianFaultPolicy {
   mode: GuardianFaultMode;
   /** Delay (ms) before continuing the request. Only used by 'delay' (default 3000). */
   delayMs?: number;
-  /** Number of matching requests to fail before falling back to continue(). Only used by 'failFirstN' (default 1). */
+  /**
+   * Number of matching requests to fail before falling back to continue().
+   * Used by 'failFirstN' and 'conflictPendingDelta' (default 1).
+   */
   count?: number;
 }
 
@@ -102,13 +116,15 @@ export type GuardianFaultAction =
   | { kind: 'continue' }
   | { kind: 'abort' }
   | { kind: 'delay'; delayMs: number }
-  | { kind: 'fulfill500' };
+  | { kind: 'fulfill500' }
+  | { kind: 'fulfillConflictPendingDelta' };
 
 /**
  * Pure fault decision for a single request: does the armed policy match
  * this URL, and if so what should happen? Exported standalone (no
  * Playwright dependency at all) so target/path matching and the
- * `failFirstN` hit-counting are unit testable without a browser.
+ * `failFirstN`/`conflictPendingDelta` hit-counting are unit testable without
+ * a browser.
  */
 export function decideGuardianFault(
   url: string,
@@ -119,7 +135,7 @@ export function decideGuardianFault(
   if (!policy || !target) return { action: { kind: 'continue' }, hits };
   if (policy.target && policy.target !== target) return { action: { kind: 'continue' }, hits };
   if (pathOf(url) !== policy.path) return { action: { kind: 'continue' }, hits };
-  if (policy.mode === 'failFirstN' && hits >= (policy.count ?? 1)) {
+  if ((policy.mode === 'failFirstN' || policy.mode === 'conflictPendingDelta') && hits >= (policy.count ?? 1)) {
     return { action: { kind: 'continue' }, hits };
   }
 
@@ -132,8 +148,35 @@ export function decideGuardianFault(
     case 'status500':
     case 'failFirstN':
       return { action: { kind: 'fulfill500' }, hits: nextHits };
+    case 'conflictPendingDelta':
+      return { action: { kind: 'fulfillConflictPendingDelta' }, hits: nextHits };
   }
 }
+
+/**
+ * Realistic `409 conflict_pending_delta` error body, shaped exactly like the
+ * envelope `GuardianHttpError` parses on the wire
+ * (`@openzeppelin/guardian-client/dist/http.js`'s `parseGuardianErrorBody`):
+ * `{ code, message, meta }` where `meta.retryable` is a required boolean and
+ * `code` is a recognized `GuardianErrorCode` (`conflict_pending_delta` is
+ * NOT one of the four SCREAMING_SNAKE server aliases -- it already travels
+ * on the wire in this exact snake_case form, see
+ * `@openzeppelin/guardian-client/dist/error-codes.js`).
+ *
+ * Matching this shape (rather than an arbitrary 409) is what makes
+ * `isGuardianPendingConflict` (`src/lib/miden/guardian/serialize.ts`) --
+ * which checks `err.status === 409` and a non-"paused" `err.body`/`.message`
+ * -- actually recognize the fault as the SAME transient conflict a live
+ * guardian's canonicalization-in-progress 409 produces, so
+ * `withGuardianConflictRetry` and the wallet's pending-conflict requeue path
+ * (`transaction/index.ts`) both engage exactly as they would against a real
+ * guardian.
+ */
+const CONFLICT_PENDING_DELTA_BODY = JSON.stringify({
+  code: 'conflict_pending_delta',
+  message: 'A delta is already pending canonicalization for this account',
+  meta: { retryable: true }
+});
 
 /** Apply a fault decision to a live route (or a unit-test fake satisfying GuardianRouteLike). */
 export async function applyGuardianFaultAction(route: GuardianRouteLike, action: GuardianFaultAction): Promise<void> {
@@ -147,6 +190,8 @@ export async function applyGuardianFaultAction(route: GuardianRouteLike, action:
       return route.continue();
     case 'fulfill500':
       return route.fulfill({ status: 500, body: 'injected guardian fault' });
+    case 'fulfillConflictPendingDelta':
+      return route.fulfill({ status: 409, body: CONFLICT_PENDING_DELTA_BODY });
   }
 }
 

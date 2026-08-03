@@ -301,16 +301,156 @@ test.describe('Guardian recovery stress - rotation register fault retries', () =
         walletB.clearFaults();
 
         const addressB = await walletB.getAccountAddress();
-        expect(
-          addressB,
-          'recovering the SAME seed on a clean profile must derive the SAME account id as A'
-        ).toBe(addressA!);
+        expect(addressB, 'recovering the SAME seed on a clean profile must derive the SAME account id as A').toBe(
+          addressA!
+        );
 
         // Rotation replaces the HOT key but keeps the same guardian + cold
         // key + threshold -- so the auth shape (2 signers, update_guardian
         // threshold 2, guardian commitment = A's) must match A's baseline,
         // same as the non-stress recovery journey and this file's
         // kill-mid-rotation test.
+        await walletB.assertGuardianAuth(addressB, {
+          signerCount: 2,
+          threshold: 2,
+          guardianCommitment: commitmentA
+        });
+      },
+      { screenshotWallets: [{ target: walletB.page, label: 'B' }] }
+    );
+  });
+});
+
+/**
+ * Guardian `409 conflict_pending_delta` during a device-key rotation's OWN
+ * proposal-creation call -- a distinct conflict-handling path from the
+ * "register fault retries" test above. That test faults `/configure` (the
+ * POST-submit re-register step, `reRegisterCurrentStateOnGuardian` inside
+ * `completeReplaceHotKeyTransaction`) with a generic `500`, which the
+ * wallet's own fixed-attempt `registerOnGuardianWithRetry` back-off already
+ * tolerates regardless of conflict-vs-generic failure. This test instead
+ * faults `/delta*` (the PRE-submit proposal-creation step) with a REAL
+ * `409 conflict_pending_delta` (`guardian-fault.ts`'s `conflictPendingDelta`
+ * mode) -- the specific shape `isGuardianPendingConflict`
+ * (`src/lib/miden/guardian/serialize.ts`) exists to recognize, and the
+ * specific code path `generateTransaction`'s `REQUEUEABLE_ON_PENDING_CONFLICT`
+ * set (`transaction/index.ts:79-85, 256-296`) exists to requeue rather than
+ * fail outright.
+ *
+ * A seed-only recovery (this suite's `#103` scenario) always drives a
+ * `replace-hot-key` rotation. Its proposal creation
+ * (`createReplaceHotKeyProposal`, `src/lib/miden/guardian/index.ts:452-486`)
+ * mints a fresh hardware hot key BEFORE its own `POST /delta/proposal`, and
+ * is deliberately NOT wrapped in `withGuardianConflictRetry`
+ * (`transaction/index.ts:583`'s own comment: retrying it would re-mint and
+ * orphan another hardware key every attempt). A `409 conflict_pending_delta`
+ * on THAT call therefore escapes straight to `generateTransaction`'s outer
+ * catch (`transaction/index.ts:156` onward) as a plain,
+ * non-`ApplyTransactionAfterSubmitFailed` error -- and
+ * `REQUEUEABLE_ON_PENDING_CONFLICT` deliberately EXCLUDES `replace-hot-key`
+ * for that same hot-key-minting reason (`transaction/index.ts:72-78`), so
+ * the observed fall-through is `cancelTransaction` (Failed), not a requeue.
+ *
+ * `armGuardianFault({ target: 'A', path: 'delta', mode: 'conflictPendingDelta',
+ * count: 1 })` fails exactly the first matching `/delta*` call with the real
+ * conflict body (not a generic 500), then clears -- so the ONLY way
+ * `completeHotKeyRotation()` resolves to the gate's cleared state is if the
+ * wallet's own conflict handling requeues the tx for a later
+ * `safeGenerateTransactionsLoop` cycle instead of cancelling it on the first
+ * hit. `HotKeyRotationGate` mirrors `row?.status === ITransactionStatus.Failed`
+ * straight onto its `hot-key-rotation-failed` test id
+ * (`src/app/templates/HotKeyRotationGate.tsx:159-160`, and its retry is a
+ * manual button click, never automatic), so a genuine
+ * cancel-on-first-conflict regression surfaces here as a clean, FAST
+ * assertion failure ("reached its terminal-failure surface") -- not a hang.
+ *
+ * **Expectation:** going in RED is the working hypothesis, not a confirmed
+ * bug -- per this branch's Product-Fix Protocol, this spec exists to OBSERVE
+ * whether `replace-hot-key`'s deliberate exclusion from
+ * `REQUEUEABLE_ON_PENDING_CONFLICT` is a real wallet-observable gap (a
+ * pending-delta conflict during rotation is currently only requeueable for
+ * send/consume/swap/earn-deposit/execute, never for the structural ops) or
+ * whether some other layer already prevents the conflict from reaching this
+ * call in practice (e.g. `withGuardianAccountLock`'s per-account
+ * serialization). If RED, root-cause from `REQUEUEABLE_ON_PENDING_CONFLICT` /
+ * the pending-conflict branch (`transaction/index.ts:72-85, 256-296`) and
+ * `createReplaceHotKeyProposal`'s unwrapped proposal call
+ * (`guardian/index.ts:452-486`) before writing any fix -- do NOT simply add
+ * `'replace-hot-key'` to the requeueable set without also solving the
+ * hot-key-remint-orphan problem that exclusion exists to prevent.
+ */
+test.describe('Guardian recovery stress - pending-delta conflict during rotation', () => {
+  test('pending-delta conflict during device key rotation requeues and completes, not a terminal Failed', async ({
+    walletA,
+    walletB,
+    midenCli,
+    steps
+  }) => {
+    // Create/fund/claim on A, recover + rotate on B under a single armed
+    // conflict, plus the completion wait -- comfortable headroom over the
+    // base config's 300s default, matching this file's other stress tests.
+    test.setTimeout(600_000);
+
+    const commitmentA = await guardianCommitment(A);
+
+    let addressA: string;
+    let seed = '';
+
+    await steps.step(
+      'create_and_fund_on_a_capture_seed',
+      async () => {
+        const created = await walletA.createGuardianWallet(A);
+        addressA = created.address;
+        seed = created.seedPhrase.join(' ');
+        expect(
+          created.seedPhrase.length,
+          'createGuardianWallet must return a usable 12-word mnemonic -- without it there is nothing to ' +
+            'recover walletB from'
+        ).toBe(12);
+
+        await midenCli.init();
+        const faucetId = await midenCli.createFaucet();
+        await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+        await midenCli.sync();
+        await walletA.claimAllNotes(180_000);
+      },
+      { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
+    );
+
+    await steps.step(
+      'recover_and_rotate_survives_pending_delta_conflict',
+      async () => {
+        // Arm BEFORE firing the recovery so the very first /delta* call --
+        // createReplaceHotKeyProposal's own proposal-creation POST, issued
+        // from inside the auto-initiated replace-hot-key rotation -- already
+        // lands on the faulted path; there is no window where an unfaulted
+        // proposal could sneak through first.
+        walletB.armGuardianFault({ target: 'A', path: 'delta', mode: 'conflictPendingDelta', count: 1 });
+
+        // recoverGuardianFromSeed({viaUI:false}) only drives the fast bypass
+        // to the home surface -- it does NOT itself await the rotation (that
+        // only happens on the viaUI:true branch), so completeHotKeyRotation()
+        // is called explicitly, same split as this file's other stress tests.
+        await walletB.recoverGuardianFromSeed(seed, { viaUI: false, guardianUrl: A });
+
+        // The load-bearing assertion: the rotation must reach the gate's
+        // cleared state (requeued past the conflict, eventually completed),
+        // never its terminal-failure surface (cancelled to Failed on the
+        // first conflict hit).
+        await walletB.completeHotKeyRotation();
+
+        walletB.clearFaults();
+
+        const addressB = await walletB.getAccountAddress();
+        expect(addressB, 'recovering the SAME seed on a clean profile must derive the SAME account id as A').toBe(
+          addressA!
+        );
+
+        // Rotation replaces the HOT key but keeps the same guardian + cold
+        // key + threshold -- so the auth shape (2 signers, update_guardian
+        // threshold 2, guardian commitment = A's) must match A's baseline,
+        // same as the non-stress recovery journey and this file's other
+        // stress tests.
         await walletB.assertGuardianAuth(addressB, {
           signerCount: 2,
           threshold: 2,

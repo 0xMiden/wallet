@@ -147,6 +147,42 @@ test.describe('decideGuardianFault', () => {
     const second = decideGuardianFault(PUBKEY_B, policy, first.hits);
     expect(second.action).toEqual({ kind: 'continue' });
   });
+
+  test('conflictPendingDelta fulfills a 409 (not a 500) and increments hits', () => {
+    const policy: GuardianFaultPolicy = { target: 'A', path: 'delta', mode: 'conflictPendingDelta' };
+    const result = decideGuardianFault(DELTA_A, policy, 0);
+    expect(result).toEqual({ action: { kind: 'fulfillConflictPendingDelta' }, hits: 1 });
+  });
+
+  test('conflictPendingDelta fails exactly N matching requests then falls back to continue', () => {
+    const policy: GuardianFaultPolicy = { target: 'A', path: 'delta', mode: 'conflictPendingDelta', count: 2 };
+    let hits = 0;
+
+    const first = decideGuardianFault(DELTA_A, policy, hits);
+    expect(first.action).toEqual({ kind: 'fulfillConflictPendingDelta' });
+    hits = first.hits;
+    expect(hits).toBe(1);
+
+    const second = decideGuardianFault(DELTA_A, policy, hits);
+    expect(second.action).toEqual({ kind: 'fulfillConflictPendingDelta' });
+    hits = second.hits;
+    expect(hits).toBe(2);
+
+    // Third matching request: count (2) already reached -> passes through, same
+    // self-clearing shape as failFirstN above (a real guardian conflict is
+    // transient and must eventually let the retried request through).
+    const third = decideGuardianFault(DELTA_A, policy, hits);
+    expect(third.action).toEqual({ kind: 'continue' });
+    expect(third.hits).toBe(2);
+  });
+
+  test('conflictPendingDelta defaults count to 1 when omitted', () => {
+    const policy: GuardianFaultPolicy = { target: 'A', path: 'delta', mode: 'conflictPendingDelta' };
+    const first = decideGuardianFault(DELTA_A, policy, 0);
+    expect(first.action).toEqual({ kind: 'fulfillConflictPendingDelta' });
+    const second = decideGuardianFault(DELTA_A, policy, first.hits);
+    expect(second.action).toEqual({ kind: 'continue' });
+  });
 });
 
 // ── applyGuardianFaultAction (fake Route, no browser) ───────────────────────
@@ -206,5 +242,23 @@ test.describe('applyGuardianFaultAction', () => {
     expect(elapsed).toBeGreaterThanOrEqual(25); // small slack for timer jitter
     expect(route.continueCalls).toBe(1);
     expect(route.fulfillCalls).toEqual([]);
+  });
+
+  test('fulfillConflictPendingDelta action calls route.fulfill with a real conflict_pending_delta 409 body', async () => {
+    const route = makeFakeRoute(DELTA_A);
+    await applyGuardianFaultAction(route, { kind: 'fulfillConflictPendingDelta' });
+    expect(route.continueCalls).toBe(0);
+    expect(route.fulfillCalls.length).toBe(1);
+    const call = route.fulfillCalls[0]!;
+    expect(call.status).toBe(409);
+    // Shaped like GuardianHttpError's parsed envelope (@openzeppelin/guardian-client's
+    // parseGuardianErrorBody): a { code, message, meta.retryable } JSON body, not a
+    // plain string like fulfill500's -- this is what makes isGuardianPendingConflict
+    // (src/lib/miden/guardian/serialize.ts) recognize it as the SAME transient
+    // conflict a real guardian's canonicalization-in-progress 409 produces.
+    const body = JSON.parse(call.body) as { code: string; message: string; meta: { retryable: boolean } };
+    expect(body.code).toBe('conflict_pending_delta');
+    expect(body.meta.retryable).toBe(true);
+    expect(/paused/i.test(call.body)).toBe(false);
   });
 });
