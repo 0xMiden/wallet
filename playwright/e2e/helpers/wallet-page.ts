@@ -108,7 +108,11 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   getEvmAddress(): Promise<string>;
   /**
    * Complete the create-wallet flow choosing the Guardian recovery method,
-   * pointing the account at `guardianUrl` (a locally-spawned guardian).
+   * pointing the account at `guardianUrl` (a locally-spawned guardian). The
+   * returned `seedPhrase` is the account's real recovery mnemonic (read back
+   * off the E2E-only `__TEST_LAST_GENERATED_SEED__` global the onboarding
+   * bypass stashes it on) -- usable to recover this exact account from a
+   * separate, clean wallet profile via `recoverGuardianFromSeed`.
    */
   createGuardianWallet(guardianUrl: string, password?: string): Promise<{ address: string; seedPhrase: string[] }>;
   /** Fast, non-invasive balance + pending-notes + outgoing-tx snapshot. */
@@ -170,6 +174,17 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * → Continue → Confirmation → submit → `completeHotKeyRotation()`.
    */
   recoverGuardianFromSeed(seed: string, opts: { viaUI: boolean; guardianUrl?: string }): Promise<void>;
+  /**
+   * Drive a fresh, not-yet-onboarded wallet from the Welcome screen to the
+   * ImportSeedPhrase 12-word grid (Welcome → "Recover your account"),
+   * stopping there instead of completing the rest of the recovery journey.
+   * For probes that only need to exercise seed-phrase VALIDATION (e.g.
+   * case-insensitivity / paste handling) — see `recoverGuardianFromSeed`
+   * for the full end-to-end recovery flow this is a prefix of. Requires the
+   * page to still be on a fresh profile (i.e. nothing has been created or
+   * recovered on it yet).
+   */
+  openImportSeedPhraseScreen(): Promise<void>;
   /**
    * Observe the `HotKeyRotationGate` blocking overlay to its cleared
    * (unmounted) state — the authoritative "rotation complete" signal (the
@@ -444,13 +459,28 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     }
 
     const address = await this.getAccountAddress();
-    return { address, seedPhrase: opts.seed ?? [] };
+
+    // The bypass's Welcome.tsx effect stashes the mnemonic it actually used
+    // (freshly generated for Create, or the caller's own for Import) on
+    // `__TEST_LAST_GENERATED_SEED__` -- see that effect's doc comment. Prefer
+    // it over `opts.seed` so a CREATE call (no seed supplied) still returns
+    // the real, recoverable mnemonic instead of an empty array; fall back to
+    // `opts.seed` only if the global is missing (e.g. an older extension
+    // build without the hook).
+    const generatedSeed = await this.page
+      .evaluate(
+        () => (globalThis as unknown as { __TEST_LAST_GENERATED_SEED__?: string }).__TEST_LAST_GENERATED_SEED__ ?? ''
+      )
+      .catch(() => '');
+    const seedPhrase = generatedSeed ? generatedSeed.trim().split(/\s+/) : (opts.seed ?? []);
+
+    return { address, seedPhrase };
   }
 
   /**
    * Complete the "Create a new wallet" onboarding flow via the v0-UI bypass.
-   * Returns the wallet address and (for created wallets) an empty seed phrase
-   * (the bypass generates a random mnemonic that the UI never surfaces).
+   * Returns the wallet address and the account's real recovery mnemonic (see
+   * `createWalletViaBypass`'s `__TEST_LAST_GENERATED_SEED__` doc comment).
    */
   async createNewWallet(
     password: string = PASSWORD,
@@ -756,6 +786,17 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   /**
+   * See the interface doc comment (ChromeWalletPageApi).
+   */
+  async openImportSeedPhraseScreen(): Promise<void> {
+    // Welcome → "Recover your account" → ImportSeedPhrase (12-word grid).
+    await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
+    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
+    await this.page.locator('#import-link').click();
+    await this.page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
+  }
+
+  /**
    * Recover a Guardian account from its seed phrase. See the interface doc
    * comment (ChromeWalletPageApi) for the `viaUI` split.
    */
@@ -772,11 +813,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       return;
     }
 
-    // Welcome → "Recover your account" → ImportSeedPhrase (12-word grid).
-    await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
-    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
-    await this.page.locator('#import-link').click();
-    await this.page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
+    await this.openImportSeedPhraseScreen();
 
     for (let i = 0; i < words.length; i++) {
       // `id="seed-phrase-input-N"` is the component's own stable per-word id
