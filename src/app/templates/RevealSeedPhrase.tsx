@@ -13,6 +13,7 @@ import { PasscodeEntry } from 'components/PasscodeEntry';
 import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext, useSecretState } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
+import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { isMobile } from 'lib/platform';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
@@ -31,6 +32,10 @@ const RevealSeedPhrase: FC = () => {
   const [showPasswordDrawer, setShowPasswordDrawer] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  // Block screenshots/recordings while the phrase is revealed (#417). The
+  // phrase is only rendered once the guard reports the screen is protected.
+  const isGuardReady = useScreenshotGuard(secret !== null);
 
   const {
     register,
@@ -119,39 +124,43 @@ const RevealSeedPhrase: FC = () => {
         <NavigationHeader title={t('recoveryPhrase')} onBack={handleHide} />
 
         <div className="flex-1 flex flex-col px-4 pt-4">
-          {/* Hidden field for copy */}
-          <input ref={fieldRef} value={secret || ''} readOnly className="sr-only" tabIndex={-1} />
+          {isGuardReady && (
+            <>
+              {/* Hidden field for copy */}
+              <input ref={fieldRef} value={secret || ''} readOnly className="sr-only" tabIndex={-1} />
 
-          {/* Copy button */}
-          <div className="flex justify-center mb-4">
-            <button
-              type="button"
-              onClick={() => {
-                hapticLight();
-                copy();
-              }}
-              className={classNames(
-                'flex items-center gap-1.5 px-4 py-1.5',
-                'border border-border-card rounded-2xl',
-                'text-sm font-medium text-heading-gray',
-                'hover:opacity-80 cursor-pointer'
-              )}
-            >
-              <Icon name={copied ? IconName.CheckboxCircleFill : IconName.FileCopy} size="xs" />
-              {t(copied ? 'copied' : 'copyToClipboard')}
-            </button>
-          </div>
+              {/* Copy button */}
+              <div className="flex justify-center mb-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    hapticLight();
+                    copy();
+                  }}
+                  className={classNames(
+                    'flex items-center gap-1.5 px-4 py-1.5',
+                    'border border-border-card rounded-2xl',
+                    'text-sm font-medium text-heading-gray',
+                    'hover:opacity-80 cursor-pointer'
+                  )}
+                >
+                  <Icon name={copied ? IconName.CheckboxCircleFill : IconName.FileCopy} size="xs" />
+                  {t(copied ? 'copied' : 'copyToClipboard')}
+                </button>
+              </div>
 
-          {/* Word grid */}
-          <div className="p-6 bg-white rounded-10">
-            <div className="grid grid-cols-4 gap-x-4 gap-y-6">
-              {words.map((word, idx) => (
-                <span key={idx} className="text-base font-medium text-heading-gray text-center">
-                  {word.charAt(0).toUpperCase() + word.slice(1)}
-                </span>
-              ))}
-            </div>
-          </div>
+              {/* Word grid */}
+              <div className="p-6 bg-white rounded-10">
+                <div className="grid grid-cols-4 gap-x-4 gap-y-6">
+                  {words.map((word, idx) => (
+                    <span key={idx} className="text-base font-medium text-heading-gray text-center">
+                      {word.charAt(0).toUpperCase() + word.slice(1)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Hide button */}

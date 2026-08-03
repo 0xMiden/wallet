@@ -9,5 +9,6 @@ class AppViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(HotKeyPlugin())
         bridge?.registerPluginInstance(ReownPlugin())
         bridge?.registerPluginInstance(MidenNativeProverPlugin())
+        bridge?.registerPluginInstance(ScreenshotGuardPlugin())
     }
 }

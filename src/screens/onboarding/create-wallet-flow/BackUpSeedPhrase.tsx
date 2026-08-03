@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { Chip } from 'components/Chip';
+import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 
 export interface BackUpSeedPhraseScreenProps extends HTMLAttributes<HTMLDivElement> {
   seedPhrase: string[];
@@ -21,6 +22,10 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
   const { t } = useTranslation();
   const [isWordsVisible, setIsWordsVisible] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+
+  // Block screenshots/recordings while the backup phrase is on screen (#417).
+  // The words are only rendered once the guard reports the screen is protected.
+  const isGuardReady = useScreenshotGuard();
 
   const onCopyToClipboard = useCallback(() => {
     navigator.clipboard.writeText(seedPhrase.join(' '));
@@ -57,24 +62,25 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
       </div>
 
       <article className="grid grid-cols-3 gap-2 w-full">
-        {seedPhrase.map((word, index) => (
-          <Chip
-            className="w-26 h-8"
-            key={`seed-word-${index}`}
-            label={
-              <label
-                className={classNames(
-                  'flex flex-row gap-1 w-full',
-                  'transition duration-300 ease-in-out justify-between',
-                  isWordsVisible ? 'blur-none' : 'blur-sm'
-                )}
-              >
-                <p className="text-text-muted select-none pointer-events-none">{`${index + 1}.`}</p>
-                <p className="flex w-[80%] justify-center">{`${word}`}</p>
-              </label>
-            }
-          />
-        ))}
+        {isGuardReady &&
+          seedPhrase.map((word, index) => (
+            <Chip
+              className="w-26 h-8"
+              key={`seed-word-${index}`}
+              label={
+                <label
+                  className={classNames(
+                    'flex flex-row gap-1 w-full',
+                    'transition duration-300 ease-in-out justify-between',
+                    isWordsVisible ? 'blur-none' : 'blur-sm'
+                  )}
+                >
+                  <p className="text-text-muted select-none pointer-events-none">{`${index + 1}.`}</p>
+                  <p className="flex w-[80%] justify-center">{`${word}`}</p>
+                </label>
+              }
+            />
+          ))}
       </article>
 
       <div className="flex gap-2 w-full text-heading-gray">

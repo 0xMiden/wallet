@@ -21,7 +21,15 @@ let mockIsMobile = false;
 // so the flow renders in jsdom without pulling in Capacitor / wasm / woozie.
 // ---------------------------------------------------------------------------
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({ t: (key: string) => key }),
+  Trans: ({ i18nKey }: { i18nKey: string }) => <>{i18nKey}</>
+}));
+
+// The native ScreenshotGuard plugin doesn't exist in jsdom, so the real hook
+// would (correctly) keep the phrase hidden forever on the mobile path. This
+// suite covers flow logic, not the guard — report the screen as protected.
+jest.mock('lib/mobile/screenshot-guard', () => ({
+  useScreenshotGuard: () => true
 }));
 
 // Alert surfaces the hardware-unlock `authError`; render its description so we

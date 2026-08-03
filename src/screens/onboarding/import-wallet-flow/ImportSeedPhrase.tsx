@@ -11,6 +11,10 @@ import { Input } from 'components/Input';
 const DELIMITERS = /[\s,;.\-:/\\_|]+/;
 const PHRASE_LENGTH = 12;
 
+// BIP-39 words are lowercase with no whitespace; normalize pasted/typed input
+// (capitalized or padded words would otherwise fail the wordlist check).
+const cleanWord = (word: string) => word.toLowerCase().replace(/\s+/g, '');
+
 export interface ImportSeedPhraseScreenProps {
   className?: string;
   wordslist: string[];
@@ -60,8 +64,8 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
     event => {
       event.preventDefault();
       const clipboardData = event.clipboardData.getData('text').trim();
-      const words = clipboardData.split(DELIMITERS);
-      setSeedPhrase(words);
+      const words = clipboardData.split(DELIMITERS).map(cleanWord).filter(Boolean);
+      setSeedPhrase(Array.from({ length: PHRASE_LENGTH }, (_, i) => words[i] ?? ''));
     },
     [setSeedPhrase]
   );
@@ -94,7 +98,7 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
             onPaste={onInputPaste}
             onChange={event => {
               const newSeedPhrase = [...seedPhrase];
-              newSeedPhrase[index] = event.target.value;
+              newSeedPhrase[index] = cleanWord(event.target.value);
               setSeedPhrase(newSeedPhrase);
             }}
           />
