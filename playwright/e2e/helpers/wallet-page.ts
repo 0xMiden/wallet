@@ -179,6 +179,31 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
     pk: string,
     expected: { signerCount: number; threshold: number; guardianCommitment?: string }
   ): Promise<void>;
+  /**
+   * Read the current account's active guardian endpoint straight from the
+   * frontend Zustand store's `currentAccount.guardianEndpoint` -- the exact
+   * field `useCurrentGuardianEndpoint()` (`app/hooks/useCurrentGuardianEndpoint.ts`,
+   * backing GuardianSettings / RotateGuardian) prioritizes over the legacy
+   * global storage key. `completeSwitchGuardianTransaction`
+   * (`lib/miden/transaction/complete.ts`) persists this PER-ACCOUNT (not just
+   * in-memory) via `setGuardianEndpoint`, so it's also what should survive a
+   * `reopen()`. Returns `''` if unset or the store is unavailable.
+   */
+  currentGuardianEndpoint(): Promise<string>;
+  /**
+   * Close and reopen the wallet: closes the current extension page and opens
+   * a fresh one navigated back to `fullpage.html` -- mirroring a user closing
+   * the wallet tab and reopening it a moment later. The service worker (and
+   * therefore any in-memory vault key) is untouched by this, since only the
+   * PAGE is torn down; IndexedDB persists regardless. `this.page` is updated
+   * to the fresh page so subsequent POM calls operate on it. Waits for the
+   * page to settle back on either the Explore surface (the common case,
+   * still unlocked) or the unlock screen, unlocking with the default test
+   * password if needed. Used to prove state that must be durably persisted
+   * (e.g. a switched guardian endpoint) survives a fresh session, not just
+   * the one that made the change.
+   */
+  reopen(): Promise<void>;
 }
 
 export interface GuardianAuthInfo {
@@ -200,14 +225,24 @@ export interface GuardianAuthInfo {
  * Encapsulates all UI interactions, reusing selectors from popup-smoke.spec.ts.
  */
 export class ChromeWalletPage implements ChromeWalletPageApi {
-  readonly page: Page;
+  private currentPage: Page;
   readonly extensionId: string;
   readonly userDataDir: string;
 
   constructor(page: Page, extensionId: string, userDataDir: string = '') {
-    this.page = page;
+    this.currentPage = page;
     this.extensionId = extensionId;
     this.userDataDir = userDataDir;
+  }
+
+  /**
+   * Current Playwright page for this wallet instance. Mutable (unlike
+   * `extensionId`/`userDataDir`) because `reopen()` swaps in a fresh page
+   * after closing the old one -- every other method reads through this
+   * getter so they transparently pick up the swap.
+   */
+  get page(): Page {
+    return this.currentPage;
   }
 
   // ── Navigation ────────────────────────────────────────────────────────────
@@ -598,15 +633,24 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   // ── Guardian switch / recovery ───────────────────────────────────────────────
 
   /**
-   * Drive Settings → RotateGuardian → RotateGuardianReview → confirm to switch
-   * the current account's guardian to `newEndpoint`, then await the resulting
+   * Drive RotateGuardian → RotateGuardianReview → confirm to switch the
+   * current account's guardian to `newEndpoint`, then await the resulting
    * `switch-guardian` transaction reaching Completed.
+   *
+   * Navigates straight to `/rotate-guardian` (the real top-level route
+   * `RotateGuardian.tsx` renders at -- see `PageRouter.tsx`) rather than via
+   * Settings → "Guardian Settings" → its `rotateGuardian` button: that path
+   * is a `<Drawer>` (`Settings.tsx`'s `guardian-settings` tab has `isDrawer:
+   * true`), and `Settings`'s `activeTab` lookup explicitly excludes drawer
+   * tabs (`allTabs.find(tab => tab.slug === tabSlug && !tab.isDrawer)`), so
+   * a direct hash navigation to `/settings/guardian-settings` never opens
+   * it -- it silently falls back to the Settings root list. `/rotate-guardian`
+   * mounts `ChooseGuardianScreen` directly with no further click needed,
+   * matching how every other flow helper in this file (`sendTokens`, etc.)
+   * navigates straight to a flow's route instead of clicking through menus.
    */
   async switchGuardian(newEndpoint: string): Promise<void> {
-    await this.navigateTo('/settings/guardian-settings');
-    const rotateButton = this.page.getByTestId('rotateGuardian');
-    await rotateButton.waitFor({ timeout: 20_000 });
-    await rotateButton.click();
+    await this.navigateTo('/rotate-guardian');
 
     // ChooseGuardian (RotateGuardian.tsx): pick the option whose endpoint
     // matches, then continue to the review screen.
@@ -752,6 +796,55 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         normalizeHex(info.guardianCommitment),
         `expected active guardian commitment ${expected.guardianCommitment} for ${pk}, got ${info.guardianCommitment}`
       ).toBe(normalizeHex(expected.guardianCommitment));
+    }
+  }
+
+  async currentGuardianEndpoint(): Promise<string> {
+    return this.page.evaluate(() => {
+      const store = (
+        window as unknown as {
+          __TEST_STORE__?: { getState(): { currentAccount?: { guardianEndpoint?: string } } };
+        }
+      ).__TEST_STORE__;
+      return store?.getState?.().currentAccount?.guardianEndpoint ?? '';
+    });
+  }
+
+  async reopen(): Promise<void> {
+    // Deliberately does NOT use chrome.runtime.reload(): that reloads the
+    // whole extension bundle (tearing down and respawning the service
+    // worker), and MV3 invalidates every currently-open extension page as
+    // part of that -- but the existing Playwright page's next
+    // chrome-extension:// navigation fails fast with
+    // net::ERR_BLOCKED_BY_CLIENT and never recovers within any retry budget
+    // (observed live). Simulating close+reopen with a genuinely fresh page
+    // sidesteps the trap entirely and is the pattern already used
+    // successfully elsewhere in this file (e.g. navigateHome,
+    // createWalletViaBypass, recoverGuardianFromSeed) -- it also better
+    // matches what "closing the tab and reopening it" actually means for the
+    // user. The service worker (and any in-memory vault key it holds) is
+    // untouched, since only the page is torn down; IndexedDB persists
+    // regardless.
+    const context = this.page.context();
+    await this.page.close();
+
+    const freshPage = await context.newPage();
+    this.currentPage = freshPage;
+    await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
+
+    const explore = this.page.getByTestId('explore-page');
+    const unlock = this.page.getByTestId('unlock-password');
+
+    // The SW is still alive across this swap, so the wallet is normally
+    // still unlocked -- but give this the same headroom as a cold start in
+    // case the SW happens to be busy (e.g. mid re-sync) when the fresh page
+    // reconnects over intercom.
+    await explore.or(unlock).first().waitFor({ timeout: 90_000 });
+
+    if (await unlock.isVisible().catch(() => false)) {
+      await this.unlockWallet();
+    } else {
+      await explore.waitFor({ timeout: 15_000 });
     }
   }
 
