@@ -535,3 +535,131 @@ test.describe('Guardian recovery stress - pending-delta conflict during rotation
     );
   });
 });
+
+/**
+ * REGRESSION for the guardian re-register divergence self-heal.
+ *
+ * When a device-key rotation's on-chain `replace_signer` lands but the
+ * post-rotation guardian re-register fails (a guardian outage across all its
+ * retries), `completeReplaceHotKeyTransaction` swallows the failure best-effort,
+ * swaps in the new hot key + clears `requiresHotKeyRotation`, and marks the
+ * rotation Completed (`transaction/complete.ts:284-289`). The account is then
+ * left on-chain `[new-hot, cold]` but the guardian's request-auth allowlist is
+ * STALE `[old-hot, cold]`, the gate is gone, and every hot-signed guardian op
+ * 401s "session expired" forever — a silent "stuck guardian".
+ *
+ * The fix (`guardian-sync.ts` `attemptColdReRegisterSelfHeal`) catches that 401
+ * on the next AutoSync tick and re-registers COLD-signed (cold is a permanent
+ * allowlist member, so it authenticates against the stale allowlist), rewriting
+ * it to `[new-hot, cold]` and re-authorizing the new hot key — automatically, no
+ * user action.
+ *
+ * This test forces the completion re-register to fail (faulting `/configure` for
+ * exactly the completion's retry budget, MAX_GUARDIAN_REGISTER_RETRIES = 5) and
+ * proves the account is NOT stranded: a HOT-signed CONSUME of the funding note
+ * succeeds, which is only possible once the self-heal has re-authorized the new
+ * hot key. Without the fix the consume's guardian co-sign 401s forever and
+ * `claimAllNotes` times out. `assertGuardianAuth` alone can't prove this — it
+ * reads on-chain state (already `[new-hot, cold]`), not the guardian allowlist —
+ * which is why the assertion is a real hot-signed op.
+ */
+test.describe('Guardian recovery stress - guardian re-register failure self-heals on sync', () => {
+  test('a failed post-rotation guardian re-register is repaired by the cold-signed sync self-heal (account not stranded)', async ({
+    walletA,
+    walletB,
+    midenCli,
+    steps
+  }) => {
+    test.setTimeout(600_000);
+
+    const commitmentA = await guardianCommitment(A);
+
+    let addressA: string;
+    let seed = '';
+
+    await steps.step(
+      'create_and_fund_on_a_leave_note_unclaimed',
+      async () => {
+        const created = await walletA.createGuardianWallet(A);
+        addressA = created.address;
+        seed = created.seedPhrase.join(' ');
+        expect(
+          created.seedPhrase.length,
+          'createGuardianWallet must return a usable 12-word mnemonic -- without it there is nothing to ' +
+            'recover walletB from'
+        ).toBe(12);
+
+        await midenCli.init();
+        const faucetId = await midenCli.createFaucet();
+        await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+        await midenCli.sync();
+        // Deliberately do NOT claim on A: the funding note stays PENDING so the
+        // recovered wallet must CONSUME it -- a HOT-signed guardian op, the probe
+        // for whether the new hot key is authorized after the self-heal.
+      },
+      { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
+    );
+
+    await walletA.kill();
+
+    await steps.step('recover_with_configure_faulted_so_reregister_fails', async () => {
+      // Fault /configure for exactly the completion re-register's retry budget
+      // (MAX_GUARDIAN_REGISTER_RETRIES = 5). The rotation's on-chain replace_signer
+      // still lands (the guardian CO-SIGN is /delta, NOT faulted), but the
+      // post-rotation cold re-register fails all 5 attempts -> allowlist stale.
+      // failFirstN self-clears after 5, so the self-heal's /configure lands. Note
+      // this fault is scoped to wallet B's context, so wallet A's account-creation
+      // /configure above was unaffected.
+      walletB.armGuardianFault({ target: 'A', path: 'configure', mode: 'failFirstN', count: 5 });
+      // Fire-and-forget (this file's recovery pattern): viaUI:false resolves at
+      // home but its internal completion-wait keeps polling the rotation, so
+      // awaiting would block past the gate mount below. Log (don't swallow) a
+      // rejection so a genuine recovery failure surfaces its real error instead
+      // of only a downstream gate-wait timeout.
+      void walletB
+        .recoverGuardianFromSeed(seed, { viaUI: false, guardianUrl: A })
+        .catch(e => console.warn('[test] recoverGuardianFromSeed rejected:', e));
+
+      // The rotation reaches its terminal (Completed) state DESPITE the failed
+      // re-register (best-effort), so the gate mounts then clears and the wallet
+      // lands home -- with a stale guardian allowlist underneath.
+      await walletB.page.getByTestId('hot-key-rotation-gate').waitFor({ state: 'visible', timeout: 30_000 });
+      await walletB.completeHotKeyRotation();
+    });
+
+    await steps.step(
+      'hot_signed_consume_succeeds_after_self_heal',
+      async () => {
+        // The AutoSync self-heal (cold re-register) repairs the allowlist within
+        // a few ~3s ticks. claimAllNotes polls + retries the consume, so it
+        // succeeds once the new hot key is re-authorized. WITHOUT the fix the
+        // consume's guardian co-sign 401s forever and this times out (throws) --
+        // the regression this test guards.
+        await walletB.claimAllNotes(240_000);
+
+        // Prove the consume ACTUALLY happened (guard against a claimAllNotes
+        // early-exit on a not-yet-synced note): the balance must reflect the
+        // consumed funding note. This is the load-bearing hot-signed-op
+        // assertion -- balance is only > 0 once the guardian co-sign authorized
+        // the new hot key, i.e. the self-heal repaired the allowlist. Without the
+        // fix it stays 0 (every consume co-sign 401s).
+        const balance = await walletB.waitForBalanceAbove(0, 120_000);
+        expect(
+          balance,
+          'the recovered account must have consumed its funding note after the self-heal (hot co-sign authorized)'
+        ).toBeGreaterThan(0);
+
+        const addressB = await walletB.getAccountAddress();
+        expect(addressB, 'the self-healed account must still be the recovered account (same id as A)').toBe(addressA!);
+
+        // On-chain auth shape is intact (rotation kept guardian + cold + threshold).
+        await walletB.assertGuardianAuth(addressB, {
+          signerCount: 2,
+          threshold: 2,
+          guardianCommitment: commitmentA
+        });
+      },
+      { screenshotWallets: [{ target: walletB.page, label: 'B' }] }
+    );
+  });
+});
