@@ -7,7 +7,7 @@ import { getEnvironmentConfig } from '../config/environments';
 import { attachConsoleCapture } from '../harness/browser-capture';
 import { CLIRunner } from '../harness/cli-runner';
 import { buildFailureReport, saveFailureReport } from '../harness/failure-report';
-import { installGuardianFaults, type GuardianFaultPolicy } from '../harness/guardian-fault';
+import { installGuardianFaults, type GuardianFaultPolicy, type GuardianOrigins } from '../harness/guardian-fault';
 import {
   SW_FETCH_LOG_PREFIX,
   attachNetworkCapture,
@@ -45,6 +45,15 @@ type TwoWalletFixtures = {
 };
 
 // ── Constants ───────────────────────────────────────────────────────────────
+
+// The guardian operator origins fault injection keys on, for the active
+// E2E_NETWORK: local containers on localhost, the real operators on
+// devnet/testnet. Read at install time so faults match whichever guardians
+// the wallet actually talks to on this network.
+const guardianOrigins = (): GuardianOrigins => {
+  const cfg = getEnvironmentConfig();
+  return { a: cfg.guardianUrl, b: cfg.guardianUrlB };
+};
 
 const ROOT_DIR = path.resolve(__dirname, '../../..');
 const DEFAULT_EXTENSION_PATH = path.join(ROOT_DIR, 'dist', 'chrome_unpacked');
@@ -180,7 +189,7 @@ async function relaunchContext(userDataDir: string, extensionPath: string) {
   for (const p of context.pages()) {
     if (p !== page) await p.close().catch(() => {});
   }
-  const faults = installGuardianFaults(context);
+  const faults = installGuardianFaults(context, guardianOrigins());
   return { context, page, faults };
 }
 
@@ -390,7 +399,7 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
   // GuardianFaultPolicy the spec arms via the wallet page object below.
   // `let`: relaunch swaps in the new context's faults so armGuardianFault()/
   // clearFaults() (captured by reference below) keep targeting the live context.
-  let faults = installGuardianFaults(context);
+  let faults = installGuardianFaults(context, guardianOrigins());
 
   // Passed to ChromeWalletPage.reopen(): when the browser PROCESS has died (not
   // just the page), relaunch a fresh context on this same userDataDir and swap

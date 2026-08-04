@@ -97,10 +97,35 @@ export interface GuardianRouteLike {
 
 const GUARDIAN_FAULT_PATHS: readonly GuardianFaultPath[] = ['pubkey', 'configure', 'delta'];
 
-/** Guardian A listens on :3000, guardian B on :3001 (see local-stack/docker-compose.local.yml). */
-export function targetOf(url: string): GuardianFaultTarget | null {
-  if (url.startsWith('http://localhost:3000/')) return 'A';
-  if (url.startsWith('http://localhost:3001/')) return 'B';
+/**
+ * The two guardian operator origins for the active environment. `a` is the
+ * wallet's own operator (`guardianUrl`); `b` is the distinct second operator
+ * used by the switch tests (`guardianUrlB`, absent on single-operator networks
+ * like devnet). On the localhost stack these are the two containers
+ * (:3000 / :3001); on devnet/testnet they are the real operator origins
+ * (e.g. guardian.openzeppelin.com / guardian-testnet.kodax.com). Fault
+ * matching is keyed on these so the specs exercise the real guardians on
+ * live networks, not just the local containers.
+ */
+export interface GuardianOrigins {
+  a: string;
+  b?: string;
+}
+
+/** The local guardian containers (see local-stack/docker-compose.local.yml). */
+export const LOCAL_GUARDIAN_ORIGINS: GuardianOrigins = {
+  a: 'http://localhost:3000',
+  b: 'http://localhost:3001'
+};
+
+const matchesOrigin = (url: string, origin: string): boolean =>
+  url.startsWith(origin.endsWith('/') ? origin : `${origin}/`);
+
+/** Which guardian operator a request targets, matched by origin against the
+ *  active environment's operators. */
+export function targetOf(url: string, origins: GuardianOrigins): GuardianFaultTarget | null {
+  if (matchesOrigin(url, origins.a)) return 'A';
+  if (origins.b && matchesOrigin(url, origins.b)) return 'B';
   return null;
 }
 
@@ -129,9 +154,10 @@ export type GuardianFaultAction =
 export function decideGuardianFault(
   url: string,
   policy: GuardianFaultPolicy | null,
-  hits: number
+  hits: number,
+  origins: GuardianOrigins
 ): { action: GuardianFaultAction; hits: number } {
-  const target = targetOf(url);
+  const target = targetOf(url, origins);
   if (!policy || !target) return { action: { kind: 'continue' }, hits };
   if (policy.target && policy.target !== target) return { action: { kind: 'continue' }, hits };
   if (pathOf(url) !== policy.path) return { action: { kind: 'continue' }, hits };
@@ -204,13 +230,13 @@ export async function applyGuardianFaultAction(route: GuardianRouteLike, action:
  * policy can be armed at a time -- `arm()` replaces it and resets the
  * `failFirstN` hit counter.
  */
-export function installGuardianFaults(context: BrowserContext): GuardianFaultControls {
+export function installGuardianFaults(context: BrowserContext, origins: GuardianOrigins): GuardianFaultControls {
   let policy: GuardianFaultPolicy | null = null;
   let hits = 0;
 
   context.route('**/*', async (route: Route) => {
     const url = route.request().url();
-    const decision = decideGuardianFault(url, policy, hits);
+    const decision = decideGuardianFault(url, policy, hits, origins);
     hits = decision.hits;
     await applyGuardianFaultAction(route, decision.action);
   });
