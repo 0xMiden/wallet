@@ -225,24 +225,49 @@ services:
     image: ghcr.io/openzeppelin/guardian:${GUARDIAN_IMAGE_TAG}
     pull_policy: if_not_present
     profiles: ["guardian"]
-    # NOTE: unlike every other service (published on 127.0.0.1 only), host networking
-    # means the guardian's HTTP :3000 and gRPC :50051 listeners bind on ALL host
-    # interfaces for the run's lifetime. Host mode is required (MidenLocal hardcodes
-    # localhost:57291 and host mode ignores `ports:`), so run the `guardian` profile
-    # only on trusted/ephemeral hosts (CI runners), not an untrusted LAN.
-    network_mode: host
+    # Bridge network + `/etc/hosts` "localhost"->sequencer rewrite (identical to
+    # guardian-b below), NOT `network_mode: host`. Host mode + MidenLocal's
+    # hardcoded `localhost:57291` node dial is unreliable on macOS Docker Desktop:
+    # the guardian v0.16 image panics HARD at build time ("Failed to create
+    # network client: ... transport error") on a transient node-connection blip
+    # where v0.15 tolerated it, so a host-mode guardian-a crash-loops. Reaching the
+    # node through the compose network (sequencer's real IP) instead of the host
+    # loopback is the proven-stable path guardian-b already uses, and it publishes
+    # on 127.0.0.1 only (dropping host mode's all-interfaces exposure caveat).
     restart: on-failure
     depends_on:
       guardian-postgres:
         condition: service_healthy
+      sequencer:
+        condition: service_started
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:50051:50051"
     volumes:
       - guardian-keystore:/var/guardian/keystore
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        seq_ip=$$(getent hosts sequencer 2>/dev/null | awk '{print $$1}' | head -n1)
+        if [ -n "$$seq_ip" ]; then
+          sed "s/^127\.0\.0\.1[[:space:]]\+localhost\$$/$$seq_ip localhost/" /etc/hosts | sed '/^::1[[:space:]]/d' > /etc/hosts.new
+          if grep -qF "$$seq_ip localhost" /etc/hosts.new; then
+            cat /etc/hosts.new > /etc/hosts
+            echo "guardian: remapped 'localhost' -> $$seq_ip (sequencer), MidenLocal hardcodes localhost:57291"
+          else
+            echo "guardian: WARNING localhost rewrite did NOT match the 127.0.0.1 line; leaving /etc/hosts untouched -- node RPC will fail loudly"
+          fi
+        else
+          echo "guardian: 'sequencer' not resolvable yet; leaving /etc/hosts untouched (node RPC calls will fail until it is)"
+        fi
+        exec /app/server
     environment:
       - RUST_LOG=info
       - GUARDIAN_ENV=dev
       - GUARDIAN_NETWORK_TYPE=MidenLocal
       - GUARDIAN_KEYSTORE_PATH=/var/guardian/keystore
-      - DATABASE_URL=postgres://guardian:guardian@localhost:5432/guardian
+      - DATABASE_URL=postgres://guardian:guardian@guardian-postgres:5432/guardian
 
   # --- Tier-3: second guardian for switch/recovery specs (HTTP :3001) --------
   # Discovery (Step 1 of the switch-container task): the v0.15.0 image has NO
