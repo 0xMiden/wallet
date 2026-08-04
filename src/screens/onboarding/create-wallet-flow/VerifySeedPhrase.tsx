@@ -65,6 +65,24 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
     );
   }, [seedPhrase, firstSelectedWordIndex, secondSelectedWordIndex, shuffledWords]);
 
+  // Progressive, always-visible guidance for which word to tap next. Without it
+  // the task ("tap the FIRST then the LAST word of your phrase") is unclear: the
+  // intro is tiny (or, in the re-verify flow, hidden via showIntro=false), and the
+  // "First"/"Last" badges only appear AFTER a tap — so a user taps one word, sees
+  // "First", and has no cue that the SECOND tap must be the LAST word, not the
+  // second. This line spells out the current step and confirms right/wrong.
+  const stepPrompt = useMemo<{ key: string; tone: 'neutral' | 'success' | 'error' }>(() => {
+    if (firstSelectedWordIndex === null) {
+      return { key: 'verifyStepSelectFirst', tone: 'neutral' };
+    }
+    if (secondSelectedWordIndex === null) {
+      return { key: 'verifyStepSelectLast', tone: 'neutral' };
+    }
+    return isCorrectWordSelected
+      ? { key: 'verifyStepCorrect', tone: 'success' }
+      : { key: 'verifyStepWrong', tone: 'error' };
+  }, [firstSelectedWordIndex, secondSelectedWordIndex, isCorrectWordSelected]);
+
   return (
     <div
       className={classNames('flex flex-col flex-1', 'bg-app-bg gap-6 px-4 pt-4', className)}
@@ -73,15 +91,27 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
     >
       {showIntro && (
         <div className="flex flex-col items-center gap-2 text-heading-gray">
-          <header className="text-[28px] font-medium ">{t('verifySeedPhrase')}</header>
-          <div className="text-[10px] font-normal text-center">
-            <p>{t('verifyMessagePrefix')}</p>
-            <p>
-              <Trans i18nKey="verifyMessageSuffix" components={{ b: <span className="font-bold" /> }} />
-            </p>
-          </div>
+          <header className="text-[28px] font-medium">{t('verifySeedPhrase')}</header>
+          <p className="text-sm font-normal text-center">{t('verifyMessagePrefix')}</p>
         </div>
       )}
+
+      {/* Always-visible progressive guidance — shown in BOTH the onboarding
+          (showIntro) and the re-verify (showIntro=false) flows, so the user
+          always knows which word to tap next and whether their pick was right. */}
+      <p
+        data-testid="verify-seed-prompt"
+        className={classNames(
+          'text-center text-sm font-medium',
+          stepPrompt.tone === 'error'
+            ? 'text-red-500'
+            : stepPrompt.tone === 'success'
+              ? 'text-green-500'
+              : 'text-heading-gray'
+        )}
+      >
+        <Trans i18nKey={stepPrompt.key} components={{ b: <span className="font-bold" /> }} />
+      </p>
 
       <article className="grid grid-cols-3 gap-2 w-full">
         {shuffledWords.map((word, index) => (

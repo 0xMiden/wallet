@@ -167,8 +167,14 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
 
   return (
     // Same translucent scrim recipe as CustomModal: the wallet stays visible
-    // behind the overlay, just dimmed, blurred, and inert.
-    <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-4 px-8 text-center bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150">
+    // behind the overlay, just dimmed, blurred, and inert. `hot-key-rotation-gate`
+    // is a test-only hook (E2E POM): it marks the overlay for as long as it's
+    // mounted (spinning OR showing the terminal-failure surface below) — the
+    // overlay unmounting IS the "rotation complete" signal.
+    <div
+      data-testid="hot-key-rotation-gate"
+      className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-4 px-8 text-center bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150"
+    >
       {failureMessage === null ? (
         <>
           <Spinner />
@@ -176,13 +182,17 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
           <p className="text-sm text-heading-gray select-text">{t('hotKeyRotationOverlayBody')}</p>
         </>
       ) : (
-        <>
+        <div data-testid="hot-key-rotation-failed" className="flex flex-col items-center gap-4">
           <h1 className="text-lg font-semibold text-black">{t('hotKeyRotationFailedTitle')}</h1>
           <p className="text-sm text-heading-gray break-words select-text">{failureMessage}</p>
-          <Button className="px-6 py-2 rounded-lg text-sm font-semibold" onClick={onRetry}>
+          <Button
+            data-testid="hot-key-rotation-retry"
+            className="px-6 py-2 rounded-lg text-sm font-semibold"
+            onClick={onRetry}
+          >
             {t('hotKeyRotationRetry')}
           </Button>
-        </>
+        </div>
       )}
     </div>
   );

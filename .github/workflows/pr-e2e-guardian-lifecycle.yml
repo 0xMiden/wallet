@@ -1,0 +1,191 @@
+name: Guardian Lifecycle E2E (Chrome)
+on:
+  pull_request:
+  workflow_dispatch: {}
+concurrency:
+  group: guardian-lifecycle-e2e-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  # Dedicated two-guardian job for the guardian switch/recovery suite
+  # (guardian-switch*.spec.ts / guardian-recovery*.spec.ts — design doc
+  # 2026-08-03-guardian-switch-recovery-e2e-design.md). Unlike the existing
+  # Tier-2 guardian coverage (single guardian, guardian-send-consume.spec.ts,
+  # wired into pr-e2e-local.yml), switch/recovery scenarios need a SECOND,
+  # distinct-keypair guardian ("B", :3001) to switch/recover TO — brought up
+  # via the `guardian-switch` compose profile (docker-compose.local.yml).
+  # As of this writing the switch/recovery specs don't exist yet (later
+  # phases of the same project); this job is scaffolding that picks them up
+  # automatically once they land, via playwright.guardian.config.ts's
+  # `**/guardian-*.spec.ts` testMatch. guardian-lifecycle-e2e-gate is the
+  # stable required-check name.
+  guardian-lifecycle-e2e:
+    name: guardian-lifecycle-e2e (chrome)
+    runs-on: ubuntu-latest
+    # Stress scenarios (kill/reopen, guardian-fault injection, A->B->A repeat)
+    # are heavier than the Tier-2 happy-path spec; sized like the other
+    # dedicated single-purpose e2e jobs (swap/earn/bridge-guardian) rather
+    # than pr-e2e-local.yml's 45m. Revisit once real spec timings exist.
+    timeout-minutes: 60
+    env:
+      E2E_NETWORK: localhost
+      MIDEN_NTX_AUTH: e2e-ntx-secret
+      # Guardian A. Guardian B has no env override -- its localnet-only,
+      # MIDEN_E2E_TEST-gated URL (http://localhost:3001) is hardcoded in
+      # src/lib/miden-chain/constants.ts (GUARDIAN_OPTIONS), matching the
+      # fixed :3001 publish in docker-compose.local.yml.
+      GUARDIAN_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: yarn }
+      # Pinned exact (NOT @stable): a required gate must not drift with upstream
+      # rustc -- a newer stable can reject the pinned older CLI/transport crates and
+      # go red on unrelated PRs. Bump this deliberately (and the cache key below).
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - name: Cache cargo (cli + note-transport)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ${{ runner.temp }}/note-transport/target
+          # rustc pin is in the key so a toolchain bump forces a clean rebuild
+          # (a binary built with a different rustc must not be reused).
+          key: guardian-lifecycle-e2e-cargo-v1-rust1.96.1-${{ hashFiles('package.json', 'playwright/e2e/local-stack/versions.env') }}
+      - run: yarn install --frozen-lockfile
+      - name: Pre-install miden-client-cli (off the per-test clock)
+        run: |
+          # The harness auto-installs the CLI lazily on first use, but that ~7min
+          # compile blows the 300s per-test timeout. Pre-install the SAME pinned
+          # rev here so the harness's `miden-client --version` check short-circuits.
+          # Skip when the cargo cache already restored it (else `cargo install`
+          # errors "binary already exists"). The cache key hashes package.json, so
+          # a present binary is guaranteed to be the pinned rev.
+          if ! command -v miden-client >/dev/null 2>&1; then
+            url=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.url)")
+            rev=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.rev)")
+            cargo install miden-client-cli --git "$url" --rev "$rev" --locked
+          fi
+          miden-client --version
+      - name: Bring up node + prover
+        working-directory: playwright/e2e/local-stack
+        run: |
+          # --wait-timeout caps how long --wait blocks on readiness (--timeout is the
+          # unrelated shutdown timeout). Retry the bring-up so a transient GHCR image
+          # pull failure/rate-limit doesn't fail this (to-be-required) gate.
+          for attempt in 1 2 3; do
+            docker compose --env-file versions.env -f docker-compose.local.yml up --wait --wait-timeout 300 && exit 0
+            echo "bring-up attempt $attempt failed; tearing down and retrying" >&2
+            docker compose --env-file versions.env -f docker-compose.local.yml down -v || true
+            sleep 10
+          done
+          exit 1
+      - name: Wait for node RPC
+        working-directory: playwright/e2e/local-stack
+        run: |
+          probe() { timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null; }
+          for _ in $(seq 1 90); do
+            probe 57291 && probe 50052 && echo "node(57291)+prover(50052) ready" && exit 0
+            sleep 2
+          done
+          echo "node RPC (57291) / prover (50052) not ready in time" >&2
+          docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color | tail -120
+          exit 1
+      - name: Bring up both guardians (guardian-switch profile)
+        working-directory: playwright/e2e/local-stack
+        # `guardian-switch` implies Tier-2 too: it needs BOTH the original
+        # guardian ("A", profile `guardian`) and the second, distinct-keypair
+        # guardian-b ("B", profile `guardian-switch`) up together, so every
+        # service is named explicitly -- Compose starts an explicitly-named
+        # service regardless of its own `profiles:` gating.
+        run: docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian-switch up -d guardian guardian-postgres guardian-b guardian-b-postgres
+      - name: Start note-transport
+        run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Build extension (localnet)
+        # E2E_NETWORK=localhost bakes MIDEN_NETWORK=localhost AND (always, per
+        # test:e2e:blockchain:build) MIDEN_E2E_TEST=true -- required both for the
+        # standard test hooks (__TEST_STORE__/__TEST_INTERCOM__) and for the
+        # second, localnet-only guardian option in GUARDIAN_OPTIONS to appear
+        # in the picker at all (constants.ts gates it on MIDEN_E2E_TEST).
+        run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Wait for both guardians
+        working-directory: playwright/e2e/local-stack
+        run: |
+          # HTTP probe (not a bare TCP connect): the guardian must actually answer.
+          # Neither guardian image ships a /health endpoint -- root `/` is the
+          # documented liveness probe (200; /pubkey?scheme=ecdsa also works and
+          # additionally proves A/B hold distinct keys, but root is cheaper here).
+          wait_for() {
+            local port=$1 label=$2
+            for _ in $(seq 1 120); do
+              curl -s -o /dev/null -m 2 "http://127.0.0.1:${port}/" && echo "guardian ${label}(${port}) ready" && return 0
+              sleep 2
+            done
+            echo "guardian ${label} HTTP (${port}) not ready in time" >&2
+            return 1
+          }
+          ok=0
+          wait_for 3000 A || ok=1
+          wait_for 3001 B || ok=1
+          if [ "$ok" -ne 0 ]; then
+            docker compose --env-file versions.env --profile guardian --profile guardian-switch -f docker-compose.local.yml logs --no-color | tail -150
+            exit 1
+          fi
+      - name: Run guardian lifecycle specs
+        # No --retries override: retries:0 (playwright.e2e.config.ts, inherited
+        # by playwright.guardian.config.ts) is deliberate for this suite -- a
+        # flake here is a bug to fix, not to paper over (design doc §11).
+        # testMatch is `**/guardian-*.spec.ts`, so this also runs the existing
+        # Tier-2 guardian-send-consume/guardian-fault specs until the
+        # guardian-switch*/guardian-recovery*.spec.ts files land (later phases
+        # of this project) -- expected, not a bug in this workflow.
+        run: xvfb-run -a yarn playwright test --config playwright.guardian.config.ts
+      - name: Capture OS memory / OOM diagnostics on failure
+        if: failure()
+        # The guardian recovery specs kill the wallet page mid device-key-
+        # rotation while its service worker runs the WASM proof in the
+        # background, then reopen(). Intermittently the whole Chromium instance
+        # is gone by reopen() ("context or browser has been closed"). dmesg is
+        # the decisive evidence: an OOM-kill logs "Killed process ... chrome";
+        # its ABSENCE means the browser died some other way (renderer crash),
+        # which points the fix somewhere other than memory. `free`/MemTotal also
+        # confirm the runner tier (public repo => 16GB expected).
+        run: |
+          echo "=== free -h ==="; free -h || true
+          echo "=== MemTotal / MemAvailable / Swap ==="; grep -iE "MemTotal|MemAvailable|SwapTotal|SwapFree" /proc/meminfo || true
+          echo "=== dmesg OOM signals (decisive: present => OOM-kill, absent => non-OOM crash) ==="
+          sudo dmesg 2>/dev/null | grep -iE "killed process|out of memory|oom-kill|oom_reaper|Out of memory: Kill" | tail -40 \
+            || echo "(no OOM-kill in dmesg -- the browser death was NOT an out-of-memory kill)"
+      - name: Dump stack logs on failure
+        if: failure()
+        working-directory: playwright/e2e/local-stack
+        run: docker compose --env-file versions.env --profile guardian --profile guardian-switch -f docker-compose.local.yml logs --no-color | tail -400
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: guardian-lifecycle-e2e-report
+          path: test-results/
+      - name: Tear down
+        if: always()
+        working-directory: playwright/e2e/local-stack
+        run: docker compose --env-file versions.env --profile guardian --profile guardian-switch -f docker-compose.local.yml down -v || true
+
+  # Stable required-check name: passes iff guardian-lifecycle-e2e succeeded.
+  # Mark THIS "required" in branch protection so the name stays stable across
+  # job renames.
+  guardian-lifecycle-e2e-gate:
+    name: guardian-lifecycle-e2e-gate
+    needs: [guardian-lifecycle-e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          if [ "${{ needs.guardian-lifecycle-e2e.result }}" != "success" ]; then
+            echo "guardian-lifecycle-e2e ${{ needs.guardian-lifecycle-e2e.result }}"; exit 1; fi
+          echo "guardian-lifecycle-e2e ok"
