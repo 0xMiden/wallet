@@ -204,9 +204,9 @@ jest.mock('utils/string', () => ({
   truncateAddress: (addr: string) => (addr ? addr.slice(0, 8) : '')
 }));
 
-const makeToken = (tokenId: string, symbol: string, name?: string) => ({
+const makeToken = (tokenId: string, symbol: string, name?: string, balance = 100) => ({
   tokenId,
-  balance: 100,
+  balance,
   metadata: { symbol, name }
 });
 
@@ -259,9 +259,7 @@ describe('Explore', () => {
   describe('base rendering', () => {
     it('renders the page shell, banner, balance card, prompts and asset rows', async () => {
       mockAllBalances = [
-        // faucet-native token sorts to the front (ternary -> -1)
         makeToken('faucet-native', 'MIDEN', 'Miden'),
-        // non-faucet tokens keep their order (ternary -> 1)
         makeToken('t-btc', 'BTC', 'Bitcoin'),
         makeToken('t-eth', 'ETH')
       ];
@@ -279,8 +277,25 @@ describe('Explore', () => {
 
       const rows = screen.getAllByTestId('asset-row');
       expect(rows).toHaveLength(3);
-      // faucet token was sorted to the front.
       expect(rows[0]).toHaveAttribute('data-token', 'faucet-native');
+    });
+
+    it('keeps the native asset first and orders the remaining assets by descending fiat value', async () => {
+      mockAllBalances = [
+        makeToken('faucet-native', 'MIDEN', 'Miden', 100),
+        makeToken('t-eth', 'ETH', 'Ethereum', 1),
+        makeToken('t-btc', 'BTC', 'Bitcoin', 2)
+      ];
+      mockTokenPrices = {
+        MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 },
+        ETH: { price: 50, change24h: 0, percentageChange24h: 0 },
+        BTC: { price: 100, change24h: 0, percentageChange24h: 0 }
+      };
+
+      await renderExplore();
+
+      const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
+      expect(tokens).toEqual(['faucet-native', 't-btc', 't-eth']);
     });
 
     it('renders with no asset rows when balances are undefined (destructuring default)', async () => {
