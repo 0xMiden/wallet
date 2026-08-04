@@ -1,8 +1,11 @@
-import { isGuardianAuthRejection } from 'lib/miden/guardian';
+import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
+import type { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
 import { clearGuardianServiceFor, getOrCreateMultisigService, type GuardianAccountProvider } from './guardian-manager';
+import { decideColdReRegisterSelfHeal, type SelfHealAttemptState } from './guardian-selfheal';
+import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
 /**
  * Default GuardianAccountProvider backed by the Zustand store. Frontend-only —
@@ -52,6 +55,56 @@ export const zustandProvider: GuardianAccountProvider = {
 // so the self-heal check below runs at most once per account per session.
 const hardeningChecked = new Set<string>();
 
+// Per-account self-heal state. `consecutiveAuthFailures` counts 401s in a row
+// (reset on any successful sync); `selfHealState` tracks attempt count + last
+// attempt time. The gating decision (persistence + bounded retry + cooldown)
+// lives in decideColdReRegisterSelfHeal (guardian-selfheal.ts, unit-tested).
+const consecutiveAuthFailures = new Map<string, number>();
+const selfHealState = new Map<string, SelfHealAttemptState>();
+
+/**
+ * Re-register the account's CURRENT on-chain signer set on the guardian,
+ * COLD-signed, to repair a stale request-auth allowlist. Cold is a permanent
+ * allowlist member (present in any signer set the account has held), so a
+ * cold-signed `/configure` authenticates against a stale allowlist and rewrites
+ * it to the on-chain set. Reuses the exact machinery the completion path uses
+ * (`buildColdMultisigService` → `reRegisterCurrentStateOnGuardian`).
+ *
+ * The DECISION of whether to run this — persistence (only after the 401 has
+ * repeated), bounded retry (give up if re-registering the on-chain set doesn't
+ * clear the 401, i.e. the local signer genuinely isn't on-chain), and a cooldown
+ * — is made by the caller via `decideColdReRegisterSelfHeal`; this function only
+ * performs the attempt.
+ *
+ * On guardian v0.16.0 the common post-rotation case never reaches here: the
+ * guardian canonicalizes every co-signed delta and RE-DERIVES the allowlist from
+ * the on-chain signer set on its own, so a rotation self-syncs the allowlist
+ * without any `/configure`. This is therefore defensive — for a genuinely
+ * never-registered / never-canonicalized signer set. Idempotent (registers the
+ * on-chain state), so a spurious run is harmless.
+ */
+async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<void> {
+  // Legacy single-key record (pre-migration) has nothing to cold-sign with.
+  if (!account.coldPublicKey) return;
+
+  try {
+    // getAccount needs no syncState here: buildColdMultisigService only reads the
+    // COLD commitment (stable across the rotation), and
+    // reRegisterCurrentStateOnGuardian re-syncs on its own for the state it
+    // pushes. The two lock uses are sequential (this getAccount releases before
+    // the cold service acquires), never nested — no reentrancy deadlock.
+    const sdkAccount = await withWasmClientLock(async () => (await getMidenClient()).getAccount(account.publicKey));
+    if (!sdkAccount) return;
+    const coldService = await MultisigService.buildColdMultisigService(sdkAccount, account, zustandProvider.signWord);
+    await coldService.reRegisterCurrentStateOnGuardian();
+    console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
+  } catch (e) {
+    // Guardian still unreachable / rejecting cold — a later tick may retry per
+    // the bounded schedule (see decideColdReRegisterSelfHeal).
+    console.warn(`[Guardian Sync] cold re-register self-heal failed for ${account.publicKey}:`, e);
+  }
+}
+
 export async function syncGuardianAccounts(): Promise<void> {
   const accounts = await zustandProvider.getAccounts();
   const guardianAccounts = accounts.filter(acc => acc.type === WalletType.Guardian && Boolean(acc.hotPublicKey));
@@ -62,6 +115,12 @@ export async function syncGuardianAccounts(): Promise<void> {
     try {
       const service = await getOrCreateMultisigService(account.publicKey, zustandProvider);
       await service.sync();
+
+      // Sync succeeded → the account is authorized; clear any accumulated
+      // self-heal state so a future divergence starts its persistence count
+      // fresh.
+      consecutiveAuthFailures.delete(account.publicKey);
+      selfHealState.delete(account.publicKey);
 
       // Best-effort: a drift-check failure must never break the sync loop.
       await useWalletStore
@@ -78,14 +137,28 @@ export async function syncGuardianAccounts(): Promise<void> {
         await ensureGuardianProcedureThresholds(account.publicKey, undefined, zustandProvider);
       }
     } catch (error) {
-      // An auth rejection means the cached service's bound signer and the
-      // guardian's registered signer set disagree (e.g. mid-rotation the
-      // service was built from a pre-rotation on-chain account, pairing the
-      // new hot pubkey with the old commitment). Evict it so the next tick
-      // rebuilds against freshly-synced on-chain state instead of re-signing
-      // with the same stale binding every ~3s forever.
+      // An auth rejection (401) means the guardian's request-auth allowlist and
+      // this account's hot signer disagree. Evict the cached hot service so the
+      // next tick rebuilds against freshly-synced on-chain state. The guardian
+      // collapses stale-allowlist, clock-skew, and replay failures into one 401,
+      // and on v0.16.0 a co-signed rotation self-syncs the allowlist via
+      // canonicalization — so a transient 401 clears on its own. Only after the
+      // 401 has PERSISTED (decideColdReRegisterSelfHeal) do we cold-re-register
+      // to repair a genuinely-stale allowlist, and only a bounded number of
+      // times.
       if (isGuardianAuthRejection(error)) {
         clearGuardianServiceFor(account.publicKey);
+        const fails = (consecutiveAuthFailures.get(account.publicKey) ?? 0) + 1;
+        consecutiveAuthFailures.set(account.publicKey, fails);
+        const now = Date.now();
+        if (decideColdReRegisterSelfHeal(now, fails, selfHealState.get(account.publicKey))) {
+          const prev = selfHealState.get(account.publicKey);
+          selfHealState.set(account.publicKey, { attempts: (prev?.attempts ?? 0) + 1, lastAttemptAt: now });
+          await attemptColdReRegisterSelfHeal(account);
+        }
+      } else {
+        // Non-auth error (e.g. network) — don't accumulate auth-failure count.
+        consecutiveAuthFailures.delete(account.publicKey);
       }
       console.error(`[Guardian Sync] Error syncing Guardian account ${account.publicKey}:`, error);
     }
