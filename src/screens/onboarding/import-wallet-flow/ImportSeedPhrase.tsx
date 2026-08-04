@@ -63,6 +63,9 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
   const onInputPaste: React.ClipboardEventHandler = useCallback(
     event => {
       event.preventDefault();
+      // cleanWord lowercases + strips whitespace so a mixed-case paste (e.g. from a
+      // password manager) still passes the lowercase-only BIP-39 wordlist + checksum
+      // check; filter empties and pad/truncate to exactly PHRASE_LENGTH slots.
       const clipboardData = event.clipboardData.getData('text').trim();
       const words = clipboardData.split(DELIMITERS).map(cleanWord).filter(Boolean);
       setSeedPhrase(Array.from({ length: PHRASE_LENGTH }, (_, i) => words[i] ?? ''));
@@ -110,6 +113,7 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
       <div className="mt-auto w-full">
         <Button
           id={'submit-button'}
+          data-testid="import-seed-submit"
           title={t('continue')}
           onClick={handleSubmit}
           disabled={!isValid}

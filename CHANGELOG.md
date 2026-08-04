@@ -4,8 +4,9 @@
 
 ### Fixes
 
+- [FIX][all] **The guardian picker no longer crashes when a guardian operator has no registered wordmark.** The Choose-Guardian screen asserted a logo entry for every option (`GUARDIAN_LOGOS[option.id]!`), so any guardian without a registered logo threw and blanked the screen; it now falls back to a generic avatar, mirroring the guardian-settings row's existing safe lookup.
 - [FIX][mobile] **Seed-phrase screens block screenshots, and words are never cut off.** A new ScreenshotGuard plugin hides the seed phrase from screenshots/recordings while it's on screen (iOS secure-text-field layer trick, Android FLAG_SECURE) on the backup, reveal, and verify screens, the verify flow's word grid no longer truncates long words, and its note-down step gained a copy-to-clipboard button — so users copy/verify instead of saving a possibly-clipped screenshot. (#417)
-- [FIX][all] **Imported seed phrases are cleaned up, and the verify-seed-phrase copy explains the procedure.** Typed or pasted seed words are now lowercased and stripped of stray whitespace (capitalized or padded words previously failed the wordlist check), and a paste always fills exactly 12 slots. The verify-seed-phrase screens now say you'll note down the phrase and verify your knowledge by selecting its first and last words. (#445)
+- [FIX][all] **Imported seed phrases are cleaned up, and the verify-seed-phrase copy explains the procedure.** Typed or pasted seed words are now lowercased and stripped of stray whitespace (capitalized or padded words previously failed the wordlist check — this supersedes the earlier lowercase-only normalization), and a paste always fills exactly 12 slots. The verify-seed-phrase screens now say you'll note down the phrase and verify your knowledge by selecting its first and last words. (#445)
 
 ## 1.15.17 (2026-08-03)
 

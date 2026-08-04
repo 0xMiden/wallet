@@ -2000,6 +2000,22 @@
     "message": "Sélectionnez le <b>premier</b> et le <b>dernier</b> mots de votre phrase",
     "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
+  "verifyStepSelectFirst": {
+    "message": "Appuyez sur le <b>premier</b> mot de votre Seed Phrase",
+    "englishSource": "Tap the <b>first</b> word of your recovery phrase"
+  },
+  "verifyStepSelectLast": {
+    "message": "Appuyez maintenant sur le <b>dernier</b> mot de votre Seed Phrase",
+    "englishSource": "Now tap the <b>last</b> word of your recovery phrase"
+  },
+  "verifyStepCorrect": {
+    "message": "C'est le premier et le dernier mot — appuyez sur Continuer",
+    "englishSource": "That's the first and last word — tap Continue"
+  },
+  "verifyStepWrong": {
+    "message": "Ce n'est pas le premier et le dernier mot – appuyez-les à nouveau",
+    "englishSource": "That's not the first and last word — tap them again"
+  },
   "enterYourWalletSeedPhrase": {
     "message": "Entrez la Seed Phrase de 12 mots de votre portefeuille.",
     "englishSource": "Enter your wallet's 12-word Seed phrase."

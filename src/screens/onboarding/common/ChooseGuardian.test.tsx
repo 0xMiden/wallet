@@ -13,8 +13,10 @@ jest.mock('react-i18next', () => ({
 }));
 
 // Guardian provider list — controlled per-test so we can exercise the
-// create/switch/empty branches deterministically. Ids MUST match the
-// module-private `GUARDIAN_LOGOS` keys or the component throws on lookup.
+// create/switch/empty branches deterministically. Ids normally match the
+// module-private `GUARDIAN_LOGOS` keys; an id with no matching entry falls
+// back to the generic avatar instead of throwing (see the "unknown operator"
+// regression test below).
 const mockGetGuardianOptions = jest.fn();
 jest.mock('lib/miden-chain/constants', () => ({
   getGuardianOptionsForNetwork: (...args: unknown[]) => mockGetGuardianOptions(...args)
@@ -248,6 +250,32 @@ describe('ChooseGuardianScreen', () => {
     expect(optionButtons(container)).toHaveLength(0);
     fireEvent.click(screen.getByTestId('continue-button'));
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the generic avatar (no throw) for a provider id with no registered logo', () => {
+    // Regression: an operator id absent from the module-private GUARDIAN_LOGOS
+    // map (e.g. a newly-added / E2E-only provider whose wordmark hasn't been
+    // registered yet) must render a generic-avatar card, not crash the whole
+    // screen -- this is exactly what broke when the localnet-only "OpenZeppelin
+    // B" test provider was added to getGuardianOptionsForNetwork() without a
+    // matching GUARDIAN_LOGOS entry.
+    const UNKNOWN = {
+      id: 'unknown-operator',
+      name: 'Mystery Operator',
+      operatedBy: 'Mystery Co',
+      location: 'US-WEST',
+      endpoint: 'https://mystery.example.com'
+    };
+    mockGetGuardianOptions.mockReturnValue([{ ...OZ }, UNKNOWN]);
+
+    let container!: HTMLElement;
+    expect(() => {
+      ({ container } = render(<ChooseGuardianScreen />));
+    }).not.toThrow();
+
+    expect(optionButtons(container)).toHaveLength(2);
+    expect(screen.getByText('Mystery Co')).toBeInTheDocument();
+    expect(screen.getByText('US-WEST')).toBeInTheDocument();
   });
 
   // --- switch flow (currentEndpoint) ---------------------------------------

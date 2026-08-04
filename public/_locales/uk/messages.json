@@ -2000,6 +2000,22 @@
     "message": "Виберіть <b>перше</b> та <b>останнє</b> слова з фрази",
     "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
+  "verifyStepSelectFirst": {
+    "message": "Торкніться <b>першого</b> слова фрази відновлення",
+    "englishSource": "Tap the <b>first</b> word of your recovery phrase"
+  },
+  "verifyStepSelectLast": {
+    "message": "Тепер торкніться <b>останнього</b> слова фрази відновлення",
+    "englishSource": "Now tap the <b>last</b> word of your recovery phrase"
+  },
+  "verifyStepCorrect": {
+    "message": "Це перше й останнє слово — натисніть «Продовжити».",
+    "englishSource": "That's the first and last word — tap Continue"
+  },
+  "verifyStepWrong": {
+    "message": "Це не перше й не останнє слово — торкніться їх ще раз",
+    "englishSource": "That's not the first and last word — tap them again"
+  },
   "enterYourWalletSeedPhrase": {
     "message": "Введіть Seed Phrase свого гаманця з 12 слів.",
     "englishSource": "Enter your wallet's 12-word Seed phrase."

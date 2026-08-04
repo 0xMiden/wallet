@@ -349,4 +349,11 @@ export interface EnvironmentConfig {
   txTimeoutMs: number;
   mintAmount: number;
   delegateProving: boolean;
+  // Guardian operator endpoints for the guardian E2E specs, so a spec can run
+  // against real infra (testnet operators) instead of the local container.
+  // `guardianUrl` is the primary operator (account create/recover); `guardianUrlB`
+  // is a DISTINCT second operator for switch tests (undefined on networks that
+  // run only one guardian, e.g. devnet).
+  guardianUrl: string;
+  guardianUrlB?: string;
 }

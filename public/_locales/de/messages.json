@@ -2000,6 +2000,22 @@
     "message": "Wählen Sie das <b>erste</b> und <b>letzte</b> Wort Ihrer Phrase aus",
     "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
+  "verifyStepSelectFirst": {
+    "message": "Tippen Sie auf das <b>erste</b> Wort Ihres Wiederherstellungssatzes",
+    "englishSource": "Tap the <b>first</b> word of your recovery phrase"
+  },
+  "verifyStepSelectLast": {
+    "message": "Tippen Sie nun auf das <b>letzte</b> Wort Ihrer Wiederherstellungsphrase",
+    "englishSource": "Now tap the <b>last</b> word of your recovery phrase"
+  },
+  "verifyStepCorrect": {
+    "message": "Das ist das erste und letzte Wort – tippen Sie auf „Weiter“.",
+    "englishSource": "That's the first and last word — tap Continue"
+  },
+  "verifyStepWrong": {
+    "message": "Das ist nicht das erste und letzte Wort – tippen Sie noch einmal darauf",
+    "englishSource": "That's not the first and last word — tap them again"
+  },
   "enterYourWalletSeedPhrase": {
     "message": "Geben Sie die 12-Wörter-Seed Phrase Ihrer Brieftasche ein.",
     "englishSource": "Enter your wallet's 12-word Seed phrase."

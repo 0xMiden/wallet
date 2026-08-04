@@ -15,6 +15,11 @@ const ENVIRONMENTS: Record<string, EnvironmentConfig> = {
     txTimeoutMs: 180_000,
     mintAmount: 100_000_000_000, // 1000 tokens with 8 decimals
     delegateProving: true,
+    // Real testnet guardian operators (from src/lib/miden-chain/constants.ts
+    // GUARDIAN_OPTIONS). OpenZeppelin is the default/primary; Koda is a distinct
+    // second operator for switch tests.
+    guardianUrl: 'https://guardian.openzeppelin.com',
+    guardianUrlB: 'https://guardian-testnet.kodax.com',
   },
   devnet: {
     name: 'devnet',
@@ -26,6 +31,9 @@ const ENVIRONMENTS: Record<string, EnvironmentConfig> = {
     txTimeoutMs: 180_000,
     mintAmount: 100_000_000_000,
     delegateProving: true,
+    // OpenZeppelin runs on devnet too; the other operators are testnet-only, so
+    // there is no distinct second guardian for switch tests here.
+    guardianUrl: 'https://guardian-stg.openzeppelin.com',
   },
   localhost: {
     name: 'localhost',
@@ -37,6 +45,9 @@ const ENVIRONMENTS: Record<string, EnvironmentConfig> = {
     txTimeoutMs: 60_000,
     mintAmount: 100_000_000_000,
     delegateProving: false,
+    // The two local guardian containers (guardian on :3000, guardian-b on :3001).
+    guardianUrl: 'http://localhost:3000',
+    guardianUrlB: 'http://localhost:3001',
   },
 };
 
