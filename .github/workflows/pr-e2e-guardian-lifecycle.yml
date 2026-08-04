@@ -146,6 +146,22 @@ jobs:
         # guardian-switch*/guardian-recovery*.spec.ts files land (later phases
         # of this project) -- expected, not a bug in this workflow.
         run: xvfb-run -a yarn playwright test --config playwright.guardian.config.ts
+      - name: Capture OS memory / OOM diagnostics on failure
+        if: failure()
+        # The guardian recovery specs kill the wallet page mid device-key-
+        # rotation while its service worker runs the WASM proof in the
+        # background, then reopen(). Intermittently the whole Chromium instance
+        # is gone by reopen() ("context or browser has been closed"). dmesg is
+        # the decisive evidence: an OOM-kill logs "Killed process ... chrome";
+        # its ABSENCE means the browser died some other way (renderer crash),
+        # which points the fix somewhere other than memory. `free`/MemTotal also
+        # confirm the runner tier (public repo => 16GB expected).
+        run: |
+          echo "=== free -h ==="; free -h || true
+          echo "=== MemTotal / MemAvailable / Swap ==="; grep -iE "MemTotal|MemAvailable|SwapTotal|SwapFree" /proc/meminfo || true
+          echo "=== dmesg OOM signals (decisive: present => OOM-kill, absent => non-OOM crash) ==="
+          sudo dmesg 2>/dev/null | grep -iE "killed process|out of memory|oom-kill|oom_reaper|Out of memory: Kill" | tail -40 \
+            || echo "(no OOM-kill in dmesg -- the browser death was NOT an out-of-memory kill)"
       - name: Dump stack logs on failure
         if: failure()
         working-directory: playwright/e2e/local-stack

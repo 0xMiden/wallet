@@ -992,6 +992,21 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           return await context.newPage();
         } catch (err) {
           lastErr = err;
+          // A disconnected browser is a DEAD context, not the transient
+          // "Target.createTarget: Failed to open a new tab" blip this retry
+          // loop exists for -- retrying newPage on it can never succeed, so
+          // stop early and surface WHY. The bare "Target ... has been closed"
+          // hides that the whole Chromium instance vanished between kill() and
+          // reopen() (a crash / OOM-kill of the browser process, diagnosed by
+          // the workflow's dmesg step), which is a different failure class than
+          // a momentary tab-open hiccup.
+          if (context.browser()?.isConnected() === false) {
+            throw new Error(
+              'reopen: the browser process for this wallet is gone (context disconnected) before newPage could ' +
+                'succeed -- the Chromium instance crashed or was OOM-killed between kill() and reopen(), not a ' +
+                `transient Target.createTarget failure. Original: ${(err as Error).message}`
+            );
+          }
           await new Promise(resolve => setTimeout(resolve, 500 * attempt));
         }
       }

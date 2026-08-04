@@ -112,6 +112,16 @@ test.describe('Guardian recovery stress - kill mid-rotation resumes', () => {
       { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
     );
 
+    // Free wallet A: it created + funded the account and is unused for the rest
+    // of the test (every later step is wallet B only). Closing its page releases
+    // the renderer + WASM heap so A isn't resident during B's memory-heavy
+    // device-key-rotation proof -- a peak-RAM cut at the exact point where
+    // reopen() intermittently found the whole Chromium instance gone. kill()
+    // closes only the page (the fixture still owns context teardown), and every
+    // failure-dump read of A's page is already try/caught (state-snapshot.ts /
+    // test-step.ts).
+    await walletA.kill();
+
     await steps.step('recover_via_bypass_kill_mid_rotation', async () => {
       // Arm BEFORE firing the recovery so the very first /configure call
       // (issued from inside completeReplaceHotKeyTransaction, once the
@@ -276,6 +286,12 @@ test.describe('Guardian recovery stress - rotation register fault retries', () =
       { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
     );
 
+    // Free wallet A (unused after setup -- B-only hereafter): releases its
+    // renderer + WASM heap so it isn't resident during B's memory-heavy rotation
+    // proof, cutting peak RAM at reopen()'s intermittent "browser gone" crash.
+    // kill() closes only the page; failure-dump reads of A are try/caught.
+    await walletA.kill();
+
     await steps.step(
       'recover_and_rotate_survives_two_register_faults',
       async () => {
@@ -428,6 +444,12 @@ test.describe('Guardian recovery stress - pending-delta conflict during rotation
       },
       { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
     );
+
+    // Free wallet A (unused after setup -- B-only hereafter): releases its
+    // renderer + WASM heap so it isn't resident during B's memory-heavy rotation
+    // proof, cutting peak RAM at reopen()'s intermittent "browser gone" crash.
+    // kill() closes only the page; failure-dump reads of A are try/caught.
+    await walletA.kill();
 
     await steps.step(
       'recover_and_hit_pending_delta_conflict_fast_fail',
