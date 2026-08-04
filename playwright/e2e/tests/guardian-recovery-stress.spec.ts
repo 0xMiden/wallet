@@ -216,9 +216,10 @@ test.describe('Guardian recovery stress - kill mid-rotation resumes', () => {
  * the now-rotated on-chain account and hands its serialized state to
  * `registerOnGuardianWithRetry` (line 574) -- the SAME retry helper
  * `finalizeGuardianSwitch` calls for `switch-guardian` (line 521): up to
- * `MAX_GUARDIAN_REGISTER_RETRIES` (5) attempts, a fixed
- * `GUARDIAN_REGISTER_RETRY_DELAY_MS` (2000ms) apart, no exponential backoff
- * (`guardian/index.ts:51-52,528-543`).
+ * `MAX_GUARDIAN_REGISTER_RETRIES` (8) attempts with capped exponential backoff
+ * (1s doubling to an 8s ceiling, ~39s total) so the re-register survives the
+ * guardian's post-delta canonicalization window instead of exhausting inside it
+ * (`guardian/index.ts`).
  *
  * `armGuardianFault({ path: 'configure', mode: 'failFirstN', count: 2 })`
  * fails the recovered wallet's first 2 `/configure` calls (HTTP 500) and lets
