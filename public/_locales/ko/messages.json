@@ -2000,6 +2000,22 @@
     "message": "구문에서 <b>첫 번째</b> 및 <b>마지막</b> 단어를 선택하세요.",
     "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
+  "verifyStepSelectFirst": {
+    "message": "복구 문구의 <b>첫 번째</b> 단어를 탭하세요.",
+    "englishSource": "Tap the <b>first</b> word of your recovery phrase"
+  },
+  "verifyStepSelectLast": {
+    "message": "이제 복구 문구의 <b>마지막</b> 단어를 탭하세요.",
+    "englishSource": "Now tap the <b>last</b> word of your recovery phrase"
+  },
+  "verifyStepCorrect": {
+    "message": "이것이 첫 번째이자 마지막 단어입니다. 계속을 탭하세요.",
+    "englishSource": "That's the first and last word — tap Continue"
+  },
+  "verifyStepWrong": {
+    "message": "그게 첫 번째이자 마지막 단어가 아닙니다. 다시 탭하세요.",
+    "englishSource": "That's not the first and last word — tap them again"
+  },
   "enterYourWalletSeedPhrase": {
     "message": "지갑의 12단어 Seed Phrase를 입력하세요.",
     "englishSource": "Enter your wallet's 12-word Seed phrase."

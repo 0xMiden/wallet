@@ -59,7 +59,9 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
   const onInputPaste: React.ClipboardEventHandler = useCallback(
     event => {
       event.preventDefault();
-      const clipboardData = event.clipboardData.getData('text').trim();
+      // BIP-39 English words are all lowercase; normalize so a mixed-case
+      // paste (e.g. from a password manager) still validates.
+      const clipboardData = event.clipboardData.getData('text').trim().toLowerCase();
       const words = clipboardData.split(DELIMITERS);
       setSeedPhrase(words);
     },
@@ -94,7 +96,9 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
             onPaste={onInputPaste}
             onChange={event => {
               const newSeedPhrase = [...seedPhrase];
-              newSeedPhrase[index] = event.target.value;
+              // Normalize to lowercase — BIP-39 English words are all lowercase,
+              // so validation (validateMnemonic / wordslist.includes) is case-sensitive.
+              newSeedPhrase[index] = event.target.value.toLowerCase();
               setSeedPhrase(newSeedPhrase);
             }}
           />
@@ -106,6 +110,7 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
       <div className="mt-auto w-full">
         <Button
           id={'submit-button'}
+          data-testid="import-seed-submit"
           title={t('continue')}
           onClick={handleSubmit}
           disabled={!isValid}

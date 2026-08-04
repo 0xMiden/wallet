@@ -2000,6 +2000,22 @@
     "message": "从短语中选择<b>第一个</b>和<b>最后一个</b>单词",
     "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
+  "verifyStepSelectFirst": {
+    "message": "点按恢复短语的<b>第一个</b>单词",
+    "englishSource": "Tap the <b>first</b> word of your recovery phrase"
+  },
+  "verifyStepSelectLast": {
+    "message": "现在点击恢复短语的<b>最后</b>字",
+    "englishSource": "Now tap the <b>last</b> word of your recovery phrase"
+  },
+  "verifyStepCorrect": {
+    "message": "这是第一个也是最后一个词 - 点击“继续”",
+    "englishSource": "That's the first and last word — tap Continue"
+  },
+  "verifyStepWrong": {
+    "message": "这不是第一个和最后一个词 - 再次点击它们",
+    "englishSource": "That's not the first and last word — tap them again"
+  },
   "enterYourWalletSeedPhrase": {
     "message": "输入您钱包的 12 字Seed Phrase。",
     "englishSource": "Enter your wallet's 12-word Seed phrase."

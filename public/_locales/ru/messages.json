@@ -2000,6 +2000,22 @@
     "message": "Выберите <b>первое</b> и <b>последнее</b> слово фразы.",
     "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
+  "verifyStepSelectFirst": {
+    "message": "Коснитесь <b>первого</b> слова фразы восстановления.",
+    "englishSource": "Tap the <b>first</b> word of your recovery phrase"
+  },
+  "verifyStepSelectLast": {
+    "message": "Теперь коснитесь <b>последнего</b> слова фразы восстановления.",
+    "englishSource": "Now tap the <b>last</b> word of your recovery phrase"
+  },
+  "verifyStepCorrect": {
+    "message": "Это первое и последнее слово — нажмите «Продолжить».",
+    "englishSource": "That's the first and last word — tap Continue"
+  },
+  "verifyStepWrong": {
+    "message": "Это не первое и последнее слово — нажмите на них еще раз.",
+    "englishSource": "That's not the first and last word — tap them again"
+  },
   "enterYourWalletSeedPhrase": {
     "message": "Введите Seed-фразу из 12 слов вашего кошелька.",
     "englishSource": "Enter your wallet's 12-word Seed phrase."
