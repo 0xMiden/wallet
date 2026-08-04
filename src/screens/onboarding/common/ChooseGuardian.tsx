@@ -126,9 +126,13 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             const isCurrent = currentEndpoint != null && option.endpoint === currentEndpoint;
             // GUARDIAN_LOGOS is keyed by provider id but has no compile-time tie to
             // GUARDIAN_OPTIONS/getGuardianOptionsForNetwork(), so a provider without
-            // a registered wordmark (e.g. an E2E-only test operator) must not crash
-            // this screen -- fall back to the generic avatar, mirroring
-            // GuardianSettings.tsx's existing safe lookup for the same map.
+            // a registered wordmark must not crash this screen. This is a LIVE
+            // testnet gap, not just an E2E concern: Gateway ('gateway') and Koda
+            // ('kodax') are current testnet operators with NO GUARDIAN_LOGOS entry,
+            // so the old `GUARDIAN_LOGOS[option.id]!` + destructure threw
+            // "Cannot destructure property 'Logo' of undefined" and blanked the
+            // whole picker whenever those rows rendered. Fall back to the generic
+            // avatar, mirroring GuardianSettings.tsx's existing safe lookup.
             const logoEntry = GUARDIAN_LOGOS[option.id];
             return (
               <div key={option.id} className="flex flex-col">
