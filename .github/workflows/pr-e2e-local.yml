@@ -73,9 +73,6 @@ jobs:
           echo "node RPC (57291) / prover (50052) not ready in time" >&2
           docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color | tail -120
           exit 1
-      - name: Bring up guardian (Tier-2)
-        working-directory: playwright/e2e/local-stack
-        run: docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian up -d guardian
       - name: Start note-transport
         run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Build extension (localnet)
@@ -90,28 +87,17 @@ jobs:
         # runner. Deliberately NOT 2 -- kept at 1 so a genuine regression still fails
         # the (to-be-required) gate rather than passing on a lucky third attempt.
         run: xvfb-run -a yarn test:e2e:blockchain:run --retries=1
-      - name: Wait for guardian (Tier-2)
-        working-directory: playwright/e2e/local-stack
-        run: |
-          # HTTP probe, not a bare TCP connect: requires the guardian to actually
-          # answer, so a momentarily-bound socket during a restart:on-failure loop
-          # can't satisfy readiness before the specs run.
-          for _ in $(seq 1 120); do
-            curl -s -o /dev/null -m 2 http://127.0.0.1:3000 && echo "guardian(3000) ready" && exit 0
-            sleep 2
-          done
-          echo "guardian HTTP (3000) not ready in time" >&2
-          docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml logs guardian --no-color | tail -150
-          exit 1
-      - name: Run guardian specs (Tier-2)
-        env:
-          GUARDIAN_URL: http://localhost:3000
-        # --retries=1 (see core-specs note): a small margin, not a flake-masker.
-        run: xvfb-run -a yarn test:e2e:guardian:run --retries=1
+      # Guardian (`guardian-*.spec.ts`) coverage lives in its own workflow,
+      # pr-e2e-guardian-lifecycle.yml, which brings up BOTH guardians (A :3000 +
+      # B :3001, `guardian-switch` compose profile) and runs the full suite via
+      # the same playwright.guardian.config.ts. The switch/fault specs REQUIRE
+      # guardian-B, so a single-guardian run here can't cover them -- and running
+      # the identical suite in two workflows would just double the guardian CI
+      # per PR. This workflow stays Tier-1 (core blockchain specs) only.
       - name: Dump stack logs on failure
         if: failure()
         working-directory: playwright/e2e/local-stack
-        run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml logs --no-color | tail -400
+        run: docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color | tail -400
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -120,4 +106,4 @@ jobs:
       - name: Tear down
         if: always()
         working-directory: playwright/e2e/local-stack
-        run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml down -v || true
+        run: docker compose --env-file versions.env -f docker-compose.local.yml down -v || true
