@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { formatMnemonic } from 'app/defaults';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
+import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 
 const DELIMITERS = /[\s,;.\-:/\\_|]+/;
 const PHRASE_LENGTH = 12;
@@ -30,6 +31,12 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
 }) => {
   const { t } = useTranslation();
   const [seedPhrase, setSeedPhrase] = useState<string[]>(Array.from({ length: PHRASE_LENGTH }, () => ''));
+
+  // Block screenshots/recordings while the user's existing seed phrase is on screen
+  // (#417). The import grid renders the mnemonic in plaintext, so gate it on the native
+  // guard being active — mirrors the backup/reveal/verify screens. isGuardReady is always
+  // true off-mobile, so the extension/desktop render is unchanged.
+  const isGuardReady = useScreenshotGuard();
 
   // Map seep phrase words to wordslist.
   // If a word is not in the wordslist, it's index is mapped to true,
@@ -87,26 +94,28 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
       <p className="mt-2 text-sm">{t('enterYourWalletSeedPhrase')}</p>
       <p className="text-sm">{t('onlyMidenSeedPhrasesAreSupported')}</p>
 
-      <div className="grid grid-cols-3 mt-8 gap-2">
-        {Array.from({ length: PHRASE_LENGTH }).map((_, index) => (
-          <Input
-            id={`seed-phrase-input-${index}`}
-            key={index}
-            value={seedPhrase[index]}
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            enterKeyHint={index === PHRASE_LENGTH - 1 ? 'done' : 'next'}
-            prefix={`${index + 1}.`}
-            onPaste={onInputPaste}
-            onChange={event => {
-              const newSeedPhrase = [...seedPhrase];
-              newSeedPhrase[index] = cleanWord(event.target.value);
-              setSeedPhrase(newSeedPhrase);
-            }}
-          />
-        ))}
-      </div>
+      {isGuardReady && (
+        <div className="grid grid-cols-3 mt-8 gap-2">
+          {Array.from({ length: PHRASE_LENGTH }).map((_, index) => (
+            <Input
+              id={`seed-phrase-input-${index}`}
+              key={index}
+              value={seedPhrase[index]}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint={index === PHRASE_LENGTH - 1 ? 'done' : 'next'}
+              prefix={`${index + 1}.`}
+              onPaste={onInputPaste}
+              onChange={event => {
+                const newSeedPhrase = [...seedPhrase];
+                newSeedPhrase[index] = cleanWord(event.target.value);
+                setSeedPhrase(newSeedPhrase);
+              }}
+            />
+          ))}
+        </div>
+      )}
       {isError && <p className="text-red-500 text-xs mt-4">{t('importSeedPhraseError')}</p>}
       {isChecksumError && <p className="text-red-500 text-xs mt-4">{t('justValidPreGeneratedMnemonic')}</p>}
 

@@ -1684,8 +1684,8 @@
     "englishSource": "Verify your recovery phrase"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "後でこのウォレットを復元できるように、リカバリ フレーズを Note ダウンして最初と最後の単語を理解していることを確認します。",
-    "englishSource": "Note down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "後でこのウォレットを復元できるように、回復フレーズを書き留めて、その最初と最後の単語を知っているかどうかを確認します。",
+    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "安全な署名は利用できません",
@@ -1708,16 +1708,16 @@
     "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
-    "message": "リカバリ フレーズを note 書き留めてから、最初と最後の単語を選択して知識を確認します。誰もあなたの画面を見られないように注意してください。",
-    "englishSource": "You will note down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
+    "message": "リカバリーフレーズを書き留め、最初と最後の単語を選択して知識を確認します。誰もあなたの画面を見られないように注意してください。",
+    "englishSource": "You will write down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
   },
   "verifySeedPhrasePasswordBody": {
     "message": "ウォレットのロックを解除して回復フレーズを表示し、検証を開始します。",
     "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
   },
   "verifySeedPhraseReviewBody": {
-    "message": "Note これらの単語を順番に下に移動します。",
-    "englishSource": "Note down these words in order."
+    "message": "これらの単語を順番に書き留めてください。",
+    "englishSource": "Write down these words in order."
   },
   "word": {
     "message": "言葉 $number$ ",

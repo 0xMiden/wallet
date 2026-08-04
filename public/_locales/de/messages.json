@@ -1684,8 +1684,8 @@
     "englishSource": "Verify your recovery phrase"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Note Notieren Sie sich Ihre Wiederherstellungsphrase und überprüfen Sie, ob Sie die ersten und letzten Wörter kennen, damit Sie diese Brieftasche später wiederherstellen können.",
-    "englishSource": "Note down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "Notieren Sie sich Ihren Wiederherstellungssatz und überprüfen Sie, ob Sie die ersten und letzten Wörter kennen, damit Sie dieses Wallet später wiederherstellen können.",
+    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Sicheres Signieren nicht verfügbar",
@@ -1708,16 +1708,16 @@
     "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
-    "message": "Sie note notieren sich Ihren Wiederherstellungssatz und überprüfen dann Ihr Wissen, indem Sie dessen erstes und letztes Wort auswählen. Stellen Sie sicher, dass niemand Ihren Bildschirm sehen kann.",
-    "englishSource": "You will note down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
+    "message": "Sie schreiben Ihren Wiederherstellungssatz auf und überprüfen dann Ihr Wissen, indem Sie dessen erstes und letztes Wort auswählen. Stellen Sie sicher, dass niemand Ihren Bildschirm sehen kann.",
+    "englishSource": "You will write down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
   },
   "verifySeedPhrasePasswordBody": {
     "message": "Entsperren Sie Ihr Wallet, um Ihre Wiederherstellungsphrase anzuzeigen und mit der Verifizierung zu beginnen.",
     "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
   },
   "verifySeedPhraseReviewBody": {
-    "message": "Note schreibe diese Wörter der Reihe nach nach unten.",
-    "englishSource": "Note down these words in order."
+    "message": "Schreiben Sie diese Wörter der Reihe nach auf.",
+    "englishSource": "Write down these words in order."
   },
   "word": {
     "message": "Wort $number$ ",

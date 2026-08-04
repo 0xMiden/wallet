@@ -1684,8 +1684,8 @@
     "englishSource": "Verify your recovery phrase"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Note 记下您的恢复短语并验证您是否了解其第一个和最后一个单词，以便您稍后可以恢复此钱包。",
-    "englishSource": "Note down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "写下您的恢复短语并验证您对其第一个和最后一个单词的了解，以便您稍后可以恢复此钱包。",
+    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "安全签名不可用",
@@ -1708,16 +1708,16 @@
     "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
-    "message": "您将note记下您的恢复短语，然后通过选择其第一个和最后一个单词来验证您的知识。确保没有人可以看到您的屏幕。",
-    "englishSource": "You will note down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
+    "message": "您将写下您的恢复短语，然后通过选择其第一个和最后一个单词来验证您的知识。确保没有人可以看到您的屏幕。",
+    "englishSource": "You will write down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
   },
   "verifySeedPhrasePasswordBody": {
     "message": "解锁您的钱包以显示您的恢复短语并开始验证。",
     "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
   },
   "verifySeedPhraseReviewBody": {
-    "message": "Note 按顺序排列这些单词。",
-    "englishSource": "Note down these words in order."
+    "message": "按顺序写下这些单词。",
+    "englishSource": "Write down these words in order."
   },
   "word": {
     "message": "单词 $number$ ",

@@ -1684,8 +1684,8 @@
     "englishSource": "Verify your recovery phrase"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Note 복구 문구를 기록하고 나중에 이 지갑을 복원할 수 있도록 첫 번째 단어와 마지막 단어를 알고 있는지 확인하세요.",
-    "englishSource": "Note down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "나중에 이 지갑을 복원할 수 있도록 복구 문구를 기록하고 첫 번째 단어와 마지막 단어를 알고 있는지 확인하세요.",
+    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "보안 서명을 사용할 수 없음",
@@ -1708,16 +1708,16 @@
     "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
-    "message": "복구 문구를 note 입력한 후 첫 번째 단어와 마지막 단어를 선택하여 지식을 확인하세요. 다른 사람이 화면을 볼 수 없도록 하세요.",
-    "englishSource": "You will note down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
+    "message": "복구 문구를 기록한 다음 첫 번째 단어와 마지막 단어를 선택하여 지식을 확인합니다. 다른 사람이 화면을 볼 수 없도록 하세요.",
+    "englishSource": "You will write down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
   },
   "verifySeedPhrasePasswordBody": {
     "message": "지갑을 잠금 해제하여 복구 문구를 공개하고 인증을 시작하세요.",
     "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
   },
   "verifySeedPhraseReviewBody": {
-    "message": "Note 이 단어들을 순서대로 내려놓으세요.",
-    "englishSource": "Note down these words in order."
+    "message": "이 단어들을 순서대로 적어보세요.",
+    "englishSource": "Write down these words in order."
   },
   "word": {
     "message": "단어 $number$ ",
