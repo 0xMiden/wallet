@@ -176,13 +176,27 @@ export interface ResolvedGuardianOption {
  * Single source of truth so the create picker and import presets can't drift.
  */
 export function getGuardianOptionsForNetwork(network: MIDEN_NETWORK_NAME = DEFAULT_NETWORK): ResolvedGuardianOption[] {
-  return GUARDIAN_OPTIONS.filter(o => o.endpoint.has(network)).map(o => ({
+  const options = GUARDIAN_OPTIONS.filter(o => o.endpoint.has(network)).map(o => ({
     id: o.id,
     name: o.name,
     operatedBy: o.operatedBy,
     location: o.location,
     endpoint: o.endpoint.get(network)!
   }));
+
+  // Localnet E2E only: expose a second guardian instance (container at :3001).
+  // Never visible in production — gated on MIDEN_E2E_TEST.
+  if (network === MIDEN_NETWORK_NAME.LOCALNET && process.env.MIDEN_E2E_TEST === 'true') {
+    options.push({
+      id: 'open-zeppelin-b',
+      name: 'OpenZeppelin B',
+      operatedBy: 'Open-Zeppelin',
+      location: 'US-EAST',
+      endpoint: 'http://localhost:3001'
+    });
+  }
+
+  return options;
 }
 
 /**

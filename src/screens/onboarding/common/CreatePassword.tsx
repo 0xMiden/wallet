@@ -164,6 +164,7 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
       <article className="w-full justify-center items-center flex flex-col gap-y-6">
         <div className="flex flex-col gap-y-2 w-full">
           <Input
+            data-testid="create-password-input"
             type={isPasswordVisible ? 'text' : 'password'}
             label={t('password')}
             value={password}
@@ -181,6 +182,7 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
 
         <div className="flex flex-col gap-y-2 w-full">
           <Input
+            data-testid="create-password-verify-input"
             ref={verifyPasswordRef}
             type={isVerifyPasswordVisible ? 'text' : 'password'}
             label={t('verifyPassword')}
@@ -224,7 +226,12 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
           </a>
           .
         </p>
-        <Button title={t('continue')} disabled={!isValidPassword} onClick={onPasswordSubmit} />
+        <Button
+          data-testid="create-password-submit"
+          title={t('continue')}
+          disabled={!isValidPassword}
+          onClick={onPasswordSubmit}
+        />
       </div>
     </div>
   );

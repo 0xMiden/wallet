@@ -119,6 +119,7 @@ const RotateGuardianReview: FC = () => {
 
           <div className="mt-auto pt-6">
             <Button
+              data-testid="rotate-guardian-confirm"
               title={submitting ? t('loading') : t('continue')}
               onClick={handleContinue}
               disabled={submitting || !currentAccount || !newEndpoint}

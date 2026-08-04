@@ -177,6 +177,17 @@ const Welcome: FC = () => {
       `[Welcome] Test bypass: setting up seed + password, walletType=${bypassWalletType}, onboardingType=${bypassOnboardingType}`
     );
     const testSeed = importedSeed ?? generateMnemonic(128).split(' ');
+    // E2E-only: surface the mnemonic actually used for this bypass run
+    // (freshly generated for Create, or the caller's own for Import) so the
+    // harness can recover the just-created wallet from a SEPARATE profile
+    // (see ChromeWalletPage.createGuardianWallet's return value in
+    // playwright/e2e/helpers/wallet-page.ts). Without this, a bypass-created
+    // wallet's random mnemonic only ever lives in this component's React
+    // state -- the UI never renders it (the bypass skips BackUpSeedPhrase),
+    // so nothing outside this closure could otherwise read it back. Zero
+    // production impact: this whole effect is gated on MIDEN_E2E_TEST above,
+    // same as __TEST_STORE__ / __TEST_INTERCOM__ (src/lib/store/index.ts).
+    (globalThis as { __TEST_LAST_GENERATED_SEED__?: string }).__TEST_LAST_GENERATED_SEED__ = testSeed.join(' ');
     const testPassword = params.get('password') || 'password1';
     setWalletType(bypassWalletType);
     setSeedPhrase(testSeed);

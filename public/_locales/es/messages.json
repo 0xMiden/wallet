@@ -1975,6 +1975,22 @@
     "message": "Selecciona la <b>primera</b> y la <b>última</b> palabra de tu frase",
     "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
+  "verifyStepSelectFirst": {
+    "message": "Toca la <b>primera</b> palabra de tu frase de recuperación.",
+    "englishSource": "Tap the <b>first</b> word of your recovery phrase"
+  },
+  "verifyStepSelectLast": {
+    "message": "Ahora toca la <b>última</b> palabra de tu frase de recuperación.",
+    "englishSource": "Now tap the <b>last</b> word of your recovery phrase"
+  },
+  "verifyStepCorrect": {
+    "message": "Esa es la primera y la última palabra: toca Continuar.",
+    "englishSource": "That's the first and last word — tap Continue"
+  },
+  "verifyStepWrong": {
+    "message": "Esa no es la primera ni la última palabra: tócalas nuevamente.",
+    "englishSource": "That's not the first and last word — tap them again"
+  },
   "enterYourWalletSeedPhrase": {
     "message": "Ingrese la Seed Phrase de 12 palabras de su billetera.",
     "englishSource": "Enter your wallet's 12-word Seed phrase."

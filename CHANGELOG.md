@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.15.18 (TBD)
+
+### Fixes
+
+- [FIX][all] **The guardian picker no longer crashes when a guardian operator has no registered wordmark.** The Choose-Guardian screen asserted a logo entry for every option (`GUARDIAN_LOGOS[option.id]!`), so any guardian without a registered logo threw and blanked the screen; it now falls back to a generic avatar, mirroring the guardian-settings row's existing safe lookup.
+- [FIX][all] **Seed-phrase import now accepts upper/mixed-case mnemonics.** BIP-39 word matching (and the checksum) is case-sensitive against the lowercase-only wordlist, so a mnemonic typed in uppercase or pasted from a password manager with mixed case failed validation and left the Import button disabled even when the checksum was valid. Both the typed (`onChange`) and pasted (`onInputPaste`) paths on the Import Seed Phrase screen now normalize input to lowercase before validation.
+
 ## 1.15.17 (2026-08-03)
 
 ### Fixes
