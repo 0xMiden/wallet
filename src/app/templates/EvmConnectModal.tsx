@@ -33,7 +33,7 @@ export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenCh
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="pb-6">
+      <DrawerContent className="pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
         <DrawerHeader>
           <DrawerTitle>{t('connectEvmWallet')}</DrawerTitle>
           <DrawerDescription>{t('connectEvmWalletDescription')}</DrawerDescription>

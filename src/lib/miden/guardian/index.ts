@@ -48,8 +48,17 @@ const SYNC_RETRY_DELAY_MS = 1000;
 // sooner than the ceiling" property is gone. If that property is still wanted,
 // set this strictly below MAX_SYNC_RETRIES (guardian-owner call).
 const MAX_GUARDIAN_CANONICALIZE_RETRIES = 30;
-const MAX_GUARDIAN_REGISTER_RETRIES = 5;
-const GUARDIAN_REGISTER_RETRY_DELAY_MS = 2000;
+const MAX_GUARDIAN_REGISTER_RETRIES = 8;
+// Exponential backoff (capped) for the guardian re-register. Right after the
+// guardian accepts a rotation/switch delta it can reject `/configure` for a few
+// seconds while it canonicalizes the new state. The old fixed 5×2s (~10s) budget
+// occasionally exhausted inside that window, so the best-effort post-rotation
+// re-register (`completeReplaceHotKeyTransaction`) could silently leave the new
+// hot key unauthorized — every later request then 401s "session expired" forever.
+// The backoff sequence (1+2+4+8+8+8+8s ≈ 39s over 8 attempts) comfortably clears
+// the canonicalization window while still bounding a genuinely-down guardian.
+const GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS = 1000;
+const GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS = 8000;
 const MIDEN_RPC_ENDPOINT = MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -535,7 +544,11 @@ export class MultisigService {
         lastError = error;
         console.warn(`registerOnGuardian failed (attempt ${attempt}/${MAX_GUARDIAN_REGISTER_RETRIES})`, error);
         if (attempt < MAX_GUARDIAN_REGISTER_RETRIES) {
-          await delay(GUARDIAN_REGISTER_RETRY_DELAY_MS);
+          const backoffMs = Math.min(
+            GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1),
+            GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS
+          );
+          await delay(backoffMs);
         }
       }
     }

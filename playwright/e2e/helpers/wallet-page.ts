@@ -261,8 +261,16 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * password if needed. Used to prove state that must be durably persisted
    * (e.g. a switched guardian endpoint) survives a fresh session, not just
    * the one that made the change.
+   *
+   * Returns whether it took the crash-recovery RELAUNCH path -- i.e. the browser
+   * was dead, so the whole persistent context was relaunched from the on-disk
+   * profile with a cold SW -- vs a normal warm page swap. A spec that used
+   * `killBrowser()` can assert the return is `true` to prove the crash path
+   * actually ran (guarding against e.g. a Playwright change that made
+   * `killBrowser()` a no-op, which would otherwise pass silently on the fast
+   * path).
    */
-  reopen(): Promise<void>;
+  reopen(): Promise<boolean>;
   /**
    * Terminate the wallet mid-flight: closes the current page and, unlike
    * `reopen()`, does NOT open a fresh one -- models a user closing the
@@ -278,6 +286,26 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * closed page in the meantime.
    */
   kill(): Promise<void>;
+  /**
+   * Like `kill()`, but tears down the ENTIRE browser (its persistent context
+   * AND the service worker), not just the page -- simulating the wallet's whole
+   * Chromium process crashing mid-flight, which the CI runner does
+   * intermittently in these specs. The follow-up `reopen()` detects the dead
+   * browser and recovers by relaunching the context on the same on-disk profile,
+   * so the wallet is restored from its persisted IndexedDB state and comes back
+   * USABLE (the SW's in-memory vault key is gone, so it comes back locked and
+   * `reopen()` unlocks it). Use this over `kill()` when a spec must
+   * DETERMINISTICALLY exercise that crash-recovery relaunch path rather than rely
+   * on an incidental (~coin-flip) crash. Callers must follow up with `reopen()`.
+   *
+   * NOTE: this does NOT auto-resume an in-flight transaction. Production's
+   * cold-start handler (`runtime.onStartup` -> `failInterruptedTransactions`)
+   * deliberately FAILS interrupted rows and requires a manual Retry, and the
+   * unpacked test extension never fires `runtime.onStartup` on relaunch anyway
+   * -- so a spec must not assert that a transaction interrupted by killBrowser()
+   * resumes (see guardian-recovery-stress.spec.ts's browser-crash describe).
+   */
+  killBrowser(): Promise<void>;
   /**
    * Poll for a transaction row of `transactionType` (`ITransaction.stage` in
    * `src/lib/miden/db/types.ts`) to reach `stage` while its status is still
@@ -960,7 +988,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     });
   }
 
-  async reopen(): Promise<void> {
+  async reopen(): Promise<boolean> {
     // Deliberately does NOT use chrome.runtime.reload(): that reloads the
     // whole extension bundle (tearing down and respawning the service
     // worker), and MV3 invalidates every currently-open extension page as
@@ -985,6 +1013,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     if (!this.page.isClosed()) {
       await this.page.close();
     }
+
+    // Set when openFreshPage takes the crash-recovery relaunch path below. The
+    // relaunched context has a genuinely COLD service worker (it must re-load the
+    // ~14MB WASM before intercom answers), so the readiness wait needs the same
+    // reload-retry budget as the initial launch rather than a single window.
+    let relaunched = false;
 
     // context.newPage() can transiently fail on a resource-constrained CI runner
     // with a Chromium protocol error ("Target.createTarget: Failed to open a new
@@ -1011,6 +1045,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           // already-onboarded wallet exactly as for a normal page swap.
           if (context.browser()?.isConnected() === false) {
             if (this.relaunch) {
+              relaunched = true;
               return await this.relaunch();
             }
             throw new Error(
@@ -1026,22 +1061,40 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     };
     const freshPage = await openFreshPage();
     this.currentPage = freshPage;
-    await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
 
     const explore = this.page.getByTestId('explore-page');
     const unlock = this.page.getByTestId('unlock-password');
 
-    // The SW is still alive across this swap, so the wallet is normally
-    // still unlocked -- but give this the same headroom as a cold start in
-    // case the SW happens to be busy (e.g. mid re-sync) when the fresh page
-    // reconnects over intercom.
-    await explore.or(unlock).first().waitFor({ timeout: 90_000 });
+    // Wait for the reopened, already-onboarded wallet to settle on either the
+    // Explore surface (normal case, still unlocked) or the unlock screen.
+    //
+    // On a normal page swap the service worker stays warm, so ONE 90s window is
+    // ample. On the crash-recovery relaunch path the SW is COLD and must re-load
+    // the ~14MB WASM before intercom answers -- which can outlast a single window
+    // under CI load. So mirror the initial launch (launchWalletInstance): give
+    // the relaunch case up to 3 windows, re-navigating between them so a cold
+    // init that misses one window gets a fresh retry instead of failing reopen().
+    const readinessAttempts = relaunched ? 3 : 1;
+    for (let attempt = 1; attempt <= readinessAttempts; attempt++) {
+      await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
+      try {
+        await explore.or(unlock).first().waitFor({ timeout: 90_000 });
+        break;
+      } catch (err) {
+        if (attempt === readinessAttempts) throw err;
+        // Cold SW still parsing WASM -- let React mount what it can, then the
+        // next iteration re-navigates for a fresh intercom retry window.
+        await this.page.waitForSelector('#root > *', { timeout: 15_000 }).catch(() => {});
+      }
+    }
 
     if (await unlock.isVisible().catch(() => false)) {
       await this.unlockWallet();
     } else {
       await explore.waitFor({ timeout: 15_000 });
     }
+
+    return relaunched;
   }
 
   async kill(): Promise<void> {
@@ -1052,6 +1105,19 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // teardown (e.g. from a crash) throwing here shouldn't fail the "kill"
     // step, only the "did the wallet recover" step that follows it.
     await this.page.close().catch(() => {});
+  }
+
+  async killBrowser(): Promise<void> {
+    // Tear down the ENTIRE browser (persistent context + service worker), not
+    // just the page -- a DETERMINISTIC stand-in for the intermittent Chromium
+    // process crash the CI runner produces mid-rotation. `context.browser()` is
+    // the Browser backing this wallet's persistent context; closing it drops the
+    // context too, so the following reopen() sees
+    // `context.browser()?.isConnected() === false` and takes its crash-recovery
+    // path (relaunch from the on-disk profile). Swallow errors: the browser may
+    // already be gone (e.g. it genuinely crashed first).
+    const browser = this.page.context().browser();
+    await browser?.close().catch(() => {});
   }
 
   async waitForStage(

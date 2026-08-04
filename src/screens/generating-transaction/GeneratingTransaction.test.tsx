@@ -438,6 +438,12 @@ describe('GeneratingTransaction stage + state rendering', () => {
     );
     expect(container.textContent).toContain('generatingTransaction');
     expect(container.textContent).toContain('generatingTransactionDescription');
+    const helper = Array.from(container.querySelectorAll('p')).find(
+      paragraph =>
+        paragraph.textContent === 'generatingTransactionDescription' && paragraph.classList.contains('font-bold')
+    );
+    expect(helper).toHaveClass('text-heading-gray');
+    expect(helper).not.toHaveClass('dark:text-white');
     act(() => root.unmount());
   });
 

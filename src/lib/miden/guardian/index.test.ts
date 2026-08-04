@@ -632,7 +632,7 @@ describe('MultisigService', () => {
           'Failed to register account on the new guardian after switching'
         );
         // MAX_GUARDIAN_REGISTER_RETRIES attempts.
-        expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(5);
+        expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(8);
       } finally {
         (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = origSetTimeout;
       }

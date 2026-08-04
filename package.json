@@ -1,6 +1,6 @@
 {
   "name": "miden-wallet",
-  "version": "1.15.17",
+  "version": "1.15.18",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
@@ -133,7 +133,7 @@
     "@epoch-protocol/epoch-intents-sdk": "^1.0.35",
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
-    "@miden-sdk/miden-sdk": "0.15.8",
+    "@miden-sdk/miden-sdk": "0.15.9",
     "@miden-sdk/react": "0.15.2",
     "@miden/dapp-browser": "link:./packages/dapp-browser",
     "@miden/native-prover": "link:./packages/native-prover",
@@ -332,7 +332,7 @@
     ]
   },
   "resolutions": {
-    "@miden-sdk/miden-sdk": "0.15.8",
+    "@miden-sdk/miden-sdk": "0.15.9",
     "@miden-sdk/react": "0.15.0",
     "strip-ansi": "6.0.1",
     "webpack": "^5",
@@ -358,7 +358,7 @@
     "**/brace-expansion": "^2.0.3",
     "**/minimatch": "^9.0.7",
     "**/tar": "^6.2.1",
-    "**/@miden-sdk/miden-sdk": "0.15.8"
+    "**/@miden-sdk/miden-sdk": "0.15.9"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

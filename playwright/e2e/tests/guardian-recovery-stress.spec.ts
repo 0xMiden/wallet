@@ -216,9 +216,10 @@ test.describe('Guardian recovery stress - kill mid-rotation resumes', () => {
  * the now-rotated on-chain account and hands its serialized state to
  * `registerOnGuardianWithRetry` (line 574) -- the SAME retry helper
  * `finalizeGuardianSwitch` calls for `switch-guardian` (line 521): up to
- * `MAX_GUARDIAN_REGISTER_RETRIES` (5) attempts, a fixed
- * `GUARDIAN_REGISTER_RETRY_DELAY_MS` (2000ms) apart, no exponential backoff
- * (`guardian/index.ts:51-52,528-543`).
+ * `MAX_GUARDIAN_REGISTER_RETRIES` (8) attempts with capped exponential backoff
+ * (1s doubling to an 8s ceiling, ~39s total) so the re-register survives the
+ * guardian's post-delta canonicalization window instead of exhausting inside it
+ * (`guardian/index.ts`).
  *
  * `armGuardianFault({ path: 'configure', mode: 'failFirstN', count: 2 })`
  * fails the recovered wallet's first 2 `/configure` calls (HTTP 500) and lets
@@ -532,6 +533,91 @@ test.describe('Guardian recovery stress - pending-delta conflict during rotation
         });
       },
       { screenshotWallets: [{ target: walletB.page, label: 'B' }] }
+    );
+  });
+});
+
+/**
+ * killBrowser() harness capability + reopen()'s crash-recovery relaunch,
+ * verified DETERMINISTICALLY. Where an incidental Chromium crash mid-test is a
+ * coin flip, killBrowser() tears the whole browser down (persistent context AND
+ * service worker) every run, so reopen()'s relaunch path -- and in particular
+ * its COLD-service-worker readiness wait (the relaunched SW must re-load the
+ * ~14MB WASM) -- is exercised on every run. No other spec covers that path
+ * deterministically.
+ *
+ * SCOPE, deliberately narrow: this asserts only the HARNESS-level guarantee --
+ * after the wallet's entire browser dies, reopen() brings it back USABLE with
+ * its account intact (read from the on-disk IndexedDB profile). It does NOT
+ * assert that an in-flight transaction RESUMES, because neither the product nor
+ * the harness makes that a sound claim:
+ *   - Production's cold-start handler (`runtime.onStartup` ->
+ *     `failInterruptedTransactions`, src/background.ts / transaction/cancel.ts)
+ *     deliberately FAILS every in-flight row and requires a manual Retry -- it
+ *     does NOT auto-resume (a resubmit could trip the node's nullifier check).
+ *   - The unpacked test extension never fires `runtime.onStartup` on a relaunch
+ *     anyway (Chrome treats `--load-extension` as a fresh install each launch,
+ *     firing `runtime.onInstalled` instead), so the harness cannot reproduce
+ *     that production behaviour here.
+ * A faithful "crash mid-rotation -> rotation Failed -> Retry completes" test is
+ * a documented follow-up (it needs a test-gated hook to fire the onStartup
+ * sweep). This test stays honest about what it can prove.
+ */
+test.describe('Guardian recovery stress - wallet survives a full browser crash', () => {
+  test('killBrowser() then reopen() relaunches from the on-disk profile to a usable wallet, account intact', async ({
+    walletA,
+    steps
+  }) => {
+    // Create + whole-browser relaunch + cold-SW re-init; no rotation/proof here,
+    // so 300s is ample.
+    test.setTimeout(300_000);
+
+    let address = '';
+
+    await steps.step(
+      'create_guardian_wallet_on_a',
+      async () => {
+        const created = await walletA.createGuardianWallet(A);
+        address = created.address;
+      },
+      { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
+    );
+
+    // Kill the WHOLE browser (context + SW), not just the page -- the
+    // deterministic stand-in for the intermittent Chromium crash. NOT wrapped in
+    // a step: the post-step screenshot would target the page killBrowser() just
+    // destroyed.
+    await walletA.killBrowser();
+
+    await steps.step(
+      'reopen_relaunches_to_usable_wallet',
+      async () => {
+        // reopen() finds the browser dead (context.browser() disconnected) and
+        // relaunches the persistent context on the same userDataDir; its cold-SW
+        // readiness wait must bring the wallet back to a usable surface (Explore,
+        // or unlock -> unlocked).
+        const relaunched = await walletA.reopen();
+        // Tripwire: prove killBrowser() actually killed the browser so reopen()
+        // took the crash-recovery RELAUNCH path, not the warm fast path. Without
+        // this, a killBrowser() that regressed to a no-op (e.g. a Playwright
+        // change making context.browser() null for persistent contexts) would
+        // leave the wallet warm and this test would still pass while covering
+        // none of the relaunch / cold-SW readiness code it exists to exercise.
+        expect(
+          relaunched,
+          'killBrowser() must have forced reopen into its crash-recovery relaunch path -- if false, the browser ' +
+            'did not actually die and this test is covering nothing'
+        ).toBe(true);
+
+        // The account persisted on disk (IndexedDB) survives the whole-browser
+        // crash + relaunch -- same account id read back afterwards.
+        const addressAfter = await walletA.getAccountAddress();
+        expect(
+          addressAfter,
+          'the guardian account must survive a whole-browser crash + relaunch, read back from the on-disk profile'
+        ).toBe(address);
+      },
+      { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
     );
   });
 });
