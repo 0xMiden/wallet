@@ -50,8 +50,8 @@ jest.mock('lib/miden/transaction', () => ({
 
 // Cold-re-register self-heal dependencies. isGuardianAuthRejection is stubbed to
 // treat an error tagged `__authRejection` as a 401 so tests can drive that path.
-const mockReRegister = jest.fn(async () => {});
-const mockBuildColdMultisigService = jest.fn(async () => ({ reRegisterCurrentStateOnGuardian: mockReRegister }));
+const mockReRegister = jest.fn();
+const mockBuildColdMultisigService = jest.fn();
 jest.mock('lib/miden/guardian', () => ({
   isGuardianAuthRejection: (err: unknown) => (err as { __authRejection?: boolean } | null)?.__authRejection === true,
   MultisigService: {
@@ -59,7 +59,7 @@ jest.mock('lib/miden/guardian', () => ({
   }
 }));
 
-const mockGetAccount = jest.fn(async (): Promise<unknown> => ({ __sdkAccount: true }));
+const mockGetAccount = jest.fn();
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({ getAccount: (...a: unknown[]) => mockGetAccount(...a) }),
   withWasmClientLock: async (fn: () => Promise<unknown>) => fn()
@@ -238,6 +238,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     mockReRegister.mockClear();
     mockGetAccount.mockClear();
     mockClearGuardianServiceFor.mockClear();
+    mockBuildColdMultisigService.mockResolvedValue({ reRegisterCurrentStateOnGuardian: mockReRegister });
     mockGetAccount.mockResolvedValue({ __sdkAccount: true });
     mockReRegister.mockResolvedValue(undefined);
   });
