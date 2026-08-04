@@ -1,6 +1,12 @@
+import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
 
-const A = 'http://localhost:3000';
+// The wallet's guardian operator for the active network: the local container on
+// localhost, the real operator (e.g. guardian.openzeppelin.com) on
+// devnet/testnet. Fault injection keys on this origin (see harness/guardian-
+// fault.ts), so the spec exercises whichever guardian the wallet actually talks
+// to — not just the local container.
+const A = getEnvironmentConfig().guardianUrl;
 
 /**
  * Guardian commitment (the on-chain `GUARDIAN_SLOT_NAMES.PUBLIC_KEY` value)
