@@ -29,3 +29,25 @@ export const TRANSACTION_STEPS = [
     defaultLabel: 'Syncing with Guardian'
   }
 ] as const;
+
+/**
+ * Steps of a tracking-only EVM → Miden bridge row. These rows never enter the
+ * Miden prove/submit FIFO (they are born `Completed`), so they get their own
+ * two-step ladder driven by `extraInputs.phase` instead of `ITransactionStatus`.
+ * The first step's label depends on the provider — see `AGGLAYER_SUBMIT_STEP_LABEL_KEY`.
+ */
+export const BRIDGED_RECEIVE_STEPS = [
+  {
+    id: 'bridge-submitting',
+    labelKey: 'transactionStepSubmittingIntent',
+    defaultLabel: 'Submitting intent'
+  },
+  {
+    id: 'bridge-delivering',
+    labelKey: 'transactionStepBridgingToMiden',
+    defaultLabel: 'Bridging to Miden'
+  }
+] as const;
+
+/** AggLayer broadcasts a Sepolia tx rather than an intent, so its first step reads differently. */
+export const AGGLAYER_SUBMIT_STEP_LABEL_KEY = 'transactionStepSendingToEthereum';

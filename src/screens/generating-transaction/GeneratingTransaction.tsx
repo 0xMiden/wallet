@@ -21,7 +21,9 @@ import { navigate, Redirect } from 'lib/woozie';
 
 import { TransactionHeroIcon, TransactionStepRow } from './components';
 import {
+  AGGLAYER_SUBMIT_STEP_LABEL_KEY,
   AUTO_CLOSE_DELAY_MS,
+  BRIDGED_RECEIVE_STEPS,
   EXPLORER_TITLE,
   SUCCESS_RECEIPT_DELAY_MS,
   TRANSACTION_LOOP_INTERVAL_MS,
@@ -29,10 +31,12 @@ import {
 } from './constants';
 import {
   getActiveTransactionStepIndex,
+  getBridgedReceiveStepIndex,
   getProcessingTitleKey,
   getStageDescriptionKey,
   getStageTitleKey,
-  getTransactionStepState
+  getTransactionStepState,
+  readBridgedReceiveMeta
 } from './helper';
 import { TransactionSuccess } from './TransactionSuccess';
 import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
@@ -40,7 +44,8 @@ import type {
   GeneratingTransactionPageProps,
   GeneratingTransactionProps,
   TransactionHeroState,
-  TransactionStep
+  TransactionStep,
+  TransactionStepDescriptor
 } from './types';
 import { useTransactionRow } from './useTransactionRow';
 
@@ -124,17 +129,23 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }, [generateTransaction]);
 
   const status = active?.status;
-  const transactionComplete = status === ITransactionStatus.Completed || status === ITransactionStatus.Failed;
-  const hasErrors = status === ITransactionStatus.Failed;
+  // Bridged-receive rows are born `Completed` (they never enter the Miden FIFO),
+  // so status says nothing about them — `extraInputs.phase` is their lifecycle.
+  const bridgedReceive = useMemo(() => readBridgedReceiveMeta(active), [active]);
+  const transactionComplete = bridgedReceive
+    ? bridgedReceive.phase !== 'submitting'
+    : status === ITransactionStatus.Completed || status === ITransactionStatus.Failed;
+  const hasErrors = bridgedReceive ? bridgedReceive.phase === 'failed' : status === ITransactionStatus.Failed;
   const activeStage = active?.stage;
   const activeType = active?.type;
 
-  // Record the on-chain hash once the row reaches Completed with one set.
+  // Record the on-chain hash once the row reaches Completed with one set. A
+  // bridged-receive row has no Miden hash to record (and is Completed from birth).
   useEffect(() => {
-    if (status === ITransactionStatus.Completed && active?.transactionId) {
+    if (!bridgedReceive && status === ITransactionStatus.Completed && active?.transactionId) {
       useWalletStore.getState().setLastCompletedTxHash(active.transactionId);
     }
-  }, [status, active?.transactionId]);
+  }, [bridgedReceive, status, active?.transactionId]);
 
   // Auto-close once the tx reaches a terminal state (mirrors the old
   // "left flight" transition, now derived from status rather than the tx
@@ -152,7 +163,8 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }, [transactionComplete, trackEvent, onClose]);
 
   const lastCompletedTxHash = useWalletStore(state => state.lastCompletedTxHash);
-  const receiptTxHash = lastCompletedTxHash ?? active?.transactionId ?? null;
+  // A bridge row's only hash is a Sepolia one — Midenscan can't resolve it.
+  const receiptTxHash = bridgedReceive ? null : (lastCompletedTxHash ?? active?.transactionId ?? null);
   const explorerUrl = receiptTxHash ? getExplorerTxUrl(receiptTxHash) : undefined;
   const onViewExplorer = useCallback(() => {
     if (!explorerUrl) return;
@@ -186,6 +198,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           completedTransaction={active}
           completedTxHash={receiptTxHash}
           onViewExplorer={explorerUrl ? onViewExplorer : undefined}
+          bridgedReceive={bridgedReceive}
         />
       </div>
     </div>
@@ -202,7 +215,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   activeTransaction,
   completedTransaction,
   completedTxHash,
-  onViewExplorer
+  onViewExplorer,
+  bridgedReceive
 }) => {
   const [stepTimings, setStepTimings] = useState<TransactionStepTimings>({});
   const [showSuccessReceipt, setShowSuccessReceipt] = useState(false);
@@ -215,7 +229,9 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   }, [timingTransactionId]);
 
   useEffect(() => {
-    if (!transactionComplete || hasErrors) {
+    // The success receipt is a Miden-transaction artifact (hash + explorer link);
+    // a bridge hand-off has neither, so the page keeps its own done state.
+    if (!transactionComplete || hasErrors || bridgedReceive) {
       setShowSuccessReceipt(false);
       return;
     }
@@ -227,9 +243,12 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [hasErrors, transactionComplete]);
+  }, [bridgedReceive, hasErrors, transactionComplete]);
 
   useEffect(() => {
+    // Per-step timings are keyed by the Miden step ladder; the bridge ladder has
+    // no stages to time.
+    if (bridgedReceive) return;
     if (transactionComplete) {
       const now = Date.now();
       const lastStep = TRANSACTION_STEPS[TRANSACTION_STEPS.length - 1];
@@ -273,7 +292,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
         }
       };
     });
-  }, [activeStage, timingTransactionId, transactionComplete]);
+  }, [activeStage, bridgedReceive, timingTransactionId, transactionComplete]);
 
   const stepDurationLabels = useMemo(
     () =>
@@ -291,21 +310,28 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     if (transactionComplete && hasErrors) {
       return t('transactionFailed');
     }
+    if (bridgedReceive) {
+      // "Complete" here means the bridge was handed off, not that the funds landed.
+      return transactionComplete ? t('bridgedReceiveSubmittedTitle') : t('bridgedReceiveProcessingTitle');
+    }
     if (transactionComplete) {
       return t('transactionCompleted');
     }
     return t(getStageTitleKey(activeStage, activeType));
-  }, [transactionComplete, hasErrors, t, activeStage, activeType]);
+  }, [bridgedReceive, transactionComplete, hasErrors, t, activeStage, activeType]);
 
   const descriptionText = useCallback(() => {
     if (transactionComplete && hasErrors) {
       return t('transactionErrorDescription');
     }
+    if (bridgedReceive) {
+      return transactionComplete ? t('bridgedReceiveOnTheWay') : t('bridgedReceiveProcessingDescription');
+    }
     if (transactionComplete) {
       return t('transactionSuccessDescription');
     }
     return t(getStageDescriptionKey(activeStage));
-  }, [transactionComplete, hasErrors, t, activeStage]);
+  }, [bridgedReceive, transactionComplete, hasErrors, t, activeStage]);
 
   const dismissalDescription = useMemo(() => {
     if (keepOpen) {
@@ -319,16 +345,28 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // stage-based, matching the redesign. `send` and `swap` have bespoke titles;
   // other types fall back to the generic label.
   const processingTitleKey = getProcessingTitleKey(activeType);
-  const visibleTitle = transactionComplete ? headerText() : t(processingTitleKey);
+  const visibleTitle = bridgedReceive || transactionComplete ? headerText() : t(processingTitleKey);
   const processingTitle = t('transactionProcessingHeader', { defaultValue: 'Processing' });
-  const footerDescription = transactionComplete ? descriptionText() : t('generatingTransactionDescription');
+  const footerDescription = bridgedReceive
+    ? descriptionText()
+    : transactionComplete
+      ? descriptionText()
+      : t('generatingTransactionDescription');
+
+  // Bridged-receive rows run their own two-step ladder off `phase`; everything
+  // else runs the Miden prove/submit ladder off `stage`.
+  const steps: readonly TransactionStepDescriptor[] = bridgedReceive ? BRIDGED_RECEIVE_STEPS : TRANSACTION_STEPS;
   // On failure the row's stage freezes at the failing phase (setTransactionStage
   // never writes past a terminal status), so it pins the cross to the right step.
-  const activeStepIndex = hasErrors
-    ? Math.min(getActiveTransactionStepIndex(activeStage), TRANSACTION_STEPS.length - 1)
-    : transactionComplete
-      ? TRANSACTION_STEPS.length
-      : getActiveTransactionStepIndex(activeStage);
+  const activeStepIndex = bridgedReceive
+    ? getBridgedReceiveStepIndex(bridgedReceive.phase)
+    : hasErrors
+      ? Math.min(getActiveTransactionStepIndex(activeStage), TRANSACTION_STEPS.length - 1)
+      : transactionComplete
+        ? TRANSACTION_STEPS.length
+        : getActiveTransactionStepIndex(activeStage);
+  // AggLayer broadcasts a Sepolia transaction where Epoch submits an intent.
+  const bridgeSubmitLabel = bridgedReceive?.provider === 'agglayer' ? t(AGGLAYER_SUBMIT_STEP_LABEL_KEY) : undefined;
   // A successful tx still renders here for SUCCESS_RECEIPT_DELAY_MS before the
   // receipt takes over, so the hero has to show a settled success state — not
   // the spinner — while the title already reads "Transaction completed".
@@ -363,15 +401,16 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
           )}
 
           <div className="mt-4 w-full overflow-hidden rounded-2xl border border-[#ECEBE8] bg-surface-solid">
-            {TRANSACTION_STEPS.map((step, index) => {
+            {steps.map((step, index) => {
               const state = getTransactionStepState(index, activeStepIndex, transactionComplete, hasErrors);
               return (
                 <TransactionStepRow
                   key={step.id}
                   step={step}
                   state={state}
-                  isLast={index === TRANSACTION_STEPS.length - 1}
-                  meta={state === 'complete' ? stepDurationLabels[index] : undefined}
+                  isLast={index === steps.length - 1}
+                  label={index === 0 ? bridgeSubmitLabel : undefined}
+                  meta={!bridgedReceive && state === 'complete' ? stepDurationLabels[index] : undefined}
                 />
               );
             })}

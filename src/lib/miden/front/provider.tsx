@@ -3,6 +3,9 @@ import React, { FC, useEffect, useMemo, useState } from 'react';
 import { MidenProvider as SdkMidenProvider } from '@miden-sdk/react/lazy';
 
 import { NoteToastProvider } from 'components/NoteToastProvider';
+// Direct module path (not the barrel): the barrel also pulls the bridge
+// executors, which drag the Epoch/viem stack into every app entry point.
+import { DepositAddressWatcher } from 'lib/deposit-bridge/DepositAddressWatcher';
 import { FiatCurrencyProvider } from 'lib/fiat-curency';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
@@ -161,6 +164,7 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
             {children}
             <SwapSettlementManager />
             <NativeNoteAutoConsumeManager />
+            <DepositAddressWatcher />
             {/* NoteToastProvider monitors for new notes and shows toast on mobile */}
             <NoteToastProvider />
           </FiatCurrencyProvider>

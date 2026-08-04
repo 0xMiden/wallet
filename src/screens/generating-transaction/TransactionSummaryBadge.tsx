@@ -1,6 +1,7 @@
 import React, { FC, ReactNode, useMemo } from 'react';
 
 import classNames from 'clsx';
+import { useTranslation } from 'react-i18next';
 
 import { ITransaction } from 'lib/miden/db/types';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
@@ -150,9 +151,10 @@ const earnMarketLabel = (marketUid: string): string | undefined => {
 /**
  * Implemented variants:
  *
- *   send          →  {amount} {symbol}        ->  {recipient}
- *   swap          →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
- *   earn-deposit  →  {amount} {symbol}        ↑   {protocol}-USDC   (up-arrow separator)
+ *   send             →  {amount} {symbol}        ->  {recipient}
+ *   swap             →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
+ *   earn-deposit     →  {amount} {symbol}        ↑   {protocol}-USDC   (up-arrow separator)
+ *   bridged-receive  →  {sourceAmount} {sourceSymbol} (Ethereum) -> Miden
  *
  * Other transaction types (consume/claim, switch-guardian, bridged sends)
  * render nothing for now. See CLAUDE.md -> "Transaction summary badge" for how
@@ -162,8 +164,31 @@ export const useTransactionSummaryBadgeContent = (
   transaction?: ITransaction
 ): TransactionSummaryBadgeContent | undefined => {
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
+  const { t } = useTranslation();
 
   return useMemo(() => {
+    if (transaction?.type === 'bridged-receive') {
+      // `extraInputs` is untyped on ITransaction — read the two display fields
+      // defensively rather than asserting the whole shape.
+      const extra: unknown = transaction.extraInputs;
+      const source = extra && typeof extra === 'object' ? extra : undefined;
+      const sourceAmount: unknown = source ? Reflect.get(source, 'sourceAmount') : undefined;
+      const sourceSymbol: unknown = source ? Reflect.get(source, 'sourceSymbol') : undefined;
+      if (typeof sourceAmount !== 'string' || !sourceAmount || typeof sourceSymbol !== 'string' || !sourceSymbol) {
+        return undefined;
+      }
+
+      return {
+        lhs: (
+          <span className="flex min-w-0 items-baseline gap-1.5">
+            <span className="truncate">{`${sourceAmount} ${sourceSymbol}`}</span>
+            <span className="shrink-0 text-sm font-medium text-gray">{t('ethereum')}</span>
+          </span>
+        ),
+        rhs: <span className="min-w-0 truncate">{t('miden')}</span>
+      };
+    }
+
     if (transaction?.type === 'earn-deposit') {
       const tokenMetadata = transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
       const decimals = tokenMetadata?.decimals ?? EARN_USDC_DECIMALS;
@@ -220,5 +245,5 @@ export const useTransactionSummaryBadgeContent = (
         </>
       )
     };
-  }, [assetsMetadata, transaction]);
+  }, [assetsMetadata, t, transaction]);
 };

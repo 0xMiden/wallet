@@ -193,6 +193,25 @@ describe('useTransactionSummaryBadgeContent', () => {
     act(() => root.unmount());
   });
 
+  it('summarises a bridged-receive row as source amount → Miden', async () => {
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'bridged-receive',
+        extraInputs: { provider: 'agglayer', phase: 'submitting', sourceAmount: '0.5', sourceSymbol: 'ETH' }
+      })
+    );
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toContain('0.5 ETH');
+    act(() => root.unmount());
+  });
+
+  it('returns undefined for a bridged-receive row missing its source fields', async () => {
+    const { container, root } = await renderProbe(
+      baseTransaction({ type: 'bridged-receive', extraInputs: { provider: 'epoch', phase: 'submitting' } })
+    );
+    expect(container.textContent).toContain('UNDEFINED');
+    act(() => root.unmount());
+  });
+
   it('tolerates an undefined assetsMetadata store slice', async () => {
     mockState.assetsMetadata = undefined;
     const { container, root } = await renderProbe(

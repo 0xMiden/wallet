@@ -1,7 +1,62 @@
-import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
+import type {
+  IBridgedReceivePhase,
+  IBridgeProvider,
+  ITransaction,
+  ITransactionStage,
+  ITransactionType
+} from 'lib/miden/db/types';
 
-import { TRANSACTION_STEPS } from './constants';
-import type { TransactionStepState } from './types';
+import { BRIDGED_RECEIVE_STEPS, TRANSACTION_STEPS } from './constants';
+import type { BridgedReceiveMeta, TransactionStepState } from './types';
+
+const BRIDGED_RECEIVE_PHASES: readonly IBridgedReceivePhase[] = [
+  'submitting',
+  'delivering',
+  'ready',
+  'received',
+  'failed'
+];
+
+const isBridgedReceivePhase = (value: unknown): value is IBridgedReceivePhase =>
+  typeof value === 'string' && BRIDGED_RECEIVE_PHASES.some(phase => phase === value);
+
+const isBridgeProvider = (value: unknown): value is IBridgeProvider => value === 'epoch' || value === 'agglayer';
+
+const readString = (source: object, key: string): string | undefined => {
+  const value: unknown = Reflect.get(source, key);
+  return typeof value === 'string' && value.trim() ? value : undefined;
+};
+
+/**
+ * Read the bridge lifecycle off a `bridged-receive` row. `extraInputs` is
+ * untyped on `ITransaction`, so every field is guarded rather than asserted.
+ * `undefined` means "not a bridged-receive row" and the caller falls back to the
+ * status-driven path.
+ */
+export const readBridgedReceiveMeta = (transaction?: ITransaction): BridgedReceiveMeta | undefined => {
+  if (transaction?.type !== 'bridged-receive') return undefined;
+  const extra: unknown = transaction.extraInputs;
+  if (!extra || typeof extra !== 'object') return undefined;
+  const phase: unknown = Reflect.get(extra, 'phase');
+  if (!isBridgedReceivePhase(phase)) return undefined;
+  const provider: unknown = Reflect.get(extra, 'provider');
+
+  return {
+    phase,
+    provider: isBridgeProvider(provider) ? provider : undefined,
+    sourceAmount: readString(extra, 'sourceAmount'),
+    sourceSymbol: readString(extra, 'sourceSymbol')
+  };
+};
+
+/**
+ * Step the bridge ladder sits on. `submitting` is the only in-flight phase the
+ * page waits out: once the bridge is handed off (`delivering` and beyond) the
+ * page is done and the row's remaining life belongs to Activity. A `failed`
+ * phase is always a pre-submit failure, so it pins the cross to the first step.
+ */
+export const getBridgedReceiveStepIndex = (phase: IBridgedReceivePhase): number =>
+  phase === 'submitting' || phase === 'failed' ? 0 : BRIDGED_RECEIVE_STEPS.length;
 
 export const getActiveTransactionStepIndex = (stage?: ITransactionStage): number => {
   switch (stage) {

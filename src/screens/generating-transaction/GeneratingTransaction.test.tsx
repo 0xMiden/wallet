@@ -383,6 +383,130 @@ describe('GeneratingTransactionPage container effects', () => {
   });
 });
 
+describe('GeneratingTransactionPage bridged-receive rows', () => {
+  beforeAll(() => {
+    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+  });
+
+  afterAll(() => {
+    delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockWalletStoreState.lastCompletedTxHash = null;
+    mockWalletStoreState.setLastCompletedTxHash.mockClear();
+    safeGenerateTransactionsLoopMock.mockReset();
+    safeGenerateTransactionsLoopMock.mockReturnValue(true);
+    getExplorerTxUrlMock.mockReset();
+    getExplorerTxUrlMock.mockReturnValue('https://devnet.midenscan.com/tx/0xhash');
+    window.location.hash = '';
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    window.location.hash = '';
+  });
+
+  // Bridge rows are born Completed (status 2) with the real lifecycle in
+  // extraInputs.phase, so status must NOT drive this screen for them.
+  const makeBridgeRow = (phase: string, provider: 'epoch' | 'agglayer', extra: Record<string, any> = {}) =>
+    makeTx({
+      type: 'bridged-receive',
+      status: 2,
+      transactionId: '0xhash',
+      extraInputs: { provider, phase, sourceAmount: '0.5', sourceSymbol: 'ETH', ...extra }
+    });
+
+  const mount = async (element: React.ReactElement) => {
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(element);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    return { container, root };
+  };
+
+  const stepStates = (container: HTMLElement) =>
+    Object.fromEntries(
+      Array.from(container.querySelectorAll('[data-transaction-step]')).map(el => [
+        el.getAttribute('data-transaction-step'),
+        el.getAttribute('data-state')
+      ])
+    );
+
+  it('stays in-flight while the phase is submitting, showing the bridge ladder', async () => {
+    mockRowState = { row: makeBridgeRow('submitting', 'agglayer'), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.textContent).toContain('bridgedReceiveProcessingTitle');
+    expect(stepStates(container)).toEqual({ 'bridge-submitting': 'active', 'bridge-delivering': 'pending' });
+    // AggLayer broadcasts a Sepolia tx rather than submitting an intent.
+    expect(container.textContent).toContain('transactionStepSendingToEthereum');
+    act(() => root.unmount());
+  });
+
+  it('labels the first step as an intent submit on the Epoch route', async () => {
+    mockRowState = { row: makeBridgeRow('submitting', 'epoch', { sourceSymbol: 'USDC' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.textContent).toContain('transactionStepSubmittingIntent');
+    expect(container.textContent).not.toContain('transactionStepSendingToEthereum');
+    act(() => root.unmount());
+  });
+
+  it('is page-complete once the bridge reaches delivering', async () => {
+    mockRowState = { row: makeBridgeRow('delivering', 'agglayer'), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.textContent).toContain('bridgedReceiveSubmittedTitle');
+    expect(container.textContent).toContain('bridgedReceiveOnTheWay');
+    expect(stepStates(container)).toEqual({ 'bridge-submitting': 'complete', 'bridge-delivering': 'complete' });
+    act(() => root.unmount());
+  });
+
+  it('does not swap in the Miden success receipt for a bridge hand-off', async () => {
+    mockRowState = { row: makeBridgeRow('delivering', 'agglayer'), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    await act(async () => {
+      jest.advanceTimersByTime(1_500);
+    });
+
+    expect(container.textContent).toContain('bridgedReceiveOnTheWay');
+    expect(container.textContent).not.toContain('viewOnMidenscan');
+    // No Miden hash exists for a bridge row, so none is recorded.
+    expect(mockWalletStoreState.setLastCompletedTxHash).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it('renders the error state when the phase is failed', async () => {
+    mockRowState = { row: makeBridgeRow('failed', 'epoch', { error: 'nope' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.textContent).toContain('transactionFailed');
+    expect(stepStates(container)).toEqual({ 'bridge-submitting': 'failed', 'bridge-delivering': 'pending' });
+    act(() => root.unmount());
+  });
+
+  it('falls back to the status-driven path when the phase is unreadable', async () => {
+    mockRowState = { row: makeTx({ type: 'bridged-receive', status: 2, extraInputs: {} }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(stepStates(container)).toHaveProperty('guardian-approving');
+    act(() => root.unmount());
+  });
+});
+
 describe('GeneratingTransaction stage + state rendering', () => {
   beforeAll(() => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;

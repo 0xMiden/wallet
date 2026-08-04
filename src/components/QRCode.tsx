@@ -11,6 +11,12 @@ export interface QRCodeProps {
   address: string;
   /** Size of the QR code in pixels */
   size: number;
+  /**
+   * Raw payload to encode instead of the default `encodeAddress(address)`
+   * (`miden:<address>`). Used for non-Miden chains — an EVM deposit QR must
+   * carry the bare `0x…` address so any wallet scanner accepts it.
+   */
+  payload?: string;
 }
 
 export interface QRCodeHandle {
@@ -32,8 +38,8 @@ const getAccentColor = (): string => {
  * Renders a styled QR (circular dots, accent-primary color, Miden logo centered)
  * encoding the address in miden:<address> format via qr-code-styling.
  */
-export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size }, ref) => {
-  const qrValue = encodeAddress(address);
+export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size, payload }, ref) => {
+  const qrValue = payload ?? encodeAddress(address);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const options = useMemo<Options>(() => {
