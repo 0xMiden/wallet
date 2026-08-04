@@ -28,6 +28,7 @@ import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { MIDEN_NETWORK_NAME, MIDEN_FAUCET_ENDPOINTS } from 'lib/miden-chain/constants';
 import { isExtension, isMobile } from 'lib/platform';
+import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
@@ -184,13 +185,21 @@ const Explore: FC = () => {
   }, [fetchFaucetState]);
 
   const filteredTokens = useMemo(() => {
-    const sorted = [...allTokenBalances].sort(a => (a.tokenId === midenFaucetId ? -1 : 1));
+    const sorted = [...allTokenBalances].sort((a, b) => {
+      const aIsNative = a.tokenId === midenFaucetId;
+      const bIsNative = b.tokenId === midenFaucetId;
+      if (aIsNative !== bIsNative) return aIsNative ? -1 : 1;
+
+      const aFiatValue = a.balance * getTokenPrice(tokenPrices, a.metadata.symbol).price;
+      const bFiatValue = b.balance * getTokenPrice(tokenPrices, b.metadata.symbol).price;
+      return bFiatValue - aFiatValue;
+    });
     if (!search.trim()) return sorted;
     const query = search.toLowerCase();
     return sorted.filter(
       asset => asset.metadata.symbol.toLowerCase().includes(query) || asset.metadata.name?.toLowerCase().includes(query)
     );
-  }, [allTokenBalances, midenFaucetId, search]);
+  }, [allTokenBalances, midenFaucetId, search, tokenPrices]);
 
   const refreshExplore = useCallback(async () => {
     if (isRefreshing) return;

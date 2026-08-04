@@ -205,6 +205,7 @@ describe('FormField', () => {
 
       const banner = screen.getByText('clickToRevealField');
       expect(banner).toBeInTheDocument();
+      expect(container.querySelector('svg')).toHaveClass('text-heading-gray');
 
       act(() => {
         fireEvent.click(banner);
