@@ -841,7 +841,8 @@ export class IosWalletPage implements WalletPage {
 
   /**
    * Read a Guardian account's on-chain auth structure (overall threshold,
-   * signer commitments, per-procedure thresholds).
+   * signer commitments, per-procedure thresholds, active guardian-operator
+   * commitment).
    *
    * iOS reads this from the `__TEST_GUARDIAN_AUTH_STRUCTURE__` stash that the
    * wallet's own balance poll populates (`fetchBalances` →
@@ -887,7 +888,8 @@ export class IosWalletPage implements WalletPage {
            return {
              threshold: v.threshold,
              signerCommitments: v.signerCommitments,
-             procedureThresholds: v.procedureThresholds
+             procedureThresholds: v.procedureThresholds,
+             guardianCommitment: v.guardianCommitment
            };`
         );
         if (result) return result;

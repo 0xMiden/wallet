@@ -13,6 +13,8 @@ type Props = {
   iconClassName?: string;
   id?: string;
   suffix?: string;
+  /** Optional E2E hook, forwarded to the root <input>. Set by specific callers. */
+  'data-testid'?: string;
 };
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement>, Props {}

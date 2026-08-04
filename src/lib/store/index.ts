@@ -838,8 +838,13 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   })();
 
   // Guardian on-chain auth structure (overall threshold + signer set + procedure
-  // thresholds) for E2E assertions — the harness's balance checks can't see the
-  // 3-key shape. Dynamic imports avoid a static cycle.
+  // thresholds + the active guardian-operator commitment) for E2E assertions —
+  // the harness's balance checks can't see the 3-key shape. The guardian
+  // commitment (`GUARDIAN_SLOT_NAMES.PUBLIC_KEY`) is a SEPARATE storage slot
+  // from the multisig `signerCommitments` (`[hot, cold]`) — a guardian switch
+  // changes the former while the latter (and its threshold) stay put, so it's
+  // the field E2E specs need to verify a switch actually landed. Dynamic
+  // imports avoid a static cycle.
   (globalThis as any).__TEST_GUARDIAN_AUTH__ = async (accountPublicKey: string) => {
     // Fast path: the balance poll (`fetchBalances`, which reliably completes in
     // the wallet's own flow) stashes this account's auth structure on
@@ -852,7 +857,12 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       globalThis as {
         __TEST_GUARDIAN_AUTH_STRUCTURE__?: Record<
           string,
-          { threshold: number; signerCommitments: string[]; procedureThresholds: Record<string, number> }
+          {
+            threshold: number;
+            signerCommitments: string[];
+            procedureThresholds: Record<string, number>;
+            guardianCommitment?: string;
+          }
         >;
       }
     ).__TEST_GUARDIAN_AUTH_STRUCTURE__;
@@ -886,9 +896,10 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     // on MIDEN_E2E_TEST, tree-shaken from production.
     setTestSyncPaused(true);
     try {
-      const [{ AccountInspector }, { getMidenClient }] = await Promise.all([
+      const [{ AccountInspector }, { getMidenClient }, { getGuardianCommitmentFromAccount }] = await Promise.all([
         import('@openzeppelin/miden-multisig-client'),
-        import('lib/miden/sdk/miden-client')
+        import('lib/miden/sdk/miden-client'),
+        import('lib/miden/guardian/account')
       ]);
       const account = await (await getMidenClient()).getAccount(accountPublicKey);
       if (!account) {
@@ -898,7 +909,12 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       return {
         threshold: config.threshold,
         signerCommitments: config.signerCommitments,
-        procedureThresholds: Object.fromEntries(config.procedureThresholds)
+        procedureThresholds: Object.fromEntries(config.procedureThresholds),
+        // Active guardian-operator commitment — a SEPARATE storage slot
+        // (`GUARDIAN_SLOT_NAMES.PUBLIC_KEY`) from `signerCommitments` above.
+        // A guardian switch changes this while the signer set / threshold
+        // stay put, so this is the field that actually verifies a switch.
+        guardianCommitment: getGuardianCommitmentFromAccount(account)
       };
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };

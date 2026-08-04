@@ -98,10 +98,17 @@ export class TestStepRunner {
 
         for (const { target, label } of options.screenshotWallets) {
           const filename = `step-${checkpoint.index}-${name}-wallet-${label.toLowerCase()}.png`;
-          await target.screenshot({ path: path.join(screenshotsDir, filename) });
-          checkpoint.screenshotPaths = checkpoint.screenshotPaths ?? {};
-          if (label === 'A') checkpoint.screenshotPaths.walletA = filename;
-          else checkpoint.screenshotPaths.walletB = filename;
+          try {
+            // Diagnostic capture only. A page the step itself tore down
+            // (kill()/reopen() in the resilience specs) must not fail an
+            // otherwise-successful step — skip the shot if it's already closed.
+            await target.screenshot({ path: path.join(screenshotsDir, filename) });
+            checkpoint.screenshotPaths = checkpoint.screenshotPaths ?? {};
+            if (label === 'A') checkpoint.screenshotPaths.walletA = filename;
+            else checkpoint.screenshotPaths.walletB = filename;
+          } catch {
+            // page closed (or context gone) — screenshot is best-effort
+          }
         }
       }
 
