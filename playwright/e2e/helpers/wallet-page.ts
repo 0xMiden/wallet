@@ -350,11 +350,17 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   private currentPage: Page;
   readonly extensionId: string;
   readonly userDataDir: string;
+  // Optional recovery hook (wired by the two-wallets fixture). reopen() calls it
+  // when it finds the browser PROCESS dead (not just the page): it relaunches
+  // this wallet's persistent context on the same userDataDir and returns the
+  // fresh page, so the wallet resumes from its on-disk profile.
+  private readonly relaunch?: () => Promise<Page>;
 
-  constructor(page: Page, extensionId: string, userDataDir: string = '') {
+  constructor(page: Page, extensionId: string, userDataDir: string = '', relaunch?: () => Promise<Page>) {
     this.currentPage = page;
     this.extensionId = extensionId;
     this.userDataDir = userDataDir;
+    this.relaunch = relaunch;
   }
 
   /**
@@ -994,17 +1000,23 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           lastErr = err;
           // A disconnected browser is a DEAD context, not the transient
           // "Target.createTarget: Failed to open a new tab" blip this retry
-          // loop exists for -- retrying newPage on it can never succeed, so
-          // stop early and surface WHY. The bare "Target ... has been closed"
-          // hides that the whole Chromium instance vanished between kill() and
-          // reopen() (a crash / OOM-kill of the browser process, diagnosed by
-          // the workflow's dmesg step), which is a different failure class than
-          // a momentary tab-open hiccup.
+          // loop exists for -- retrying newPage on it can never succeed. The
+          // whole Chromium instance vanished between kill() and reopen(): an
+          // intermittent browser crash the guardian recovery specs hit here
+          // (NOT OOM -- CI dmesg/free showed ~12GB free). Recover the way a real
+          // user would after their browser crashed: if this wallet was given a
+          // relaunch hook, relaunch its persistent context on the same on-disk
+          // profile so it resumes from persisted state (IndexedDB survives).
+          // Then reopen()'s tail below re-navigates + unlocks the reopened,
+          // already-onboarded wallet exactly as for a normal page swap.
           if (context.browser()?.isConnected() === false) {
+            if (this.relaunch) {
+              return await this.relaunch();
+            }
             throw new Error(
-              'reopen: the browser process for this wallet is gone (context disconnected) before newPage could ' +
-                'succeed -- the Chromium instance crashed or was OOM-killed between kill() and reopen(), not a ' +
-                `transient Target.createTarget failure. Original: ${(err as Error).message}`
+              'reopen: the browser process for this wallet is gone (context disconnected) and no relaunch hook ' +
+                'was provided -- the Chromium instance crashed between kill() and reopen(). ' +
+                `Original: ${(err as Error).message}`
             );
           }
           await new Promise(resolve => setTimeout(resolve, 500 * attempt));

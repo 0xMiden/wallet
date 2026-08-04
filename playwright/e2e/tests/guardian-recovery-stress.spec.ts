@@ -115,9 +115,11 @@ test.describe('Guardian recovery stress - kill mid-rotation resumes', () => {
     // Free wallet A: it created + funded the account and is unused for the rest
     // of the test (every later step is wallet B only). Closing its page releases
     // the renderer + WASM heap so A isn't resident during B's memory-heavy
-    // device-key-rotation proof -- a peak-RAM cut at the exact point where
-    // reopen() intermittently found the whole Chromium instance gone. kill()
-    // closes only the page (the fixture still owns context teardown), and every
+    // device-key-rotation proof -- general memory hygiene on the loaded runner.
+    // (This is NOT the fix for reopen()'s intermittent browser crash: that crash
+    // is NOT OOM -- CI dmesg/free showed ~12GB free -- and is recovered from by
+    // reopen() relaunching the context from the on-disk profile.) kill() closes
+    // only the page (the fixture still owns context teardown), and every
     // failure-dump read of A's page is already try/caught (state-snapshot.ts /
     // test-step.ts).
     await walletA.kill();
@@ -288,7 +290,8 @@ test.describe('Guardian recovery stress - rotation register fault retries', () =
 
     // Free wallet A (unused after setup -- B-only hereafter): releases its
     // renderer + WASM heap so it isn't resident during B's memory-heavy rotation
-    // proof, cutting peak RAM at reopen()'s intermittent "browser gone" crash.
+    // proof -- general memory hygiene, NOT the browser-crash fix (that crash is
+    // not OOM; reopen() recovers from it by relaunching the context from disk).
     // kill() closes only the page; failure-dump reads of A are try/caught.
     await walletA.kill();
 
@@ -447,7 +450,8 @@ test.describe('Guardian recovery stress - pending-delta conflict during rotation
 
     // Free wallet A (unused after setup -- B-only hereafter): releases its
     // renderer + WASM heap so it isn't resident during B's memory-heavy rotation
-    // proof, cutting peak RAM at reopen()'s intermittent "browser gone" crash.
+    // proof -- general memory hygiene, NOT the browser-crash fix (that crash is
+    // not OOM; reopen() recovers from it by relaunching the context from disk).
     // kill() closes only the page; failure-dump reads of A are try/caught.
     await walletA.kill();
 
