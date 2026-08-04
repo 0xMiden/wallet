@@ -980,7 +980,24 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       await this.page.close();
     }
 
-    const freshPage = await context.newPage();
+    // context.newPage() can transiently fail on a resource-constrained CI runner
+    // with a Chromium protocol error ("Target.createTarget: Failed to open a new
+    // tab") right after a page teardown, before the browser has reclaimed the
+    // closed target. Retry with a short backoff rather than let a resource blip
+    // fail an otherwise-successful reopen.
+    const openFreshPage = async (): Promise<Page> => {
+      let lastErr: unknown;
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        try {
+          return await context.newPage();
+        } catch (err) {
+          lastErr = err;
+          await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+        }
+      }
+      throw lastErr;
+    };
+    const freshPage = await openFreshPage();
     this.currentPage = freshPage;
     await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
 
