@@ -109,7 +109,24 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`,
       '--no-first-run',
-      '--no-default-browser-check'
+      '--no-default-browser-check',
+      // CI hardening against browser-crash flakes in the guardian recovery
+      // specs. Peak RAM on the runner is high: two persistent contexts (A + B)
+      // plus the full docker stack (node/sequencer/prover/2 guardians/2
+      // postgres), and the recovery specs spike further when wallet B's service
+      // worker runs the device-key-rotation WASM proof in the background (it
+      // keeps proving AFTER kill() closes the page -- that's what the "resumes"
+      // assertion verifies). Under that pressure Chromium intermittently failed
+      // with `Target.createTarget: Failed to open a new tab` / `context or
+      // browser has been closed` at reopen() -- a resource-exhaustion crash, not
+      // a wallet fault. `--disable-dev-shm-usage` moves Chromium's shared memory
+      // off the small /dev/shm tmpfs onto disk (the standard fix for that exact
+      // error class on CI); `--disable-gpu` drops the unused GPU process under
+      // xvfb. Both are inert to extension/SW behaviour, so they change nothing
+      // about what the specs exercise -- they only stop the runner from OOM-
+      // killing the browser mid-proof.
+      '--disable-dev-shm-usage',
+      '--disable-gpu'
     ],
     ignoreDefaultArgs: ['--disable-extensions']
   });
