@@ -270,10 +270,31 @@ describe('ImportSeedPhraseScreen', () => {
       expect(mockInputProps[0].value).toBe('abandon');
       expect(mockInputProps[1].value).toBe('ability');
       expect(mockInputProps[2].value).toBe('able');
-      // Only three words were pasted, so later seedPhrase entries are undefined
-      // and the corresponding inputs render empty.
-      expect(mockInputProps[3].value).toBeUndefined();
+      // Only three words were pasted; the remaining slots are padded with ''.
+      expect(mockInputProps[3].value).toBe('');
       expect(screen.getByTestId('seed-phrase-input-3')).toHaveValue('');
+    });
+
+    it('lowercases pasted words and keeps the input array at 12 entries', () => {
+      setup();
+
+      pasteInto(0, VALID_MNEMONIC.map(w => w.toUpperCase()).join(' ') + ' extra');
+
+      VALID_MNEMONIC.forEach((word, i) => expect(mockInputProps[i].value).toBe(word));
+      // Words beyond the 12th are dropped rather than growing the array.
+      expect(mockInputProps).toHaveLength(12);
+      expect(mockButtonProps.disabled).toBe(false);
+    });
+  });
+
+  describe('typed input normalization', () => {
+    it('lowercases typed words and strips whitespace', () => {
+      setup();
+
+      changeWord(0, ' Abandon ');
+
+      expect(mockInputProps[0].value).toBe('abandon');
+      expect(screen.queryByText('importSeedPhraseError')).not.toBeInTheDocument();
     });
   });
 });

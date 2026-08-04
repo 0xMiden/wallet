@@ -1684,8 +1684,8 @@
     "englishSource": "Verify your recovery phrase"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Confirmez que vous avez enregistré votre Seed Phrase afin de pouvoir restaurer ce portefeuille plus tard.",
-    "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+    "message": "Notez votre Seed Phrase et vérifiez votre connaissance de ses premier et dernier mots afin de pouvoir restaurer ce portefeuille plus tard.",
+    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Signature sécurisée indisponible",
@@ -1708,16 +1708,16 @@
     "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
-    "message": "Vous révélerez votre Seed Phrase avant de la vérifier. Assurez-vous que personne ne puisse voir votre écran.",
-    "englishSource": "You will reveal your recovery phrase before verifying it. Make sure no one can see your screen."
+    "message": "Vous noterez votre Seed Phrase, puis vérifierez vos connaissances en sélectionnant ses premier et dernier mots. Assurez-vous que personne ne puisse voir votre écran.",
+    "englishSource": "You will write down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
   },
   "verifySeedPhrasePasswordBody": {
     "message": "Déverrouillez votre portefeuille pour révéler votre Seed Phrase et lancer la vérification.",
     "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
   },
   "verifySeedPhraseReviewBody": {
-    "message": "Écrivez ces mots dans l'ordre. Vous vérifierez ensuite le premier et le dernier mot.",
-    "englishSource": "Write down these words in order. You will verify the first and last words next."
+    "message": "Écrivez ces mots dans l'ordre.",
+    "englishSource": "Write down these words in order."
   },
   "word": {
     "message": "Mot $number$ ",

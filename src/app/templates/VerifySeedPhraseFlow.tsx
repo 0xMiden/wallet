@@ -1,7 +1,7 @@
 import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useForm } from 'react-hook-form';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 
 import Alert from 'app/atoms/Alert';
 import FormField from 'app/atoms/FormField';
@@ -12,7 +12,9 @@ import { PasscodeEntry } from 'components/PasscodeEntry';
 import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext } from 'lib/miden/front';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
+import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { isMobile } from 'lib/platform';
+import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { completeWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { goBack, navigate } from 'lib/woozie';
 import { VerifySeedPhraseScreen } from 'screens/onboarding/create-wallet-flow/VerifySeedPhrase';
@@ -31,6 +33,11 @@ const VerifySeedPhraseFlow: FC = () => {
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const { fieldRef, copy, copied } = useCopyToClipboard();
+
+  // Block screenshots/recordings while the phrase is revealed (#417). The
+  // phrase is only rendered once the guard reports the screen is protected.
+  const isGuardReady = useScreenshotGuard(mnemonic !== null);
 
   const {
     register,
@@ -235,18 +242,38 @@ const VerifySeedPhraseFlow: FC = () => {
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg text-heading-gray">
         <NavigationHeader title={t('recoveryPhrase')} onBack={onExit} />
         <div className="flex-1 flex flex-col px-4 pt-4 pb-6">
-          <p className="text-sm text-text-muted text-center mb-4">{t('verifySeedPhraseReviewBody')}</p>
+          <p className="text-sm text-black text-center mb-4">{t('verifySeedPhraseReviewBody')}</p>
 
-          <div className="p-6 bg-white rounded-10">
-            <div className="grid grid-cols-3 gap-x-4 gap-y-5">
-              {words.map((word, idx) => (
-                <div key={idx} className="flex items-center gap-2 min-w-0">
-                  <span className="text-xs text-text-muted w-5 text-right">{idx + 1}.</span>
-                  <span className="text-sm font-medium text-heading-gray truncate">{word}</span>
+          {isGuardReady && (
+            <>
+              <input ref={fieldRef} value={mnemonic ?? ''} readOnly className="sr-only" tabIndex={-1} />
+
+              <div className="flex justify-center mb-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    hapticLight();
+                    copy();
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-1.5 border border-border-card rounded-2xl text-sm font-medium text-heading-gray hover:opacity-80 cursor-pointer"
+                >
+                  <Icon name={copied ? IconName.CheckboxCircleFill : IconName.FileCopy} size="xs" />
+                  {t(copied ? 'copied' : 'copyToClipboard')}
+                </button>
+              </div>
+
+              <div className="p-6 bg-white rounded-10">
+                <div className="grid grid-cols-3 gap-x-4 gap-y-5">
+                  {words.map((word, idx) => (
+                    <div key={idx} className="flex items-center gap-2 min-w-0">
+                      <span className="text-xs text-text-muted w-5 text-right">{idx + 1}.</span>
+                      <span className="text-sm font-medium text-heading-gray">{word}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
+            </>
+          )}
 
           <div className="mt-auto">
             <Button
@@ -264,13 +291,21 @@ const VerifySeedPhraseFlow: FC = () => {
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
       <NavigationHeader title={t('verifySeedPhrase')} onBack={() => setStep('review')} />
-      <VerifySeedPhraseScreen
-        seedPhrase={words}
-        showIntro={false}
-        onSubmit={onComplete}
-        className="min-h-0 pt-6"
-        data-testid="verify-seed-phrase-prompt-flow"
-      />
+      <div className="px-4 pt-4 text-sm text-black text-center">
+        <p>{t('verifyMessagePrefix')}</p>
+        <p>
+          <Trans i18nKey="verifyMessageSuffix" components={{ b: <span className="font-bold" /> }} />
+        </p>
+      </div>
+      {isGuardReady && (
+        <VerifySeedPhraseScreen
+          seedPhrase={words}
+          showIntro={false}
+          onSubmit={onComplete}
+          className="min-h-0 pt-6"
+          data-testid="verify-seed-phrase-prompt-flow"
+        />
+      )}
     </div>
   );
 };

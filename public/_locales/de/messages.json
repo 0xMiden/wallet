@@ -1684,8 +1684,8 @@
     "englishSource": "Verify your recovery phrase"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Bestätigen Sie, dass Sie Ihre Wiederherstellungsphrase gespeichert haben, damit Sie diese Wallet später wiederherstellen können.",
-    "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+    "message": "Notieren Sie sich Ihren Wiederherstellungssatz und überprüfen Sie, ob Sie die ersten und letzten Wörter kennen, damit Sie dieses Wallet später wiederherstellen können.",
+    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Sicheres Signieren nicht verfügbar",
@@ -1708,16 +1708,16 @@
     "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
-    "message": "Sie geben Ihren Wiederherstellungssatz bekannt, bevor Sie ihn überprüfen. Stellen Sie sicher, dass niemand Ihren Bildschirm sehen kann.",
-    "englishSource": "You will reveal your recovery phrase before verifying it. Make sure no one can see your screen."
+    "message": "Sie schreiben Ihren Wiederherstellungssatz auf und überprüfen dann Ihr Wissen, indem Sie dessen erstes und letztes Wort auswählen. Stellen Sie sicher, dass niemand Ihren Bildschirm sehen kann.",
+    "englishSource": "You will write down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
   },
   "verifySeedPhrasePasswordBody": {
     "message": "Entsperren Sie Ihr Wallet, um Ihre Wiederherstellungsphrase anzuzeigen und mit der Verifizierung zu beginnen.",
     "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
   },
   "verifySeedPhraseReviewBody": {
-    "message": "Schreiben Sie diese Wörter der Reihe nach auf. Als nächstes überprüfen Sie das erste und das letzte Wort.",
-    "englishSource": "Write down these words in order. You will verify the first and last words next."
+    "message": "Schreiben Sie diese Wörter der Reihe nach auf.",
+    "englishSource": "Write down these words in order."
   },
   "word": {
     "message": "Wort $number$ ",
