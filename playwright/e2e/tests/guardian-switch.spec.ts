@@ -1,7 +1,14 @@
+import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
 
-const A = 'http://localhost:3000';
-const B = 'http://localhost:3001';
+// Guardian operators for the selected network (E2E_NETWORK): the two local
+// containers on localhost, real operators on testnet (OpenZeppelin A -> Koda B).
+const envConfig = getEnvironmentConfig();
+const A = envConfig.guardianUrl;
+if (!envConfig.guardianUrlB) {
+  throw new Error(`E2E_NETWORK=${envConfig.name} has no second guardian (guardianUrlB) configured for switch tests`);
+}
+const B = envConfig.guardianUrlB;
 
 /**
  * Guardian commitment (the on-chain `GUARDIAN_SLOT_NAMES.PUBLIC_KEY` value)

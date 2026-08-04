@@ -1,6 +1,9 @@
+import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
 
-const A = 'http://localhost:3000';
+// Primary guardian operator for the selected network (E2E_NETWORK): the local
+// container on localhost, the real OpenZeppelin operator on testnet/devnet.
+const A = getEnvironmentConfig().guardianUrl;
 
 /**
  * Guardian commitment (the on-chain `GUARDIAN_SLOT_NAMES.PUBLIC_KEY` value)
