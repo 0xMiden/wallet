@@ -71,20 +71,53 @@ beforeEach(() => {
 
 describe('VerifySeedPhraseScreen', () => {
   describe('intro section', () => {
-    it('renders the intro copy by default (showIntro defaults to true)', () => {
+    it('renders the intro header + prefix by default (showIntro defaults to true)', () => {
       render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
 
       expect(screen.getByText('verifySeedPhrase')).toBeInTheDocument();
       expect(screen.getByText('verifyMessagePrefix')).toBeInTheDocument();
-      // <Trans> mock renders its i18nKey.
-      expect(screen.getByText('verifyMessageSuffix')).toBeInTheDocument();
     });
 
-    it('hides the intro copy when showIntro is false', () => {
+    it('hides the intro header + prefix when showIntro is false', () => {
       render(<VerifySeedPhraseScreen seedPhrase={SEED} showIntro={false} />);
 
       expect(screen.queryByText('verifySeedPhrase')).not.toBeInTheDocument();
       expect(screen.queryByText('verifyMessagePrefix')).not.toBeInTheDocument();
+    });
+  });
+
+  // The step prompt is the fix for the "no order guidance" bug: it must always be
+  // visible (both onboarding and the showIntro=false re-verify flow) and tell the
+  // user which word to tap next. <Trans> is mocked to render its i18nKey.
+  describe('step guidance', () => {
+    it('prompts to tap the FIRST word before any selection', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+      expect(screen.getByTestId('verify-seed-prompt')).toHaveTextContent('verifyStepSelectFirst');
+    });
+
+    it('is shown even when the intro is hidden (re-verify flow)', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} showIntro={false} />);
+      expect(screen.getByTestId('verify-seed-prompt')).toHaveTextContent('verifyStepSelectFirst');
+    });
+
+    it('prompts to tap the LAST word once the first is selected', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+      clickWord(0);
+      expect(screen.getByTestId('verify-seed-prompt')).toHaveTextContent('verifyStepSelectLast');
+    });
+
+    it('confirms when the correct first + last words are chosen', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+      clickWord(0);
+      clickWord(11);
+      expect(screen.getByTestId('verify-seed-prompt')).toHaveTextContent('verifyStepCorrect');
+    });
+
+    it('flags a wrong first/last selection', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+      clickWord(1);
+      clickWord(2);
+      expect(screen.getByTestId('verify-seed-prompt')).toHaveTextContent('verifyStepWrong');
     });
   });
 
