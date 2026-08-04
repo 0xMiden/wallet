@@ -20,7 +20,7 @@ import {
 // ── targetOf / pathOf ────────────────────────────────────────────────────────
 
 test.describe('targetOf', () => {
-  test('matches guardian A (:3000) and B (:3001) by origin', () => {
+  test('matches guardian A (port 3000) and B (port 3001) by origin', () => {
     expect(targetOf('http://localhost:3000/pubkey?scheme=ecdsa')).toBe('A');
     expect(targetOf('http://localhost:3001/pubkey?scheme=ecdsa')).toBe('B');
   });

@@ -46,7 +46,7 @@ async function guardianCommitment(endpoint: string): Promise<string> {
  * round-trip.
  */
 test.describe('Guardian switch - happy path + usability', () => {
-  test('switch A to B: completes, usable on B, survives reopen', async ({ walletA, walletB, midenCli, steps }) => {
+  test('switch A to B completes, usable on B, survives reopen', async ({ walletA, walletB, midenCli, steps }) => {
     // Guardian round-trips (create, switch, consume, send) each carry their
     // own multi-second canonicalization wait against the local guardian --
     // comfortable headroom over the base config's 300s default, mirroring

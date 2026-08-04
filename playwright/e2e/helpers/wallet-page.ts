@@ -3,7 +3,12 @@ import { expect, type Page } from '@playwright/test';
 import type { IdbDumpSource } from './idb-dump';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 
-const PASSWORD = '123456';
+// Must satisfy CreatePassword's real strength gate (CreatePasswordScreen:
+// isValidPassword requires >1 of {minChar, upper+lower, letter+digit,
+// specialChar, strongLength}). The recovery journey drives that real UI, so a
+// weak all-digit password (the old '123456') leaves the submit button disabled
+// forever. This value passes all five checks. The bypass paths accept any value.
+const PASSWORD = 'Test1234!';
 const SYNC_WAIT_MS = 3_500;
 
 /**
@@ -1590,15 +1595,59 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     if (Date.now() >= deadline) {
       const remaining = await readPendingCount().catch(() => -1);
+      // Diagnostic: a pending note that never drains means the consume tx
+      // stalled or failed. Dump the transactions table so the failure reason
+      // (Failed + error, or stuck GeneratingTransaction + which stage) is in
+      // the test log instead of hidden in the SW.
+      const txDump = await this.dumpTransactions().catch(() => 'unavailable');
+      console.log(`[WalletPage.claimAllNotes] transactions at timeout: ${txDump}`);
       throw new Error(
         `[WalletPage.claimAllNotes] timed out after ${timeoutMs}ms with ${remaining} pending note(s) ` +
-          `after ${iteration} iteration(s)`
+          `after ${iteration} iteration(s). Transactions: ${txDump}`
       );
     } else {
       console.log(`[WalletPage.claimAllNotes] drained in ${iteration} iteration(s)`);
     }
 
     await this.navigateHome();
+  }
+
+  /**
+   * Diagnostic: read every row of `TridentMain.transactions` and return a
+   * compact one-line summary (`id·type·status·stage·error`) for each. Used to
+   * surface a stalled/failed consume's real reason in the test log rather than
+   * leaving it buried in the service worker. status: 0=Queued 1=Generating
+   * 2=Completed 3=Failed.
+   */
+  async dumpTransactions(): Promise<string> {
+    return this.page.evaluate(async () => {
+      const idb = (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB;
+      const db: IDBDatabase = await new Promise((res, rej) => {
+        const r = idb.open('TridentMain');
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+      try {
+        if (!db.objectStoreNames.contains('transactions')) return '[]';
+        const rows: Array<Record<string, unknown>> = await new Promise((res, rej) => {
+          const r = db.transaction('transactions', 'readonly').objectStore('transactions').getAll();
+          r.onsuccess = () => res(r.result);
+          r.onerror = () => rej(r.error);
+        });
+        return JSON.stringify(
+          rows.map(row => ({
+            id: String(row.id ?? '').slice(0, 8),
+            type: row.type,
+            status: row.status,
+            stage: row.stage,
+            error: typeof row.error === 'string' ? row.error.slice(0, 300) : row.error,
+            errorMessage: typeof row.errorMessage === 'string' ? row.errorMessage.slice(0, 300) : undefined
+          }))
+        );
+      } finally {
+        db.close();
+      }
+    });
   }
 
   /**

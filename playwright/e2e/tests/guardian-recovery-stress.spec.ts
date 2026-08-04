@@ -48,16 +48,16 @@ async function guardianCommitment(endpoint: string): Promise<string> {
  * existing `replace-hot-key` row must be adopted, not duplicated -- see
  * `ensureRotationTx`'s `adoptExisting` doc comment).
  *
- * **Expected RED on `main`** (issue #103): `HotKeyRotationGate`'s rotation is
- * expected to get stuck after a page teardown mid-rotation -- the gate never
- * reaches either the cleared state or its own terminal-failure surface, so
- * `completeHotKeyRotation()` times out (Playwright reports this test as a
- * *timeout* failure, not a caught assertion). Per this branch's Product-Fix
- * Protocol, this spec is authored to EXPOSE that failure, not to fix it --
- * the fix (candidate: `HotKeyRotationGate.ensureRotationTx`'s orphaned-row
- * requeue at `HotKeyRotationGate.tsx:71-98`, and/or a startup orphan sweep in
- * `back/transaction-processor.ts`) is a separate, later step once the
- * failure is reproduced and root-caused.
+ * **GREEN on the extension platform** — and that is itself the finding. On
+ * extension, `HotKeyRotationGate` hands rotation processing entirely to the
+ * service worker (see the `driveLoop` note below), so tearing down the page
+ * mid-rotation does NOT orphan the `replace-hot-key` row: the SW keeps
+ * driving it, and on `reopen()` the gate re-attaches to the same in-flight
+ * row and reaches its terminal state. The #103 "rotation gets stuck after an
+ * interruption" report is the MOBILE/page-driver manifestation (no SW to
+ * survive the kill); a true SW-death variant of `kill()` is a documented
+ * follow-up. This test is the regression guard proving the extension path
+ * self-heals across a page teardown.
  *
  * Unlike `switch-guardian` (which gets an explicit `'registering-guardian'`
  * stage stamp immediately before its guardian-register call), `replace-hot-key`

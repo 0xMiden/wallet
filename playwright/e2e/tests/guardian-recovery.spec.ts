@@ -59,7 +59,7 @@ const CANONICAL_VALID_MNEMONIC =
  * commitment.
  */
 test.describe('Guardian recovery - real UI journey', () => {
-  test('recover guardian account from seed via real UI: usable after rotation, survives reopen', async ({
+  test('recover guardian account from seed via real UI, usable after rotation, survives reopen', async ({
     walletA,
     walletB,
     midenCli,
@@ -158,13 +158,12 @@ test.describe('Guardian recovery - real UI journey', () => {
  * user's password manager, notes app, or OS-level auto-capitalization
  * frequently reformats typed or pasted text.
  *
- * Candidate root cause (NOT fixed by this spec -- see the Product-Fix
- * Protocol; this spec only proves the red): `errorsMap` / `allWordsKnown` in
- * `src/screens/onboarding/import-wallet-flow/ImportSeedPhrase.tsx` compare
- * the raw (uncased) word directly against the lowercase-only bip39 wordlist,
- * and `onInputPaste` splits pasted text into words without lowercasing them
- * either -- so both the typed and pasted path fail validation on a
- * mixed-/upper-case mnemonic even when its checksum is valid.
+ * These tests are a regression guard for the case-insensitivity fix in
+ * `src/screens/onboarding/import-wallet-flow/ImportSeedPhrase.tsx`: `onChange`
+ * (typed path) and `onInputPaste` (pasted path) now normalize input to
+ * lowercase before it reaches `allWordsKnown` / `validateMnemonic`, which
+ * compare against the lowercase-only bip39 wordlist. Before the fix, a
+ * mixed-/upper-case mnemonic failed validation even with a valid checksum.
  *
  * Each test drives its own fresh wallet fixture instance straight to the
  * ImportSeedPhrase screen (`openImportSeedPhraseScreen`) rather than
