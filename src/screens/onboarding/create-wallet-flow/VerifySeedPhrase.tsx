@@ -106,8 +106,8 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
           stepPrompt.tone === 'error'
             ? 'text-red-500'
             : stepPrompt.tone === 'success'
-            ? 'text-green-500'
-            : 'text-heading-gray'
+              ? 'text-green-500'
+              : 'text-heading-gray'
         )}
       >
         <Trans i18nKey={stepPrompt.key} components={{ b: <span className="font-bold" /> }} />
