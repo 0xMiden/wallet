@@ -23,7 +23,14 @@ const config: CapacitorConfig = {
       // No special config needed
     },
     Keyboard: {
-      // Prevent keyboard from pushing content - overlay instead
+      // Prevent keyboard from pushing content - overlay instead.
+      // iOS-ONLY: the Android Keyboard plugin ignores `resize` entirely
+      // (it only reads `resizeOnFullScreen`). Android instead pins
+      // android:windowSoftInputMode="adjustResize" on MainActivity so the
+      // native window resize is the single compensator there; the JS
+      // --keyboard-height inset (lib/mobile/keyboard-inset.ts) is gated to
+      // iOS only. Changing either side alone double-compensates or removes
+      // all compensation — keep the pair in sync.
       resize: 'none'
       // The iOS accessory bar (Done + arrows) — the only way to dismiss the
       // number pad, which has no return key — is enabled at RUNTIME via
