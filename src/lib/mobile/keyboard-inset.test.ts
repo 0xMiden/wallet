@@ -3,7 +3,7 @@
  */
 import { Keyboard } from '@capacitor/keyboard';
 
-import { isMobile } from 'lib/platform';
+import { isIOS, isMobile } from 'lib/platform';
 
 import { initKeyboardInset } from './keyboard-inset';
 
@@ -15,10 +15,12 @@ jest.mock('@capacitor/keyboard', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
-  isMobile: jest.fn()
+  isMobile: jest.fn(),
+  isIOS: jest.fn()
 }));
 
 const isMobileMock = isMobile as jest.Mock;
+const isIOSMock = isIOS as jest.Mock;
 const addListenerMock = Keyboard.addListener as jest.Mock;
 const setAccessoryBarVisibleMock = Keyboard.setAccessoryBarVisible as jest.Mock;
 
@@ -29,6 +31,9 @@ describe('keyboard-inset', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers();
+    // Default to iOS, where the --keyboard-height compensation is active. The
+    // Android path (native adjustResize; no compensation) is covered explicitly.
+    isIOSMock.mockReturnValue(true);
     listeners = {};
     addListenerMock.mockImplementation((event: string, cb: (info?: { keyboardHeight?: number }) => void) => {
       listeners[event] = cb;
@@ -60,6 +65,36 @@ describe('keyboard-inset', () => {
 
     listeners['keyboardWillHide']!();
     expect(document.documentElement.style.getPropertyValue('--keyboard-height')).toBe('0px');
+  });
+
+  it('does NOT register the keyboard-height listeners on Android (native adjustResize handles it)', async () => {
+    isMobileMock.mockReturnValue(true);
+    isIOSMock.mockReturnValue(false);
+
+    await initKeyboardInset();
+
+    // On Android the window is adjustResize, so the system already lifts the
+    // layout above the keyboard. Setting --keyboard-height too would double-count
+    // it, collapsing the layout with a void above the keyboard.
+    expect(addListenerMock).not.toHaveBeenCalledWith('keyboardWillShow', expect.any(Function));
+    expect(addListenerMock).not.toHaveBeenCalledWith('keyboardWillHide', expect.any(Function));
+    expect(document.documentElement.style.getPropertyValue('--keyboard-height')).toBe('');
+  });
+
+  it('still nudges the focused input into view on Android', async () => {
+    isMobileMock.mockReturnValue(true);
+    isIOSMock.mockReturnValue(false);
+
+    await initKeyboardInset();
+
+    const input = document.createElement('input');
+    input.scrollIntoView = jest.fn();
+    document.body.appendChild(input);
+
+    input.focus();
+    jest.advanceTimersByTime(300);
+
+    expect(input.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
   });
 
   it('treats a missing keyboardHeight as 0', async () => {
