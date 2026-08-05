@@ -1662,6 +1662,30 @@
     "message": "今すぐ資金を投入",
     "englishSource": "Fund now"
   },
+  "walletFundingLoadingTitle": {
+    "message": "MIDENのリクエスト",
+    "englishSource": "Requesting MIDEN"
+  },
+  "walletFundingLoadingBody": {
+    "message": "今すぐミデン faucet に電話します。リクエストの続行中にこのドロワーを閉じることができます。",
+    "englishSource": "Calling the Miden faucet now. You can close this drawer while the request continues."
+  },
+  "walletFundingSuccessTitle": {
+    "message": "MIDEN は正常にリクエストされました",
+    "englishSource": "MIDEN requested successfully"
+  },
+  "walletFundingSuccessBody": {
+    "message": "トークンは準備中です。 note が到着すると残高が更新されます。",
+    "englishSource": "Your tokens are on the way. Your balance will update after the note arrives."
+  },
+  "walletFundingFailureTitle": {
+    "message": "あなたのウォレットに資金を投入できませんでした",
+    "englishSource": "We couldn’t fund your wallet"
+  },
+  "walletFundingFailureBody": {
+    "message": "faucet リクエストは失敗しました。以下のエラーを確認して、再試行してください。",
+    "englishSource": "The faucet request failed. Review the error below and try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "保留中Notesがあります",
     "englishSource": "You have Pending Notes"

@@ -1662,6 +1662,30 @@
     "message": "Профінансуйте зараз",
     "englishSource": "Fund now"
   },
+  "walletFundingLoadingTitle": {
+    "message": "Запит MIDEN",
+    "englishSource": "Requesting MIDEN"
+  },
+  "walletFundingLoadingBody": {
+    "message": "Телефоную Мідену faucet зараз. Ви можете закрити цей ящик, поки запит триває.",
+    "englishSource": "Calling the Miden faucet now. You can close this drawer while the request continues."
+  },
+  "walletFundingSuccessTitle": {
+    "message": "Запит MIDEN успішно виконано",
+    "englishSource": "MIDEN requested successfully"
+  },
+  "walletFundingSuccessBody": {
+    "message": "Ваші жетони в дорозі. Ваш баланс буде оновлено після надходження note.",
+    "englishSource": "Your tokens are on the way. Your balance will update after the note arrives."
+  },
+  "walletFundingFailureTitle": {
+    "message": "Ми не змогли поповнити ваш гаманець",
+    "englishSource": "We couldn’t fund your wallet"
+  },
+  "walletFundingFailureBody": {
+    "message": "Запит faucet не виконано. Перегляньте помилку нижче та повторіть спробу.",
+    "englishSource": "The faucet request failed. Review the error below and try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "У вас є Notes",
     "englishSource": "You have Pending Notes"

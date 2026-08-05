@@ -1662,6 +1662,30 @@
     "message": "Jetzt finanzieren",
     "englishSource": "Fund now"
   },
+  "walletFundingLoadingTitle": {
+    "message": "Bitte um MIDEN",
+    "englishSource": "Requesting MIDEN"
+  },
+  "walletFundingLoadingBody": {
+    "message": "Ich rufe jetzt die Miden faucet an. Sie können diese Schublade schließen, während die Anfrage fortgesetzt wird.",
+    "englishSource": "Calling the Miden faucet now. You can close this drawer while the request continues."
+  },
+  "walletFundingSuccessTitle": {
+    "message": "MIDEN wurde erfolgreich angefordert",
+    "englishSource": "MIDEN requested successfully"
+  },
+  "walletFundingSuccessBody": {
+    "message": "Ihre Token sind unterwegs. Ihr Kontostand wird aktualisiert, sobald der note eintrifft.",
+    "englishSource": "Your tokens are on the way. Your balance will update after the note arrives."
+  },
+  "walletFundingFailureTitle": {
+    "message": "Wir konnten Ihr Guthaben nicht aufladen",
+    "englishSource": "We couldn’t fund your wallet"
+  },
+  "walletFundingFailureBody": {
+    "message": "Die faucet-Anfrage ist fehlgeschlagen. Überprüfen Sie den Fehler unten und versuchen Sie es erneut.",
+    "englishSource": "The faucet request failed. Review the error below and try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "Sie haben Ausstehendes Notes",
     "englishSource": "You have Pending Notes"

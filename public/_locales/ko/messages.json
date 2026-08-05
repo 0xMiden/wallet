@@ -1662,6 +1662,30 @@
     "message": "지금 자금을 조달하세요",
     "englishSource": "Fund now"
   },
+  "walletFundingLoadingTitle": {
+    "message": "MIDEN 요청하기",
+    "englishSource": "Requesting MIDEN"
+  },
+  "walletFundingLoadingBody": {
+    "message": "지금 미덴 faucet에 전화 중입니다. 요청이 계속되는 동안 이 창을 닫을 수 있습니다.",
+    "englishSource": "Calling the Miden faucet now. You can close this drawer while the request continues."
+  },
+  "walletFundingSuccessTitle": {
+    "message": "MIDEN이 성공적으로 요청되었습니다.",
+    "englishSource": "MIDEN requested successfully"
+  },
+  "walletFundingSuccessBody": {
+    "message": "귀하의 토큰이 배송 중입니다. note이 도착하면 잔액이 업데이트됩니다.",
+    "englishSource": "Your tokens are on the way. Your balance will update after the note arrives."
+  },
+  "walletFundingFailureTitle": {
+    "message": "지갑에 자금을 조달할 수 없습니다.",
+    "englishSource": "We couldn’t fund your wallet"
+  },
+  "walletFundingFailureBody": {
+    "message": "faucet 요청이 실패했습니다. 아래 오류를 검토한 후 다시 시도하세요.",
+    "englishSource": "The faucet request failed. Review the error below and try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "보류 중인 Notes이 있습니다.",
     "englishSource": "You have Pending Notes"

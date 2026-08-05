@@ -1662,6 +1662,30 @@
     "message": "立即基金",
     "englishSource": "Fund now"
   },
+  "walletFundingLoadingTitle": {
+    "message": "请求 MIDEN",
+    "englishSource": "Requesting MIDEN"
+  },
+  "walletFundingLoadingBody": {
+    "message": "现在正在呼叫 Miden faucet。当请求继续时，您可以关闭此抽屉。",
+    "englishSource": "Calling the Miden faucet now. You can close this drawer while the request continues."
+  },
+  "walletFundingSuccessTitle": {
+    "message": "MIDEN 请求成功",
+    "englishSource": "MIDEN requested successfully"
+  },
+  "walletFundingSuccessBody": {
+    "message": "您的代币正在路上。您的余额将在 note 到达后更新。",
+    "englishSource": "Your tokens are on the way. Your balance will update after the note arrives."
+  },
+  "walletFundingFailureTitle": {
+    "message": "我们无法为您的钱包提供资金",
+    "englishSource": "We couldn’t fund your wallet"
+  },
+  "walletFundingFailureBody": {
+    "message": "faucet 请求失败。查看下面的错误并重试。",
+    "englishSource": "The faucet request failed. Review the error below and try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "您有待处理的 Notes",
     "englishSource": "You have Pending Notes"
