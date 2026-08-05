@@ -1692,8 +1692,8 @@
     "englishSource": "Secure signing unavailable"
   },
   "hotKeyHardwareErrorPromptBody": {
-    "message": "このデバイスは、安全なハードウェアを使用してトランザクションに署名できませんでした。エラーをコピーして、Miden チームに送信します。",
-    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+    "message": "このデバイスの安全なハードウェアは、トランザクション署名の設定中にエラーを報告しました。エラーをコピーして、Miden チームに送信します。",
+    "englishSource": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team."
   },
   "hotKeyHardwareErrorPromptAction": {
     "message": "コピーエラー",
