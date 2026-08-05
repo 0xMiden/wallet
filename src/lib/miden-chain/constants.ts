@@ -36,12 +36,12 @@ export const DEFAULT_NETWORK = resolveNetworkName(process.env.MIDEN_NETWORK);
 // Every network below resolves to these hardcoded endpoints regardless of
 // MIDEN_NETWORK, so RPC / note-transport / prover are pinned no matter which
 // consumer or network key is read. Revert by restoring the per-network values.
-//   RPC    -> http://rpc.localhost
-//   NTL    -> http://ntl.localhost
+//   RPC    -> https://rpc.54-156-194-80.sslip.io
+//   NTL    -> https://ntl.54-156-194-80.sslip.io
 //   Prover -> https://tx-prover.devnet.miden.io  (devnet prover)
 // ============================================================================
-const OVERRIDE_RPC_URL = 'http://rpc.localhost';
-const OVERRIDE_NTL_URL = 'http://ntl.localhost';
+const OVERRIDE_RPC_URL = 'https://rpc.54-156-194-80.sslip.io';
+const OVERRIDE_NTL_URL = 'https://ntl.54-156-194-80.sslip.io';
 const OVERRIDE_PROVER_URL = 'https://tx-prover.devnet.miden.io'; // devnet prover
 
 export enum MIDEN_TRANSPORT_LAYER_NAME {
@@ -50,7 +50,7 @@ export enum MIDEN_TRANSPORT_LAYER_NAME {
 }
 
 export const MIDEN_NETWORK_ENDPOINTS = new Map<string, string>([
-  // OVERRIDE: every network -> http://rpc.localhost (reduced 0.16 test build)
+  // OVERRIDE: every network -> https://rpc.54-156-194-80.sslip.io (reduced 0.16 test build)
   [MIDEN_NETWORK_NAME.MAINNET, OVERRIDE_RPC_URL],
   [MIDEN_NETWORK_NAME.TESTNET, OVERRIDE_RPC_URL],
   [MIDEN_NETWORK_NAME.DEVNET, OVERRIDE_RPC_URL],
@@ -80,7 +80,7 @@ export const MIDEN_FAUCET_API_ENDPOINTS = new Map<string, string>([
 ]);
 
 export const MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS = new Map<string, string>([
-  // OVERRIDE: every network -> http://ntl.localhost (reduced 0.16 test build)
+  // OVERRIDE: every network -> https://ntl.54-156-194-80.sslip.io (reduced 0.16 test build)
   [MIDEN_NETWORK_NAME.MAINNET, OVERRIDE_NTL_URL],
   [MIDEN_NETWORK_NAME.TESTNET, OVERRIDE_NTL_URL],
   [MIDEN_NETWORK_NAME.DEVNET, OVERRIDE_NTL_URL],
@@ -109,12 +109,12 @@ export function getExplorerTxUrl(txHash: string, network: string = DEFAULT_NETWO
 const MIDEN_NOTE_TRANSPORT_URL_OVERRIDE = process.env.MIDEN_NOTE_TRANSPORT_URL || '';
 
 export function getNoteTransportUrl(network: string): string | undefined {
-  // OVERRIDE: falls through to http://ntl.localhost even for an unmapped network.
+  // OVERRIDE: falls through to https://ntl.54-156-194-80.sslip.io even for an unmapped network.
   return MIDEN_NOTE_TRANSPORT_URL_OVERRIDE || MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(network) || OVERRIDE_NTL_URL;
 }
 
 export const MIDEN_NETWORKS: MidenNetwork[] = [
-  // OVERRIDE: every network's rpcBaseURL -> http://rpc.localhost (reduced 0.16 test build)
+  // OVERRIDE: every network's rpcBaseURL -> https://rpc.54-156-194-80.sslip.io (reduced 0.16 test build)
   {
     rpcBaseURL: OVERRIDE_RPC_URL,
     id: MIDEN_NETWORK_NAME.TESTNET,
