@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.19 (2026-08-05)
+
+### Fixes
+
+- [FIX][mobile] **Android: opening the keyboard no longer collapses the screen into a thin strip under the toolbar with a large empty gap above the keyboard.** On Android the app window is `adjustResize`, so the system already resizes the WebView to sit above the soft keyboard. The mobile keyboard-inset helper was *also* adding a `--keyboard-height` bottom padding — needed only on iOS, where the WebView overlays the keyboard instead of resizing — which double-counted the keyboard height, so screens like the Send address/amount entry shrank to a band at the top with a blank void beneath. The `--keyboard-height` compensation is now iOS-only, and Android's `adjustResize` is pinned in `AndroidManifest.xml` so the native resize is deterministic.
+
 ## 1.15.18 (2026-08-05)
 
 ### Fixes
