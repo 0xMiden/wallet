@@ -38,11 +38,11 @@ export const DEFAULT_NETWORK = resolveNetworkName(process.env.MIDEN_NETWORK);
 // consumer or network key is read. Revert by restoring the per-network values.
 //   RPC    -> https://rpc.54-156-194-80.sslip.io
 //   NTL    -> https://ntl.54-156-194-80.sslip.io
-//   Prover -> https://tx-prover.devnet.miden.io  (devnet prover)
+//   Prover -> https://prover.54-156-194-80.sslip.io
 // ============================================================================
 const OVERRIDE_RPC_URL = 'https://rpc.54-156-194-80.sslip.io';
 const OVERRIDE_NTL_URL = 'https://ntl.54-156-194-80.sslip.io';
-const OVERRIDE_PROVER_URL = 'https://tx-prover.devnet.miden.io'; // devnet prover
+const OVERRIDE_PROVER_URL = 'https://prover.54-156-194-80.sslip.io'; // custom prover
 
 export enum MIDEN_TRANSPORT_LAYER_NAME {
   TESTNET = 'testnet',
@@ -58,7 +58,7 @@ export const MIDEN_NETWORK_ENDPOINTS = new Map<string, string>([
 ]);
 
 export const MIDEN_PROVING_ENDPOINTS = new Map<string, string>([
-  // OVERRIDE: every network -> devnet prover (reduced 0.16 test build)
+  // OVERRIDE: every network -> https://prover.54-156-194-80.sslip.io (reduced 0.16 test build)
   [MIDEN_NETWORK_NAME.MAINNET, OVERRIDE_PROVER_URL],
   [MIDEN_NETWORK_NAME.TESTNET, OVERRIDE_PROVER_URL],
   [MIDEN_NETWORK_NAME.DEVNET, OVERRIDE_PROVER_URL],
