@@ -227,33 +227,11 @@ export async function reportHotKeyHardwareFailure(message: string): Promise<void
   await seedWalletPrompt(WalletPromptType.HotKeyHardwareUnavailable);
 }
 
-const FAUCET_API_URL = 'https://faucet-api.forkchoice.xyz/api/mint';
-// 10 IMIDEN in base units (8 decimals).
-const IMIDEN_FAUCET_AMOUNT = 1_000_000_000;
 // 100 MIDEN in base units (6 decimals).
 const MIDEN_FAUCET_AMOUNT = 100_000_000n;
 
-async function mintFromForkchoice(address: string): Promise<void> {
-  const response = await fetch(FAUCET_API_URL, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify({
-      token: 'IMIDEN',
-      address,
-      amount: IMIDEN_FAUCET_AMOUNT,
-      note_type: 'public'
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Faucet request failed with status ${response.status}`);
-  }
-}
-
 export async function faucet(address: string): Promise<void> {
-  await Promise.all([mintFromForkchoice(address), mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT)]);
+  await mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT);
 }
 
 export function useWalletPromptStorage() {

@@ -10,7 +10,6 @@ import type { TokenPrices } from 'lib/prices';
 import { WalletAccount } from 'lib/shared/types';
 import {
   fetchActiveBridgePrompts,
-  faucet,
   fetchHotKeyHardwareError,
   getPendingNotesUsdTotal,
   type PendingNoteValue,
@@ -19,6 +18,7 @@ import {
   WalletPromptStatus,
   WalletPromptType
 } from 'lib/wallet-prompts';
+import { openWalletFunding, useWalletFunding } from 'lib/wallet-funding';
 import { navigate } from 'lib/woozie';
 
 type PromptCardOverrides = {
@@ -99,9 +99,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const { t } = useTranslation();
   const { storage, isLoaded, setPromptStatus, dismissPrompt, completePrompt, isPromptPending } =
     useWalletPromptStorage();
-  const [faucetStatusIndicator, setFaucetStatusIndicator] = useState<PromptCardStatus>('idle');
-  const fundingRef = useRef(false);
-  const successTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const walletFunding = useWalletFunding();
 
   const [hotKeyError, setHotKeyError] = useState<string | null>(null);
   const [copyStatusIndicator, setCopyStatusIndicator] = useState<PromptCardStatus>('idle');
@@ -129,12 +127,11 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const faucetStatus = storage.prompts[WalletPromptType.Faucet];
   const faucetIsTerminal =
     faucetStatus === WalletPromptStatus.Dismissed || faucetStatus === WalletPromptStatus.Completed;
-  const showFaucetPrompt =
-    faucetStatusIndicator === 'success' || (isLoaded && !balancesLoading && !hasBalance && !faucetIsTerminal);
+  const faucetRequestSucceeded = walletFunding.address === account.publicKey && walletFunding.status === 'success';
+  const showFaucetPrompt = isLoaded && !balancesLoading && !hasBalance && !faucetIsTerminal && !faucetRequestSucceeded;
 
   useEffect(
     () => () => {
-      if (successTimerRef.current) clearTimeout(successTimerRef.current);
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     },
     []
@@ -220,22 +217,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     }
   }, [balancesLoading, completePrompt, faucetStatus, hasBalance, isLoaded, setPromptStatus]);
 
-  const fundWallet = useCallback(async () => {
-    if (fundingRef.current) return;
-    fundingRef.current = true;
-    setFaucetStatusIndicator('loading');
-    try {
-      await faucet(account.publicKey);
-      setFaucetStatusIndicator('success');
-      completePrompt(WalletPromptType.Faucet);
-      successTimerRef.current = setTimeout(() => setFaucetStatusIndicator('idle'), 1200);
-    } catch (error) {
-      setFaucetStatusIndicator('failure');
-      console.error('[wallet-prompts] faucet request failed:', error);
-    } finally {
-      fundingRef.current = false;
-    }
-  }, [account.publicKey, completePrompt]);
+  const fundWallet = useCallback(() => openWalletFunding(account.publicKey), [account.publicKey]);
 
   const pendingWalletPrompts = useMemo(() => {
     if (!isLoaded || balancesLoading) return [];
@@ -262,9 +244,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       switch (type) {
         case WalletPromptType.Faucet:
           return {
-            onAction: fundWallet,
-            status: faucetStatusIndicator,
-            actionDisabled: faucetStatusIndicator === 'loading'
+            onAction: fundWallet
           };
         case WalletPromptType.Bridge:
           return {
@@ -290,7 +270,6 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       bridgeTransactions,
       copyHotKeyError,
       copyStatusIndicator,
-      faucetStatusIndicator,
       formattedPendingNotesUsdTotal,
       fundWallet,
       pendingNoteIds,

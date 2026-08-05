@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.20 (TBD)
+
+### Changes
+
+- [CHANGE][all] **Fund Now requests only native MIDEN and reports progress in a drawer.** The wallet prompt no longer also mints iMiden from Forkchoice; opening the funding drawer starts the native faucet request automatically and keeps its loading, success, or detailed error state correct across drawer and tab-layout unmounts. The network-discovered native asset now also appears first in the swap token list ahead of the existing DEX test assets.
+
 ## 1.15.19 (2026-08-05)
 
 ### Fixes

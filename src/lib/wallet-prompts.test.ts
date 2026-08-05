@@ -57,13 +57,6 @@ jest.mock('lib/epoch', () => ({
 
 const mintFromMidenFaucetMock = jest.mocked(mintFromMidenFaucet);
 
-const fetchMock = jest.fn();
-Object.defineProperty(globalThis, 'fetch', {
-  value: fetchMock,
-  writable: true,
-  configurable: true
-});
-
 describe('wallet prompts', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -174,34 +167,15 @@ describe('wallet prompts', () => {
     });
   });
 
-  it('requests tokens from both the forkchoice and official Miden faucets', async () => {
-    fetchMock.mockResolvedValue({ ok: true, status: 200 } as Response);
+  it('requests native tokens from the official Miden faucet', async () => {
     mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
 
     await faucet('mtst1testaddress');
 
-    expect(fetchMock).toHaveBeenCalledWith('https://faucet-api.forkchoice.xyz/api/mint', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        token: 'IMIDEN',
-        address: 'mtst1testaddress',
-        amount: 1_000_000_000,
-        note_type: 'public'
-      })
-    });
     expect(mintFromMidenFaucetMock).toHaveBeenCalledWith('mtst1testaddress', 100_000_000n);
   });
 
-  it('rejects unsuccessful forkchoice faucet responses', async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 429 } as Response);
-    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
-
-    await expect(faucet('mtst1testaddress')).rejects.toThrow('Faucet request failed with status 429');
-  });
-
-  it('rejects when the official Miden faucet fails even if forkchoice succeeds', async () => {
-    fetchMock.mockResolvedValue({ ok: true, status: 200 } as Response);
+  it('rejects when the official Miden faucet fails', async () => {
     mintFromMidenFaucetMock.mockRejectedValue(new Error('Faucet PoW request failed with status 429'));
 
     await expect(faucet('mtst1testaddress')).rejects.toThrow('Faucet PoW request failed with status 429');

@@ -18,6 +18,7 @@ const mockEnv = { fullPage: false, sidePanel: false };
 const mockReturning = { value: false };
 const mockHasUnclaimed = { value: false };
 const mockKeyboardVisible = { value: false };
+const mockWalletFunding = { open: false };
 
 // `lib/woozie` pulls in the full location/history/analytics stack. Stub the two
 // symbols the layout uses: `navigate` (a spy) and `useLocation` (reads state).
@@ -88,6 +89,15 @@ jest.mock('app/layouts/HomeSwipeContainer', () => ({
   default: () => <div data-testid="home-swipe" />
 }));
 
+jest.mock('app/templates/WalletFundingDrawer', () => ({
+  __esModule: true,
+  default: () => <div data-testid="wallet-funding-drawer" />
+}));
+
+jest.mock('lib/wallet-funding', () => ({
+  useWalletFunding: () => ({ open: mockWalletFunding.open })
+}));
+
 // framer-motion's `motion.div` — forward props onto a plain div and surface the
 // `initial` prop (false = slide-in skipped, object = slide-in) for assertions.
 jest.mock('framer-motion', () => ({
@@ -155,6 +165,7 @@ beforeEach(() => {
   mockReturning.value = false;
   mockHasUnclaimed.value = false;
   mockKeyboardVisible.value = false;
+  mockWalletFunding.open = false;
 });
 
 describe('TabLayout — active tab derivation (activeTabFromPath)', () => {
@@ -461,6 +472,21 @@ describe('TabLayout — footer scaffolding', () => {
   it('exposes the tabbar footer measurement hook for the dApp bubble host', () => {
     const { container } = renderLayout();
     expect(container.querySelector('[data-tabbar-footer="true"]')).toBeInTheDocument();
+  });
+});
+
+describe('TabLayout — wallet funding drawer', () => {
+  it('mounts the drawer while the shared funding flow is open', () => {
+    mockWalletFunding.open = true;
+    renderLayout();
+
+    expect(screen.getByTestId('wallet-funding-drawer')).toBeInTheDocument();
+  });
+
+  it('does not mount the drawer while the funding flow is closed', () => {
+    renderLayout();
+
+    expect(screen.queryByTestId('wallet-funding-drawer')).not.toBeInTheDocument();
   });
 });
 

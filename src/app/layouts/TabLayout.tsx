@@ -7,6 +7,7 @@ import { useAppEnv } from 'app/env';
 import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
+import WalletFundingDrawer from 'app/templates/WalletFundingDrawer';
 import { BottomNav, SegmentedActionBar } from 'components/ui';
 import { springs } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
@@ -16,6 +17,7 @@ import { useKeyboardVisible } from 'lib/mobile/useKeyboardVisible';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
+import { useWalletFunding } from 'lib/wallet-funding';
 import { navigate, useLocation } from 'lib/woozie';
 
 /**
@@ -62,6 +64,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { fullPage, sidePanel } = useAppEnv();
   const { pathname } = useLocation();
   const hasUnclaimedNotes = useHasUnclaimedNotes();
+  const { open: walletFundingOpen } = useWalletFunding();
   const prevPathnameRef = useRef<string | null>(null);
 
   // Hide the floating BottomNav whenever the mobile soft keyboard is up —
@@ -248,6 +251,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           <BottomNav items={tabs} activeId={activeTab} onChange={handleTabChange} />
         </div>
       </div>
+
+      {walletFundingOpen && <WalletFundingDrawer />}
     </div>
   );
 };

@@ -6,14 +6,16 @@ import type { TokenBalanceData } from 'lib/miden/front';
 import type { WalletAccount } from 'lib/shared/types';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
 import { WalletPromptStatus, WalletPromptType } from 'lib/wallet-prompts';
+import type { WalletFundingState } from 'lib/wallet-funding';
 
 import { HomePrompts } from './HomePrompts';
 
-const mockFaucet = jest.fn();
 const mockFetchActiveBridgePrompts = jest.fn();
 const mockPollActiveBridgePrompts = jest.fn();
 const mockUseWalletPromptStorage = jest.fn();
 const mockFetchHotKeyHardwareError = jest.fn();
+const mockOpenWalletFunding = jest.fn();
+const mockWalletFundingState: WalletFundingState = { open: false, status: 'idle', address: null, error: null };
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -65,13 +67,17 @@ jest.mock('lib/wallet-prompts', () => {
   const actual = jest.requireActual('lib/wallet-prompts');
   return {
     ...actual,
-    faucet: (address: string) => mockFaucet(address),
     fetchActiveBridgePrompts: (address: string) => mockFetchActiveBridgePrompts(address),
     fetchHotKeyHardwareError: () => mockFetchHotKeyHardwareError(),
     pollActiveBridgePrompts: (transactions: unknown[]) => mockPollActiveBridgePrompts(transactions),
     useWalletPromptStorage: () => mockUseWalletPromptStorage()
   };
 });
+
+jest.mock('lib/wallet-funding', () => ({
+  openWalletFunding: (address: string) => mockOpenWalletFunding(address),
+  useWalletFunding: () => mockWalletFundingState
+}));
 
 jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 
@@ -106,7 +112,10 @@ const makePromptState = (overrides: Record<string, unknown> = {}) => ({
 describe('HomePrompts', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockFaucet.mockResolvedValue(undefined);
+    mockWalletFundingState.open = false;
+    mockWalletFundingState.status = 'idle';
+    mockWalletFundingState.address = null;
+    mockWalletFundingState.error = null;
     mockFetchActiveBridgePrompts.mockResolvedValue([]);
     mockPollActiveBridgePrompts.mockResolvedValue(undefined);
     mockFetchHotKeyHardwareError.mockResolvedValue(null);
@@ -199,9 +208,8 @@ describe('HomePrompts', () => {
     expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet);
   });
 
-  it('funds and completes from the faucet button', async () => {
-    const completePrompt = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+  it('opens the funding drawer from the faucet button', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
 
     render(
       <HomePrompts
@@ -215,15 +223,13 @@ describe('HomePrompts', () => {
     const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
     fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptAction' }));
 
-    await waitFor(() => expect(mockFaucet).toHaveBeenCalledWith('accountA'));
-    expect(mockFaucet).toHaveBeenCalledTimes(1);
-    expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet);
-    expect(faucetCard).toHaveAttribute('data-status', 'success');
+    expect(mockOpenWalletFunding).toHaveBeenCalledWith('accountA');
+    expect(mockOpenWalletFunding).toHaveBeenCalledTimes(1);
   });
 
-  it('shows a failure state and allows the faucet request to be retried', async () => {
-    jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    mockFaucet.mockRejectedValueOnce(new Error('rate limited')).mockResolvedValueOnce(undefined);
+  it('hides the faucet prompt after funding succeeds for the current account', () => {
+    mockWalletFundingState.status = 'success';
+    mockWalletFundingState.address = 'accountA';
     mockUseWalletPromptStorage.mockReturnValue(makePromptState());
 
     render(
@@ -235,14 +241,7 @@ describe('HomePrompts', () => {
         tokenPrices={{}}
       />
     );
-    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
-    const action = within(faucetCard).getByRole('button', { name: 'faucetPromptAction' });
-
-    fireEvent.click(action);
-    await waitFor(() => expect(faucetCard).toHaveAttribute('data-status', 'failure'));
-    fireEvent.click(action);
-
-    await waitFor(() => expect(mockFaucet).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText('faucetPromptTitle')).not.toBeInTheDocument();
   });
 
   it('does not fund when the faucet card content is clicked', () => {
@@ -259,7 +258,7 @@ describe('HomePrompts', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'faucetPromptTitle' }));
 
-    expect(mockFaucet).not.toHaveBeenCalled();
+    expect(mockOpenWalletFunding).not.toHaveBeenCalled();
   });
 
   it('dismisses the faucet prompt without calling the faucet', () => {
@@ -278,7 +277,7 @@ describe('HomePrompts', () => {
     fireEvent.click(screen.getByRole('button', { name: 'dismiss-faucetPromptTitle' }));
 
     expect(dismissPrompt).toHaveBeenCalledWith(WalletPromptType.Faucet);
-    expect(mockFaucet).not.toHaveBeenCalled();
+    expect(mockOpenWalletFunding).not.toHaveBeenCalled();
   });
 
   it('shows pending notes first with their USD value and action-only navigation', () => {

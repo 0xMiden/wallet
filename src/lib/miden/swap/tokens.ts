@@ -4,7 +4,7 @@ import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 
 /**
- * Swap starts with this fixed set of devnet DEX test tokens and adds the
+ * Swap starts with this fixed set of devnet DEX test tokens and prepends the
  * network's discovered native asset at runtime. The fixed test tokens use
  * 8 decimals (`SWAP_TOKEN_DECIMALS`): the user enters a human-readable amount
  * and `stringToBigInt(amount, token.decimals)` converts it to base units.
@@ -62,8 +62,8 @@ let _swapTokensOverride: SwapToken[] | undefined;
  * Live registry read — all consumers use this so an E2E override takes effect.
  *
  * The native asset ID is network-derived and may not be available during the
- * first render. Once discovery populates the synchronous cache, include MIDEN
- * alongside the fixed DEX test tokens. Callers naturally re-read this accessor
+ * first render. Once discovery populates the synchronous cache, put MIDEN ahead
+ * of the fixed DEX test tokens. Callers naturally re-read this accessor
  * on their next render (for example, when opening the token drawer).
  */
 export const getSwapTokens = (): SwapToken[] => {
@@ -74,13 +74,13 @@ export const getSwapTokens = (): SwapToken[] => {
 
   const nativeMetadata = getNativeAssetMetadataSync();
   return [
-    ...SWAP_TOKENS,
     {
       symbol: nativeMetadata?.symbol ?? MIDEN_METADATA.symbol,
       faucetId: nativeAssetId,
       decimals: nativeMetadata?.decimals ?? MIDEN_METADATA.decimals,
       logoSymbol: 'MIDEN'
-    }
+    },
+    ...SWAP_TOKENS
   ];
 };
 
