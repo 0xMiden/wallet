@@ -19,9 +19,11 @@ export enum WalletPromptType {
   Faucet = 'faucet',
   PendingNotes = 'pendingNotes',
   VerifySeedPhrase = 'verifySeedPhrase',
-  // Mobile-only: the native hot-key plugin could not use the device's secure
-  // hardware (TEE / Secure Enclave), so transactions can't be signed. Surfaced
-  // so the user can copy the raw native error and report it to us.
+  // Mobile-only: the native hot-key plugin hit a secure-hardware error —
+  // either it couldn't use the TEE / Secure Enclave at all (signing falls back
+  // to the software key), or a present StrongBox failed and the key degraded
+  // to TEE (Android, signing still hardware-backed). Surfaced so the user can
+  // copy the raw native error and report it to us.
   HotKeyHardwareUnavailable = 'hotKeyHardwareUnavailable'
 }
 

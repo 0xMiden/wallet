@@ -348,7 +348,7 @@
   "verifySeedPhrasePromptTitle": "Verify your recovery phrase",
   "verifySeedPhrasePromptBody": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later.",
   "hotKeyHardwareErrorPromptTitle": "Secure signing unavailable",
-  "hotKeyHardwareErrorPromptBody": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team.",
+  "hotKeyHardwareErrorPromptBody": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team.",
   "hotKeyHardwareErrorPromptAction": "Copy error",
   "bridgePromptTitle": "Bridge in progress",
   "bridgePromptBody": "We’ll keep tracking your bridge in the background.",
