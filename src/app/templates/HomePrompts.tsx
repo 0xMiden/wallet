@@ -8,6 +8,7 @@ import { formatUsd } from 'lib/i18n/numbers';
 import type { TokenBalanceData } from 'lib/miden/front';
 import type { TokenPrices } from 'lib/prices';
 import { WalletAccount } from 'lib/shared/types';
+import { openWalletFunding, useWalletFunding } from 'lib/wallet-funding';
 import {
   fetchActiveBridgePrompts,
   fetchHotKeyHardwareError,
@@ -18,7 +19,6 @@ import {
   WalletPromptStatus,
   WalletPromptType
 } from 'lib/wallet-prompts';
-import { openWalletFunding, useWalletFunding } from 'lib/wallet-funding';
 import { navigate } from 'lib/woozie';
 
 type PromptCardOverrides = {

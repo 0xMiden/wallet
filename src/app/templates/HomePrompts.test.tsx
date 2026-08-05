@@ -4,9 +4,9 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import type { TokenBalanceData } from 'lib/miden/front';
 import type { WalletAccount } from 'lib/shared/types';
+import type { WalletFundingState } from 'lib/wallet-funding';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
 import { WalletPromptStatus, WalletPromptType } from 'lib/wallet-prompts';
-import type { WalletFundingState } from 'lib/wallet-funding';
 
 import { HomePrompts } from './HomePrompts';
 
