@@ -19,7 +19,13 @@ import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
-import { detectAddressChain, isValidEthereumAddress, isValidMidenAddress, isValidRecipientAddress } from 'utils/miden';
+import {
+  detectAddressChain,
+  isValidEthereumAddress,
+  isValidMidenAddress,
+  isValidRecipientAddress,
+  MidenAddressError
+} from 'utils/miden';
 
 import { AccountsListDrawer } from './AccountsList';
 import { SendNetworkId } from './bridge-networks';
@@ -336,7 +342,11 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     if (!isExtension()) return;
     if (delegateEnabled) return; // delegated proving — no point speculating
     if (!publicKey || !recipientAddress || !token || !amount) return;
-    if (!isValidMidenAddress(recipientAddress)) return;
+    try {
+      isValidMidenAddress(recipientAddress);
+    } catch {
+      return;
+    }
     const amountFloat = parseFloat(amount);
     if (!(amountFloat > 0)) return;
     if (amountFloat > token.balance) return;
@@ -484,9 +494,46 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     [onAction]
   );
 
-  // Chain-aware address validation: 0x → Ethereum (hex), otherwise Miden bech32.
-  // The error copy matches the detected chain so an Ethereum address no longer
-  // shows the "Invalid Miden account ID" message.
+  // Chain-aware address validation: 0x → Ethereum (hex + EIP-55), otherwise a
+  // strict Miden bech32 decode via the SDK. The error copy matches the detected
+  // chain, and a well-formed address for a different Miden network gets its own
+  // message instead of failing later in the transaction pipeline.
+  const recipientErrorKey = useCallback(
+    (raw: string): string | null => {
+      const trimmed = raw.trim();
+      if (!trimmed) return null;
+      if (detectAddressChain(trimmed) === 'ethereum') {
+        return isValidEthereumAddress(trimmed) ? null : 'invalidEthereumAddress';
+      }
+      // Self-send guard: a P2IDE to yourself consumes through the kernel's
+      // target branch, so recall semantics are meaningless and auto-consume
+      // would claim it right back. Block it at entry, before the decode check —
+      // it's the more specific message for the account's own address.
+      if (sameWalletAccountId(trimmed, publicKey)) return 'cannotSendToSelf';
+      try {
+        isValidMidenAddress(trimmed);
+      } catch (error) {
+        return error instanceof MidenAddressError && error.reason === 'wrong-network'
+          ? 'midenAddressWrongNetwork'
+          : 'invalidMidenAccountId';
+      }
+      return null;
+    },
+    [publicKey]
+  );
+
+  const applyRecipientValidation = useCallback(
+    (address: string) => {
+      const errorKey = recipientErrorKey(address);
+      if (errorKey) {
+        setError('recipientAddress', { type: 'manual', message: errorKey });
+      } else {
+        clearErrors('recipientAddress');
+      }
+    },
+    [recipientErrorKey, setError, clearErrors]
+  );
+
   const onAddressChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
       const address = event.target.value;
@@ -494,28 +541,9 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: address }
       });
-      const trimmed = address.trim();
-      if (!trimmed) {
-        clearErrors('recipientAddress');
-        return;
-      }
-      const addressChain = detectAddressChain(trimmed);
-      const valid = addressChain === 'ethereum' ? isValidEthereumAddress(trimmed) : isValidMidenAddress(trimmed);
-      if (!valid) {
-        setError('recipientAddress', {
-          type: 'manual',
-          message: addressChain === 'ethereum' ? 'invalidEthereumAddress' : 'invalidMidenAccountId'
-        });
-      } else if (addressChain === 'miden' && sameWalletAccountId(trimmed, publicKey)) {
-        // Self-send guard: a P2IDE to yourself consumes through the kernel's
-        // target branch, so recall semantics are meaningless and auto-consume
-        // would claim it right back. Block it at entry.
-        setError('recipientAddress', { type: 'manual', message: 'cannotSendToSelf' });
-      } else {
-        clearErrors('recipientAddress');
-      }
+      applyRecipientValidation(address);
     },
-    [onAction, setError, clearErrors, publicKey]
+    [onAction, applyRecipientValidation]
   );
 
   const onScan = useCallback(async () => {
@@ -525,17 +553,14 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: result.address }
       });
-      // Scanning your own receive QR is the easy way to self-send — same guard
-      // as typed entry.
-      if (sameWalletAccountId(result.address, publicKey)) {
-        setError('recipientAddress', { type: 'manual', message: 'cannotSendToSelf' });
-      } else {
-        clearErrors('recipientAddress');
-      }
+      // Same validation as typed entry — scanning your own receive QR is the
+      // easy way to self-send, and a QR from another network's wallet should
+      // surface the wrong-network message here.
+      applyRecipientValidation(result.address);
     } else if (result.errorKey && result.errorKey !== 'scanCancelled') {
       setError('recipientAddress', { type: 'manual', message: result.errorKey });
     }
-  }, [onAction, setError, clearErrors, publicKey]);
+  }, [onAction, setError, applyRecipientValidation]);
 
   const onSelectContact = useCallback(
     (contact: Contact) => {
@@ -544,13 +569,9 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         payload: { recipientAddress: contact.id }
       });
       // A saved contact can be the account's own address — same guard as typed entry.
-      if (sameWalletAccountId(contact.id, publicKey)) {
-        setError('recipientAddress', { type: 'manual', message: 'cannotSendToSelf' });
-      } else {
-        clearErrors('recipientAddress');
-      }
+      applyRecipientValidation(contact.id);
     },
-    [onAction, setError, clearErrors, publicKey]
+    [onAction, applyRecipientValidation]
   );
 
   const onAmountChange = useCallback(

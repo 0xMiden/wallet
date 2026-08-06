@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.20 (TBD)
+
+### Fixes
+
+- [FIX][all] **A mistyped recipient address is rejected in the Send screen instead of failing after guardian approval.** Miden addresses are now validated with the SDK's full bech32 decode (`Address.fromBech32`) as you type, scan, or pick a contact — previously only the `mtst1`/`mm1`/`mdev1` prefix was checked, so a typo'd address sailed through to the transaction pipeline and surfaced as a bech32 error in Activity. A well-formed address for a different Miden network (e.g. a mainnet `mm1…` address on a testnet build) gets its own "different Miden network" message.
+
 ## 1.15.19 (2026-08-05)
 
 ### Fixes
