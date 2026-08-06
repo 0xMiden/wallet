@@ -1,20 +1,20 @@
-import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { FC, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import {
-  guardianEndpointHost,
-  guardianOptionForEndpoint,
-  useCurrentGuardianEndpoint
-} from 'app/hooks/useCurrentGuardianEndpoint';
-import { Icon, IconName } from 'app/icons/v2';
+import FormField from 'app/atoms/FormField';
+import { useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
 import PageLayout from 'app/layouts/PageLayout';
+import { GuardianTransitionHero } from 'app/templates/GuardianTransitionHero';
 import { Alert, AlertVariant } from 'components/Alert';
 import { Button } from 'components/Button';
+import { PasscodeEntry } from 'components/PasscodeEntry';
 import { checkBiometricAvailability, isBiometricEnabled } from 'lib/biometric';
 import { initiateSwitchGuardianTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { Vault } from 'lib/miden/back/vault';
+import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { isExtension } from 'lib/platform';
+import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { DetailCard, DetailRow } from 'lib/ui/DetailCard';
@@ -25,14 +25,30 @@ const RotateGuardianReview: FC = () => {
   const { search } = useLocation();
   const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
   const currentAccount = useWalletStore(s => s.currentAccount);
+  const { reauthenticate } = useMidenContext();
 
   const newEndpoint = useMemo(() => new URLSearchParams(search).get('endpoint') ?? '', [search]);
 
-  const currentName = guardianOptionForEndpoint(currentEndpoint)?.name ?? guardianEndpointHost(currentEndpoint);
-  const newName = guardianOptionForEndpoint(newEndpoint)?.name ?? guardianEndpointHost(newEndpoint);
-
+  const [authStep, setAuthStep] = useState(false);
+  const [password, setPassword] = useState('');
+  const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const submissionRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    Vault.hasHardwareProtector()
+      .then(hasHardware => {
+        if (!cancelled) setHasHardwareProtector(hasHardware);
+      })
+      .catch(() => {
+        if (!cancelled) setError(t('guardianAuthenticationUnavailable'));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
 
   // The hot key co-signs from the unlocked vault; surface how it's protected
   // on this device (biometric flavor or password) like the design's key rows.
@@ -55,47 +71,118 @@ const RotateGuardianReview: FC = () => {
     };
   }, [t]);
 
-  const handleContinue = useCallback(async () => {
-    if (!currentAccount || !newEndpoint || submitting) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      const txId = await initiateSwitchGuardianTransaction(
-        currentAccount.publicKey,
-        newEndpoint,
-        isDelegateProofEnabled(),
-        zustandProvider
-      );
-      if (isExtension()) requestSWTransactionProcessing();
-      navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSubmitting(false);
+  const authenticateAndSwitch = useCallback(
+    async (credential?: string) => {
+      if (!currentAccount || !newEndpoint || submissionRef.current) return;
+      submissionRef.current = true;
+      setSubmitting(true);
+      setError(null);
+      try {
+        await reauthenticate(credential);
+        const txId = await initiateSwitchGuardianTransaction(
+          currentAccount.publicKey,
+          newEndpoint,
+          isDelegateProofEnabled(),
+          zustandProvider
+        );
+        if (isExtension()) requestSWTransactionProcessing();
+        navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        submissionRef.current = false;
+        setSubmitting(false);
+      }
+    },
+    [currentAccount, newEndpoint, reauthenticate]
+  );
+
+  const handleContinue = useCallback(() => {
+    if (!currentAccount || !newEndpoint || submitting || hasHardwareProtector === null) return;
+    if (hasHardwareProtector) {
+      void authenticateAndSwitch(undefined);
+      return;
     }
-  }, [currentAccount, newEndpoint, submitting]);
+    setPassword('');
+    setError(null);
+    setAuthStep(true);
+  }, [authenticateAndSwitch, currentAccount, hasHardwareProtector, newEndpoint, submitting]);
+
+  const handlePasswordSubmit = useCallback(
+    (event?: FormEvent) => {
+      event?.preventDefault();
+      if (!password || submitting) return;
+      void authenticateAndSwitch(password);
+    },
+    [authenticateAndSwitch, password, submitting]
+  );
+
+  const handleAuthBack = useCallback(() => {
+    if (submitting) return;
+    setPassword('');
+    setError(null);
+    setAuthStep(false);
+  }, [submitting]);
+
+  if (authStep) {
+    return (
+      <PageLayout
+        pageTitle={<>{t(isMobile() ? 'enterYourPasscode' : 'enterPassword')}</>}
+        step={1}
+        setStep={handleAuthBack}
+      >
+        <div className="w-full max-w-sm mx-auto px-4 pb-8 flex flex-col flex-1 min-h-0">
+          <p className="pt-6 text-sm text-text-muted">{t('guardianSwitchAuthenticationDescription')}</p>
+          {isMobile() ? (
+            <PasscodeEntry
+              onSubmit={code => void authenticateAndSwitch(code)}
+              onChange={() => setError(null)}
+              error={error}
+              isSubmitting={submitting}
+              className="mt-auto pb-2"
+            />
+          ) : (
+            <form className="flex flex-col flex-1 pt-6" onSubmit={handlePasswordSubmit}>
+              <FormField
+                id="rotate-guardian-password"
+                type="password"
+                name="password"
+                label={t('password')}
+                value={password}
+                autoFocus
+                placeholder="********"
+                errorCaption={error}
+                onChange={event => {
+                  setPassword(event.target.value);
+                  setError(null);
+                }}
+              />
+              <div className="mt-auto">
+                <Button
+                  data-testid="rotate-guardian-auth-submit"
+                  title={t('continue')}
+                  onClick={() => handlePasswordSubmit()}
+                  disabled={!password || submitting}
+                  isLoading={submitting}
+                />
+              </div>
+            </form>
+          )}
+        </div>
+      </PageLayout>
+    );
+  }
 
   return (
     <PageLayout pageTitle={<>{t('reviewRotation')}</>}>
       <div className="h-full overflow-y-auto">
         <div className="w-full max-w-sm mx-auto px-4 pb-8 flex flex-col min-h-full">
-          <div className="rounded-2xl bg-surface-interactive px-4 py-8 flex flex-col items-center">
-            <span className="px-3 py-1 rounded-lg bg-white dark:bg-grey-800 text-sm font-medium text-text-tertiary-token">
-              {t('currentLabel')}
-            </span>
-            <h2 className="mt-3 text-3xl font-semibold font-heading text-heading-gray text-center break-all">
-              {currentName || t('loading')}
-            </h2>
-            <div className="my-5 w-10 h-10 rounded-lg bg-primary-500 flex items-center justify-center">
-              <Icon name={IconName.ArrowDown} fill="white" size="sm" />
-            </div>
-            <span className="px-3 py-1 rounded-lg bg-white dark:bg-grey-800 text-sm font-medium text-text-tertiary-token">
-              {t('newLabel')}
-            </span>
-            <h2 className="mt-3 text-3xl font-semibold font-heading text-heading-gray text-center break-all">
-              {newName}
-            </h2>
-          </div>
+          <GuardianTransitionHero
+            previousEndpoint={currentEndpoint}
+            newEndpoint={newEndpoint}
+            previousLabel={t('currentLabel')}
+            newLabel={t('newLabel')}
+          />
 
           <div className="mt-4">
             <DetailCard>
@@ -120,9 +207,10 @@ const RotateGuardianReview: FC = () => {
           <div className="mt-auto pt-6">
             <Button
               data-testid="rotate-guardian-confirm"
-              title={submitting ? t('loading') : t('continue')}
+              title={t('confirm')}
               onClick={handleContinue}
-              disabled={submitting || !currentAccount || !newEndpoint}
+              disabled={submitting || hasHardwareProtector === null || !currentAccount || !newEndpoint}
+              isLoading={submitting}
             />
           </div>
         </div>

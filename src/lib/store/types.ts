@@ -136,6 +136,7 @@ export interface WalletActions {
     walletAccounts: WalletAccount[]
   ) => Promise<void>;
   unlock: (password?: string) => Promise<void>;
+  reauthenticate: (password?: string) => Promise<void>;
 
   // Account actions
   createAccount: (walletType: WalletType, name?: string) => Promise<void>;

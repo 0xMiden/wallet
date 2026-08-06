@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import InfiniteScroll from 'react-infinite-scroller';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
+import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoint';
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
@@ -184,11 +185,17 @@ function buildRowProps(
       : isSwap && entry.token && entry.requestedToken
         ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
         : entry.message || '';
-  const subtitle = isSwap
-    ? t('viaInProtocolDex')
-    : entry.secondaryAddress
-      ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
-      : undefined;
+  const subtitle =
+    entry.txType === 'switch-guardian'
+      ? `${guardianEndpointDisplayName(
+          entry.previousGuardianEndpoint,
+          t('unknown')
+        )} → ${guardianEndpointDisplayName(entry.newGuardianEndpoint, t('unknown'))}`
+      : isSwap
+        ? t('viaInProtocolDex')
+        : entry.secondaryAddress
+          ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
+          : undefined;
 
   // A swap row shows up in BOTH sides' token-scoped histories. On such a page
   // the row is read as a movement of *that* token, so show the matching side

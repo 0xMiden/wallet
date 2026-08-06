@@ -93,6 +93,10 @@ export class DesktopIntercomAdapter {
         await Actions.unlock((req as any).password);
         return { type: WalletMessageType.UnlockResponse };
 
+      case WalletMessageType.ReauthenticateRequest:
+        await Actions.reauthenticate(req.password);
+        return { type: WalletMessageType.ReauthenticateResponse };
+
       case WalletMessageType.LockRequest:
         await Actions.lock();
         return { type: WalletMessageType.LockResponse };

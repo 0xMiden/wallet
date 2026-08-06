@@ -375,6 +375,22 @@ describe('Vault (static)', () => {
     });
   });
 
+  describe('reauthenticate', () => {
+    it('verifies a valid password without returning vault material', async () => {
+      await seedVault('pw-correct');
+      await expect(Vault.reauthenticate('pw-correct')).resolves.toBeUndefined();
+    });
+
+    it('rejects an invalid password', async () => {
+      await seedVault('pw-correct');
+      await expect(Vault.reauthenticate('pw-wrong')).rejects.toThrow('Invalid password');
+    });
+
+    it('fails closed when hardware authentication is requested on an unsupported platform', async () => {
+      await expect(Vault.reauthenticate()).rejects.toThrow('Hardware unlock is not available');
+    });
+  });
+
   describe('tryHardwareUnlock', () => {
     it('returns null on extension (no hardware branch)', async () => {
       (isDesktop as jest.Mock).mockReturnValue(false);
@@ -1293,7 +1309,7 @@ describe('Vault.spawn hardware-only mode', () => {
 
   it('hasHardwareProtector returns true after hardware setup', async () => {
     (isMobile as jest.Mock).mockReturnValue(true);
-    await Vault.spawn(WalletType.OnChain, undefined as any);
+    await Vault.spawn(WalletType.OnChain, '');
     expect(await Vault.hasHardwareProtector()).toBe(true);
   });
 });
@@ -1459,6 +1475,38 @@ describe('Vault hardware branches', () => {
     // Now try hardware unlock
     const vault = await Vault.tryHardwareUnlock();
     expect(vault).not.toBeNull();
+  });
+
+  it('reauthenticate without a password verifies through the hardware protector', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    mockDesktopSecureStorage.isHardwareSecurityAvailable.mockResolvedValue(true);
+    mockDesktopSecureStorage.hasHardwareKey.mockResolvedValue(true);
+    const vaultKeyBytes = Passworder.generateVaultKey();
+    const vaultKeyB64 = Buffer.from(vaultKeyBytes).toString('base64');
+    mockDesktopSecureStorage.encryptWithHardwareKey.mockResolvedValue('enc-data');
+    mockDesktopSecureStorage.decryptWithHardwareKey.mockResolvedValue(vaultKeyB64);
+    await Vault.spawn(WalletType.OnChain, '');
+
+    await expect(Vault.reauthenticate()).resolves.toBeUndefined();
+    expect(mockDesktopSecureStorage.decryptWithHardwareKey).toHaveBeenCalledWith('enc-data');
+  });
+
+  it('reauthenticate propagates hardware cancellation/native failures', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    await savePlain(keys.vaultKeyHardware, 'enc-data');
+    mockDesktopSecureStorage.decryptWithHardwareKey.mockRejectedValueOnce(new Error('cancelled'));
+
+    await expect(Vault.reauthenticate()).rejects.toThrow('cancelled');
+  });
+
+  it('reauthenticate rejects when hardware protection is not configured', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    (isMobile as jest.Mock).mockReturnValue(false);
+
+    await expect(Vault.reauthenticate()).rejects.toThrow('Hardware protector is not configured');
+    expect(mockDesktopSecureStorage.decryptWithHardwareKey).not.toHaveBeenCalled();
   });
 
   it('revealMnemonic without password uses hardware key on desktop', async () => {

@@ -27,6 +27,8 @@ export enum WalletMessageType {
   ImportFromClientResponse = 'IMPORT_FROM_CLIENT_RESPONSE',
   UnlockRequest = 'UNLOCK_REQUEST',
   UnlockResponse = 'UNLOCK_RESPONSE',
+  ReauthenticateRequest = 'REAUTHENTICATE_REQUEST',
+  ReauthenticateResponse = 'REAUTHENTICATE_RESPONSE',
   LockRequest = 'LOCK_REQUEST',
   LockResponse = 'LOCK_RESPONSE',
   CreateAccountRequest = 'CREATE_ACCOUNT_REQUEST',
@@ -469,6 +471,16 @@ export interface UnlockRequest extends WalletMessageBase {
 
 export interface UnlockResponse extends WalletMessageBase {
   type: WalletMessageType.UnlockResponse;
+}
+
+export interface ReauthenticateRequest extends WalletMessageBase {
+  type: WalletMessageType.ReauthenticateRequest;
+  /** Omit only for a hardware-protected vault; a supplied string verifies the password/passcode protector. */
+  password?: string;
+}
+
+export interface ReauthenticateResponse extends WalletMessageBase {
+  type: WalletMessageType.ReauthenticateResponse;
 }
 
 export interface LockRequest extends WalletMessageBase {
@@ -960,6 +972,7 @@ export type WalletRequest =
   | GetStateRequest
   | NewWalletRequest
   | UnlockRequest
+  | ReauthenticateRequest
   | LockRequest
   | CreateAccountRequest
   | UpdateCurrentAccountRequest
@@ -1022,6 +1035,7 @@ export type WalletResponse =
   | GetStateResponse
   | NewWalletResponse
   | UnlockResponse
+  | ReauthenticateResponse
   | LockResponse
   | CreateAccountResponse
   | UpdateCurrentAccountResponse

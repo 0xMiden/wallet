@@ -325,6 +325,17 @@ describe('useWalletStore', () => {
   });
 
   describe('Account actions', () => {
+    it('reauthenticate sends a credential-verification request', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ReauthenticateResponse });
+
+      await useWalletStore.getState().reauthenticate('password123');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.ReauthenticateRequest,
+        password: 'password123'
+      });
+    });
+
     it('createAccount sends correct request', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.CreateAccountResponse });
       // createAccount now pulls fresh state right after the create response lands.

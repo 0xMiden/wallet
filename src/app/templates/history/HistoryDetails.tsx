@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
+import { GuardianTransitionHero } from 'app/templates/GuardianTransitionHero';
 import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
 import {
@@ -31,7 +32,8 @@ import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
   ITransaction,
-  ITransactionStatus
+  ITransactionStatus,
+  ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
@@ -286,6 +288,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
       const earnDepositExtra: IEarnDepositExtraInputs | undefined =
         tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
+      const guardianSwitchExtra: ISwitchGuardianExtraInputs | undefined =
+        tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
       // Source side (USDC) while in flight, destination side once the bridged
       // note was consumed — identical rule to the activity row.
       const earnWithdrawFields = earnWithdrawExtra
@@ -314,6 +318,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         faucetId: tx.faucetId,
         outputNoteIds: tx.outputNoteIds,
         txType: tx.type,
+        previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint,
+        newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint,
         errorMessage: tx.error,
         rawErrorMessage: tx.rawError,
         isCancelled: isUserCancelledTransaction(tx.error),
@@ -636,20 +642,25 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
   const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
+  const isGuardianSwitch = entry?.txType === 'switch-guardian';
   const fromAddress = isBridgeOut
     ? entry?.address
-    : isBridgeIn
+    : isGuardianSwitch
       ? undefined
-      : entry?.message === 'Sent'
-        ? entry?.address
-        : entry?.secondaryAddress;
+      : isBridgeIn
+        ? undefined
+        : entry?.message === 'Sent'
+          ? entry?.address
+          : entry?.secondaryAddress;
   const toAddress = isBridgeOut
     ? undefined
-    : isBridgeIn
-      ? entry?.address
-      : entry?.message === 'Sent'
-        ? entry?.secondaryAddress
-        : entry?.address;
+    : isGuardianSwitch
+      ? undefined
+      : isBridgeIn
+        ? entry?.address
+        : entry?.message === 'Sent'
+          ? entry?.secondaryAddress
+          : entry?.address;
   const settledNoteIds = settlementNotes?.settled ?? [];
   const reclaimedNoteIds = settlementNotes?.reclaimed ?? [];
   const hasNoteData =
@@ -707,22 +718,33 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           <ActivitySpinner />
         ) : (
           <div className="flex-1 flex flex-col overflow-y-auto">
-            {/* Top Section — a bridge reads "IN → OUT" across the two chains. */}
+            {/* Top Section — bridges and Guardian switches use purpose-built transition heroes. */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
-              <TransactionIcon entry={entry} size="lg" />
-              {historySummaryBadgeContent ? (
-                <TransactionSummaryBadge {...historySummaryBadgeContent} className="mt-2" />
-              ) : isBridge ? (
-                <BridgeHeroAmounts entry={entry} />
+              {isGuardianSwitch ? (
+                <GuardianTransitionHero
+                  previousEndpoint={entry.previousGuardianEndpoint}
+                  newEndpoint={entry.newGuardianEndpoint}
+                  previousLabel={t('from')}
+                  newLabel={t('to')}
+                />
               ) : (
-                <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
-                  {entry.amount !== undefined && (
-                    <span className="text-heading-gray">{formatDisplayAmount(entry.amount)}</span>
+                <>
+                  <TransactionIcon entry={entry} size="lg" />
+                  {historySummaryBadgeContent ? (
+                    <TransactionSummaryBadge {...historySummaryBadgeContent} className="mt-2" />
+                  ) : isBridge ? (
+                    <BridgeHeroAmounts entry={entry} />
+                  ) : (
+                    <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
+                      {entry.amount !== undefined && (
+                        <span className="text-heading-gray">{formatDisplayAmount(entry.amount)}</span>
+                      )}
+                      {entry.token && <span className="text-text-muted">{entry.token}</span>}
+                    </div>
                   )}
-                  {entry.token && <span className="text-text-muted">{entry.token}</span>}
-                </div>
+                  {approximateUsdAmount && <p className="text-sm font-medium text-gray">{approximateUsdAmount}</p>}
+                </>
               )}
-              {approximateUsdAmount && <p className="text-sm font-medium text-gray">{approximateUsdAmount}</p>}
               <div className="mt-2">
                 {isBridge ? (
                   <BridgeStatusPill entry={entry} />
@@ -742,7 +764,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             <div className="mt-4">
               <SectionDivider color={sectionDividerColor} />
               <div className="mt-5">
-                <DetailCard title={t('transferDetails')}>
+                <DetailCard title={t(isGuardianSwitch ? 'details' : 'transferDetails')}>
                   <DetailRow label={t('date')}>
                     <span className="text-sm text-heading-gray font-medium">{formatDate(entry.timestamp)}</span>
                   </DetailRow>
@@ -765,7 +787,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   )}
 
                   {entry.externalTxId && (
-                    <DetailRow label={t('txIdLabel')}>
+                    <DetailRow label={t('txIdLabel')} isLast={isGuardianSwitch}>
                       <ExternalLinkValue
                         displayValue={
                           <HashChip
@@ -778,6 +800,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         }
                         href={`https://testnet.midenscan.com/tx/${entry.externalTxId}`}
                       />
+                    </DetailRow>
+                  )}
+
+                  {isGuardianSwitch && !entry.externalTxId && entry.txId && (
+                    <DetailRow label={t('txIdLabel')} isLast>
+                      <HashChip hash={entry.txId} trimHash fill="#9E9E9E" className="ml-2" copyIcon={false} />
                     </DetailRow>
                   )}
 

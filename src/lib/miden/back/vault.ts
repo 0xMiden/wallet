@@ -287,6 +287,20 @@ export class Vault {
   }
 
   /**
+   * Verify fresh user authentication without replacing or otherwise mutating
+   * the currently-unlocked Vault instance. Omitting `password` is deliberately
+   * hardware-only and fail-closed: getHardwareVaultKey rejects when hardware
+   * protection is missing, cancelled, unavailable, or fails natively.
+   */
+  static async reauthenticate(password?: string): Promise<void> {
+    if (password === undefined) {
+      await Vault.getHardwareVaultKey();
+      return;
+    }
+    await Vault.unlockWithPassword(password);
+  }
+
+  /**
    * Unlock vault with password and return the vault key
    */
   private static async unlockWithPassword(password: string): Promise<CryptoKey> {

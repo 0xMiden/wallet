@@ -487,6 +487,8 @@
   "guardianProvider": "Provider",
   "reviewRotation": "Review rotation",
   "newLabel": "New",
+  "guardianSwitchAuthenticationDescription": "Authenticate to approve this Guardian switch.",
+  "guardianAuthenticationUnavailable": "Authentication is unavailable. Try again before switching Guardian.",
   "walletKeyHot": "Wallet key (hot)",
   "recoveryPhraseCold": "Recovery phrase (cold)",
   "oldGuardianCantBlockTitle": "Your old Guardian can't block this",

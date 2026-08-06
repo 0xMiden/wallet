@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.20 (TBD)
+
+### Changes
+
+- [CHANGE][all] **Every Guardian switch now requires fresh device authentication and leaves a provider audit trail.** Hardware-protected wallets prompt with their platform authentication, while passcode/password wallets verify the credential before anything is queued; cancellation or failed authentication leaves the Guardian unchanged. Activity and transaction details now show the previous and destination Guardian providers (including custom hostnames and legacy `Unknown` sources) for pending, completed, and failed switch attempts.
+
 ## 1.15.19 (2026-08-05)
 
 ### Fixes

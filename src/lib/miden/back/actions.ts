@@ -208,6 +208,13 @@ export function unlock(password?: string) {
   );
 }
 
+export function reauthenticate(password?: string) {
+  return withUnlocked(async () => {
+    const vault = await getVault();
+    await vault.reauthenticate(password);
+  });
+}
+
 export function updateCurrentAccount(accPublicKey: string) {
   return withUnlocked(async ({ vault }) => {
     const currentAccount = await vault.setCurrentAccount(accPublicKey);

@@ -161,6 +161,14 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.UnlockResponse);
     },
 
+    reauthenticate: async password => {
+      const res = await request({
+        type: WalletMessageType.ReauthenticateRequest,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.ReauthenticateResponse);
+    },
+
     // Account actions
     createAccount: async (walletType, name) => {
       const res = await request({

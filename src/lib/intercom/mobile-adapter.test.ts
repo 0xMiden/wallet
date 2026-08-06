@@ -12,6 +12,7 @@ jest.mock('lib/miden/back/actions', () => ({
   registerNewWallet: jest.fn().mockResolvedValue(undefined),
   registerImportedWallet: jest.fn().mockResolvedValue(undefined),
   unlock: jest.fn().mockResolvedValue(undefined),
+  reauthenticate: jest.fn().mockResolvedValue(undefined),
   lock: jest.fn().mockResolvedValue(undefined),
   createHDAccount: jest.fn().mockResolvedValue(undefined),
   updateCurrentAccount: jest.fn().mockResolvedValue(undefined),
@@ -127,6 +128,16 @@ describe('MobileIntercomAdapter', () => {
 
       expect(Actions.unlock).toHaveBeenCalledWith('test123');
       expect(response).toEqual({ type: WalletMessageType.UnlockResponse });
+    });
+
+    it('handles ReauthenticateRequest without returning secrets', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.ReauthenticateRequest,
+        password: '123456'
+      });
+
+      expect(Actions.reauthenticate).toHaveBeenCalledWith('123456');
+      expect(response).toEqual({ type: WalletMessageType.ReauthenticateResponse });
     });
 
     it('handles LockRequest', async () => {

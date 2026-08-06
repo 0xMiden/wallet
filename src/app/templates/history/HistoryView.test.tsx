@@ -727,6 +727,65 @@ describe('HistoryView infinite scroll wiring', () => {
   });
 });
 
+describe('HistoryView Guardian switch audit trail', () => {
+  it('shows custom provider hosts for every transaction status', () => {
+    const entries = [
+      makeEntry({
+        key: 'queued-switch',
+        txType: 'switch-guardian',
+        message: 'Switching guardian',
+        previousGuardianEndpoint: 'https://old.example/path',
+        newGuardianEndpoint: 'https://new.example/guardian',
+        type: HistoryEntryType.PendingTransaction
+      }),
+      makeEntry({
+        key: 'processing-switch',
+        txType: 'switch-guardian',
+        message: 'Switching guardian',
+        previousGuardianEndpoint: 'https://old.example/path',
+        newGuardianEndpoint: 'https://new.example/guardian',
+        type: HistoryEntryType.ProcessingTransaction
+      }),
+      makeEntry({
+        key: 'completed-switch',
+        txType: 'switch-guardian',
+        message: 'Guardian switched',
+        previousGuardianEndpoint: 'https://old.example/path',
+        newGuardianEndpoint: 'https://new.example/guardian'
+      }),
+      makeEntry({
+        key: 'failed-switch',
+        txType: 'switch-guardian',
+        message: 'Transaction failed',
+        transactionIcon: 'FAILED',
+        previousGuardianEndpoint: 'https://old.example/path',
+        newGuardianEndpoint: 'https://new.example/guardian'
+      })
+    ];
+
+    render(<HistoryView {...baseProps} entries={entries} fullHistory />);
+
+    for (const row of screen.getAllByTestId('activity-row')) {
+      expect(row).toHaveAttribute('data-subtitle', 'old.example → new.example');
+    }
+    expect(screen.getAllByTestId('activity-row')[0]).toHaveAttribute('data-status-tone', 'pending');
+    expect(screen.getAllByTestId('activity-row')[1]).toHaveAttribute('data-status-tone', 'pending');
+    expect(screen.getAllByTestId('activity-row')[2]).toHaveAttribute('data-status-tone', 'confirmed');
+    expect(screen.getAllByTestId('activity-row')[3]).toHaveAttribute('data-status-tone', 'failed');
+  });
+
+  it('renders legacy rows with an unknown source and the recorded destination', () => {
+    const entry = makeEntry({
+      txType: 'switch-guardian',
+      message: 'Guardian switched',
+      newGuardianEndpoint: 'https://destination.example'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-subtitle', 'unknown → destination.example');
+  });
+});
+
 // A Smart Deposit row goes database-Completed as soon as the Miden collateral
 // note lands — but the position only exists once the solver-fulfilled Sepolia
 // lending leg settles, so the chip must track THAT leg, not the row status.

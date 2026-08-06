@@ -65,3 +65,9 @@ export function guardianEndpointHost(endpoint: string): string {
     return endpoint;
   }
 }
+
+/** Built-in provider name, custom hostname, or a localized unknown fallback. */
+export function guardianEndpointDisplayName(endpoint: string | undefined, unknownLabel: string): string {
+  if (!endpoint) return unknownLabel;
+  return (guardianOptionForEndpoint(endpoint)?.name ?? guardianEndpointHost(endpoint)) || unknownLabel;
+}
