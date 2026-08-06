@@ -2420,6 +2420,10 @@
     "message": "Неверный идентификатор учетной записи Miden",
     "englishSource": "Invalid Miden account ID"
   },
+  "midenAddressWrongNetwork": {
+    "message": "Этот адрес принадлежит другой сети Miden.",
+    "englishSource": "This address belongs to a different Miden network"
+  },
   "cannotSendToSelf": {
     "message": "Вы не можете отправить на свой адрес",
     "englishSource": "You can't send to your own address"

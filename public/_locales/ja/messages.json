@@ -2419,6 +2419,10 @@
     "message": "無効なMidenアカウントIDです",
     "englishSource": "Invalid Miden account ID"
   },
+  "midenAddressWrongNetwork": {
+    "message": "このアドレスは別の Miden ネットワークに属しています",
+    "englishSource": "This address belongs to a different Miden network"
+  },
   "cannotSendToSelf": {
     "message": "自分の住所には送れない",
     "englishSource": "You can't send to your own address"

@@ -2419,6 +2419,10 @@
     "message": "Geçersiz Miden hesap kimliği",
     "englishSource": "Invalid Miden account ID"
   },
+  "midenAddressWrongNetwork": {
+    "message": "Bu adres farklı bir Miden ağına ait",
+    "englishSource": "This address belongs to a different Miden network"
+  },
   "cannotSendToSelf": {
     "message": "Kendi adresinize gönderemezsiniz",
     "englishSource": "You can't send to your own address"

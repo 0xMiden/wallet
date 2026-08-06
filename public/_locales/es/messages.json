@@ -2371,6 +2371,10 @@
     "message": "ID de cuenta Miden no válido",
     "englishSource": "Invalid Miden account ID"
   },
+  "midenAddressWrongNetwork": {
+    "message": "Esta dirección pertenece a una red Miden diferente.",
+    "englishSource": "This address belongs to a different Miden network"
+  },
   "cannotSendToSelf": {
     "message": "No puedes enviar a tu propia dirección.",
     "englishSource": "You can't send to your own address"
