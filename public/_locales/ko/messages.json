@@ -1686,6 +1686,31 @@
     "message": "faucet 요청이 실패했습니다. 아래 오류를 검토한 후 다시 시도하세요.",
     "englishSource": "The faucet request failed. Review the error below and try again."
   },
+  "faucetPromptFunding": {
+    "message": "자금 조달",
+    "englishSource": "Funding"
+  },
+  "faucetPromptFundingSub": {
+    "message": "곧 자금을 사용할 수 있게 됩니다.",
+    "englishSource": "Your funds will be available shortly"
+  },
+  "faucetPromptFunded": {
+    "message": "입금된 자금",
+    "englishSource": "Funds deposited"
+  },
+  "faucetPromptFundedSub": {
+    "message": "당신은 $amount$ 준비가 된",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetPromptFundedSubGeneric": {
+    "message": "자금이 준비되었습니다",
+    "englishSource": "Your funds are ready"
+  },
   "pendingNotesPromptTitle": {
     "message": "보류 중인 Notes이 있습니다.",
     "englishSource": "You have Pending Notes"

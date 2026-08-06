@@ -1669,6 +1669,31 @@
     "message": "Żądanie faucet nie powiodło się. Przejrzyj poniższy błąd i spróbuj ponownie.",
     "englishSource": "The faucet request failed. Review the error below and try again."
   },
+  "faucetPromptFunding": {
+    "message": "Finansowanie",
+    "englishSource": "Funding"
+  },
+  "faucetPromptFundingSub": {
+    "message": "Twoje środki będą dostępne wkrótce",
+    "englishSource": "Your funds will be available shortly"
+  },
+  "faucetPromptFunded": {
+    "message": "Fundusze zdeponowane",
+    "englishSource": "Funds deposited"
+  },
+  "faucetPromptFundedSub": {
+    "message": "Masz $amount$ gotowy",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetPromptFundedSubGeneric": {
+    "message": "Twoje środki są gotowe",
+    "englishSource": "Your funds are ready"
+  },
   "pendingNotesPromptTitle": {
     "message": "Masz oczekujące Notes",
     "englishSource": "You have Pending Notes"

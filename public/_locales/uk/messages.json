@@ -1686,6 +1686,31 @@
     "message": "Запит faucet не виконано. Перегляньте помилку нижче та повторіть спробу.",
     "englishSource": "The faucet request failed. Review the error below and try again."
   },
+  "faucetPromptFunding": {
+    "message": "Фінансування",
+    "englishSource": "Funding"
+  },
+  "faucetPromptFundingSub": {
+    "message": "Ваші кошти незабаром будуть доступні",
+    "englishSource": "Your funds will be available shortly"
+  },
+  "faucetPromptFunded": {
+    "message": "Депоновані кошти",
+    "englishSource": "Funds deposited"
+  },
+  "faucetPromptFundedSub": {
+    "message": "Ви маєте $amount$ готовий",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetPromptFundedSubGeneric": {
+    "message": "Ваші кошти готові",
+    "englishSource": "Your funds are ready"
+  },
   "pendingNotesPromptTitle": {
     "message": "У вас є Notes",
     "englishSource": "You have Pending Notes"

@@ -1686,6 +1686,31 @@
     "message": "faucet リクエストは失敗しました。以下のエラーを確認して、再試行してください。",
     "englishSource": "The faucet request failed. Review the error below and try again."
   },
+  "faucetPromptFunding": {
+    "message": "資金調達",
+    "englishSource": "Funding"
+  },
+  "faucetPromptFundingSub": {
+    "message": "資金は間もなく利用可能になります",
+    "englishSource": "Your funds will be available shortly"
+  },
+  "faucetPromptFunded": {
+    "message": "入金された資金",
+    "englishSource": "Funds deposited"
+  },
+  "faucetPromptFundedSub": {
+    "message": "あなたが持っている $amount$ 準備ができて",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetPromptFundedSubGeneric": {
+    "message": "資金の準備ができました",
+    "englishSource": "Your funds are ready"
+  },
   "pendingNotesPromptTitle": {
     "message": "保留中Notesがあります",
     "englishSource": "You have Pending Notes"

@@ -1686,6 +1686,31 @@
     "message": "faucet isteği başarısız oldu. Aşağıdaki hatayı inceleyin ve tekrar deneyin.",
     "englishSource": "The faucet request failed. Review the error below and try again."
   },
+  "faucetPromptFunding": {
+    "message": "Finansman",
+    "englishSource": "Funding"
+  },
+  "faucetPromptFundingSub": {
+    "message": "Paranız kısa sürede kullanıma sunulacak",
+    "englishSource": "Your funds will be available shortly"
+  },
+  "faucetPromptFunded": {
+    "message": "Yatırılan fonlar",
+    "englishSource": "Funds deposited"
+  },
+  "faucetPromptFundedSub": {
+    "message": "Var $amount$ hazır",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetPromptFundedSubGeneric": {
+    "message": "Fonlarınız hazır",
+    "englishSource": "Your funds are ready"
+  },
   "pendingNotesPromptTitle": {
     "message": "Bekleyen Notes kimliğiniz var",
     "englishSource": "You have Pending Notes"
