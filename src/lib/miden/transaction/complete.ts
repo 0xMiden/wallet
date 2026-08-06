@@ -69,14 +69,12 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
         const midenClient = await getMidenClient();
 
         try {
-          // Relay to the transport layer BEFORE waiting for commit. The block hint
-          // sendPrivateNote attaches is the client's current sync height, and the
-          // recipient scans FORWARD from it for the note's on-chain commitment.
-          // Waiting for commit first advances sync height to/past the commitment
-          // block, so on fast chains the hint overshoots the commitment and the
-          // recipient never finds the note (silent non-delivery). Relaying first
-          // keeps the hint below the commitment; the commit wait still gates the
-          // Completed status below.
+          // Relay to the transport layer. The SDK derives the recipient's
+          // scan-start block from the note's expected height (web-sdk#263), so the
+          // recipient — which scans FORWARD from that block for the note's on-chain
+          // commitment — receives it regardless of this client's sync height or of
+          // whether we relay before or after commit. The commit wait below still
+          // gates the Completed status.
           await midenClient.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
           await midenClient.waitForTransactionCommit(executedTx.id().toHex());
         } catch (error) {
@@ -448,9 +446,9 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
         const midenClient = await getMidenClient();
         await setTransactionStage(tx.id, 'delivering');
         try {
-          // Relay BEFORE waiting for commit — same reason as completeCustomTransaction:
-          // the sync-height block hint must stay below the note's commitment block, or
-          // the recipient scans past it and never receives.
+          // Relay to the transport layer — see completeCustomTransaction: the SDK
+          // derives the block hint from the note's expected height (web-sdk#263), so
+          // delivery is independent of this client's sync height and relay timing.
           await midenClient.sendPrivateNote(note, tx.secondaryAccountId);
         } catch (error) {
           console.warn('Private-note transport failed; SDK outbox will retry on next sync', {

@@ -472,7 +472,12 @@ export class MidenClientInterface {
   }
 
   async sendPrivateNote(note: Note, to: string): Promise<void> {
-    await this.client.notes.sendPrivate({ note, to });
+    // Relay via the output-note convenience: the SDK derives the recipient's
+    // scan-start block from the note's expected height (the chain tip when its
+    // transaction was submitted), so delivery is correct regardless of this
+    // client's current sync height (web-sdk#263). The note is one of our own
+    // committed output notes, so it exists in the store by relay time.
+    await this.client.notes.sendPrivateOutput({ noteId: note.id().toString(), to });
   }
 
   async getConsumableNotes(accountId: string): Promise<InputNoteRecord[]> {

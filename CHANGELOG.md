@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- [FIX][all] **Private-note delivery no longer silently fails on fast chains.** The wallet relayed a private note's transport hint *after* waiting for the transaction to commit, so the hint (the client's sync height) could already be at or past the note's commitment block — the recipient scans forward from the hint and would never find the note. The note is now relayed *before* the commit wait (the SDK's prompt-relay flow), so the hint stays below the commitment block and the recipient picks the note up when it lands; the commit wait is preserved so `Completed` status still requires on-chain confirmation. Latent on testnet (slow blocks kept the sync height ≈ the commitment block at relay time); reproduced deterministically on a fast devnet.
+- [FIX][all] **Private-note delivery no longer silently fails on fast chains.** A private note's transport "block hint" — the block the recipient scans forward from for the note's on-chain commitment — was the client's current sync height, which could already sit past the commitment once the wallet had synced past the note, so the recipient scanned past it and never found the note. The wallet now relays via the SDK's `sendPrivateOutput`, which derives the hint from the note's expected height (the chain tip when its transaction was submitted), so delivery is correct regardless of sync height. Latent on testnet (slow blocks kept the sync height ≈ the commitment block at relay time); reproduced deterministically on a fast devnet. Requires web-sdk#263.
 
 ## 1.15.19 (2026-08-05)
 
