@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "アドレス：$number$",
-    "englishSource": "Address: $number$",
+    "message": "アカウント ＃： $number$ ",
+    "englishSource": "Account #: $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -2545,12 +2545,12 @@
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
-    "message": "このウィンドウを閉じないでください。トランザクションが生成されると、ホームページに戻ります。",
-    "englishSource": "Do not close this window. You will be navigated back to the home page after the transaction is generated"
+    "message": "トランザクションが生成されるまでこのウィンドウを閉じないでください",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "doNotCloseWindowAutoClose": {
-    "message": "このウィンドウを閉じないでください。トランザクションが生成されるとウィンドウは自動的に閉じます",
-    "englishSource": "Do not close this window. Window will auto-close after the transaction is generated"
+    "message": "トランザクションが生成されるまでこのウィンドウを閉じないでください",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "transactionSuccessDescription": {
     "message": "あなたのトランザクションは正常に処理され、ネットワーク上で確認されました。",
@@ -3837,9 +3837,21 @@
     "message": "Total Paid",
     "englishSource": "Total Paid"
   },
+  "totalConsumed": {
+    "message": "総消費量",
+    "englishSource": "Total Consumed"
+  },
+  "notesConsumed": {
+    "message": "Notes 消費",
+    "englishSource": "Notes Consumed"
+  },
+  "consumed": {
+    "message": "消費された",
+    "englishSource": "Consumed"
+  },
   "sourceTx": {
-    "message": "Source TX",
-    "englishSource": "Source TX"
+    "message": "トランザクションID",
+    "englishSource": "Transaction ID"
   },
   "developerSettingsTitle": {
     "message": "開発者設定",

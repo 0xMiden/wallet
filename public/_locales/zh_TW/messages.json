@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "地址：$number$",
-    "englishSource": "Address: $number$",
+    "message": "帐户 ＃： $number$ ",
+    "englishSource": "Account #: $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -2545,12 +2545,12 @@
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
-    "message": "不要关闭该窗口。交易生成后您将返回首页",
-    "englishSource": "Do not close this window. You will be navigated back to the home page after the transaction is generated"
+    "message": "在交易生成之前不要关闭此窗口",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "doNotCloseWindowAutoClose": {
-    "message": "不要关闭该窗口。交易生成后窗口将自动关闭",
-    "englishSource": "Do not close this window. Window will auto-close after the transaction is generated"
+    "message": "在交易生成之前不要关闭此窗口",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "transactionSuccessDescription": {
     "message": "您的交易已在网络上成功处理并确认。",
@@ -3837,9 +3837,21 @@
     "message": "Total Paid",
     "englishSource": "Total Paid"
   },
+  "totalConsumed": {
+    "message": "总消耗量",
+    "englishSource": "Total Consumed"
+  },
+  "notesConsumed": {
+    "message": "Notes 已消耗",
+    "englishSource": "Notes Consumed"
+  },
+  "consumed": {
+    "message": "已消耗",
+    "englishSource": "Consumed"
+  },
   "sourceTx": {
-    "message": "Source TX",
-    "englishSource": "Source TX"
+    "message": "交易ID",
+    "englishSource": "Transaction ID"
   },
   "developerSettingsTitle": {
     "message": "开发者设置",
