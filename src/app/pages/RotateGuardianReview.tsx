@@ -5,9 +5,9 @@ import { useTranslation } from 'react-i18next';
 import FormField from 'app/atoms/FormField';
 import { useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
 import PageLayout from 'app/layouts/PageLayout';
-import { GuardianTransitionHero } from 'app/templates/GuardianTransitionHero';
 import { Alert, AlertVariant } from 'components/Alert';
 import { Button } from 'components/Button';
+import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { checkBiometricAvailability, isBiometricEnabled } from 'lib/biometric';
 import { initiateSwitchGuardianTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
@@ -25,7 +25,7 @@ const RotateGuardianReview: FC = () => {
   const { search } = useLocation();
   const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
   const currentAccount = useWalletStore(s => s.currentAccount);
-  const { reauthenticate } = useMidenContext();
+  const { unlock } = useMidenContext();
 
   const newEndpoint = useMemo(() => new URLSearchParams(search).get('endpoint') ?? '', [search]);
 
@@ -78,7 +78,7 @@ const RotateGuardianReview: FC = () => {
       setSubmitting(true);
       setError(null);
       try {
-        await reauthenticate(credential);
+        await unlock(credential);
         const txId = await initiateSwitchGuardianTransaction(
           currentAccount.publicKey,
           newEndpoint,
@@ -94,7 +94,7 @@ const RotateGuardianReview: FC = () => {
         setSubmitting(false);
       }
     },
-    [currentAccount, newEndpoint, reauthenticate]
+    [currentAccount, newEndpoint, unlock]
   );
 
   const handleContinue = useCallback(() => {

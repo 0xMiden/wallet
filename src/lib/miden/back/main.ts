@@ -178,9 +178,6 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     case WalletMessageType.UnlockRequest:
       await Actions.unlock(req.password);
       return { type: WalletMessageType.UnlockResponse };
-    case WalletMessageType.ReauthenticateRequest:
-      await Actions.reauthenticate(req.password);
-      return { type: WalletMessageType.ReauthenticateResponse };
     case WalletMessageType.LockRequest:
       await Actions.lock();
       return { type: WalletMessageType.LockResponse };

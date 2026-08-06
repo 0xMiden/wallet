@@ -73,7 +73,6 @@ jest.mock('lib/miden/back/actions', () => ({
   registerNewWallet: jest.fn(),
   registerImportedWallet: jest.fn(),
   unlock: jest.fn(),
-  reauthenticate: jest.fn(),
   lock: jest.fn(),
   createHDAccount: jest.fn(),
   updateCurrentAccount: jest.fn(),
@@ -273,13 +272,6 @@ describe('processRequest', () => {
     expect((await dispatch({ type: WalletMessageType.LockRequest })).type).toBe(WalletMessageType.LockResponse);
     expect(Actions.unlock).toHaveBeenCalledWith('p');
     expect(Actions.lock).toHaveBeenCalled();
-  });
-
-  it('ReauthenticateRequest forwards the credential and returns an empty acknowledgement', async () => {
-    const res = await dispatch({ type: WalletMessageType.ReauthenticateRequest, password: 'pw' });
-
-    expect(Actions.reauthenticate).toHaveBeenCalledWith('pw');
-    expect(res).toEqual({ type: WalletMessageType.ReauthenticateResponse });
   });
 
   it('CreateAccountRequest forwards walletType + name', async () => {

@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import RotateGuardianReview from './RotateGuardianReview';
 
-const mockReauthenticate = jest.fn();
+const mockUnlock = jest.fn();
 const mockInitiateSwitch = jest.fn();
 const mockRequestProcessing = jest.fn();
 const mockNavigate = jest.fn();
@@ -52,7 +52,7 @@ jest.mock('app/layouts/PageLayout', () => ({
   )
 }));
 
-jest.mock('app/templates/GuardianTransitionHero', () => ({
+jest.mock('components/GuardianTransitionHero', () => ({
   GuardianTransitionHero: ({ previousEndpoint, newEndpoint }: { previousEndpoint?: string; newEndpoint?: string }) => (
     <div data-testid="guardian-transition" data-previous={previousEndpoint} data-new={newEndpoint} />
   )
@@ -144,7 +144,7 @@ jest.mock('lib/miden/back/vault', () => ({
 }));
 
 jest.mock('lib/miden/front', () => ({
-  useMidenContext: () => ({ reauthenticate: (...args: unknown[]) => mockReauthenticate(...args) })
+  useMidenContext: () => ({ unlock: (...args: unknown[]) => mockUnlock(...args) })
 }));
 
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: { provider: true } }));
@@ -171,7 +171,7 @@ beforeEach(() => {
   mockIsMobile.mockReturnValue(false);
   mockIsExtension.mockReturnValue(true);
   mockHasHardwareProtector.mockResolvedValue(false);
-  mockReauthenticate.mockResolvedValue(undefined);
+  mockUnlock.mockResolvedValue(undefined);
   mockInitiateSwitch.mockResolvedValue('switch-tx');
 });
 
@@ -187,7 +187,7 @@ it('renders the current and destination endpoints in the shared transition hero'
 it('hardware authentication succeeds once and only then queues the switch', async () => {
   mockHasHardwareProtector.mockResolvedValue(true);
   let finishAuthentication: (() => void) | undefined;
-  mockReauthenticate.mockImplementation(
+  mockUnlock.mockImplementation(
     () =>
       new Promise<void>(resolve => {
         finishAuthentication = resolve;
@@ -199,8 +199,8 @@ it('hardware authentication succeeds once and only then queues the switch', asyn
 
   fireEvent.click(confirm);
   fireEvent.click(confirm);
-  expect(mockReauthenticate).toHaveBeenCalledTimes(1);
-  expect(mockReauthenticate).toHaveBeenCalledWith(undefined);
+  expect(mockUnlock).toHaveBeenCalledTimes(1);
+  expect(mockUnlock).toHaveBeenCalledWith(undefined);
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
 
   finishAuthentication?.();
@@ -210,7 +210,7 @@ it('hardware authentication succeeds once and only then queues the switch', asyn
 
 it('hardware cancellation never queues a switch', async () => {
   mockHasHardwareProtector.mockResolvedValue(true);
-  mockReauthenticate.mockRejectedValue(new Error('cancelled'));
+  mockUnlock.mockRejectedValue(new Error('cancelled'));
   render(<RotateGuardianReview />);
   const confirm = await screen.findByTestId('rotate-guardian-confirm');
   await waitFor(() => expect(confirm).toBeEnabled());
@@ -223,7 +223,7 @@ it('hardware cancellation never queues a switch', async () => {
 });
 
 it('password authentication gates the extension flow and retries with fresh authentication', async () => {
-  mockReauthenticate.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined);
+  mockUnlock.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined);
   mockInitiateSwitch.mockRejectedValueOnce(new Error('queue failed')).mockResolvedValueOnce('retry-tx');
   render(<RotateGuardianReview />);
   const confirm = await screen.findByTestId('rotate-guardian-confirm');
@@ -235,16 +235,16 @@ it('password authentication gates the extension flow and retries with fresh auth
   fireEvent.change(password, { target: { value: 'correct-password' } });
   fireEvent.click(screen.getByTestId('rotate-guardian-auth-submit'));
   expect(await screen.findByText('queue failed')).toBeInTheDocument();
-  expect(mockReauthenticate).toHaveBeenCalledTimes(1);
+  expect(mockUnlock).toHaveBeenCalledTimes(1);
 
   fireEvent.click(screen.getByTestId('rotate-guardian-auth-submit'));
-  await waitFor(() => expect(mockReauthenticate).toHaveBeenCalledTimes(2));
-  expect(mockReauthenticate).toHaveBeenNthCalledWith(2, 'correct-password');
+  await waitFor(() => expect(mockUnlock).toHaveBeenCalledTimes(2));
+  expect(mockUnlock).toHaveBeenNthCalledWith(2, 'correct-password');
   expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/retry-tx');
 });
 
 it('invalid credentials and back navigation leave the Guardian unchanged', async () => {
-  mockReauthenticate.mockRejectedValue(new Error('Invalid password'));
+  mockUnlock.mockRejectedValue(new Error('Invalid password'));
   render(<RotateGuardianReview />);
   const confirm = await screen.findByTestId('rotate-guardian-confirm');
   await waitFor(() => expect(confirm).toBeEnabled());
@@ -271,7 +271,7 @@ it('uses PasscodeEntry for mobile credential authentication', async () => {
 
   fireEvent.click(await screen.findByTestId('passcode-submit'));
 
-  await waitFor(() => expect(mockReauthenticate).toHaveBeenCalledWith('123456'));
+  await waitFor(() => expect(mockUnlock).toHaveBeenCalledWith('123456'));
   expect(mockInitiateSwitch).toHaveBeenCalledTimes(1);
 });
 
@@ -281,6 +281,6 @@ it('fails closed when hardware-protector detection fails', async () => {
 
   expect(await screen.findByText('guardianAuthenticationUnavailable')).toBeInTheDocument();
   expect(screen.getByTestId('rotate-guardian-confirm')).toBeDisabled();
-  expect(mockReauthenticate).not.toHaveBeenCalled();
+  expect(mockUnlock).not.toHaveBeenCalled();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
 });

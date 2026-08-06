@@ -6,7 +6,6 @@ import {
   getFrontState,
   lock,
   unlock,
-  reauthenticate,
   registerNewWallet,
   registerImportedWallet,
   updateCurrentAccount,
@@ -83,7 +82,6 @@ jest.mock('lib/miden/back/vault', () => ({
     isExist: jest.fn(),
     spawn: jest.fn(),
     setup: jest.fn(),
-    reauthenticate: jest.fn(),
     revealMnemonic: jest.fn(),
     revealPrivateKey: jest.fn(),
     spawnFromMidenClient: jest.fn(),
@@ -268,26 +266,6 @@ describe('actions', () => {
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockVaultInstance.fetchSettings).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
-    });
-  });
-
-  describe('reauthenticate', () => {
-    it('verifies the credential without replacing unlocked state', async () => {
-      const { Vault } = jest.requireMock('lib/miden/back/vault');
-      Vault.reauthenticate.mockResolvedValueOnce(undefined);
-
-      await reauthenticate('passcode');
-
-      expect(Vault.reauthenticate).toHaveBeenCalledWith('passcode');
-      expect(mockUnlocked).not.toHaveBeenCalled();
-    });
-
-    it('passes undefined through for hardware authentication and rejects failures', async () => {
-      const { Vault } = jest.requireMock('lib/miden/back/vault');
-      Vault.reauthenticate.mockRejectedValueOnce(new Error('cancelled'));
-
-      await expect(reauthenticate()).rejects.toThrow('cancelled');
-      expect(Vault.reauthenticate).toHaveBeenCalledWith(undefined);
     });
   });
 

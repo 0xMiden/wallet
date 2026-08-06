@@ -8,8 +8,8 @@ import { useTranslation } from 'react-i18next';
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
-import { GuardianTransitionHero } from 'app/templates/GuardianTransitionHero';
 import { Button, ButtonVariant } from 'components/Button';
+import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
 import { ScreenHeader } from 'components/ScreenHeader';
 import {
   cancelTransactionById,

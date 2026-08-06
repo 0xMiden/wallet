@@ -52,7 +52,6 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeRegisterWallet = useWalletStore(s => s.registerWallet);
   const storeImportWalletFromClient = useWalletStore(s => s.importWalletFromClient);
   const storeUnlock = useWalletStore(s => s.unlock);
-  const storeReauthenticate = useWalletStore(s => s.reauthenticate);
   const storeCreateAccount = useWalletStore(s => s.createAccount);
   const storeUpdateCurrentAccount = useWalletStore(s => s.updateCurrentAccount);
   const storeEditAccountName = useWalletStore(s => s.editAccountName);
@@ -127,13 +126,6 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       await storeUnlock(password);
     },
     [storeUnlock]
-  );
-
-  const reauthenticate = useCallback(
-    async (password?: string) => {
-      await storeReauthenticate(password);
-    },
-    [storeReauthenticate]
   );
 
   const createAccount = useCallback(
@@ -381,7 +373,6 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     // Actions
     registerWallet,
     unlock,
-    reauthenticate,
 
     createAccount,
     updateCurrentAccount,

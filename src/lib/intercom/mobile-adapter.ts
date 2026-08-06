@@ -89,10 +89,6 @@ export class MobileIntercomAdapter {
         await Actions.unlock(req.password);
         return { type: WalletMessageType.UnlockResponse };
 
-      case WalletMessageType.ReauthenticateRequest:
-        await Actions.reauthenticate(req.password);
-        return { type: WalletMessageType.ReauthenticateResponse };
-
       case WalletMessageType.LockRequest:
         await Actions.lock();
         return { type: WalletMessageType.LockResponse };

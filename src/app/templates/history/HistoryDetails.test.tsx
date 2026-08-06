@@ -98,7 +98,7 @@ jest.mock('app/layouts/PageLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="page-layout">{children}</div>
 }));
 
-jest.mock('app/templates/GuardianTransitionHero', () => ({
+jest.mock('components/GuardianTransitionHero', () => ({
   GuardianTransitionHero: ({
     previousEndpoint,
     newEndpoint,

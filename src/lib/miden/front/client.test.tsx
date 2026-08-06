@@ -108,7 +108,6 @@ const FullActionProbe: React.FC = () => {
     swallow(() => ctx.registerWallet?.('pw', 'mnemonic', false));
     swallow(() => ctx.importWalletFromClient?.('pw', 'mnemonic'));
     swallow(() => ctx.unlock?.('pw'));
-    swallow(() => ctx.reauthenticate?.('pw'));
     swallow(() => ctx.createAccount?.('on-chain', 'name'));
     swallow(() => ctx.updateCurrentAccount?.('pk'));
     swallow(() => ctx.editAccountName?.('pk', 'new-name'));
