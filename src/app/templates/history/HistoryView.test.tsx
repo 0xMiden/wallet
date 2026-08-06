@@ -772,6 +772,11 @@ describe('HistoryView Guardian switch audit trail', () => {
     expect(screen.getAllByTestId('activity-row')[1]).toHaveAttribute('data-status-tone', 'pending');
     expect(screen.getAllByTestId('activity-row')[2]).toHaveAttribute('data-status-tone', 'confirmed');
     expect(screen.getAllByTestId('activity-row')[3]).toHaveAttribute('data-status-tone', 'failed');
+    for (const row of screen.getAllByTestId('activity-row').slice(0, 3)) {
+      expect(row).toHaveAttribute('data-iconbg', 'bg-[#777487]');
+      expect(row.querySelector('svg')).not.toBeNull();
+    }
+    expect(screen.getAllByTestId('activity-row')[3]).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
   });
 
   it('renders legacy rows with an unknown source and the recorded destination', () => {

@@ -142,6 +142,9 @@ function buildRowProps(
   } else if (isFailed) {
     iconNode = <FailedCrossIcon className="w-3.5 h-3.5" />;
     iconBg = 'bg-[#CC5D5D]';
+  } else if (entry.txType === 'switch-guardian') {
+    iconNode = <SwapIcon className="w-5 h-5" />;
+    iconBg = 'bg-[#777487]';
   } else if (icon === 'RECEIVE') {
     iconNode = <Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />;
     iconBg = 'bg-tx-received';
