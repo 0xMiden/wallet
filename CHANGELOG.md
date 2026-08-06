@@ -9,6 +9,7 @@
 
 ### Fixes
 
+- [FIX][all] **Transaction receipts stick around and claims get a proper one.** The Generating Transaction screen no longer auto-navigates home ~10s after completion — the success/failure receipt stays up until the user taps Done (or Hide). Claim (consume) transactions now render their own summary ("{amount} {symbol} → Consumed") and receipt: the note sender as "From", "Total Consumed" instead of "Total Paid", and a "Notes Consumed" row with the claimed note ids; the receipt's hash row is now labeled "Transaction ID" (was "Source TX") for all transaction types.
 - [FIX][all] **Token metadata fetched during sync is now persisted immediately.** Subsequent syncs reuse the existing metadata cache instead of repeatedly requesting the same faucet account from the node.
 - [FIX][all] **A mistyped recipient address is rejected in the Send screen instead of failing after guardian approval.** Miden addresses are now validated with the SDK's full bech32 decode (`Address.fromBech32`) as you type, scan, or pick a contact — previously only the `mtst1`/`mm1`/`mdev1` prefix was checked, so a typo'd address sailed through to the transaction pipeline and surfaced as a bech32 error in Activity. A well-formed address for a different Miden network (e.g. a mainnet `mm1…` address on a testnet build) gets its own "different Miden network" message.
 ### Changes
@@ -26,7 +27,6 @@
 ### Features
 
 - Add hidden developer endpoint configuration (7-tap the Welcome logo during onboarding) to override RPC / prover / note-transport / faucet / explorer / guardian endpoints and network ID; read-only view with reset-to-defaults in Settings.
-
 ## 1.15.19 (2026-08-05)
 
 ### Fixes

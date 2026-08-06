@@ -46,10 +46,6 @@ jest.mock('lib/woozie', () => ({
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect">redirect:{to}</div>
 }));
 
-jest.mock('lib/settings/helpers', () => ({
-  isAutoCloseEnabled: jest.fn(() => false)
-}));
-
 jest.mock('lib/analytics', () => ({
   useAnalytics: () => ({ pageEvent: jest.fn(), trackEvent: jest.fn() })
 }));
@@ -226,7 +222,6 @@ describe('GeneratingTransactionPage container effects', () => {
   });
 
   const navigateMock = jest.requireMock('lib/woozie').navigate as jest.Mock;
-  const isAutoCloseEnabledMock = jest.requireMock('lib/settings/helpers').isAutoCloseEnabled as jest.Mock;
 
   const flush = async () => {
     await act(async () => {
@@ -332,15 +327,13 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
-  it('auto-closes (navigate home) when the row reaches a terminal state and auto-close is enabled', async () => {
-    isAutoCloseEnabledMock.mockReturnValue(true);
+  it('does not auto-navigate home when the row reaches a terminal state', async () => {
     navigateMock.mockClear();
     window.location.hash = '#/generating-transaction/tx-1';
     mockRowState = { row: makeTx({ stage: 'submitting' }), loaded: true };
 
     const { root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
-    // Row transitions to Completed → schedules auto-close.
     mockRowState = { row: makeTx({ status: 2, transactionId: '0xhash' }), loaded: true };
     await act(async () => {
       root.render(<GeneratingTransactionPage txId="tx-1" />);
@@ -348,37 +341,11 @@ describe('GeneratingTransactionPage container effects', () => {
     await flush();
 
     await act(async () => {
-      jest.advanceTimersByTime(10_000);
-    });
-    await flush();
-
-    expect(navigateMock).toHaveBeenCalledWith('/');
-    isAutoCloseEnabledMock.mockReturnValue(false);
-    act(() => root.unmount());
-  });
-
-  it('does not navigate on auto-close when the hash is not on the generating-transaction route', async () => {
-    // onClose early-returns when the hash does not include 'generating-transaction'.
-    isAutoCloseEnabledMock.mockReturnValue(true);
-    navigateMock.mockClear();
-    window.location.hash = '#/some-other-route/tx-1';
-    mockRowState = { row: makeTx({ stage: 'submitting' }), loaded: true };
-
-    const { root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
-
-    mockRowState = { row: makeTx({ status: 2, transactionId: '0xhash' }), loaded: true };
-    await act(async () => {
-      root.render(<GeneratingTransactionPage txId="tx-1" />);
-    });
-    await flush();
-
-    await act(async () => {
-      jest.advanceTimersByTime(10_000);
+      jest.advanceTimersByTime(60_000);
     });
     await flush();
 
     expect(navigateMock).not.toHaveBeenCalled();
-    isAutoCloseEnabledMock.mockReturnValue(false);
     act(() => root.unmount());
   });
 });
