@@ -169,14 +169,16 @@ services:
       - --validator.url=http://validator:50101
       - --ntx-builder.url=http://ntx-builder:50301
       - --rpc.network-tx-auth-header-value=${MIDEN_NTX_AUTH:-e2e-ntx-secret}
-      # Fast blocks: the block producer ticks empty blocks on a timer (default
-      # --block.interval=3s). At 3s vs the wallet's 2s localhost sync poll, a block
-      # lands in the commit->relay window only sometimes, so the private-note
-      # block-hint overshoot (web-sdk#262 / wallet#502) reproduces only flakily.
-      # 500ms guarantees a block lands in that window, making send-private a
-      # deterministic guard for the overshoot.
-      - --batch.interval=500ms
-      - --block.interval=500ms
+      # Block cadence is parameterized so CI exercises BOTH realistic timing and
+      # fast blocks. The block producer ticks empty blocks on this timer; unset, it
+      # defaults to the miden-node defaults (3s block / 1s batch) for normal-timing
+      # coverage. At 3s vs the wallet's 2s localhost sync poll a block lands in the
+      # commit->relay window only sometimes, so the private-note block-hint overshoot
+      # (web-sdk#262 / wallet#502) reproduces only flakily. Setting
+      # MIDEN_NODE_BLOCK_INTERVAL=500ms guarantees a block in that window, making
+      # send-private a deterministic guard for the overshoot.
+      - --batch.interval=${MIDEN_NODE_BATCH_INTERVAL:-1s}
+      - --block.interval=${MIDEN_NODE_BLOCK_INTERVAL:-3s}
     ports:
       - "127.0.0.1:57291:57291"
     # No custom healthcheck: the miden-node image ships its own HEALTHCHECK
