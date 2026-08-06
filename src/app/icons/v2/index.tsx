@@ -60,6 +60,7 @@ import { ReactComponent as Fullscreen } from './fullscreen.svg';
 import { ReactComponent as Globe } from './globe.svg';
 import { ReactComponent as Hammer } from './hammer.svg';
 import { ReactComponent as Home } from './home-new.svg';
+import { ReactComponent as Hourglass } from './hourglass.svg';
 import { ReactComponent as ImagePrivate } from './image-private.svg';
 import { ReactComponent as ImagePublic } from './image-public.svg';
 import { ReactComponent as Image } from './image.svg';
@@ -156,6 +157,7 @@ export enum IconName {
   Globe = 'globe',
   Hammer = 'hammer',
   Home = 'home',
+  Hourglass = 'hourglass',
   ImagePrivate = 'image-private',
   ImagePublic = 'image-public',
   Image = 'image',
@@ -316,6 +318,8 @@ const IconSwitch = (props: IconProps) => {
       return <Hammer {...props} />;
     case IconName.Home:
       return <Home {...props} />;
+    case IconName.Hourglass:
+      return <Hourglass {...props} />;
     case IconName.ImagePrivate:
       return <ImagePrivate {...props} />;
     case IconName.ImagePublic:

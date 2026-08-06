@@ -4,18 +4,18 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import type { TokenBalanceData } from 'lib/miden/front';
 import type { WalletAccount } from 'lib/shared/types';
-import type { WalletFundingState } from 'lib/wallet-funding';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
 import { WalletPromptStatus, WalletPromptType } from 'lib/wallet-prompts';
 
 import { HomePrompts } from './HomePrompts';
 
+const mockFaucet = jest.fn();
 const mockFetchActiveBridgePrompts = jest.fn();
 const mockPollActiveBridgePrompts = jest.fn();
 const mockUseWalletPromptStorage = jest.fn();
 const mockFetchHotKeyHardwareError = jest.fn();
-const mockOpenWalletFunding = jest.fn();
-const mockWalletFundingState: WalletFundingState = { open: false, status: 'idle', address: null, error: null };
+const mockFetchFaucetFundingRequestedAt = jest.fn();
+const mockSetFaucetFundingRequestedAt = jest.fn();
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -28,6 +28,7 @@ jest.mock('components/ui', () => ({
   PromptCard: ({
     title,
     body,
+    hero,
     onClick,
     actionLabel,
     onAction,
@@ -37,6 +38,7 @@ jest.mock('components/ui', () => ({
   }: {
     title: string;
     body?: string;
+    hero?: { icon: string; label: string; tone: string };
     onClick?: () => void;
     actionLabel?: string;
     onAction?: () => void;
@@ -44,7 +46,7 @@ jest.mock('components/ui', () => ({
     status?: string;
     onDismiss?: () => void;
   }) => (
-    <section data-testid="prompt-card" data-title={title} data-status={status}>
+    <section data-testid="prompt-card" data-title={title} data-status={status} data-hero={hero?.label}>
       <button type="button" onClick={onClick}>
         {title}
       </button>
@@ -67,17 +69,15 @@ jest.mock('lib/wallet-prompts', () => {
   const actual = jest.requireActual('lib/wallet-prompts');
   return {
     ...actual,
+    faucet: (address: string) => mockFaucet(address),
     fetchActiveBridgePrompts: (address: string) => mockFetchActiveBridgePrompts(address),
+    fetchFaucetFundingRequestedAt: () => mockFetchFaucetFundingRequestedAt(),
+    setFaucetFundingRequestedAt: (timestamp: number | null) => mockSetFaucetFundingRequestedAt(timestamp),
     fetchHotKeyHardwareError: () => mockFetchHotKeyHardwareError(),
     pollActiveBridgePrompts: (transactions: unknown[]) => mockPollActiveBridgePrompts(transactions),
     useWalletPromptStorage: () => mockUseWalletPromptStorage()
   };
 });
-
-jest.mock('lib/wallet-funding', () => ({
-  openWalletFunding: (address: string) => mockOpenWalletFunding(address),
-  useWalletFunding: () => mockWalletFundingState
-}));
 
 jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 
@@ -112,13 +112,12 @@ const makePromptState = (overrides: Record<string, unknown> = {}) => ({
 describe('HomePrompts', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockWalletFundingState.open = false;
-    mockWalletFundingState.status = 'idle';
-    mockWalletFundingState.address = null;
-    mockWalletFundingState.error = null;
+    mockFaucet.mockResolvedValue(undefined);
     mockFetchActiveBridgePrompts.mockResolvedValue([]);
     mockPollActiveBridgePrompts.mockResolvedValue(undefined);
     mockFetchHotKeyHardwareError.mockResolvedValue(null);
+    mockFetchFaucetFundingRequestedAt.mockResolvedValue(null);
+    mockSetFaucetFundingRequestedAt.mockResolvedValue(undefined);
   });
 
   it('polls and dismisses a pending bridge through the wallet prompt type', async () => {
@@ -208,7 +207,137 @@ describe('HomePrompts', () => {
     expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet);
   });
 
-  it('opens the funding drawer from the faucet button', () => {
+  it('funds on card tap, holds the Funding hero, then plays Funded! and completes when notes arrive', async () => {
+    const completePrompt = jest.fn();
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+
+    const { rerender } = render(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+
+    await waitFor(() => expect(mockFaucet).toHaveBeenCalledWith('accountA'));
+    expect(mockFaucet).toHaveBeenCalledTimes(1);
+    // The faucet ack alone must not complete the prompt — the Funding hero
+    // holds until the minted funds are actually visible.
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+    expect(faucetCard).toHaveAttribute('data-status', 'loading');
+    expect(completePrompt).not.toHaveBeenCalled();
+
+    // The minted note becomes claimable → Funded! beat, then completion.
+    rerender(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={pendingNotes}
+        tokenPrices={tokenPrices}
+      />
+    );
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+    expect(faucetCard).toHaveAttribute('data-status', 'success');
+    expect(completePrompt).not.toHaveBeenCalled();
+    // The pending-notes card must hold back while the success beat plays —
+    // it sorts first in the carousel and would push the hero off-screen.
+    expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
+    await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet), { timeout: 3500 });
+    // Beat over → the pending-notes card takes the stage.
+    await waitFor(() => expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument());
+  });
+
+  it('plays the Funded! beat and completes when the balance arrives directly', async () => {
+    const completePrompt = jest.fn();
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        completePrompt,
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.Faucet]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        }
+      })
+    );
+
+    const { rerender } = render(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+    await waitFor(() => expect(mockFaucet).toHaveBeenCalledWith('accountA'));
+    expect(completePrompt).not.toHaveBeenCalled();
+
+    rerender(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+    await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet), { timeout: 3000 });
+  });
+
+  it('resumes the Funding hero from a persisted marker after a remount mid-wait', async () => {
+    const completePrompt = jest.fn();
+    mockFetchFaucetFundingRequestedAt.mockResolvedValue(Date.now() - 5_000);
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        completePrompt,
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.Faucet]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        }
+      })
+    );
+
+    const { rerender } = render(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+    // No tap happened this session — the hero resumes from the marker alone.
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+    expect(mockFaucet).not.toHaveBeenCalled();
+
+    // Funds land → success beat plays and the marker is cleared.
+    rerender(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={pendingNotes}
+        tokenPrices={tokenPrices}
+      />
+    );
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+    expect(mockSetFaucetFundingRequestedAt).toHaveBeenCalledWith(null);
+    await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet), { timeout: 3500 });
+  });
+
+  it('shows a failure state and allows the faucet request to be retried by tapping again', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockFaucet.mockRejectedValueOnce(new Error('rate limited')).mockResolvedValueOnce(undefined);
     mockUseWalletPromptStorage.mockReturnValue(makePromptState());
 
     render(
@@ -221,44 +350,13 @@ describe('HomePrompts', () => {
       />
     );
     const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
-    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptAction' }));
+    const card = within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' });
 
-    expect(mockOpenWalletFunding).toHaveBeenCalledWith('accountA');
-    expect(mockOpenWalletFunding).toHaveBeenCalledTimes(1);
-  });
+    fireEvent.click(card);
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-status', 'failure'));
+    fireEvent.click(card);
 
-  it('hides the faucet prompt after funding succeeds for the current account', () => {
-    mockWalletFundingState.status = 'success';
-    mockWalletFundingState.address = 'accountA';
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
-
-    render(
-      <HomePrompts
-        account={account}
-        balances={zeroBalance}
-        balancesLoading={false}
-        claimableNotes={[]}
-        tokenPrices={{}}
-      />
-    );
-    expect(screen.queryByText('faucetPromptTitle')).not.toBeInTheDocument();
-  });
-
-  it('does not fund when the faucet card content is clicked', () => {
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
-
-    render(
-      <HomePrompts
-        account={account}
-        balances={zeroBalance}
-        balancesLoading={false}
-        claimableNotes={[]}
-        tokenPrices={{}}
-      />
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'faucetPromptTitle' }));
-
-    expect(mockOpenWalletFunding).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockFaucet).toHaveBeenCalledTimes(2));
   });
 
   it('dismisses the faucet prompt without calling the faucet', () => {
@@ -277,10 +375,10 @@ describe('HomePrompts', () => {
     fireEvent.click(screen.getByRole('button', { name: 'dismiss-faucetPromptTitle' }));
 
     expect(dismissPrompt).toHaveBeenCalledWith(WalletPromptType.Faucet);
-    expect(mockOpenWalletFunding).not.toHaveBeenCalled();
+    expect(mockFaucet).not.toHaveBeenCalled();
   });
 
-  it('shows pending notes first with their USD value and action-only navigation', () => {
+  it('shows pending notes first with their USD value and navigates on card tap', () => {
     const promptState = makePromptState();
     mockUseWalletPromptStorage.mockReturnValue(promptState);
 
@@ -299,11 +397,9 @@ describe('HomePrompts', () => {
       'verifySeedPhrasePromptTitle'
     ]);
     expect(screen.getByText('pendingNotesPromptBody:$4.50')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'pendingNotesPromptAction' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'pendingNotesPromptTitle' }));
-    expect(jest.requireMock('lib/woozie').navigate).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'pendingNotesPromptAction' }));
     expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/pending-notes');
   });
 

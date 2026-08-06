@@ -58,14 +58,14 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
       <div className="min-h-full flex flex-col items-center px-6 pb-8">
         <div className="flex-1 flex flex-col items-center justify-center w-full text-center py-8">
           <ConfirmationHero style={{ width: 240, height: 'auto' }} />
-          <h1 className="mt-6 text-5xl font-semibold font-heading text-heading-gray leading-[100%] tracking-tight">
+          <h1 className="mt-6 text-5xl font-bold font-heading text-heading-gray leading-[100%] tracking-tight">
             <Trans i18nKey="yourWalletIsReady" components={{ highlight: <span className="text-primary-500" /> }} />
           </h1>
           {/* TODO: Wrap in a single class and then have child components */}
-          <p className="mt-3 text-lg text-heading-gray leading-[130%] font-medium">
+          <p className="mt-3 text-lg font-heading font-medium text-heading-gray leading-[130%]">
             {t('recoveryPhraseSevenDayReminder')}
           </p>
-          <p className="mt-4 text-lg text-heading-gray leading-[130%]" font-medium>
+          <p className="mt-4 rounded-full bg-surface-input px-4 py-2 text-sm font-medium text-heading-gray">
             {t('recoveryPhraseDailyReminder')}
           </p>
 

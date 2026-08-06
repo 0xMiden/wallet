@@ -6,6 +6,10 @@
 
 - [CHANGE][all] **Fund Now requests only native MIDEN and reports progress in a drawer.** The wallet prompt no longer also mints iMiden from Forkchoice; opening the funding drawer starts the native faucet request automatically and keeps its loading, success, or detailed error state correct across drawer and tab-layout unmounts. The network-discovered native asset now also appears first in the swap token list ahead of the existing DEX test assets.
 
+### Fixes
+
+- [FIX][all] **Funding a new wallet now shows its full lifecycle instead of going silent for ~30s.** The faucet API acks a mint within seconds, but the minted note only becomes visible after chain inclusion and a client sync (~30–60s); the "Fund your wallet" card used to flash success on the ack and vanish, leaving the Home screen looking idle until the funds appeared. The card itself is now the tap target (no separate CTA button) and walks through a full sequence: a "Funding" hero (animated hourglass tile, indeterminate progress bar, "Your funds will be available shortly") for the whole wait, then a green "Funds deposited — You have $X ready" success beat once the funds land, then a hand-off to the pending-notes card — which now holds back while the hero is on stage so it can't push the success state off-screen (it sorts first in the carousel). The wait survives remounts and app restarts via a persisted request marker, and falls back to the actionable card after 3 minutes if the mint never lands. The pending-notes card's "See Now" button was likewise folded into a whole-card tap. `PromptCard` gained an icon slot, a filled pill CTA, a corner dismiss that hides while a request is in flight, press-in feedback on tappable cards, and a reusable "hero" takeover mode; the Home "Assets" heading now uses the heading font, and the onboarding confirmation screen's typography was polished (bold Nunito heading, Nunito body copy, pill-styled daily-reminder note — fixing a stray `font-medium` attribute that was never applied).
+
 ## 1.15.19 (2026-08-05)
 
 ### Fixes

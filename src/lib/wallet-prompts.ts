@@ -227,6 +227,24 @@ export async function reportHotKeyHardwareFailure(message: string): Promise<void
   await seedWalletPrompt(WalletPromptType.HotKeyHardwareUnavailable);
 }
 
+// -- Faucet funding-in-flight marker ---------------------------------------
+//
+// Stamped when a faucet request is accepted and cleared when the funds become
+// visible (or the wait times out). Persisted so the Home prompt can resume its
+// "Funding" presentation after a remount or app restart mid-wait — the mint
+// takes ~30-60s and component state alone doesn't survive that reliably.
+
+export const FAUCET_FUNDING_REQUESTED_AT_KEY = 'faucet_funding_requested_at_v1';
+
+export async function fetchFaucetFundingRequestedAt(): Promise<number | null> {
+  const raw = await fetchFromStorage(FAUCET_FUNDING_REQUESTED_AT_KEY);
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+}
+
+export async function setFaucetFundingRequestedAt(timestamp: number | null): Promise<void> {
+  await putToStorage(FAUCET_FUNDING_REQUESTED_AT_KEY, timestamp);
+}
+
 // 100 MIDEN in base units (6 decimals).
 const MIDEN_FAUCET_AMOUNT = 100_000_000n;
 
