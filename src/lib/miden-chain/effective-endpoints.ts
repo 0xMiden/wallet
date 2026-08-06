@@ -101,6 +101,23 @@ export function buildDefaultOverrideFor(network: MIDEN_NETWORK_NAME): EndpointOv
   };
 }
 
+function isEndpointOverride(value: unknown): value is EndpointOverride {
+  if (typeof value !== 'object' || value === null) return false;
+  return (
+    'rpcUrl' in value &&
+    'proverUrl' in value &&
+    'noteTransportUrl' in value &&
+    'faucetUrl' in value &&
+    'faucetApiUrl' in value &&
+    'explorerUrl' in value &&
+    'guardianUrl' in value &&
+    'networkName' in value &&
+    'presetName' in value &&
+    typeof value.rpcUrl === 'string' &&
+    typeof value.networkName === 'string'
+  );
+}
+
 /** Load the persisted override into the sync cache. No-op under E2E builds. */
 export async function loadEndpointOverrides(): Promise<void> {
   if (process.env.MIDEN_E2E_TEST === 'true') {
@@ -110,8 +127,8 @@ export async function loadEndpointOverrides(): Promise<void> {
   try {
     const storage = getStorageProvider();
     const items = await storage.get([ENDPOINT_OVERRIDE_STORAGE_KEY]);
-    const stored = items[ENDPOINT_OVERRIDE_STORAGE_KEY] as EndpointOverride | undefined;
-    overrideCache = stored ?? null;
+    const raw = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
+    overrideCache = isEndpointOverride(raw) ? raw : null;
   } catch {
     overrideCache = null;
   }

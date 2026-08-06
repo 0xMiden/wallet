@@ -1,9 +1,22 @@
-import { MIDEN_NETWORK_NAME, MIDEN_NETWORK_ENDPOINTS } from './constants';
+import {
+  MIDEN_NETWORK_NAME,
+  MIDEN_NETWORK_ENDPOINTS,
+  MIDEN_PROVING_ENDPOINTS,
+  MIDEN_FAUCET_ENDPOINTS,
+  MIDEN_FAUCET_API_ENDPOINTS,
+  MIDEN_EXPLORER_ENDPOINTS,
+  MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS,
+  DEFAULT_NETWORK
+} from './constants';
 
 const mockKvStore: Record<string, unknown> = {};
+// Per-test toggle so a single test can simulate a storage-provider failure
+// without a second jest.mock for the whole file.
+let mockThrows = false;
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({
     get: async (keys: string[]) => {
+      if (mockThrows) throw new Error('storage unavailable');
       const out: Record<string, unknown> = {};
       for (const k of keys) if (k in mockKvStore) out[k] = mockKvStore[k];
       return out;
@@ -18,6 +31,16 @@ jest.mock('lib/platform/storage-adapter', () => ({
   StorageProvider: class {}
 }));
 
+// `getEffectiveRpcEndpoint` constructs the SDK's wasm-backed `Endpoint`. The
+// shared __mocks__/wasmMock.js doesn't export it, so mock it locally the same
+// way constants.test.ts does for `getRpcEndpoint`.
+const mockEndpointCtor = jest.fn((url: string) => ({ url }));
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  Endpoint: function (url: string) {
+    return mockEndpointCtor(url);
+  }
+}));
+
 function loadModule(): typeof import('./effective-endpoints') {
   let mod!: typeof import('./effective-endpoints');
   jest.isolateModules(() => {
@@ -28,6 +51,7 @@ function loadModule(): typeof import('./effective-endpoints') {
 
 beforeEach(() => {
   for (const k of Object.keys(mockKvStore)) delete mockKvStore[k];
+  mockThrows = false;
   delete process.env.MIDEN_E2E_TEST;
 });
 
@@ -75,5 +99,91 @@ describe('effective-endpoints resolver', () => {
     const m = loadModule();
     expect(m.getEffectiveNoteTransportUrl()).toBe('http://env.local/ntl');
     delete process.env.MIDEN_NOTE_TRANSPORT_URL;
+  });
+
+  describe('getters with no override loaded', () => {
+    it('returns the build-default prover/faucet/faucetApi/explorer URLs keyed by the effective network', () => {
+      const m = loadModule();
+      const network = m.getEffectiveNetworkName();
+      expect(m.getEffectiveProverUrl()).toBe(MIDEN_PROVING_ENDPOINTS.get(network));
+      expect(m.getEffectiveFaucetUrl()).toBe(MIDEN_FAUCET_ENDPOINTS.get(network));
+      expect(m.getEffectiveFaucetApiUrl()).toBe(MIDEN_FAUCET_API_ENDPOINTS.get(network));
+      expect(m.getEffectiveExplorerUrl()).toBe(MIDEN_EXPLORER_ENDPOINTS.get(network));
+    });
+
+    it('returns the per-network note-transport default when no override and no env override are set', () => {
+      delete process.env.MIDEN_NOTE_TRANSPORT_URL;
+      const m = loadModule();
+      const network = m.getEffectiveNetworkName();
+      expect(m.getEffectiveNoteTransportUrl()).toBe(MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(network));
+    });
+
+    it('returns an empty guardian URL', () => {
+      const m = loadModule();
+      expect(m.getEffectiveGuardianUrl()).toBe('');
+    });
+
+    it('constructs an RPC Endpoint without throwing', () => {
+      const m = loadModule();
+      expect(m.getEffectiveRpcEndpoint()).toBeTruthy();
+    });
+  });
+
+  describe('getters with an override applied', () => {
+    it('returns the overridden prover/faucet/faucetApi/explorer/guardian URLs', async () => {
+      const m = loadModule();
+      const override = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
+      override.proverUrl = 'https://custom.example/prover';
+      override.faucetUrl = 'https://custom.example/faucet';
+      override.faucetApiUrl = 'https://custom.example/faucet-api';
+      override.explorerUrl = 'https://custom.example/explorer';
+      override.guardianUrl = 'https://custom.example/guardian';
+      await m.applyEndpointOverride(override);
+
+      expect(m.getEffectiveProverUrl()).toBe('https://custom.example/prover');
+      expect(m.getEffectiveFaucetUrl()).toBe('https://custom.example/faucet');
+      expect(m.getEffectiveFaucetApiUrl()).toBe('https://custom.example/faucet-api');
+      expect(m.getEffectiveExplorerUrl()).toBe('https://custom.example/explorer');
+      expect(m.getEffectiveGuardianUrl()).toBe('https://custom.example/guardian');
+    });
+  });
+
+  describe('faucet/faucetApi URL final fallback (network with no per-network mapping)', () => {
+    it('falls back to the DEFAULT_NETWORK faucet/faucetApi endpoint when the effective network has none', async () => {
+      const m = loadModule();
+      // MAINNET has no entry in MIDEN_FAUCET_ENDPOINTS / MIDEN_FAUCET_API_ENDPOINTS, and
+      // buildDefaultOverrideFor leaves faucetUrl/faucetApiUrl empty in that case, so both
+      // getters must fall through past the (falsy) override and the (undefined) per-network
+      // map entry to the DEFAULT_NETWORK map entry.
+      await m.applyEndpointOverride(m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.MAINNET));
+      expect(m.getEffectiveNetworkName()).toBe(MIDEN_NETWORK_NAME.MAINNET);
+      expect(m.getEffectiveFaucetUrl()).toBe(MIDEN_FAUCET_ENDPOINTS.get(DEFAULT_NETWORK));
+      expect(m.getEffectiveFaucetApiUrl()).toBe(MIDEN_FAUCET_API_ENDPOINTS.get(DEFAULT_NETWORK));
+    });
+  });
+
+  describe('loadEndpointOverrides storage failure', () => {
+    it('keeps the override cache null (no throw) when storage.get rejects', async () => {
+      mockThrows = true;
+      const m = loadModule();
+      await expect(m.loadEndpointOverrides()).resolves.toBeUndefined();
+      expect(m.getActiveOverride()).toBeNull();
+    });
+  });
+
+  describe('loadEndpointOverrides type-guard rejection', () => {
+    it('discards a stored value that fails the EndpointOverride shape check', async () => {
+      mockKvStore['endpoint_overrides'] = { rpcUrl: 'https://malformed.example/rpc' }; // missing required fields
+      const m = loadModule();
+      await m.loadEndpointOverrides();
+      expect(m.getActiveOverride()).toBeNull();
+    });
+
+    it('discards a stored value whose fields have the wrong shape entirely', async () => {
+      mockKvStore['endpoint_overrides'] = 'not-an-object';
+      const m = loadModule();
+      await m.loadEndpointOverrides();
+      expect(m.getActiveOverride()).toBeNull();
+    });
   });
 });
