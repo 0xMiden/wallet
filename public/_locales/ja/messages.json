@@ -2283,6 +2283,14 @@
     "message": "新しい",
     "englishSource": "New"
   },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "この Guardian スイッチを承認するには認証を行ってください。",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "認証は利用できません。ガーディアンを切り替える前にもう一度お試しください。",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
+  },
   "walletKeyHot": {
     "message": "ウォレットキー（ホット）",
     "englishSource": "Wallet key (hot)"

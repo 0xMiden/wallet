@@ -2235,6 +2235,14 @@
     "message": "New",
     "englishSource": "New"
   },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "Authenticate to approve this Guardian switch.",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "Authentication is unavailable. Try again before switching Guardian.",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
+  },
   "walletKeyHot": {
     "message": "Wallet key (hot)",
     "englishSource": "Wallet key (hot)"

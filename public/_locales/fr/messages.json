@@ -2282,6 +2282,14 @@
     "message": "Nouveau",
     "englishSource": "New"
   },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "Authentifiez-vous pour approuver ce commutateur Guardian.",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "L'authentification n'est pas disponible. Réessayez avant de changer de Guardian.",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
+  },
   "walletKeyHot": {
     "message": "Clé du portefeuille (chaud)",
     "englishSource": "Wallet key (hot)"
