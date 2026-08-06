@@ -1,6 +1,12 @@
 import { Endpoint, MidenClient, NetworkId } from '@miden-sdk/miden-sdk/lazy';
 
 import { MidenNetwork } from 'lib/miden/types';
+import {
+  getEffectiveExplorerUrl,
+  getEffectiveGuardianUrl,
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl
+} from 'lib/miden-chain/effective-endpoints';
 import type { GuardianOption } from 'lib/shared/types';
 
 export const NETWORK_STORAGE_ID = 'network_id';
@@ -76,8 +82,9 @@ export const MIDEN_EXPLORER_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.DEVNET, 'https://devnet.midenscan.com']
 ]);
 
-export function getExplorerTxUrl(txHash: string, network: string = DEFAULT_NETWORK): string | undefined {
-  const base = MIDEN_EXPLORER_ENDPOINTS.get(network);
+export function getExplorerTxUrl(txHash: string, network: string = getEffectiveNetworkName()): string | undefined {
+  const base =
+    network === getEffectiveNetworkName() ? getEffectiveExplorerUrl() : MIDEN_EXPLORER_ENDPOINTS.get(network);
   return base ? `${base}/tx/${txHash}` : undefined;
 }
 
@@ -175,7 +182,9 @@ export interface ResolvedGuardianOption {
  * each flattened to its endpoint on that network (in GUARDIAN_OPTIONS order).
  * Single source of truth so the create picker and import presets can't drift.
  */
-export function getGuardianOptionsForNetwork(network: MIDEN_NETWORK_NAME = DEFAULT_NETWORK): ResolvedGuardianOption[] {
+export function getGuardianOptionsForNetwork(
+  network: MIDEN_NETWORK_NAME = getEffectiveNetworkName()
+): ResolvedGuardianOption[] {
   const options = GUARDIAN_OPTIONS.filter(o => o.endpoint.has(network)).map(o => ({
     id: o.id,
     name: o.name,
@@ -193,6 +202,18 @@ export function getGuardianOptionsForNetwork(network: MIDEN_NETWORK_NAME = DEFAU
       operatedBy: 'Open-Zeppelin',
       location: 'US-EAST',
       endpoint: 'http://localhost:3001'
+    });
+  }
+
+  // Developer override: a custom guardian URL is offered as an extra selectable option.
+  const customGuardian = getEffectiveGuardianUrl();
+  if (customGuardian && !options.some(o => o.endpoint === customGuardian)) {
+    options.push({
+      id: 'custom',
+      name: 'Custom',
+      operatedBy: 'Custom',
+      location: '—',
+      endpoint: customGuardian
     });
   }
 
@@ -238,18 +259,22 @@ export const IS_GUARDIAN_SUPPORTED = (MIDEN_GUARDIAN_ENDPOINTS.get(DEFAULT_NETWO
  * (rather than silently targeting the wrong backend) on an unsupported network.
  */
 export function getDefaultGuardianEndpoint(): string {
-  const endpoints = MIDEN_GUARDIAN_ENDPOINTS.get(DEFAULT_NETWORK);
+  const custom = getEffectiveGuardianUrl();
+  if (custom) return custom;
+  const network = getEffectiveNetworkName();
+  const endpoints = MIDEN_GUARDIAN_ENDPOINTS.get(network);
   if (!endpoints || endpoints.length === 0) {
-    throw new Error(`Guardian is not available on network "${DEFAULT_NETWORK}": no Guardian endpoint is configured.`);
+    throw new Error(`Guardian is not available on network "${network}": no Guardian endpoint is configured.`);
   }
   return endpoints[0]!;
 }
 
 /**
- * Returns the SDK NetworkId for the current DEFAULT_NETWORK.
+ * Returns the SDK NetworkId for the effective network (build default, unless
+ * a developer endpoint override is active).
  */
 export function getNetworkId(): NetworkId {
-  const network: string = DEFAULT_NETWORK;
+  const network: string = getEffectiveNetworkName();
   switch (network) {
     /* c8 ignore start */
     case MIDEN_NETWORK_NAME.MAINNET:
@@ -265,15 +290,15 @@ export function getNetworkId(): NetworkId {
 }
 
 /**
- * Returns the SDK Endpoint for the current DEFAULT_NETWORK.
+ * Returns the SDK Endpoint for the effective network (build default, unless
+ * a developer endpoint override is active).
  *
  * NOTE: this constructs a wasm-bindgen-backed `Endpoint` instance and
  * therefore requires the SDK's WASM module to be loaded on this thread.
  * Page-side callers should `await ensureSdkWasmReady()` first.
  */
 export function getRpcEndpoint(): Endpoint {
-  const url = MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!;
-  return new Endpoint(url);
+  return new Endpoint(getEffectiveRpcUrl());
 }
 
 /**

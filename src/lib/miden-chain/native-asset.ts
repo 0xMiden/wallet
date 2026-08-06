@@ -2,13 +2,14 @@ import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
-import { DEFAULT_NETWORK, ensureSdkWasmReady, getRpcEndpoint } from './constants';
+import { ensureSdkWasmReady, getRpcEndpoint } from './constants';
 
 // `v2` segment: account IDs renumbered under the 0.15 protocol's ID
 // version 1, so values cached by 0.14 builds must not be reused.
-const ID_CACHE_KEY = `native_asset_id:v2:${DEFAULT_NETWORK}`;
-const META_CACHE_KEY = `native_asset_meta:v2:${DEFAULT_NETWORK}`;
+const ID_CACHE_KEY = `native_asset_id:v2:${getEffectiveNetworkName()}`;
+const META_CACHE_KEY = `native_asset_meta:v2:${getEffectiveNetworkName()}`;
 
 export type NativeAssetChainMetadata = {
   symbol: string;
