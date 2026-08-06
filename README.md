@@ -81,7 +81,7 @@ yarn dev
 # Production build
 yarn build:chrome    # Chrome
 yarn build:firefox   # Firefox
-yarn build-all       # All browsers
+yarn build-all       # All build targets (browser, mobile, desktop)
 ```
 
 Load the unpacked extension from `dist/chrome_unpacked/` in Chrome's extension settings.
