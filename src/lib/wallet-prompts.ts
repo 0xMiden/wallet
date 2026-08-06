@@ -230,26 +230,51 @@ export async function reportHotKeyHardwareFailure(message: string): Promise<void
 // -- Faucet funding-in-flight marker ---------------------------------------
 //
 // Stamped when a faucet request is accepted and cleared when the funds become
-// visible (or the wait times out). Persisted so the Home prompt can resume its
-// "Funding" presentation after a remount or app restart mid-wait — the mint
-// takes ~30-60s and component state alone doesn't survive that reliably.
+// visible (or the wait times out). Persisted per account — one account's wait
+// must never surface on another — so the Home prompt can resume that
+// account's "Funding" presentation after a remount or app restart mid-wait.
+// `baselineNoteIds` records the claimable notes that already existed at
+// request time: arrival requires a note NOT in this set (or a balance), so a
+// pre-existing unclaimed note can't fake an instant success.
 
-export const FAUCET_FUNDING_REQUESTED_AT_KEY = 'faucet_funding_requested_at_v1';
+export type FaucetFundingMarker = {
+  requestedAt: number;
+  baselineNoteIds: readonly string[];
+};
 
-export async function fetchFaucetFundingRequestedAt(): Promise<number | null> {
-  const raw = await fetchFromStorage(FAUCET_FUNDING_REQUESTED_AT_KEY);
-  return typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+const faucetFundingMarkerKey = (address: string) => `faucet_funding_v2:${address}`;
+
+export async function fetchFaucetFundingMarker(address: string): Promise<FaucetFundingMarker | null> {
+  const raw = await fetchFromStorage(faucetFundingMarkerKey(address));
+  if (!raw || typeof raw !== 'object') return null;
+  const requestedAt = Reflect.get(raw, 'requestedAt');
+  const baselineNoteIds = Reflect.get(raw, 'baselineNoteIds');
+  if (typeof requestedAt !== 'number' || !Number.isFinite(requestedAt)) return null;
+  if (!Array.isArray(baselineNoteIds)) return null;
+  return { requestedAt, baselineNoteIds: baselineNoteIds.filter((id): id is string => typeof id === 'string') };
 }
 
-export async function setFaucetFundingRequestedAt(timestamp: number | null): Promise<void> {
-  await putToStorage(FAUCET_FUNDING_REQUESTED_AT_KEY, timestamp);
+export async function setFaucetFundingMarker(address: string, marker: FaucetFundingMarker | null): Promise<void> {
+  await putToStorage(faucetFundingMarkerKey(address), marker);
 }
 
 // 100 MIDEN in base units (6 decimals).
 const MIDEN_FAUCET_AMOUNT = 100_000_000n;
+// Bail out of a hung faucet request (PoW challenge + mint call, plain fetches
+// with no abort of their own). Before the ack there is no persisted marker,
+// so nothing else recovers the card's loading state in-session.
+const FAUCET_REQUEST_TIMEOUT_MS = 60_000;
 
 export async function faucet(address: string): Promise<void> {
-  await mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('Faucet request timed out')), FAUCET_REQUEST_TIMEOUT_MS);
+  });
+  try {
+    await Promise.race([mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT), timedOut]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function useWalletPromptStorage() {

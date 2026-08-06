@@ -12,12 +12,13 @@ import { WalletAccount } from 'lib/shared/types';
 import {
   fetchActiveBridgePrompts,
   faucet,
-  fetchFaucetFundingRequestedAt,
+  type FaucetFundingMarker,
+  fetchFaucetFundingMarker,
   fetchHotKeyHardwareError,
   getPendingNotesUsdTotal,
   type PendingNoteValue,
   pollActiveBridgePrompts,
-  setFaucetFundingRequestedAt,
+  setFaucetFundingMarker,
   useWalletPromptStorage,
   WalletPromptStatus,
   WalletPromptType
@@ -82,6 +83,11 @@ const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition
 // hero before giving the user the Fund action back. Arrival normally takes
 // ~30-60s (chain inclusion + client sync).
 const FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS = 3 * 60_000;
+
+// The persisted per-account marker plus the account it belongs to, so every
+// consumer (display, arrival, backstop) can refuse a wait that isn't the
+// current account's.
+type FundingWait = FaucetFundingMarker & { address: string };
 // How long the "Funds deposited" success beat holds before the prompt
 // completes — long enough to read the two-line lockup.
 const FAUCET_FUNDED_BEAT_MS = 2400;
@@ -113,15 +119,23 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const { storage, isLoaded, setPromptStatus, dismissPrompt, completePrompt, isPromptPending } =
     useWalletPromptStorage();
   const [faucetStatusIndicator, setFaucetStatusIndicator] = useState<PromptCardStatus>('idle');
-  // True between a successful faucet request and the minted funds becoming
+  // Non-null between a successful faucet request and the minted funds becoming
   // visible (a claimable note or a balance). The faucet API acks in ~1s but
   // the note takes ~30-60s of chain inclusion + sync to appear; without this
   // the card vanished on ack and the wallet looked idle for that whole gap.
-  const [awaitingFaucetFunds, setAwaitingFaucetFunds] = useState(false);
+  // Tagged with the requesting account (the wait must never surface on another
+  // account — HomePrompts is NOT remounted on switch), the request time (the
+  // arrival backstop anchors to it, even across restarts) and the note ids
+  // that already existed at request time (arrival requires a NEW note, so a
+  // pre-existing claimable note can't fake an instant success).
+  const [fundingWait, setFundingWait] = useState<FundingWait | null>(null);
+  const awaitingFaucetFunds = fundingWait !== null && fundingWait.address === account.publicKey;
   // Brief "Funded!" success beat once the funds land, before the prompt
   // completes and the card hands off.
   const [faucetFundsArrived, setFaucetFundsArrived] = useState(false);
   const fundingRef = useRef(false);
+  const accountKeyRef = useRef(account.publicKey);
+  accountKeyRef.current = account.publicKey;
 
   const [hotKeyError, setHotKeyError] = useState<string | null>(null);
   const [copyStatusIndicator, setCopyStatusIndicator] = useState<PromptCardStatus>('idle');
@@ -254,41 +268,59 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     setPromptStatus
   ]);
 
+  // An account switch re-renders this component in place (it is not keyed by
+  // account) — drop any other account's on-screen funding presentation. Its
+  // persisted marker is left untouched, so switching back resumes it via the
+  // resume effect below.
+  useEffect(() => {
+    setFundingWait(current => (current !== null && current.address !== account.publicKey ? null : current));
+    setFaucetFundsArrived(false);
+    setFaucetStatusIndicator('idle');
+  }, [account.publicKey]);
+
   const fundWallet = useCallback(async () => {
     if (fundingRef.current) return;
     fundingRef.current = true;
+    const address = account.publicKey;
+    // Snapshot the notes that already exist: only a note beyond this baseline
+    // (or a balance) counts as the mint landing.
+    const baselineNoteIds = pendingNoteIds;
     setFaucetStatusIndicator('loading');
     try {
-      await faucet(account.publicKey);
+      await faucet(address);
       // The request was accepted but the funds aren't visible yet — hold the
-      // "Funding" hero until they arrive. Persist the marker so the wait
-      // survives a remount or app restart.
-      setFaucetStatusIndicator('idle');
-      setAwaitingFaucetFunds(true);
-      setFaucetFundingRequestedAt(Date.now()).catch(error =>
+      // "Funding" hero until they arrive. Persist the marker (per account) so
+      // the wait survives a remount or app restart.
+      const marker: FaucetFundingMarker = { requestedAt: Date.now(), baselineNoteIds };
+      setFaucetFundingMarker(address, marker).catch(error =>
         console.warn('[wallet-prompts] failed to persist faucet funding marker:', error)
       );
+      setFaucetStatusIndicator('idle');
+      setFundingWait({ address, ...marker });
     } catch (error) {
-      setFaucetStatusIndicator('failure');
+      // Don't paint another account's card with this account's failure.
+      if (accountKeyRef.current === address) setFaucetStatusIndicator('failure');
       console.error('[wallet-prompts] faucet request failed:', error);
     } finally {
       fundingRef.current = false;
     }
-  }, [account.publicKey]);
+  }, [account.publicKey, pendingNoteIds]);
 
-  // Resume the "Funding" wait after a remount or app restart: a persisted,
-  // still-fresh request marker means the mint is in flight (or already landed,
-  // in which case the arrival effect below fires immediately).
+  // Resume the "Funding" wait after a remount, app restart, or switch back to
+  // this account: a persisted, still-fresh request marker means the mint is in
+  // flight (or already landed, in which case the arrival effect below fires
+  // immediately).
   useEffect(() => {
     if (!isLoaded || balancesLoading || awaitingFaucetFunds || faucetFundsArrived || faucetIsTerminal) return;
+    const address = account.publicKey;
     let cancelled = false;
-    fetchFaucetFundingRequestedAt()
-      .then(requestedAt => {
-        if (cancelled || requestedAt === null) return;
-        if (Date.now() - requestedAt < FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS) {
-          setAwaitingFaucetFunds(true);
+    fetchFaucetFundingMarker(address)
+      .then(marker => {
+        if (cancelled || marker === null) return;
+        if (Date.now() - marker.requestedAt < FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS) {
+          setFundingWait({ address, ...marker });
         } else {
-          void setFaucetFundingRequestedAt(null);
+          void setFaucetFundingMarker(address, null);
         }
       })
       .catch(error => {
@@ -297,16 +329,20 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [awaitingFaucetFunds, balancesLoading, faucetFundsArrived, faucetIsTerminal, isLoaded]);
+  }, [account.publicKey, awaitingFaucetFunds, balancesLoading, faucetFundsArrived, faucetIsTerminal, isLoaded]);
 
-  // Funds arrived (as a claimable note or directly as balance): swap the
-  // "Funding" hero for a short "Funded!" success beat.
+  // Funds arrived — a claimable note beyond the request-time baseline, or a
+  // balance (the card only exists on a zero-balance account, so any balance is
+  // new): swap the "Funding" hero for a short "Funded!" success beat.
   useEffect(() => {
-    if (!awaitingFaucetFunds || !(hasPendingNotes || hasBalance)) return;
-    setAwaitingFaucetFunds(false);
+    if (!awaitingFaucetFunds || fundingWait === null) return;
+    const baseline = new Set(fundingWait.baselineNoteIds);
+    const hasNewNote = pendingNoteIds.some(noteId => !baseline.has(noteId));
+    if (!hasNewNote && !hasBalance) return;
+    setFundingWait(null);
     setFaucetFundsArrived(true);
-    void setFaucetFundingRequestedAt(null);
-  }, [awaitingFaucetFunds, hasBalance, hasPendingNotes]);
+    void setFaucetFundingMarker(fundingWait.address, null);
+  }, [awaitingFaucetFunds, fundingWait, hasBalance, pendingNoteIds]);
 
   // After the success beat, complete the prompt so the pending-notes card /
   // balance takes over.
@@ -320,15 +356,19 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   }, [completePrompt, faucetFundsArrived]);
 
   // Backstop: if the funds never show up (faucet acked but the mint failed),
-  // fall back to the actionable card instead of spinning forever.
+  // fall back to the actionable card instead of spinning forever. Anchored to
+  // the request time — not this mount — so a resumed wait still ends 3
+  // minutes after the original request.
   useEffect(() => {
-    if (!awaitingFaucetFunds) return;
+    if (!awaitingFaucetFunds || fundingWait === null) return;
+    const address = fundingWait.address;
+    const remainingMs = Math.max(0, fundingWait.requestedAt + FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS - Date.now());
     const timer = setTimeout(() => {
-      setAwaitingFaucetFunds(false);
-      void setFaucetFundingRequestedAt(null);
-    }, FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS);
+      setFundingWait(null);
+      void setFaucetFundingMarker(address, null);
+    }, remainingMs);
     return () => clearTimeout(timer);
-  }, [awaitingFaucetFunds]);
+  }, [awaitingFaucetFunds, fundingWait]);
 
   // While the faucet hero is on stage (Funding wait or the Funded! beat), the
   // pending-notes card must NOT surface: it sorts first in the carousel and

@@ -14,8 +14,8 @@ const mockFetchActiveBridgePrompts = jest.fn();
 const mockPollActiveBridgePrompts = jest.fn();
 const mockUseWalletPromptStorage = jest.fn();
 const mockFetchHotKeyHardwareError = jest.fn();
-const mockFetchFaucetFundingRequestedAt = jest.fn();
-const mockSetFaucetFundingRequestedAt = jest.fn();
+const mockFetchFaucetFundingMarker = jest.fn();
+const mockSetFaucetFundingMarker = jest.fn();
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -71,8 +71,8 @@ jest.mock('lib/wallet-prompts', () => {
     ...actual,
     faucet: (address: string) => mockFaucet(address),
     fetchActiveBridgePrompts: (address: string) => mockFetchActiveBridgePrompts(address),
-    fetchFaucetFundingRequestedAt: () => mockFetchFaucetFundingRequestedAt(),
-    setFaucetFundingRequestedAt: (timestamp: number | null) => mockSetFaucetFundingRequestedAt(timestamp),
+    fetchFaucetFundingMarker: (address: string) => mockFetchFaucetFundingMarker(address),
+    setFaucetFundingMarker: (address: string, marker: unknown) => mockSetFaucetFundingMarker(address, marker),
     fetchHotKeyHardwareError: () => mockFetchHotKeyHardwareError(),
     pollActiveBridgePrompts: (transactions: unknown[]) => mockPollActiveBridgePrompts(transactions),
     useWalletPromptStorage: () => mockUseWalletPromptStorage()
@@ -86,6 +86,13 @@ const account = {
   name: 'Account A',
   isPublic: false,
   hdIndex: 0
+} as WalletAccount;
+
+const accountB = {
+  publicKey: 'accountB',
+  name: 'Account B',
+  isPublic: false,
+  hdIndex: 1
 } as WalletAccount;
 
 const zeroBalance = [{ tokenId: 'token', balance: 0 }] as TokenBalanceData[];
@@ -116,8 +123,8 @@ describe('HomePrompts', () => {
     mockFetchActiveBridgePrompts.mockResolvedValue([]);
     mockPollActiveBridgePrompts.mockResolvedValue(undefined);
     mockFetchHotKeyHardwareError.mockResolvedValue(null);
-    mockFetchFaucetFundingRequestedAt.mockResolvedValue(null);
-    mockSetFaucetFundingRequestedAt.mockResolvedValue(undefined);
+    mockFetchFaucetFundingMarker.mockResolvedValue(null);
+    mockSetFaucetFundingMarker.mockResolvedValue(undefined);
   });
 
   it('polls and dismisses a pending bridge through the wallet prompt type', async () => {
@@ -294,7 +301,7 @@ describe('HomePrompts', () => {
 
   it('resumes the Funding hero from a persisted marker after a remount mid-wait', async () => {
     const completePrompt = jest.fn();
-    mockFetchFaucetFundingRequestedAt.mockResolvedValue(Date.now() - 5_000);
+    mockFetchFaucetFundingMarker.mockResolvedValue({ requestedAt: Date.now() - 5_000, baselineNoteIds: [] });
     mockUseWalletPromptStorage.mockReturnValue(
       makePromptState({
         completePrompt,
@@ -331,8 +338,133 @@ describe('HomePrompts', () => {
       />
     );
     await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
-    expect(mockSetFaucetFundingRequestedAt).toHaveBeenCalledWith(null);
+    expect(mockSetFaucetFundingMarker).toHaveBeenCalledWith('accountA', null);
     await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet), { timeout: 3500 });
+  });
+
+  it('keeps one account Funding wait off another account and resumes it on switch-back', async () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+
+    const { rerender } = render(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+
+    // Switching to another (also unfunded) account must show ITS actionable
+    // card, not account A's Funding hero…
+    rerender(
+      <HomePrompts
+        account={accountB}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    const cardOnB = screen.getAllByTestId('prompt-card')[0]!;
+    await waitFor(() => expect(cardOnB).not.toHaveAttribute('data-hero'));
+    expect(cardOnB).toHaveAttribute('data-title', 'faucetPromptTitle');
+    // …consulting B's own marker, and never clearing A's still-in-flight one.
+    await waitFor(() => expect(mockFetchFaucetFundingMarker).toHaveBeenCalledWith('accountB'));
+    expect(mockSetFaucetFundingMarker).not.toHaveBeenCalledWith('accountA', null);
+
+    // Switching back resumes A's wait from A's own persisted marker.
+    mockFetchFaucetFundingMarker.mockImplementation((address: string) =>
+      address === 'accountA'
+        ? Promise.resolve({ requestedAt: Date.now() - 5_000, baselineNoteIds: [] })
+        : Promise.resolve(null)
+    );
+    rerender(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    await waitFor(() =>
+      expect(screen.getAllByTestId('prompt-card')[0]!).toHaveAttribute('data-hero', 'faucetPromptFunding')
+    );
+    expect(mockFaucet).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not treat a pre-existing claimable note as the faucet mint landing', async () => {
+    const completePrompt = jest.fn();
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+    const preexistingNote = pendingNotes[0]!;
+
+    const { rerender } = render(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[preexistingNote]}
+        tokenPrices={tokenPrices}
+      />
+    );
+    const faucetCard = screen.getAllByTestId('prompt-card').find(card => card.dataset.title === 'faucetPromptTitle')!;
+    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+
+    // The note that already existed at request time must NOT flip the card
+    // straight to success — the Funding hero holds.
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+    await act(async () => {});
+    expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding');
+    expect(completePrompt).not.toHaveBeenCalled();
+
+    // Only a NEW note (beyond the request-time baseline) lands the funds.
+    rerender(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[preexistingNote, { ...pendingNotes[1]!, id: 'minted-note' }]}
+        tokenPrices={tokenPrices}
+      />
+    );
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+  });
+
+  it('ends a resumed wait three minutes after the original request, not after the remount', async () => {
+    jest.useFakeTimers();
+    try {
+      // The marker is already 2:50 old at remount.
+      mockFetchFaucetFundingMarker.mockResolvedValue({ requestedAt: Date.now() - 170_000, baselineNoteIds: [] });
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+
+      render(
+        <HomePrompts
+          account={account}
+          balances={zeroBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+      const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+      // Flush the resume fetch so the hero comes up.
+      await act(async () => {});
+      expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding');
+
+      // Three minutes after the REQUEST is only ~10s away — the backstop must
+      // fire then, not three minutes from this mount.
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(11_000);
+      });
+      expect(faucetCard).not.toHaveAttribute('data-hero');
+      expect(mockSetFaucetFundingMarker).toHaveBeenCalledWith('accountA', null);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('shows a failure state and allows the faucet request to be retried by tapping again', async () => {

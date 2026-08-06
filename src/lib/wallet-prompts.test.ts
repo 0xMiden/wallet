@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { putToStorage } from 'lib/miden/front/storage';
 import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 
 import {
@@ -11,6 +12,7 @@ import {
   dismissWalletPrompt,
   faucet,
   fetchActiveBridgePrompts,
+  fetchFaucetFundingMarker,
   fetchHotKeyHardwareError,
   fetchWalletPromptStorage,
   getPendingNotesUsdTotal,
@@ -19,6 +21,7 @@ import {
   pollActiveBridgePrompts,
   reportHotKeyHardwareFailure,
   seedWalletPrompt,
+  setFaucetFundingMarker,
   setWalletPromptStatus,
   useWalletPromptStorage
 } from './wallet-prompts';
@@ -179,6 +182,43 @@ describe('wallet prompts', () => {
     mintFromMidenFaucetMock.mockRejectedValue(new Error('Faucet PoW request failed with status 429'));
 
     await expect(faucet('mtst1testaddress')).rejects.toThrow('Faucet PoW request failed with status 429');
+  });
+
+  it('rejects a faucet request that hangs past the timeout', async () => {
+    jest.useFakeTimers();
+    try {
+      mintFromMidenFaucetMock.mockReturnValue(new Promise(() => {}));
+
+      const request = faucet('mtst1testaddress');
+      // Swallow the interim rejection while the timers advance; the real
+      // assertion follows.
+      request.catch(() => undefined);
+      await jest.advanceTimersByTimeAsync(60_000);
+      await expect(request).rejects.toThrow('Faucet request timed out');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('stores the funding marker per account', async () => {
+    await setFaucetFundingMarker('accountA', { requestedAt: 1_000, baselineNoteIds: ['note-1'] });
+
+    expect(await fetchFaucetFundingMarker('accountA')).toEqual({ requestedAt: 1_000, baselineNoteIds: ['note-1'] });
+    expect(await fetchFaucetFundingMarker('accountB')).toBeNull();
+
+    await setFaucetFundingMarker('accountA', null);
+    expect(await fetchFaucetFundingMarker('accountA')).toBeNull();
+  });
+
+  it('ignores malformed funding markers', async () => {
+    await putToStorage('faucet_funding_v2:accountA', { requestedAt: 'soon', baselineNoteIds: [] });
+    expect(await fetchFaucetFundingMarker('accountA')).toBeNull();
+
+    await putToStorage('faucet_funding_v2:accountA', 12345);
+    expect(await fetchFaucetFundingMarker('accountA')).toBeNull();
+
+    await putToStorage('faucet_funding_v2:accountA', { requestedAt: 5, baselineNoteIds: 'nope' });
+    expect(await fetchFaucetFundingMarker('accountA')).toBeNull();
   });
 
   it('loads prompt storage in the hook and exposes pending checks', async () => {
