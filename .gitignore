@@ -79,3 +79,10 @@ sdk-debug/
 
 # superpowers SDD scratch (progress ledger, etc.)
 .superpowers/
+
+# Track the shared frontend skill for Claude while keeping all other
+# machine-local Claude runtime state out of the repository.
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/miden-wallet-frontend
