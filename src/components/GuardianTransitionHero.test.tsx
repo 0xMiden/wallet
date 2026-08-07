@@ -5,7 +5,13 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { GuardianTransitionHero } from './GuardianTransitionHero';
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => (key === 'unknown' ? 'Unknown' : key) })
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, string>) => {
+      if (key === 'unknown') return 'Unknown';
+      if (key === 'guardianProviderRegion') return `${values?.provider} · ${values?.region}`;
+      return key;
+    }
+  })
 }));
 
 jest.mock('app/icons/v2', () => ({
@@ -40,4 +46,22 @@ it('renders the localized fallback when either endpoint is absent', () => {
   );
 
   expect(screen.getAllByText('Unknown')).toHaveLength(2);
+});
+
+it('emphasizes the destination and keeps review labels readable in dark mode', () => {
+  render(
+    <GuardianTransitionHero
+      previousEndpoint="https://miden-guardian.lambdaclass.com"
+      newEndpoint="https://guardian.openzeppelin.com"
+      previousLabel="Current"
+      newLabel="New"
+      variant="review"
+    />
+  );
+
+  expect(screen.getByText('Current')).toHaveClass('text-heading-gray');
+  expect(screen.getByText('EU-WEST')).toHaveClass('text-text-muted');
+  expect(screen.getByText('New')).toHaveClass('text-primary-500');
+  expect(screen.getByText('Open-Zeppelin · US-EAST')).toHaveClass('text-pure-white');
+  expect(screen.getByText('Open-Zeppelin', { selector: 'h2' })).toHaveClass('text-pure-white');
 });

@@ -32,15 +32,17 @@ jest.mock('app/layouts/PageLayout', () => ({
   default: ({
     children,
     pageTitle,
+    navigationStyle,
     step,
     setStep
   }: {
     children: React.ReactNode;
     pageTitle?: React.ReactNode;
+    navigationStyle?: string;
     step?: number;
     setStep?: (step: number) => void;
   }) => (
-    <div>
+    <div data-navigation-style={navigationStyle}>
       <div data-testid="page-title">{pageTitle}</div>
       {step ? (
         <button data-testid="auth-back" onClick={() => setStep?.(0)}>
@@ -53,8 +55,21 @@ jest.mock('app/layouts/PageLayout', () => ({
 }));
 
 jest.mock('components/GuardianTransitionHero', () => ({
-  GuardianTransitionHero: ({ previousEndpoint, newEndpoint }: { previousEndpoint?: string; newEndpoint?: string }) => (
-    <div data-testid="guardian-transition" data-previous={previousEndpoint} data-new={newEndpoint} />
+  GuardianTransitionHero: ({
+    previousEndpoint,
+    newEndpoint,
+    variant
+  }: {
+    previousEndpoint?: string;
+    newEndpoint?: string;
+    variant?: string;
+  }) => (
+    <div
+      data-testid="guardian-transition"
+      data-previous={previousEndpoint}
+      data-new={newEndpoint}
+      data-variant={variant}
+    />
   )
 }));
 
@@ -181,6 +196,16 @@ it('renders the current and destination endpoints in the shared transition hero'
   const hero = screen.getByTestId('guardian-transition');
   expect(hero).toHaveAttribute('data-previous', 'https://old.example');
   expect(hero).toHaveAttribute('data-new', 'https://new.example');
+  expect(hero).toHaveAttribute('data-variant', 'review');
+  expect(screen.getByTestId('page-title').parentElement).toHaveAttribute('data-navigation-style', 'back');
+  await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
+});
+
+it('uses theme-aware text colors for the rotation warning', async () => {
+  render(<RotateGuardianReview />);
+
+  expect(screen.getByText('oldGuardianCantBlockTitle')).toHaveClass('text-heading-gray');
+  expect(screen.getByText('oldGuardianCantBlockBody')).toHaveClass('text-heading-gray');
   await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
 });
 

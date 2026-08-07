@@ -128,6 +128,7 @@ const RotateGuardianReview: FC = () => {
     return (
       <PageLayout
         pageTitle={<>{t(isMobile() ? 'enterYourPasscode' : 'enterPassword')}</>}
+        navigationStyle="back"
         step={1}
         setStep={handleAuthBack}
       >
@@ -174,14 +175,15 @@ const RotateGuardianReview: FC = () => {
   }
 
   return (
-    <PageLayout pageTitle={<>{t('reviewRotation')}</>}>
+    <PageLayout pageTitle={<>{t('reviewRotation')}</>} navigationStyle="back">
       <div className="h-full overflow-y-auto">
-        <div className="w-full max-w-sm mx-auto px-4 pb-8 flex flex-col min-h-full">
+        <div className="mx-auto flex min-h-full w-full max-w-lg flex-col px-4 pb-8">
           <GuardianTransitionHero
             previousEndpoint={currentEndpoint}
             newEndpoint={newEndpoint}
             previousLabel={t('currentLabel')}
             newLabel={t('newLabel')}
+            variant="review"
           />
 
           <div className="mt-4">
@@ -195,9 +197,9 @@ const RotateGuardianReview: FC = () => {
             variant={AlertVariant.Warning}
             className="mt-4"
             title={
-              <span className="block">
+              <span className="block text-heading-gray">
                 <span className="block text-sm font-semibold text-heading-gray">{t('oldGuardianCantBlockTitle')}</span>
-                <span className="block mt-1">{t('oldGuardianCantBlockBody')}</span>
+                <span className="mt-1 block text-sm leading-5 text-heading-gray">{t('oldGuardianCantBlockBody')}</span>
               </span>
             }
           />
@@ -206,8 +208,9 @@ const RotateGuardianReview: FC = () => {
 
           <div className="mt-auto pt-6">
             <Button
+              className="max-w-none"
               data-testid="rotate-guardian-confirm"
-              title={t('confirm')}
+              title={t('continue')}
               onClick={handleContinue}
               disabled={submitting || hasHardwareProtector === null || !currentAccount || !newEndpoint}
               isLoading={submitting}
