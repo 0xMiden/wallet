@@ -2,8 +2,8 @@ import { Account, AuthSecretKey, MidenClient, Word } from '@miden-sdk/miden-sdk/
 import { EcdsaSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
-import { DEFAULT_GUARDIAN_ENDPOINT, GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
-import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
+import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import type { GuardianProvider } from 'lib/shared/types';
@@ -18,11 +18,11 @@ import { fetchFromStorage } from '../front/storage';
  * Prefers the per-account `guardianEndpoint` (set at create/recovery time and
  * on switch-guardian) so accounts on different operators don't collide. Falls
  * back to the legacy global `GUARDIAN_URL_STORAGE_KEY` for records created
- * before the field existed, then to `DEFAULT_GUARDIAN_ENDPOINT`.
+ * before the field existed, then to the effective network's default guardian.
  */
 export async function resolveGuardianEndpoint(account: WalletAccount): Promise<string> {
   if (account.guardianEndpoint) return account.guardianEndpoint;
-  return (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+  return (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || getEffectiveDefaultGuardianEndpoint();
 }
 
 // Re-export the slot names from the package for reading account state
@@ -156,8 +156,8 @@ export function guardianProviderFromEndpoint(endpoint: string | null): GuardianP
  * @param skipRegistration - Skip guardian registration (used by the import path).
  * @param guardianEndpointOverride - Force a specific guardian URL for pubkey
  *   derivation. Account ID is a content hash that includes the guardian pubkey
- *   baked into storage, so the import flow passes `DEFAULT_GUARDIAN_ENDPOINT`
- *   to reproduce the ID the account originally had.
+ *   baked into storage, so the import flow passes the effective default
+ *   guardian endpoint to reproduce the ID the account originally had.
  */
 export async function createGuardianAccount(
   webClient: MidenClient,
@@ -191,7 +191,7 @@ export async function createGuardianAccount(
     const guardianEndpoint =
       guardianEndpointOverride ??
       (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) ??
-      DEFAULT_GUARDIAN_ENDPOINT;
+      getEffectiveDefaultGuardianEndpoint();
 
     registerGuardianOrigin(guardianEndpoint);
     const client = new MultisigClient(webClient, {

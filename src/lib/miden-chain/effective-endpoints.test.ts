@@ -6,6 +6,7 @@ import {
   MIDEN_FAUCET_API_ENDPOINTS,
   MIDEN_EXPLORER_ENDPOINTS,
   MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS,
+  MIDEN_GUARDIAN_ENDPOINTS,
   DEFAULT_NETWORK
 } from './constants';
 
@@ -145,6 +146,44 @@ describe('effective-endpoints resolver', () => {
       expect(m.getEffectiveFaucetApiUrl()).toBe('https://custom.example/faucet-api');
       expect(m.getEffectiveExplorerUrl()).toBe('https://custom.example/explorer');
       expect(m.getEffectiveGuardianUrl()).toBe('https://custom.example/guardian');
+    });
+  });
+
+  describe('getEffectiveDefaultGuardianEndpoint', () => {
+    it('returns the custom override guardian URL when one is set', async () => {
+      const m = loadModule();
+      const override = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
+      override.guardianUrl = 'https://custom.example/guardian';
+      await m.applyEndpointOverride(override);
+      expect(m.getEffectiveDefaultGuardianEndpoint()).toBe('https://custom.example/guardian');
+    });
+
+    it('falls back to the effective network default guardian endpoint when no override is loaded', () => {
+      const m = loadModule();
+      const network = m.getEffectiveNetworkName();
+      expect(m.getEffectiveDefaultGuardianEndpoint()).toBe(MIDEN_GUARDIAN_ENDPOINTS.get(network)?.[0]);
+    });
+
+    it('is keyed by the effective (overridden) network, not the build network, when no custom guardian URL is set', async () => {
+      // The bug this guards against: an endpoint override with no custom guardian URL
+      // and no stored GUARDIAN_URL_STORAGE_KEY must fall back to the OVERRIDDEN
+      // network's guardian, not the build's DEFAULT_NETWORK guardian.
+      const m = loadModule();
+      const override = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
+      override.guardianUrl = '';
+      await m.applyEndpointOverride(override);
+      expect(m.getEffectiveNetworkName()).toBe(MIDEN_NETWORK_NAME.DEVNET);
+      expect(m.getEffectiveDefaultGuardianEndpoint()).toBe(
+        MIDEN_GUARDIAN_ENDPOINTS.get(MIDEN_NETWORK_NAME.DEVNET)?.[0]
+      );
+    });
+
+    it("returns '' when the effective network has no configured guardian and no custom URL is set", async () => {
+      const m = loadModule();
+      await m.applyEndpointOverride(m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.MAINNET));
+      expect(m.getEffectiveNetworkName()).toBe(MIDEN_NETWORK_NAME.MAINNET);
+      expect(MIDEN_GUARDIAN_ENDPOINTS.get(MIDEN_NETWORK_NAME.MAINNET)).toBeUndefined();
+      expect(m.getEffectiveDefaultGuardianEndpoint()).toBe('');
     });
   });
 

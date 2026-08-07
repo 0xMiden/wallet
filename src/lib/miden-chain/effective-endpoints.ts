@@ -86,6 +86,22 @@ export function getEffectiveGuardianUrl(): string {
   return overrideCache?.guardianUrl ?? '';
 }
 
+/**
+ * Effective-network default guardian endpoint (custom override first), or '' if
+ * none. Non-throwing (mirrors the old `DEFAULT_GUARDIAN_ENDPOINT` const's
+ * semantics — a last-resort fallback — but keyed off the effective network
+ * rather than the build's `DEFAULT_NETWORK`, so an endpoint override with no
+ * custom guardian URL doesn't silently fall back to the build network's
+ * guardian). Use `getDefaultGuardianEndpoint()` (constants.ts) instead at
+ * Guardian create/import entry points, where an unsupported network should
+ * fail loudly rather than resolve to ''.
+ */
+export function getEffectiveDefaultGuardianEndpoint(): string {
+  const custom = getEffectiveGuardianUrl();
+  if (custom) return custom;
+  return MIDEN_GUARDIAN_ENDPOINTS.get(getEffectiveNetworkName())?.[0] ?? '';
+}
+
 /** All fields prefilled from a known network's build defaults. */
 export function buildDefaultOverrideFor(network: MIDEN_NETWORK_NAME): EndpointOverride {
   return {

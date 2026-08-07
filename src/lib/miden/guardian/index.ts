@@ -10,8 +10,7 @@ import {
   type Proposal
 } from '@openzeppelin/miden-multisig-client';
 
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
-import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import * as secureHotKey from 'lib/secure-hot-key';
 import type { GeneratedHotKey } from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
@@ -159,7 +158,8 @@ export class MultisigService {
     accountId: string,
     webClient: MidenClient
   ) {
-    const guardianEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+    const guardianEndpoint =
+      (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || getEffectiveDefaultGuardianEndpoint();
     const guardian = new GuardianHttpClient(guardianEndpoint);
     const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
     guardian.setSigner(signer);
