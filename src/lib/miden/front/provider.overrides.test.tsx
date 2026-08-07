@@ -42,4 +42,10 @@ it('loads endpoint overrides before rendering children', async () => {
   );
   await waitFor(() => expect(screen.getByTestId('child')).toBeInTheDocument());
   expect(loadEndpointOverrides).toHaveBeenCalledTimes(1);
+  expect(ensureSdkWasmReady).toHaveBeenCalledTimes(1);
+  // Guards against a regression where `ready` starts `true` with no real gate:
+  // overrides must load BEFORE the SDK's WASM module is considered ready.
+  expect(loadEndpointOverrides.mock.invocationCallOrder[0]!).toBeLessThan(
+    ensureSdkWasmReady.mock.invocationCallOrder[0]!
+  );
 });

@@ -200,10 +200,7 @@ export async function resetNativeAssetCache(): Promise<void> {
   inflight = null;
   metaInflight = null;
   try {
-    await Promise.all([
-      putToStorage(idCacheKey(), null),
-      putToStorage(metaCacheKey(), null),
-    ]);
+    await Promise.all([putToStorage(idCacheKey(), null), putToStorage(metaCacheKey(), null)]);
   } catch {
     // best-effort — storage may already be cleared
   }

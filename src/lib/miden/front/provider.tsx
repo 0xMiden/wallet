@@ -120,6 +120,9 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
       // worker path and falls back to in-worker WASM ST proving.
       useWorker: !isMobile()
     }),
+    // `ready` intentionally gates recomputation: sdkConfig reads the effective
+    // endpoint getters, which only reflect a loaded override once `ready` flips.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [ready]
   );
 
