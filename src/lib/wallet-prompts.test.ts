@@ -175,7 +175,7 @@ describe('wallet prompts', () => {
 
     await faucet('mtst1testaddress');
 
-    expect(mintFromMidenFaucetMock).toHaveBeenCalledWith('mtst1testaddress', 100_000_000n);
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledWith('mtst1testaddress', 100_000_000n, expect.any(AbortSignal));
   });
 
   it('rejects when the official Miden faucet fails', async () => {
@@ -193,8 +193,14 @@ describe('wallet prompts', () => {
       // Swallow the interim rejection while the timers advance; the real
       // assertion follows.
       request.catch(() => undefined);
+      const signal = mintFromMidenFaucetMock.mock.calls[0]?.[2];
+      if (!signal) throw new Error('expected faucet() to pass an AbortSignal');
+      expect(signal.aborted).toBe(false);
       await jest.advanceTimersByTimeAsync(60_000);
       await expect(request).rejects.toThrow('Faucet request timed out');
+      // The timeout must also cancel the in-flight work, not just reject the
+      // wrapper — otherwise a late response could still mint behind a retry.
+      expect(signal.aborted).toBe(true);
     } finally {
       jest.useRealTimers();
     }

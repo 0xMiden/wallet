@@ -260,18 +260,26 @@ export async function setFaucetFundingMarker(address: string, marker: FaucetFund
 
 // 100 MIDEN in base units (6 decimals).
 const MIDEN_FAUCET_AMOUNT = 100_000_000n;
-// Bail out of a hung faucet request (PoW challenge + mint call, plain fetches
-// with no abort of their own). Before the ack there is no persisted marker,
-// so nothing else recovers the card's loading state in-session.
+// Bail out of a hung faucet request. Before the ack there is no persisted
+// marker, so nothing else recovers the card's loading state in-session. The
+// timeout also aborts the underlying work (fetches + PoW search) so a late
+// response can't mint a second note behind a retry.
 const FAUCET_REQUEST_TIMEOUT_MS = 60_000;
 
 export async function faucet(address: string): Promise<void> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  // The race guarantees the wrapper rejects on time even if the underlying
+  // work fails to observe the abort promptly.
   const timedOut = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error('Faucet request timed out')), FAUCET_REQUEST_TIMEOUT_MS);
+    timer = setTimeout(() => {
+      const timeoutError = new Error('Faucet request timed out');
+      controller.abort(timeoutError);
+      reject(timeoutError);
+    }, FAUCET_REQUEST_TIMEOUT_MS);
   });
   try {
-    await Promise.race([mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT), timedOut]);
+    await Promise.race([mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT, controller.signal), timedOut]);
   } finally {
     clearTimeout(timer);
   }

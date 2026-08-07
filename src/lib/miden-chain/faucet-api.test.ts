@@ -64,9 +64,21 @@ describe('faucet-api', () => {
       const result = await getPowChallenge('https://faucet-api.example', 'mtst1testaddress', 100_000_000n);
 
       expect(fetchMock).toHaveBeenCalledWith(
-        'https://faucet-api.example/pow?account_id=mtst1testaddress&amount=100000000'
+        'https://faucet-api.example/pow?account_id=mtst1testaddress&amount=100000000',
+        {
+          signal: undefined
+        }
       );
       expect(result).toEqual({ challenge: CHALLENGE_HEX, target: 1024n });
+    });
+
+    it('forwards the abort signal to the fetch', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ challenge: CHALLENGE_HEX, target: 1024 }));
+      const controller = new AbortController();
+
+      await getPowChallenge('https://faucet-api.example', 'mtst1testaddress', 100_000_000n, controller.signal);
+
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/pow?'), { signal: controller.signal });
     });
 
     it('rejects with the response text on failure', async () => {
@@ -86,6 +98,16 @@ describe('faucet-api', () => {
       const nonce = await solvePowChallenge(CHALLENGE_HEX, target);
 
       expect(await isValidSolution(CHALLENGE_HEX, nonce, target)).toBe(true);
+    });
+
+    it('stops the search when the signal aborts', async () => {
+      // Target 0: no nonce can ever solve, so only the abort ends the loop.
+      const controller = new AbortController();
+
+      const search = solvePowChallenge(CHALLENGE_HEX, 0n, controller.signal);
+      controller.abort(new Error('Faucet request timed out'));
+
+      await expect(search).rejects.toThrow('Faucet request timed out');
     });
   });
 
@@ -108,8 +130,26 @@ describe('faucet-api', () => {
         challenge: CHALLENGE_HEX,
         nonce: '42'
       });
-      expect(fetchMock).toHaveBeenCalledWith(`https://faucet-api.example/get_tokens?${expectedParams}`);
+      expect(fetchMock).toHaveBeenCalledWith(`https://faucet-api.example/get_tokens?${expectedParams}`, {
+        signal: undefined
+      });
       expect(result).toEqual({ txId: '0xtx', noteId: '0xnote' });
+    });
+
+    it('forwards the abort signal to the fetch', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ tx_id: '0xtx', note_id: '0xnote' }));
+      const controller = new AbortController();
+
+      await requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42,
+        controller.signal
+      );
+
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/get_tokens?'), { signal: controller.signal });
     });
 
     it('rejects with the response text on failure', async () => {
@@ -136,7 +176,9 @@ describe('faucet-api', () => {
       const result = await mintFromMidenFaucet('mtst1testaddress', 100_000_000n);
 
       const baseUrl = getFaucetApiUrl();
-      expect(fetchMock).toHaveBeenCalledWith(`${baseUrl}/pow?account_id=mtst1testaddress&amount=100000000`);
+      expect(fetchMock).toHaveBeenCalledWith(`${baseUrl}/pow?account_id=mtst1testaddress&amount=100000000`, {
+        signal: undefined
+      });
       const tokensUrl = new URL(fetchMock.mock.calls[1][0]);
       expect(`${tokensUrl.origin}${tokensUrl.pathname}`).toBe(`${baseUrl}/get_tokens`);
       expect(tokensUrl.searchParams.get('account_id')).toBe('mtst1testaddress');

@@ -57,6 +57,17 @@ export const PromptCard: FC<PromptCardProps> = ({
     onClick();
   };
 
+  // The whole card is the tap target, so it must behave like a button for
+  // keyboard users too: Enter/Space activate it. Keys pressed on the inner
+  // real buttons (dismiss X, CTA) bubble up here — ignore those so a single
+  // press doesn't fire both actions.
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    handleClick();
+  };
+
   const handleDismiss = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     if (!onDismiss) return;
@@ -109,7 +120,9 @@ export const PromptCard: FC<PromptCardProps> = ({
   return (
     <div
       role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
       onClick={onClick ? handleClick : undefined}
+      onKeyDown={onClick ? handleKeyDown : undefined}
       className={classNames(
         'relative overflow-hidden w-full h-[72px] bg-surface-input rounded-10',
         'flex items-center gap-3 px-4',

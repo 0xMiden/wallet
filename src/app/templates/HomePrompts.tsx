@@ -285,13 +285,17 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     // Snapshot the notes that already exist: only a note beyond this baseline
     // (or a balance) counts as the mint landing.
     const baselineNoteIds = pendingNoteIds;
+    // Anchor the wait to when the user asked, not when the faucet acked — the
+    // ack can lag up to the 60s timeout, and the 3-minute backstop is
+    // described as "after the original request".
+    const requestedAt = Date.now();
     setFaucetStatusIndicator('loading');
     try {
       await faucet(address);
       // The request was accepted but the funds aren't visible yet — hold the
       // "Funding" hero until they arrive. Persist the marker (per account) so
       // the wait survives a remount or app restart.
-      const marker: FaucetFundingMarker = { requestedAt: Date.now(), baselineNoteIds };
+      const marker: FaucetFundingMarker = { requestedAt, baselineNoteIds };
       setFaucetFundingMarker(address, marker).catch(error =>
         console.warn('[wallet-prompts] failed to persist faucet funding marker:', error)
       );

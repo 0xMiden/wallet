@@ -32,6 +32,36 @@ describe('PromptCard', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
+  it('runs the card action from the keyboard with Enter and Space', () => {
+    const onClick = jest.fn();
+    render(<PromptCard title="Fund your wallet" onClick={onClick} />);
+
+    const card = screen.getByRole('button', { name: /Fund your wallet/ });
+    expect(card).toHaveAttribute('tabindex', '0');
+
+    fireEvent.keyDown(card, { key: 'Enter' });
+    fireEvent.keyDown(card, { key: ' ' });
+
+    expect(onClick).toHaveBeenCalledTimes(2);
+  });
+
+  it('is not focusable when the card has no action', () => {
+    render(<PromptCard title="Fund your wallet" />);
+
+    expect(screen.getByText('Fund your wallet').closest('div[tabindex]')).toBeNull();
+  });
+
+  it('ignores keys pressed on the inner buttons and non-activation keys', () => {
+    const onClick = jest.fn();
+    const onDismiss = jest.fn();
+    render(<PromptCard title="Fund your wallet" onClick={onClick} onDismiss={onDismiss} />);
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'promptCardDismiss' }), { key: 'Enter' });
+    fireEvent.keyDown(screen.getByRole('button', { name: /Fund your wallet/ }), { key: 'Escape' });
+
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
   it('runs the CTA exactly once without bubbling to the card action', () => {
     const onClick = jest.fn();
     const onAction = jest.fn();
