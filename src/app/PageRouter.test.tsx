@@ -117,6 +117,10 @@ jest.mock('app/pages/Settings', () => ({
 jest.mock('app/pages/Unlock', () => ({ __esModule: true, default: () => <div data-testid="unlock" /> }));
 jest.mock('app/pages/Welcome', () => ({ __esModule: true, default: () => <div data-testid="welcome" /> }));
 
+jest.mock('screens/developer-settings/DeveloperSettings', () => ({
+  __esModule: true,
+  default: () => <div data-testid="developer-settings" />
+}));
 jest.mock('screens/earn-flow/EarnDepositAmount', () => ({
   __esModule: true,
   default: ({ vaultId }: { vaultId?: string }) => <div data-testid="earn-deposit-amount" data-vault-id={vaultId} />
@@ -267,6 +271,28 @@ describe('app/PageRouter — pre-ready / special routes', () => {
     const redirect = screen.getByTestId('redirect');
     expect(redirect).toBeInTheDocument();
     expect(redirect).toHaveAttribute('data-to', '/');
+  });
+
+  // The hidden dev-endpoints screen is reachable via a 7-tap gesture on the
+  // Welcome logo, i.e. precisely when the wallet is NOT ready yet — so it must
+  // sit ahead of the `!ready` catch-all below (like `/finish-side-panel`)
+  // rather than being an `onlyReady`-guarded route, which could never resolve
+  // during onboarding.
+  it('/developer-settings renders DeveloperSettings inside FullScreenPage even before ready (onboarding)', () => {
+    renderAt('/developer-settings', { ready: false, locked: false, hydrated: true });
+    const el = screen.getByTestId('developer-settings');
+    expect(screen.getByTestId('full-screen-page')).toContainElement(el);
+  });
+
+  it('/developer-settings still renders once the wallet is ready', () => {
+    renderAt('/developer-settings', ready);
+    expect(screen.getByTestId('developer-settings')).toBeInTheDocument();
+  });
+
+  it('/developer-settings SKIPs to the locked catch-all (Unlock) when locked', () => {
+    renderAt('/developer-settings', { locked: true, ready: true, hydrated: true });
+    expect(screen.getByTestId('unlock')).toBeInTheDocument();
+    expect(screen.queryByTestId('developer-settings')).not.toBeInTheDocument();
   });
 });
 
