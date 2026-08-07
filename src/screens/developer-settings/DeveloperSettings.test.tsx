@@ -2,6 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { useConfirm } from 'lib/ui/dialog';
+
 import DeveloperSettings from './DeveloperSettings';
 
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
@@ -40,6 +42,16 @@ jest.mock('lib/woozie', () => ({
   navigate: (p: string) => mockNavigate(p),
   goBack: () => mockGoBack()
 }));
+
+// The destructive reset is gated behind the app's standard confirm dialog
+// (same `useConfirm()` hook `options.tsx`'s "Reset Wallet" uses) — mocked the
+// same way `AddressBook.test.tsx`/`DAppSettings.test.tsx` mock it, so the
+// resolved value drives whether the wipe proceeds.
+jest.mock('lib/ui/dialog', () => ({
+  useConfirm: jest.fn()
+}));
+const mockUseConfirm = useConfirm as jest.Mock;
+const confirm = jest.fn();
 
 const applyEndpointOverride = jest.fn().mockResolvedValue(undefined);
 const clearEndpointOverride = jest.fn().mockResolvedValue(undefined);
@@ -167,6 +179,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockHealthStatus.value = 'idle';
   mockIsExtension.value = false;
+  confirm.mockResolvedValue(true);
+  mockUseConfirm.mockReturnValue(confirm);
 });
 
 describe('DeveloperSettings', () => {
@@ -265,7 +279,31 @@ describe('DeveloperSettings', () => {
     expect(within(networkPicker).getByTestId('tab-devnet')).toHaveAttribute('data-active', 'false');
   });
 
-  it('clicking Reset in read-only mode clears the override and wipes storage (mobile/desktop reload path)', async () => {
+  it('asks for confirmation before resetting, with a clearly-worded destructive message', async () => {
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    expect(confirm).toHaveBeenCalledWith({
+      title: 'actionConfirmation',
+      children: 'devEndpointResetConfirm'
+    });
+  });
+
+  it('cancelling the confirmation does NOT wipe storage or clear the override', async () => {
+    confirm.mockResolvedValueOnce(false);
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    expect(clearEndpointOverride).not.toHaveBeenCalled();
+    expect(resetStorageDestructive).not.toHaveBeenCalled();
+    expect(hapticMedium).not.toHaveBeenCalled();
+    expect(runtimeReload).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('confirming the reset clears the override and wipes storage (mobile/desktop reload path)', async () => {
     render(<DeveloperSettings readOnly />);
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
 
@@ -280,7 +318,7 @@ describe('DeveloperSettings', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it('clicking Reset in read-only mode reloads via browser.runtime.reload on extension', async () => {
+  it('confirming the reset on extension reloads via the dynamically-imported webextension-polyfill', async () => {
     mockIsExtension.value = true;
     render(<DeveloperSettings readOnly />);
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
@@ -320,5 +358,26 @@ describe('DeveloperSettings', () => {
     expect(screen.queryByText('devEndpointChecking')).not.toBeInTheDocument();
     expect(screen.queryByText('devEndpointReachable')).not.toBeInTheDocument();
     expect(screen.queryByText('devEndpointNoResponse')).not.toBeInTheDocument();
+  });
+});
+
+describe('DeveloperSettings module evaluation (desktop boot safety)', () => {
+  // `webextension-polyfill` throws at module-evaluation time when `chrome.runtime.id`
+  // is absent (e.g. on desktop/Tauri, which has no vite alias for it, unlike mobile).
+  // `DeveloperSettings` is statically imported by `PageRouter` at module scope, so a
+  // top-level `import browser from 'webextension-polyfill'` here would white-screen
+  // desktop on every boot. Simulate that throw and prove merely *loading* the module
+  // (no rendering, no `isExtension()` branch taken) never reaches it — i.e. the import
+  // is confined to the dynamic `await import(...)` inside `handleReset`'s extension branch.
+  it('never touches webextension-polyfill while the module is only being loaded, not rendered', () => {
+    jest.resetModules();
+    jest.doMock('webextension-polyfill', () => {
+      throw new Error('webextension-polyfill must not be evaluated at import time');
+    });
+
+    expect(() => {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      require('./DeveloperSettings');
+    }).not.toThrow();
   });
 });

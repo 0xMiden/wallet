@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
-import browser from 'webextension-polyfill';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { Input } from 'components/Input';
@@ -19,6 +18,7 @@ import {
 import { EndpointHealthKind, useEndpointHealth } from 'lib/miden-chain/endpoint-health';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
+import { useConfirm } from 'lib/ui/dialog';
 import { goBack, navigate } from 'lib/woozie';
 
 import { CUSTOM_PRESET, ENDPOINT_PRESETS, NETWORK_ID_OPTIONS, presetToOverride } from './preset';
@@ -90,6 +90,7 @@ export interface DeveloperSettingsProps {
  */
 const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false }) => {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const initial = useMemo<EndpointOverride>(
     () => getActiveOverride() ?? buildDefaultOverrideFor(getEffectiveNetworkName()),
     []
@@ -128,12 +129,26 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   };
 
   const handleReset = async () => {
+    // Destructive: wipes the wallet DB and clears the vault/keys. Gate behind an
+    // explicit confirmation (shared app-wide confirm dialog, see options.tsx's
+    // "Reset Wallet" for the same pattern) so a single stray tap can't wipe the wallet.
+    const confirmed = await confirm({
+      title: t('actionConfirmation'),
+      children: t('devEndpointResetConfirm')
+    });
+    if (!confirmed) return;
+
     hapticMedium();
     await clearEndpointOverride();
     await resetStorageDestructive();
     // Pair the wipe with a reload so no stale in-memory state (e.g. the resolver's
     // override cache) can survive it — mirrors the canonical reset in src/options.tsx.
     if (isExtension()) {
+      // Dynamic import: `webextension-polyfill` throws at module-evaluation time when
+      // `chrome.runtime.id` is absent, so it must not be a top-level import — this
+      // screen is statically imported by PageRouter and evaluates on every platform
+      // (desktop has no vite alias for it, unlike mobile). Mirrors src/lib/miden/reset.ts.
+      const browser = (await import('webextension-polyfill')).default;
       browser.runtime.reload();
     } else {
       try {
