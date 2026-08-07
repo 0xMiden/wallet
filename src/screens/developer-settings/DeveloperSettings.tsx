@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
+import browser from 'webextension-polyfill';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { Input } from 'components/Input';
@@ -17,9 +18,18 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { EndpointHealthKind, useEndpointHealth } from 'lib/miden-chain/endpoint-health';
 import { hapticMedium } from 'lib/mobile/haptics';
+import { isExtension } from 'lib/platform';
 import { goBack, navigate } from 'lib/woozie';
 
-import { CUSTOM_PRESET, ENDPOINT_PRESETS, presetToOverride } from './preset';
+import { CUSTOM_PRESET, ENDPOINT_PRESETS, NETWORK_ID_OPTIONS, presetToOverride } from './preset';
+
+/**
+ * Enum values (`'testnet'`, `'devnet'`, …) displayed as tab titles — capitalized for display
+ * only. Every caller passes a non-empty `MIDEN_NETWORK_NAME` value, so no empty-string guard.
+ */
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
 
 type UrlFieldKey =
   | 'rpcUrl'
@@ -90,7 +100,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   const presetTabs = useMemo(
     () =>
       [
-        ...ENDPOINT_PRESETS.map(preset => ({ id: preset, title: preset })),
+        ...ENDPOINT_PRESETS.map(preset => ({ id: preset, title: capitalize(preset) })),
         { id: CUSTOM_PRESET, title: t('devEndpointCustom') }
       ].map(tab => ({ ...tab, active: form.presetName === tab.id })),
     [form.presetName, t]
@@ -121,7 +131,21 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     hapticMedium();
     await clearEndpointOverride();
     await resetStorageDestructive();
-    navigate('/');
+    // Pair the wipe with a reload so no stale in-memory state (e.g. the resolver's
+    // override cache) can survive it — mirrors the canonical reset in src/options.tsx.
+    if (isExtension()) {
+      browser.runtime.reload();
+    } else {
+      try {
+        // mobile/desktop: no background worker to resync with, just reload in place.
+        window.location.reload();
+      } catch {
+        // window.location.reload can't be relied on in every embedding (and can't be
+        // mocked in jsdom, since `window.location` is a non-configurable getter) —
+        // the storage wipe above already succeeded either way.
+        // no-op
+      }
+    }
   };
 
   const handleResetToDefaults = () => setForm(buildDefaultOverrideFor(getEffectiveNetworkName()));
@@ -170,16 +194,16 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
         <div className="flex flex-col gap-2">
           <span className="text-sm font-medium text-heading-gray">{t('devEndpointNetworkId')}</span>
           <TabPicker
-            tabs={ENDPOINT_PRESETS.map(network => ({
+            tabs={NETWORK_ID_OPTIONS.map(network => ({
               id: network,
-              title: network,
+              title: capitalize(network),
               active: form.networkName === network
             }))}
             onTabChange={
               readOnly
                 ? undefined
                 : index => {
-                    const network = ENDPOINT_PRESETS[index];
+                    const network = NETWORK_ID_OPTIONS[index];
                     if (network) setForm(prev => ({ ...prev, networkName: network, presetName: CUSTOM_PRESET }));
                   }
             }

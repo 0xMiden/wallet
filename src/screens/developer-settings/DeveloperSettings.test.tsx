@@ -18,6 +18,22 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticMedium: () => hapticMedium()
 }));
 
+// `isExtension` gates which reload path handleReset takes; a mutable flag lets
+// tests drive both branches.
+const mockIsExtension = { value: false };
+jest.mock('lib/platform', () => ({
+  isExtension: () => mockIsExtension.value
+}));
+
+// `browser.runtime.reload` (extension reload path) — spy-able, unlike
+// `window.location.reload`, which jsdom exposes as a non-configurable getter
+// (see CLAUDE.md testing gotchas) and so can't be mocked/asserted on directly.
+const runtimeReload = jest.fn();
+jest.mock('webextension-polyfill', () => ({
+  __esModule: true,
+  default: { runtime: { reload: () => runtimeReload() } }
+}));
+
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
 jest.mock('lib/woozie', () => ({
@@ -150,6 +166,7 @@ jest.mock('components/TabPicker', () => ({
 beforeEach(() => {
   jest.clearAllMocks();
   mockHealthStatus.value = 'idle';
+  mockIsExtension.value = false;
 });
 
 describe('DeveloperSettings', () => {
@@ -218,6 +235,27 @@ describe('DeveloperSettings', () => {
     expect(within(presetPicker!).getByTestId('tab-custom')).toHaveAttribute('data-active', 'true');
   });
 
+  it('offers Mainnet on the Network ID picker but not on the preset/URL-prefill picker', () => {
+    render(<DeveloperSettings />);
+    const [presetPicker, networkPicker] = screen.getAllByTestId('tab-picker');
+
+    expect(within(networkPicker!).getByTestId('tab-mainnet')).toBeInTheDocument();
+    expect(within(presetPicker!).queryByTestId('tab-mainnet')).not.toBeInTheDocument();
+  });
+
+  it('capitalizes the preset and network-id tab labels for display, keeping the raw id for logic', () => {
+    render(<DeveloperSettings />);
+    const [presetPicker, networkPicker] = screen.getAllByTestId('tab-picker');
+
+    expect(within(presetPicker!).getByTestId('tab-testnet')).toHaveTextContent('Testnet');
+    expect(within(presetPicker!).getByTestId('tab-devnet')).toHaveTextContent('Devnet');
+    expect(within(presetPicker!).getByTestId('tab-localnet')).toHaveTextContent('Localnet');
+    expect(within(presetPicker!).getByTestId('tab-custom')).toHaveTextContent('devEndpointCustom');
+
+    expect(within(networkPicker!).getByTestId('tab-mainnet')).toHaveTextContent('Mainnet');
+    expect(within(networkPicker!).getByTestId('tab-testnet')).toHaveTextContent('Testnet');
+  });
+
   it('read-only mode leaves the Network ID picker inert', () => {
     render(<DeveloperSettings readOnly />);
     const networkPicker = screen.getByTestId('tab-picker');
@@ -227,14 +265,30 @@ describe('DeveloperSettings', () => {
     expect(within(networkPicker).getByTestId('tab-devnet')).toHaveAttribute('data-active', 'false');
   });
 
-  it('clicking Reset in read-only mode clears the override, wipes storage, and navigates home', async () => {
+  it('clicking Reset in read-only mode clears the override and wipes storage (mobile/desktop reload path)', async () => {
     render(<DeveloperSettings readOnly />);
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
 
     await waitFor(() => expect(resetStorageDestructive).toHaveBeenCalledTimes(1));
     expect(hapticMedium).toHaveBeenCalledTimes(1);
     expect(clearEndpointOverride).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/');
+    // Non-extension reload goes through `window.location.reload`, which jsdom exposes
+    // as a non-configurable getter and so can't be spied on directly (see CLAUDE.md).
+    // A clean (non-throwing) completion that never took the extension branch, and
+    // never fell back to an in-app navigate, is the observable proxy for that call.
+    expect(runtimeReload).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('clicking Reset in read-only mode reloads via browser.runtime.reload on extension', async () => {
+    mockIsExtension.value = true;
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+
+    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
+    expect(clearEndpointOverride).toHaveBeenCalledTimes(1);
+    expect(resetStorageDestructive).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('shows a pending health note while a probe is in flight', () => {
