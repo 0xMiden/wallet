@@ -871,5 +871,6 @@
   "devEndpointNoResponse": "No response",
   "devEndpointSaveContinue": "Save & continue",
   "devEndpointResetDefaults": "Reset to defaults",
-  "devEndpointResetAndReonboard": "Reset to defaults & re-onboard"
+  "devEndpointResetAndReonboard": "Reset to defaults & re-onboard",
+  "devEndpointsRow": "Network endpoints"
 }

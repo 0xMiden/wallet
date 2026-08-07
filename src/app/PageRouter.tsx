@@ -152,6 +152,18 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       </TabLayout>
     ))
   ],
+  // Read-only "Network endpoints" screen, linked from the Settings row that's only
+  // shown while a developer endpoint override is active. Placed ahead of the
+  // generic `/settings/:tabSlug?` route below so it matches first (that route's
+  // pattern would otherwise swallow this path with tabSlug='network-endpoints').
+  [
+    '/settings/network-endpoints',
+    onlyReady(() => (
+      <FullScreenPage>
+        <DeveloperSettings readOnly />
+      </FullScreenPage>
+    ))
+  ],
   [
     '/settings/:tabSlug?',
     onlyReady(({ tabSlug }) => (

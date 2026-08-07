@@ -3835,5 +3835,9 @@
   "devEndpointResetAndReonboard": {
     "message": "Reset to defaults & re-onboard",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "devEndpointsRow": {
+    "message": "Network endpoints",
+    "englishSource": "Network endpoints"
   }
 }

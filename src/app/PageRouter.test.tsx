@@ -119,7 +119,9 @@ jest.mock('app/pages/Welcome', () => ({ __esModule: true, default: () => <div da
 
 jest.mock('screens/developer-settings/DeveloperSettings', () => ({
   __esModule: true,
-  default: () => <div data-testid="developer-settings" />
+  default: ({ readOnly }: { readOnly?: boolean }) => (
+    <div data-testid="developer-settings" data-read-only={String(!!readOnly)} />
+  )
 }));
 jest.mock('screens/earn-flow/EarnDepositAmount', () => ({
   __esModule: true,
@@ -381,6 +383,17 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
   it('/settings renders Settings with no tab slug', () => {
     renderAt('/settings', ready);
     expect(screen.getByTestId('settings')).toHaveAttribute('data-tab-slug', '');
+  });
+
+  // Registered ahead of the generic `/settings/:tabSlug?` route above so it
+  // matches first — otherwise that route's pattern would swallow this path
+  // with tabSlug='network-endpoints' and render the wrong screen.
+  it('/settings/network-endpoints renders DeveloperSettings in readOnly mode inside FullScreenPage', () => {
+    renderAt('/settings/network-endpoints', ready);
+    const el = screen.getByTestId('developer-settings');
+    expect(screen.getByTestId('full-screen-page')).toContainElement(el);
+    expect(el).toHaveAttribute('data-read-only', 'true');
+    expect(screen.queryByTestId('settings')).not.toBeInTheDocument();
   });
 
   it('/browser renders Browser inside TabLayout', () => {
