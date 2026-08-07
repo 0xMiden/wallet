@@ -10,7 +10,7 @@ import {
   MIDEN_NETWORK_NAME,
   MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS,
   MIDEN_PROVING_ENDPOINTS
-} from 'lib/miden-chain/constants';
+} from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 
 /** Single storage key holding the whole override object. Presence = override active. */
