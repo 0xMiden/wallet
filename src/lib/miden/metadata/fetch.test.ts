@@ -2,6 +2,7 @@ import { isMidenAsset } from 'lib/miden/assets';
 
 import { MIDEN_METADATA, DEFAULT_TOKEN_METADATA } from './defaults';
 import { fetchTokenMetadata, NotFoundTokenMetadata } from './fetch';
+import { AssetMetadata } from './types';
 
 jest.mock('webextension-polyfill', () => ({
   runtime: {
@@ -43,8 +44,10 @@ jest.mock('lib/miden-chain/constants', () => ({
 }));
 
 const mockFetchFromStorage = jest.fn();
+const mockPutToStorage = jest.fn();
 jest.mock('lib/miden/front/storage', () => ({
-  fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
+  fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args),
+  putToStorage: (...args: unknown[]) => mockPutToStorage(...args)
 }));
 
 const mockIsMidenAsset = isMidenAsset as unknown as jest.Mock;
@@ -56,6 +59,7 @@ describe('metadata/fetch', () => {
     mockFromBech32.mockReset();
     mockFromAccountStorage.mockReset();
     mockFetchFromStorage.mockResolvedValue(null);
+    mockPutToStorage.mockResolvedValue(undefined);
   });
 
   describe('fetchTokenMetadata', () => {
@@ -114,6 +118,33 @@ describe('metadata/fetch', () => {
         thumbnailUri: 'chrome-extension://test-id/misc/token-logos/default.svg'
       });
       expect(result.detailed).toEqual(result.base);
+    });
+
+    it('persists RPC metadata so later fetches use the existing storage cache', async () => {
+      mockIsMidenAsset.mockReturnValue(false);
+      const storedMetadata: Record<string, AssetMetadata> = {};
+      mockFetchFromStorage.mockImplementation(async () => storedMetadata);
+      mockPutToStorage.mockImplementation(async (_key: string, value: Record<string, AssetMetadata>) => {
+        Object.assign(storedMetadata, value);
+      });
+      mockFromBech32.mockReturnValue({ accountId: () => 'account-id-123' });
+      mockGetAccountDetails.mockResolvedValue({
+        account: () => ({ storage: () => ({ slots: [] }) }),
+        isPublic: () => true
+      });
+      mockFromAccountStorage.mockReturnValue({
+        decimals: () => 8,
+        symbol: () => ({ toString: () => 'TEST' })
+      });
+
+      const first = await fetchTokenMetadata('test-asset-id');
+      const second = await fetchTokenMetadata('test-asset-id');
+
+      expect(second).toEqual(first);
+      expect(mockGetAccountDetails).toHaveBeenCalledTimes(1);
+      expect(mockPutToStorage).toHaveBeenCalledWith('tokens_base_metadata', {
+        'test-asset-id': first.base
+      });
     });
 
     it('returns DEFAULT_TOKEN_METADATA when faucet introspection throws (pre-0.15 faucet)', async () => {

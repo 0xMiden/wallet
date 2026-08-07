@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- [FIX][all] **Token metadata fetched during sync is now persisted immediately.** Subsequent syncs reuse the existing metadata cache instead of repeatedly requesting the same faucet account from the node.
 - [FIX][all] **Private-note delivery no longer silently fails on fast chains.** The wallet relayed a private note's transport hint *after* waiting for the transaction to commit, so the hint (the client's sync height) could already be at or past the note's commitment block — the recipient scans forward from the hint and would never find the note. The note is now relayed *before* the commit wait (the SDK's prompt-relay flow), so the hint stays below the commitment block and the recipient picks the note up when it lands; the commit wait is preserved so `Completed` status still requires on-chain confirmation. Latent on testnet (slow blocks kept the sync height ≈ the commitment block at relay time); reproduced deterministically on a fast devnet.
 
 ## 1.15.19 (2026-08-05)
