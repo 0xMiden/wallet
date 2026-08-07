@@ -40,6 +40,14 @@ const CARD_COLOR_BOTTOM: Record<CardColor, string> = {
   purple: 'bg-card-purple-deep'
 };
 
+const CARD_COLOR_ICON: Record<CardColor, string> = {
+  slate: 'text-card-slate-deep',
+  orange: 'text-card-orange-deep',
+  blue: 'text-card-blue-deep',
+  green: 'text-card-green-deep',
+  purple: 'text-card-purple-deep'
+};
+
 export interface BalanceCardProps {
   /** Truncated display label, e.g. `mtst1aqg...940z`. */
   accountNumber: string;
@@ -171,27 +179,28 @@ export const BalanceCard: FC<BalanceCardProps> = ({
 
       <div
         className={classNames(
-          'flex items-center justify-between gap-2 py-3 border-t border-dashed px-3.5 border-t-[#FFFFFF4D]',
+          'flex items-center justify-between gap-2 py-2 border-t border-dashed px-3.5 border-t-[#FFFFFF4D]',
           CARD_COLOR_BOTTOM[cardColor]
         )}
       >
         <CopyButton
           text={accountId ?? accountNumber}
           className={classNames(
-            'text-xs font-semibold leading-none tracking-tight truncate min-w-0 text-left',
+            'flex items-center gap-1 text-xs font-heading font-bold leading-none tracking-tight min-w-0 text-left',
             'text-surface-balance-fg hover:bg-transparent active:opacity-80 transition-opacity'
           )}
         >
-          {t('balanceCardAccount', { number: accountNumber })}
+          <span className="truncate">{t('balanceCardAccount', { number: accountNumber })}</span>
+          <Icon name={IconName.CopyNew} className="w-3.5! h-3.5! shrink-0" />
         </CopyButton>
         {onMore && (
           <button
             type="button"
             onClick={handleMoreClick}
             aria-label={t('balanceCardAccountOptions')}
-            className={classNames('shrink-0 flex items-center justify-center', 'w-5 h-5 rounded-full bg-[#F6F4F261] ')}
+            className="shrink-0 flex items-center justify-center w-4.5 h-4.5 rounded-full bg-pure-white"
           >
-            <Icon name={IconName.More} className="w-3 h-3" fill="currentColor" />
+            <Icon name={IconName.SettingsNew} className={classNames('w-3! h-3!', CARD_COLOR_ICON[cardColor])} />
           </button>
         )}
       </div>
