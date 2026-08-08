@@ -11,7 +11,39 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { AddressChain } from 'utils/miden';
 
 import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
+// Bech32 account ID validation
+const validateBech32AccountId = (id: string): { valid: boolean; error?: string } => {
+  if (!id || id.trim() === '') {
+    return { valid: false, error: 'Account ID cannot be empty' };
+  }
 
+  try {
+    const validPrefixes = ['m', 'est'];
+    const prefix = id.split('1')[0];
+    
+    if (!validPrefixes.includes(prefix)) {
+      return { 
+        valid: false, 
+        error: `Invalid network prefix. Use "m" (mainnet) or "est" (testnet). Got "${prefix}"` 
+      };
+    }
+
+    if (id.length < 20) {
+      return { valid: false, error: 'Account ID is too short' };
+    }
+
+    if (id.length > 100) {
+      return { valid: false, error: 'Account ID is too long' };
+    }
+
+    return { valid: true };
+  } catch (err) {
+    return { 
+      valid: false, 
+      error: 'Invalid Bech32 account ID format' 
+    };
+  }
+};
 export interface SelectRecipientProps {
   address: string;
   isValidAddress: boolean;
