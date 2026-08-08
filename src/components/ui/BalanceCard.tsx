@@ -191,6 +191,9 @@ export const BalanceCard: FC<BalanceCardProps> = ({
           )}
         >
           <span className="truncate">{t('balanceCardAccount', { number: accountNumber })}</span>
+          {/* The `!` on the size classes is load-bearing: <Icon> injects a default `md` (w-6 h-6)
+              size class that, under Tailwind v4's scale-ordered output, otherwise wins the cascade.
+              Do not drop the `!` (same for the settings icon below). */}
           <Icon name={IconName.CopyNew} className="w-3.5! h-3.5! shrink-0" />
         </CopyButton>
         {onMore && (
