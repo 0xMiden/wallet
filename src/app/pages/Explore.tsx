@@ -353,7 +353,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
       <Balance>
         {balance => (
           <BalanceCard
-            accountNumber={truncateAddress(address, false, 8, 4)}
+            accountNumber={truncateAddress(address, false, 8)}
             accountId={address}
             amount={`$${toLocalFormat(balance, { decimalPlaces: 2 })}`}
             currency="USD"
