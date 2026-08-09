@@ -3390,8 +3390,8 @@
     "englishSource": "Type"
   },
   "txIdLabel": {
-    "message": "Sende-ID",
-    "englishSource": "Tx ID"
+    "message": "Transaktions-ID",
+    "englishSource": "Transaction ID"
   },
   "notesSection": {
     "message": "Notes",

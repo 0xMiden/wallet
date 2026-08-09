@@ -3388,8 +3388,8 @@
     "englishSource": "Type"
   },
   "txIdLabel": {
-    "message": "ID do Tx",
-    "englishSource": "Tx ID"
+    "message": "ID da transação",
+    "englishSource": "Transaction ID"
   },
   "notesSection": {
     "message": "<xid=\"0\"/>",

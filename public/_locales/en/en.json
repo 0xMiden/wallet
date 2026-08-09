@@ -751,7 +751,7 @@
   "network": "Network",
   "recentActivity": "Recent Activity",
   "type": "Type",
-  "txIdLabel": "Tx ID",
+  "txIdLabel": "Transaction ID",
   "notesSection": "Notes",
   "orderTracking": "Order Tracking",
   "orderStatus": "Status",
