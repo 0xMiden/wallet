@@ -12,66 +12,37 @@ import { safeGenerateTransactionsLoop as dbTransactionsLoop } from 'lib/miden/ac
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension } from 'lib/platform';
 import { isAutoCloseEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { navigate, Redirect } from 'lib/woozie';
+import { WalletType } from 'screens/onboarding/types';
 
 import { TransactionHeroIcon, TransactionStepRow } from './components';
 import {
   AUTO_CLOSE_DELAY_MS,
   EXPLORER_TITLE,
+  stepsForFlow,
   SUCCESS_RECEIPT_DELAY_MS,
-  TRANSACTION_LOOP_INTERVAL_MS,
-  TRANSACTION_STEPS
+  TRANSACTION_LOOP_INTERVAL_MS
 } from './constants';
 import {
-  getActiveTransactionStepIndex,
+  getActiveStepIndex,
   getProcessingTitleKey,
   getStageDescriptionKey,
   getStageTitleKey,
+  getStepDurationsMs,
   getTransactionStepState
 } from './helper';
 import { TransactionSuccess } from './TransactionSuccess';
 import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
-import type {
-  GeneratingTransactionPageProps,
-  GeneratingTransactionProps,
-  TransactionHeroState,
-  TransactionStep
-} from './types';
+import type { GeneratingTransactionPageProps, GeneratingTransactionProps, TransactionHeroState } from './types';
 import { useTransactionRow } from './useTransactionRow';
 
 export type { GeneratingTransactionPageProps, GeneratingTransactionProps } from './types';
-
-type TransactionStepId = TransactionStep['id'];
-type TransactionStepTiming = {
-  startedAt: number;
-  endedAt?: number;
-};
-type TransactionStepTimings = Partial<Record<TransactionStepId, TransactionStepTiming>>;
-
-const getTimedStepIndexForStage = (stage?: GeneratingTransactionProps['activeStage']): number | undefined => {
-  switch (stage) {
-    case 'syncing':
-    case 'creating-proposal':
-    case 'signing-proposal':
-      return 0;
-    case 'sending':
-    case 'proving':
-      return 1;
-    case 'submitting':
-      return 2;
-    case 'guardian-syncing':
-      return 3;
-    case 'guardian-synced':
-      return 4;
-    default:
-      return undefined;
-  }
-};
 
 export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ txId, keepOpen = false }) => {
   const { signTransaction } = useMidenContext();
@@ -128,6 +99,18 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const hasErrors = status === ITransactionStatus.Failed;
   const activeStage = active?.stage;
   const activeType = active?.type;
+  // Select the step set from the *tracked tx's* account, not just the current
+  // one: this screen can outlive an account switch (desktop `keepOpen`, or
+  // re-opening an earlier tx), and the FIFO queue spans accounts. Match the
+  // row's `accountId` against the account list with the same canonicalization
+  // the backend uses (guardian composite id vs bech32); fall back to the current
+  // account when the row hasn't loaded or its account isn't found.
+  const accounts = useWalletStore(s => s.accounts);
+  const currentAccountType = useWalletStore(s => s.currentAccount?.type);
+  const txAccountType = active
+    ? (accounts.find(a => sameWalletAccountId(a.publicKey, active.accountId))?.type ?? currentAccountType)
+    : currentAccountType;
+  const isGuardian = txAccountType === WalletType.Guardian;
 
   // Record the on-chain hash once the row reaches Completed with one set.
   useEffect(() => {
@@ -182,6 +165,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           keepOpen={keepOpen}
           activeStage={activeStage}
           activeType={activeType}
+          isGuardian={isGuardian}
           activeTransaction={active}
           completedTransaction={active}
           completedTxHash={receiptTxHash}
@@ -202,17 +186,18 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   activeTransaction,
   completedTransaction,
   completedTxHash,
-  onViewExplorer
+  onViewExplorer,
+  isGuardian
 }) => {
-  const [stepTimings, setStepTimings] = useState<TransactionStepTimings>({});
   const [showSuccessReceipt, setShowSuccessReceipt] = useState(false);
   const { t } = useTranslation();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(activeTransaction);
-  const timingTransactionId = activeTransaction?.id ?? completedTransaction?.id;
 
-  useEffect(() => {
-    setStepTimings({});
-  }, [timingTransactionId]);
+  // The step set and per-step durations derive only from the account flow and
+  // the persisted per-stage timestamps — never from live `stage` observation
+  // (a Dexie liveQuery coalesces rapid stage writes, dropping a step's timing).
+  const steps = useMemo(() => stepsForFlow(isGuardian), [isGuardian]);
+  const stageTimestamps = activeTransaction?.stageTimestamps ?? completedTransaction?.stageTimestamps;
 
   useEffect(() => {
     if (!transactionComplete || hasErrors) {
@@ -229,62 +214,12 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     };
   }, [hasErrors, transactionComplete]);
 
-  useEffect(() => {
-    if (transactionComplete) {
-      const now = Date.now();
-      const lastStep = TRANSACTION_STEPS[TRANSACTION_STEPS.length - 1];
-      if (!lastStep) return;
-
-      setStepTimings(prev => ({
-        ...prev,
-        [lastStep.id]: {
-          startedAt: prev[lastStep.id]?.startedAt ?? now,
-          endedAt: now
-        }
-      }));
-      return;
-    }
-
-    const stepIndex = getTimedStepIndexForStage(activeStage);
-    if (stepIndex === undefined) return;
-
-    const now = Date.now();
-    if (stepIndex === 0) {
-      setStepTimings({ 'guardian-approving': { startedAt: now } });
-      return;
-    }
-
-    const step = TRANSACTION_STEPS[stepIndex];
-    if (!step) return;
-    const prevStep = TRANSACTION_STEPS[stepIndex - 1];
-    // stepIndex === 0 is handled above, so a step past the first always has a
-    // predecessor; guard defensively rather than throwing from an effect if
-    // TRANSACTION_STEPS / getTimedStepIndexForStage ever drift out of sync.
-    if (!prevStep) return;
-    setStepTimings(prev => {
-      return {
-        ...prev,
-        [prevStep.id]: {
-          ...prev[prevStep.id],
-          endedAt: now
-        },
-        [step.id]: {
-          startedAt: now
-        }
-      };
-    });
-  }, [activeStage, timingTransactionId, transactionComplete]);
-
   const stepDurationLabels = useMemo(
     () =>
-      TRANSACTION_STEPS.map(step => {
-        const timing = stepTimings[step.id];
-        if (!timing?.endedAt) return undefined;
-        const { startedAt, endedAt } = timing;
-        const elapsedMs = endedAt - startedAt;
-        return t('transactionStepDurationSec', { seconds: elapsedMs / 1000 });
-      }),
-    [stepTimings, t]
+      getStepDurationsMs(steps, stageTimestamps).map(ms =>
+        ms === undefined ? undefined : t('transactionStepDurationSec', { seconds: ms / 1000 })
+      ),
+    [steps, stageTimestamps, t]
   );
 
   const headerText = useCallback(() => {
@@ -325,10 +260,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // On failure the row's stage freezes at the failing phase (setTransactionStage
   // never writes past a terminal status), so it pins the cross to the right step.
   const activeStepIndex = hasErrors
-    ? Math.min(getActiveTransactionStepIndex(activeStage), TRANSACTION_STEPS.length - 1)
-    : transactionComplete
-      ? TRANSACTION_STEPS.length
-      : getActiveTransactionStepIndex(activeStage);
+    ? Math.min(getActiveStepIndex(steps, activeStage, false), steps.length - 1)
+    : getActiveStepIndex(steps, activeStage, transactionComplete);
   // A successful tx still renders here for SUCCESS_RECEIPT_DELAY_MS before the
   // receipt takes over, so the hero has to show a settled success state — not
   // the spinner — while the title already reads "Transaction completed".
@@ -363,14 +296,14 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
           )}
 
           <div className="mt-4 w-full overflow-hidden rounded-2xl border border-[#ECEBE8] bg-surface-solid">
-            {TRANSACTION_STEPS.map((step, index) => {
+            {steps.map((step, index) => {
               const state = getTransactionStepState(index, activeStepIndex, transactionComplete, hasErrors);
               return (
                 <TransactionStepRow
                   key={step.id}
                   step={step}
                   state={state}
-                  isLast={index === TRANSACTION_STEPS.length - 1}
+                  isLast={index === steps.length - 1}
                   meta={state === 'complete' ? stepDurationLabels[index] : undefined}
                 />
               );

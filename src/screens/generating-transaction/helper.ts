@@ -1,31 +1,47 @@
 import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 
-import { TRANSACTION_STEPS } from './constants';
+import type { TransactionStepDef } from './constants';
 import type { TransactionStepState } from './types';
 
-export const getActiveTransactionStepIndex = (stage?: ITransactionStage): number => {
-  switch (stage) {
-    case undefined:
-    case 'syncing':
-    case 'creating-proposal':
-    case 'signing-proposal':
-      return 0;
-    case 'sending':
-    case 'executing':
-    case 'proving':
-      return 1;
-    case 'submitting':
-      return 2;
-    case 'confirming':
-    case 'registering-guardian':
-    case 'delivering':
-    case 'guardian-syncing':
-      return 3;
-    case 'guardian-synced':
-    case 'complete':
-      return TRANSACTION_STEPS.length;
-  }
+/**
+ * Index (within `steps`) of the step currently in progress, driving each row's
+ * complete/active/pending state. Once the tx completes, every step is done
+ * (`steps.length`).
+ */
+export const getActiveStepIndex = (
+  steps: readonly TransactionStepDef[],
+  stage: ITransactionStage | undefined,
+  transactionComplete: boolean
+): number => {
+  if (transactionComplete || stage === 'complete' || stage === 'guardian-synced') return steps.length;
+  if (!stage) return 0;
+  const idx = steps.findIndex(step => step.activeStages.includes(stage));
+  // A stage owned by no step runs before the first shown step (e.g. a
+  // non-guardian send's early 'syncing', when the standard set starts at
+  // proof-generation) — treat the first step as the active one.
+  return idx === -1 ? 0 : idx;
 };
+
+/**
+ * Per-step durations in ms, computed from persisted stage timestamps. A step's
+ * span runs from its `startStage` stamp to the next step's `startStage` stamp
+ * (or the `complete` stamp for the terminal step). `undefined` when either
+ * boundary isn't stamped yet — so a step renders no time rather than a
+ * fabricated zero, and stays coalescing-proof (the stamps are persisted on the
+ * row, not observed from live `stage` transitions).
+ */
+export const getStepDurationsMs = (
+  steps: readonly TransactionStepDef[],
+  stageTimestamps: Partial<Record<ITransactionStage, number>> | undefined
+): (number | undefined)[] =>
+  steps.map((step, index) => {
+    const start = stageTimestamps?.[step.startStage];
+    const nextStep = steps[index + 1];
+    const endStage: ITransactionStage = nextStep ? nextStep.startStage : 'complete';
+    const end = stageTimestamps?.[endStage];
+    if (start === undefined || end === undefined || end < start) return undefined;
+    return end - start;
+  });
 
 export const getTransactionStepState = (
   index: number,

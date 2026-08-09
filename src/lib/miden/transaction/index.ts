@@ -275,6 +275,10 @@ export const generateTransaction = async (
         await updateTransactionStatus(transaction.id, ITransactionStatus.Queued, {
           processingStartedAt: undefined,
           stage: 'creating-proposal',
+          // Reset per-stage timing: the row re-enters at 'creating-proposal', and
+          // stage stamps are first-entry-wins, so a stale original stamp would make
+          // the "Guardian approved" step span the whole cooldown + failed attempts.
+          stageTimestamps: undefined,
           nextEligibleAt: Math.floor(Date.now() / 1000) + PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC
         });
         // An earn-deposit's requestBytes freeze an ABSOLUTE reclaim height at build
@@ -321,7 +325,12 @@ export const generateTransaction = async (
     const midenClient = await getMidenClient(options);
     switch (transaction.type) {
       case 'send':
-        return await midenClient.sendTransaction(transaction as SendTransaction);
+        // Thread stage stamps so the generating-transaction screen can time the
+        // proof + submit steps (the non-guardian send drives execute → prove →
+        // submit as distinct stages; see sendTransaction).
+        return await midenClient.sendTransaction(transaction as SendTransaction, stage =>
+          setTransactionStage(transaction.id, stage)
+        );
       case 'consume':
         return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
       case 'swap':

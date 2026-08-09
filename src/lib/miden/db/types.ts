@@ -289,6 +289,17 @@ export interface ITransaction {
    */
   stage?: ITransactionStage;
   /**
+   * Wall-clock (ms since epoch) of the first time each processing stage was
+   * entered, recorded by `setTransactionStage` (plus a synthetic `complete`
+   * stamp written when the row reaches `Completed`). The generating-transaction
+   * screen derives per-step durations from these persisted stamps rather than
+   * observing live `stage` transitions — a Dexie `liveQuery` coalesces rapid
+   * adjacent stage writes, which would otherwise drop a step's start/end and
+   * leave its duration blank. First-entry-wins: a stage re-set on requeue keeps
+   * the original entry time (the meaningful boundary for step timing).
+   */
+  stageTimestamps?: Partial<Record<ITransactionStage, number>>;
+  /**
    * Earliest time (unix seconds) this Queued tx may be re-selected by the
    * processing loop. Set when a transient guardian pending-delta 409 requeues
    * the tx, so a persistently-conflicting op backs off and yields its slot to
