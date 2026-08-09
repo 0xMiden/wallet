@@ -1,6 +1,7 @@
 # Changelog
 
 ## 1.15.20 (TBD)
+- Fixed transaction history "load more" returning no results past the first page (#PR).
 
 ### Fixes
 
