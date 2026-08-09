@@ -40,7 +40,7 @@ import { NoteExportType } from './constants';
 import { getBech32AddressFromAccountId } from './helpers';
 import { yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
-import { ConsumeTransaction, SendTransaction, SwapTransaction } from '../db/types';
+import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
 // Guardian helpers are dynamic-imported inside the methods that use them to avoid
 // a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
 // miden-client-interface. Static imports here deadlock init_guardian_manager in the
@@ -520,7 +520,10 @@ export class MidenClientInterface {
     }
   }
 
-  async sendTransaction(dbTransaction: SendTransaction): Promise<TransactionResult> {
+  async sendTransaction(
+    dbTransaction: SendTransaction,
+    onStage?: (stage: ITransactionStage) => Promise<void> | void
+  ): Promise<TransactionResult> {
     const { accountId, secondaryAccountId, faucetId, noteType, amount, extraInputs } = dbTransaction;
 
     // extraInputs.recallBlocks is a RELATIVE blocks-until-recall offset (every
@@ -555,19 +558,57 @@ export class MidenClientInterface {
         return await this.proveLocallyViaOffscreen(
           (wasm, inner) =>
             buildSendExecuteArgs(wasm, inner, accountId, secondaryAccountId, faucetId, noteType, amount, reclaimAfter),
-          cacheParams
+          cacheParams,
+          onStage
         );
       }
-      const { result } = await this.client.transactions.send({
-        account: accountId,
-        to: secondaryAccountId,
-        token: faucetId,
-        amount,
-        type: noteType as any,
-        reclaimAfter,
-        prover
-      });
-      return result;
+      // Non-offscreen path (mobile native prover, desktop WASM, delegated
+      // remote): the SDK's all-in-one `transactions.send` runs execute+prove+
+      // submit inside one opaque call, leaving no seam to stamp `proving`/
+      // `submitting`. Drive the staged execute → prove → submit → apply pipeline
+      // instead so the per-step timing UI gets real stage boundaries on every
+      // platform. Build the SAME request the atomic path builds
+      // (`buildSendExecuteArgs`), serialized across the SDK lock boundary and
+      // re-hydrated for execution (a wasm-bindgen request can't be shared across
+      // lock re-acquisitions; the bytes can).
+      const wasm = await getWasmOrThrow();
+      const withInner = (
+        this.client as unknown as {
+          _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
+        }
+      )._withInnerWebClient;
+      if (typeof withInner !== 'function') {
+        throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
+      }
+      // `_withInnerWebClient` is untyped (accessed through the cast above), so
+      // its result widens to `unknown` — the same reason the offscreen path
+      // below narrows its returned `TransactionResult`. The callback returns the
+      // serialized request bytes, which cross the lock boundary safely (a live
+      // wasm-bindgen request can't).
+      const requestBytes = (await withInner.call(this.client, async (inner: any) => {
+        const { request } = await buildSendExecuteArgs(
+          wasm,
+          inner,
+          accountId,
+          secondaryAccountId,
+          faucetId,
+          noteType,
+          amount,
+          reclaimAfter
+        );
+        return request.serialize();
+      })) as Uint8Array;
+      await onStage?.('executing');
+      const executed = await this.client.transactions.executeRequest(
+        accountId,
+        TransactionRequest.deserialize(requestBytes)
+      );
+      await onStage?.('proving');
+      const proven = await executed.prove(prover ? { prover } : {});
+      await onStage?.('submitting');
+      const submitted = await proven.submit();
+      await submitted.apply();
+      return executed.result;
     }, dbTransaction.delegateTransaction);
   }
 
@@ -774,7 +815,8 @@ export class MidenClientInterface {
    */
   private async proveLocallyViaOffscreen(
     buildExecuteArgs: (wasm: any, inner: any) => Promise<{ accountId: any; request: TransactionRequest }>,
-    cacheParams?: SpeculationParams
+    cacheParams?: SpeculationParams,
+    onStage?: (stage: ITransactionStage) => Promise<void> | void
   ): Promise<TransactionResult> {
     try {
       recordProveTiming('proveLocallyViaOffscreen entered');
@@ -814,6 +856,9 @@ export class MidenClientInterface {
           );
         }
         if (hit) {
+          // Proof came from a speculation cache hit (pre-proved on the review
+          // screen), so there's no live prove step to time — stamp only submit.
+          await onStage?.('submitting');
           const result = (await withInner.call(this.client, async (inner: any) => {
             const txResult: TransactionResult = wasm.TransactionResult.deserialize(hit.txResultBytes);
             const proven = wasm.ProvenTransaction.deserialize(hit.provenBytes);
@@ -832,6 +877,7 @@ export class MidenClientInterface {
       // TransactionResult handle out of the first block is safe: it's a
       // wasm-bindgen reference, alive as long as the JS reference exists,
       // and the next block re-uses it without a fresh WASM call.
+      await onStage?.('executing');
       recordProveTiming('proveLocallyViaOffscreen entering execute under SDK lock');
       const tExec = performance.now();
       const txResult = (await withInner.call(this.client, async (inner: any) => {
@@ -852,10 +898,12 @@ export class MidenClientInterface {
       // Yield the SW's WASM lock during the offscreen prove. The SDK's
       // _withInnerWebClient lock is already released here (we left the
       // first block), so background sync can run.
+      await onStage?.('proving');
       const { provenBytes, durationMs } = await yieldWasmClientLock(() => proveViaOffscreen(txResultBytes, null));
       recordProveTiming(
         `proveLocallyViaOffscreen proveViaOffscreen returned in ${durationMs.toFixed(0)}ms (lock reacquired); submitting + applying`
       );
+      await onStage?.('submitting');
       await withInner.call(this.client, async (inner: any) => {
         recordProveTiming('proveLocallyViaOffscreen inside SDK lock; deserializing proven + submit');
         const proven = wasm.ProvenTransaction.deserialize(new Uint8Array(provenBytes));

@@ -105,6 +105,12 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
   await Repo.transactions.where({ id: id }).modify(t => {
     Object.assign(t, otherValues);
     t.status = status;
+    // Stamp a synthetic `complete` boundary so the last processing step gets a
+    // real end time (the terminal step has no following stage to close it).
+    if (status === ITransactionStatus.Completed) {
+      if (!t.stageTimestamps) t.stageTimestamps = {};
+      if (t.stageTimestamps.complete === undefined) t.stageTimestamps.complete = Date.now();
+    }
   });
 };
 
@@ -121,6 +127,11 @@ export const setTransactionStage = async (id: string, stage: ITransactionStage) 
   await Repo.transactions.where({ id }).modify(tx => {
     if (tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed) {
       tx.stage = stage;
+      // Record the first time this stage was entered so the UI can compute
+      // per-step durations from persisted stamps (see ITransaction.stageTimestamps).
+      // First-entry-wins: a stage re-set on requeue keeps its original boundary.
+      if (!tx.stageTimestamps) tx.stageTimestamps = {};
+      if (tx.stageTimestamps[stage] === undefined) tx.stageTimestamps[stage] = Date.now();
     }
   });
 };

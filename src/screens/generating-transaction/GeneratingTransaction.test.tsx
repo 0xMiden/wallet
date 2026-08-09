@@ -3,6 +3,8 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { WalletType } from 'screens/onboarding/types';
+
 import { GeneratingTransaction, GeneratingTransactionPage } from './GeneratingTransaction';
 
 jest.mock('react-i18next', () => ({
@@ -27,6 +29,7 @@ jest.mock('app/icons/v2', () => ({
 
 const mockWalletStoreState = {
   assetsMetadata: {} as Record<string, any>,
+  currentAccount: { type: WalletType.Guardian } as { type: WalletType } | undefined,
   lastCompletedTxHash: null as string | null,
   setLastCompletedTxHash: jest.fn()
 };
@@ -420,7 +423,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
     ['delivering', undefined, 'transactionStageDelivering', 'transactionStageDeliveringDescription']
   ])('renders stage %s (type=%s) with correct labels', async (stage, type, titleKey, descKey) => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction
+      <GeneratingTransaction isGuardian={true}
         onDoneClick={() => {}}
         transactionComplete={false}
         activeStage={stage as any}
@@ -434,7 +437,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('renders fallback labels when no activeStage', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} />
+      <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete={false} />
     );
     expect(container.textContent).toContain('generatingTransaction');
     expect(container.textContent).toContain('generatingTransactionDescription');
@@ -449,7 +452,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('renders the backend step immediately when the backend stage starts ahead', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} activeStage="submitting" />
+      <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete={false} activeStage="submitting" />
     );
     const stepStates = () =>
       Array.from(container.querySelectorAll('[data-transaction-step]')).map(row => row.getAttribute('data-state'));
@@ -461,9 +464,57 @@ describe('GeneratingTransaction stage + state rendering', () => {
     act(() => root.unmount());
   });
 
+  it('non-guardian send shows only the generic proof + submit steps', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        isGuardian={false}
+        activeStage="submitting"
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+    expect(rows.map(r => r.getAttribute('data-transaction-step'))).toEqual(['generating-proof', 'submitting']);
+    expect(rows.map(r => r.getAttribute('data-state'))).toEqual(['complete', 'active']);
+    act(() => root.unmount());
+  });
+
+  it('renders per-step durations from persisted stage timestamps (no fabricated zero)', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete
+        isGuardian={false}
+        activeTransaction={{ type: 'send', stageTimestamps: { proving: 1_000, submitting: 3_000, complete: 3_500 } } as any}
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+    // generating-proof: submitting(3000) - proving(1000); submitting: complete(3500) - submitting(3000).
+    // The mocked t() echoes the key, so a rendered duration surfaces as 'transactionStepDurationSec'.
+    expect(rows[0]?.textContent).toContain('transactionStepDurationSec');
+    expect(rows[1]?.textContent).toContain('transactionStepDurationSec');
+    act(() => root.unmount());
+  });
+
+  it('omits a step duration when a boundary stamp is missing (never shows 0 sec)', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete
+        isGuardian={false}
+        // No `proving` stamp → generating-proof has no start boundary; only submit is timed.
+        activeTransaction={{ type: 'send', stageTimestamps: { submitting: 3_000, complete: 3_500 } } as any}
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+    expect(rows[0]?.textContent).not.toContain('transactionStepDurationSec');
+    expect(rows[1]?.textContent).toContain('transactionStepDurationSec');
+    act(() => root.unmount());
+  });
+
   it('renders success state when transactionComplete + no errors', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors={false} />
+      <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete hasErrors={false} />
     );
     // No completed transaction data → the generic success title (send-typed
     // transactions get "Payment Sent!"). The redesigned screen has no header
@@ -474,7 +525,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('renders failure state with single-failure description', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors />
+      <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete hasErrors />
     );
     expect(container.textContent).toContain('transactionFailed');
     expect(container.textContent).toContain('transactionErrorDescription');
@@ -485,7 +536,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
     jest.useFakeTimers();
     const onViewExplorer = jest.fn();
     const { container, root } = await renderInto(
-      <GeneratingTransaction
+      <GeneratingTransaction isGuardian={true}
         onDoneClick={() => {}}
         transactionComplete
         hasErrors={false}
@@ -514,7 +565,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('omits the View on Midenscan button when no onViewExplorer is provided', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors={false} />
+      <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete hasErrors={false} />
     );
     expect(container.textContent).not.toContain('viewOnMidenscan');
     act(() => root.unmount());
@@ -522,7 +573,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('omits the View on Midenscan button on failure even when onViewExplorer is provided', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors onViewExplorer={jest.fn()} />
+      <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete hasErrors onViewExplorer={jest.fn()} />
     );
     expect(container.textContent).not.toContain('viewOnMidenscan');
     act(() => root.unmount());
@@ -530,7 +581,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('renders the "navigate home" warning alert when keepOpen is true (desktop, in-flight)', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} keepOpen />
+      <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete={false} keepOpen />
     );
     expect(container.textContent).toContain('doNotCloseWindowNavigateHome');
     act(() => root.unmount());
@@ -538,7 +589,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('renders the "auto-close" warning alert when keepOpen is false (desktop, in-flight)', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} keepOpen={false} />
+      <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete={false} keepOpen={false} />
     );
     expect(container.textContent).toContain('doNotCloseWindowAutoClose');
     act(() => root.unmount());

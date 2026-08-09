@@ -321,7 +321,12 @@ export const generateTransaction = async (
     const midenClient = await getMidenClient(options);
     switch (transaction.type) {
       case 'send':
-        return await midenClient.sendTransaction(transaction as SendTransaction);
+        // Thread stage stamps so the generating-transaction screen can time the
+        // proof + submit steps (the non-guardian send drives execute → prove →
+        // submit as distinct stages; see sendTransaction).
+        return await midenClient.sendTransaction(transaction as SendTransaction, stage =>
+          setTransactionStage(transaction.id, stage)
+        );
       case 'consume':
         return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
       case 'swap':

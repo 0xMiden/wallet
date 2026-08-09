@@ -68,6 +68,15 @@ describe('MidenClientInterface', () => {
         send: jest.fn(async () => ({ txId: 'tx-id', result: fakeTransactionResult })),
         consume: jest.fn(async () => ({ txId: 'tx-id', result: fakeTransactionResult })),
         submit: jest.fn(async () => ({ txId: 'tx-id', result: fakeTransactionResult })),
+        // Staged pipeline used by the non-offscreen send path:
+        // executeRequest → prove → submit → apply.
+        executeRequest: jest.fn(async () => ({
+          id: 'tx-id',
+          result: fakeTransactionResult,
+          prove: jest.fn(async () => ({
+            submit: jest.fn(async () => ({ apply: jest.fn(async () => undefined) }))
+          }))
+        })),
         list: jest.fn(async () => [
           { accountId: () => 'id', serialize: () => new Uint8Array([9]) },
           { accountId: () => 'other', serialize: () => new Uint8Array([9]) }
@@ -75,6 +84,12 @@ describe('MidenClientInterface', () => {
         waitFor: jest.fn(async () => {}),
         ...overrides.transactions
       },
+      // The non-offscreen send builds its request through the inner raw client.
+      _withInnerWebClient: jest.fn(async (fn: (inner: any) => Promise<any>) =>
+        fn({
+          newSendTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([7]) }))
+        })
+      ),
       sync: jest.fn(async () => ({ blockNum: () => 5 })),
       getSyncHeight: jest.fn(async () => 5),
       storeIdentifier: jest.fn(() => 'test-store'),
@@ -102,7 +117,8 @@ describe('MidenClientInterface', () => {
         AccountId: {
           fromHex: jest.fn((id: string) => id),
           fromBech32: jest.fn((id: string) => id)
-        }
+        },
+        NoteType: { Public: 'public', Private: 'private' }
       })),
       WasmWebClient: {
         createClient: jest.fn(async () => ({
@@ -400,7 +416,12 @@ describe('MidenClientInterface', () => {
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       TransactionProver: {
         newLocalProver: jest.fn(() => 'local')
-      }
+      },
+      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      getWasmOrThrow: async () => ({
+        AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
+        NoteType: { Public: 'public', Private: 'private' }
+      })
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),
@@ -420,7 +441,50 @@ describe('MidenClientInterface', () => {
     } as any);
 
     expect(result).toBe(fakeTransactionResult);
-    expect(fakeMidenClient.transactions.send).toHaveBeenCalled();
+    // The non-offscreen send drives the staged pipeline (executeRequest → prove →
+    // submit → apply), not the all-in-one `transactions.send`.
+    expect(fakeMidenClient.transactions.executeRequest).toHaveBeenCalled();
+    expect(fakeMidenClient.transactions.send).not.toHaveBeenCalled();
+  });
+
+  it('reports executing/proving/submitting stages through the onStage callback', async () => {
+    const fakeMidenClient = buildFakeMidenClient();
+
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id)
+    }));
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      TransactionProver: { newLocalProver: jest.fn(() => 'local') },
+      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      getWasmOrThrow: async () => ({
+        AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
+        NoteType: { Public: 'public', Private: 'private' }
+      })
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    const stages: string[] = [];
+    await client.sendTransaction(
+      {
+        accountId: 'sender',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(1),
+        extraInputs: {}
+      } as any,
+      stage => {
+        stages.push(stage);
+      }
+    );
+
+    expect(stages).toEqual(['executing', 'proving', 'submitting']);
   });
 
   it('consumeNoteId returns TransactionResult', async () => {
@@ -1484,8 +1548,8 @@ describe('MidenClientInterface', () => {
         getWasmOrThrow: async () => fakeWasm
       }));
 
-      const fakeMidenClient = buildFakeMidenClient();
-      // No _withInnerWebClient attached.
+      // No _withInnerWebClient attached (override the default stub away).
+      const fakeMidenClient = buildFakeMidenClient({ _withInnerWebClient: undefined });
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
