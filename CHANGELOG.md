@@ -1,10 +1,10 @@
 # Changelog
 
 ## 1.15.20 (TBD)
-- Fixed transaction history "load more" returning no results past the first page (#PR).
 
 ### Fixes
 
+- [FIX][all] **Transaction history "load more" now returns the next page instead of nothing.** `getCompletedTransactions` paginated with `transactions.slice(offset, limit)`, but `Array.prototype.slice` reads its second argument as an end index, not a page size. The only caller passes `offset = HISTORY_PAGE_SIZE * page` and `limit = HISTORY_PAGE_SIZE`, so every page after the first resolved to `slice(n, n)` — an empty range — leaving "load more" silently dead while the initial load (both args undefined) pulled the entire history at once. The slice now ends at `offset + limit`, and the undefined case still returns everything.
 - [FIX][all] **Private-note delivery no longer silently fails on fast chains.** The wallet relayed a private note's transport hint *after* waiting for the transaction to commit, so the hint (the client's sync height) could already be at or past the note's commitment block — the recipient scans forward from the hint and would never find the note. The note is now relayed *before* the commit wait (the SDK's prompt-relay flow), so the hint stays below the commitment block and the recipient picks the note up when it lands; the commit wait is preserved so `Completed` status still requires on-chain confirmation. Latent on testnet (slow blocks kept the sync height ≈ the commitment block at relay time); reproduced deterministically on a fast devnet.
 
 ## 1.15.19 (2026-08-05)
