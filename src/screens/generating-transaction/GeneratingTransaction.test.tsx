@@ -29,6 +29,7 @@ jest.mock('app/icons/v2', () => ({
 
 const mockWalletStoreState = {
   assetsMetadata: {} as Record<string, any>,
+  accounts: [] as { publicKey: string; type: WalletType }[],
   currentAccount: { type: WalletType.Guardian } as { type: WalletType } | undefined,
   lastCompletedTxHash: null as string | null,
   setLastCompletedTxHash: jest.fn()
@@ -113,6 +114,8 @@ describe('GeneratingTransactionPage interval driver', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockWalletStoreState.lastCompletedTxHash = null;
+    mockWalletStoreState.accounts = [];
+    mockWalletStoreState.currentAccount = { type: WalletType.Guardian };
     mockWalletStoreState.setLastCompletedTxHash.mockClear();
     safeGenerateTransactionsLoopMock.mockReset();
     mockRowState = { row: makeTx({ stage: 'submitting' }), loaded: true };
@@ -212,6 +215,8 @@ describe('GeneratingTransactionPage container effects', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockWalletStoreState.lastCompletedTxHash = null;
+    mockWalletStoreState.accounts = [];
+    mockWalletStoreState.currentAccount = { type: WalletType.Guardian };
     mockWalletStoreState.setLastCompletedTxHash.mockClear();
     safeGenerateTransactionsLoopMock.mockReset();
     safeGenerateTransactionsLoopMock.mockReturnValue(true);
@@ -301,6 +306,22 @@ describe('GeneratingTransactionPage container effects', () => {
       submitting: 'pending',
       'syncing-guardian': 'pending'
     });
+    act(() => root.unmount());
+  });
+
+  it('picks the step set from the tracked tx account, not the current account', async () => {
+    // Current account is standard, but the row's account (acc-1) is a Guardian
+    // account — the step set must follow the tx, not the globally-current account.
+    mockWalletStoreState.currentAccount = { type: WalletType.OnChain };
+    mockWalletStoreState.accounts = [{ publicKey: 'acc-1', type: WalletType.Guardian }];
+    mockRowState = { row: makeTx({ status: 1, stage: 'submitting' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    const ids = Array.from(container.querySelectorAll('[data-transaction-step]')).map(el =>
+      el.getAttribute('data-transaction-step')
+    );
+    expect(ids).toEqual(['guardian-approving', 'generating-proof', 'submitting', 'syncing-guardian']);
     act(() => root.unmount());
   });
 
@@ -423,7 +444,8 @@ describe('GeneratingTransaction stage + state rendering', () => {
     ['delivering', undefined, 'transactionStageDelivering', 'transactionStageDeliveringDescription']
   ])('renders stage %s (type=%s) with correct labels', async (stage, type, titleKey, descKey) => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction isGuardian={true}
+      <GeneratingTransaction
+        isGuardian={true}
         onDoneClick={() => {}}
         transactionComplete={false}
         activeStage={stage as any}
@@ -452,7 +474,12 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('renders the backend step immediately when the backend stage starts ahead', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete={false} activeStage="submitting" />
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        activeStage="submitting"
+      />
     );
     const stepStates = () =>
       Array.from(container.querySelectorAll('[data-transaction-step]')).map(row => row.getAttribute('data-state'));
@@ -485,7 +512,9 @@ describe('GeneratingTransaction stage + state rendering', () => {
         onDoneClick={() => {}}
         transactionComplete
         isGuardian={false}
-        activeTransaction={{ type: 'send', stageTimestamps: { proving: 1_000, submitting: 3_000, complete: 3_500 } } as any}
+        activeTransaction={
+          { type: 'send', stageTimestamps: { proving: 1_000, submitting: 3_000, complete: 3_500 } } as any
+        }
       />
     );
     const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
@@ -536,7 +565,8 @@ describe('GeneratingTransaction stage + state rendering', () => {
     jest.useFakeTimers();
     const onViewExplorer = jest.fn();
     const { container, root } = await renderInto(
-      <GeneratingTransaction isGuardian={true}
+      <GeneratingTransaction
+        isGuardian={true}
         onDoneClick={() => {}}
         transactionComplete
         hasErrors={false}
@@ -573,7 +603,13 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('omits the View on Midenscan button on failure even when onViewExplorer is provided', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete hasErrors onViewExplorer={jest.fn()} />
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete
+        hasErrors
+        onViewExplorer={jest.fn()}
+      />
     );
     expect(container.textContent).not.toContain('viewOnMidenscan');
     act(() => root.unmount());

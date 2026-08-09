@@ -51,7 +51,11 @@ describe('getStepDurationsMs', () => {
   });
 
   it('returns undefined rather than a negative duration when stamps are out of order', () => {
-    const durations = getStepDurationsMs(STANDARD_TRANSACTION_STEPS, { proving: 5_000, submitting: 1_000, complete: 6_000 });
+    const durations = getStepDurationsMs(STANDARD_TRANSACTION_STEPS, {
+      proving: 5_000,
+      submitting: 1_000,
+      complete: 6_000
+    });
     // generating-proof: submitting(1000) < proving(5000) → undefined; submitting: complete(6000) - submitting(1000).
     expect(durations).toEqual([undefined, 5_000]);
   });

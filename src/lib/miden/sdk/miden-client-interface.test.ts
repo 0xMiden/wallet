@@ -487,6 +487,94 @@ describe('MidenClientInterface', () => {
     expect(stages).toEqual(['executing', 'proving', 'submitting']);
   });
 
+  it('re-runs the staged send pipeline locally when the delegated prover fails', async () => {
+    let proveCalls = 0;
+    const fakeMidenClient = buildFakeMidenClient({
+      transactions: {
+        executeRequest: jest.fn(async () => ({
+          id: 'tx-id',
+          result: fakeTransactionResult,
+          prove: jest.fn(async (opts?: any) => {
+            proveCalls += 1;
+            // Delegated (no prover) attempt fails; the local-prover retry succeeds.
+            if (!opts?.prover) throw new Error('remote prover deadline exceeded');
+            return { submit: jest.fn(async () => ({ apply: jest.fn(async () => undefined) })) };
+          })
+        }))
+      }
+    });
+
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id)
+    }));
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      getWasmOrThrow: async () => ({
+        AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
+        NoteType: { Public: 'public', Private: 'private' }
+      })
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    const result = await client.sendTransaction({
+      accountId: 'sender',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      noteType: 'public' as any,
+      amount: BigInt(1),
+      extraInputs: {},
+      delegateTransaction: true
+    } as any);
+
+    expect(result).toBe(fakeTransactionResult);
+    // The delegated prove threw, so proveWithFallback re-ran the whole staged
+    // callback (rebuild → execute → prove → submit → apply) with a local prover —
+    // exactly one submit lands, matching the old atomic `.send` re-run semantics.
+    expect(fakeMidenClient.transactions.executeRequest).toHaveBeenCalledTimes(2);
+    expect(proveCalls).toBe(2);
+  });
+
+  it('sendTransaction throws a friendly error when _withInnerWebClient is missing', async () => {
+    const fakeMidenClient = buildFakeMidenClient({ _withInnerWebClient: undefined });
+
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id)
+    }));
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      TransactionProver: { newLocalProver: jest.fn(() => 'local') },
+      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      getWasmOrThrow: async () => ({
+        AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
+        NoteType: { Public: 'public', Private: 'private' }
+      })
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await expect(
+      client.sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(1),
+        extraInputs: {}
+      } as any)
+    ).rejects.toThrow(/_withInnerWebClient missing/);
+  });
+
   it('consumeNoteId returns TransactionResult', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 

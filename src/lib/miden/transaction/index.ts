@@ -275,6 +275,10 @@ export const generateTransaction = async (
         await updateTransactionStatus(transaction.id, ITransactionStatus.Queued, {
           processingStartedAt: undefined,
           stage: 'creating-proposal',
+          // Reset per-stage timing: the row re-enters at 'creating-proposal', and
+          // stage stamps are first-entry-wins, so a stale original stamp would make
+          // the "Guardian approved" step span the whole cooldown + failed attempts.
+          stageTimestamps: undefined,
           nextEligibleAt: Math.floor(Date.now() / 1000) + PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC
         });
         // An earn-deposit's requestBytes freeze an ABSOLUTE reclaim height at build

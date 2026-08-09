@@ -12,6 +12,7 @@ import { safeGenerateTransactionsLoop as dbTransactionsLoop } from 'lib/miden/ac
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension } from 'lib/platform';
@@ -98,10 +99,18 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const hasErrors = status === ITransactionStatus.Failed;
   const activeStage = active?.stage;
   const activeType = active?.type;
-  // A send is issued from the current account, so its type selects the step set
-  // (Guardian accounts show the co-sign + guardian-sync steps; others don't).
+  // Select the step set from the *tracked tx's* account, not just the current
+  // one: this screen can outlive an account switch (desktop `keepOpen`, or
+  // re-opening an earlier tx), and the FIFO queue spans accounts. Match the
+  // row's `accountId` against the account list with the same canonicalization
+  // the backend uses (guardian composite id vs bech32); fall back to the current
+  // account when the row hasn't loaded or its account isn't found.
+  const accounts = useWalletStore(s => s.accounts);
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
-  const isGuardian = currentAccountType === WalletType.Guardian;
+  const txAccountType = active
+    ? (accounts.find(a => sameWalletAccountId(a.publicKey, active.accountId))?.type ?? currentAccountType)
+    : currentAccountType;
+  const isGuardian = txAccountType === WalletType.Guardian;
 
   // Record the on-chain hash once the row reaches Completed with one set.
   useEffect(() => {
