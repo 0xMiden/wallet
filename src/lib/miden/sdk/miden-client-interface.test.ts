@@ -61,7 +61,7 @@ describe('MidenClientInterface', () => {
         listAvailable: jest.fn(async () => []),
         import: jest.fn(async () => 'note'),
         export: jest.fn(async () => ({ serialize: () => new Uint8Array([1]) })),
-        sendPrivate: jest.fn(async () => undefined),
+        sendPrivateOutput: jest.fn(async () => undefined),
         ...overrides.notes
       },
       transactions: {
@@ -320,8 +320,8 @@ describe('MidenClientInterface', () => {
     const mockNote = { id: () => 'note-id', assets: () => [] } as any;
     await client.sendPrivateNote(mockNote, 'recipient-bech32');
 
-    expect(fakeMidenClient.notes.sendPrivate).toHaveBeenCalledWith({
-      note: mockNote,
+    expect(fakeMidenClient.notes.sendPrivateOutput).toHaveBeenCalledWith({
+      noteId: 'note-id',
       to: 'recipient-bech32'
     });
   });

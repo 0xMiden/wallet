@@ -1,6 +1,5 @@
 import {
   AccountId,
-  AssetCallbackFlag,
   EthAddress,
   FungibleAsset,
   Note,
@@ -21,7 +20,7 @@ import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isExtension } from 'lib/platform';
 
-import { MIDEN_BRIDGE_ID, getAgglayerFaucetId, hasAgglayerFaucetOverride } from './constant';
+import { MIDEN_BRIDGE_ID, getAgglayerFaucetId } from './constant';
 
 export async function createB2AggNote(
   amount: bigint,
@@ -30,14 +29,15 @@ export async function createB2AggNote(
   destinationNetwork: number
 ) {
   const asset = new FungibleAsset(AccountId.fromHex(getAgglayerFaucetId()), amount);
-  // The real bridge faucet issues Enabled-callback assets; a plain CLI test
-  // faucet (E2E override) issues Disabled ones, which live in a different vault
-  // slot — reference that slot so `createB2AggNote` finds the minted balance.
-  const callbackFlag = hasAgglayerFaucetOverride() ? AssetCallbackFlag.Disabled : AssetCallbackFlag.Enabled;
+  // The callback flag is intrinsic to the issuing faucet's account id (not a per-asset value):
+  // the real bridge faucet id encodes Enabled-callback assets; the plain CLI test faucet (E2E
+  // override) id encodes Disabled ones, which live in a different vault slot. Since
+  // getAgglayerFaucetId() already returns the override id under E2E, the asset carries the
+  // correct flag automatically — no explicit per-asset flag needed.
   return Note.createB2AggNote(
     accountIdStringToSdk(senderAddress),
     AccountId.fromHex(MIDEN_BRIDGE_ID),
-    new NoteAssets([asset.withCallbacks(callbackFlag)]),
+    new NoteAssets([asset]),
     destinationNetwork,
     EthAddress.fromHex(destinationAddress)
   );

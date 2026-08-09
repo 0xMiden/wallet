@@ -472,7 +472,10 @@ export class MidenClientInterface {
   }
 
   async sendPrivateNote(note: Note, to: string): Promise<void> {
-    await this.client.notes.sendPrivate({ note, to });
+    // 0.16: sendPrivate requires an explicit scan-after block hint. For one of this client's
+    // own output notes, sendPrivateOutput derives that hint from the note's stored expected
+    // height, so the recipient scans from at/below the note's commitment block.
+    await this.client.notes.sendPrivateOutput({ noteId: note.id().toString(), to });
   }
 
   async getConsumableNotes(accountId: string): Promise<InputNoteRecord[]> {
