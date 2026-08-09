@@ -445,3 +445,22 @@ describe('ChooseGuardianScreen — custom endpoint keyboard (regression)', () =>
     expect(document.activeElement).not.toBe(input);
   });
 });
+
+describe('ChooseGuardian — no-guardian option', () => {
+  const oneOption = [{ id: 'open-zeppelin', name: 'OZ', operatedBy: 'OZ', location: 'US', endpoint: 'https://g' }];
+
+  it('hides the No guardian card by default', () => {
+    mockGetGuardianOptions.mockReturnValue(oneOption);
+    render(<ChooseGuardianScreen onSubmit={jest.fn()} />);
+    expect(screen.queryByTestId('choose-no-guardian')).toBeNull();
+  });
+
+  it('shows the card and submits the sentinel when enabled', () => {
+    mockGetGuardianOptions.mockReturnValue(oneOption);
+    const onSubmit = jest.fn();
+    render(<ChooseGuardianScreen onSubmit={onSubmit} showNoGuardianOption />);
+    fireEvent.click(screen.getByTestId('choose-no-guardian'));
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'no-guardian', guardianEndpoint: '' });
+  });
+});
