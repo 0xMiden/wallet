@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- [FIX][all] **Send, swap, and earn amounts now convert to base units exactly instead of drifting.** `stringToBigInt` parsed the user's amount with `parseFloat` and multiplied by `10 ** decimals` in double precision, which loses accuracy past ~15 significant digits: at 8 decimals `"99999999.99999999"` came out one base unit short, and at 18 decimals `"1.1"` became `1100000000000000128`. This function produces the base-unit amount that is signed and broadcast on the send, swap, and earn-deposit review screens, and the repo already defines 18-decimal bridge tokens, so the drift reached real transfers. The conversion now goes through `bignumber.js` (already imported in the file) with half-up rounding, matching the previous rounding mode.
 - [FIX][all] **Private-note delivery no longer silently fails on fast chains.** The wallet relayed a private note's transport hint *after* waiting for the transaction to commit, so the hint (the client's sync height) could already be at or past the note's commitment block — the recipient scans forward from the hint and would never find the note. The note is now relayed *before* the commit wait (the SDK's prompt-relay flow), so the hint stays below the commitment block and the recipient picks the note up when it lands; the commit wait is preserved so `Completed` status still requires on-chain confirmation. Latent on testnet (slow blocks kept the sync height ≈ the commitment block at relay time); reproduced deterministically on a fast devnet.
 
 ## 1.15.19 (2026-08-05)
