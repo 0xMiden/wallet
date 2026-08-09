@@ -63,6 +63,13 @@ jest.mock('lib/platform', () => ({
   isMobile: () => mockPlatform.isMobile
 }));
 
+// Dev-gated "No guardian" onboarding flag — reads the shared toggle so a test
+// can drive whether ChooseGuardianScreen is told to show the option.
+let mockAllowNoGuardian = false;
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveAllowNoGuardian: () => mockAllowNoGuardian
+}));
+
 // `Button` (bottom "back" nav) — surface title, variant and the onClick wiring.
 jest.mock('components/Button', () => ({
   Button: ({ title, onClick, variant, className }: any) =>
@@ -134,6 +141,7 @@ const progress = () => screen.queryByTestId('progress');
 beforeEach(() => {
   mockPlatform.isMobile = false;
   mockReduceMotion = false;
+  mockAllowNoGuardian = false;
   for (const k of Object.keys(mockCaptured)) delete mockCaptured[k];
 });
 
@@ -256,6 +264,18 @@ describe('OnboardingFlow — action wiring per screen', () => {
     const payload = { guardianId: 'g1', guardianEndpoint: 'https://guardian.example' };
     act(() => mockCaptured['choose-guardian'].onSubmit(payload));
     expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-guardian-submit', payload });
+  });
+
+  it('ChooseGuardian: forwards the dev-gated allow-no-guardian flag as showNoGuardianOption', () => {
+    mockAllowNoGuardian = true;
+    renderFlow({ step: OnboardingStep.ChooseGuardian });
+    expect(mockCaptured['choose-guardian'].showNoGuardianOption).toBe(true);
+  });
+
+  it('ChooseGuardian: hides the no-guardian option when the dev flag is off', () => {
+    mockAllowNoGuardian = false;
+    renderFlow({ step: OnboardingStep.ChooseGuardian });
+    expect(mockCaptured['choose-guardian'].showNoGuardianOption).toBe(false);
   });
 
   it('BackupSeedPhrase: passes the seed phrase through and submits verify', () => {
