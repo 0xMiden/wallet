@@ -1,0 +1,49 @@
+name: Start local 0.16 test node
+description: >
+  Build (cached) and start the 0.16 test node via rust-sdk's scripts/start-test-node.sh at the
+  rev pinned in playwright/e2e/local-stack/versions.env. The script cargo-installs the four node
+  binaries (at the node rev its Cargo.lock pins), generates genesis, seeds each component's DB,
+  and starts validator + sequencer + ntx-builder + prover, leaving them running (--background).
+  The published ghcr node images lag the encrypted-tx node the SDK is built against, so the node
+  is compiled from source rather than pulled.
+runs:
+  using: composite
+  steps:
+    - name: Read node pins
+      id: pins
+      shell: bash
+      run: |
+        set -a; . playwright/e2e/local-stack/versions.env; set +a
+        echo "repo=$NODE_SRC_REPO" >> "$GITHUB_OUTPUT"
+        echo "rev=$NODE_SRC_REF"  >> "$GITHUB_OUTPUT"
+    - name: Install node build deps
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler clang cmake
+    - name: Checkout rust-sdk (test-node infra)
+      shell: bash
+      run: |
+        set -euo pipefail
+        rm -rf "${{ runner.temp }}/rust-sdk"
+        git clone --filter=blob:none "${{ steps.pins.outputs.repo }}" "${{ runner.temp }}/rust-sdk"
+        git -C "${{ runner.temp }}/rust-sdk" checkout "${{ steps.pins.outputs.rev }}"
+    - name: Cache node build
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/rust-sdk/target/test-node
+        key: local-node-build-${{ steps.pins.outputs.rev }}-rust1.96.1
+    - name: Patch prover port 50051 -> 50052
+      shell: bash
+      # The wallet's localnet remote-prover endpoint is :50052 (the guardian binds :50051);
+      # start-test-node.sh defaults the prover to :50051, so retarget it (and the ntx-builder's
+      # tx-prover.url, which reads the same PROVER_PORT).
+      run: |
+        f="${{ runner.temp }}/rust-sdk/scripts/start-test-node.sh"
+        # prover -> :50052 (guardian binds :50051); bind the sequencer RPC on 0.0.0.0 so the
+        # bridge-networked guardian containers can reach it via host.docker.internal.
+        sed -i 's/^PROVER_PORT=50051$/PROVER_PORT=50052/' "$f"
+        sed -i 's|sequencer --rpc.listen "$RPC"|sequencer --rpc.listen "0.0.0.0:57291"|' "$f"
+    - name: Build + start node
+      shell: bash
+      run: |
+        cd "${{ runner.temp }}/rust-sdk"
+        ./scripts/start-test-node.sh --background
