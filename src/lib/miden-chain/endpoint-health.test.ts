@@ -17,9 +17,35 @@ describe('probeEndpointHealth', () => {
     expect(await probeEndpointHealth('https://x', 'reachability')).toBe('reachable');
   });
 
-  it('reachability: thrown fetch => error', async () => {
+  it('reachability: thrown fetch => error (both attempts reject)', async () => {
     global.fetch = jest.fn().mockRejectedValue(new Error('nope')) as unknown as typeof fetch;
     expect(await probeEndpointHealth('https://x', 'reachability')).toBe('error');
+  });
+
+  it('reachability: tries a default-mode fetch first, NOT no-cors', async () => {
+    // MV3 extension pages cannot receive opaque `no-cors` cross-origin responses;
+    // the probe must lead with a default-mode fetch (host_permissions CORS-bypass).
+    const fetchMock = jest.fn().mockResolvedValue({});
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    expect(await probeEndpointHealth('https://x', 'reachability')).toBe('reachable');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init).not.toHaveProperty('mode', 'no-cors');
+  });
+
+  it('reachability: falls back to no-cors when the default-mode fetch throws', async () => {
+    // Non-extension webviews (Capacitor/Tauri): default-mode is blocked by CORS,
+    // opaque no-cors is the reliable path.
+    const fetchMock = jest.fn().mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce({});
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    expect(await probeEndpointHealth('https://x', 'reachability')).toBe('reachable');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][1]).not.toHaveProperty('mode', 'no-cors');
+    expect(fetchMock.mock.calls[1][1]).toHaveProperty('mode', 'no-cors');
   });
 
   it('faucet-api: 2xx JSON => reachable', async () => {
