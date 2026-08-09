@@ -73,8 +73,11 @@ export const INJECTION_SCRIPT = `
       return;
     }
 
-    // Fallback for testing in regular browser
-    window.postMessage({ __midenNative: true, ...message }, '*');
+// Fallback for testing in regular browser. Scope the target origin: this
+  // script is injected into arbitrary third-party dApp pages, and '*' would
+  // expose wallet request payloads to every listener on the page (including
+  // cross-origin iframes). Mirrors lib/adapter/client.ts.
+  window.postMessage({ __midenNative: true, ...message }, window.location.origin);
   }
 
   // Make request to wallet
