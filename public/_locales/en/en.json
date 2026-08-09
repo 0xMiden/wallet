@@ -866,6 +866,7 @@
   "devEndpointFaucetApi": "Faucet API URL",
   "devEndpointExplorer": "Explorer URL",
   "devEndpointGuardian": "Custom guardian URL",
+  "devAllowNoGuardian": "Allow 'No guardian' option in onboarding",
   "devEndpointChecking": "Checking…",
   "devEndpointReachable": "Host reachable",
   "devEndpointNoResponse": "No response",

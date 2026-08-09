@@ -70,11 +70,16 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
       faucetApiUrl: `https://faucet-api.${n}`,
       explorerUrl: `https://scan.${n}`,
       guardianUrl: `https://guardian.${n}`,
+      allowNoGuardian: false,
       networkName: n,
       presetName: n
     })
   };
 });
+
+jest.mock('components/Checkbox', () => ({
+  Checkbox: ({ value }: { value: boolean }) => <span data-testid="checkbox" data-checked={String(value)} />
+}));
 
 type HealthStatus = 'idle' | 'pending' | 'reachable' | 'error';
 const mockHealthStatus: { value: HealthStatus } = { value: 'idle' };
@@ -358,6 +363,32 @@ describe('DeveloperSettings', () => {
     expect(screen.queryByText('devEndpointChecking')).not.toBeInTheDocument();
     expect(screen.queryByText('devEndpointReachable')).not.toBeInTheDocument();
     expect(screen.queryByText('devEndpointNoResponse')).not.toBeInTheDocument();
+  });
+});
+
+describe('DeveloperSettings — allowNoGuardian', () => {
+  beforeEach(() => {
+    applyEndpointOverride.mockClear();
+    mockUseConfirm.mockReturnValue(confirm);
+  });
+
+  it('renders the no-guardian toggle row', () => {
+    render(<DeveloperSettings />);
+    expect(screen.getByTestId('dev-allow-no-guardian')).toBeInTheDocument();
+    expect(screen.getByTestId('checkbox')).toHaveAttribute('data-checked', 'false');
+  });
+
+  it('persists allowNoGuardian=true when toggled on and saved', async () => {
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-allow-no-guardian'));
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    await waitFor(() => expect(applyEndpointOverride).toHaveBeenCalled());
+    expect(applyEndpointOverride).toHaveBeenCalledWith(expect.objectContaining({ allowNoGuardian: true }));
+  });
+
+  it('disables the toggle row in read-only mode', () => {
+    render(<DeveloperSettings readOnly />);
+    expect(screen.getByTestId('dev-allow-no-guardian')).toBeDisabled();
   });
 });
 

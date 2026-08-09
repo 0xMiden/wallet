@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { Checkbox } from 'components/Checkbox';
 import { Input } from 'components/Input';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { TabPicker } from 'components/TabPicker';
@@ -224,6 +225,26 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
             }
           />
         </div>
+
+        <button
+          type="button"
+          disabled={readOnly}
+          data-testid="dev-allow-no-guardian"
+          onClick={
+            readOnly
+              ? undefined
+              : () =>
+                  setForm(prev => ({
+                    ...prev,
+                    allowNoGuardian: !prev.allowNoGuardian,
+                    presetName: CUSTOM_PRESET
+                  }))
+          }
+          className="flex items-center justify-between gap-3 text-left"
+        >
+          <span className="text-sm font-medium text-heading-gray">{t('devAllowNoGuardian')}</span>
+          <Checkbox value={form.allowNoGuardian} />
+        </button>
       </div>
 
       <div className="px-4 pb-8 pt-4 mt-auto flex flex-col items-center gap-3">
