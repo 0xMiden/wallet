@@ -92,6 +92,14 @@ jest.mock('lib/miden/reset', () => ({
   resetStorageDestructive: () => resetStorageDestructive()
 }));
 
+// `reloadEndpointOverridesInSW` nudges the service worker on the extension
+// (separate JS realm); handleSave's gating on `isExtension()` is asserted
+// against this spy below.
+const reloadEndpointOverridesInSW = jest.fn().mockResolvedValue(undefined);
+jest.mock('lib/store', () => ({
+  reloadEndpointOverridesInSW: () => reloadEndpointOverridesInSW()
+}));
+
 // House components — replace with lightweight stand-ins that forward the
 // props DeveloperSettings actually passes, so testids/values stay assertable
 // without pulling in framer-motion / icon assets.
@@ -200,6 +208,24 @@ describe('DeveloperSettings', () => {
     fireEvent.click(screen.getByTestId('dev-endpoints-save'));
     await waitFor(() => expect(applyEndpointOverride).toHaveBeenCalledTimes(1));
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('nudges the service worker to reload endpoint overrides on save when running as an extension', async () => {
+    mockIsExtension.value = true;
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(reloadEndpointOverridesInSW).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not nudge the service worker on save outside the extension (mobile/desktop share the realm)', async () => {
+    mockIsExtension.value = false;
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(reloadEndpointOverridesInSW).not.toHaveBeenCalled();
   });
 
   it('read-only mode disables inputs and shows the reset action', () => {

@@ -19,6 +19,7 @@ import {
 import { EndpointHealthKind, useEndpointHealth } from 'lib/miden-chain/endpoint-health';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
+import { reloadEndpointOverridesInSW } from 'lib/store';
 import { useConfirm } from 'lib/ui/dialog';
 import { goBack, navigate } from 'lib/woozie';
 
@@ -125,6 +126,12 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   const handleSave = async () => {
     setSaving(true);
     await applyEndpointOverride(form);
+    // On the extension, the service worker is a separate JS realm with its own
+    // module-level override cache and a create-once Miden client singleton, so
+    // applyEndpointOverride's write doesn't reach it — nudge it to re-hydrate
+    // and rebuild before navigating away. Mobile/desktop share this realm, so
+    // the override above already took effect and this is a no-op.
+    if (isExtension()) await reloadEndpointOverridesInSW();
     setSaving(false);
     navigate('/');
   };

@@ -12,7 +12,7 @@ import { SerializedInputNoteDetail, WalletMessageType, WalletRequest, WalletResp
 
 import { NoteExportType } from '../sdk/constants';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { getMidenClient, resetMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenMessageType } from '../types';
 
 // frontStore is initialized lazily inside start() because with Vite's TLA stripping,
@@ -79,6 +79,13 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       // Fire-and-forget — start processing asynchronously
       startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
       return { type: WalletMessageType.ProcessTransactionsResponse };
+    case WalletMessageType.ReloadEndpointOverridesRequest:
+      // Re-hydrate the override cache from storage, then dispose the Miden
+      // client singleton(s) so the next getMidenClient() rebuilds with the
+      // freshly-saved endpoints. See lib/miden-chain/effective-endpoints.ts.
+      await loadEndpointOverrides();
+      await resetMidenClient();
+      return { type: WalletMessageType.ReloadEndpointOverridesResponse };
     case WalletMessageType.ImportNoteBytesRequest: {
       const noteBytes = new Uint8Array(Buffer.from(req.noteBytes, 'base64'));
       const noteId = await withWasmClientLock(async () => {

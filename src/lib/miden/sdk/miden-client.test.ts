@@ -391,3 +391,73 @@ describe('getMidenClient singleton', () => {
     });
   });
 });
+
+describe('resetMidenClient', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.resetModules();
+  });
+
+  it('frees the no-options singleton and forces the next getMidenClient() to recreate it', async () => {
+    const free = jest.fn();
+    const create = jest.fn(async () => ({ free }));
+    jest.doMock('./miden-client-interface', () => ({
+      MidenClientInterface: class {
+        static create = create;
+        free = free;
+      }
+    }));
+
+    await jest.isolateModulesAsync(async () => {
+      const { getMidenClient, resetMidenClient } = require('./miden-client');
+      const first = await getMidenClient();
+      expect(create).toHaveBeenCalledTimes(1);
+
+      await resetMidenClient();
+      expect(free).toHaveBeenCalledTimes(1);
+
+      const second = await getMidenClient();
+      expect(create).toHaveBeenCalledTimes(2);
+      expect(second).not.toBe(first);
+    });
+  });
+
+  it('is a no-op when no singleton has been created yet', async () => {
+    const create = jest.fn();
+    jest.doMock('./miden-client-interface', () => ({
+      MidenClientInterface: class {
+        static create = create;
+        free() {}
+      }
+    }));
+
+    await jest.isolateModulesAsync(async () => {
+      const { resetMidenClient } = require('./miden-client');
+      await expect(resetMidenClient()).resolves.toBeUndefined();
+      expect(create).not.toHaveBeenCalled();
+    });
+  });
+
+  it('also frees an instanceWithOptions singleton, if one exists', async () => {
+    const free = jest.fn();
+    const create = jest.fn(async () => ({ free }));
+    jest.doMock('./miden-client-interface', () => ({
+      MidenClientInterface: class {
+        static create = create;
+        free = free;
+      }
+    }));
+
+    await jest.isolateModulesAsync(async () => {
+      const { getMidenClient, resetMidenClient } = require('./miden-client');
+      await getMidenClient({ seed: new Uint8Array([1]) });
+      expect(create).toHaveBeenCalledTimes(1);
+
+      await resetMidenClient();
+      expect(free).toHaveBeenCalledTimes(1);
+
+      await getMidenClient({ seed: new Uint8Array([2]) });
+      expect(create).toHaveBeenCalledTimes(2);
+    });
+  });
+});

@@ -764,6 +764,24 @@ export const useWalletStore = create<WalletStore>()(
 // Export the intercom getter for use in sync hook
 export { getIntercom };
 
+/**
+ * Tell the service worker to reload its endpoint-override cache and dispose
+ * its Miden client singleton(s), so the next `getMidenClient()` call there
+ * rebuilds against the just-saved override. No-op on mobile/desktop, which
+ * share the frontend's JS realm — `applyEndpointOverride` alone already
+ * takes effect there. Awaitable so callers (Developer Settings' handleSave)
+ * can order navigation after the SW has re-hydrated; best-effort otherwise —
+ * a failed nudge just means the override applies after the next SW restart.
+ */
+export function reloadEndpointOverridesInSW(): Promise<void> {
+  return getIntercom()
+    .request({ type: WalletMessageType.ReloadEndpointOverridesRequest })
+    .then(() => {})
+    .catch(err => {
+      console.warn('[reloadEndpointOverridesInSW] failed to nudge SW:', err);
+    });
+}
+
 // Derived selectors for common patterns
 export const selectIsReady = (state: WalletStore) => state.status === WalletStatus.Ready;
 export const selectIsLocked = (state: WalletStore) => state.status === WalletStatus.Locked;
