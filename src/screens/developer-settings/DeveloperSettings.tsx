@@ -226,7 +226,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
         </div>
       </div>
 
-      <div className="px-4 pb-8 pt-4 mt-auto flex flex-col gap-3">
+      <div className="px-4 pb-8 pt-4 mt-auto flex flex-col items-center gap-3">
         {readOnly ? (
           <Button
             className="w-full justify-center"
