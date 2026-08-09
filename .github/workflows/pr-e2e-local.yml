@@ -28,9 +28,13 @@ jobs:
             specs: "playwright/e2e/tests/send-private.spec.ts"
     name: local-e2e (chrome)${{ matrix.name_suffix }}
     runs-on: ubuntu-latest
-    # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m);
-    # warm-cache runs are ~20m. 45m gives the cold run headroom to seed the cache.
-    timeout-minutes: 45
+    # Cold-cache runs compile the local 0.16 node from source (~28m) + miden-client-cli
+    # (~8m) + note-transport (~5m) before any spec runs; warm-cache runs are ~20m. The
+    # node-build cache is warmed on `next` (warm-node-cache.yml) so PRs branch off a
+    # populated cache and skip the ~28m node rebuild — but keep generous headroom here so
+    # a cold cache (e.g. right after a node-rev bump) still seeds the cache without the
+    # full core suite tripping the timeout.
+    timeout-minutes: 75
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
