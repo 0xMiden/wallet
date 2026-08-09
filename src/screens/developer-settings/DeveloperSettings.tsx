@@ -19,7 +19,7 @@ import {
 import { EndpointHealthKind, useEndpointHealth } from 'lib/miden-chain/endpoint-health';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
-import { reloadEndpointOverridesInSW } from 'lib/store';
+import { reloadEndpointOverridesInSW, selectIsIdle, useWalletStore } from 'lib/store';
 import { useConfirm } from 'lib/ui/dialog';
 import { goBack, navigate } from 'lib/woozie';
 
@@ -99,6 +99,9 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   );
   const [form, setForm] = useState<EndpointOverride>(initial);
   const [saving, setSaving] = useState(false);
+  // No wallet registered yet, i.e. this screen is reachable but we're still pre-onboarding.
+  // `handleSave`'s SW nudge is only safe to send in this state — see its comment.
+  const noWalletYet = useWalletStore(selectIsIdle);
 
   const presetTabs = useMemo(
     () =>
@@ -131,7 +134,13 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     // applyEndpointOverride's write doesn't reach it — nudge it to re-hydrate
     // and rebuild before navigating away. Mobile/desktop share this realm, so
     // the override above already took effect and this is a no-op.
-    if (isExtension()) await reloadEndpointOverridesInSW();
+    // Only nudge pre-wallet (onboarding): this screen is also reachable read-write
+    // from a live, unlocked wallet (it's gated on `!locked`, not `!ready` — see
+    // PageRouter), and disposing the SW's Miden client mid-session would tear down
+    // an in-progress sync/tx. Once a wallet exists, an override change here still
+    // applies to this realm but requires an explicit reload to reach the SW,
+    // unchanged from before this nudge existed.
+    if (isExtension() && noWalletYet) await reloadEndpointOverridesInSW();
     setSaving(false);
     navigate('/');
   };

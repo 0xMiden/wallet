@@ -298,6 +298,14 @@ class MidenClientSingleton {
       this.instance.free();
       this.instance = null;
     }
+    // Null unconditionally, not just inside the `this.instance` guard above: if a
+    // no-options `getInstance()` creation is in flight, `this.instance` is still null
+    // here (the guard above never runs) but `initializingPromise` is a pending promise
+    // that a subsequent `getInstance()` call would otherwise return as-is — repopulating
+    // `this.instance` with a client built against the pre-reload override once that
+    // stale creation resolves. Clearing the slot means any `getInstance()` call issued
+    // after this reset starts its own fresh creation instead of rejoining the stale one.
+    this.initializingPromise = null;
     this.disposeInstanceWithOptions();
   }
 }

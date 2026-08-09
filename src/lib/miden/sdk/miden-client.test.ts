@@ -438,6 +438,48 @@ describe('resetMidenClient', () => {
     });
   });
 
+  it('clears an in-flight no-options creation so it cannot repopulate a stale client after the reset', async () => {
+    // Regression for: `disposeAllInstances()` used to only clear `initializingPromise`
+    // inside the `if (this.instance)` guard, so a reset that lands *while* a no-options
+    // `getInstance()` creation is still pending (instance still null) left that pending
+    // promise in place. When it later resolved, it unconditionally set `this.instance`
+    // to a client built against the pre-reset override, silently undoing the reset.
+    const free = jest.fn();
+    let resolveCreate: (client: { free: () => void }) => void = () => {};
+    const pending = new Promise<{ free: () => void }>(resolve => {
+      resolveCreate = resolve;
+    });
+    const create = jest.fn(() => pending);
+    jest.doMock('./miden-client-interface', () => ({
+      MidenClientInterface: class {
+        static create = create;
+        free = free;
+      }
+    }));
+
+    await jest.isolateModulesAsync(async () => {
+      const { getMidenClient, resetMidenClient } = require('./miden-client');
+
+      // Kick off a no-options creation but don't await it — it's left in flight.
+      const firstCall = getMidenClient();
+      expect(create).toHaveBeenCalledTimes(1);
+
+      // Reset while that creation is still pending: `this.instance` is still null, so
+      // the old `if (this.instance)`-guarded clear alone would have left the stale
+      // in-flight promise in place.
+      await resetMidenClient();
+
+      // A getInstance() call issued after the reset (but before the stale creation
+      // settles) must NOT rejoin the stale in-flight promise — it should start its own
+      // fresh creation instead.
+      const secondCall = getMidenClient();
+      expect(create).toHaveBeenCalledTimes(2);
+
+      resolveCreate({ free });
+      await Promise.all([firstCall, secondCall]);
+    });
+  });
+
   it('also frees an instanceWithOptions singleton, if one exists', async () => {
     const free = jest.fn();
     const create = jest.fn(async () => ({ free }));

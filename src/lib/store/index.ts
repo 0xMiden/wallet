@@ -764,6 +764,10 @@ export const useWalletStore = create<WalletStore>()(
 // Export the intercom getter for use in sync hook
 export { getIntercom };
 
+// `reloadEndpointOverridesInSW`'s request must always settle so it can't wedge a caller
+// that awaits it before navigating (e.g. Developer Settings' handleSave) — see below.
+const RELOAD_ENDPOINT_OVERRIDES_SW_TIMEOUT_MS = 4000;
+
 /**
  * Tell the service worker to reload its endpoint-override cache and dispose
  * its Miden client singleton(s), so the next `getMidenClient()` call there
@@ -772,14 +776,26 @@ export { getIntercom };
  * takes effect there. Awaitable so callers (Developer Settings' handleSave)
  * can order navigation after the SW has re-hydrated; best-effort otherwise —
  * a failed nudge just means the override applies after the next SW restart.
+ *
+ * Bounded to `RELOAD_ENDPOINT_OVERRIDES_SW_TIMEOUT_MS`: `IntercomClient.request`
+ * never rejects if the SW port disconnects mid-request, so an un-bounded await
+ * here could hang forever and wedge a caller's UI (e.g. leave `saving` stuck).
+ * The underlying request keeps running and its own `.catch` still swallows a
+ * late failure — this just stops the caller from waiting on it past the timeout.
  */
 export function reloadEndpointOverridesInSW(): Promise<void> {
-  return getIntercom()
+  const request = getIntercom()
     .request({ type: WalletMessageType.ReloadEndpointOverridesRequest })
     .then(() => {})
     .catch(err => {
       console.warn('[reloadEndpointOverridesInSW] failed to nudge SW:', err);
     });
+
+  const timeout = new Promise<void>(resolve => {
+    setTimeout(resolve, RELOAD_ENDPOINT_OVERRIDES_SW_TIMEOUT_MS);
+  });
+
+  return Promise.race([request, timeout]);
 }
 
 // Derived selectors for common patterns

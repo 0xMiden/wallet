@@ -877,6 +877,26 @@ describe('useWalletStore', () => {
 
       warnSpy.mockRestore();
     });
+
+    it('resolves after a bounded timeout instead of hanging forever when the request never settles (e.g. the SW port disconnects mid-request, which IntercomClient does not surface as a rejection)', async () => {
+      jest.useFakeTimers();
+      try {
+        mockRequest.mockImplementationOnce(() => new Promise(() => {})); // never settles
+
+        const settled = jest.fn();
+        reloadEndpointOverridesInSW().then(settled);
+
+        // Still pending well before the timeout — proves this isn't just a same-tick resolve.
+        await Promise.resolve();
+        expect(settled).not.toHaveBeenCalled();
+
+        await jest.advanceTimersByTimeAsync(4000);
+        expect(settled).toHaveBeenCalledTimes(1);
+        expect(settled).toHaveBeenCalledWith(undefined);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 
   // ── Additional coverage for action methods ────────────────────────
