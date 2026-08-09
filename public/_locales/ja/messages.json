@@ -1904,6 +1904,14 @@
     "message": "ガーディアンについて詳しく知る",
     "englishSource": "Learn more about the Guardian"
   },
+  "noGuardianOptionTitle": {
+    "message": "保護者なし",
+    "englishSource": "No guardian"
+  },
+  "noGuardianOptionSubtitle": {
+    "message": "上級 — seed phrase のみを使用して回復します。保護者の連帯保証人はいません。",
+    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+  },
   "guardianOperatedBy": {
     "message": "運営者:",
     "englishSource": "Operated by:"
@@ -3864,6 +3872,10 @@
   "devEndpointGuardian": {
     "message": "カスタム ガーディアン URL",
     "englishSource": "Custom guardian URL"
+  },
+  "devAllowNoGuardian": {
+    "message": "オンボーディングで「保護者なし」オプションを許可する",
+    "englishSource": "Allow 'No guardian' option in onboarding"
   },
   "devEndpointChecking": {
     "message": "チェック中…",

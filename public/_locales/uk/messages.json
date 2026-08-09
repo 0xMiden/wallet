@@ -1904,6 +1904,14 @@
     "message": "Дізнайтеся більше про Guardian",
     "englishSource": "Learn more about the Guardian"
   },
+  "noGuardianOptionTitle": {
+    "message": "Без опікуна",
+    "englishSource": "No guardian"
+  },
+  "noGuardianOptionSubtitle": {
+    "message": "Додатково — відновлюйте лише за допомогою seed phrase. Немає співпідписанта опікуна.",
+    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+  },
   "guardianOperatedBy": {
     "message": "Керується:",
     "englishSource": "Operated by:"
@@ -3865,6 +3873,10 @@
   "devEndpointGuardian": {
     "message": "Спеціальна URL-адреса опікуна",
     "englishSource": "Custom guardian URL"
+  },
+  "devAllowNoGuardian": {
+    "message": "Дозволити опцію «Без опікуна» під час реєстрації",
+    "englishSource": "Allow 'No guardian' option in onboarding"
   },
   "devEndpointChecking": {
     "message": "Перевірка…",

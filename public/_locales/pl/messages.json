@@ -1887,6 +1887,14 @@
     "message": "Dowiedz się więcej o Guardianie",
     "englishSource": "Learn more about the Guardian"
   },
+  "noGuardianOptionTitle": {
+    "message": "Żadnego opiekuna",
+    "englishSource": "No guardian"
+  },
+  "noGuardianOptionSubtitle": {
+    "message": "Zaawansowane — odzyskaj tylko za pomocą seed phrase. Brak współsygnatariusza opiekuna.",
+    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+  },
   "guardianOperatedBy": {
     "message": "Obsługiwany przez:",
     "englishSource": "Operated by:"
@@ -3811,6 +3819,10 @@
   "devEndpointGuardian": {
     "message": "Niestandardowy adres URL opiekuna",
     "englishSource": "Custom guardian URL"
+  },
+  "devAllowNoGuardian": {
+    "message": "Zezwól na opcję „Brak opiekuna” podczas wdrażania",
+    "englishSource": "Allow 'No guardian' option in onboarding"
   },
   "devEndpointChecking": {
     "message": "Kontrola…",

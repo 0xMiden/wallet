@@ -1904,6 +1904,14 @@
     "message": "Erfahren Sie mehr über den Wächter",
     "englishSource": "Learn more about the Guardian"
   },
+  "noGuardianOptionTitle": {
+    "message": "Kein Vormund",
+    "englishSource": "No guardian"
+  },
+  "noGuardianOptionSubtitle": {
+    "message": "Erweitert – nur mit Ihrem seed phrase wiederherstellen. Kein Vormund, Mitunterzeichner.",
+    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+  },
   "guardianOperatedBy": {
     "message": "Betrieben von:",
     "englishSource": "Operated by:"
@@ -3864,6 +3872,10 @@
   "devEndpointGuardian": {
     "message": "Benutzerdefinierte Guardian-URL",
     "englishSource": "Custom guardian URL"
+  },
+  "devAllowNoGuardian": {
+    "message": "Erlauben Sie beim Onboarding die Option „Kein Vormund“.",
+    "englishSource": "Allow 'No guardian' option in onboarding"
   },
   "devEndpointChecking": {
     "message": "Überprüfung…",

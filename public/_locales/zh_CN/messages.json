@@ -1904,6 +1904,14 @@
     "message": "了解有关卫报的更多信息",
     "englishSource": "Learn more about the Guardian"
   },
+  "noGuardianOptionTitle": {
+    "message": "无监护人",
+    "englishSource": "No guardian"
+  },
+  "noGuardianOptionSubtitle": {
+    "message": "高级 — 仅使用 seed phrase 进行恢复。没有监护人共同签署人。",
+    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+  },
   "guardianOperatedBy": {
     "message": "经营者：",
     "englishSource": "Operated by:"
@@ -3864,6 +3872,10 @@
   "devEndpointGuardian": {
     "message": "自定义监护人 URL",
     "englishSource": "Custom guardian URL"
+  },
+  "devAllowNoGuardian": {
+    "message": "在入职时允许“无监护人”选项",
+    "englishSource": "Allow 'No guardian' option in onboarding"
   },
   "devEndpointChecking": {
     "message": "检查…",

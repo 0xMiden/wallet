@@ -1904,6 +1904,14 @@
     "message": "En savoir plus sur le Gardien",
     "englishSource": "Learn more about the Guardian"
   },
+  "noGuardianOptionTitle": {
+    "message": "Pas de tuteur",
+    "englishSource": "No guardian"
+  },
+  "noGuardianOptionSubtitle": {
+    "message": "Avancé : récupérez avec votre seed phrase uniquement. Aucun tuteur cosignataire.",
+    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+  },
   "guardianOperatedBy": {
     "message": "Exploité par :",
     "englishSource": "Operated by:"
@@ -3863,6 +3871,10 @@
   "devEndpointGuardian": {
     "message": "URL du tuteur personnalisé",
     "englishSource": "Custom guardian URL"
+  },
+  "devAllowNoGuardian": {
+    "message": "Autoriser l'option « Aucun tuteur » lors de l'intégration",
+    "englishSource": "Allow 'No guardian' option in onboarding"
   },
   "devEndpointChecking": {
     "message": "Vérification…",

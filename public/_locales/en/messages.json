@@ -1887,6 +1887,14 @@
     "message": "Learn more about the Guardian",
     "englishSource": "Learn more about the Guardian"
   },
+  "noGuardianOptionTitle": {
+    "message": "No guardian",
+    "englishSource": "No guardian"
+  },
+  "noGuardianOptionSubtitle": {
+    "message": "Advanced — recover with your seed phrase only. No guardian co-signer.",
+    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+  },
   "guardianOperatedBy": {
     "message": "Operated by:",
     "englishSource": "Operated by:"
@@ -3811,6 +3819,10 @@
   "devEndpointGuardian": {
     "message": "Custom guardian URL",
     "englishSource": "Custom guardian URL"
+  },
+  "devAllowNoGuardian": {
+    "message": "Allow 'No guardian' option in onboarding",
+    "englishSource": "Allow 'No guardian' option in onboarding"
   },
   "devEndpointChecking": {
     "message": "Checking…",
