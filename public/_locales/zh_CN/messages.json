@@ -3390,8 +3390,8 @@
     "englishSource": "Type"
   },
   "txIdLabel": {
-    "message": "发送 ID",
-    "englishSource": "Tx ID"
+    "message": "交易ID",
+    "englishSource": "Transaction ID"
   },
   "notesSection": {
     "message": "<xid=\"0\"/>",

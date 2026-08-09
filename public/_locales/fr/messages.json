@@ -3389,8 +3389,8 @@
     "englishSource": "Type"
   },
   "txIdLabel": {
-    "message": "ID d'émission",
-    "englishSource": "Tx ID"
+    "message": "ID de transaction",
+    "englishSource": "Transaction ID"
   },
   "notesSection": {
     "message": "Notes",
