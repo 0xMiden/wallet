@@ -457,6 +457,18 @@ describe('Welcome — choose-guardian-submit', () => {
     expect(mockFlowProps.current.password).toBeNull();
     expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
   });
+
+  it('routes a No guardian selection to an OffChain wallet without storing a guardian endpoint', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '111111' });
+    mockPutToStorage.mockClear();
+    await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: 'no-guardian', guardianEndpoint: '' } });
+    // never persists a real guardian endpoint
+    expect(mockPutToStorage).not.toHaveBeenCalledWith('guardian_url_setting', expect.stringContaining('http'));
+    // driving to confirmation registers a private, no-guardian (OffChain) wallet
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OffChain, '111111', expect.any(String), false);
+  });
 });
 
 // ===========================================================================

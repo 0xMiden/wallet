@@ -19,7 +19,7 @@ import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
 import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { navigate, useLocation } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
-import { OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
+import { NO_GUARDIAN_ID, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 /**
  * Check if hardware security is available for vault key protection.
@@ -322,8 +322,15 @@ const Welcome: FC = () => {
         navigate('/#choose-guardian');
         break;
       case 'choose-guardian-submit':
-        await putToStorage(GUARDIAN_URL_STORAGE_KEY, action.payload.guardianEndpoint);
-        setWalletType(WalletType.Guardian);
+        if (action.payload.guardianId === NO_GUARDIAN_ID) {
+          // No guardian: private single-key (OffChain) account. Clear any stale
+          // guardian endpoint; the non-guardian spawn branch ignores it anyway.
+          await putToStorage(GUARDIAN_URL_STORAGE_KEY, '');
+          setWalletType(WalletType.OffChain);
+        } else {
+          await putToStorage(GUARDIAN_URL_STORAGE_KEY, action.payload.guardianEndpoint);
+          setWalletType(WalletType.Guardian);
+        }
         if (password) {
           // Passcode flow already established a password — go straight to confirmation.
           navigate('/#confirmation');
