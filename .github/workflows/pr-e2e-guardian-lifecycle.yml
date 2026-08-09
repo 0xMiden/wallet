@@ -89,7 +89,15 @@ jobs:
         # guardian-b ("B", profile `guardian-switch`) up together, so every
         # service is named explicitly -- Compose starts an explicitly-named
         # service regardless of its own `profiles:` gating.
-        run: docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian-switch up -d guardian guardian-postgres guardian-b guardian-b-postgres
+        # ghcr image pulls can transiently time out (Client.Timeout on ghcr.io/v2/);
+        # retry so a flaky guardian pull doesn't fail this (to-be-required) gate.
+        run: |
+          for attempt in 1 2 3; do
+            docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian-switch up -d guardian guardian-postgres guardian-b guardian-b-postgres && exit 0
+            echo "guardian bring-up attempt $attempt failed; retrying in 10s" >&2
+            sleep 10
+          done
+          exit 1
       - name: Start note-transport
         run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Build extension (localnet)

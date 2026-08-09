@@ -77,7 +77,15 @@ jobs:
           exit 1
       - name: Bring up guardian
         working-directory: playwright/e2e/local-stack
-        run: docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian up -d guardian
+        # ghcr image pulls can transiently time out (Client.Timeout on ghcr.io/v2/);
+        # retry so a flaky guardian pull doesn't fail this (to-be-required) gate.
+        run: |
+          for attempt in 1 2 3; do
+            docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian up -d guardian && exit 0
+            echo "guardian bring-up attempt $attempt failed; retrying in 10s" >&2
+            sleep 10
+          done
+          exit 1
       - name: Start note-transport
         # The CLI-minted token + the P2IDE collateral note reach / are discovered
         # by the wallet through the note-transport relay; without it funding hangs.
