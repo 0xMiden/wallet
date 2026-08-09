@@ -3337,8 +3337,8 @@
     "englishSource": "Type"
   },
   "txIdLabel": {
-    "message": "Tx ID",
-    "englishSource": "Tx ID"
+    "message": "Transaction ID",
+    "englishSource": "Transaction ID"
   },
   "notesSection": {
     "message": "Notes",

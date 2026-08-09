@@ -3390,8 +3390,8 @@
     "englishSource": "Type"
   },
   "txIdLabel": {
-    "message": "送信ID",
-    "englishSource": "Tx ID"
+    "message": "トランザクションID",
+    "englishSource": "Transaction ID"
   },
   "notesSection": {
     "message": "Notes",

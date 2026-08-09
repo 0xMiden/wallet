@@ -3391,8 +3391,8 @@
     "englishSource": "Type"
   },
   "txIdLabel": {
-    "message": "Идентификатор передачи",
-    "englishSource": "Tx ID"
+    "message": "Идентификатор транзакции",
+    "englishSource": "Transaction ID"
   },
   "notesSection": {
     "message": "Notes",

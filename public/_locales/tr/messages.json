@@ -3390,8 +3390,8 @@
     "englishSource": "Type"
   },
   "txIdLabel": {
-    "message": "Gönderim kimliği",
-    "englishSource": "Tx ID"
+    "message": "İşlem Kimliği",
+    "englishSource": "Transaction ID"
   },
   "notesSection": {
     "message": "Notes",
