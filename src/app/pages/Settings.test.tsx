@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { getCurrentLocale } from 'lib/i18n/core';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
@@ -46,6 +46,14 @@ jest.mock('framer-motion', () => ({
 jest.mock('lib/miden-chain/constants', () => ({
   DEFAULT_NETWORK: 'testnet',
   MIDEN_NETWORK_NAME: { DEVNET: 'devnet', TESTNET: 'testnet', MAINNET: 'mainnet' }
+}));
+
+// Defaults to hidden; individual tests flip `mockShowDevEndpoints.value` to
+// exercise the row's async, cancellation-safe mount effect.
+const mockShowDevEndpoints = { value: false };
+const mockIsEndpointOverrideActive = jest.fn(() => Promise.resolve(mockShowDevEndpoints.value));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  isEndpointOverrideActive: () => mockIsEndpointOverrideActive()
 }));
 
 jest.mock('lib/store', () => ({
@@ -234,6 +242,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockIsMobile = false;
   mockReduceMotion = false;
+  mockShowDevEndpoints.value = false;
   setAccount({ type: 'on-chain' });
   mockGetCurrentLocale.mockReturnValue('en-US');
   document.body.removeAttribute('data-drawer-open');
@@ -515,6 +524,23 @@ describe('Settings page — active tab routing', () => {
 
     expect(screen.queryByTestId('reveal-secret')).not.toBeInTheDocument();
     expect(screen.getByTestId('menuitem-generalSettings')).toBeInTheDocument();
+  });
+});
+
+describe('Settings page — developer endpoints row', () => {
+  it('stays hidden once the override-active check resolves false (default)', async () => {
+    render(<Settings tabSlug={null} />);
+
+    await waitFor(() => expect(mockIsEndpointOverrideActive).toHaveBeenCalled());
+    expect(screen.queryByTestId('menuitem-devEndpointsRow')).not.toBeInTheDocument();
+  });
+
+  it('appears in the developer group, linked to /settings/network-endpoints, once an override is active', async () => {
+    mockShowDevEndpoints.value = true;
+    render(<Settings tabSlug={null} />);
+
+    const row = await screen.findByTestId('menuitem-devEndpointsRow');
+    expect(row).toHaveAttribute('data-slug', '/settings/network-endpoints');
   });
 });
 
