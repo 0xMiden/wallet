@@ -7,9 +7,18 @@ const PROBE_TIMEOUT_MS = 4000;
 const DEBOUNCE_MS = 500;
 
 /**
- * Non-authoritative reachability probe. For gRPC/cross-origin hosts a
- * `no-cors` fetch resolving (opaque) means "the host answered" — NOT that it is
- * the correct service. Only 'faucet-api' actually validates the response body.
+ * Non-authoritative reachability probe. A fetch resolving means "the host
+ * answered" — NOT that it is the correct service. Only 'faucet-api' actually
+ * validates the response body.
+ *
+ * The reachability probe uses a DEFAULT-mode fetch, not `no-cors`. MV3 extension
+ * pages cannot receive opaque `no-cors` cross-origin responses — Chrome routes
+ * every extension fetch through the host_permissions/CORS path, so a `no-cors`
+ * request just throws `TypeError: Failed to fetch` and every endpoint reports as
+ * unreachable. A default-mode fetch succeeds for any host we hold host_permissions
+ * for (`*.miden.io`) or that sends permissive CORS, which covers every default
+ * endpoint. We fall back to `no-cors` for the non-extension webviews
+ * (Capacitor/Tauri), where opaque cross-origin fetch is the reliable path.
  */
 export async function probeEndpointHealth(url: string, kind: EndpointHealthKind): Promise<EndpointHealthStatus> {
   if (!url) return 'idle';
@@ -22,7 +31,11 @@ export async function probeEndpointHealth(url: string, kind: EndpointHealthKind)
       await res.json();
       return 'reachable';
     }
-    await fetch(url, { mode: 'no-cors', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+    try {
+      await fetch(url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+    } catch {
+      await fetch(url, { mode: 'no-cors', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+    }
     return 'reachable';
   } catch {
     return 'error';
