@@ -3812,5 +3812,89 @@
   "sourceTx": {
     "message": "Source TX",
     "englishSource": "Source TX"
+  },
+  "developerSettingsTitle": {
+    "message": "개발자 설정",
+    "englishSource": "Developer Settings"
+  },
+  "developerSettingsWarningTitle": {
+    "message": "고급 사용자용",
+    "englishSource": "For advanced users"
+  },
+  "developerSettingsWarning": {
+    "message": "대부분의 사람들은 이것을 절대로 변경해서는 안됩니다. 잘못된 값은 지갑을 깨뜨릴 것입니다.",
+    "englishSource": "Most people should never change these. Wrong values will break your wallet."
+  },
+  "devEndpointPreset": {
+    "message": "네트워크 사전 설정",
+    "englishSource": "Network preset"
+  },
+  "devEndpointCustom": {
+    "message": "관습",
+    "englishSource": "Custom"
+  },
+  "devEndpointNetworkId": {
+    "message": "네트워크 ID",
+    "englishSource": "Network ID"
+  },
+  "devEndpointRpc": {
+    "message": "RPC 노드 URL",
+    "englishSource": "RPC node URL"
+  },
+  "devEndpointProver": {
+    "message": "거래 증명자 URL",
+    "englishSource": "Transaction prover URL"
+  },
+  "devEndpointNoteTransport": {
+    "message": "Note 전송 URL",
+    "englishSource": "Note transport URL"
+  },
+  "devEndpointFaucet": {
+    "message": "Faucet 웹사이트 URL",
+    "englishSource": "Faucet website URL"
+  },
+  "devEndpointFaucetApi": {
+    "message": "Faucet API URL",
+    "englishSource": "Faucet API URL"
+  },
+  "devEndpointExplorer": {
+    "message": "탐색기 URL",
+    "englishSource": "Explorer URL"
+  },
+  "devEndpointGuardian": {
+    "message": "맞춤 보호자 URL",
+    "englishSource": "Custom guardian URL"
+  },
+  "devEndpointChecking": {
+    "message": "확인 중…",
+    "englishSource": "Checking…"
+  },
+  "devEndpointReachable": {
+    "message": "호스트에 접근 가능",
+    "englishSource": "Host reachable"
+  },
+  "devEndpointNoResponse": {
+    "message": "응답 없음",
+    "englishSource": "No response"
+  },
+  "devEndpointSaveContinue": {
+    "message": "저장하고 계속하기",
+    "englishSource": "Save & continue"
+  },
+  "devEndpointResetDefaults": {
+    "message": "기본값으로 재설정",
+    "englishSource": "Reset to defaults"
+  },
+  "devEndpointResetAndReonboard": {
+    "message": "기본값으로 재설정 및 다시 온보딩",
+    "englishSource": "Reset to defaults & re-onboard"
+  },
+  "devEndpointsRow": {
+    "message": "네트워크 엔드포인트",
+    "englishSource": "Network endpoints"
+  },
+  "devEndpointResetConfirm": {
+    "message": "이렇게 하면 귀하의 키와 거래 내역을 포함하여 이 지갑이 영구적으로 삭제됩니다. 복원하려면 복구 문구가 필요합니다.",
+    "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   }
 }

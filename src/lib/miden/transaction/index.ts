@@ -14,7 +14,7 @@ import {
 } from 'lib/miden/guardian/serialize';
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
-import { DEFAULT_NETWORK, MIDEN_NETWORK_ENDPOINTS } from 'lib/miden-chain/constants';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
 import { logger } from 'shared/logger';
 
@@ -442,7 +442,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
     } else {
       syncHeight = await midenClient.client.getSyncHeight();
     }
-    const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
+    const client = await WasmWebClient.createClient(getEffectiveRpcUrl());
     try {
       const tr = await client.newSendTransactionRequest(
         accountIdStringToSdk(transaction.accountId),
@@ -710,7 +710,7 @@ const generateGuardianTransaction = async (
       // second, divergent proposal.
       if (!transaction.requestBytes) {
         const requestBytes = await withWasmClientLock(async () => {
-          const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
+          const client = await WasmWebClient.createClient(getEffectiveRpcUrl());
           try {
             const tr = await client.newPswapCreateTransactionRequest(
               accountIdStringToSdk(swapTx.accountId),

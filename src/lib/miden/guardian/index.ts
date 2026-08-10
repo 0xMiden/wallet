@@ -10,7 +10,7 @@ import {
   type Proposal
 } from '@openzeppelin/miden-multisig-client';
 
-import { DEFAULT_GUARDIAN_ENDPOINT, DEFAULT_NETWORK, MIDEN_NETWORK_ENDPOINTS } from 'lib/miden-chain/constants';
+import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import * as secureHotKey from 'lib/secure-hot-key';
 import type { GeneratedHotKey } from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
@@ -59,7 +59,6 @@ const MAX_GUARDIAN_REGISTER_RETRIES = 8;
 // the canonicalization window while still bounding a genuinely-down guardian.
 const GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS = 1000;
 const GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS = 8000;
-const MIDEN_RPC_ENDPOINT = MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -110,7 +109,7 @@ export class MultisigService {
       registerGuardianOrigin(guardianEndpoint);
       const client = new MultisigClient(webClient, {
         guardianEndpoint,
-        midenRpcEndpoint: MIDEN_RPC_ENDPOINT
+        midenRpcEndpoint: getEffectiveRpcUrl()
       });
       // `load` drives the shared WASM web-client, so it must be serialized with
       // every other client operation via the global mutex.
@@ -159,7 +158,8 @@ export class MultisigService {
     accountId: string,
     webClient: MidenClient
   ) {
-    const guardianEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+    const guardianEndpoint =
+      (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || getEffectiveDefaultGuardianEndpoint();
     const guardian = new GuardianHttpClient(guardianEndpoint);
     const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
     guardian.setSigner(signer);
@@ -475,9 +475,9 @@ export class MultisigService {
         webClient,
         targetThreshold,
         targetSignerCommitments,
-        { signatureScheme: 'ecdsa', midenRpcEndpoint: MIDEN_RPC_ENDPOINT }
+        { signatureScheme: 'ecdsa', midenRpcEndpoint: getEffectiveRpcUrl() }
       );
-      const summary = await executeForSummary(webClient, this.accountId, request, MIDEN_RPC_ENDPOINT);
+      const summary = await executeForSummary(webClient, this.accountId, request, getEffectiveRpcUrl());
       return { summaryBase64: u8ToB64(summary.serialize()), saltHex: salt.toHex() };
     });
     const metadata: ProposalMetadata = {

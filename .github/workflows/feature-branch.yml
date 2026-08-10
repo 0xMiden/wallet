@@ -1,10 +1,8 @@
-name: Build Feature & Dev Branches
+name: Build Dev & Next Branches
 
 on:
   push:
     branches:
-      - 'mw-**'
-      - 'feat/**'
       - 'dev'
       - 'next'
 
