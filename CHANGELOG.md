@@ -2,6 +2,10 @@
 
 ## 1.15.20 (TBD)
 
+### Fixes
+
+- [FIX][all] **Guardian provider names are spelled consistently across the wallet.** Onboarding, Settings, Activity and recovery now read each operator's display name from one canonical source, so "OpenZeppelin" and "LambdaClass" render the same everywhere (previously a mix of "Open-Zeppelin"/"Lambda Class"). (#464)
+
 ### Changes
 
 - [CHANGE][all] **Frontend implementation guidance is now shared across supported coding agents.** The repository now carries one vendor-neutral Miden Wallet frontend skill for component reuse, semantic styling, motion, accessibility, haptics, and cross-platform verification, with matching concise rules in the repository instructions.
