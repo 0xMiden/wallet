@@ -1,0 +1,88 @@
+name: Welcome external contributors
+
+# Posts a one-time, idempotent welcome + airdrop-policy comment on every PR
+# opened by an EXTERNAL contributor (someone without write access — i.e. a
+# fork PR from a non-member).
+#
+# ── Why `pull_request_target` (NOT `pull_request`) ───────────────────────────
+# A PR from a fork gets a READ-ONLY GITHUB_TOKEN on `pull_request` events
+# (GitHub's security default for untrusted forks), regardless of the
+# `permissions:` block below — so the comment API call would 403 on exactly
+# the PRs we care about (external ones). `pull_request_target` runs in the
+# BASE repo's context with a write-capable token, which is what "comment on a
+# fork PR" requires. Same reasoning as `check-linked-web-sdk-pr.yml`.
+#
+# ── Safety ───────────────────────────────────────────────────────────────────
+# `pull_request_target` is only dangerous when the workflow EXECUTES
+# PR-supplied code (it runs with the base repo's secrets/token). This workflow
+# does NOT check out or run any PR code, install dependencies, or read any
+# secret beyond the default token — it only reads event metadata and posts a
+# sticky comment. There is no injection surface: the one piece of PR-supplied
+# text used is the author's login (`user.login`, a GitHub handle: constrained
+# to `[A-Za-z0-9-]`), interpolated into the comment body via the Actions
+# expression engine (never into a shell). No PR title/body/branch is used.
+#
+# ── Robustness (so we never revisit for edge cases) ──────────────────────────
+#   • Fork PRs         → handled by `pull_request_target` (write token).
+#   • Insiders/bots    → filtered out by `author_association` + `user.type`.
+#   • Duplicate posts  → the sticky `header` upserts one comment, so a re-run
+#                        or a `reopened` event updates in place, never dupes.
+#   • Comment failure  → `continue-on-error` (the comment is never a blocker).
+#   • Event races      → `concurrency` serializes runs per PR.
+#   • Permissions      → explicit `pull-requests: write`, the only scope needed.
+#   • No PAT/secret    → unlike the translation-push workflow (which needs a PAT
+#                        so its *pushed commit* re-triggers CI), a *comment* has
+#                        no such constraint; the default token suffices.
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+
+concurrency:
+  group: welcome-contributor-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  welcome:
+    name: Post welcome + airdrop notice
+    runs-on: ubuntu-latest
+    # EXTERNAL contributors only. `author_association` is OWNER / MEMBER /
+    # COLLABORATOR for people with access; anyone else (CONTRIBUTOR /
+    # FIRST_TIME_CONTRIBUTOR / FIRST_TIMER / NONE / MANNEQUIN) is external.
+    # Also skip bots (Dependabot etc.) — they aren't contributors to welcome.
+    if: >-
+      github.event.pull_request.author_association != 'OWNER' &&
+      github.event.pull_request.author_association != 'MEMBER' &&
+      github.event.pull_request.author_association != 'COLLABORATOR' &&
+      github.event.pull_request.user.type != 'Bot'
+    steps:
+      - name: Post welcome + airdrop policy comment
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # v2.9.4
+        with:
+          header: external-contributor-welcome
+          number: ${{ github.event.pull_request.number }}
+          message: |
+            ### 👋 Thanks for contributing to Miden, @${{ github.event.pull_request.user.login }}!
+
+            We really appreciate you taking the time to open this pull request. Miden is
+            building an edge-first, zero-knowledge blockchain, and thoughtful contributions
+            from the community are a big part of how it gets better. A maintainer will review
+            your changes as soon as they can — in the meantime, please make sure the CI checks
+            are green and that your change follows the repository's contribution guidelines.
+
+            We're genuinely excited to have you here. 🧡
+
+            ---
+
+            **One thing we want to be transparent about up front:** contributing to this
+            repository will **not** make you eligible for any token airdrop, allocation, or
+            other reward — **not now, and not at any point in the future.** Please contribute
+            because you're interested in the technology and the project, not in expectation of
+            an airdrop. Anyone claiming that pull requests will be rewarded with tokens is not
+            speaking for the Miden team.
+
+            Thanks again for being part of the community — we're glad you chose to contribute. 🚀
