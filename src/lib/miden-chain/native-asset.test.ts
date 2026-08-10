@@ -330,7 +330,10 @@ describe('native-asset module', () => {
 
     expect(meta).toEqual({ symbol: 'MIDEN', decimals: 6 });
     expect(_g.__nativeAssetTest.fetchTokenMetadata).toHaveBeenCalledWith('bech32-n');
-    expect(_g.__nativeAssetTest.storage['native_asset_meta:v4:rpc-testnet|testnet']).toEqual({ symbol: 'MIDEN', decimals: 6 });
+    expect(_g.__nativeAssetTest.storage['native_asset_meta:v4:rpc-testnet|testnet']).toEqual({
+      symbol: 'MIDEN',
+      decimals: 6
+    });
   });
 
   it('hydrates metadata from storage without RPC or metadata fetch', async () => {

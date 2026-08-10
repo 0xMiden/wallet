@@ -1,7 +1,7 @@
-import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
-import { resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
+import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
+import { resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 
 // Keys that are configuration, NOT wallet data, and must survive a storage
