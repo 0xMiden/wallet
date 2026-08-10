@@ -2284,6 +2284,14 @@
     "message": "новий",
     "englishSource": "New"
   },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "Пройдіть автентифікацію, щоб підтвердити цей перемикач Guardian.",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "Автентифікація недоступна. Спробуйте ще раз, перш ніж змінити Guardian.",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
+  },
   "walletKeyHot": {
     "message": "Ключ гаманця (гарячий)",
     "englishSource": "Wallet key (hot)"

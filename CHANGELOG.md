@@ -2,6 +2,9 @@
 
 ## 1.15.20 (TBD)
 
+### Changes
+
+- [CHANGE][all] **Every Guardian switch now requires fresh device authentication and leaves a provider audit trail.** Hardware-protected wallets prompt with their platform authentication, while passcode/password wallets verify the credential before anything is queued; cancellation or failed authentication leaves the Guardian unchanged. Guardian Settings now shows the active operator, endpoint, region, sync recency, and availability; the redesigned review clearly separates the current and destination providers with dark-theme-safe contrast. Activity and transaction details show the same provider transition (including custom hostnames and legacy `Unknown` sources) for pending, completed, and failed switch attempts.
 ### Fixes
 
 - [FIX][all] **Production (minified) builds no longer crash on load with "React is not defined."** The SVG→React (SVGR) transform in the vite configs generated components with the automatic JSX runtime (importing nothing from `react`), but the bundler recompiles those `moduleType: 'jsx'` modules with the *classic* runtime (tsconfig `jsx: "react"`, which neither the `esbuild` nor `oxc` JSX options override in rolldown-vite) — emitting `React.createElement` calls against an undefined `React`. Harmless in unminified dev builds (a stray `React` leaked into the chunk) but every minified production build crashed on first render. SVGR now emits the classic runtime so each generated component imports `React`, matching the compile. Applied to the extension, mobile, and desktop configs.

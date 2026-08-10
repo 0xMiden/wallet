@@ -2283,6 +2283,14 @@
     "message": "Neu",
     "englishSource": "New"
   },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "Authentifizieren Sie sich, um diesen Guardian-Wechsel zu genehmigen.",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "Die Authentifizierung ist nicht verfügbar. Versuchen Sie es noch einmal, bevor Sie den Guardian wechseln.",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
+  },
   "walletKeyHot": {
     "message": "Brieftaschenschlüssel (heiß)",
     "englishSource": "Wallet key (hot)"

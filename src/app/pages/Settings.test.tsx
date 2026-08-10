@@ -107,7 +107,11 @@ jest.mock('lib/ui/drawer', () => ({
     </div>
   ),
   DrawerContent: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-content">{children}</div>,
-  DrawerHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DrawerHeader: ({ className, children }: { className?: string; children: React.ReactNode }) => (
+    <div data-testid="drawer-header" data-classname={className}>
+      {children}
+    </div>
+  ),
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-title">{children}</div>
 }));
 
@@ -357,6 +361,17 @@ describe('Settings page — guardian account', () => {
 
     expect(screen.getByTestId('guardian-settings-body')).toBeInTheDocument();
   });
+
+  it('titles the Guardian settings drawer as a rotation action', () => {
+    setAccount({ type: 'guardian' });
+    render(<Settings tabSlug={null} />);
+
+    fireEvent.click(screen.getByTestId('menuitem-guardianSettings'));
+
+    const openDrawer = openDrawers()[0]!;
+    expect(within(openDrawer).getByTestId('drawer-title')).toHaveTextContent('rotateGuardian');
+    expect(within(openDrawer).getByTestId('drawer-header')).toHaveAttribute('data-classname', 'mb-0');
+  });
 });
 
 describe('Settings page — drawer interactions', () => {
@@ -370,6 +385,7 @@ describe('Settings page — drawer interactions', () => {
     const open = openDrawers();
     expect(open).toHaveLength(1);
     expect(within(open[0]!).getByTestId('drawer-title')).toHaveTextContent('generalSettings');
+    expect(within(open[0]!).getByTestId('drawer-header')).not.toHaveAttribute('data-classname');
   });
 
   it('closes the drawer via onOpenChange(false)', () => {

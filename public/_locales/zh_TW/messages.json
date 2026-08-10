@@ -2283,6 +2283,14 @@
     "message": "新的",
     "englishSource": "New"
   },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "进行身份验证以批准此 Guardian 切换。",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "身份验证不可用。在切换监护人之前重试。",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
+  },
   "walletKeyHot": {
     "message": "钱包钥匙（热门）",
     "englishSource": "Wallet key (hot)"

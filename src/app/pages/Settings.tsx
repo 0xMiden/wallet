@@ -97,6 +97,7 @@ function getCurrentLanguageLabel(): string {
 type Tab = {
   slug: string;
   titleI18nKey: string;
+  drawerTitleI18nKey?: string;
   Icon: React.FC<{ style?: React.CSSProperties }>;
   Component: React.FC<{ onClose?: () => void }>;
   testID?: SettingsSelectors;
@@ -170,6 +171,7 @@ const TAB_GROUPS: TabGroup[] = [
       {
         slug: 'guardian-settings',
         titleI18nKey: 'guardianSettings',
+        drawerTitleI18nKey: 'rotateGuardian',
         Icon: SettingsIcon,
         Component: GuardianSettings,
         isDrawer: true,
@@ -455,8 +457,8 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
       {drawerTabs.map(tab => (
         <Drawer key={tab.slug} open={openDrawer === tab.slug} onOpenChange={open => !open && setOpenDrawer(null)}>
           <DrawerContent>
-            <DrawerHeader>
-              <DrawerTitle>{t(tab.titleI18nKey)}</DrawerTitle>
+            <DrawerHeader className={tab.slug === 'guardian-settings' ? 'mb-0' : undefined}>
+              <DrawerTitle>{t(tab.drawerTitleI18nKey ?? tab.titleI18nKey)}</DrawerTitle>
             </DrawerHeader>
             <div className="px-4 pb-6 overflow-y-auto min-h-0">
               <tab.Component onClose={() => setOpenDrawer(null)} />

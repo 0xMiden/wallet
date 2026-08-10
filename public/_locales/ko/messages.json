@@ -2283,6 +2283,14 @@
     "message": "새로운",
     "englishSource": "New"
   },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "이 Guardian 스위치를 승인하려면 인증하세요.",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "인증이 불가능합니다. Guardian을 전환하기 전에 다시 시도하세요.",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
+  },
   "walletKeyHot": {
     "message": "지갑 열쇠(핫)",
     "englishSource": "Wallet key (hot)"
