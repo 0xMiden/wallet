@@ -3602,8 +3602,8 @@
     "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
-    "message": "빠른 경로에서 ETH를 브리징하면 먼저 WETH로 래핑한 다음 WETH를 브리징합니다. 이 경로는 아직 사용할 수 없습니다.",
-    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+    "message": "빠른 경로는 먼저 ETH를 WETH로 변환한 다음 WETH를 연결합니다. Miden에서는 여전히 ETH를 받을 수 있습니다.",
+    "englishSource": "The Fast route first converts your ETH into WETH, then bridges the WETH. You'll still receive ETH on Miden."
   },
   "destinationNetwork": {
     "message": "대상 네트워크",
