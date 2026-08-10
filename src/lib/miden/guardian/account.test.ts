@@ -285,7 +285,7 @@ describe('getGuardianCommitmentFromAccount', () => {
 });
 
 describe('guardianProviderFromEndpoint', () => {
-  it('maps a known Open-Zeppelin endpoint to its provider id', () => {
+  it('maps a known OpenZeppelin endpoint to its provider id', () => {
     expect(guardianProviderFromEndpoint('https://guardian.openzeppelin.com')).toBe('open-zeppelin');
   });
 
@@ -293,7 +293,7 @@ describe('guardianProviderFromEndpoint', () => {
     expect(guardianProviderFromEndpoint('https://miden-guardian.dev.eu-north-3.gateway.fm')).toBe('gateway');
   });
 
-  it('maps a known Lambda Class endpoint to its provider id', () => {
+  it('maps a known LambdaClass endpoint to its provider id', () => {
     expect(guardianProviderFromEndpoint('https://miden-guardian.lambdaclass.com')).toBe('lambda-class');
   });
 
