@@ -1699,6 +1699,18 @@
     "message": "复制错误",
     "englishSource": "Copy error"
   },
+  "hotKeyRotationPromptTitle": {
+    "message": "设备密钥需要轮换",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "该设备无法再使用您的设备（热）密钥。旋转它即可恢复签名——您的资金不受影响。",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "旋转钥匙",
+    "englishSource": "Rotate key"
+  },
   "bridgePromptTitle": {
     "message": "桥梁建设中",
     "englishSource": "Bridge in progress"

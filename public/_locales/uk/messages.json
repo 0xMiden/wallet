@@ -1699,6 +1699,18 @@
     "message": "Помилка копіювання",
     "englishSource": "Copy error"
   },
+  "hotKeyRotationPromptTitle": {
+    "message": "Необхідно змінити ключ пристрою",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "Цей пристрій більше не може використовувати (гарячу) клавішу вашого пристрою. Поверніть його, щоб відновити підпис — ваші кошти не вплинуть.",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "Обернути ключ",
+    "englishSource": "Rotate key"
+  },
   "bridgePromptTitle": {
     "message": "Міст у процесі",
     "englishSource": "Bridge in progress"

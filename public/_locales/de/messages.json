@@ -1699,6 +1699,18 @@
     "message": "Kopierfehler",
     "englishSource": "Copy error"
   },
+  "hotKeyRotationPromptTitle": {
+    "message": "Der Geräteschlüssel muss gedreht werden",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "Dieses Gerät kann Ihren Geräte-(Hot-)Key nicht mehr verwenden. Drehen Sie es, um die Signatur wiederherzustellen – Ihre Gelder bleiben davon unberührt.",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "Schlüssel drehen",
+    "englishSource": "Rotate key"
+  },
   "bridgePromptTitle": {
     "message": "Brücke in Bearbeitung",
     "englishSource": "Bridge in progress"

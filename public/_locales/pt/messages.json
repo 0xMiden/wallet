@@ -1699,6 +1699,18 @@
     "message": "Erro de cópia",
     "englishSource": "Copy error"
   },
+  "hotKeyRotationPromptTitle": {
+    "message": "A chave do dispositivo precisa de rotação",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "Este dispositivo não pode mais usar a tecla (atalho) do seu dispositivo. Gire-o para restaurar a assinatura – seus fundos não serão afetados.",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "Girar chave",
+    "englishSource": "Rotate key"
+  },
   "bridgePromptTitle": {
     "message": "Ponte em andamento",
     "englishSource": "Bridge in progress"

@@ -1699,6 +1699,18 @@
     "message": "복사 오류",
     "englishSource": "Copy error"
   },
+  "hotKeyRotationPromptTitle": {
+    "message": "기기 키 순환 필요",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "이 장치는 더 이상 장치(핫) 키를 사용할 수 없습니다. 서명을 복원하려면 이를 순환하세요. 귀하의 자금은 영향을 받지 않습니다.",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "키 회전",
+    "englishSource": "Rotate key"
+  },
   "bridgePromptTitle": {
     "message": "브릿지 진행 중",
     "englishSource": "Bridge in progress"

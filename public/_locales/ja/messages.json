@@ -1699,6 +1699,18 @@
     "message": "コピーエラー",
     "englishSource": "Copy error"
   },
+  "hotKeyRotationPromptTitle": {
+    "message": "デバイスキーのローテーションが必要です",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "このデバイスでは、デバイス (ホット) キーを使用できなくなりました。回転して署名を復元します。資金には影響しません。",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "回転キー",
+    "englishSource": "Rotate key"
+  },
   "bridgePromptTitle": {
     "message": "橋が進行中",
     "englishSource": "Bridge in progress"
