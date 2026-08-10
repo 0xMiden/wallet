@@ -22,12 +22,14 @@ jest.mock('lib/miden/activity', () => ({
   initiateBridgedReceiveTransaction: jest.fn(),
   registerPendingBridgeIn: jest.fn()
 }));
+jest.mock('lib/miden/assets', () => ({ getFaucetIdSetting: jest.fn() }));
 jest.mock('lib/miden/transaction/complete', () => ({ updateBridgedReceivePhase: jest.fn() }));
 jest.mock('lib/walletconnect/receipt', () => ({ waitForSepoliaReceipt: jest.fn() }));
 
 const EVM_ADDRESS = '0x1111111111111111111111111111111111111111';
 const MIDEN_ACCOUNT = 'mtst1recipient';
 const ONE_ETH = 1_000_000_000_000_000_000n;
+const NATIVE_FAUCET = '0xaabbccddeeff00112233445566';
 
 /** Records the ORDER of the deps calls — several invariants are ordering ones. */
 function orderTracker() {
@@ -54,6 +56,10 @@ function epochDeps(overrides: Record<string, unknown> = {}) {
       intentNonce: 'NONCE1',
       solveResult: { nonce: 'NONCE1', depositResult: { transactionHash: '0xdeposit' } }
     }),
+    getNativeFaucetId: jest.fn().mockResolvedValue(NATIVE_FAUCET),
+    readWethBalance: jest.fn().mockResolvedValue(0n),
+    sendWrap: jest.fn().mockResolvedValue('0xwrap'),
+    waitForReceipt: jest.fn().mockResolvedValue(undefined),
     ...overrides
   };
 }
@@ -175,15 +181,79 @@ describe('bridgeDepositViaEpoch', () => {
     expect(deps.updatePhase).toHaveBeenCalledWith('TX1', 'failed', expect.objectContaining({ error: expect.any(String) }));
   });
 
-  it('rejects a non-USDC token and an invalid address before creating any row', async () => {
+  it('rejects an invalid address and a zero amount before creating any row', async () => {
     const deps = epochDeps();
 
-    await expect(bridgeDepositViaEpoch({ ...epochArgs(), token: 'ETH' }, deps)).rejects.toThrow(/only bridges USDC/);
     await expect(bridgeDepositViaEpoch({ ...epochArgs(), evmAddress: 'nope' }, deps)).rejects.toThrow(
       /not a valid EVM address/
     );
     await expect(bridgeDepositViaEpoch({ ...epochArgs(), amount: 0n }, deps)).rejects.toThrow(/greater than zero/);
     expect(deps.initiateRow).not.toHaveBeenCalled();
+  });
+
+  it('never wraps on the USDC route', async () => {
+    const deps = epochDeps();
+
+    await bridgeDepositViaEpoch(epochArgs(), deps);
+
+    expect(deps.sendWrap).not.toHaveBeenCalled();
+    expect(deps.readWethBalance).not.toHaveBeenCalled();
+  });
+
+  describe('ETH via WETH wrap', () => {
+    const ethArgs = () => ({ ...epochArgs(), token: 'ETH' as const, amount: ONE_ETH });
+
+    it('wraps the ETH after the row exists, waits for the receipt, then submits the intent', async () => {
+      const { calls, track } = orderTracker();
+      const deps = epochDeps({
+        initiateRow: jest.fn(track('initiateRow', 'TX1')),
+        sendWrap: jest.fn(track('sendWrap', '0xwrap')),
+        waitForReceipt: jest.fn(track('waitForReceipt', undefined)),
+        buildIntent: jest.fn(
+          track('buildIntent', { taskTypeString: 't', intentData: {}, intentNonce: 'NONCE1', solveResult: {} })
+        )
+      });
+
+      await bridgeDepositViaEpoch(ethArgs(), deps);
+
+      expect(calls).toEqual(['initiateRow', 'sendWrap', 'waitForReceipt', 'buildIntent']);
+      expect(deps.sendWrap).toHaveBeenCalledWith({ account: EVM_ADDRESS, value: ONE_ETH });
+      expect(deps.initiateRow).toHaveBeenCalledWith(
+        expect.objectContaining({ faucetId: NATIVE_FAUCET, sourceSymbol: 'ETH', outputSymbol: 'ETH' })
+      );
+    });
+
+    it('wraps only the shortfall when leftover WETH already sits on the address', async () => {
+      const deps = epochDeps({ readWethBalance: jest.fn().mockResolvedValue(ONE_ETH / 4n) });
+
+      await bridgeDepositViaEpoch(ethArgs(), deps);
+
+      expect(deps.sendWrap).toHaveBeenCalledWith({ account: EVM_ADDRESS, value: (3n * ONE_ETH) / 4n });
+    });
+
+    it('skips the wrap entirely when the WETH balance already covers the amount', async () => {
+      const deps = epochDeps({ readWethBalance: jest.fn().mockResolvedValue(2n * ONE_ETH) });
+
+      const result = await bridgeDepositViaEpoch(ethArgs(), deps);
+
+      expect(deps.sendWrap).not.toHaveBeenCalled();
+      expect(result.intentNonce).toBe('NONCE1');
+    });
+
+    it('marks the row failed when the wrap broadcast throws (nothing is in flight)', async () => {
+      const deps = epochDeps({ sendWrap: jest.fn().mockRejectedValue(new Error('wrap reverted')) });
+
+      await expect(bridgeDepositViaEpoch(ethArgs(), deps)).rejects.toThrow('wrap reverted');
+      expect(deps.updatePhase).toHaveBeenCalledWith('TX1', 'failed', { error: 'wrap reverted' });
+      expect(deps.registerBridgeIn).not.toHaveBeenCalled();
+    });
+
+    it('rejects before creating any row when the native Miden faucet is unknown', async () => {
+      const deps = epochDeps({ getNativeFaucetId: jest.fn().mockResolvedValue(null) });
+
+      await expect(bridgeDepositViaEpoch(ethArgs(), deps)).rejects.toThrow(/native Miden faucet/);
+      expect(deps.initiateRow).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -192,13 +262,33 @@ describe('quoteDepositViaEpoch', () => {
     const getQuote = jest.fn().mockResolvedValue({ quoteResult: {} });
 
     await quoteDepositViaEpoch(
-      { midenAccountPublicKey: MIDEN_ACCOUNT, evmAddress: EVM_ADDRESS, amount: 2n * ONE_ETH },
+      { midenAccountPublicKey: MIDEN_ACCOUNT, evmAddress: EVM_ADDRESS, token: 'USDC', amount: 2n * ONE_ETH },
       { sdk: undefined, getQuote }
     );
 
     expect(getQuote).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ evmAmount: '2', evmTokenDecimals: 18, midenRecipientId: MIDEN_ACCOUNT }),
+      EVM_ADDRESS
+    );
+  });
+
+  it('quotes ETH against the WETH contract and the native Miden faucet', async () => {
+    const getQuote = jest.fn().mockResolvedValue({ quoteResult: {} });
+
+    await quoteDepositViaEpoch(
+      { midenAccountPublicKey: MIDEN_ACCOUNT, evmAddress: EVM_ADDRESS, token: 'ETH', amount: ONE_ETH },
+      { sdk: undefined, getQuote, getNativeFaucetId: jest.fn().mockResolvedValue(NATIVE_FAUCET) }
+    );
+
+    expect(getQuote).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        evmTokenAddress: '0x7946dd86eE310D0aC16804A37787289Fa5b88A8A',
+        evmAmount: '1',
+        evmTokenDecimals: 18,
+        midenFaucetId: NATIVE_FAUCET
+      }),
       EVM_ADDRESS
     );
   });

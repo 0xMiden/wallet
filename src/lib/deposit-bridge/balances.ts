@@ -11,16 +11,6 @@ import type { DepositTokenId } from './tokens';
  * Shared by the WalletConnect deposit screen and the deposit-address watcher.
  */
 
-const MOCK_USDC_GET_BALANCE_ABI = [
-  {
-    type: 'function',
-    name: 'getBalance',
-    stateMutability: 'view',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }]
-  }
-] as const;
-
 const ERC20_BALANCE_OF_ABI = [
   {
     type: 'function',
@@ -69,41 +59,21 @@ export function formatBalance(value: bigint, decimals: number): string {
   return fraction ? `${whole}.${fraction}` : whole;
 }
 
-/**
- * The Epoch mock-USDC faucet exposes `getBalance`; a real ERC-20 does not, so
- * the standard `balanceOf` is the fallback. Both are tried against the same
- * contract — do not drop either branch.
- */
+/** Read the deposit address's USDC balance through the standard ERC-20 API. */
 export async function readMockUsdcBalance(evmAddress: string): Promise<bigint> {
   const account = asHex(evmAddress, 'Deposit address');
   const contract = asHex(BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS, 'USDC contract');
-
-  try {
-    const data = encodeFunctionData({
-      abi: MOCK_USDC_GET_BALANCE_ABI,
-      functionName: 'getBalance',
-      args: [account]
-    });
-    const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest']);
-    return decodeFunctionResult({
-      abi: MOCK_USDC_GET_BALANCE_ABI,
-      functionName: 'getBalance',
-      data: asHex(result, 'eth_call')
-    });
-  } catch (err) {
-    console.warn('[deposit-bridge] USDC getBalance failed, falling back to balanceOf', err);
-    const data = encodeFunctionData({
-      abi: ERC20_BALANCE_OF_ABI,
-      functionName: 'balanceOf',
-      args: [account]
-    });
-    const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest']);
-    return decodeFunctionResult({
-      abi: ERC20_BALANCE_OF_ABI,
-      functionName: 'balanceOf',
-      data: asHex(result, 'eth_call')
-    });
-  }
+  const data = encodeFunctionData({
+    abi: ERC20_BALANCE_OF_ABI,
+    functionName: 'balanceOf',
+    args: [account]
+  });
+  const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest']);
+  return decodeFunctionResult({
+    abi: ERC20_BALANCE_OF_ABI,
+    functionName: 'balanceOf',
+    data: asHex(result, 'eth_call')
+  });
 }
 
 export async function readEthBalance(evmAddress: string): Promise<bigint> {

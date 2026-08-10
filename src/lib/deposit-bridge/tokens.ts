@@ -14,7 +14,7 @@ export interface DepositTokenConfig {
   decimals: number;
   /** ERC-20 contract; `undefined` marks the native asset. */
   address?: string;
-  /** The only route that can bridge this token today. */
+  /** Default (pre-selected) route for this token. */
   route: BridgeRoute;
   /**
    * Miden faucet the bridged asset credits. Empty for AggLayer ETH — the native
@@ -30,6 +30,13 @@ export interface DepositTokenConfig {
 
 /** Miden-side faucet the Epoch route credits for USDC deposits. */
 export const MIDEN_USDC_FAUCET_ID = '0x2458e5446128e6b150b75b8ebd9ce1';
+
+/**
+ * Sepolia "WETH" the Epoch solver accepts — a mock ERC-20 with an open `mint`
+ * and no `deposit()`/payable fallback. The ETH Fast route mints the bridge
+ * amount here first (the ETH itself is not consumed), then bridges the WETH.
+ */
+export const EPOCH_WETH_ADDRESS = '0x7946dd86eE310D0aC16804A37787289Fa5b88A8A';
 
 export const ETH_SYMBOL = 'ETH';
 export const ETH_DECIMALS = 18;
@@ -71,9 +78,9 @@ export function isDepositTokenId(value: unknown): value is DepositTokenId {
 
 /**
  * Routes a deposited token can take. USDC is Epoch-only (gasless; AggLayer USDC
- * needs a relayer that hasn't shipped) and ETH is AggLayer-only (Epoch's fast
- * route would have to wrap to WETH).
+ * needs a relayer that hasn't shipped). ETH defaults to AggLayer but can also
+ * ride Epoch's fast route by wrapping into `EPOCH_WETH_ADDRESS` first.
  */
 export function availableRoutes(id: DepositTokenId): BridgeRoute[] {
-  return [DEPOSIT_TOKENS[id].route];
+  return id === 'ETH' ? ['agglayer', 'epoch'] : [DEPOSIT_TOKENS[id].route];
 }

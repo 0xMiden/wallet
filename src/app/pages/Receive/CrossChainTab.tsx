@@ -201,7 +201,7 @@ export const CrossChainTab: React.FC<CrossChainTabProps> = ({
                       <Button
                         variant={ButtonVariant.Primary}
                         title={t('bridge')}
-                        className="px-4 py-2 text-sm"
+                        className="w-auto h-9 px-5 text-sm"
                         data-testid={`deposit-bridge-${id}`}
                         onClick={() => onBridge(id)}
                       />

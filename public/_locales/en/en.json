@@ -798,7 +798,7 @@
   "viewOnEtherscan": "View on Etherscan",
   "delivering": "Delivering",
   "slowNeedsNativeEth": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it.",
-  "fastEthWrapNotice": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet.",
+  "fastEthWrapNotice": "The Fast route first converts your ETH into WETH, then bridges the WETH. You'll still receive ETH on Miden.",
   "destinationNetwork": "Destination network",
   "claimStatus": "Claim status",
   "claimAsset": "Claim Asset",

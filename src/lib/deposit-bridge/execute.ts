@@ -19,11 +19,12 @@ import { buildVaultEvmWalletClient } from 'lib/epoch/evm-account';
 import { ensureEpochSmartAccount } from 'lib/epoch/sdk';
 import type { EVMToMidenIntentParams } from 'lib/epoch/types';
 import { initiateBridgedReceiveTransaction, registerPendingBridgeIn } from 'lib/miden/activity';
+import { getFaucetIdSetting } from 'lib/miden/assets';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 
-import { DEPOSIT_TOKENS, type DepositTokenId } from './tokens';
+import { DEPOSIT_TOKENS, EPOCH_WETH_ADDRESS, ETH_DECIMALS, ETH_SYMBOL, type DepositTokenId } from './tokens';
 
 /**
  * Vault-signed bridge executors for funds sitting on the derived deposit
@@ -41,6 +42,29 @@ import { DEPOSIT_TOKENS, type DepositTokenId } from './tokens';
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
 const ZERO_ADDRESS: Address = '0x0000000000000000000000000000000000000000';
+
+// The Epoch "WETH" on Sepolia is a mock ERC-20 with an OPEN mint and NO
+// deposit()/payable fallback (verified against the deployed bytecode) — so the
+// ETH→WETH step mints rather than wraps, and the ETH itself is not consumed.
+const WETH_ABI = [
+  {
+    type: 'function',
+    name: 'mint',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' }
+    ],
+    outputs: []
+  },
+  {
+    type: 'function',
+    name: 'balanceOf',
+    stateMutability: 'view',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }]
+  }
+] as const;
 
 /** Gas ceiling assumed when `estimateGas` reverts (near-empty address). */
 const FALLBACK_BRIDGE_GAS = 150_000n;
@@ -113,38 +137,72 @@ export interface DepositBridgeResult {
   intentNonce?: string;
 }
 
-export type QuoteDepositArgs = Pick<DepositBridgeArgs, 'midenAccountPublicKey' | 'evmAddress' | 'amount'>;
+export type QuoteDepositArgs = Pick<DepositBridgeArgs, 'midenAccountPublicKey' | 'evmAddress' | 'token' | 'amount'>;
 
 export interface QuoteDepositDeps {
   sdk?: EpochIntentSDK;
   getQuote?: typeof getEVMToMidenQuote;
+  /** Native Miden faucet lookup for the ETH (WETH) route. */
+  getNativeFaucetId?: typeof getFaucetIdSetting;
 }
 
-function epochIntentParams(args: QuoteDepositArgs): EVMToMidenIntentParams {
-  const usdc = DEPOSIT_TOKENS.USDC;
+/** EVM token the Epoch intent spends + the Miden faucet it credits. */
+interface EpochTokenInfo {
+  evmTokenAddress: string;
+  decimals: number;
+  midenFaucetId: string;
+  symbol: string;
+}
+
+/**
+ * ETH rides Epoch as WETH and credits the wallet's native Miden faucet — the
+ * same asset the AggLayer route delivers, except that route learns the faucet on
+ * delivery while the intent must name it up front.
+ */
+async function resolveEpochTokenInfo(token: DepositTokenId, deps: QuoteDepositDeps): Promise<EpochTokenInfo> {
+  if (token === 'USDC') {
+    const usdc = DEPOSIT_TOKENS.USDC;
+    return { evmTokenAddress: usdc.address ?? '', decimals: usdc.decimals, midenFaucetId: usdc.midenFaucetId, symbol: usdc.symbol };
+  }
+  const getNativeFaucetId = deps.getNativeFaucetId ?? getFaucetIdSetting;
+  const midenFaucetId = await getNativeFaucetId();
+  if (!midenFaucetId) {
+    throw new Error('The native Miden faucet is not known yet — wait for a sync before fast-bridging ETH.');
+  }
+  return { evmTokenAddress: EPOCH_WETH_ADDRESS, decimals: ETH_DECIMALS, midenFaucetId, symbol: ETH_SYMBOL };
+}
+
+function epochIntentParams(args: QuoteDepositArgs, info: EpochTokenInfo): EVMToMidenIntentParams {
   return {
     sourceChainId: DEFAULT_CHAIN_ID,
     destinationChainId: MIDEN_DESTINATION_CHAIN_ID,
     evmSourceAddress: args.evmAddress,
-    evmTokenAddress: usdc.address ?? '',
-    evmAmount: formatUnits(args.amount, usdc.decimals),
-    evmTokenDecimals: usdc.decimals,
+    evmTokenAddress: info.evmTokenAddress,
+    evmAmount: formatUnits(args.amount, info.decimals),
+    evmTokenDecimals: info.decimals,
     midenRecipientId: args.midenAccountPublicKey,
-    midenFaucetId: usdc.midenFaucetId,
+    midenFaucetId: info.midenFaucetId,
     minTokenOut: '0'
   };
 }
 
-/** Forward quote for a USDC deposit — drives the sheet's fee line. Signs nothing. */
+/** Forward quote for a deposit — drives the sheet's fee line. Signs nothing. */
 export async function quoteDepositViaEpoch(
   args: QuoteDepositArgs,
   deps: QuoteDepositDeps = {}
 ): Promise<EVMToMidenQuote> {
   const evmAddress = asAddress(args.evmAddress, 'Deposit address');
   if (args.amount <= 0n) throw new Error('Bridge amount must be greater than zero.');
+  const info = await resolveEpochTokenInfo(args.token, deps);
   const sdk = deps.sdk ?? buildDepositEpochSdk(args.midenAccountPublicKey, evmAddress);
   const getQuote = deps.getQuote ?? getEVMToMidenQuote;
-  return getQuote(sdk, epochIntentParams(args), evmAddress);
+  return getQuote(sdk, epochIntentParams(args, info), evmAddress);
+}
+
+/** Exactly what the WETH wrap write is given — the unit of injection. */
+export interface WrapEthRequest {
+  account: Address;
+  value: bigint;
 }
 
 export interface EpochDepositDeps extends QuoteDepositDeps {
@@ -153,40 +211,72 @@ export interface EpochDepositDeps extends QuoteDepositDeps {
   updatePhase?: typeof updateBridgedReceivePhase;
   registerBridgeIn?: typeof registerPendingBridgeIn;
   buildIntent?: typeof buildEVMToMidenIntent;
+  /** ETH route only: WETH balance read that lets a retried bridge skip re-wrapping. */
+  readWethBalance?: (account: Address) => Promise<bigint>;
+  /** ETH route only: broadcasts the `WETH.deposit()` wrap; defaults to a vault-signed write. */
+  sendWrap?: (request: WrapEthRequest) => Promise<Hash>;
+  waitForReceipt?: typeof waitForSepoliaReceipt;
+}
+
+/** Vault-signed `WETH.mint(account, value)` — the mock's stand-in for wrapping. */
+async function sendWrapFromVault(midenAccountPublicKey: string, request: WrapEthRequest): Promise<Hash> {
+  const walletClient: WalletClient = buildVaultEvmWalletClient(midenAccountPublicKey, request.account);
+  const account = walletClient.account;
+  if (!account) throw new Error('The deposit wallet client has no account.');
+  return walletClient.writeContract({
+    account,
+    chain: sepolia,
+    address: asAddress(EPOCH_WETH_ADDRESS, 'WETH contract'),
+    abi: WETH_ABI,
+    functionName: 'mint',
+    args: [request.account, request.value]
+  });
+}
+
+async function readDepositWethBalance(account: Address): Promise<bigint> {
+  return depositPublicClient().readContract({
+    address: asAddress(EPOCH_WETH_ADDRESS, 'WETH contract'),
+    abi: WETH_ABI,
+    functionName: 'balanceOf',
+    args: [account]
+  });
 }
 
 /**
- * Bridge deposited USDC to Miden through Epoch (gasless — the deposit address
- * needs no ETH). The intent submit (`buildEVMToMidenIntent`) is the point of no
- * return; everything after it is bookkeeping that must never fail the row.
+ * Bridge a deposit to Miden through Epoch. USDC goes straight into the intent
+ * (gasless — the deposit address needs no ETH). ETH takes two Ethereum-side
+ * steps: acquire WETH (the mock's open `mint`, self-funded — the deposit ETH
+ * pays the gas), then the same gasless intent on the WETH. Only the missing
+ * WETH is minted, so a bridge retried after a failed intent doesn't mint twice. The
+ * intent submit (`buildEVMToMidenIntent`) is the point of no return; everything
+ * after it is bookkeeping that must never fail the row.
  */
 export async function bridgeDepositViaEpoch(
   args: DepositBridgeArgs,
   deps: EpochDepositDeps = {}
 ): Promise<DepositBridgeResult> {
   // --- Validation (throws before any row is created) ---
-  if (args.token !== 'USDC') throw new Error('The Epoch route only bridges USDC deposits.');
   const evmAddress = asAddress(args.evmAddress, 'Deposit address');
   if (!args.midenAccountPublicKey) throw new Error('A Miden destination account is required.');
   if (args.amount <= 0n) throw new Error('Bridge amount must be greater than zero.');
+  const info = await resolveEpochTokenInfo(args.token, deps);
 
-  const usdc = DEPOSIT_TOKENS.USDC;
   const initiateRow = deps.initiateRow ?? initiateBridgedReceiveTransaction;
   const updatePhase = deps.updatePhase ?? updateBridgedReceivePhase;
   const registerBridgeIn = deps.registerBridgeIn ?? registerPendingBridgeIn;
-  const sourceAmount = formatUnits(args.amount, usdc.decimals);
+  const sourceAmount = formatUnits(args.amount, info.decimals);
 
   // --- Tracking row (born Completed; lifecycle lives in extraInputs.phase) ---
   const txId = await initiateRow({
     accountId: args.midenAccountPublicKey,
     amount: args.amount,
-    faucetId: usdc.midenFaucetId,
+    faucetId: info.midenFaucetId,
     provider: 'epoch',
     sourceAddress: evmAddress,
     sourceAmount,
-    sourceSymbol: usdc.symbol,
+    sourceSymbol: info.symbol,
     outputAmount: sourceAmount,
-    outputSymbol: usdc.symbol
+    outputSymbol: info.symbol
   });
   args.onRowCreated?.(txId);
 
@@ -194,11 +284,23 @@ export async function bridgeDepositViaEpoch(
   let nonce: string | undefined;
   let evmTxHash: string | undefined;
   try {
+    if (args.token === 'ETH') {
+      // Mint only the shortfall: WETH left over from an earlier failed attempt
+      // is still on the address and must be spent, not minted on top of.
+      const readWethBalance = deps.readWethBalance ?? readDepositWethBalance;
+      const wethBalance = await readWethBalance(evmAddress);
+      if (wethBalance < args.amount) {
+        const sendWrap = deps.sendWrap ?? (req => sendWrapFromVault(args.midenAccountPublicKey, req));
+        const waitForReceipt = deps.waitForReceipt ?? waitForSepoliaReceipt;
+        const wrapHash = await sendWrap({ account: evmAddress, value: args.amount - wethBalance });
+        await waitForReceipt(wrapHash);
+      }
+    }
     const ensureSmartAccount = deps.ensureSmartAccount ?? ensureEpochSmartAccount;
     await ensureSmartAccount(args.midenAccountPublicKey, evmAddress);
     const sdk = deps.sdk ?? buildDepositEpochSdk(args.midenAccountPublicKey, evmAddress);
-    const params = epochIntentParams(args);
-    const quote = await quoteDepositViaEpoch(args, { sdk, getQuote: deps.getQuote });
+    const params = epochIntentParams(args, info);
+    const quote = await quoteDepositViaEpoch(args, { sdk, getQuote: deps.getQuote, getNativeFaucetId: deps.getNativeFaucetId });
     const buildIntent = deps.buildIntent ?? buildEVMToMidenIntent;
     // Point of no return: a resolved intent means the Compact deposit is signed
     // and the solver is committed — it must not be re-run.
@@ -224,7 +326,7 @@ export async function bridgeDepositViaEpoch(
     await registerBridgeIn(evmAddress, nonce, {
       provider: 'epoch',
       sourceAmount,
-      sourceSymbol: usdc.symbol,
+      sourceSymbol: info.symbol,
       intentNonce: nonce,
       evmTxHash,
       bridgeReceiveTxId: txId
@@ -386,7 +488,9 @@ function defaultFeeProbe(): DepositFeeProbe {
  * ETH the AggLayer bridge tx will cost, with headroom. Probed at HALF the
  * balance so the estimate itself doesn't revert for insufficient funds; a revert
  * anyway (near-empty address) falls back to a fixed gas ceiling rather than
- * blocking the flow.
+ * blocking the flow. The same reserve also covers the Epoch route's only
+ * self-funded step — the WETH mint — which costs less gas than `bridgeAsset`,
+ * so one route-agnostic reserve serves the amount step.
  */
 export async function estimateDepositGasReserve(args: MaxSendableArgs, deps: GasReserveDeps = {}): Promise<bigint> {
   if (args.token !== 'ETH') return 0n;

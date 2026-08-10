@@ -13,13 +13,14 @@ export interface RouteStepProps {
   onRouteChange: (route: BridgeRoute) => void;
   /** Fast-route fee in USD (input value − quoted USDC out). undefined while quoting / unavailable. */
   fastFeeUsd?: number;
+  /** Pre-formatted fast-fee label (e.g. "0.0004 ETH") — takes precedence over `fastFeeUsd`. */
+  fastFeeText?: string;
   fastQuoteLoading: boolean;
   /** Whether the Slow (Agglayer) route can carry the selected token. */
   slowEnabled: boolean;
   /**
    * Whether the Fast (Epoch) route can carry the selected token. Defaults to
-   * `true` — the send flow always offers Fast; the deposit-bridge sheet turns it
-   * off for ETH, which is Agglayer-only.
+   * `true` — the send flow always offers Fast.
    */
   fastEnabled?: boolean;
   /**
@@ -89,6 +90,7 @@ export const Route: React.FC<RouteStepProps> = ({
   route,
   onRouteChange,
   fastFeeUsd,
+  fastFeeText,
   fastQuoteLoading,
   slowEnabled,
   fastEnabled = true,
@@ -109,7 +111,7 @@ export const Route: React.FC<RouteStepProps> = ({
 
   // Built in plain JS (not JSX) so the em-dash fallback doesn't trip the
   // no-literal-string i18n lint; "$1.84" is excluded as a $-prefixed value.
-  const feeText = fastFeeUsd != null ? `$${fastFeeUsd.toFixed(2)}` : '—';
+  const feeText = fastFeeText ?? (fastFeeUsd != null ? `$${fastFeeUsd.toFixed(2)}` : '—');
   const fastFee = fastQuoteLoading ? (
     <div className="h-4 w-12 animate-pulse rounded bg-heading-gray/10" />
   ) : (

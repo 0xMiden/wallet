@@ -50,6 +50,7 @@ let mockBalances: Record<string, bigint | null> = { ETH: 10n ** 18n, USDC: null 
 jest.mock('lib/deposit-bridge', () => ({
   DEPOSIT_TOKEN_IDS: ['ETH', 'USDC'],
   getDepositToken: (id: string) => (id === 'ETH' ? ETH_CONFIG : USDC_CONFIG),
+  availableRoutes: (id: string) => (id === 'ETH' ? ['agglayer', 'epoch'] : ['epoch']),
   formatBalance: (value: bigint, decimals: number) => {
     const base = 10n ** BigInt(decimals);
     const whole = value / base;
@@ -128,6 +129,8 @@ jest.mock('components/Button', () => ({
 // drawer computes and a way to fire Confirm.
 jest.mock('screens/send-flow/Route', () => ({
   Route: ({
+    route,
+    onRouteChange,
     fastEnabled,
     slowEnabled,
     confirmDisabled,
@@ -135,6 +138,8 @@ jest.mock('screens/send-flow/Route', () => ({
     notice,
     onConfirm
   }: {
+    route: string;
+    onRouteChange: (route: string) => void;
     fastEnabled?: boolean;
     slowEnabled: boolean;
     confirmDisabled?: boolean;
@@ -144,6 +149,7 @@ jest.mock('screens/send-flow/Route', () => ({
   }) => (
     <div
       data-testid="route-step"
+      data-route={route}
       data-fast-enabled={String(fastEnabled)}
       data-slow-enabled={String(slowEnabled)}
       data-confirm-disabled={String(Boolean(confirmDisabled))}
@@ -151,6 +157,8 @@ jest.mock('screens/send-flow/Route', () => ({
       data-provider-slow={providerLabels?.slow}
     >
       <div data-testid="route-notice">{notice}</div>
+      <button data-testid="route-select-fast" onClick={() => onRouteChange('epoch')} />
+      <button data-testid="route-select-slow" onClick={() => onRouteChange('agglayer')} />
       <button data-testid="route-confirm" onClick={onConfirm} />
     </div>
   )
@@ -229,22 +237,44 @@ describe('DepositBridgeDrawer', () => {
     await waitFor(() => expect(screen.getByTestId('deposit-bridge-gas-reserve').textContent).toContain('0.001'));
   });
 
-  it('routes ETH through AggLayer, navigating before the signature resolves', async () => {
+  it('defaults ETH to AggLayer with both routes offered, navigating before the signature resolves', async () => {
     const onOpenChange = jest.fn();
     renderDrawer({ onOpenChange });
     await awaitAmountReady();
     fireEvent.click(screen.getByTestId('deposit-bridge-amount-confirm'));
 
     const route = await screen.findByTestId('route-step');
-    expect(route.getAttribute('data-fast-enabled')).toBe('false');
+    expect(route.getAttribute('data-route')).toBe('agglayer');
+    expect(route.getAttribute('data-fast-enabled')).toBe('true');
     expect(route.getAttribute('data-slow-enabled')).toBe('true');
     expect(route.getAttribute('data-provider-slow')).toBe('viaAgglayer');
 
     fireEvent.click(screen.getByTestId('route-confirm'));
 
     await waitFor(() => expect(bridgeDepositViaAgglayer).toHaveBeenCalled());
+    expect(bridgeDepositViaEpoch).not.toHaveBeenCalled();
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(navigate).toHaveBeenCalledWith('/generating-transaction/tx-agg');
+    await waitFor(() => expect(acknowledge).toHaveBeenCalledWith('ETH'));
+  });
+
+  it('fast-bridges ETH via Epoch after selection, warning about the WETH wrap and quoting it', async () => {
+    renderDrawer();
+    await awaitAmountReady();
+    fireEvent.click(screen.getByTestId('deposit-bridge-amount-confirm'));
+    await screen.findByTestId('route-step');
+
+    fireEvent.click(screen.getByTestId('route-select-fast'));
+
+    expect(screen.getByTestId('route-step').getAttribute('data-route')).toBe('epoch');
+    expect(screen.getByTestId('route-notice').textContent).toContain('fastEthWrapNotice');
+    await waitFor(() => expect(quoteDepositViaEpoch).toHaveBeenCalledWith(expect.objectContaining({ token: 'ETH' })));
+    await waitFor(() => expect(screen.getByTestId('route-step').getAttribute('data-confirm-disabled')).toBe('false'));
+
+    fireEvent.click(screen.getByTestId('route-confirm'));
+
+    await waitFor(() => expect(bridgeDepositViaEpoch).toHaveBeenCalledWith(expect.objectContaining({ token: 'ETH' })));
+    expect(bridgeDepositViaAgglayer).not.toHaveBeenCalled();
     await waitFor(() => expect(acknowledge).toHaveBeenCalledWith('ETH'));
   });
 
