@@ -127,8 +127,13 @@ export function getNetworkId(): NetworkId {
     case MIDEN_NETWORK_NAME.DEVNET:
       return NetworkId.devnet();
     /* c8 ignore stop */
-    case MIDEN_NETWORK_NAME.TESTNET:
     case MIDEN_NETWORK_NAME.LOCALNET:
+      // The SDK exposes no localnet() constructor — localnet uses the 'mlcl'
+      // bech32 HRP (ground truth: the node's faucet reports `mlcl1…` ids).
+      // Without this branch LOCALNET fell through to testnet() and rendered
+      // every address/faucet id under the wrong 'mtst1' prefix.
+      return NetworkId.custom('mlcl');
+    case MIDEN_NETWORK_NAME.TESTNET:
     default:
       return NetworkId.testnet();
   }

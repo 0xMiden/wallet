@@ -193,11 +193,14 @@ describe('wallet prompts', () => {
     expect(mintFromMidenFaucetMock).toHaveBeenCalledWith('mtst1testaddress', 100_000_000n);
   });
 
-  it('rejects unsuccessful forkchoice faucet responses', async () => {
+  it('tolerates a failing forkchoice faucet when the Miden faucet succeeds (best-effort)', async () => {
+    // Forkchoice is a devnet-specific service and irrelevant on a custom network;
+    // its failure must NOT sink the fund when the authoritative Miden faucet works.
     fetchMock.mockResolvedValue({ ok: false, status: 429 } as Response);
     mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
 
-    await expect(faucet('mtst1testaddress')).rejects.toThrow('Faucet request failed with status 429');
+    await expect(faucet('mtst1testaddress')).resolves.toBeUndefined();
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledWith('mtst1testaddress', 100_000_000n);
   });
 
   it('rejects when the official Miden faucet fails even if forkchoice succeeds', async () => {

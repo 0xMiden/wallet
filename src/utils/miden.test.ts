@@ -11,6 +11,7 @@ describe('Miden and Ethereum address utilities', () => {
     expect(isValidMidenAddress('mm1account')).toBe(true);
     expect(isValidMidenAddress('mtst1account')).toBe(true);
     expect(isValidMidenAddress('mdev1account')).toBe(true);
+    expect(isValidMidenAddress('mlcl1account')).toBe(true); // localnet
     expect(isValidMidenAddress('unknown1account')).toBe(false);
   });
 

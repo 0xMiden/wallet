@@ -2,17 +2,30 @@ import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
 import { ensureSdkWasmReady, getRpcEndpoint } from './constants';
 
-// `v2` segment: account IDs renumbered under the 0.15 protocol's ID
-// version 1, so values cached by 0.14 builds must not be reused.
+// Cache identity = (effective RPC URL, effective network name):
+//   - the RPC URL determines the faucet ACCOUNT (the node's genesis / fee
+//     faucet), so a custom dev-settings network gets its own entry instead of
+//     colliding with the real network of the same base name;
+//   - the network name determines the bech32 PREFIX the id is rendered under
+//     (getNetworkId), so changing only the dev-settings Network ID (same RPC)
+//     must still invalidate — otherwise the cached (old-prefix) string is
+//     reused while fresh per-sync note faucet ids use the new prefix, and the
+//     placeholder MIDEN row mismatches the arrived one.
+// The in-memory guard below (`invalidateOnEndpointChange`) re-discovers when
+// either changes. (`v4`: added network name; v3 keyed by RPC URL only, v2 by
+// base network name — both are discarded, which is intended.)
+function cacheScope(): string {
+  return `${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`;
+}
 function idCacheKey(): string {
-  return `native_asset_id:v2:${getEffectiveNetworkName()}`;
+  return `native_asset_id:v4:${cacheScope()}`;
 }
 function metaCacheKey(): string {
-  return `native_asset_meta:v2:${getEffectiveNetworkName()}`;
+  return `native_asset_meta:v4:${cacheScope()}`;
 }
 
 export type NativeAssetChainMetadata = {
@@ -25,6 +38,27 @@ let metaMemCache: NativeAssetChainMetadata | null = null;
 let hydrated = false;
 let inflight: Promise<string> | null = null;
 let metaInflight: Promise<NativeAssetChainMetadata | null> | null = null;
+
+// The cache scope (RPC URL + network name; see `cacheScope`) the in-memory
+// caches were populated for. The persisted cache is scope-keyed (see
+// `idCacheKey`), but `memCache`/`metaMemCache` are single module-level values
+// not tied to a scope; this lets us detect an endpoint OR network-id change
+// (e.g. via dev settings) and drop the stale in-memory value so the next
+// resolve re-discovers/re-encodes. Without it, switching keeps serving the
+// previous scope's native faucet id.
+let cachedForScope: string | null = null;
+
+function invalidateOnEndpointChange(): void {
+  const scope = cacheScope();
+  if (cachedForScope !== null && cachedForScope !== scope) {
+    memCache = null;
+    metaMemCache = null;
+    hydrated = false;
+    inflight = null;
+    metaInflight = null;
+  }
+  cachedForScope = scope;
+}
 
 const listeners = new Set<(id: string) => void>();
 
@@ -41,13 +75,18 @@ function emit(id: string) {
 async function hydrateFromStorage(): Promise<void> {
   if (hydrated) return;
   hydrated = true;
+  const idKey = idCacheKey();
+  const metaKey = metaCacheKey();
   try {
     const [storedId, storedMeta] = await Promise.all([
-      fetchFromStorage<string>(idCacheKey()),
-      fetchFromStorage<NativeAssetChainMetadata>(metaCacheKey())
+      fetchFromStorage<string>(idKey),
+      fetchFromStorage<NativeAssetChainMetadata>(metaKey)
     ]);
-    if (storedId && !memCache) memCache = storedId;
-    if (storedMeta && !metaMemCache) metaMemCache = storedMeta;
+    // Only publish if the effective endpoint hasn't switched since we read —
+    // same guard as discover(). A hydrate parked across a network switch must
+    // not seed the old node's faucet id into the shared in-memory cache.
+    if (idKey === idCacheKey() && storedId && !memCache) memCache = storedId;
+    if (metaKey === metaCacheKey() && storedMeta && !metaMemCache) metaMemCache = storedMeta;
   } catch (err) {
     console.warn('native-asset storage read failed', err);
   }
@@ -55,17 +94,29 @@ async function hydrateFromStorage(): Promise<void> {
 
 async function discover(): Promise<string> {
   await ensureSdkWasmReady();
+  // Snapshot the cache key up front so a concurrent endpoint switch can't make
+  // us persist this node's faucet id under a different node's key.
+  const cacheKey = idCacheKey();
   const rpc = new RpcClient(getRpcEndpoint());
   const header = await rpc.getBlockHeaderByNumber(undefined);
   const accountId = header.feeFaucetId();
   const bech32 = getBech32AddressFromAccountId(accountId);
-  memCache = bech32;
+  // Only publish to the in-memory cache / listeners if the effective endpoint
+  // hasn't switched since we queried. Otherwise a slow discovery against the
+  // OLD node could resolve after a network switch and clobber `memCache` with
+  // the wrong network's faucet id — and because the guard has already advanced
+  // `cachedForRpc` to the new node, it would never fire again to correct it.
+  // The persisted write below still lands under this node's own snapshotted
+  // key, and the caller that requested under the old node still gets its value.
+  if (idCacheKey() === cacheKey) {
+    memCache = bech32;
+    emit(bech32);
+  }
   try {
-    await putToStorage(idCacheKey(), bech32);
+    await putToStorage(cacheKey, bech32);
   } catch (err) {
     console.warn('native-asset storage write failed', err);
   }
-  emit(bech32);
   return bech32;
 }
 
@@ -75,12 +126,18 @@ async function discoverMetadata(id: string): Promise<NativeAssetChainMetadata | 
   // for the native faucet. Imported lazily to avoid a module-load cycle with
   // lib/miden/metadata → lib/miden/front → lib/miden/assets → this file.
   const { fetchTokenMetadata } = await import('lib/miden/metadata');
+  // Snapshot the cache key up front (see `discover`) — switch-safe write.
+  const cacheKey = metaCacheKey();
   try {
     const { base } = await fetchTokenMetadata(id);
     const meta: NativeAssetChainMetadata = { symbol: base.symbol, decimals: base.decimals };
-    metaMemCache = meta;
+    // Same in-memory guard as `discover` — don't let a metadata fetch that was
+    // in flight across an endpoint switch publish the old node's metadata.
+    if (metaCacheKey() === cacheKey) {
+      metaMemCache = meta;
+    }
     try {
-      await putToStorage(metaCacheKey(), meta);
+      await putToStorage(cacheKey, meta);
     } catch (err) {
       console.warn('native-asset meta storage write failed', err);
     }
@@ -98,34 +155,39 @@ async function discoverMetadata(id: string): Promise<NativeAssetChainMetadata | 
  * `getNativeAssetId()` resolves and fires an `onNativeAssetChanged` event.
  */
 export function getNativeAssetIdSync(): string | null {
+  invalidateOnEndpointChange();
   return memCache;
 }
 
 /**
- * Returns the native asset ID for the current network.
+ * Returns the native asset ID for the current network (the effective RPC's node).
  *
  * Resolution order:
- *   1. in-memory cache (set once per process)
- *   2. persisted cache (`native_asset_id:v2:<network>` in platform key-value store)
+ *   1. in-memory cache (self-invalidated when the effective RPC changes)
+ *   2. persisted cache (`native_asset_id:v3:<rpcUrl>` in platform key-value store)
  *   3. fresh RPC fetch via `BlockHeader.feeFaucetId()`
  *
  * Single-flight: concurrent callers share one RPC round-trip.
  */
 export async function getNativeAssetId(): Promise<string> {
+  invalidateOnEndpointChange();
   if (memCache) return memCache;
   if (inflight) return inflight;
 
-  inflight = (async () => {
+  let pending!: Promise<string>;
+  pending = (async () => {
     try {
       await hydrateFromStorage();
       if (memCache) return memCache;
       return await discover();
     } finally {
-      inflight = null;
+      // Only clear the slot if this promise still owns it — an endpoint switch
+      // may have replaced `inflight` with a newer discovery mid-flight.
+      if (inflight === pending) inflight = null;
     }
   })();
-
-  return inflight;
+  inflight = pending;
+  return pending;
 }
 
 /**
@@ -134,6 +196,7 @@ export async function getNativeAssetId(): Promise<string> {
  * (thumbnail, display name) should merge this with the hardcoded MIDEN_METADATA.
  */
 export function getNativeAssetMetadataSync(): NativeAssetChainMetadata | null {
+  invalidateOnEndpointChange();
   return metaMemCache;
 }
 
@@ -144,21 +207,24 @@ export function getNativeAssetMetadataSync(): NativeAssetChainMetadata | null {
  * — callers should fall back to hardcoded defaults.
  */
 export async function getNativeAssetMetadata(): Promise<NativeAssetChainMetadata | null> {
+  invalidateOnEndpointChange();
   if (metaMemCache) return metaMemCache;
   if (metaInflight) return metaInflight;
 
-  metaInflight = (async () => {
+  let pending!: Promise<NativeAssetChainMetadata | null>;
+  pending = (async () => {
     try {
       await hydrateFromStorage();
       if (metaMemCache) return metaMemCache;
       const id = await getNativeAssetId();
       return await discoverMetadata(id);
     } finally {
-      metaInflight = null;
+      // Only clear the slot if this promise still owns it (see getNativeAssetId).
+      if (metaInflight === pending) metaInflight = null;
     }
   })();
-
-  return metaInflight;
+  metaInflight = pending;
+  return pending;
 }
 
 /**
@@ -199,6 +265,7 @@ export async function resetNativeAssetCache(): Promise<void> {
   hydrated = false;
   inflight = null;
   metaInflight = null;
+  cachedForScope = null;
   try {
     await Promise.all([putToStorage(idCacheKey(), null), putToStorage(metaCacheKey(), null)]);
   } catch {

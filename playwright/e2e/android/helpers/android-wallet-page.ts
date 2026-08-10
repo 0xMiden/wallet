@@ -187,10 +187,10 @@ export class AndroidWalletPage implements WalletPage {
     const address = await this.cdp.eval<string>(
       `var c = document.querySelector('[data-testid="receive-page"]'); ` +
         `if (!c) return ''; ` +
-        `var m = (c.textContent || '').match(/mtst\\S+/); ` +
+        `var m = (c.textContent || '').match(/m[a-z]{1,4}1\\S+/); ` +
         `return m ? m[0] : '';`
     );
-    if (!address) throw new Error('AndroidWalletPage.getAccountAddress: no mtst-prefixed address found');
+    if (!address) throw new Error('AndroidWalletPage.getAccountAddress: no miden-prefixed address found');
     await this.navigateHome();
     return address.trim();
   }

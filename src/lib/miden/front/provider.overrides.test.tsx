@@ -32,7 +32,15 @@ jest.mock('components/NoteToastProvider', () => ({ NoteToastProvider: () => null
 jest.mock('./NativeNoteAutoConsumeManager', () => ({ NativeNoteAutoConsumeManager: () => null }));
 jest.mock('./SwapSettlementManager', () => ({ SwapSettlementManager: () => null }));
 
+import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
+
 import { MidenProvider } from './provider';
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  loadEndpointOverrides.mockResolvedValue(undefined);
+  ensureSdkWasmReady.mockResolvedValue(undefined);
+});
 
 it('loads endpoint overrides before rendering children', async () => {
   render(
@@ -48,4 +56,26 @@ it('loads endpoint overrides before rendering children', async () => {
   expect(loadEndpointOverrides.mock.invocationCallOrder[0]!).toBeLessThan(
     ensureSdkWasmReady.mock.invocationCallOrder[0]!
   );
+});
+
+it('primes native-asset discovery only AFTER endpoint overrides resolve (not against the build default)', async () => {
+  // Hold the override load open so we can observe what runs before it resolves.
+  let resolveLoad!: () => void;
+  loadEndpointOverrides.mockImplementationOnce(() => new Promise<void>(res => (resolveLoad = () => res())));
+
+  render(
+    <MidenProvider>
+      <div data-testid="child" />
+    </MidenProvider>
+  );
+
+  // Overrides haven't resolved yet — discovery must NOT have been primed
+  // (priming here would target the build-default node, caching the wrong
+  // network's native faucet id on a custom dev-settings network).
+  await Promise.resolve();
+  expect(primeNativeAssetId).not.toHaveBeenCalled();
+
+  // Once overrides resolve, priming runs against the now-current endpoint.
+  resolveLoad();
+  await waitFor(() => expect(primeNativeAssetId).toHaveBeenCalledTimes(1));
 });

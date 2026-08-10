@@ -54,20 +54,25 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
     let cancelled = false;
     (async () => {
       await loadEndpointOverrides();
+      // Prime native-asset-id discovery on every page mount. On extension this
+      // also happens on the SW side, but the SW can be killed before the popup
+      // opens, so this is our source-of-truth for popup/fullpage/mobile/desktop.
+      // Cache-hit on repeat opens; one RPC call on first install per network.
+      //
+      // MUST run AFTER loadEndpointOverrides() so discovery targets the
+      // configured (possibly overridden) node, not the build-default endpoint —
+      // mirrors the service worker's load-then-prime order (back/main.ts). When
+      // it primed in a separate effect, a warm-WASM page (e.g. the handed-off
+      // side panel, where ensureSdkWasmReady resolves instantly) captured the
+      // build-default RPC before the override loaded and cached the wrong
+      // network's native faucet id, so balances showed a mismatched token.
+      if (!cancelled) primeNativeAssetId();
       await ensureSdkWasmReady();
       if (!cancelled) setReady(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  // Prime native-asset-id discovery on every page mount. On extension this
-  // also happens on the SW side, but the SW can be killed before the popup
-  // opens, so this is our source-of-truth for popup/fullpage/mobile/desktop.
-  // Cache-hit on repeat opens; one RPC call on first install per network.
-  useEffect(() => {
-    primeNativeAssetId();
   }, []);
 
   // Mirror the settings the extension service worker needs (auto-consume + delegated
