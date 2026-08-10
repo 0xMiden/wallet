@@ -68,13 +68,18 @@ function emit(id: string) {
 async function hydrateFromStorage(): Promise<void> {
   if (hydrated) return;
   hydrated = true;
+  const idKey = idCacheKey();
+  const metaKey = metaCacheKey();
   try {
     const [storedId, storedMeta] = await Promise.all([
-      fetchFromStorage<string>(idCacheKey()),
-      fetchFromStorage<NativeAssetChainMetadata>(metaCacheKey())
+      fetchFromStorage<string>(idKey),
+      fetchFromStorage<NativeAssetChainMetadata>(metaKey)
     ]);
-    if (storedId && !memCache) memCache = storedId;
-    if (storedMeta && !metaMemCache) metaMemCache = storedMeta;
+    // Only publish if the effective endpoint hasn't switched since we read —
+    // same guard as discover(). A hydrate parked across a network switch must
+    // not seed the old node's faucet id into the shared in-memory cache.
+    if (idKey === idCacheKey() && storedId && !memCache) memCache = storedId;
+    if (metaKey === metaCacheKey() && storedMeta && !metaMemCache) metaMemCache = storedMeta;
   } catch (err) {
     console.warn('native-asset storage read failed', err);
   }
@@ -162,17 +167,20 @@ export async function getNativeAssetId(): Promise<string> {
   if (memCache) return memCache;
   if (inflight) return inflight;
 
-  inflight = (async () => {
+  let pending!: Promise<string>;
+  pending = (async () => {
     try {
       await hydrateFromStorage();
       if (memCache) return memCache;
       return await discover();
     } finally {
-      inflight = null;
+      // Only clear the slot if this promise still owns it — an endpoint switch
+      // may have replaced `inflight` with a newer discovery mid-flight.
+      if (inflight === pending) inflight = null;
     }
   })();
-
-  return inflight;
+  inflight = pending;
+  return pending;
 }
 
 /**
@@ -196,18 +204,20 @@ export async function getNativeAssetMetadata(): Promise<NativeAssetChainMetadata
   if (metaMemCache) return metaMemCache;
   if (metaInflight) return metaInflight;
 
-  metaInflight = (async () => {
+  let pending!: Promise<NativeAssetChainMetadata | null>;
+  pending = (async () => {
     try {
       await hydrateFromStorage();
       if (metaMemCache) return metaMemCache;
       const id = await getNativeAssetId();
       return await discoverMetadata(id);
     } finally {
-      metaInflight = null;
+      // Only clear the slot if this promise still owns it (see getNativeAssetId).
+      if (metaInflight === pending) metaInflight = null;
     }
   })();
-
-  return metaInflight;
+  metaInflight = pending;
+  return pending;
 }
 
 /**

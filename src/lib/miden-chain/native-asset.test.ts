@@ -156,6 +156,9 @@ describe('native-asset module', () => {
   });
 
   it('does not let a discovery in flight across an endpoint switch clobber the new node value', async () => {
+    const seen: string[] = [];
+    const unsub = onNativeAssetChanged(id => seen.push(id));
+
     // Network A discovery starts, but its block-header fetch is held open.
     _g.__nativeAssetTest.rpcUrl = 'rpc-A';
     let resolveA: (h: any) => void = () => {};
@@ -166,6 +169,9 @@ describe('native-asset module', () => {
     // Let the discovery advance past hydration and park at the (held) block-header
     // fetch — this is where it snapshots the rpc-A cache key.
     await new Promise(resolve => setTimeout(resolve, 0));
+    // Pin the park point: A must have reached the block-header call (rpcCalls===1)
+    // before the switch, otherwise the setTimeout(0) flush landed somewhere else.
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
 
     // Switch to network B before A resolves; B discovers immediately.
     _g.__nativeAssetTest.rpcUrl = 'rpc-B';
@@ -174,10 +180,50 @@ describe('native-asset module', () => {
     expect(getNativeAssetIdSync()).toBeNull(); // guard drops the in-flight A state
     expect(await getNativeAssetId()).toBe('bech32-faucet-B');
 
-    // Let the stale A discovery finish LAST — it must not overwrite memCache.
+    // Let the stale A discovery finish LAST — it must not overwrite memory,
+    // must not clobber B's persisted entry, and must not emit the stale id.
     resolveA({ feeFaucetId: () => ({ _id: 'faucet-A' }) });
     await expect(pA).resolves.toBe('bech32-faucet-A'); // the A caller still gets A
     expect(getNativeAssetIdSync()).toBe('bech32-faucet-B'); // memory still B
+    // Persisted layer: B's entry intact, A's landed under A's own (snapshotted) key.
+    expect(_g.__nativeAssetTest.storage['native_asset_id:v3:rpc-B']).toBe('bech32-faucet-B');
+    expect(_g.__nativeAssetTest.storage['native_asset_id:v3:rpc-A']).toBe('bech32-faucet-A');
+    // Listeners never saw the stale A id after the switch.
+    expect(seen).not.toContain('bech32-faucet-A');
+    expect(seen).toContain('bech32-faucet-B');
+    unsub();
+  });
+
+  it('does not let a hydrate read parked across an endpoint switch seed the old node id', async () => {
+    // A persisted entry exists for node A.
+    _g.__nativeAssetTest.storage['native_asset_id:v3:rpc-A'] = 'stored-A';
+    // Hold node A's persisted-id read open so hydration parks there.
+    let releaseAread: () => void = () => {};
+    _g.__nativeAssetTest.fetchFromStorage.mockImplementation(
+      (key: string) =>
+        new Promise(res => {
+          if (key === 'native_asset_id:v3:rpc-A') {
+            releaseAread = () => res(_g.__nativeAssetTest.storage[key] ?? null);
+          } else {
+            res(_g.__nativeAssetTest.storage[key] ?? null);
+          }
+        })
+    );
+
+    _g.__nativeAssetTest.rpcUrl = 'rpc-A';
+    const pA = getNativeAssetId(); // parks in hydrate at node A's persisted-id read
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    // Switch to node B and advance the endpoint binding.
+    _g.__nativeAssetTest.rpcUrl = 'rpc-B';
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'faucet-B' }) };
+    expect(getNativeAssetIdSync()).toBeNull();
+
+    // Release node A's stale read LAST — its hydrate write must be dropped, and the
+    // resolve must fall through to a fresh discovery against node B.
+    releaseAread();
+    await expect(pA).resolves.toBe('bech32-faucet-B');
+    expect(getNativeAssetIdSync()).toBe('bech32-faucet-B'); // NOT the stale 'stored-A'
   });
 
   it('keys the persisted cache by RPC URL so distinct nodes do not collide', async () => {
@@ -201,6 +247,31 @@ describe('native-asset module', () => {
 
     expect(getNativeAssetMetadataSync()).toBeNull();
     expect(await getNativeAssetMetadata()).toEqual({ symbol: 'BBB', decimals: 8 });
+    // Self-standing: the id was re-discovered to B (not the stale A id fed to metadata).
+    expect(_g.__nativeAssetTest.fetchTokenMetadata).toHaveBeenCalledWith('bech32-B');
+  });
+
+  it('does not let a metadata fetch in flight across an endpoint switch clobber the new node value', async () => {
+    // Network A: id resolves immediately, but the metadata fetch is held open.
+    _g.__nativeAssetTest.rpcUrl = 'rpc-A';
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'A' }) };
+    let resolveMeta: (v: any) => void = () => {};
+    _g.__nativeAssetTest.fetchTokenMetadata.mockReturnValue(new Promise(res => (resolveMeta = res)));
+    const pA = getNativeAssetMetadata(); // parked in discoverMetadata against node A
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    // Switch to network B before A's metadata resolves; B resolves immediately.
+    _g.__nativeAssetTest.rpcUrl = 'rpc-B';
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'B' }) };
+    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({ base: { symbol: 'BBB', decimals: 8, name: 'B' } });
+    expect(getNativeAssetMetadataSync()).toBeNull();
+    expect(await getNativeAssetMetadata()).toEqual({ symbol: 'BBB', decimals: 8 });
+
+    // Let the stale A metadata resolve LAST — it must not overwrite memory or B's entry.
+    resolveMeta({ base: { symbol: 'AAA', decimals: 6, name: 'A' } });
+    await pA;
+    expect(getNativeAssetMetadataSync()).toEqual({ symbol: 'BBB', decimals: 8 });
+    expect(_g.__nativeAssetTest.storage['native_asset_meta:v3:rpc-B']).toEqual({ symbol: 'BBB', decimals: 8 });
   });
 
   it('fires onNativeAssetChanged listeners when discovery completes', async () => {
