@@ -1,4 +1,4 @@
-import { GUARDIAN_OPTIONS } from './networks-config';
+import { GUARDIAN_BRAND_NAME, GUARDIAN_OPTIONS } from './networks-config';
 
 /**
  * #464 — Guardian provider display names must be spelled canonically and come
@@ -26,6 +26,10 @@ describe('GUARDIAN_OPTIONS canonical provider names (#464)', () => {
 
   it('keeps Gateway as the canonical operator brand', () => {
     expect(byId('gateway').operatedBy).toBe('Gateway');
+  });
+
+  it('derives descriptive names from the canonical brand (no drifting literal)', () => {
+    expect(byId('gateway').name).toBe(`${GUARDIAN_BRAND_NAME.gateway} Operator`);
   });
 
   it('never uses a non-canonical spelling for any provider', () => {

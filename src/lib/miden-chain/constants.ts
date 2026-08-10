@@ -61,7 +61,7 @@ export function getGuardianOptionsForNetwork(
   if (network === MIDEN_NETWORK_NAME.LOCALNET && process.env.MIDEN_E2E_TEST === 'true') {
     options.push({
       id: 'open-zeppelin-b',
-      name: 'OpenZeppelin B',
+      name: `${GUARDIAN_BRAND_NAME.openZeppelin} B`,
       operatedBy: GUARDIAN_BRAND_NAME.openZeppelin,
       location: 'US-EAST',
       endpoint: 'http://localhost:3001'

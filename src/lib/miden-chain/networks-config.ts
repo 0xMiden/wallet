@@ -123,7 +123,7 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
   },
   {
     id: 'gateway',
-    name: 'Gateway Operator',
+    name: `${GUARDIAN_BRAND_NAME.gateway} Operator`,
     operatedBy: GUARDIAN_BRAND_NAME.gateway,
     location: 'EU-NORTH',
     endpoint: new Map<MIDEN_NETWORK_NAME, string>([
