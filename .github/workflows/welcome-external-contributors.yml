@@ -10,33 +10,44 @@ name: Welcome external contributors
 # `permissions:` block below — so the comment API call would 403 on exactly
 # the PRs we care about (external ones). `pull_request_target` runs in the
 # BASE repo's context with a write-capable token, which is what "comment on a
-# fork PR" requires. Same reasoning as `check-linked-web-sdk-pr.yml`.
+# fork PR" requires. Same reasoning as `check-linked-web-sdk-pr.yml`. The
+# explicit `permissions:` block grants `pull-requests: write` even when the
+# repo/org default token permission is read-only (an explicit block overrides
+# the default; it does not merely cap it).
 #
 # ── Safety ───────────────────────────────────────────────────────────────────
 # `pull_request_target` is only dangerous when the workflow EXECUTES
 # PR-supplied code (it runs with the base repo's secrets/token). This workflow
 # does NOT check out or run any PR code, install dependencies, or read any
 # secret beyond the default token — it only reads event metadata and posts a
-# sticky comment. There is no injection surface: the one piece of PR-supplied
-# text used is the author's login (`user.login`, a GitHub handle: constrained
-# to `[A-Za-z0-9-]`), interpolated into the comment body via the Actions
-# expression engine (never into a shell). No PR title/body/branch is used.
+# comment. There is no injection surface: the one piece of PR-supplied text
+# used (the author's login) is read from the event payload INSIDE the script at
+# runtime via `context.payload` — never interpolated into the workflow YAML or
+# a shell — and a login is constrained to `[A-Za-z0-9-]` regardless.
 #
 # ── Robustness (so we never revisit for edge cases) ──────────────────────────
 #   • Fork PRs         → handled by `pull_request_target` (write token).
-#   • Insiders/bots    → filtered out by `author_association` + `user.type`.
-#   • Duplicate posts  → the sticky `header` upserts one comment, so a re-run
-#                        or a `reopened` event updates in place, never dupes.
-#   • Comment failure  → `continue-on-error` (the comment is never a blocker).
-#   • Event races      → `concurrency` serializes runs per PR.
-#   • Permissions      → explicit `pull-requests: write`, the only scope needed.
-#   • No PAT/secret    → unlike the translation-push workflow (which needs a PAT
-#                        so its *pushed commit* re-triggers CI), a *comment* has
-#                        no such constraint; the default token suffices.
+#   • Insiders/bots    → filtered out by `author_association`, a fork check,
+#                        and `user.type`.
+#   • Duplicate posts  → the script upserts a single comment keyed by a hidden
+#                        HTML-comment marker, so a re-run / `reopened` /
+#                        `ready_for_review` updates in place, never dupes.
+#   • Transient errors → each API call retries (rate limit / 5xx / blip).
+#   • Hard failure     → NOT swallowed. If all retries fail the step fails
+#                        (red ✗, re-runnable) instead of silently posting
+#                        nothing — a dropped welcome must be visible, since
+#                        `opened` only fires once. (This workflow is not a
+#                        required check, so a red ✗ never blocks the PR.)
+#   • Event races      → `concurrency` serializes runs per PR (the upsert's
+#                        list-then-write is not atomic; the concurrency group
+#                        is what guarantees exactly-one — keep it).
+#   • No PAT/secret    → unlike the translation-push workflow (which needs a
+#                        PAT so its *pushed commit* re-triggers CI), a *comment*
+#                        has no such constraint; the default token suffices.
 
 on:
   pull_request_target:
-    types: [opened, reopened]
+    types: [opened, reopened, ready_for_review]
 
 permissions:
   pull-requests: write
@@ -49,40 +60,90 @@ jobs:
   welcome:
     name: Post welcome + airdrop notice
     runs-on: ubuntu-latest
-    # EXTERNAL contributors only. `author_association` is OWNER / MEMBER /
-    # COLLABORATOR for people with access; anyone else (CONTRIBUTOR /
-    # FIRST_TIME_CONTRIBUTOR / FIRST_TIMER / NONE / MANNEQUIN) is external.
-    # Also skip bots (Dependabot etc.) — they aren't contributors to welcome.
+    # EXTERNAL contributors only:
+    #   • author_association is OWNER / MEMBER / COLLABORATOR for people with
+    #     access; anyone else (CONTRIBUTOR / FIRST_TIME_CONTRIBUTOR /
+    #     FIRST_TIMER / NONE / MANNEQUIN — or a future value) falls through to
+    #     "welcomed", so we never MISS a real external contributor.
+    #   • the fork check (`head.repo.full_name != <this repo>`) additionally
+    #     skips insiders who push a branch to the base repo — including a
+    #     private org member who surfaces as `author_association == NONE`.
+    #     External contributors can only ever open from a fork, so this never
+    #     skips a real one.
+    #   • skip bots (Dependabot / Renovate etc.).
     if: >-
       github.event.pull_request.author_association != 'OWNER' &&
       github.event.pull_request.author_association != 'MEMBER' &&
       github.event.pull_request.author_association != 'COLLABORATOR' &&
+      github.event.pull_request.head.repo.full_name != github.repository &&
       github.event.pull_request.user.type != 'Bot'
     steps:
       - name: Post welcome + airdrop policy comment
-        continue-on-error: true
-        uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # v2.9.4
+        uses: actions/github-script@v7
         with:
-          header: external-contributor-welcome
-          number: ${{ github.event.pull_request.number }}
-          message: |
-            ### 👋 Thanks for contributing to Miden, @${{ github.event.pull_request.user.login }}!
+          script: |
+            const MARKER = '<!-- external-contributor-welcome -->';
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+            const issue_number = pr.number;
+            const login = pr.user.login;
 
-            We really appreciate you taking the time to open this pull request. Miden is
-            building an edge-first, zero-knowledge blockchain, and thoughtful contributions
-            from the community are a big part of how it gets better. A maintainer will review
-            your changes as soon as they can — in the meantime, please make sure the CI checks
-            are green and that your change follows the repository's contribution guidelines.
+            const body = [
+              MARKER,
+              `### 👋 Thanks for contributing to Miden, @${login}!`,
+              '',
+              'We really appreciate you taking the time to open this pull request. Miden is',
+              'building an edge-first, zero-knowledge blockchain, and thoughtful contributions',
+              'from the community are a big part of how it gets better. A maintainer will review',
+              'your changes as soon as they can — in the meantime, please make sure the CI checks',
+              "are green and that your change follows the repository's contribution guidelines.",
+              '',
+              "We're genuinely excited to have you here. 🧡",
+              '',
+              '---',
+              '',
+              '**One thing we want to be transparent about up front:** contributing to this',
+              'repository will **not** make you eligible for any token airdrop, allocation, or',
+              'other reward — **not now, and not at any point in the future.** Please contribute',
+              "because you're interested in the technology and the project, not in expectation of",
+              'an airdrop. Anyone claiming that pull requests will be rewarded with tokens is not',
+              'speaking for the Miden team.',
+              '',
+              "Thanks again for being part of the community — we're glad you chose to contribute. 🚀"
+            ].join('\n');
 
-            We're genuinely excited to have you here. 🧡
+            // Retry transient failures (secondary rate limits, 5xx, blips) so a
+            // single hiccup on the once-firing `opened` event doesn't silently
+            // drop the welcome. Throws (fails the step, visibly) if all attempts fail.
+            const retry = async (label, fn) => {
+              let lastErr;
+              for (let attempt = 1; attempt <= 4; attempt++) {
+                try {
+                  return await fn();
+                } catch (err) {
+                  lastErr = err;
+                  core.warning(`${label} failed (attempt ${attempt}/4): ${err.message}`);
+                  if (attempt < 4) await new Promise(r => setTimeout(r, 3000 * attempt));
+                }
+              }
+              throw lastErr;
+            };
 
-            ---
+            // Idempotent upsert: find our prior comment by the hidden marker,
+            // update it in place if present, otherwise create it.
+            const comments = await retry('list comments', () =>
+              github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 })
+            );
+            const existing = comments.find(c => (c.body || '').includes(MARKER));
 
-            **One thing we want to be transparent about up front:** contributing to this
-            repository will **not** make you eligible for any token airdrop, allocation, or
-            other reward — **not now, and not at any point in the future.** Please contribute
-            because you're interested in the technology and the project, not in expectation of
-            an airdrop. Anyone claiming that pull requests will be rewarded with tokens is not
-            speaking for the Miden team.
-
-            Thanks again for being part of the community — we're glad you chose to contribute. 🚀
+            if (existing) {
+              await retry('update comment', () =>
+                github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body })
+              );
+              core.info(`Updated existing welcome comment ${existing.id} on PR #${issue_number}.`);
+            } else {
+              await retry('create comment', () =>
+                github.rest.issues.createComment({ owner, repo, issue_number, body })
+              );
+              core.info(`Posted welcome comment on PR #${issue_number}.`);
+            }
