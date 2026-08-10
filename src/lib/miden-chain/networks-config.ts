@@ -91,6 +91,18 @@ export const MIDEN_NETWORKS: MidenNetwork[] = [
 ];
 
 /**
+ * Canonical Guardian provider brand names — the single source of truth for how
+ * each operator is spelled in the UI (onboarding, Settings, Activity, recovery,
+ * and success/error copy). Keeps spellings consistent (#464): "OpenZeppelin",
+ * not "Open Zeppelin"/"Open-Zeppelin"; "LambdaClass", not "Lambda Class"/"Lambda".
+ */
+export const GUARDIAN_BRAND_NAME = {
+  openZeppelin: 'OpenZeppelin',
+  gateway: 'Gateway',
+  lambdaClass: 'LambdaClass'
+} as const;
+
+/**
  * The Guardian providers a user can choose from during onboarding or when
  * switching their Guardian. Each provider maps the networks it supports to its
  * endpoint on that network (OpenZeppelin runs on both testnet and devnet; the
@@ -99,8 +111,8 @@ export const MIDEN_NETWORKS: MidenNetwork[] = [
 export const GUARDIAN_OPTIONS: GuardianOption[] = [
   {
     id: 'open-zeppelin',
-    name: 'Open-Zeppelin',
-    operatedBy: 'Open-Zeppelin',
+    name: GUARDIAN_BRAND_NAME.openZeppelin,
+    operatedBy: GUARDIAN_BRAND_NAME.openZeppelin,
     location: 'US-EAST',
     endpoint: new Map<MIDEN_NETWORK_NAME, string>([
       [MIDEN_NETWORK_NAME.TESTNET, 'https://guardian.openzeppelin.com'],
@@ -112,7 +124,7 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
   {
     id: 'gateway',
     name: 'Gateway Operator',
-    operatedBy: 'Gateway',
+    operatedBy: GUARDIAN_BRAND_NAME.gateway,
     location: 'EU-NORTH',
     endpoint: new Map<MIDEN_NETWORK_NAME, string>([
       [MIDEN_NETWORK_NAME.TESTNET, 'https://miden-guardian.dev.eu-north-3.gateway.fm']
@@ -120,8 +132,8 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
   },
   {
     id: 'lambda-class',
-    name: 'Lambda Class',
-    operatedBy: 'Lambda Class',
+    name: GUARDIAN_BRAND_NAME.lambdaClass,
+    operatedBy: GUARDIAN_BRAND_NAME.lambdaClass,
     location: 'EU-WEST',
     endpoint: new Map<MIDEN_NETWORK_NAME, string>([
       [MIDEN_NETWORK_NAME.TESTNET, 'https://miden-guardian.lambdaclass.com']

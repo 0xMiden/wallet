@@ -8,6 +8,7 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import {
   DEFAULT_NETWORK,
+  GUARDIAN_BRAND_NAME,
   GUARDIAN_OPTIONS,
   MIDEN_EXPLORER_ENDPOINTS,
   MIDEN_GUARDIAN_ENDPOINTS,
@@ -61,7 +62,7 @@ export function getGuardianOptionsForNetwork(
     options.push({
       id: 'open-zeppelin-b',
       name: 'OpenZeppelin B',
-      operatedBy: 'Open-Zeppelin',
+      operatedBy: GUARDIAN_BRAND_NAME.openZeppelin,
       location: 'US-EAST',
       endpoint: 'http://localhost:3001'
     });

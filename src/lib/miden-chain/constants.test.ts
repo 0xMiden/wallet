@@ -71,8 +71,8 @@ describe('miden-chain/constants', () => {
         expect(getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.DEVNET)).toEqual([
           {
             id: 'open-zeppelin',
-            name: 'Open-Zeppelin',
-            operatedBy: 'Open-Zeppelin',
+            name: 'OpenZeppelin',
+            operatedBy: 'OpenZeppelin',
             location: 'US-EAST',
             endpoint: 'https://guardian-stg.openzeppelin.com'
           }
