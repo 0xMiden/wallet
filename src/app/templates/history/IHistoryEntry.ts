@@ -6,7 +6,8 @@ import {
   IEarnWithdrawPhase,
   ITransactionIcon,
   ITransactionStatus,
-  ITransactionType
+  ITransactionType,
+  ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 
 export interface IHistoryEntry {
@@ -56,6 +57,10 @@ export interface IHistoryEntry {
   faucetId?: string;
   blockNumber?: number;
   outputNoteIds?: string[];
+
+  // Guardian switch audit trail. The previous endpoint is absent on legacy rows.
+  previousGuardianEndpoint?: ISwitchGuardianExtraInputs['previousGuardianEndpoint'];
+  newGuardianEndpoint?: ISwitchGuardianExtraInputs['newGuardianEndpoint'];
 
   // `bridged-send` metadata (from `extraInputs`) for the activity detail view.
   bridgeProvider?: IBridgeProvider;

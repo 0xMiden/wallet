@@ -182,7 +182,17 @@ jobs:
       # Built for a GENERIC simulator destination (see test:e2e:mobile:build), so
       # it doesn't need a concrete booted device. E2E_EVM_RPC_URL is baked here.
       - name: Build iOS app
-        run: yarn test:e2e:mobile:build
+        # Self-heal the recurring GitHub macOS-runner SwiftPM cache
+        # corruption ("xcodebuild: error: Could not resolve package
+        # dependencies: ... org.swift.swiftpm/repositories/<pkg> ... No
+        # such file or directory"): on a failed build, wipe the corrupt
+        # SwiftPM cache + derived data and retry once before failing.
+        run: |
+          yarn test:e2e:mobile:build || {
+            echo "::warning::iOS build failed; clearing SwiftPM cache (runner cache corruption) and retrying once"
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm" ios/App/build
+            yarn test:e2e:mobile:build
+          }
 
       - name: Run bridge-IN deposit E2E (mobile, testnet + local Anvil)
         id: e2e

@@ -13,6 +13,8 @@
 
 import { TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
+import { WalletType } from 'screens/onboarding/types';
+
 import {
   completeReplaceHotKeyTransaction,
   completeSwitchGuardianTransaction,
@@ -188,7 +190,19 @@ const makeClientApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(as
 const makeGuardianProvider = (isGuardian: boolean) => {
   mockIsGuardianAccount.mockResolvedValue(isGuardian);
   return {
-    getAccounts: async () => [],
+    getAccounts: async () =>
+      isGuardian
+        ? [
+            {
+              publicKey: 'acc-1',
+              name: 'Guardian account',
+              isPublic: true,
+              type: WalletType.Guardian,
+              hdIndex: 0,
+              guardianEndpoint: 'https://old.guardian'
+            }
+          ]
+        : [],
     getPublicKeyForCommitment: async () => 'pk',
     signWord: async () => 'sig'
   };
@@ -211,6 +225,7 @@ describe('initiateSwitchGuardianTransaction', () => {
     expect(row.accountId).toBe('acc-1');
     expect(row.type).toBe('switch-guardian');
     const extra = row.extraInputs as Record<string, unknown>;
+    expect(extra.previousGuardianEndpoint).toBe('https://old.guardian');
     expect(extra.newGuardianEndpoint).toBe('https://new.guardian');
   });
 

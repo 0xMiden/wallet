@@ -3,10 +3,12 @@ import {
   isGuardianAccount,
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
+import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import * as Repo from 'lib/miden/repo';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
+import { WalletType } from 'screens/onboarding/types';
 
 import { queueNoteImport } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
@@ -27,6 +29,7 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { toNoteTypeString } from '../helpers';
+import { sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { ConsumableNote, NoteType as NoteTypeString } from '../types';
 
@@ -416,10 +419,18 @@ export const initiateSwitchGuardianTransaction = async (
   delegateTransaction: boolean | undefined,
   guardianProvider: GuardianAccountProvider
 ): Promise<string> => {
-  if (!(await isGuardianAccount(accountId, guardianProvider))) {
+  const accounts = await guardianProvider.getAccounts();
+  const account = accounts.find(candidate => sameWalletAccountId(candidate.publicKey, accountId));
+  if (!account || account.type !== WalletType.Guardian) {
     throw new Error('Switch guardian is only supported for Guardian accounts');
   }
-  const dbTransaction = new SwitchGuardianTransaction(accountId, newGuardianEndpoint, delegateTransaction);
+  const previousGuardianEndpoint = await resolveGuardianEndpoint(account);
+  const dbTransaction = new SwitchGuardianTransaction(
+    accountId,
+    newGuardianEndpoint,
+    delegateTransaction,
+    previousGuardianEndpoint
+  );
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;
 };

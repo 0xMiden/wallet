@@ -5,7 +5,22 @@
 ### Fixes
 
 - [FIX][all] **Token metadata fetched during sync is now persisted immediately.** Subsequent syncs reuse the existing metadata cache instead of repeatedly requesting the same faucet account from the node.
+- [FIX][all] **A mistyped recipient address is rejected in the Send screen instead of failing after guardian approval.** Miden addresses are now validated with the SDK's full bech32 decode (`Address.fromBech32`) as you type, scan, or pick a contact — previously only the `mtst1`/`mm1`/`mdev1` prefix was checked, so a typo'd address sailed through to the transaction pipeline and surfaced as a bech32 error in Activity. A well-formed address for a different Miden network (e.g. a mainnet `mm1…` address on a testnet build) gets its own "different Miden network" message.
+### Changes
+
+- [CHANGE][all] **Every Guardian switch now requires fresh device authentication and leaves a provider audit trail.** Hardware-protected wallets prompt with their platform authentication, while passcode/password wallets verify the credential before anything is queued; cancellation or failed authentication leaves the Guardian unchanged. Guardian Settings now shows the active operator, endpoint, region, sync recency, and availability; the redesigned review clearly separates the current and destination providers with dark-theme-safe contrast. Activity and transaction details show the same provider transition (including custom hostnames and legacy `Unknown` sources) for pending, completed, and failed switch attempts.
+### Fixes
+
+- [FIX][all] **Production (minified) builds no longer crash on load with "React is not defined."** The SVG→React (SVGR) transform in the vite configs generated components with the automatic JSX runtime (importing nothing from `react`), but the bundler recompiles those `moduleType: 'jsx'` modules with the *classic* runtime (tsconfig `jsx: "react"`, which neither the `esbuild` nor `oxc` JSX options override in rolldown-vite) — emitting `React.createElement` calls against an undefined `React`. Harmless in unminified dev builds (a stray `React` leaked into the chunk) but every minified production build crashed on first render. SVGR now emits the classic runtime so each generated component imports `React`, matching the compile. Applied to the extension, mobile, and desktop configs.
+
 - [FIX][all] **Private-note delivery no longer silently fails on fast chains.** The wallet relayed a private note's transport hint *after* waiting for the transaction to commit, so the hint (the client's sync height) could already be at or past the note's commitment block — the recipient scans forward from the hint and would never find the note. The note is now relayed *before* the commit wait (the SDK's prompt-relay flow), so the hint stays below the commitment block and the recipient picks the note up when it lands; the commit wait is preserved so `Completed` status still requires on-chain confirmation. Latent on testnet (slow blocks kept the sync height ≈ the commitment block at relay time); reproduced deterministically on a fast devnet.
+
+### Changes
+
+- [CHANGE][all] **The balance card account footer now matches the refreshed design.** The footer labels the truncated value as an address, uses the compact outlined copy icon, and replaces the overflow glyph with a settings gear whose color follows the card's secondary tone; the account drawer's Settings action also keeps a readable foreground in dark mode.
+### Features
+
+- Add hidden developer endpoint configuration (7-tap the Welcome logo during onboarding) to override RPC / prover / note-transport / faucet / explorer / guardian endpoints and network ID; read-only view with reset-to-defaults in Settings.
 
 ## 1.15.19 (2026-08-05)
 
