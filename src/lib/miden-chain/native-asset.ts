@@ -89,13 +89,22 @@ async function discover(): Promise<string> {
   const header = await rpc.getBlockHeaderByNumber(undefined);
   const accountId = header.feeFaucetId();
   const bech32 = getBech32AddressFromAccountId(accountId);
-  memCache = bech32;
+  // Only publish to the in-memory cache / listeners if the effective endpoint
+  // hasn't switched since we queried. Otherwise a slow discovery against the
+  // OLD node could resolve after a network switch and clobber `memCache` with
+  // the wrong network's faucet id — and because the guard has already advanced
+  // `cachedForRpc` to the new node, it would never fire again to correct it.
+  // The persisted write below still lands under this node's own snapshotted
+  // key, and the caller that requested under the old node still gets its value.
+  if (idCacheKey() === cacheKey) {
+    memCache = bech32;
+    emit(bech32);
+  }
   try {
     await putToStorage(cacheKey, bech32);
   } catch (err) {
     console.warn('native-asset storage write failed', err);
   }
-  emit(bech32);
   return bech32;
 }
 
@@ -110,7 +119,11 @@ async function discoverMetadata(id: string): Promise<NativeAssetChainMetadata | 
   try {
     const { base } = await fetchTokenMetadata(id);
     const meta: NativeAssetChainMetadata = { symbol: base.symbol, decimals: base.decimals };
-    metaMemCache = meta;
+    // Same in-memory guard as `discover` — don't let a metadata fetch that was
+    // in flight across an endpoint switch publish the old node's metadata.
+    if (metaCacheKey() === cacheKey) {
+      metaMemCache = meta;
+    }
     try {
       await putToStorage(cacheKey, meta);
     } catch (err) {
@@ -135,11 +148,11 @@ export function getNativeAssetIdSync(): string | null {
 }
 
 /**
- * Returns the native asset ID for the current network.
+ * Returns the native asset ID for the current network (the effective RPC's node).
  *
  * Resolution order:
- *   1. in-memory cache (set once per process)
- *   2. persisted cache (`native_asset_id:v2:<network>` in platform key-value store)
+ *   1. in-memory cache (self-invalidated when the effective RPC changes)
+ *   2. persisted cache (`native_asset_id:v3:<rpcUrl>` in platform key-value store)
  *   3. fresh RPC fetch via `BlockHeader.feeFaucetId()`
  *
  * Single-flight: concurrent callers share one RPC round-trip.

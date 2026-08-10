@@ -4,6 +4,10 @@ const _g = globalThis as any;
 _g.__nativeAssetTest = {
   storage: {} as Record<string, any>,
   rpcHeader: null as any,
+  // When set, the RPC block-header call returns this (a promise a test can
+  // resolve manually) instead of `rpcHeader` — lets a test hold a discovery
+  // open across an endpoint switch.
+  deferHeader: null as any,
   rpcCalls: 0,
   // Effective RPC URL the cache keys are derived from. Tests flip this to
   // simulate a dev-settings network switch.
@@ -16,8 +20,9 @@ _g.__nativeAssetTest = {
 jest.mock('@miden-sdk/miden-sdk', () => ({
   RpcClient: class {
     async getBlockHeaderByNumber(_: any) {
-      (globalThis as any).__nativeAssetTest.rpcCalls++;
-      return (globalThis as any).__nativeAssetTest.rpcHeader;
+      const g = (globalThis as any).__nativeAssetTest;
+      g.rpcCalls++;
+      return g.deferHeader ?? g.rpcHeader;
     }
   }
 }));
@@ -60,6 +65,7 @@ beforeEach(async () => {
   for (const k of Object.keys(_g.__nativeAssetTest.storage)) delete _g.__nativeAssetTest.storage[k];
   _g.__nativeAssetTest.rpcCalls = 0;
   _g.__nativeAssetTest.rpcHeader = null;
+  _g.__nativeAssetTest.deferHeader = null;
   _g.__nativeAssetTest.rpcUrl = 'rpc-testnet';
   _g.__nativeAssetTest.fetchTokenMetadata.mockReset();
   _g.__nativeAssetTest.fetchFromStorage.mockReset();
@@ -147,6 +153,31 @@ describe('native-asset module', () => {
     expect(getNativeAssetIdSync()).toBeNull();
     expect(await getNativeAssetId()).toBe('bech32-faucet-B');
     expect(getNativeAssetIdSync()).toBe('bech32-faucet-B');
+  });
+
+  it('does not let a discovery in flight across an endpoint switch clobber the new node value', async () => {
+    // Network A discovery starts, but its block-header fetch is held open.
+    _g.__nativeAssetTest.rpcUrl = 'rpc-A';
+    let resolveA: (h: any) => void = () => {};
+    _g.__nativeAssetTest.deferHeader = new Promise(res => {
+      resolveA = res;
+    });
+    const pA = getNativeAssetId(); // in flight against node A
+    // Let the discovery advance past hydration and park at the (held) block-header
+    // fetch — this is where it snapshots the rpc-A cache key.
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    // Switch to network B before A resolves; B discovers immediately.
+    _g.__nativeAssetTest.rpcUrl = 'rpc-B';
+    _g.__nativeAssetTest.deferHeader = null;
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'faucet-B' }) };
+    expect(getNativeAssetIdSync()).toBeNull(); // guard drops the in-flight A state
+    expect(await getNativeAssetId()).toBe('bech32-faucet-B');
+
+    // Let the stale A discovery finish LAST — it must not overwrite memCache.
+    resolveA({ feeFaucetId: () => ({ _id: 'faucet-A' }) });
+    await expect(pA).resolves.toBe('bech32-faucet-A'); // the A caller still gets A
+    expect(getNativeAssetIdSync()).toBe('bech32-faucet-B'); // memory still B
   });
 
   it('keys the persisted cache by RPC URL so distinct nodes do not collide', async () => {
