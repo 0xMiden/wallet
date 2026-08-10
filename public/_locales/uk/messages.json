@@ -2428,6 +2428,10 @@
     "message": "Недійсний ідентифікатор облікового запису Miden",
     "englishSource": "Invalid Miden account ID"
   },
+  "midenAddressWrongNetwork": {
+    "message": "Ця адреса належить до іншої мережі Miden",
+    "englishSource": "This address belongs to a different Miden network"
+  },
   "cannotSendToSelf": {
     "message": "Ви не можете відправити на свою адресу",
     "englishSource": "You can't send to your own address"

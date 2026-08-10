@@ -528,6 +528,7 @@
   "noOtherAccounts": "No other accounts",
   "noOtherAccountsDescription": "You have not created any other accounts yet",
   "invalidMidenAccountId": "Invalid Miden account ID",
+  "midenAddressWrongNetwork": "This address belongs to a different Miden network",
   "cannotSendToSelf": "You can't send to your own address",
   "amountMustBeLessThanBalance": "Amount must be less than balance",
   "autoConsumeSettings": "Auto Consume MIDEN notes",

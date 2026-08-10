@@ -2425,6 +2425,10 @@
     "message": "ID de conta Miden inválido",
     "englishSource": "Invalid Miden account ID"
   },
+  "midenAddressWrongNetwork": {
+    "message": "Este endereço pertence a uma rede Miden diferente",
+    "englishSource": "This address belongs to a different Miden network"
+  },
   "cannotSendToSelf": {
     "message": "Você não pode enviar para seu próprio endereço",
     "englishSource": "You can't send to your own address"

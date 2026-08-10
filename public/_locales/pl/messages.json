@@ -2379,6 +2379,10 @@
     "message": "Nieprawidłowy identyfikator konta Miden",
     "englishSource": "Invalid Miden account ID"
   },
+  "midenAddressWrongNetwork": {
+    "message": "Ten adres należy do innej sieci Miden",
+    "englishSource": "This address belongs to a different Miden network"
+  },
   "cannotSendToSelf": {
     "message": "Nie możesz wysłać na swój własny adres",
     "englishSource": "You can't send to your own address"

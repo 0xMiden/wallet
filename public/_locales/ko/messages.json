@@ -2427,6 +2427,10 @@
     "message": "잘못된 Miden 계정 ID",
     "englishSource": "Invalid Miden account ID"
   },
+  "midenAddressWrongNetwork": {
+    "message": "이 주소는 다른 Miden 네트워크에 속해 있습니다.",
+    "englishSource": "This address belongs to a different Miden network"
+  },
   "cannotSendToSelf": {
     "message": "자신의 주소로 보낼 수 없습니다.",
     "englishSource": "You can't send to your own address"
