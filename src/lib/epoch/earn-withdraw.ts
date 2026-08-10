@@ -18,6 +18,7 @@ import { BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS } from './bridgeable-token';
 import { EPOCH_ALLOCATOR_URL, MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { EARN_PROTOCOL_HASH, EARN_UNDERLYING, resolveEarnIntentOutcome } from './earn';
 import { buildVaultEvmWalletClient } from './evm-account';
+import { earnWithdrawPollKey, endPoll, tryBeginPoll } from './poll-registry';
 import { getEpochReadOnlySdk, ensureEpochSmartAccount } from './sdk';
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -307,6 +308,10 @@ export function pollEarnWithdrawDelivery(args: {
   const getSdk = deps.getSdk ?? getEpochReadOnlySdk;
   const updatePhase = deps.updatePhase ?? updateEarnWithdrawPhase;
   const resolveNoteId = deps.resolveNoteId ?? resolveBridgeInNoteId;
+  // Self-dedupe: one live poll per intent, no matter how many contexts kick it
+  // (initiation, resume, root watcher). The key is released on every stop.
+  const pollKey = earnWithdrawPollKey(nonce);
+  if (!tryBeginPoll(pollKey)) return;
   let attempts = 0;
   const interval = setInterval(() => void tick(), intervalMs);
 
@@ -316,6 +321,7 @@ export function pollEarnWithdrawDelivery(args: {
     try {
       if (!isEvmAddress(sponsorAddress)) {
         clearInterval(interval);
+        endPoll(pollKey);
         return;
       }
       const sdk = await getSdk(sponsorAddress);
@@ -324,6 +330,7 @@ export function pollEarnWithdrawDelivery(args: {
 
       if (outcome !== 'pending') {
         clearInterval(interval);
+        endPoll(pollKey);
         resolvedTerminally = true;
         // The EVM (source) leg carries the redeem/bridge tx hash.
         const evmTxHash = source?.transactionHash || undefined;
@@ -348,6 +355,7 @@ export function pollEarnWithdrawDelivery(args: {
     // flip regardless. Breadcrumb only when we stopped WITHOUT resolving this tick.
     if (!resolvedTerminally && attempts >= maxAttempts) {
       clearInterval(interval);
+      endPoll(pollKey);
       console.warn('[earn-withdraw] delivery poll gave up after max attempts; row left non-terminal for reconcile', {
         txId,
         nonce,

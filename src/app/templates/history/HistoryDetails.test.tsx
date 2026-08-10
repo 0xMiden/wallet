@@ -12,6 +12,14 @@ let mockAccount: { publicKey?: string; name?: string } | undefined = { publicKey
 let mockAllAccounts: Array<{ publicKey: string; name: string }> = [{ publicKey: 'acct-B', name: 'Other' }];
 let mockTokenPrices: Record<string, { price: number }> = { MID: { price: 2 } };
 let mockPrice = 2;
+// The observed Dexie row (the page is a passive liveQuery observer now).
+let mockRow: Record<string, unknown> | undefined;
+let mockRowLoaded = true;
+// Settlement notes served by the mocked useSwapSettlementNotes hook.
+let mockSettlementNotes: { settled: string[]; reclaimed: string[] } | null = null;
+const setMockRow = (tx: Record<string, unknown>) => {
+  mockRow = tx;
+};
 
 // ---------------------------------------------------------------------------
 // Data / logic dependency mocks.
@@ -29,13 +37,14 @@ const mockRequeueFailedTransaction = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
 const mockIsRequeueableTransaction = jest.fn();
 
+// `t` must be render-stable: the derive effect depends on it (like the real
+// react-i18next `t`), so a fresh function per render would loop the effect.
+const mockT = (key: string, opts?: Record<string, unknown>) => {
+  const values = opts ? Object.values(opts) : [];
+  return values.length > 0 ? `${key}_${values.join('_')}` : key;
+};
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string, opts?: Record<string, unknown>) => {
-      const values = opts ? Object.values(opts) : [];
-      return values.length > 0 ? `${key}_${values.join('_')}` : key;
-    }
-  })
+  useTranslation: () => ({ t: mockT })
 }));
 
 jest.mock('lib/miden/activity', () => ({
@@ -83,6 +92,17 @@ jest.mock('lib/store', () => ({
 jest.mock('lib/woozie', () => ({
   goBack: () => mockGoBack(),
   navigate: (...args: unknown[]) => mockNavigate(...args)
+}));
+
+// The page observes its row via liveQuery; tests drive it through `mockRow`.
+jest.mock('screens/generating-transaction/useTransactionRow', () => ({
+  useTransactionRow: () => ({ row: mockRow, loaded: mockRowLoaded })
+}));
+
+// Settlement notes are a liveQuery hook; tests drive it through `mockSettlementNotes`
+// (re-render to pick up a change, mirroring a push from Dexie).
+jest.mock('./useSwapSettlementNotes', () => ({
+  useSwapSettlementNotes: (swapTxId: string | undefined) => (swapTxId ? mockSettlementNotes : null)
 }));
 
 // ---------------------------------------------------------------------------
@@ -210,6 +230,14 @@ beforeEach(() => {
   // cleanup hook can complete; only timer-based order polling needs faking.
   jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
 
+  mockRow = undefined;
+  mockRowLoaded = true;
+  mockSettlementNotes = { settled: [], reclaimed: [] };
+  // Reset the real swap-order tracking store (the page reads it directly).
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { useSwapOrderTrackingStore, clearSwapOrderSchedulesForTests } = require('lib/miden/swap/order-tracking-store');
+  useSwapOrderTrackingStore.setState({ entries: {} });
+  clearSwapOrderSchedulesForTests();
   mockGetSwapSettlementNotes.mockResolvedValue({ settled: [], reclaimed: [] });
   mockAccount = { publicKey: 'acct-A', name: 'Mine' };
   mockAllAccounts = [{ publicKey: 'acct-B', name: 'Other' }];
@@ -249,16 +277,17 @@ afterEach(() => {
 
 describe('HistoryDetails', () => {
   describe('loading & error states', () => {
-    it('renders the spinner while the transaction is still loading', () => {
-      // Never-resolving fetch keeps entry === null && no error → spinner branch.
-      mockGetTransactionById.mockReturnValue(new Promise(() => {}));
+    it('renders the spinner while the row subscription is still loading', () => {
+      // liveQuery has not emitted yet → entry === null && no error → spinner branch.
+      mockRowLoaded = false;
       render(<HistoryDetails transactionId="tx-1" />);
       expect(screen.getByTestId('spinner')).toBeInTheDocument();
       expect(screen.getByTestId('page-layout')).toBeInTheDocument();
     });
 
-    it('renders the error view with the Error message when the fetch throws an Error', async () => {
-      mockGetTransactionById.mockRejectedValue(new Error('boom-failure'));
+    it('renders the error view with the Error message when the derive throws an Error', async () => {
+      setMockRow({ ...baseSendTx });
+      mockGetTokenMetadata.mockRejectedValue(new Error('boom-failure'));
       await renderAndLoad();
 
       expect(screen.getByText('smthWentWrong')).toBeInTheDocument();
@@ -269,13 +298,22 @@ describe('HistoryDetails', () => {
     });
 
     it('falls back to a generic message when the thrown value is not an Error', async () => {
-      mockGetTransactionById.mockRejectedValue('a plain string');
+      setMockRow({ ...baseSendTx });
+      mockGetTokenMetadata.mockRejectedValue('a plain string');
       await renderAndLoad();
       expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
     });
 
+    it('shows the not-found error when the subscription settles with no row', async () => {
+      mockRow = undefined;
+      mockRowLoaded = true;
+      await renderAndLoad();
+      expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsIdLabel_tx-1')).toBeInTheDocument();
+    });
+
     it('calls goBack when the header back button is pressed', async () => {
-      mockGetTransactionById.mockResolvedValue({ ...baseSendTx });
+      setMockRow({ ...baseSendTx });
       await renderAndLoad();
       fireEvent.click(screen.getByTestId('back-button'));
       expect(mockGoBack).toHaveBeenCalledTimes(1);
@@ -284,7 +322,7 @@ describe('HistoryDetails', () => {
 
   describe('sent transaction rendering', () => {
     it('renders amount, token, fiat, status, date, external tx id, from/to and notes', async () => {
-      mockGetTransactionById.mockResolvedValue({ ...baseSendTx });
+      setMockRow({ ...baseSendTx });
       await renderAndLoad();
 
       // Amount + token now share the summary badge's left side.
@@ -328,7 +366,7 @@ describe('HistoryDetails', () => {
     });
 
     it('shows the address itself when the account is unknown (no display name)', async () => {
-      mockGetTransactionById.mockResolvedValue({ ...baseSendTx, secondaryAccountId: 'stranger' });
+      setMockRow({ ...baseSendTx, secondaryAccountId: 'stranger' });
       await renderAndLoad();
       const toChip = rowByLabel('to')!.querySelector('[data-testid="address-chip"]')!;
       expect(toChip).toHaveAttribute('data-displayname', '');
@@ -336,7 +374,7 @@ describe('HistoryDetails', () => {
     });
 
     it('swaps from/to for a non-Sent message and hides optional rows when data is absent', async () => {
-      mockGetTransactionById.mockResolvedValue({
+      setMockRow({
         ...baseSendTx,
         displayMessage: 'Received',
         transactionId: undefined, // no external tx id row
@@ -360,14 +398,14 @@ describe('HistoryDetails', () => {
     });
 
     it('hides the notes section entirely when there is no note data', async () => {
-      mockGetTransactionById.mockResolvedValue({ ...baseSendTx, outputNoteIds: undefined });
+      setMockRow({ ...baseSendTx, outputNoteIds: undefined });
       await renderAndLoad();
       expect(rowByLabel('created')).toBeUndefined();
     });
 
     it('treats a present-but-empty-first note id as note data via the outputNoteIds branch', async () => {
       // noteId = outputNoteIds[0] = '' (falsy) but outputNoteIds.length > 0 → hasNoteData true.
-      mockGetTransactionById.mockResolvedValue({ ...baseSendTx, outputNoteIds: [''] });
+      setMockRow({ ...baseSendTx, outputNoteIds: [''] });
       await renderAndLoad();
       expect(rowByLabel('created')?.textContent).toBe('1');
     });
@@ -376,7 +414,7 @@ describe('HistoryDetails', () => {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { formatAmount } = require('lib/shared/format');
       formatAmount.mockReturnValue('NaN');
-      mockGetTransactionById.mockResolvedValue({ ...baseSendTx });
+      setMockRow({ ...baseSendTx });
       await renderAndLoad();
 
       // The shared summary badge preserves the formatter's non-finite output.
@@ -387,7 +425,7 @@ describe('HistoryDetails', () => {
 
     it('renders address chips even when there is no current account (optional-chaining branch)', async () => {
       mockAccount = undefined;
-      mockGetTransactionById.mockResolvedValue({ ...baseSendTx, secondaryAccountId: 'acct-B' });
+      setMockRow({ ...baseSendTx, secondaryAccountId: 'acct-B' });
       await renderAndLoad();
       // account undefined → falls through to allAccounts lookup for the matching id.
       expect(rowByLabel('to')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute(
@@ -410,18 +448,30 @@ describe('HistoryDetails', () => {
       extraInputs: extra
     });
 
+    // The page no longer polls: the app-root SwapOrderTrackingManager writes
+    // the store and the page renders whatever entry is there.
+    const trackingStore = () => {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      return require('lib/miden/swap/order-tracking-store');
+    };
+    interface SeededTracking {
+      orderId: string;
+      state: string;
+      currentDepth: number;
+      remainingOffered: bigint;
+      remainingRequested: bigint;
+    }
+    const seedEntry = (orderId: string, entry: { tracking: SeededTracking | null; loading: boolean }) => {
+      act(() => trackingStore().useSwapOrderTrackingStore.getState().setEntry(orderId, entry));
+    };
+
     it('resolves the requested token via the swap registry and shows a filled order', async () => {
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
-      mockTrackOrderId.mockResolvedValue({
-        orderId: '42',
-        state: 'filled',
-        currentDepth: 2,
-        remainingOffered: 0n,
-        remainingRequested: 400n
+      seedEntry('42', {
+        tracking: { orderId: '42', state: 'filled', currentDepth: 2, remainingOffered: 0n, remainingRequested: 400n },
+        loading: false
       });
-      mockGetTransactionById.mockResolvedValue(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
       await renderAndLoad();
 
       expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
@@ -440,14 +490,11 @@ describe('HistoryDetails', () => {
     it('falls back to token metadata, defaults the requested amount, clamps overfill to 0 and omits an unknown symbol', async () => {
       // Registry miss → metadata lookup for the requested faucet (returns {} → no symbol/decimals).
       mockGetSwapTokenByFaucetId.mockReturnValue(undefined);
-      mockTrackOrderId.mockResolvedValue({
-        orderId: '7',
-        state: 'reclaimed',
-        currentDepth: 0,
-        remainingOffered: 0n,
-        remainingRequested: 5n
+      seedEntry('7', {
+        tracking: { orderId: '7', state: 'reclaimed', currentDepth: 0, remainingOffered: 0n, remainingRequested: 5n },
+        loading: false
       });
-      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 7n, requestedFaucetId: 'req-faucet' }));
+      setMockRow(swapTx({ orderId: 7n, requestedFaucetId: 'req-faucet' }));
       await renderAndLoad();
 
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusReclaimed');
@@ -457,45 +504,31 @@ describe('HistoryDetails', () => {
       expect(mockGetTokenMetadata).toHaveBeenCalledWith('req-faucet');
     });
 
-    it('shows the active label and keeps polling until a terminal state', async () => {
+    it('re-renders live as the root manager advances the store entry', async () => {
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
-      mockTrackOrderId
-        .mockResolvedValueOnce({
-          orderId: '9',
-          state: 'active',
-          currentDepth: 1,
-          remainingOffered: 0n,
-          remainingRequested: 700n
-        })
-        .mockResolvedValueOnce({
-          orderId: '9',
-          state: 'filled',
-          currentDepth: 3,
-          remainingOffered: 0n,
-          remainingRequested: 0n
-        });
-      mockGetTransactionById.mockResolvedValue(
-        swapTx({ orderId: 9n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      seedEntry('9', {
+        tracking: { orderId: '9', state: 'active', currentDepth: 1, remainingOffered: 0n, remainingRequested: 700n },
+        loading: false
+      });
+      setMockRow(swapTx({ orderId: 9n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
       await renderAndLoad();
 
-      // First poll → active.
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusActive');
 
-      // Active schedules another poll at the base interval (2s).
-      await act(async () => {
-        jest.advanceTimersByTime(2000);
+      // The root manager lands a terminal poll result — the page updates in place.
+      seedEntry('9', {
+        tracking: { orderId: '9', state: 'filled', currentDepth: 3, remainingOffered: 0n, remainingRequested: 0n },
+        loading: false
       });
       await flush();
 
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusFilled');
-      expect(mockTrackOrderId).toHaveBeenCalledTimes(2);
     });
 
-    it('shows the loading label while the first poll is in flight', async () => {
+    it('shows the loading label while the root manager has not polled this order yet', async () => {
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
-      mockTrackOrderId.mockReturnValue(new Promise(() => {})); // never resolves
-      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 5n, requestedFaucetId: 'req-faucet' }));
+      // No store entry seeded yet → "loading" placeholder, not "unavailable".
+      setMockRow(swapTx({ orderId: 5n, requestedFaucetId: 'req-faucet' }));
       await renderAndLoad();
 
       const statusRow = rowByLabel('orderStatus')!;
@@ -503,124 +536,60 @@ describe('HistoryDetails', () => {
       expect(screen.queryByTestId('swap-order-status')).not.toBeInTheDocument();
     });
 
-    it('shows a polling indicator while refreshing an active order', async () => {
-      let resolveRefresh!: (tracking: {
-        orderId: string;
-        state: string;
-        currentDepth: number;
-        remainingOffered: bigint;
-        remainingRequested: bigint;
-      }) => void;
-      const refresh = new Promise(resolve => {
-        resolveRefresh = resolve;
-      });
+    it('shows the unavailable label once a poll resolved to nothing', async () => {
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
-      mockTrackOrderId
-        .mockResolvedValueOnce({
-          orderId: '10',
-          state: 'active',
-          currentDepth: 1,
-          remainingOffered: 0n,
-          remainingRequested: 700n
-        })
-        .mockReturnValueOnce(refresh);
-      mockGetTransactionById.mockResolvedValue(
-        swapTx({ orderId: 10n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      seedEntry('3', { tracking: null, loading: false });
+      setMockRow(swapTx({ orderId: 3n, requestedFaucetId: 'req-faucet' }));
       await renderAndLoad();
 
-      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+      expect(rowByLabel('orderStatus')!.textContent).toBe('trackingUnavailable');
+    });
 
-      await act(async () => {
-        jest.advanceTimersByTime(2000);
+    it('shows a polling indicator while the manager refreshes an active order', async () => {
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      seedEntry('10', {
+        tracking: { orderId: '10', state: 'active', currentDepth: 1, remainingOffered: 0n, remainingRequested: 700n },
+        loading: true
       });
+      setMockRow(swapTx({ orderId: 10n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
+      await renderAndLoad();
 
       expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusActive');
       expect(screen.getByTestId('swap-order-polling')).toHaveTextContent('loading');
 
-      await act(async () => {
-        resolveRefresh({
-          orderId: '10',
-          state: 'filled',
-          currentDepth: 2,
-          remainingOffered: 0n,
-          remainingRequested: 0n
-        });
-        await Promise.resolve();
+      seedEntry('10', {
+        tracking: { orderId: '10', state: 'filled', currentDepth: 2, remainingOffered: 0n, remainingRequested: 0n },
+        loading: false
       });
+      await flush();
 
       expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
       expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
     });
 
-    it('backs off on unresolved polls and gives up after the cap', async () => {
+    it('revives a given-up poll schedule when the page opens for that order', async () => {
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
-      mockTrackOrderId.mockResolvedValue(null); // never resolves the order
-      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 3n, requestedFaucetId: 'req-faucet' }));
+      const schedule = trackingStore().getSwapOrderSchedule('42');
+      schedule.gaveUp = true;
+      schedule.unresolved = 20;
+      schedule.nextAt = Number.MAX_SAFE_INTEGER;
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
       await renderAndLoad();
 
-      // First poll already ran during load.
-      expect(rowByLabel('orderStatus')!.textContent).toBe('trackingUnavailable');
-
-      // Drive the exponential-backoff retries until the cap (MAX_UNRESOLVED_POLLS = 20).
-      for (let i = 0; i < 25; i++) {
-        // eslint-disable-next-line no-await-in-loop
-        await act(async () => {
-          jest.advanceTimersByTime(30_000);
-          await Promise.resolve();
-          await Promise.resolve();
-        });
-      }
-
-      // Exactly 20 attempts, then it stops scheduling.
-      expect(mockTrackOrderId).toHaveBeenCalledTimes(20);
-      expect(rowByLabel('orderStatus')!.textContent).toBe('trackingUnavailable');
-    });
-
-    it('logs and backs off when a poll throws', async () => {
-      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
-      mockTrackOrderId.mockRejectedValueOnce(new Error('lineage exploded')).mockResolvedValue(null);
-      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 11n, requestedFaucetId: 'req-faucet' }));
-      await renderAndLoad();
-
-      expect(console.error).toHaveBeenCalledWith('[HistoryDetails] Failed to track swap order:', expect.any(Error));
-      // The catch path also schedules a retry; advancing fires it (result null now).
-      await act(async () => {
-        jest.advanceTimersByTime(30_000);
-        await Promise.resolve();
-      });
-      expect(mockTrackOrderId).toHaveBeenCalledTimes(2);
-    });
-
-    it('clears the pending poll timer on unmount', async () => {
-      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
-      mockTrackOrderId.mockResolvedValue({
-        orderId: '13',
-        state: 'active',
-        currentDepth: 0,
-        remainingOffered: 0n,
-        remainingRequested: 100n
-      });
-      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 13n, requestedFaucetId: 'req-faucet' }));
-      const { unmount } = await renderAndLoad();
-
-      const clearSpy = jest.spyOn(global, 'clearTimeout');
-      await act(async () => {
-        unmount();
-      });
-      expect(clearSpy).toHaveBeenCalled();
+      expect(schedule.gaveUp).toBe(false);
+      expect(schedule.unresolved).toBe(0);
+      expect(schedule.nextAt).toBe(0);
     });
 
     it('does not render the order card for a swap tx that carries no order id', async () => {
       // extraInputs present but without orderId → orderId stays null.
-      mockGetTransactionById.mockResolvedValue(swapTx({ requestedFaucetId: 'req-faucet' }));
+      setMockRow(swapTx({ requestedFaucetId: 'req-faucet' }));
       await renderAndLoad();
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
-      expect(mockTrackOrderId).not.toHaveBeenCalled();
     });
 
     it('handles a swap tx with entirely absent extraInputs', async () => {
-      mockGetTransactionById.mockResolvedValue({ ...swapTx({}), extraInputs: undefined });
+      setMockRow({ ...swapTx({}), extraInputs: undefined });
       await renderAndLoad();
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
     });
@@ -638,12 +607,11 @@ describe('HistoryDetails', () => {
     });
 
     it('lists the notes the suppressed settlement consumes claimed', async () => {
-      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-a', 'note-b'], reclaimed: ['note-c'] });
-      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+      mockSettlementNotes = { settled: ['note-a', 'note-b'], reclaimed: ['note-c'] };
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
 
       await renderAndLoad();
 
-      expect(mockGetSwapSettlementNotes).toHaveBeenCalledWith('tx-1');
       expect(screen.getByTestId('swap-settled-notes').textContent).toBe('note-anote-b');
       expect(screen.getByTestId('swap-reclaimed-notes').textContent).toBe('note-c');
       // The card renders even though the swap itself created no output notes.
@@ -652,8 +620,8 @@ describe('HistoryDetails', () => {
     });
 
     it('omits the reclaimed row when the order only settled', async () => {
-      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-a'], reclaimed: [] });
-      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+      mockSettlementNotes = { settled: ['note-a'], reclaimed: [] };
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
 
       await renderAndLoad();
 
@@ -664,7 +632,7 @@ describe('HistoryDetails', () => {
     });
 
     it('renders no settlement rows when nothing has settled yet', async () => {
-      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
 
       await renderAndLoad();
 
@@ -673,30 +641,17 @@ describe('HistoryDetails', () => {
     });
 
     it('picks the notes up when settlement lands while the page is open', async () => {
-      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
-      await renderAndLoad();
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+      const { rerender } = await renderAndLoad();
       expect(screen.queryByTestId('swap-settled-notes')).not.toBeInTheDocument();
 
-      // Auto-consume completes after the page mounted.
-      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-late'], reclaimed: [] });
-      await act(async () => {
-        jest.advanceTimersByTime(2000);
-      });
+      // Auto-consume completes after the page mounted — the liveQuery hook
+      // pushes a fresh value (simulated here by a re-render).
+      mockSettlementNotes = { settled: ['note-late'], reclaimed: [] };
+      rerender(<HistoryDetails transactionId="tx-1" />);
       await flush();
 
       expect(screen.getByTestId('swap-settled-notes').textContent).toBe('note-late');
-    });
-
-    it('does not poll for settlement notes on a swap with no order id', async () => {
-      mockGetTransactionById.mockResolvedValue(swapTx({ requestedFaucetId: 'req-faucet' }));
-      await renderAndLoad();
-      mockGetSwapSettlementNotes.mockClear();
-
-      await act(async () => {
-        jest.advanceTimersByTime(30_000);
-      });
-
-      expect(mockGetSwapSettlementNotes).not.toHaveBeenCalled();
     });
   });
 
@@ -715,7 +670,7 @@ describe('HistoryDetails', () => {
     });
 
     it('shows the friendly failure reason with a toggleable raw-error disclosure', async () => {
-      mockGetTransactionById.mockResolvedValue(failedSendTx());
+      setMockRow(failedSendTx());
       await renderAndLoad();
 
       const errorCard = Array.from(document.querySelectorAll('[data-testid="detail-card"]')).find(
@@ -733,7 +688,7 @@ describe('HistoryDetails', () => {
     });
 
     it('omits the raw-error disclosure when no rawError was persisted', async () => {
-      mockGetTransactionById.mockResolvedValue(failedSendTx({ rawError: undefined, error: 'Note is invalid' }));
+      setMockRow(failedSendTx({ rawError: undefined, error: 'Note is invalid' }));
       await renderAndLoad();
 
       expect(screen.queryByText('showFullError')).toBeNull();
@@ -741,7 +696,7 @@ describe('HistoryDetails', () => {
     });
 
     it('retries a failed send: re-queues the row, nudges the SW and navigates to the progress page', async () => {
-      mockGetTransactionById.mockResolvedValue(failedSendTx());
+      setMockRow(failedSendTx());
       await renderAndLoad();
 
       fireEvent.click(screen.getByText('retry'));
@@ -753,7 +708,7 @@ describe('HistoryDetails', () => {
     });
 
     it('surfaces a retry failure inline and does not navigate', async () => {
-      mockGetTransactionById.mockResolvedValue(failedSendTx());
+      setMockRow(failedSendTx());
       mockRequeueFailedTransaction.mockRejectedValue(new Error('row is gone'));
       await renderAndLoad();
 
@@ -765,16 +720,14 @@ describe('HistoryDetails', () => {
     });
 
     it('offers no retry for a failed structural Guardian op', async () => {
-      mockGetTransactionById.mockResolvedValue(failedSendTx({ type: 'replace-hot-key' }));
+      setMockRow(failedSendTx({ type: 'replace-hot-key' }));
       await renderAndLoad();
 
       expect(screen.queryByText('retry')).toBeNull();
     });
 
     it('renders a user-cancelled tx with the cancelled pill and no retry button', async () => {
-      mockGetTransactionById.mockResolvedValue(
-        failedSendTx({ error: 'Transaction was cancelled by user', rawError: undefined })
-      );
+      setMockRow(failedSendTx({ error: 'Transaction was cancelled by user', rawError: undefined }));
       await renderAndLoad();
 
       expect(screen.getByTestId('status-pill').getAttribute('data-cancelled')).toBe('true');
@@ -787,26 +740,25 @@ describe('HistoryDetails', () => {
     });
 
     it('falls back to initiatedAt for the date of a row that never completed', async () => {
-      mockGetTransactionById.mockResolvedValue(failedSendTx({ completedAt: undefined, initiatedAt: 1_600_000_000 }));
+      setMockRow(failedSendTx({ completedAt: undefined, initiatedAt: 1_600_000_000 }));
       await renderAndLoad();
 
       expect(rowByLabel('date')!.textContent).toContain('formatted:1600000000');
     });
 
-    it('cancels a still-queued tx with the user-cancelled sentinel and reloads the row', async () => {
-      mockGetTransactionById.mockResolvedValue({ ...baseSendTx, status: STATUS_QUEUED, error: undefined });
+    it('cancels a still-queued tx with the user-cancelled sentinel', async () => {
+      setMockRow({ ...baseSendTx, status: STATUS_QUEUED, error: undefined });
       await renderAndLoad();
 
       fireEvent.click(screen.getByText('cancel'));
       await flush();
 
+      // The cancel is a Dexie write; the updated row arrives via liveQuery.
       expect(mockCancelTransactionById).toHaveBeenCalledWith('tx-1', 'Transaction was cancelled by user');
-      // The row is re-fetched after the cancel lands.
-      expect(mockGetTransactionById.mock.calls.length).toBeGreaterThanOrEqual(2);
     });
 
     it('shows the cancel failure inline when cancelling throws', async () => {
-      mockGetTransactionById.mockResolvedValue({ ...baseSendTx, status: STATUS_QUEUED, error: undefined });
+      setMockRow({ ...baseSendTx, status: STATUS_QUEUED, error: undefined });
       mockCancelTransactionById.mockRejectedValue(new Error('cancel exploded'));
       await renderAndLoad();
 
@@ -853,7 +805,7 @@ describe('HistoryDetails', () => {
     };
 
     it('shows the claim section and bridge status pill for an outbound bridge', async () => {
-      mockGetTransactionById.mockResolvedValue(bridgedSendTx);
+      setMockRow(bridgedSendTx);
       await renderAndLoad({ transactionId: 'bridge-out' });
 
       expect(screen.getByTestId('bridge-claim-section')).toBeInTheDocument();
@@ -863,7 +815,7 @@ describe('HistoryDetails', () => {
     });
 
     it('renders an in-flight inbound bridge with EVM source, route and pending note', async () => {
-      mockGetTransactionById.mockResolvedValue(bridgedReceiveTx);
+      setMockRow(bridgedReceiveTx);
       await renderAndLoad({ transactionId: 'bridge-in' });
 
       // From = the EVM source address (Sepolia link), to = our Miden account.
@@ -880,7 +832,7 @@ describe('HistoryDetails', () => {
     });
 
     it('renders a delivered inbound bridge with its Miden note id and slow-route label', async () => {
-      mockGetTransactionById.mockResolvedValue({
+      setMockRow({
         ...bridgedReceiveTx,
         extraInputs: {
           ...(bridgedReceiveTx.extraInputs as Record<string, unknown>),
@@ -897,7 +849,7 @@ describe('HistoryDetails', () => {
     });
 
     it('surfaces the failure reason for a failed inbound bridge', async () => {
-      mockGetTransactionById.mockResolvedValue({
+      setMockRow({
         ...bridgedReceiveTx,
         error: 'The Epoch bridge intent failed.',
         extraInputs: {
@@ -943,7 +895,7 @@ describe('HistoryDetails earn-withdraw', () => {
   });
 
   it('shows the redeemed source side while the withdrawal is still in flight', async () => {
-    mockGetTransactionById.mockResolvedValue(earnWithdrawTx({ phase: 'delivering' }, { amount: 999n }));
+    setMockRow(earnWithdrawTx({ phase: 'delivering' }, { amount: 999n }));
     await renderAndLoad();
 
     expect(document.body.textContent).toContain('10.5');
@@ -951,9 +903,7 @@ describe('HistoryDetails earn-withdraw', () => {
   });
 
   it('switches to the delivered destination amount once the note is received', async () => {
-    mockGetTransactionById.mockResolvedValue(
-      earnWithdrawTx({ phase: 'received', outputSymbol: 'MDN' }, { amount: 999n })
-    );
+    setMockRow(earnWithdrawTx({ phase: 'received', outputSymbol: 'MDN' }, { amount: 999n }));
     await renderAndLoad();
 
     // The source figure is no longer what the hero claims.
@@ -961,9 +911,7 @@ describe('HistoryDetails earn-withdraw', () => {
   });
 
   it('offers retry on a failed withdrawal that never recorded a nonce', async () => {
-    mockGetTransactionById.mockResolvedValue(
-      earnWithdrawTx({ phase: 'failed', error: 'boom', withdrawIntentNonce: undefined })
-    );
+    setMockRow(earnWithdrawTx({ phase: 'failed', error: 'boom', withdrawIntentNonce: undefined }));
     await renderAndLoad();
 
     fireEvent.click(screen.getByText('retry'));
@@ -977,9 +925,7 @@ describe('HistoryDetails earn-withdraw', () => {
   });
 
   it('offers retry on a failed withdrawal that does have a nonce', async () => {
-    mockGetTransactionById.mockResolvedValue(
-      earnWithdrawTx({ phase: 'failed', error: 'boom', withdrawIntentNonce: 'DEAD' })
-    );
+    setMockRow(earnWithdrawTx({ phase: 'failed', error: 'boom', withdrawIntentNonce: 'DEAD' }));
     await renderAndLoad();
 
     fireEvent.click(screen.getByText('retry'));
@@ -989,14 +935,14 @@ describe('HistoryDetails earn-withdraw', () => {
   });
 
   it('offers no retry while the withdrawal is still progressing', async () => {
-    mockGetTransactionById.mockResolvedValue(earnWithdrawTx({ phase: 'delivering' }));
+    setMockRow(earnWithdrawTx({ phase: 'delivering' }));
     await renderAndLoad();
 
     expect(screen.queryByText('retry')).toBeNull();
   });
 
   it('surfaces a resubmission failure inline', async () => {
-    mockGetTransactionById.mockResolvedValue(earnWithdrawTx({ phase: 'failed', error: 'boom' }));
+    setMockRow(earnWithdrawTx({ phase: 'failed', error: 'boom' }));
     mockRetryEarnWithdrawReceive.mockRejectedValue(new Error('epoch is down'));
     await renderAndLoad();
 

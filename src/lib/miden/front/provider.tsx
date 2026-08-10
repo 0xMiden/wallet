@@ -6,6 +6,8 @@ import { NoteToastProvider } from 'components/NoteToastProvider';
 // Direct module path (not the barrel): the barrel also pulls the bridge
 // executors, which drag the Epoch/viem stack into every app entry point.
 import { DepositAddressWatcher } from 'lib/deposit-bridge/DepositAddressWatcher';
+// Direct module path for the same reason — the `lib/epoch` barrel is heavy.
+import { EarnIntentWatcher } from 'lib/epoch/EarnIntentWatcher';
 import { FiatCurrencyProvider } from 'lib/fiat-curency';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
@@ -24,6 +26,7 @@ import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
 import { TokensMetadataProvider } from './assets';
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
+import { SwapOrderTrackingManager } from './SwapOrderTrackingManager';
 import { SwapSettlementManager } from './SwapSettlementManager';
 import { useSyncTrigger } from './useSyncTrigger';
 import { getMidenClient } from '../sdk/miden-client';
@@ -163,8 +166,10 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
             <PriceProvider />
             {children}
             <SwapSettlementManager />
+            <SwapOrderTrackingManager />
             <NativeNoteAutoConsumeManager />
             <DepositAddressWatcher />
+            <EarnIntentWatcher />
             {/* NoteToastProvider monitors for new notes and shows toast on mobile */}
             <NoteToastProvider />
           </FiatCurrencyProvider>

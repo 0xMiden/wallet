@@ -12,17 +12,12 @@ import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
 import {
   cancelTransactionById,
-  getSwapSettlementNotes,
-  getTransactionById,
   isRequeueableTransaction,
   isUserCancelledTransaction,
   requestSWTransactionProcessing,
   requeueFailedTransaction,
   retryEarnWithdrawReceive,
-  trackOrderId,
   SwapOrderState,
-  SwapOrderTracking,
-  SwapSettlementNotes,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
 import {
@@ -35,6 +30,7 @@ import {
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
@@ -46,6 +42,7 @@ import {
   TransactionSummaryBadge,
   useTransactionSummaryBadgeContent
 } from 'screens/generating-transaction/TransactionSummaryBadge';
+import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
 
 import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
@@ -64,12 +61,10 @@ import {
   formatDate,
   isBridgeInEntry
 } from './transactionUtils';
+import { useSwapSettlementNotes } from './useSwapSettlementNotes';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
-
-const isHexEvmAddress = (value: string | undefined): value is `0x${string}` =>
-  value !== undefined && /^0x[0-9a-fA-F]{40}$/.test(value);
 
 interface HistoryDetailsProps {
   transactionId: string;
@@ -241,10 +236,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const allAccounts = useAllAccounts();
   const account = useAccount();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  // The row is observed via Dexie liveQuery — every write (status advance,
+  // extraInputs patch from the app-root watchers, cancel/retry) pushes a fresh
+  // row and re-derives the view. This page polls nothing itself.
+  const { row, loaded } = useTransactionRow(transactionId);
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [deriveError, setDeriveError] = useState<string | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   // Failed txs persist a friendly `error` plus the untouched thrown `rawError`;
@@ -253,161 +252,173 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   // Swap order tracking: the orderId is persisted on the swap tx's extraInputs
-  // by `completeSwapTransaction`; the live lineage is fetched via `trackOrderId`.
+  // by `completeSwapTransaction`; the live lineage is polled by the app-root
+  // `SwapOrderTrackingManager` and read here from its store.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
-  const [swapTracking, setSwapTracking] = useState<SwapOrderTracking | null>(null);
-  const [trackingLoading, setTrackingLoading] = useState(false);
-  // Notes claimed by this order's settlement consumes. Those consume rows are
-  // suppressed in the history list (the swap row is the order's single trace),
-  // so this page is where their notes stay visible.
-  const [settlementNotes, setSettlementNotes] = useState<SwapSettlementNotes | null>(null);
   // Smart Withdraw metadata (market, position owner, intent nonce, phase) for the details card.
   const [earnWithdraw, setEarnWithdraw] = useState<IEarnWithdrawExtraInputs | null>(null);
-  // Guards the earn-withdraw delivery poller so it is (re)started at most once per
-  // intent nonce, even though the reload loop re-runs the effect as the row advances.
-  const withdrawPollNonceRef = useRef<string | null>(null);
-  // Smart Deposit (open-position) metadata for the details card + intent polling.
+  // Smart Deposit (open-position) metadata for the details card.
   const [earnDeposit, setEarnDeposit] = useState<IEarnDepositExtraInputs | null>(null);
-  const depositPollNonceRef = useRef<string | null>(null);
-  const loadTransaction = useCallback(async () => {
-    try {
-      setLoadError(null);
-      const tx = await getTransactionById(transactionId);
-      const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
-      console.log('Loaded transaction for HistoryDetails:', tx, tokenMetadata);
-      // Bridge metadata (route/provider, EVM destination, per-route status) lives
-      // on `extraInputs`; without it the detail view can't tell Fast (Epoch) from
-      // Slow (Agglayer) and defaults every bridge to the Slow route.
-      const bridge: IBridgedSendExtraInputs | undefined = tx.type === 'bridged-send' ? tx.extraInputs : undefined;
-      const bridgeReceive: IBridgedReceiveExtraInputs | undefined =
-        tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
-      const earnWithdrawExtra: IEarnWithdrawExtraInputs | undefined =
-        tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
-      const earnDepositExtra: IEarnDepositExtraInputs | undefined =
-        tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
-      // Source side (USDC) while in flight, destination side once the bridged
-      // note was consumed — identical rule to the activity row.
-      const earnWithdrawFields = earnWithdrawExtra
-        ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
-        : undefined;
-      const historyEntry = {
-        address: tx.accountId,
-        key: `completed-${tx.id}`,
-        timestamp: tx.completedAt ?? tx.initiatedAt,
-        message: tx.displayMessage,
-        status: tx.status,
-        transactionIcon: tx.displayIcon,
-        amount: earnWithdrawFields
-          ? earnWithdrawFields.amount
-          : tx.amount
-            ? formatAmount(tx.amount, tokenMetadata?.decimals)
-            : undefined,
-        token: earnWithdrawFields ? earnWithdrawFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
-        earnWithdrawPhase: earnWithdrawExtra?.phase,
-        earnDepositStatus: earnDepositExtra?.epochStatus,
-        secondaryAddress: tx.secondaryAccountId,
-        txId: tx.id,
-        noteType: tx.noteType,
-        noteId: tx.outputNoteIds?.[0],
-        externalTxId: tx.transactionId,
-        faucetId: tx.faucetId,
-        outputNoteIds: tx.outputNoteIds,
-        txType: tx.type,
-        errorMessage: tx.error,
-        rawErrorMessage: tx.rawError,
-        isCancelled: isUserCancelledTransaction(tx.error),
-        bridgeProvider: bridge?.provider,
-        bridgeDestinationAddress: bridge?.destinationAddress,
-        bridgeDestinationNetwork: bridge?.destinationNetwork,
-        bridgeClaimStatus: bridge?.claimStatus,
-        bridgeOutputAmount: bridge?.outputAmount,
-        bridgeOutputSymbol: bridge?.outputSymbol,
-        bridgeIntentNonce: bridge?.intentNonce,
-        bridgeFillTxHash: bridge?.fillTxHash,
-        bridgeFillChainId: bridge?.fillChainId,
-        bridgeEpochStatus: bridge?.epochStatus,
-        bridgeInProvider: bridgeReceive?.provider,
-        bridgeInSourceAddress: bridgeReceive?.sourceAddress,
-        bridgeInSourceAmount: bridgeReceive?.sourceAmount,
-        bridgeInSourceSymbol: bridgeReceive?.sourceSymbol,
-        bridgeInEvmTxHash: bridgeReceive?.evmTxHash,
-        bridgeInPhase: bridgeReceive?.phase,
-        bridgeInOutputAmount: bridgeReceive?.outputAmount,
-        bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
-        bridgeInMidenNoteId: bridgeReceive?.midenNoteId
-      } as IHistoryEntry;
+  // liveQuery re-emits on ANY transactions-table write, so cache metadata
+  // lookups per faucet — re-derives must not refetch.
+  const tokenMetadataCache = useRef(new Map<string, Awaited<ReturnType<typeof getTokenMetadata>>>());
+  const getCachedTokenMetadata = useCallback(async (faucetId: string) => {
+    const cache = tokenMetadataCache.current;
+    if (!cache.has(faucetId)) cache.set(faucetId, await getTokenMetadata(faucetId));
+    return cache.get(faucetId);
+  }, []);
 
-      if (tx.type === 'swap') {
-        const extra: SwapExtraInputs = tx.extraInputs ?? {};
-        if (extra.orderId != null) {
-          // The DEX faucets are usually absent from assetsMetadata (where
-          // getTokenMetadata would fall back to MIDEN), so resolve via the
-          // swap-token registry first.
-          const swapToken = getSwapTokenByFaucetId(extra.requestedFaucetId);
-          const requestedMeta =
-            !swapToken && extra.requestedFaucetId ? await getTokenMetadata(extra.requestedFaucetId) : undefined;
-          setRequestedToken({
-            amount: extra.requestedAmount ?? 0n,
-            decimals: swapToken?.decimals ?? requestedMeta?.decimals,
-            symbol: swapToken?.symbol ?? requestedMeta?.symbol
-          });
-          setOrderId(extra.orderId);
+  // Derive the display entry from the observed row. The metadata lookups are
+  // async, so this is an effect (not a useMemo); the `cancelled` flag keeps a
+  // stale derive from clobbering a newer one.
+  useEffect(() => {
+    if (!row) return;
+    const tx = row;
+    let cancelled = false;
+
+    const derive = async () => {
+      try {
+        setDeriveError(null);
+        const tokenMetadata = tx.faucetId ? await getCachedTokenMetadata(tx.faucetId) : undefined;
+        if (cancelled) return;
+        // Bridge metadata (route/provider, EVM destination, per-route status) lives
+        // on `extraInputs`; without it the detail view can't tell Fast (Epoch) from
+        // Slow (Agglayer) and defaults every bridge to the Slow route.
+        const bridge: IBridgedSendExtraInputs | undefined = tx.type === 'bridged-send' ? tx.extraInputs : undefined;
+        const bridgeReceive: IBridgedReceiveExtraInputs | undefined =
+          tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
+        const earnWithdrawExtra: IEarnWithdrawExtraInputs | undefined =
+          tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
+        const earnDepositExtra: IEarnDepositExtraInputs | undefined =
+          tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
+        // Source side (USDC) while in flight, destination side once the bridged
+        // note was consumed — identical rule to the activity row.
+        const earnWithdrawFields = earnWithdrawExtra
+          ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
+          : undefined;
+        const historyEntry = {
+          address: tx.accountId,
+          key: `completed-${tx.id}`,
+          timestamp: tx.completedAt ?? tx.initiatedAt,
+          message: tx.displayMessage,
+          status: tx.status,
+          transactionIcon: tx.displayIcon,
+          amount: earnWithdrawFields
+            ? earnWithdrawFields.amount
+            : tx.amount
+              ? formatAmount(tx.amount, tokenMetadata?.decimals)
+              : undefined,
+          token: earnWithdrawFields ? earnWithdrawFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
+          earnWithdrawPhase: earnWithdrawExtra?.phase,
+          earnDepositStatus: earnDepositExtra?.epochStatus,
+          secondaryAddress: tx.secondaryAccountId,
+          txId: tx.id,
+          noteType: tx.noteType,
+          noteId: tx.outputNoteIds?.[0],
+          externalTxId: tx.transactionId,
+          faucetId: tx.faucetId,
+          outputNoteIds: tx.outputNoteIds,
+          txType: tx.type,
+          errorMessage: tx.error,
+          rawErrorMessage: tx.rawError,
+          isCancelled: isUserCancelledTransaction(tx.error),
+          bridgeProvider: bridge?.provider,
+          bridgeDestinationAddress: bridge?.destinationAddress,
+          bridgeDestinationNetwork: bridge?.destinationNetwork,
+          bridgeClaimStatus: bridge?.claimStatus,
+          bridgeOutputAmount: bridge?.outputAmount,
+          bridgeOutputSymbol: bridge?.outputSymbol,
+          bridgeIntentNonce: bridge?.intentNonce,
+          bridgeFillTxHash: bridge?.fillTxHash,
+          bridgeFillChainId: bridge?.fillChainId,
+          bridgeEpochStatus: bridge?.epochStatus,
+          bridgeInProvider: bridgeReceive?.provider,
+          bridgeInSourceAddress: bridgeReceive?.sourceAddress,
+          bridgeInSourceAmount: bridgeReceive?.sourceAmount,
+          bridgeInSourceSymbol: bridgeReceive?.sourceSymbol,
+          bridgeInEvmTxHash: bridgeReceive?.evmTxHash,
+          bridgeInPhase: bridgeReceive?.phase,
+          bridgeInOutputAmount: bridgeReceive?.outputAmount,
+          bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
+          bridgeInMidenNoteId: bridgeReceive?.midenNoteId
+        } as IHistoryEntry;
+
+        if (tx.type === 'swap') {
+          const extra: SwapExtraInputs = tx.extraInputs ?? {};
+          if (extra.orderId != null) {
+            // The DEX faucets are usually absent from assetsMetadata (where
+            // getTokenMetadata would fall back to MIDEN), so resolve via the
+            // swap-token registry first.
+            const swapToken = getSwapTokenByFaucetId(extra.requestedFaucetId);
+            const requestedMeta =
+              !swapToken && extra.requestedFaucetId ? await getCachedTokenMetadata(extra.requestedFaucetId) : undefined;
+            if (cancelled) return;
+            setRequestedToken({
+              amount: extra.requestedAmount ?? 0n,
+              decimals: swapToken?.decimals ?? requestedMeta?.decimals,
+              symbol: swapToken?.symbol ?? requestedMeta?.symbol
+            });
+            setOrderId(extra.orderId);
+          }
         }
+
+        setEarnWithdraw(earnWithdrawExtra ?? null);
+        setEarnDeposit(earnDepositExtra ?? null);
+
+        setTransaction(tx);
+        setEntry(historyEntry);
+      } catch (error) {
+        console.error('[HistoryDetails] Failed to derive transaction view:', error);
+        if (!cancelled) setDeriveError(error instanceof Error ? error.message : t('historyDetailsLoadError'));
       }
+    };
 
-      if (tx.type === 'swap') {
-        setSettlementNotes(await getSwapSettlementNotes(tx.id));
-      }
+    void derive();
+    return () => {
+      cancelled = true;
+    };
+  }, [row, getCachedTokenMetadata, t]);
 
-      setEarnWithdraw(earnWithdrawExtra ?? null);
-      setEarnDeposit(earnDepositExtra ?? null);
+  // Unknown id (liveQuery settled with no row) or a failed derive.
+  const loadError = deriveError ?? (loaded && !row ? t('historyDetailsLoadError') : null);
 
-      setTransaction(tx);
-      setEntry(historyEntry);
-    } catch (error) {
-      console.error('[HistoryDetails] Failed to load transaction:', error);
-      setLoadError(error instanceof Error ? error.message : t('historyDetailsLoadError'));
-    }
-  }, [transactionId, setEntry, t]);
-
+  // Swap order tracking is polled at the app root (`SwapOrderTrackingManager`);
+  // this page only reads its store — and revives a given-up poll on open.
+  const orderKey = orderId != null ? String(orderId) : undefined;
+  const trackingEntry = useSwapOrderTrackingStore(s => (orderKey !== undefined ? s.entries[orderKey] : undefined));
+  const swapTracking = trackingEntry?.tracking ?? null;
+  // No store entry yet = the root manager hasn't polled this order — that reads
+  // as "loading", matching the old page-owned poll that fired on mount.
+  const trackingLoading = trackingEntry ? trackingEntry.loading : true;
   useEffect(() => {
-    if (!entry && !loadError) loadTransaction();
-  }, [loadTransaction, entry, loadError]);
+    if (orderKey !== undefined) useSwapOrderTrackingStore.getState().requestRefresh(orderKey);
+  }, [orderKey]);
 
-  // A detail page can be opened while proving/submission is still in progress.
-  // Keep reloading until the Miden transaction reaches a terminal state so a
-  // bridge failure replaces Pending without requiring the user to leave.
-  useEffect(() => {
-    if (entry?.status !== ITransactionStatus.Queued && entry?.status !== ITransactionStatus.GeneratingTransaction) {
-      return;
-    }
-
-    const timer = setInterval(() => void loadTransaction(), 3000);
-    return () => clearInterval(timer);
-  }, [entry?.status, loadTransaction]);
+  // Settlement notes are a pure Dexie read — live, push-based, no polling.
+  const settlementNotes = useSwapSettlementNotes(transaction?.type === 'swap' ? transaction.id : undefined);
 
   const handleCancel = useCallback(async () => {
     setIsCancelling(true);
     setCancelError(null);
 
     try {
+      // The cancel is a Dexie write — liveQuery pushes the updated row.
       await cancelTransactionById(transactionId, USER_CANCELLED_TRANSACTION_REASON);
-      await loadTransaction();
     } catch (error) {
       console.error('[HistoryDetails] Failed to cancel transaction:', error);
       setCancelError(error instanceof Error ? error.message : t('smthWentWrong'));
     } finally {
       setIsCancelling(false);
     }
-  }, [loadTransaction, t, transactionId]);
+  }, [t, transactionId]);
 
   // Retry a failed transaction by re-queueing it through the FIFO loop, then
   // hand off to the generating-transaction page which observes the row (and,
   // on mobile/desktop, drives the loop). A failed Smart Withdraw has no Miden
   // row to replay — the whole withdrawal is resubmitted as a BRAND NEW Epoch
-  // intent (fresh nonce) reusing this same row, so the page just reloads it in
-  // place rather than navigating.
+  // intent (fresh nonce) reusing this same row, so the page just observes it
+  // updating in place (via liveQuery) rather than navigating.
   const handleRetry = useCallback(async () => {
     if (!entry) return;
     setIsRetrying(true);
@@ -415,7 +426,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     try {
       if (entry.txType === 'earn-withdraw') {
         await retryEarnWithdrawReceive(transactionId);
-        await loadTransaction();
       } else {
         await requeueFailedTransaction(transactionId);
         requestSWTransactionProcessing();
@@ -428,185 +438,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     } finally {
       setIsRetrying(false);
     }
-  }, [entry, loadTransaction, t, transactionId]);
-
-  // The initiating context's background poller may be gone (extension popup closed),
-  // so this page (re)starts the delivery poller AND reloads the row on an interval —
-  // the `received` flip lands via auto-consume tagging, not the poller, so a reload
-  // loop is what surfaces it. Runs only while the phase is non-terminal.
-  const withdrawPhase = earnWithdraw?.phase;
-  const withdrawNonce = earnWithdraw?.withdrawIntentNonce;
-  const withdrawOwner = earnWithdraw?.evmOwner;
-  useEffect(() => {
-    if (entry?.txType !== 'earn-withdraw') return;
-    if (withdrawPhase === 'received' || withdrawPhase === 'failed' || withdrawPhase === undefined) return;
-
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const POLL_INTERVAL_MS = 3000;
-
-    // Kick a delivery poller at most once per nonce — it advances the Dexie row
-    // even if no other context is running one. Idempotent if one already is.
-    if (withdrawNonce && isHexEvmAddress(withdrawOwner) && withdrawPollNonceRef.current !== withdrawNonce) {
-      const sponsorAddress = withdrawOwner;
-      const nonce = withdrawNonce;
-      withdrawPollNonceRef.current = nonce;
-      import('lib/epoch')
-        .then(({ pollEarnWithdrawDelivery }) =>
-          pollEarnWithdrawDelivery({ sponsorAddress, nonce, txId: transactionId })
-        )
-        .catch(err => console.warn('[earn-withdraw] detail-page poll start failed', err));
-    }
-
-    const tick = async () => {
-      await loadTransaction();
-      if (!cancelled) timer = setTimeout(tick, POLL_INTERVAL_MS);
-    };
-    timer = setTimeout(tick, POLL_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [entry?.txType, withdrawPhase, withdrawNonce, withdrawOwner, transactionId, loadTransaction]);
-
-  // Drive a live lending-leg status on a Smart Deposit's detail page. The
-  // initiating context started `pollEarnIntentStatus`, but it dies with that
-  // context (popup closed / app restart), so this page (re)starts it — once per
-  // nonce — and reloads the row on an interval until `epochStatus` settles.
-  // Only meaningful once the Miden collateral note actually landed (Completed).
-  const depositStatus = earnDeposit?.epochStatus;
-  const depositNonce = earnDeposit?.intentNonce;
-  const depositOwner = earnDeposit?.evmRecipient;
-  useEffect(() => {
-    if (entry?.txType !== 'earn-deposit') return;
-    if (entry.status !== ITransactionStatus.Completed) return;
-    if (depositStatus === 'confirmed' || depositStatus === 'failed') return;
-    if (!depositNonce || !isHexEvmAddress(depositOwner)) return;
-
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const POLL_INTERVAL_MS = 3000;
-
-    if (depositPollNonceRef.current !== depositNonce) {
-      const sponsorAddress = depositOwner;
-      const nonce = depositNonce;
-      depositPollNonceRef.current = nonce;
-      import('lib/epoch')
-        .then(({ pollEarnIntentStatus }) => pollEarnIntentStatus({ sponsorAddress, nonce, txId: transactionId }))
-        .catch(err => console.warn('[earn-deposit] detail-page poll start failed', err));
-    }
-
-    const tick = async () => {
-      await loadTransaction();
-      if (!cancelled) timer = setTimeout(tick, POLL_INTERVAL_MS);
-    };
-    timer = setTimeout(tick, POLL_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [entry?.txType, entry?.status, depositStatus, depositNonce, depositOwner, transactionId, loadTransaction]);
-
-  // Poll the swap order lineage until it reaches a terminal state (filled or
-  // reclaimed). The orderId is persisted on the swap tx; the live lineage is
-  // fetched via `trackOrderId`. Each poll takes the WASM client lock, so a
-  // `null`/error result (not-yet-trackable or an order this client can't
-  // resolve) backs off exponentially and gives up after a cap, rather than
-  // hammering the lock every 2s forever. A genuinely `active` order resets the
-  // backoff and keeps a steady watch at the base interval.
-  useEffect(() => {
-    if (orderId == null) return;
-    // Capture the non-null id in a const so the narrowing survives into the
-    // hoisted `poll` declaration below (a function declaration wouldn't inherit
-    // the `orderId != null` guard otherwise).
-    const trackedOrderId = orderId;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const BASE_INTERVAL_MS = 2000;
-    const MAX_INTERVAL_MS = 30_000;
-    const MAX_UNRESOLVED_POLLS = 20;
-    let unresolved = 0;
-
-    // Exponential backoff for unresolved polls, capped; give up after the cap.
-    const scheduleUnresolvedRetry = () => {
-      unresolved += 1;
-      if (!cancelled && unresolved < MAX_UNRESOLVED_POLLS) {
-        const delay = Math.min(BASE_INTERVAL_MS * 2 ** (unresolved - 1), MAX_INTERVAL_MS);
-        timer = setTimeout(poll, delay);
-      }
-    };
-
-    async function poll() {
-      if (cancelled) return;
-      setTrackingLoading(true);
-      try {
-        const result = await trackOrderId(trackedOrderId);
-        if (cancelled) return;
-        setSwapTracking(result);
-        if (result === null) {
-          // Not yet trackable / not found — back off and eventually give up.
-          scheduleUnresolvedRetry();
-        } else if (result.state === 'active') {
-          // Live and resolving; steady watch until a terminal state.
-          unresolved = 0;
-          timer = setTimeout(poll, BASE_INTERVAL_MS);
-        }
-        // filled / reclaimed → terminal, stop polling.
-      } catch (error) {
-        console.error('[HistoryDetails] Failed to track swap order:', error);
-        if (!cancelled) scheduleUnresolvedRetry();
-      } finally {
-        if (!cancelled) setTrackingLoading(false);
-      }
-    }
-
-    poll();
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [orderId]);
-
-  // Settlement can land while this page is open (auto-consume runs on its own
-  // 2s cycle), and the lineage poll above stops at a terminal state — usually
-  // just *before* the settlement consume completes. So watch for the notes
-  // separately: cheap Dexie-only reads, stopping as soon as any arrive and
-  // giving up after a cap so a manual-claim order doesn't poll forever.
-  const settlementFound = Boolean(
-    settlementNotes && (settlementNotes.settled.length || settlementNotes.reclaimed.length)
-  );
-  useEffect(() => {
-    if (orderId == null || settlementFound || !transaction) return;
-    const swapTxId = transaction.id;
-    const POLL_INTERVAL_MS = 2000;
-    const MAX_POLLS = 20;
-    let polls = 0;
-    let cancelled = false;
-
-    const timer = setInterval(async () => {
-      polls += 1;
-      if (polls > MAX_POLLS) {
-        clearInterval(timer);
-        return;
-      }
-      try {
-        const notes = await getSwapSettlementNotes(swapTxId);
-        if (!cancelled && (notes.settled.length > 0 || notes.reclaimed.length > 0)) {
-          setSettlementNotes(notes);
-        }
-      } catch (error) {
-        console.error('[HistoryDetails] Failed to read swap settlement notes:', error);
-      }
-    }, POLL_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [orderId, settlementFound, transaction]);
+  }, [entry, t, transactionId]);
 
   const orderStatusLabel = (state: SwapOrderState): string => {
     switch (state) {
@@ -987,7 +819,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <div className="mt-6">
                   <SectionDivider color={sectionDividerColor} />
                 </div>
-                <BridgeClaimSection entry={entry} onUpdated={loadTransaction} />
+                <BridgeClaimSection entry={entry} />
               </>
             )}
 

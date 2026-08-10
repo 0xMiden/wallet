@@ -43,8 +43,9 @@ const CLAIM_STATUS_LABEL: Record<IBridgeClaimStatus, string> = {
 
 interface BridgeClaimSectionProps {
   entry: IHistoryEntry;
-  /** Re-load the transaction so persisted claim-status changes are reflected. */
-  onUpdated: () => void;
+  /** Optional hook fired after a persisted claim-status change. The detail page
+   * observes its row via liveQuery, so it no longer needs to pass one. */
+  onUpdated?: () => void;
 }
 
 /**
@@ -100,7 +101,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
       if (status === 'pending' && entry.txId) {
         setStatus('ready');
         await updateBridgeClaimStatus(entry.txId, 'ready', { depositReady: true });
-        onUpdated();
+        onUpdated?.();
       }
       return true;
     }
@@ -128,7 +129,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
           fillChainId: fill.fillChainId
         });
       }
-      if (fill.status === 'confirmed' || fill.status === 'failed') onUpdated();
+      if (fill.status === 'confirmed' || fill.status === 'failed') onUpdated?.();
     };
     tick();
     const id = setInterval(tick, 8000);
@@ -150,7 +151,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
       setStatus('claimed');
       await updateBridgeClaimStatus(entry.txId, 'claimed', { claimTxHash: tx.hash });
       setClaimable(null);
-      onUpdated();
+      onUpdated?.();
     } catch (err) {
       console.error('[bridge-claim] claim failed', err);
       setStatus('failed');

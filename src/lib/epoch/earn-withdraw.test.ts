@@ -7,6 +7,7 @@ import {
   resubmitEarnWithdrawal,
   resumeEarnWithdrawal
 } from './earn-withdraw';
+import { clearPollRegistryForTests } from './poll-registry';
 
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
   EpochIntentSDK: class {},
@@ -271,6 +272,7 @@ describe('pollEarnWithdrawDelivery', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers();
+    clearPollRegistryForTests();
   });
   afterEach(() => jest.useRealTimers());
 
@@ -391,6 +393,25 @@ describe('pollEarnWithdrawDelivery', () => {
     await stepTick();
     expect(getIntentStatus).toHaveBeenCalledTimes(2);
     expect(deps.updatePhase).toHaveBeenCalledWith('TX1', 'delivering', { evmTxHash: '0xsource' });
+  });
+
+  it('is a no-op when a poll for the same nonce is already live', async () => {
+    const getIntentStatus = jest.fn().mockResolvedValue([{ chainId: MIDEN_CHAIN_ID, status: 'pending' }]);
+    const deps = {
+      getSdk: jest.fn().mockResolvedValue({ getIntentStatus }),
+      updatePhase: jest.fn().mockResolvedValue(undefined),
+      resolveNoteId: jest.fn().mockResolvedValue(undefined)
+    };
+    pollEarnWithdrawDelivery({ sponsorAddress: EVM_OWNER, nonce: 'NONCE1', txId: 'TX1', intervalMs: 10, deps });
+    pollEarnWithdrawDelivery({ sponsorAddress: EVM_OWNER, nonce: 'NONCE1', txId: 'TX1', intervalMs: 10, deps });
+    await stepTick();
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the nonce key on a terminal outcome so a later kick can restart', async () => {
+    await runTick([{ chainId: MIDEN_CHAIN_ID, status: 'completed', transactionHash: '0xdest' }]);
+    const deps = await runTick([{ chainId: MIDEN_CHAIN_ID, status: 'pending' }]);
+    expect(deps.getSdk).toHaveBeenCalledTimes(1);
   });
 });
 
