@@ -3843,5 +3843,165 @@
   "devEndpointResetConfirm": {
     "message": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "bridge": {
+    "message": "Bridge",
+    "englishSource": "Bridge"
+  },
+  "bridgeToMiden": {
+    "message": "Bridge to Miden",
+    "englishSource": "Bridge to Miden"
+  },
+  "bridgeFromConnectedWallet": {
+    "message": "Bridge from a connected wallet instead",
+    "englishSource": "Bridge from a connected wallet instead"
+  },
+  "ethereumSepolia": {
+    "message": "Ethereum Sepolia",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "depositAddressExplainer": {
+    "message": "Send ETH or USDC to this address on Ethereum Sepolia, then bridge it to your Miden account.",
+    "englishSource": "Send ETH or USDC to this address on Ethereum Sepolia, then bridge it to your Miden account."
+  },
+  "depositAddressWarning": {
+    "message": "Only send ETH or USDC on Ethereum Sepolia — other assets will be lost.",
+    "englishSource": "Only send ETH or USDC on Ethereum Sepolia — other assets will be lost."
+  },
+  "depositWaitingForFunds": {
+    "message": "Waiting for funds…",
+    "englishSource": "Waiting for funds…"
+  },
+  "depositBalanceCheckFailed": {
+    "message": "Couldn't check for funds",
+    "englishSource": "Couldn't check for funds"
+  },
+  "justNow": {
+    "message": "Just now",
+    "englishSource": "Just now"
+  },
+  "minutesAgo": {
+    "message": "$value$m ago",
+    "englishSource": "$value$m ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "hoursAgo": {
+    "message": "$value$h ago",
+    "englishSource": "$value$h ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "daysAgo": {
+    "message": "$value$d ago",
+    "englishSource": "$value$d ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositBridgeSelectAsset": {
+    "message": "Select asset",
+    "englishSource": "Select asset"
+  },
+  "depositBridgeAmountTitle": {
+    "message": "Amount to bridge",
+    "englishSource": "Amount to bridge"
+  },
+  "depositNetworkFeeReserved": {
+    "message": "Network fee reserved: ~$amount$ ETH",
+    "englishSource": "Network fee reserved: ~$amount$ ETH",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositNotEnoughForGas": {
+    "message": "Not enough ETH for network fees",
+    "englishSource": "Not enough ETH for network fees"
+  },
+  "depositAmountExceedsMax": {
+    "message": "Amount exceeds the bridgeable balance",
+    "englishSource": "Amount exceeds the bridgeable balance"
+  },
+  "depositBridgeSubmitFailed": {
+    "message": "Could not start the bridge",
+    "englishSource": "Could not start the bridge"
+  },
+  "fastRouteUnavailable": {
+    "message": "The fast route is unavailable right now — not enough liquidity for this amount.",
+    "englishSource": "The fast route is unavailable right now — not enough liquidity for this amount."
+  },
+  "viaEpoch": {
+    "message": "via Epoch",
+    "englishSource": "via Epoch"
+  },
+  "viaAgglayer": {
+    "message": "via Agglayer",
+    "englishSource": "via Agglayer"
+  },
+  "depositFastArrival": {
+    "message": "~1 min",
+    "englishSource": "~1 min"
+  },
+  "depositSlowArrival": {
+    "message": "~20 min",
+    "englishSource": "~20 min"
+  },
+  "transactionStepSendingToEthereum": {
+    "message": "Sending to Ethereum",
+    "englishSource": "Sending to Ethereum"
+  },
+  "transactionStepSubmittingIntent": {
+    "message": "Submitting intent",
+    "englishSource": "Submitting intent"
+  },
+  "transactionStepBridgingToMiden": {
+    "message": "Bridging to Miden",
+    "englishSource": "Bridging to Miden"
+  },
+  "bridgedReceiveProcessingTitle": {
+    "message": "Bridging to Miden",
+    "englishSource": "Bridging to Miden"
+  },
+  "bridgedReceiveSubmittedTitle": {
+    "message": "Bridge submitted",
+    "englishSource": "Bridge submitted"
+  },
+  "bridgedReceiveProcessingDescription": {
+    "message": "Keep this open until the transaction is submitted",
+    "englishSource": "Keep this open until the transaction is submitted"
+  },
+  "bridgedReceiveOnTheWay": {
+    "message": "Funds are on the way (~20 min) — track in Activity",
+    "englishSource": "Funds are on the way (~20 min) — track in Activity"
+  },
+  "depositArrivalDrawerTitle": {
+    "message": "$amount$ $symbol$ arrived",
+    "englishSource": "$amount$ $symbol$ arrived",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositArrivalDrawerDescription": {
+    "message": "Bridge it to your Miden account now, or do it later from Receive.",
+    "englishSource": "Bridge it to your Miden account now, or do it later from Receive."
+  },
+  "depositArrivalLater": {
+    "message": "Later",
+    "englishSource": "Later"
   }
 }

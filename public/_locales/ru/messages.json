@@ -3897,5 +3897,153 @@
   "devEndpointResetConfirm": {
     "message": "При этом этот кошелек будет удален без возможности восстановления, включая ваши ключи и историю транзакций. Чтобы восстановить его, вам понадобится фраза восстановления.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "bridge": {
+    "message": "Мост",
+    "englishSource": "Bridge"
+  },
+  "bridgeToMiden": {
+    "message": "Мост в Миден",
+    "englishSource": "Bridge to Miden"
+  },
+  "bridgeFromConnectedWallet": {
+    "message": "Вместо этого используйте мост из подключенного кошелька",
+    "englishSource": "Bridge from a connected wallet instead"
+  },
+  "ethereumSepolia": {
+    "message": "Эфириум Сеполия",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "depositAddressExplainer": {
+    "message": "Отправьте ETH или USDC на этот адрес в Ethereum Sepolia, а затем подключите его к своей учетной записи Miden.",
+    "englishSource": "Send ETH or USDC to this address on Ethereum Sepolia, then bridge it to your Miden account."
+  },
+  "depositAddressWarning": {
+    "message": "Отправляйте только ETH или USDC на Ethereum Sepolia — другие активы будут потеряны.",
+    "englishSource": "Only send ETH or USDC on Ethereum Sepolia — other assets will be lost."
+  },
+  "depositWaitingForFunds": {
+    "message": "Ждем средств…",
+    "englishSource": "Waiting for funds…"
+  },
+  "depositBalanceCheckFailed": {
+    "message": "Не удалось проверить наличие средств",
+    "englishSource": "Couldn't check for funds"
+  },
+  "justNow": {
+    "message": "Прямо сейчас",
+    "englishSource": "Just now"
+  },
+  "minutesAgo": {
+    "message": "$value$ млн назад",
+    "englishSource": "$value$m ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "hoursAgo": {
+    "message": "$value$ч назад",
+    "englishSource": "$value$h ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "daysAgo": {
+    "message": "$value$дней назад",
+    "englishSource": "$value$d ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositBridgeSelectAsset": {
+    "message": "Выберите актив",
+    "englishSource": "Select asset"
+  },
+  "depositBridgeAmountTitle": {
+    "message": "Сумма для моста",
+    "englishSource": "Amount to bridge"
+  },
+  "depositNetworkFeeReserved": {
+    "message": "Зарезервированная плата за сеть: ~ $amount$ ЭТХ",
+    "englishSource": "Network fee reserved: ~$amount$ ETH",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositNotEnoughForGas": {
+    "message": "Недостаточно ETH для оплаты сетевых комиссий",
+    "englishSource": "Not enough ETH for network fees"
+  },
+  "depositAmountExceedsMax": {
+    "message": "Сумма превышает мостовой баланс",
+    "englishSource": "Amount exceeds the bridgeable balance"
+  },
+  "depositBridgeSubmitFailed": {
+    "message": "Не удалось запустить мост",
+    "englishSource": "Could not start the bridge"
+  },
+  "fastRouteUnavailable": {
+    "message": "Быстрый маршрут сейчас недоступен — недостаточно ликвидности для этой суммы.",
+    "englishSource": "The fast route is unavailable right now — not enough liquidity for this amount."
+  },
+  "viaEpoch": {
+    "message": "через эпоху",
+    "englishSource": "via Epoch"
+  },
+  "viaAgglayer": {
+    "message": "через Агглейер",
+    "englishSource": "via Agglayer"
+  },
+  "depositFastArrival": {
+    "message": "~1 мин.",
+    "englishSource": "~1 min"
+  },
+  "depositSlowArrival": {
+    "message": "~20 мин.",
+    "englishSource": "~20 min"
+  },
+  "transactionStepSendingToEthereum": {
+    "message": "Отправка в Эфириум",
+    "englishSource": "Sending to Ethereum"
+  },
+  "transactionStepSubmittingIntent": {
+    "message": "Отправка намерения",
+    "englishSource": "Submitting intent"
+  },
+  "transactionStepBridgingToMiden": {
+    "message": "Мост в Миден",
+    "englishSource": "Bridging to Miden"
+  },
+  "bridgedReceiveProcessingTitle": {
+    "message": "Мост в Миден",
+    "englishSource": "Bridging to Miden"
+  },
+  "bridgedReceiveSubmittedTitle": {
+    "message": "Мост отправлен",
+    "englishSource": "Bridge submitted"
+  },
+  "bridgedReceiveProcessingDescription": {
+    "message": "Держите это открытым до тех пор, пока транзакция не будет отправлена.",
+    "englishSource": "Keep this open until the transaction is submitted"
+  },
+  "bridgedReceiveOnTheWay": {
+    "message": "Средства на пути (~20 минут) — отслеживайте в разделе «Активность».",
+    "englishSource": "Funds are on the way (~20 min) — track in Activity"
+  },
+  "depositArrivalDrawerDescription": {
+    "message": "Подключите его к своей учетной записи Miden сейчас или сделайте это позже из Receive.",
+    "englishSource": "Bridge it to your Miden account now, or do it later from Receive."
+  },
+  "depositArrivalLater": {
+    "message": "Позже",
+    "englishSource": "Later"
   }
 }

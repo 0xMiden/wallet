@@ -3897,5 +3897,165 @@
   "devEndpointResetConfirm": {
     "message": "Це назавжди видаляє цей гаманець, включаючи ваші ключі та історію транзакцій. Щоб відновити його, вам знадобиться ваша фраза відновлення.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "bridge": {
+    "message": "Міст",
+    "englishSource": "Bridge"
+  },
+  "bridgeToMiden": {
+    "message": "Міст на Мідень",
+    "englishSource": "Bridge to Miden"
+  },
+  "bridgeFromConnectedWallet": {
+    "message": "Натомість перейдіть із підключеного гаманця",
+    "englishSource": "Bridge from a connected wallet instead"
+  },
+  "ethereumSepolia": {
+    "message": "Ethereum Sepolia",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "depositAddressExplainer": {
+    "message": "Надішліть ETH або USDC на цю адресу в Ethereum Sepolia, а потім підключіть його до свого облікового запису Miden.",
+    "englishSource": "Send ETH or USDC to this address on Ethereum Sepolia, then bridge it to your Miden account."
+  },
+  "depositAddressWarning": {
+    "message": "Надсилайте лише ETH або USDC на Ethereum Sepolia — інші активи будуть втрачені.",
+    "englishSource": "Only send ETH or USDC on Ethereum Sepolia — other assets will be lost."
+  },
+  "depositWaitingForFunds": {
+    "message": "Очікування коштів…",
+    "englishSource": "Waiting for funds…"
+  },
+  "depositBalanceCheckFailed": {
+    "message": "Не вдалося перевірити наявність коштів",
+    "englishSource": "Couldn't check for funds"
+  },
+  "justNow": {
+    "message": "Просто зараз",
+    "englishSource": "Just now"
+  },
+  "minutesAgo": {
+    "message": "$value$м тому",
+    "englishSource": "$value$m ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "hoursAgo": {
+    "message": "$value$h тому",
+    "englishSource": "$value$h ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "daysAgo": {
+    "message": "$value$d тому",
+    "englishSource": "$value$d ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositBridgeSelectAsset": {
+    "message": "Виберіть актив",
+    "englishSource": "Select asset"
+  },
+  "depositBridgeAmountTitle": {
+    "message": "Сума для мосту",
+    "englishSource": "Amount to bridge"
+  },
+  "depositNetworkFeeReserved": {
+    "message": "Плата за мережу зарезервована: ~ $amount$ ETH",
+    "englishSource": "Network fee reserved: ~$amount$ ETH",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositNotEnoughForGas": {
+    "message": "Недостатньо ETH для оплати мережі",
+    "englishSource": "Not enough ETH for network fees"
+  },
+  "depositAmountExceedsMax": {
+    "message": "Сума перевищує баланс, який можна погасити",
+    "englishSource": "Amount exceeds the bridgeable balance"
+  },
+  "depositBridgeSubmitFailed": {
+    "message": "Не вдалося запустити міст",
+    "englishSource": "Could not start the bridge"
+  },
+  "fastRouteUnavailable": {
+    "message": "Швидкий маршрут зараз недоступний — недостатньо ліквідних коштів на цю суму.",
+    "englishSource": "The fast route is unavailable right now — not enough liquidity for this amount."
+  },
+  "viaEpoch": {
+    "message": "через Epoch",
+    "englishSource": "via Epoch"
+  },
+  "viaAgglayer": {
+    "message": "через Agglayer",
+    "englishSource": "via Agglayer"
+  },
+  "depositFastArrival": {
+    "message": "~1 хв",
+    "englishSource": "~1 min"
+  },
+  "depositSlowArrival": {
+    "message": "~20 хв",
+    "englishSource": "~20 min"
+  },
+  "transactionStepSendingToEthereum": {
+    "message": "Відправка в Ethereum",
+    "englishSource": "Sending to Ethereum"
+  },
+  "transactionStepSubmittingIntent": {
+    "message": "Подання наміру",
+    "englishSource": "Submitting intent"
+  },
+  "transactionStepBridgingToMiden": {
+    "message": "Міст на Мідень",
+    "englishSource": "Bridging to Miden"
+  },
+  "bridgedReceiveProcessingTitle": {
+    "message": "Міст на Мідень",
+    "englishSource": "Bridging to Miden"
+  },
+  "bridgedReceiveSubmittedTitle": {
+    "message": "Міст подано",
+    "englishSource": "Bridge submitted"
+  },
+  "bridgedReceiveProcessingDescription": {
+    "message": "Тримайте це відкритим, доки трансакцію не буде подано",
+    "englishSource": "Keep this open until the transaction is submitted"
+  },
+  "bridgedReceiveOnTheWay": {
+    "message": "Кошти в дорозі (~20 хв) — відстежуйте в Activity",
+    "englishSource": "Funds are on the way (~20 min) — track in Activity"
+  },
+  "depositArrivalDrawerTitle": {
+    "message": "$amount$ $symbol$ прибуло",
+    "englishSource": "$amount$ $symbol$ arrived",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositArrivalDrawerDescription": {
+    "message": "Підключіть його до свого облікового запису Miden зараз або зробіть це пізніше з Receive.",
+    "englishSource": "Bridge it to your Miden account now, or do it later from Receive."
+  },
+  "depositArrivalLater": {
+    "message": "Пізніше",
+    "englishSource": "Later"
   }
 }

@@ -3896,5 +3896,144 @@
   "devEndpointResetConfirm": {
     "message": "这将永久删除该钱包，包括您的密钥和交易历史记录。您需要恢复短语来恢复它。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "bridge": {
+    "message": "桥",
+    "englishSource": "Bridge"
+  },
+  "bridgeToMiden": {
+    "message": "通往米登的桥梁",
+    "englishSource": "Bridge to Miden"
+  },
+  "bridgeFromConnectedWallet": {
+    "message": "改为从连接的钱包桥接",
+    "englishSource": "Bridge from a connected wallet instead"
+  },
+  "ethereumSepolia": {
+    "message": "以太坊塞波利亚",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "depositAddressExplainer": {
+    "message": "将 ETH 或 USDC 发送到以太坊 Sepolia 上的此地址，然后将其桥接到您的 Miden 账户。",
+    "englishSource": "Send ETH or USDC to this address on Ethereum Sepolia, then bridge it to your Miden account."
+  },
+  "depositAddressWarning": {
+    "message": "仅在以太坊 Sepolia 上发送 ETH 或 USDC — 其他资产将会丢失。",
+    "englishSource": "Only send ETH or USDC on Ethereum Sepolia — other assets will be lost."
+  },
+  "depositWaitingForFunds": {
+    "message": "等待资金...",
+    "englishSource": "Waiting for funds…"
+  },
+  "depositBalanceCheckFailed": {
+    "message": "无法检查资金",
+    "englishSource": "Couldn't check for funds"
+  },
+  "justNow": {
+    "message": "现在",
+    "englishSource": "Just now"
+  },
+  "minutesAgo": {
+    "message": "$value$m 前",
+    "englishSource": "$value$m ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "hoursAgo": {
+    "message": "$value$h 前",
+    "englishSource": "$value$h ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositBridgeSelectAsset": {
+    "message": "选择资产",
+    "englishSource": "Select asset"
+  },
+  "depositBridgeAmountTitle": {
+    "message": "桥接金额",
+    "englishSource": "Amount to bridge"
+  },
+  "depositNetworkFeeReserved": {
+    "message": "网络费保留：~ $amount$ 以太坊",
+    "englishSource": "Network fee reserved: ~$amount$ ETH",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositNotEnoughForGas": {
+    "message": "没有足够的 ETH 来支付网络费用",
+    "englishSource": "Not enough ETH for network fees"
+  },
+  "depositAmountExceedsMax": {
+    "message": "金额超过可桥接余额",
+    "englishSource": "Amount exceeds the bridgeable balance"
+  },
+  "depositBridgeSubmitFailed": {
+    "message": "无法启动桥",
+    "englishSource": "Could not start the bridge"
+  },
+  "fastRouteUnavailable": {
+    "message": "快速通道目前不可用——没有足够的流动性来满足这一金额。",
+    "englishSource": "The fast route is unavailable right now — not enough liquidity for this amount."
+  },
+  "viaEpoch": {
+    "message": "通过纪元",
+    "englishSource": "via Epoch"
+  },
+  "viaAgglayer": {
+    "message": "通过Agglayer",
+    "englishSource": "via Agglayer"
+  },
+  "depositFastArrival": {
+    "message": "约 1 分钟",
+    "englishSource": "~1 min"
+  },
+  "depositSlowArrival": {
+    "message": "约20分钟",
+    "englishSource": "~20 min"
+  },
+  "transactionStepSendingToEthereum": {
+    "message": "发送至以太坊",
+    "englishSource": "Sending to Ethereum"
+  },
+  "transactionStepSubmittingIntent": {
+    "message": "提交意向",
+    "englishSource": "Submitting intent"
+  },
+  "transactionStepBridgingToMiden": {
+    "message": "通往米登的桥梁",
+    "englishSource": "Bridging to Miden"
+  },
+  "bridgedReceiveProcessingTitle": {
+    "message": "通往米登的桥梁",
+    "englishSource": "Bridging to Miden"
+  },
+  "bridgedReceiveSubmittedTitle": {
+    "message": "桥梁已提交",
+    "englishSource": "Bridge submitted"
+  },
+  "bridgedReceiveProcessingDescription": {
+    "message": "保持打开状态直到交易提交",
+    "englishSource": "Keep this open until the transaction is submitted"
+  },
+  "bridgedReceiveOnTheWay": {
+    "message": "资金正在路上（约 20 分钟）——活动跟踪",
+    "englishSource": "Funds are on the way (~20 min) — track in Activity"
+  },
+  "depositArrivalDrawerDescription": {
+    "message": "立即将其桥接到您的 Miden 帐户，或者稍后通过 Receive 进行桥接。",
+    "englishSource": "Bridge it to your Miden account now, or do it later from Receive."
+  },
+  "depositArrivalLater": {
+    "message": "之后",
+    "englishSource": "Later"
   }
 }

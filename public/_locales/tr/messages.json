@@ -3896,5 +3896,138 @@
   "devEndpointResetConfirm": {
     "message": "Bu işlem, anahtarlarınız ve işlem geçmişiniz de dahil olmak üzere bu cüzdanı kalıcı olarak siler. Geri yüklemek için kurtarma ifadenize ihtiyacınız olacak.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "bridge": {
+    "message": "Köprü",
+    "englishSource": "Bridge"
+  },
+  "bridgeToMiden": {
+    "message": "Miden Köprüsü",
+    "englishSource": "Bridge to Miden"
+  },
+  "bridgeFromConnectedWallet": {
+    "message": "Bunun yerine bağlı bir cüzdandan köprü kurun",
+    "englishSource": "Bridge from a connected wallet instead"
+  },
+  "ethereumSepolia": {
+    "message": "Ethereum Sepolia",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "depositAddressExplainer": {
+    "message": "ETH veya USDC'yi Ethereum Sepolia'daki bu adrese gönderin, ardından bunu Miden hesabınıza bağlayın.",
+    "englishSource": "Send ETH or USDC to this address on Ethereum Sepolia, then bridge it to your Miden account."
+  },
+  "depositAddressWarning": {
+    "message": "Yalnızca Ethereum Sepolia'ya ETH veya USDC gönderin; diğer varlıklar kaybolacaktır.",
+    "englishSource": "Only send ETH or USDC on Ethereum Sepolia — other assets will be lost."
+  },
+  "depositWaitingForFunds": {
+    "message": "Fon bekleniyor…",
+    "englishSource": "Waiting for funds…"
+  },
+  "depositBalanceCheckFailed": {
+    "message": "Para kontrolü yapılamadı",
+    "englishSource": "Couldn't check for funds"
+  },
+  "justNow": {
+    "message": "Şu anda",
+    "englishSource": "Just now"
+  },
+  "depositBridgeSelectAsset": {
+    "message": "Varlık seçin",
+    "englishSource": "Select asset"
+  },
+  "depositBridgeAmountTitle": {
+    "message": "Köprü tutarı",
+    "englishSource": "Amount to bridge"
+  },
+  "depositNetworkFeeReserved": {
+    "message": "Ağ ücreti saklıdır: ~ $amount$ ETH",
+    "englishSource": "Network fee reserved: ~$amount$ ETH",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositNotEnoughForGas": {
+    "message": "Ağ ücretleri için yeterli ETH yok",
+    "englishSource": "Not enough ETH for network fees"
+  },
+  "depositAmountExceedsMax": {
+    "message": "Tutar köprülenebilir bakiyeyi aşıyor",
+    "englishSource": "Amount exceeds the bridgeable balance"
+  },
+  "depositBridgeSubmitFailed": {
+    "message": "Köprü başlatılamadı",
+    "englishSource": "Could not start the bridge"
+  },
+  "fastRouteUnavailable": {
+    "message": "Hızlı rota şu anda kullanılamıyor; bu miktar için yeterli likidite yok.",
+    "englishSource": "The fast route is unavailable right now — not enough liquidity for this amount."
+  },
+  "viaEpoch": {
+    "message": "Epoch aracılığıyla",
+    "englishSource": "via Epoch"
+  },
+  "viaAgglayer": {
+    "message": "Agglayer aracılığıyla",
+    "englishSource": "via Agglayer"
+  },
+  "depositFastArrival": {
+    "message": "~1 dk",
+    "englishSource": "~1 min"
+  },
+  "depositSlowArrival": {
+    "message": "~20 dk",
+    "englishSource": "~20 min"
+  },
+  "transactionStepSendingToEthereum": {
+    "message": "Ethereum'a Gönderme",
+    "englishSource": "Sending to Ethereum"
+  },
+  "transactionStepSubmittingIntent": {
+    "message": "Niyet gönderiliyor",
+    "englishSource": "Submitting intent"
+  },
+  "transactionStepBridgingToMiden": {
+    "message": "Miden'a Köprü Kurmak",
+    "englishSource": "Bridging to Miden"
+  },
+  "bridgedReceiveProcessingTitle": {
+    "message": "Miden'a Köprü Kurmak",
+    "englishSource": "Bridging to Miden"
+  },
+  "bridgedReceiveSubmittedTitle": {
+    "message": "Köprü gönderildi",
+    "englishSource": "Bridge submitted"
+  },
+  "bridgedReceiveProcessingDescription": {
+    "message": "İşlem gönderilene kadar bunu açık tut",
+    "englishSource": "Keep this open until the transaction is submitted"
+  },
+  "bridgedReceiveOnTheWay": {
+    "message": "Fonlar yolda (~20 dk) — Faaliyette takip edin",
+    "englishSource": "Funds are on the way (~20 min) — track in Activity"
+  },
+  "depositArrivalDrawerTitle": {
+    "message": "$amount$ $symbol$ geldi",
+    "englishSource": "$amount$ $symbol$ arrived",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositArrivalDrawerDescription": {
+    "message": "Bunu şimdi Miden hesabınıza bağlayın veya daha sonra Al'dan yapın.",
+    "englishSource": "Bridge it to your Miden account now, or do it later from Receive."
+  },
+  "depositArrivalLater": {
+    "message": "Daha sonra",
+    "englishSource": "Later"
   }
 }
