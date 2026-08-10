@@ -185,20 +185,41 @@ describe('metadata/fetch', () => {
       });
     });
 
-    it('returns DEFAULT_TOKEN_METADATA when RPC returns no underlying account (public, warns)', async () => {
+    it('does not cache a transient missing public account and retries on the next fetch', async () => {
       const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       mockIsMidenAsset.mockReturnValue(false);
+      const storedMetadata: Record<string, AssetMetadata> = {};
+      mockFetchFromStorage.mockImplementation(async () => storedMetadata);
+      mockPutToStorage.mockImplementation(async (_key: string, value: Record<string, AssetMetadata>) => {
+        Object.assign(storedMetadata, value);
+      });
       mockFromBech32.mockReturnValue({ accountId: () => 'acc-id' });
-      mockGetAccountDetails.mockResolvedValue({
-        account: () => null,
-        isPublic: () => true
+      mockGetAccountDetails
+        .mockResolvedValueOnce({
+          account: () => null,
+          isPublic: () => true
+        })
+        .mockResolvedValueOnce({
+          account: () => ({ storage: () => ({ slots: [] }) }),
+          isPublic: () => true
+        });
+      mockFromAccountStorage.mockReturnValue({
+        decimals: () => 8,
+        symbol: () => ({ toString: () => 'TEST' })
       });
 
-      const result = await fetchTokenMetadata('public-missing-asset-id');
+      const first = await fetchTokenMetadata('public-missing-asset-id');
+      const second = await fetchTokenMetadata('public-missing-asset-id');
 
-      expect(result).toEqual({
+      expect(first).toEqual({
         base: DEFAULT_TOKEN_METADATA,
         detailed: DEFAULT_TOKEN_METADATA
+      });
+      expect(second.base).toMatchObject({ decimals: 8, symbol: 'TEST', name: 'TEST' });
+      expect(mockGetAccountDetails).toHaveBeenCalledTimes(2);
+      expect(mockPutToStorage).toHaveBeenCalledTimes(1);
+      expect(mockPutToStorage).toHaveBeenCalledWith('tokens_base_metadata', {
+        'public-missing-asset-id': second.base
       });
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         'Failed to fetch metadata from chain for',

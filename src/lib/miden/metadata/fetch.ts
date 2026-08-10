@@ -64,8 +64,9 @@ export async function fetchTokenMetadata(
     if (!underlyingAccount) {
       if (account.isPublic()) {
         // if the account was public and we couldn't fetch metadata it should not happen in first place
-        // but in case it does we are storing it as unknown metadata and warning in console
+        // but in case it does we return unknown metadata without caching it so a later fetch can retry
         console.warn('Failed to fetch metadata from chain for', assetId, 'Using default metadata');
+        return { base: DEFAULT_TOKEN_METADATA, detailed: DEFAULT_TOKEN_METADATA };
       }
       // if the account is private we are assigning it the unknown metadata, as there is no way to fetch the metadata from chain
       return cacheTokenMetadata(assetId, { base: DEFAULT_TOKEN_METADATA, detailed: DEFAULT_TOKEN_METADATA });
