@@ -11,12 +11,7 @@ const MIDEN_DEVNET_PREFIX = 'mdev1';
 // recipient validation rejects localnet addresses and the send flow's Confirm
 // button never enables — breaking sends on a localnet/localhost network.
 const MIDEN_LOCALNET_PREFIX = 'mlcl1';
-const MIDEN_BECH32_PREFIXES = [
-  MIDEN_MAINNET_PREFIX,
-  MIDEN_TESTNET_PREFIX,
-  MIDEN_DEVNET_PREFIX,
-  MIDEN_LOCALNET_PREFIX
-];
+const MIDEN_BECH32_PREFIXES = [MIDEN_MAINNET_PREFIX, MIDEN_TESTNET_PREFIX, MIDEN_DEVNET_PREFIX, MIDEN_LOCALNET_PREFIX];
 
 const isValidBech32Address = (address: string) => {
   return MIDEN_BECH32_PREFIXES.some(prefix => address.startsWith(prefix));
