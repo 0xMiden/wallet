@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [CHANGE][all] **Frontend skill guidance now defaults standard actions to the shared wallet button.** The shared frontend skill directs standard wallet actions to `components/Button`, reserving native buttons for compact, icon-only, or inline controls that the full CTA cannot represent.
 - [CHANGE][all] **Frontend implementation guidance is now shared across supported coding agents.** The repository now carries one vendor-neutral Miden Wallet frontend skill for component reuse, semantic styling, motion, accessibility, haptics, and cross-platform verification, with matching concise rules in the repository instructions.
 
 ### Fixes

@@ -29,7 +29,7 @@ An indeterminate progress runner, icon flip, and hero state pop are all owned by
 
 ## Interaction Requirements
 
-Use a native `button` for an action and an `a` for navigation whenever possible. Icon-only controls need an accessible name. Status or asynchronous completion needs the right `role` or live-region behavior. Keyboard users must receive the same action with Enter and Space when a custom control is unavoidable.
+Use `components/Button` for standard wallet actions. Use a native `button` only for compact, icon-only, or inline controls that the full CTA component cannot represent; use an `a` for navigation. Never replace a suitable button with a `div`. Icon-only controls need an accessible name. Status or asynchronous completion needs the right `role` or live-region behavior. Keyboard users must receive the same action with Enter and Space when a custom control is unavoidable.
 
 Mobile feedback follows intent:
 
