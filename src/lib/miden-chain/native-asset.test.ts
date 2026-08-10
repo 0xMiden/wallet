@@ -9,9 +9,10 @@ _g.__nativeAssetTest = {
   // open across an endpoint switch.
   deferHeader: null as any,
   rpcCalls: 0,
-  // Effective RPC URL the cache keys are derived from. Tests flip this to
-  // simulate a dev-settings network switch.
+  // Effective RPC URL + network name the cache keys are derived from. Tests
+  // flip these to simulate a dev-settings endpoint / network-id switch.
   rpcUrl: 'rpc-testnet' as string,
+  networkName: 'testnet' as string,
   fetchTokenMetadata: jest.fn(),
   fetchFromStorage: jest.fn(),
   putToStorage: jest.fn()
@@ -34,7 +35,8 @@ jest.mock('lib/miden-chain/constants', () => ({
 }));
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  getEffectiveRpcUrl: () => (globalThis as any).__nativeAssetTest.rpcUrl
+  getEffectiveRpcUrl: () => (globalThis as any).__nativeAssetTest.rpcUrl,
+  getEffectiveNetworkName: () => (globalThis as any).__nativeAssetTest.networkName
 }));
 
 jest.mock('lib/miden/front/storage', () => ({
@@ -67,6 +69,7 @@ beforeEach(async () => {
   _g.__nativeAssetTest.rpcHeader = null;
   _g.__nativeAssetTest.deferHeader = null;
   _g.__nativeAssetTest.rpcUrl = 'rpc-testnet';
+  _g.__nativeAssetTest.networkName = 'testnet';
   _g.__nativeAssetTest.fetchTokenMetadata.mockReset();
   _g.__nativeAssetTest.fetchFromStorage.mockReset();
   _g.__nativeAssetTest.putToStorage.mockReset();
@@ -91,11 +94,11 @@ describe('native-asset module', () => {
 
     expect(id).toBe('bech32-native-acc');
     expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
-    expect(_g.__nativeAssetTest.storage['native_asset_id:v3:rpc-testnet']).toBe('bech32-native-acc');
+    expect(_g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet']).toBe('bech32-native-acc');
   });
 
   it('returns cached ID from storage without RPC', async () => {
-    _g.__nativeAssetTest.storage['native_asset_id:v3:rpc-testnet'] = 'pre-cached-id';
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet'] = 'pre-cached-id';
 
     const id = await getNativeAssetId();
 
@@ -186,8 +189,8 @@ describe('native-asset module', () => {
     await expect(pA).resolves.toBe('bech32-faucet-A'); // the A caller still gets A
     expect(getNativeAssetIdSync()).toBe('bech32-faucet-B'); // memory still B
     // Persisted layer: B's entry intact, A's landed under A's own (snapshotted) key.
-    expect(_g.__nativeAssetTest.storage['native_asset_id:v3:rpc-B']).toBe('bech32-faucet-B');
-    expect(_g.__nativeAssetTest.storage['native_asset_id:v3:rpc-A']).toBe('bech32-faucet-A');
+    expect(_g.__nativeAssetTest.storage['native_asset_id:v4:rpc-B|testnet']).toBe('bech32-faucet-B');
+    expect(_g.__nativeAssetTest.storage['native_asset_id:v4:rpc-A|testnet']).toBe('bech32-faucet-A');
     // Listeners never saw the stale A id after the switch.
     expect(seen).not.toContain('bech32-faucet-A');
     expect(seen).toContain('bech32-faucet-B');
@@ -196,13 +199,13 @@ describe('native-asset module', () => {
 
   it('does not let a hydrate read parked across an endpoint switch seed the old node id', async () => {
     // A persisted entry exists for node A.
-    _g.__nativeAssetTest.storage['native_asset_id:v3:rpc-A'] = 'stored-A';
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-A|testnet'] = 'stored-A';
     // Hold node A's persisted-id read open so hydration parks there.
     let releaseAread: () => void = () => {};
     _g.__nativeAssetTest.fetchFromStorage.mockImplementation(
       (key: string) =>
         new Promise(res => {
-          if (key === 'native_asset_id:v3:rpc-A') {
+          if (key === 'native_asset_id:v4:rpc-A|testnet') {
             releaseAread = () => res(_g.__nativeAssetTest.storage[key] ?? null);
           } else {
             res(_g.__nativeAssetTest.storage[key] ?? null);
@@ -231,8 +234,29 @@ describe('native-asset module', () => {
     _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'A' }) };
     await getNativeAssetId();
 
-    expect(_g.__nativeAssetTest.storage['native_asset_id:v3:rpc-A']).toBe('bech32-A');
-    expect(_g.__nativeAssetTest.storage['native_asset_id:v3:rpc-B']).toBeUndefined();
+    expect(_g.__nativeAssetTest.storage['native_asset_id:v4:rpc-A|testnet']).toBe('bech32-A');
+    expect(_g.__nativeAssetTest.storage['native_asset_id:v4:rpc-B|testnet']).toBeUndefined();
+  });
+
+  // Regression: the cached value is a bech32 string whose prefix comes from the
+  // network name (getNetworkId). Changing only the dev-settings Network ID (same
+  // RPC) must invalidate — otherwise the placeholder MIDEN row keeps the old
+  // prefix while fresh per-sync note faucet ids use the new one, and they mismatch.
+  it('re-discovers when only the network name changes on the same RPC', async () => {
+    _g.__nativeAssetTest.rpcUrl = 'rpc-same';
+    _g.__nativeAssetTest.networkName = 'localnet';
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'acc' }) };
+    expect(await getNativeAssetId()).toBe('bech32-acc');
+    expect(_g.__nativeAssetTest.storage['native_asset_id:v4:rpc-same|localnet']).toBe('bech32-acc');
+
+    // Change ONLY the network id (RPC unchanged) — the cache must invalidate.
+    _g.__nativeAssetTest.networkName = 'devnet';
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'acc2' }) };
+    expect(getNativeAssetIdSync()).toBeNull(); // stale-prefix value not served
+    expect(await getNativeAssetId()).toBe('bech32-acc2');
+    expect(_g.__nativeAssetTest.storage['native_asset_id:v4:rpc-same|devnet']).toBe('bech32-acc2');
+    // Old-scope entry left intact (distinct key).
+    expect(_g.__nativeAssetTest.storage['native_asset_id:v4:rpc-same|localnet']).toBe('bech32-acc');
   });
 
   it('re-discovers metadata against the new node on endpoint switch', async () => {
@@ -271,7 +295,7 @@ describe('native-asset module', () => {
     resolveMeta({ base: { symbol: 'AAA', decimals: 6, name: 'A' } });
     await pA;
     expect(getNativeAssetMetadataSync()).toEqual({ symbol: 'BBB', decimals: 8 });
-    expect(_g.__nativeAssetTest.storage['native_asset_meta:v3:rpc-B']).toEqual({ symbol: 'BBB', decimals: 8 });
+    expect(_g.__nativeAssetTest.storage['native_asset_meta:v4:rpc-B|testnet']).toEqual({ symbol: 'BBB', decimals: 8 });
   });
 
   it('fires onNativeAssetChanged listeners when discovery completes', async () => {
@@ -286,7 +310,7 @@ describe('native-asset module', () => {
   });
 
   it('does not fire listeners when reading from cache', async () => {
-    _g.__nativeAssetTest.storage['native_asset_id:v3:rpc-testnet'] = 'cached';
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet'] = 'cached';
     const listener = jest.fn();
     const unsub = onNativeAssetChanged(listener);
 
@@ -306,12 +330,12 @@ describe('native-asset module', () => {
 
     expect(meta).toEqual({ symbol: 'MIDEN', decimals: 6 });
     expect(_g.__nativeAssetTest.fetchTokenMetadata).toHaveBeenCalledWith('bech32-n');
-    expect(_g.__nativeAssetTest.storage['native_asset_meta:v3:rpc-testnet']).toEqual({ symbol: 'MIDEN', decimals: 6 });
+    expect(_g.__nativeAssetTest.storage['native_asset_meta:v4:rpc-testnet|testnet']).toEqual({ symbol: 'MIDEN', decimals: 6 });
   });
 
   it('hydrates metadata from storage without RPC or metadata fetch', async () => {
-    _g.__nativeAssetTest.storage['native_asset_id:v3:rpc-testnet'] = 'cached-id';
-    _g.__nativeAssetTest.storage['native_asset_meta:v3:rpc-testnet'] = { symbol: 'CACHED', decimals: 8 };
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet'] = 'cached-id';
+    _g.__nativeAssetTest.storage['native_asset_meta:v4:rpc-testnet|testnet'] = { symbol: 'CACHED', decimals: 8 };
 
     const meta = await getNativeAssetMetadata();
 
@@ -380,8 +404,8 @@ describe('native-asset module', () => {
 
     expect(getNativeAssetIdSync()).toBeNull();
     expect(getNativeAssetMetadataSync()).toBeNull();
-    expect(_g.__nativeAssetTest.storage['native_asset_id:v3:rpc-testnet']).toBeNull();
-    expect(_g.__nativeAssetTest.storage['native_asset_meta:v3:rpc-testnet']).toBeNull();
+    expect(_g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet']).toBeNull();
+    expect(_g.__nativeAssetTest.storage['native_asset_meta:v4:rpc-testnet|testnet']).toBeNull();
   });
 
   it('swallows listener exceptions when emitting', async () => {
@@ -438,7 +462,7 @@ describe('native-asset module', () => {
     });
     // Only fail writes to the metadata key — let the ID write succeed
     _g.__nativeAssetTest.putToStorage.mockImplementation(async (key: string, value: any) => {
-      if (key === 'native_asset_meta:v3:rpc-testnet') throw new Error('meta write fail');
+      if (key === 'native_asset_meta:v4:rpc-testnet|testnet') throw new Error('meta write fail');
       _g.__nativeAssetTest.storage[key] = value;
     });
 

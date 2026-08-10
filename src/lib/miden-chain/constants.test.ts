@@ -12,7 +12,8 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   NetworkId: {
     mainnet: () => ({ kind: 'mainnet' }),
     devnet: () => ({ kind: 'devnet' }),
-    testnet: () => ({ kind: 'testnet' })
+    testnet: () => ({ kind: 'testnet' }),
+    custom: (prefix: string) => ({ kind: 'custom', prefix })
   },
   MidenClient: {
     ready: mockMidenClientReady
@@ -296,11 +297,13 @@ describe('miden-chain/constants', () => {
       });
     });
 
-    it('returns testnet for LOCALNET network', () => {
+    it('returns the localnet custom prefix (mlcl) for LOCALNET network', () => {
       process.env.MIDEN_NETWORK = 'localnet';
       jest.isolateModules(() => {
         const { getNetworkId } = require('./constants');
-        expect(getNetworkId()).toEqual({ kind: 'testnet' });
+        // The SDK has no localnet() constructor; localnet uses the 'mlcl' HRP.
+        // Previously LOCALNET wrongly fell through to testnet() (mtst1 prefix).
+        expect(getNetworkId()).toEqual({ kind: 'custom', prefix: 'mlcl' });
       });
     });
 

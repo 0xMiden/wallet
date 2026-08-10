@@ -2,23 +2,30 @@ import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
-import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
 import { ensureSdkWasmReady, getRpcEndpoint } from './constants';
 
-// `v3` segment: the cache is keyed by the effective RPC URL — the node that
-// defines the genesis and therefore the native (fee) faucet id — NOT the base
-// network name. A custom dev-settings network shares its base name (e.g.
-// 'devnet') with the real network of that name, so a name-keyed cache collided
-// and served a stale faucet id, breaking native-note auto-consume on custom
-// networks. Keying by RPC URL gives every distinct node its own entry, and the
-// in-memory guard below (`invalidateOnEndpointChange`) re-discovers on switch.
-// (v2 → v3 also discards the 0.15-era name-keyed entries, which is intended.)
+// Cache identity = (effective RPC URL, effective network name):
+//   - the RPC URL determines the faucet ACCOUNT (the node's genesis / fee
+//     faucet), so a custom dev-settings network gets its own entry instead of
+//     colliding with the real network of the same base name;
+//   - the network name determines the bech32 PREFIX the id is rendered under
+//     (getNetworkId), so changing only the dev-settings Network ID (same RPC)
+//     must still invalidate — otherwise the cached (old-prefix) string is
+//     reused while fresh per-sync note faucet ids use the new prefix, and the
+//     placeholder MIDEN row mismatches the arrived one.
+// The in-memory guard below (`invalidateOnEndpointChange`) re-discovers when
+// either changes. (`v4`: added network name; v3 keyed by RPC URL only, v2 by
+// base network name — both are discarded, which is intended.)
+function cacheScope(): string {
+  return `${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`;
+}
 function idCacheKey(): string {
-  return `native_asset_id:v3:${getEffectiveRpcUrl()}`;
+  return `native_asset_id:v4:${cacheScope()}`;
 }
 function metaCacheKey(): string {
-  return `native_asset_meta:v3:${getEffectiveRpcUrl()}`;
+  return `native_asset_meta:v4:${cacheScope()}`;
 }
 
 export type NativeAssetChainMetadata = {
@@ -32,25 +39,25 @@ let hydrated = false;
 let inflight: Promise<string> | null = null;
 let metaInflight: Promise<NativeAssetChainMetadata | null> | null = null;
 
-// The effective RPC URL the in-memory caches were populated for. The persisted
-// cache is RPC-keyed (see `idCacheKey`), but `memCache`/`metaMemCache` are
-// single module-level values not tied to an endpoint; this lets us detect an
-// endpoint switch (e.g. via dev settings) and drop the stale in-memory value so
-// the next resolve re-discovers against the new node. Without it, switching
-// networks keeps serving the previous node's native faucet id and native-note
-// auto-consume never matches on the new network.
-let cachedForRpc: string | null = null;
+// The cache scope (RPC URL + network name; see `cacheScope`) the in-memory
+// caches were populated for. The persisted cache is scope-keyed (see
+// `idCacheKey`), but `memCache`/`metaMemCache` are single module-level values
+// not tied to a scope; this lets us detect an endpoint OR network-id change
+// (e.g. via dev settings) and drop the stale in-memory value so the next
+// resolve re-discovers/re-encodes. Without it, switching keeps serving the
+// previous scope's native faucet id.
+let cachedForScope: string | null = null;
 
 function invalidateOnEndpointChange(): void {
-  const rpc = getEffectiveRpcUrl();
-  if (cachedForRpc !== null && cachedForRpc !== rpc) {
+  const scope = cacheScope();
+  if (cachedForScope !== null && cachedForScope !== scope) {
     memCache = null;
     metaMemCache = null;
     hydrated = false;
     inflight = null;
     metaInflight = null;
   }
-  cachedForRpc = rpc;
+  cachedForScope = scope;
 }
 
 const listeners = new Set<(id: string) => void>();
@@ -258,7 +265,7 @@ export async function resetNativeAssetCache(): Promise<void> {
   hydrated = false;
   inflight = null;
   metaInflight = null;
-  cachedForRpc = null;
+  cachedForScope = null;
   try {
     await Promise.all([putToStorage(idCacheKey(), null), putToStorage(metaCacheKey(), null)]);
   } catch {
