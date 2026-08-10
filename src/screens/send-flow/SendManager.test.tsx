@@ -170,12 +170,26 @@ jest.mock('lib/woozie', () => ({
   navigate: (...a: any[]) => navigateMock(...a),
   useLocation: () => ({ pathname: mockPathname, search: mockSearch })
 }));
-jest.mock('utils/miden', () => ({
-  isValidMidenAddress: (a: string) => isValidMidenAddressMock(a),
-  isValidEthereumAddress: (a: string) => a.startsWith('0x') && a.length > 2,
-  isValidRecipientAddress: (a: string) => isValidMidenAddressMock(a),
-  detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden')
-}));
+jest.mock('utils/miden', () => {
+  class MidenAddressError extends Error {
+    reason: 'invalid' | 'wrong-network';
+
+    constructor(reason: 'invalid' | 'wrong-network') {
+      super(reason);
+      this.reason = reason;
+    }
+  }
+  return {
+    MidenAddressError,
+    isValidMidenAddress: (a: string) => {
+      if (!isValidMidenAddressMock(a)) throw new MidenAddressError('invalid');
+      return true;
+    },
+    isValidEthereumAddress: (a: string) => a.startsWith('0x') && a.length > 2,
+    isValidRecipientAddress: (a: string) => isValidMidenAddressMock(a),
+    detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden')
+  };
+});
 jest.mock('lib/i18n/numbers', () => ({ stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a) }));
 jest.mock('lib/miden/activity', () => ({
   requestSpeculateSend: (...a: any[]) => requestSpeculateSendMock(...a),

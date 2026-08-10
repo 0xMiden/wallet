@@ -26,7 +26,6 @@ jest.mock('../front/storage', () => ({
 // in lib/miden-chain/constants, so guardianProviderFromEndpoint's reverse-map
 // is exercised against realistic data, not a fabricated fixture.
 jest.mock('lib/miden-chain/constants', () => ({
-  DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test',
   DEFAULT_NETWORK: 'testnet',
   MIDEN_NETWORK_ENDPOINTS: new Map([['testnet', 'https://rpc.testnet.miden.io']]),
   GUARDIAN_OPTIONS: [
@@ -52,6 +51,17 @@ jest.mock('lib/miden-chain/constants', () => ({
       endpoint: new Map([['testnet', 'https://unmapped.guardian.test']])
     }
   ]
+}));
+
+// `getEffectiveDefaultGuardianEndpoint` is the effective-network-aware fallback
+// (see lib/miden-chain/effective-endpoints.ts); stub it to a distinct sentinel
+// (rather than the real per-network default) so the "falls back to default"
+// assertions below are unambiguously about the fallback branch, not a
+// coincidental match with a real provider URL. `getEffectiveRpcUrl` isn't
+// asserted on anywhere in this file — any stable string is fine.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveRpcUrl: () => 'https://rpc.testnet.miden.io',
+  getEffectiveDefaultGuardianEndpoint: () => 'https://default.guardian.test'
 }));
 
 jest.mock('lib/settings/constants', () => ({

@@ -113,23 +113,11 @@ describe('MidenClientInterface', () => {
       exportStore: jest.fn(async () => '{"version":1,"data":"dump"}'),
       importStore: jest.fn()
     }));
-    jest.doMock('lib/miden-chain/constants', () => ({
-      MIDEN_NETWORK_ENDPOINTS: new Map([
-        ['testnet', 'rpc'],
-        ['devnet', 'rpc-dev'],
-        ['localnet', 'rpc-local']
-      ]),
-      MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS: new Map([
-        ['testnet', undefined],
-        ['localnet', undefined]
-      ]),
-      getNoteTransportUrl: (_network: string) => undefined,
-      MIDEN_PROVING_ENDPOINTS: new Map([
-        ['testnet', 'prover'],
-        ['localnet', undefined]
-      ]),
-      MIDEN_NETWORK_NAME: { TESTNET: 'testnet', DEVNET: 'devnet', LOCALNET: 'localnet' },
-      DEFAULT_NETWORK: 'localnet'
+    jest.doMock('lib/miden-chain/effective-endpoints', () => ({
+      getEffectiveNetworkName: () => 'localnet',
+      getEffectiveRpcUrl: () => 'rpc-local',
+      getEffectiveProverUrl: () => undefined,
+      getEffectiveNoteTransportUrl: () => undefined
     }));
     jest.doMock('./constants', () => ({ NoteExportType: {} }));
     jest.doMock('./helpers', () => ({
@@ -509,12 +497,11 @@ describe('MidenClientInterface', () => {
         exportStore: jest.fn(async () => '{}'),
         importStore: jest.fn()
       }));
-      jest.doMock('lib/miden-chain/constants', () => ({
-        MIDEN_NETWORK_ENDPOINTS: new Map([['localnet', 'rpc']]),
-        MIDEN_PROVING_ENDPOINTS: new Map(),
-        getNoteTransportUrl: () => undefined,
-        DEFAULT_NETWORK: 'localnet',
-        MIDEN_NETWORK_NAME: { LOCALNET: 'localnet', DEVNET: 'devnet', TESTNET: 'testnet' }
+      jest.doMock('lib/miden-chain/effective-endpoints', () => ({
+        getEffectiveNetworkName: () => 'localnet',
+        getEffectiveRpcUrl: () => 'rpc',
+        getEffectiveProverUrl: () => undefined,
+        getEffectiveNoteTransportUrl: () => undefined
       }));
       jest.doMock('./helpers', () => ({ getBech32AddressFromAccountId: (id: any) => String(id) }));
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
@@ -548,12 +535,11 @@ describe('MidenClientInterface', () => {
         exportStore: jest.fn(async () => '{}'),
         importStore: jest.fn()
       }));
-      jest.doMock('lib/miden-chain/constants', () => ({
-        MIDEN_NETWORK_ENDPOINTS: new Map([['localnet', 'rpc']]),
-        MIDEN_PROVING_ENDPOINTS: new Map(),
-        getNoteTransportUrl: () => undefined,
-        DEFAULT_NETWORK: 'localnet',
-        MIDEN_NETWORK_NAME: { LOCALNET: 'localnet', DEVNET: 'devnet', TESTNET: 'testnet' }
+      jest.doMock('lib/miden-chain/effective-endpoints', () => ({
+        getEffectiveNetworkName: () => 'localnet',
+        getEffectiveRpcUrl: () => 'rpc',
+        getEffectiveProverUrl: () => undefined,
+        getEffectiveNoteTransportUrl: () => undefined
       }));
       jest.doMock('./helpers', () => ({ getBech32AddressFromAccountId: (id: any) => String(id) }));
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
@@ -1613,13 +1599,11 @@ describe('MidenClientInterface', () => {
         exportStore: jest.fn(),
         importStore: jest.fn()
       }));
-      jest.doMock('lib/miden-chain/constants', () => ({
-        MIDEN_NETWORK_ENDPOINTS: new Map([['localnet', 'rpc-local']]),
-        MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS: new Map([['localnet', undefined]]),
-        getNoteTransportUrl: () => undefined,
-        MIDEN_PROVING_ENDPOINTS: new Map([['localnet', undefined]]),
-        MIDEN_NETWORK_NAME: { TESTNET: 'testnet', DEVNET: 'devnet', LOCALNET: 'localnet' },
-        DEFAULT_NETWORK: 'localnet'
+      jest.doMock('lib/miden-chain/effective-endpoints', () => ({
+        getEffectiveNetworkName: () => 'localnet',
+        getEffectiveRpcUrl: () => 'rpc-local',
+        getEffectiveProverUrl: () => undefined,
+        getEffectiveNoteTransportUrl: () => undefined
       }));
       jest.doMock('./constants', () => ({ NoteExportType: {} }));
       jest.doMock('./helpers', () => ({ getBech32AddressFromAccountId: (id: any) => String(id) }));
@@ -1740,11 +1724,11 @@ describe('MidenClientInterface', () => {
       })),
       WasmWebClient: { createClient }
     }));
-    jest.doMock('lib/miden-chain/constants', () => ({
-      DEFAULT_NETWORK: 'testnet',
-      MIDEN_NETWORK_ENDPOINTS: new Map([['testnet', 'https://rpc.example']]),
-      MIDEN_PROVING_ENDPOINTS: new Map(),
-      getNoteTransportUrl: () => undefined
+    jest.doMock('lib/miden-chain/effective-endpoints', () => ({
+      getEffectiveNetworkName: () => 'testnet',
+      getEffectiveRpcUrl: () => 'https://rpc.example',
+      getEffectiveProverUrl: () => undefined,
+      getEffectiveNoteTransportUrl: () => undefined
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),

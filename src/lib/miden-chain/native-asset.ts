@@ -2,13 +2,18 @@ import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
-import { DEFAULT_NETWORK, ensureSdkWasmReady, getRpcEndpoint } from './constants';
+import { ensureSdkWasmReady, getRpcEndpoint } from './constants';
 
 // `v2` segment: account IDs renumbered under the 0.15 protocol's ID
 // version 1, so values cached by 0.14 builds must not be reused.
-const ID_CACHE_KEY = `native_asset_id:v2:${DEFAULT_NETWORK}`;
-const META_CACHE_KEY = `native_asset_meta:v2:${DEFAULT_NETWORK}`;
+function idCacheKey(): string {
+  return `native_asset_id:v2:${getEffectiveNetworkName()}`;
+}
+function metaCacheKey(): string {
+  return `native_asset_meta:v2:${getEffectiveNetworkName()}`;
+}
 
 export type NativeAssetChainMetadata = {
   symbol: string;
@@ -38,8 +43,8 @@ async function hydrateFromStorage(): Promise<void> {
   hydrated = true;
   try {
     const [storedId, storedMeta] = await Promise.all([
-      fetchFromStorage<string>(ID_CACHE_KEY),
-      fetchFromStorage<NativeAssetChainMetadata>(META_CACHE_KEY)
+      fetchFromStorage<string>(idCacheKey()),
+      fetchFromStorage<NativeAssetChainMetadata>(metaCacheKey())
     ]);
     if (storedId && !memCache) memCache = storedId;
     if (storedMeta && !metaMemCache) metaMemCache = storedMeta;
@@ -56,7 +61,7 @@ async function discover(): Promise<string> {
   const bech32 = getBech32AddressFromAccountId(accountId);
   memCache = bech32;
   try {
-    await putToStorage(ID_CACHE_KEY, bech32);
+    await putToStorage(idCacheKey(), bech32);
   } catch (err) {
     console.warn('native-asset storage write failed', err);
   }
@@ -75,7 +80,7 @@ async function discoverMetadata(id: string): Promise<NativeAssetChainMetadata | 
     const meta: NativeAssetChainMetadata = { symbol: base.symbol, decimals: base.decimals };
     metaMemCache = meta;
     try {
-      await putToStorage(META_CACHE_KEY, meta);
+      await putToStorage(metaCacheKey(), meta);
     } catch (err) {
       console.warn('native-asset meta storage write failed', err);
     }
@@ -195,7 +200,7 @@ export async function resetNativeAssetCache(): Promise<void> {
   inflight = null;
   metaInflight = null;
   try {
-    await Promise.all([putToStorage(ID_CACHE_KEY, null), putToStorage(META_CACHE_KEY, null)]);
+    await Promise.all([putToStorage(idCacheKey(), null), putToStorage(metaCacheKey(), null)]);
   } catch {
     // best-effort — storage may already be cleared
   }
