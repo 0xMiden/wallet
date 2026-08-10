@@ -253,7 +253,16 @@ async function mintFromForkchoice(address: string): Promise<void> {
 }
 
 export async function faucet(address: string): Promise<void> {
-  await Promise.all([mintFromForkchoice(address), mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT)]);
+  // The Miden faucet is authoritative; the forkchoice faucet is a hardcoded,
+  // devnet-specific service treated as best-effort. On a custom dev-settings
+  // network forkchoice is irrelevant and will fail — under the old `Promise.all`
+  // its rejection sank the whole fund even when the configured Miden faucet
+  // succeeded. Now funding succeeds/fails on the Miden faucet alone.
+  const [, miden] = await Promise.allSettled([
+    mintFromForkchoice(address),
+    mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT)
+  ]);
+  if (miden.status === 'rejected') throw miden.reason;
 }
 
 export function useWalletPromptStorage() {

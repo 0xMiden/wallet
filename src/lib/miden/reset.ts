@@ -1,8 +1,27 @@
-import * as Repo from 'lib/miden/repo';
+import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
 import { resetNativeAssetCache } from 'lib/miden-chain/native-asset';
+import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import * as Repo from 'lib/miden/repo';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 
+// Keys that are configuration, NOT wallet data, and must survive a storage
+// reset. The dev-settings endpoint override selects the network the wallet is
+// being created for — and it is set BEFORE creation. Without preserving it,
+// creating a wallet on a custom network wipes the override (the wipe below is a
+// blanket `clear()`), so the wallet silently reverts to the build-default
+// network while the account was already minted on the custom one — leaving the
+// account on one network and the client (balances, faucet, native token) on
+// another. The dedicated dev-settings "Reset to defaults" clears it explicitly.
+const PRESERVED_STORAGE_KEYS = [ENDPOINT_OVERRIDE_STORAGE_KEY];
+
 async function clearPlatformKeyValueStorage(): Promise<void> {
+  // Snapshot preserved config before the blanket wipe, restore it after.
+  const preserved: Record<string, unknown> = {};
+  for (const key of PRESERVED_STORAGE_KEYS) {
+    const value = await fetchFromStorage(key).catch(() => null);
+    if (value != null) preserved[key] = value;
+  }
+
   if (isMobile()) {
     // On mobile, use native Capacitor Preferences.clear()
     const { Preferences } = await import('@capacitor/preferences');
@@ -14,6 +33,10 @@ async function clearPlatformKeyValueStorage(): Promise<void> {
     // On extension, use browser.storage.local.clear()
     const browser = await import('webextension-polyfill');
     await browser.default.storage.local.clear();
+  }
+
+  for (const [key, value] of Object.entries(preserved)) {
+    await putToStorage(key, value).catch(() => {});
   }
 }
 

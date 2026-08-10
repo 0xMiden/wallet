@@ -28,6 +28,17 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   resetNativeAssetCache: jest.fn(async () => {})
 }));
 
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ENDPOINT_OVERRIDE_STORAGE_KEY: 'endpoint_overrides'
+}));
+
+const mockFetchFromStorage = jest.fn();
+const mockPutToStorage = jest.fn();
+jest.mock('lib/miden/front/storage', () => ({
+  fetchFromStorage: (...a: unknown[]) => mockFetchFromStorage(...a),
+  putToStorage: (...a: unknown[]) => mockPutToStorage(...a)
+}));
+
 const mockBrowserStorageClear = jest.fn();
 jest.mock('webextension-polyfill', () => ({
   __esModule: true,
@@ -57,6 +68,8 @@ beforeEach(() => {
   (isMobile as jest.Mock).mockReturnValue(false);
   (isDesktop as jest.Mock).mockReturnValue(false);
   (isExtension as jest.Mock).mockReturnValue(false);
+  mockFetchFromStorage.mockResolvedValue(null);
+  mockPutToStorage.mockResolvedValue(undefined);
 });
 
 describe('clearStorage', () => {
@@ -94,6 +107,32 @@ describe('clearStorage', () => {
     (isExtension as jest.Mock).mockReturnValue(true);
     await clearStorage();
     expect(mockBrowserStorageClear).toHaveBeenCalled();
+  });
+
+  it('preserves the endpoint override across the wipe (snapshot → clear → restore)', async () => {
+    (isExtension as jest.Mock).mockReturnValue(true);
+    const OVERRIDE = { networkName: 'localnet', rpcUrl: 'https://rpc.custom' };
+    mockFetchFromStorage.mockImplementation(async (k: string) => (k === 'endpoint_overrides' ? OVERRIDE : null));
+
+    await clearStorage();
+
+    expect(mockFetchFromStorage).toHaveBeenCalledWith('endpoint_overrides');
+    expect(mockPutToStorage).toHaveBeenCalledWith('endpoint_overrides', OVERRIDE);
+    // Order is load-bearing: the override must be READ before the wipe and
+    // RESTORED after it, or the blanket clear() would erase it.
+    expect(mockFetchFromStorage.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockBrowserStorageClear.mock.invocationCallOrder[0]!
+    );
+    expect(mockBrowserStorageClear.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockPutToStorage.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('does not restore an endpoint override that was never set', async () => {
+    (isExtension as jest.Mock).mockReturnValue(true);
+    mockFetchFromStorage.mockResolvedValue(null);
+    await clearStorage();
+    expect(mockPutToStorage).not.toHaveBeenCalled();
   });
 });
 
