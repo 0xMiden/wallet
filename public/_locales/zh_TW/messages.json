@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "帐户 ＃： $number$ ",
-    "englishSource": "Account #: $number$",
+    "message": "地址：$number$",
+    "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
         "content": "$1"

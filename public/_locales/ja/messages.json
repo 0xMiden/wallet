@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "アカウント ＃： $number$ ",
-    "englishSource": "Account #: $number$",
+    "message": "アドレス：$number$",
+    "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
         "content": "$1"

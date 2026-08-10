@@ -9,7 +9,7 @@
   "bridgeDepositApprovingBody": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
   "balanceCardTotalBalance": "Total Balance",
   "balanceCardDeltaPill": "$absolute$ ($percentage$)",
-  "balanceCardAccount": "Account #: $number$",
+  "balanceCardAccount": "Address: $number$",
   "balanceCardAccountOptions": "Account options",
   "dappSwitcherLoading": "Loading…",
   "dappSwitcherCardActivate": "$name$. Activate to switch to this dApp.",
