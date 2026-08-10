@@ -7,6 +7,31 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+// App version — single source of truth is the monorepo root package.json, so a
+// version bump there (which the release process already does) flows to Android
+// automatically. Mirrors iOS, where `mobile:ios:set-version` stamps the
+// marketing version from the same package.json; no per-release manual edit here.
+def rootPackageJson = new groovy.json.JsonSlurper().parse(rootProject.file("../package.json"))
+def appVersionName = rootPackageJson.version as String
+// Parse major.minor.patch to ints. tokenize('.') splits on the dot first, so a
+// pre-release such as "1.15.18-rc.1" yields ["1","15","18-rc","1"]; the regex
+// strips the "-rc" from the patch token (-> "18") and the trailing "1" is ignored.
+// Fail loudly (not with a raw Groovy stack trace) if it isn't 3-part semver.
+def versionParts = appVersionName.tokenize('.').collect { it.replaceAll(/[^0-9].*$/, '') }
+if (versionParts.size() < 3 || versionParts[0..2].any { it.isEmpty() }) {
+    throw new GradleException("Cannot derive Android version: root package.json version '${appVersionName}' is not major.minor.patch")
+}
+def (vMajor, vMinor, vPatch) = versionParts[0..2].collect { it.toInteger() }
+// versionCode = major*10_000_000 + minor*100_000 + patch*1_000 + build,
+// e.g. 1.15.18 (build 1) -> 11518001. Strictly increasing across major/minor/
+// patch, so Play's monotonic-versionCode rule always holds. Fixed-width slots
+// cap minor < 100, patch < 100 and build < 1000 (keep the override in range).
+// The build suffix defaults to 1; a version bump is required per upload, but the
+// SAME version can be re-uploaded (e.g. after a rejected upload) by bumping it
+// via `-PandroidBuildNumber=N`.
+def androidBuildNumber = (project.findProperty("androidBuildNumber") ?: "1").toString().toInteger()
+def appVersionCode = vMajor * 10000000 + vMinor * 100000 + vPatch * 1000 + androidBuildNumber
+
 android {
     namespace = "com.miden.wallet"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -26,8 +51,8 @@ android {
         applicationId "com.miden.wallet"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 11519001
-        versionName "1.15.19"
+        versionCode appVersionCode
+        versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
