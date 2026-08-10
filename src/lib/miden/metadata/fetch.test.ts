@@ -147,6 +147,50 @@ describe('metadata/fetch', () => {
       });
     });
 
+    it('serializes concurrent metadata writes so neither asset is lost', async () => {
+      mockIsMidenAsset.mockReturnValue(false);
+      let storedMetadata: Record<string, AssetMetadata> = {};
+      mockFetchFromStorage.mockImplementation(async () => storedMetadata);
+      mockPutToStorage.mockImplementation(async (_key: string, value: Record<string, AssetMetadata>) => {
+        storedMetadata = value;
+      });
+      mockFromBech32.mockImplementation((assetId: string) => ({ accountId: () => assetId }));
+      mockGetAccountDetails.mockImplementation(async (accountId: string) => ({
+        account: () => ({ storage: () => accountId }),
+        isPublic: () => true
+      }));
+      mockFromAccountStorage.mockImplementation((accountId: string) => ({
+        decimals: () => 8,
+        symbol: () => ({ toString: () => accountId.toUpperCase() })
+      }));
+
+      const [assetA, assetB] = await Promise.all([fetchTokenMetadata('asset-a'), fetchTokenMetadata('asset-b')]);
+
+      expect(mockPutToStorage).toHaveBeenCalledTimes(2);
+      expect(storedMetadata).toEqual({
+        'asset-a': assetA.base,
+        'asset-b': assetB.base
+      });
+    });
+
+    it('returns fetched metadata when persisting it fails', async () => {
+      mockIsMidenAsset.mockReturnValue(false);
+      mockFromBech32.mockReturnValue({ accountId: () => 'account-id-123' });
+      mockGetAccountDetails.mockResolvedValue({
+        account: () => ({ storage: () => ({ slots: [] }) }),
+        isPublic: () => true
+      });
+      mockFromAccountStorage.mockReturnValue({
+        decimals: () => 8,
+        symbol: () => ({ toString: () => 'TEST' })
+      });
+      mockPutToStorage.mockRejectedValue(new Error('storage unavailable'));
+
+      await expect(fetchTokenMetadata('test-asset-id')).resolves.toMatchObject({
+        base: { decimals: 8, symbol: 'TEST', name: 'TEST' }
+      });
+    });
+
     it('returns DEFAULT_TOKEN_METADATA when faucet introspection throws (pre-0.15 faucet)', async () => {
       const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       mockIsMidenAsset.mockReturnValue(false);
@@ -165,6 +209,9 @@ describe('metadata/fetch', () => {
         base: DEFAULT_TOKEN_METADATA,
         detailed: DEFAULT_TOKEN_METADATA
       });
+      expect(mockPutToStorage).toHaveBeenCalledWith('tokens_base_metadata', {
+        'old-faucet-asset-id': DEFAULT_TOKEN_METADATA
+      });
       expect(consoleWarnSpy).toHaveBeenCalled();
       consoleWarnSpy.mockRestore();
     });
@@ -182,6 +229,9 @@ describe('metadata/fetch', () => {
       expect(result).toEqual({
         base: DEFAULT_TOKEN_METADATA,
         detailed: DEFAULT_TOKEN_METADATA
+      });
+      expect(mockPutToStorage).toHaveBeenCalledWith('tokens_base_metadata', {
+        'private-asset-id': DEFAULT_TOKEN_METADATA
       });
     });
 

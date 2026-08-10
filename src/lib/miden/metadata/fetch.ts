@@ -5,21 +5,19 @@ import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 
 import { DEFAULT_TOKEN_METADATA, getAssetUrl, MIDEN_METADATA } from './defaults';
+import { updateTokensBaseMetadata } from './storage';
 import { AssetMetadata, DetailedAssetMetdata } from './types';
 
 const METADATA_STORAGE_KEY = 'tokens_base_metadata';
-let metadataStorageWriteQueue = Promise.resolve();
 
 type TokenMetadata = { base: AssetMetadata; detailed: DetailedAssetMetdata };
 
 async function persistTokenMetadata(assetId: string, metadata: AssetMetadata): Promise<void> {
-  const write = metadataStorageWriteQueue.then(async () => {
-    const cached = (await fetchFromStorage<Record<string, AssetMetadata>>(METADATA_STORAGE_KEY)) ?? {};
-    await putToStorage(METADATA_STORAGE_KEY, { ...cached, [assetId]: metadata });
-  });
-
-  metadataStorageWriteQueue = write.catch(() => {});
-  await write;
+  await updateTokensBaseMetadata(
+    { [assetId]: metadata },
+    () => fetchFromStorage<Record<string, AssetMetadata>>(METADATA_STORAGE_KEY),
+    cached => putToStorage(METADATA_STORAGE_KEY, cached)
+  );
 }
 
 async function cacheTokenMetadata(assetId: string, metadata: TokenMetadata): Promise<TokenMetadata> {
