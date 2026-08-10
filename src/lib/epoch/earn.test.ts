@@ -9,6 +9,7 @@ import {
   reconcileEarnDeposits,
   resolveEarnIntentOutcome
 } from './earn';
+import { clearPollRegistryForTests } from './poll-registry';
 import { getEpochReadOnlySdk } from './sdk';
 
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
@@ -121,6 +122,7 @@ describe('pollEarnIntentStatus', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers();
+    clearPollRegistryForTests();
   });
   afterEach(() => jest.useRealTimers());
 
@@ -150,6 +152,36 @@ describe('pollEarnIntentStatus', () => {
   it('falls back to the source hash on a source-side failure', async () => {
     await runTick([{ chainId: MIDEN_CHAIN, status: 'failed', transactionHash: '0xsource' }]);
     expect(mockUpdateStatus).toHaveBeenCalledWith('TX1', 'failed', { evmTxHash: '0xsource' });
+  });
+
+  it('is a no-op when a poll for the same nonce is already live', async () => {
+    const getIntentStatus = sdkReturning([{ chainId: SEPOLIA, status: 'pending' }]);
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10 });
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10 });
+    jest.advanceTimersByTime(10);
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the nonce key on a terminal outcome so a later kick can restart', async () => {
+    await runTick([{ chainId: SEPOLIA, status: 'completed', transactionHash: '0xdest' }]);
+    const getIntentStatus = sdkReturning([{ chainId: SEPOLIA, status: 'pending' }]);
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10 });
+    jest.advanceTimersByTime(10);
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the nonce key after the max-attempts give-up', async () => {
+    sdkReturning([{ chainId: SEPOLIA, status: 'pending' }]);
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10, maxAttempts: 1 });
+    jest.advanceTimersByTime(10);
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    const getIntentStatus = sdkReturning([{ chainId: SEPOLIA, status: 'pending' }]);
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10 });
+    jest.advanceTimersByTime(10);
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
   });
 });
 

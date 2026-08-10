@@ -55,8 +55,8 @@ interface BridgeClaimSectionProps {
    * `undefined` and did nothing. A required prop makes the compiler ask.
    */
   restoredFromBackup: boolean;
-  /** Re-load the transaction so persisted claim-status changes are reflected. */
-  onUpdated: () => void;
+  /** Optional notification after a persisted claim-status change. */
+  onUpdated?: () => void;
 }
 
 /**
@@ -123,7 +123,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
       if (status === 'pending' && entry.txId) {
         setStatus('ready');
         await updateBridgeClaimStatus(entry.txId, 'ready', { depositReady: true });
-        onUpdated();
+        onUpdated?.();
       }
       return true;
     }
@@ -156,7 +156,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
           fillChainId: fill.fillChainId
         });
       }
-      if (fill.status === 'confirmed' || fill.status === 'failed') onUpdated();
+      if (fill.status === 'confirmed' || fill.status === 'failed') onUpdated?.();
     };
     tick();
     const id = setInterval(tick, 8000);
@@ -178,7 +178,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
       setStatus('claimed');
       await updateBridgeClaimStatus(entry.txId, 'claimed', { claimTxHash: tx.hash });
       setClaimable(null);
-      onUpdated();
+      onUpdated?.();
     } catch (err) {
       console.error('[bridge-claim] claim failed', err);
       setStatus('failed');

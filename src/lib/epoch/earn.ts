@@ -15,6 +15,7 @@ import { normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
 import { createEarnP2IDENote } from './earn-note';
 import type { BridgeNoteDeps } from './miden-note';
+import { earnDepositPollKey, endPoll, tryBeginPoll } from './poll-registry';
 import { getEpochReadOnlySdk } from './sdk';
 import type { IntentResult } from './types';
 
@@ -280,6 +281,10 @@ export function pollEarnIntentStatus(args: {
   maxAttempts?: number;
 }): void {
   const { sponsorAddress, nonce, txId, intervalMs = 3000, maxAttempts = 100 } = args;
+  // Self-dedupe: one live poll per intent, no matter how many contexts kick it
+  // (initiation, reconcile, root watcher). The key is released on every stop.
+  const pollKey = earnDepositPollKey(nonce);
+  if (!tryBeginPoll(pollKey)) return;
   let attempts = 0;
   const interval = setInterval(() => void tick(), intervalMs);
 
@@ -292,6 +297,7 @@ export function pollEarnIntentStatus(args: {
       const { outcome, destination, source } = resolveEarnIntentOutcome(results, EARN_DESTINATION_CHAIN_ID);
       if (outcome !== 'pending') {
         clearInterval(interval);
+        endPoll(pollKey);
         // The Sepolia (destination) leg carries the EVM tx hash for the position;
         // on a source-side failure fall back to whatever leg reported.
         const evmTxHash = destination?.transactionHash || source?.transactionHash || undefined;
@@ -306,7 +312,10 @@ export function pollEarnIntentStatus(args: {
     } catch (err) {
       console.warn('[epoch] pollEarnIntentStatus failed', err);
     }
-    if (attempts >= maxAttempts) clearInterval(interval);
+    if (attempts >= maxAttempts) {
+      clearInterval(interval);
+      endPoll(pollKey);
+    }
   }
 }
 
