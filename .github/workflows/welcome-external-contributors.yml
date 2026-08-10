@@ -104,10 +104,7 @@ jobs:
               '',
               '**One thing we want to be transparent about up front:** contributing to this',
               'repository will **not** make you eligible for any token airdrop, allocation, or',
-              'other reward — **not now, and not at any point in the future.** Please contribute',
-              "because you're interested in the technology and the project, not in expectation of",
-              'an airdrop. Anyone claiming that pull requests will be rewarded with tokens is not',
-              'speaking for the Miden team.',
+              'other reward — **not now, and not at any point in the future.**',
               '',
               "Thanks again for being part of the community — we're glad you chose to contribute. 🚀"
             ].join('\n');
