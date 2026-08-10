@@ -5,8 +5,12 @@ import { useTranslation } from 'react-i18next';
 import { GuardianNeedsUrlBanner } from 'app/templates/GuardianNeedsUrlBanner';
 import { PromptCard, PromptCardStatus, PromptCarousel, PromptCardVariant } from 'components/ui';
 import { formatUsd } from 'lib/i18n/numbers';
+import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import type { TokenBalanceData } from 'lib/miden/front';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { isExtension } from 'lib/platform';
 import type { TokenPrices } from 'lib/prices';
+import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import {
   fetchActiveBridgePrompts,
@@ -70,12 +74,20 @@ const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition
     actionKey: 'hotKeyHardwareErrorPromptAction',
     variant: 'critical',
     dismissible: true
+  },
+  [WalletPromptType.HotKeyRotationNeeded]: {
+    titleKey: 'hotKeyRotationPromptTitle',
+    bodyKey: 'hotKeyRotationPromptBody',
+    actionKey: 'hotKeyRotationPromptAction',
+    variant: 'critical',
+    dismissible: true
   }
 };
 
 const WALLET_PROMPT_ORDER = [
   WalletPromptType.PendingNotes,
   WalletPromptType.Bridge,
+  WalletPromptType.HotKeyRotationNeeded,
   WalletPromptType.HotKeyHardwareUnavailable,
   WalletPromptType.Faucet,
   WalletPromptType.VerifySeedPhrase
@@ -106,6 +118,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const [hotKeyError, setHotKeyError] = useState<string | null>(null);
   const [copyStatusIndicator, setCopyStatusIndicator] = useState<PromptCardStatus>('idle');
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const [rotationStatusIndicator, setRotationStatusIndicator] = useState<PromptCardStatus>('idle');
+  const rotatingRef = useRef(false);
   const [bridgeTransactions, setBridgeTransactions] = useState<string[]>([]);
   const bridgePromptPending = isPromptPending(WalletPromptType.Bridge);
   const hotKeyPromptPending = isPromptPending(WalletPromptType.HotKeyHardwareUnavailable);
@@ -211,6 +225,29 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       });
   }, [hotKeyError]);
 
+  // Rotation-needed prompt action: enqueue a replace-hot-key transaction and
+  // route to the generating-transaction page (which drives the FIFO loop on
+  // mobile/desktop; on extension the SW owns it). Mirrors ReviewTransaction's
+  // initiate-then-navigate shape. The prompt completes on successful initiate —
+  // if the rotation transaction itself later fails, the next failing sign
+  // re-arms the prompt (see reportHotKeyRotationNeeded).
+  const rotateHotKey = useCallback(async () => {
+    if (rotatingRef.current) return;
+    rotatingRef.current = true;
+    setRotationStatusIndicator('loading');
+    try {
+      const txId = await initiateReplaceHotKeyTransaction(account.publicKey, isDelegateProofEnabled(), zustandProvider);
+      completePrompt(WalletPromptType.HotKeyRotationNeeded);
+      if (isExtension()) requestSWTransactionProcessing();
+      navigate(`/generating-transaction/${txId}`);
+    } catch (error) {
+      console.error('[wallet-prompts] hot-key rotation initiate failed:', error);
+      setRotationStatusIndicator('failure');
+    } finally {
+      rotatingRef.current = false;
+    }
+  }, [account.publicKey, completePrompt]);
+
   useEffect(() => {
     if (!isLoaded || balancesLoading) return;
     if (!hasBalance && faucetStatus === undefined) {
@@ -282,6 +319,12 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             onAction: copyHotKeyError,
             status: copyStatusIndicator
           };
+        case WalletPromptType.HotKeyRotationNeeded:
+          return {
+            onAction: rotateHotKey,
+            status: rotationStatusIndicator,
+            actionDisabled: rotationStatusIndicator === 'loading'
+          };
         default:
           return {};
       }
@@ -294,6 +337,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       formattedPendingNotesUsdTotal,
       fundWallet,
       pendingNoteIds,
+      rotateHotKey,
+      rotationStatusIndicator,
       setPromptStatus,
       t
     ]

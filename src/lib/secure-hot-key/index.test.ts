@@ -28,8 +28,10 @@ jest.mock('./nativePlugin', () => ({
 }));
 
 const mockReportHotKeyHardwareFailure = jest.fn();
+const mockReportHotKeyRotationNeeded = jest.fn();
 jest.mock('lib/wallet-prompts', () => ({
-  reportHotKeyHardwareFailure: (message: string) => mockReportHotKeyHardwareFailure(message)
+  reportHotKeyHardwareFailure: (message: string) => mockReportHotKeyHardwareFailure(message),
+  reportHotKeyRotationNeeded: () => mockReportHotKeyRotationNeeded()
 }));
 
 beforeEach(() => {
@@ -171,6 +173,44 @@ describe('secure-hot-key facade', () => {
     await expect(secureHotKey.signHotDigest('nativetag:nativepayload', '0xword')).rejects.toBe(plainError);
 
     expect(mockReportHotKeyHardwareFailure).toHaveBeenCalledWith('Hot-key sign failed: something odd');
+  });
+
+  it.each([['USER_CANCELLED'], ['AUTH_UNAVAILABLE'], ['AUTH_FAILED'], ['BIOMETRIC_BUSY'], ['DEVICE_LOCKED']])(
+    'does not surface any prompt for the benign native code %s (e.g. Cancel on the biometric sheet)',
+    async code => {
+      mockIsMobile.mockReturnValue(true);
+      const benignError = Object.assign(new Error('Authentication cancelled'), { code });
+      mockNativeRevealHotKey.mockRejectedValue(benignError);
+
+      await expect(secureHotKey.revealHotKey('nativetag:nativepayload')).rejects.toBe(benignError);
+
+      expect(mockReportHotKeyHardwareFailure).not.toHaveBeenCalled();
+      expect(mockReportHotKeyRotationNeeded).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([['UNWRAP_FAILED'], ['KEY_INVALIDATED']])(
+    'surfaces the rotation prompt (not the hardware report) for the native code %s',
+    async code => {
+      mockIsMobile.mockReturnValue(true);
+      mockReportHotKeyRotationNeeded.mockResolvedValue(undefined);
+      const rotationError = Object.assign(new Error('Hot-key sign failed: hot-key unwrap failed'), { code });
+      mockNativeSignHotDigest.mockRejectedValue(rotationError);
+
+      await expect(secureHotKey.signHotDigest('nativetag:nativepayload', '0xword')).rejects.toBe(rotationError);
+
+      expect(mockReportHotKeyRotationNeeded).toHaveBeenCalledTimes(1);
+      expect(mockReportHotKeyHardwareFailure).not.toHaveBeenCalled();
+    }
+  );
+
+  it('still rejects with the original error when the rotation prompt itself fails to seed', async () => {
+    mockIsMobile.mockReturnValue(true);
+    mockReportHotKeyRotationNeeded.mockRejectedValue(new Error('storage down'));
+    const rotationError = Object.assign(new Error('unwrap failed'), { code: 'UNWRAP_FAILED' });
+    mockNativeSignHotDigest.mockRejectedValue(rotationError);
+
+    await expect(secureHotKey.signHotDigest('nativetag:nativepayload', '0xword')).rejects.toBe(rotationError);
   });
 
   it('does not surface the report prompt for failures off mobile (JS fallback path)', async () => {

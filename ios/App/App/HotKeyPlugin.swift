@@ -376,8 +376,14 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
     /// unwrap, so script running in the WebView can't silently exfiltrate the
     /// key (parity with Android's confirmPresenceThenReveal). If no
     /// authentication method is available at all, the reveal is rejected
-    /// (AUTH_UNAVAILABLE) rather than skipping the gate. The unwrapped secret
-    /// is zeroed before returning.
+    /// (AUTH_UNAVAILABLE) rather than skipping the gate — an INTENTIONAL
+    /// trade-off (do not "fix" by skipping): the wallet's own in-app unlock
+    /// cannot substitute, because it lives in the WebView and compromised
+    /// script can call this plugin method directly, bypassing any JS password
+    /// UI. A user with no passcode/biometric enrolled must set one up to
+    /// reveal; signing is unaffected, and the JS facade treats
+    /// AUTH_UNAVAILABLE as a benign (non-reportable) outcome. The unwrapped
+    /// secret is zeroed before returning.
     @objc func revealHotKey(_ call: CAPPluginCall) {
         os_log("[HotKey] revealHotKey called", log: logger, type: .debug)
 

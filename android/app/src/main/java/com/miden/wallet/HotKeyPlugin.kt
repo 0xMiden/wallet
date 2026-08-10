@@ -91,16 +91,10 @@ class HotKeyPlugin : Plugin() {
     companion object {
         private const val TAG = "HotKey"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
-        private const val KEY_ALIAS_PREFIX = "com.miden.wallet.hot."
         private const val OAEP_TRANSFORMATION = "RSA/ECB/OAEPWithSHA-256AndMGF1Padding"
 
-        // Wire-format bounds: 16-byte tag suffix (24 b64 chars) + ':' +
-        // RSA-2048 OAEP payload (exactly 256 bytes, 344 b64 chars). Enforced
-        // before any decode so a hostile JS caller can't force large native
-        // allocations or address arbitrary Keystore aliases.
-        private const val TAG_SUFFIX_BYTES = 16
-        private const val RSA_PAYLOAD_BYTES = 256
-        private const val MAX_CIPHERTEXT_CHARS = 512
+        // Wire-format bounds and pure parsing/classification logic live in
+        // HotKeyLogic (plain-JUnit-testable, no Keystore).
 
         // Rejection code for "the device's secure hardware (Keystore/StrongBox)
         // genuinely could not be used" — distinct from user-cancel / key-not-found.
@@ -156,14 +150,14 @@ class HotKeyPlugin : Plugin() {
             do {
                 rng.nextBytes(secretBytes)
                 d = BigInteger(1, secretBytes)
-            } while (d.signum() == 0 || d >= SECP256K1.n)
+            } while (!HotKeyLogic.isValidScalar(d, SECP256K1.n))
             val publicKeyHex = derivePublicKeyHex(secretBytes)
 
             // 2. 16-byte tag suffix → base64; full Keystore alias = prefix + suffix.
-            val tagSuffix = ByteArray(TAG_SUFFIX_BYTES)
+            val tagSuffix = ByteArray(HotKeyLogic.TAG_SUFFIX_BYTES)
             rng.nextBytes(tagSuffix)
             val tagSuffixB64 = Base64.encodeToString(tagSuffix, Base64.NO_WRAP)
-            alias = KEY_ALIAS_PREFIX + tagSuffixB64
+            alias = HotKeyLogic.KEY_ALIAS_PREFIX + tagSuffixB64
 
             // 3. Generate the wrapper key and a PROVEN-decryptable blob:
             //    StrongBox attempt first, ordinary TEE retry if any step of
@@ -340,27 +334,20 @@ class HotKeyPlugin : Plugin() {
     }
 
     /// Shared sign/reveal error mapping (stable codes the JS facade can match
-    /// on, raw provider messages sanitized):
-    ///   BAD_CIPHERTEXT   — wire-format violation, nothing was attempted
-    ///   UNWRAP_FAILED    — key exists but can't decrypt this blob under any
-    ///                      allowed OAEP params (blob/key mismatch, e.g. an
-    ///                      OS upgrade dropped an MGF1 authorization) →
-    ///                      remedy is hot-key rotation, NOT a hardware report
-    ///   KEY_INVALIDATED  — Keystore invalidated the key (e.g. legacy
-    ///                      auth-bound key after biometric re-enrollment) →
-    ///                      remedy is also rotation
-    ///   HARDWARE_UNAVAILABLE — Keystore/StrongBox genuinely unusable
+    /// on, raw provider messages sanitized). The classification itself is pure
+    /// and JUnit-covered — see HotKeyLogic.classify / RejectCode for the code
+    /// semantics.
     private fun rejectClassified(call: PluginCall, prefix: String, e: Exception) {
-        when {
-            e is IllegalArgumentException ->
+        when (HotKeyLogic.classify(e)) {
+            HotKeyLogic.RejectCode.BAD_CIPHERTEXT ->
                 call.reject("$prefix: ${describeThrowable(e)}", "BAD_CIPHERTEXT")
-            e is UnwrapFailedException ->
+            HotKeyLogic.RejectCode.UNWRAP_FAILED ->
                 call.reject("$prefix: ${describeThrowable(e)}", "UNWRAP_FAILED")
-            e is android.security.keystore.KeyPermanentlyInvalidatedException ->
+            HotKeyLogic.RejectCode.KEY_INVALIDATED ->
                 call.reject("$prefix: hot key was invalidated by the OS", "KEY_INVALIDATED")
-            isHardwareUnavailable(e) ->
+            HotKeyLogic.RejectCode.HARDWARE_UNAVAILABLE ->
                 call.reject("Secure hardware unavailable: ${describeThrowable(e)}", ERR_HARDWARE_UNAVAILABLE)
-            else ->
+            HotKeyLogic.RejectCode.GENERIC ->
                 call.reject("$prefix: ${describeThrowable(e)}")
         }
     }
@@ -439,25 +426,35 @@ class HotKeyPlugin : Plugin() {
         }
         val mine = Pending(call, op, payload = payload, digest = digest)
         pending = mine
-        promptForBiometric(mine, cipher, subtitle)
+        promptForBiometric(mine, cipher, subtitle, allowedAuthenticators())
     }
 
     /// Presence gate for revealHotKey on current (non-auth-bound) keys: hold
     /// the already-unwrapped scalar in pending state and only return it to JS
     /// after a fresh biometric/device-credential success. Takes ownership of
-    /// `secret` (zeroed on every terminal path). If no usable authenticator
-    /// exists (no strong biometric enrolled and, on API 30+, no device
-    /// credential), the reveal is REJECTED (AUTH_UNAVAILABLE) — skipping the
-    /// gate would hand the raw scalar to any WebView script on exactly the
-    /// devices with no native auth boundary. The user can enroll a screen
-    /// lock/biometric and retry; signing is unaffected.
+    /// `secret` (zeroed on every terminal path). This prompt carries no
+    /// CryptoObject, so a device credential (PIN/pattern/password) is an
+    /// acceptable presence proof wherever androidx supports the combination
+    /// (see presenceAuthenticators) — a secure-lock-screen user without an
+    /// enrolled biometric keeps a working Reveal. If no usable authenticator
+    /// exists at all, the reveal is REJECTED (AUTH_UNAVAILABLE) — an
+    /// INTENTIONAL trade-off (do not "fix" by skipping the gate): a user who
+    /// protects the wallet only with its own in-app PIN and has no OS lock
+    /// loses Reveal until they enroll one. The app-level unlock cannot
+    /// substitute here because it lives in the WebView — compromised script
+    /// can call this plugin method directly, bypassing any JS password UI, so
+    /// skipping the gate would hand the raw scalar to exactly the devices
+    /// with no native auth boundary. The user can enroll a screen
+    /// lock/biometric and retry; signing is unaffected. The JS facade treats
+    /// AUTH_UNAVAILABLE as a benign (non-reportable) outcome.
     private fun confirmPresenceThenReveal(call: PluginCall, secret: ByteArray) {
         if (pending != null) {
             zero(secret)
             call.reject("Another hot-key operation is in progress", "BIOMETRIC_BUSY")
             return
         }
-        val canAuthenticate = BiometricManager.from(context).canAuthenticate(allowedAuthenticators())
+        val authenticators = presenceAuthenticators()
+        val canAuthenticate = BiometricManager.from(context).canAuthenticate(authenticators)
         if (canAuthenticate != BiometricManager.BIOMETRIC_SUCCESS) {
             zero(secret)
             Log.w(TAG, "revealHotKey: no usable authenticator ($canAuthenticate), rejecting reveal")
@@ -469,7 +466,7 @@ class HotKeyPlugin : Plugin() {
         }
         val mine = Pending(call, PendingOp.REVEAL_CONFIRM, secret = secret)
         pending = mine
-        promptForBiometric(mine, cipher = null, subtitle = "Reveal device key")
+        promptForBiometric(mine, cipher = null, subtitle = "Reveal device key", authenticators = authenticators)
     }
 
     /// Resolves a reveal call with the scalar hex and zeroes the buffer.
@@ -484,8 +481,8 @@ class HotKeyPlugin : Plugin() {
         }
     }
 
-    /// BIOMETRIC_STRONG|DEVICE_CREDENTIAL is only a valid androidx combination
-    /// on API 30+ (and CryptoObject + DEVICE_CREDENTIAL is rejected below 30);
+    /// Authenticators for CryptoObject-carrying prompts (legacy auth-bound
+    /// keys): CryptoObject + DEVICE_CREDENTIAL is rejected below API 30, so
     /// older versions get BIOMETRIC_STRONG with an explicit negative button.
     private fun allowedAuthenticators(): Int =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -495,7 +492,22 @@ class HotKeyPlugin : Plugin() {
             BiometricManager.Authenticators.BIOMETRIC_STRONG
         }
 
-    private fun promptForBiometric(mine: Pending, cipher: Cipher?, subtitle: String) {
+    /// Authenticators for the CryptoObject-LESS presence gate (reveal): with
+    /// no crypto binding, a device credential is a safe presence proof, so
+    /// allow it wherever androidx supports the combination. Per the androidx
+    /// setAllowedAuthenticators contract, BIOMETRIC_STRONG|DEVICE_CREDENTIAL
+    /// is valid on API 30+ AND on API <= 27 (Keyguard fallback), but NOT on
+    /// API 28-29 — those two releases stay biometric-only with a negative
+    /// button (a PIN-only user there can enroll a biometric and retry).
+    private fun presenceAuthenticators(): Int =
+        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P || Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+            BiometricManager.Authenticators.BIOMETRIC_STRONG
+        } else {
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        }
+
+    private fun promptForBiometric(mine: Pending, cipher: Cipher?, subtitle: String, authenticators: Int) {
         val activity = activity as? FragmentActivity
         if (activity == null) {
             failPending(mine, "Activity not available")
@@ -585,9 +597,10 @@ class HotKeyPlugin : Plugin() {
             val builder = BiometricPrompt.PromptInfo.Builder()
                 .setTitle("Miden Wallet")
                 .setSubtitle(subtitle)
-                .setAllowedAuthenticators(allowedAuthenticators())
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-                // Biometric-only prompts require an explicit dismiss affordance.
+                .setAllowedAuthenticators(authenticators)
+            if (authenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL == 0) {
+                // Biometric-only prompts require an explicit dismiss affordance
+                // (and setting one alongside DEVICE_CREDENTIAL is an error).
                 builder.setNegativeButtonText("Cancel")
             }
             promptInfo = builder.build()
@@ -759,14 +772,6 @@ class HotKeyPlugin : Plugin() {
         }
     }
 
-    /// Raised when the wrapped blob cannot be decrypted under ANY OAEP
-    /// parameter set the current OS/key authorization allows — a blob/key
-    /// mismatch (e.g. an MGF1-SHA-256 blob whose key lost that authorization
-    /// in an OS upgrade), NOT a hardware failure. Surfaced to JS as
-    /// UNWRAP_FAILED so it reads as "rotate the hot key", never as defective
-    /// secure hardware.
-    private class UnwrapFailedException(message: String, cause: Throwable?) : Exception(message, cause)
-
     /// Silent OAEP unwrap, trying MGF1-SHA-1 (all blobs written by the current
     /// build) then MGF1-SHA-256 (blobs from older builds on API >= 34 — see
     /// class doc). An InvalidAlgorithmParameterException /
@@ -794,47 +799,10 @@ class HotKeyPlugin : Plugin() {
         throw UnwrapFailedException("hot-key unwrap failed: ${describeThrowable(lastError)}", lastError)
     }
 
-    /// Human-readable form for reject messages: never leaks a bare "null"
-    /// (newer android.security.KeyStoreExceptions carry a numeric code and a
-    /// null message).
-    private fun describeThrowable(e: Throwable?): String {
-        if (e == null) return "unknown error"
-        val msg = e.message
-        return if (msg.isNullOrEmpty()) e.javaClass.simpleName else "${e.javaClass.simpleName}: $msg"
-    }
+    // Pure helpers delegated to HotKeyLogic (JUnit-covered there).
+    private fun describeThrowable(e: Throwable?): String = HotKeyLogic.describeThrowable(e)
 
-    /// Classify a caught exception as "secure hardware genuinely unusable"
-    /// (Keystore/Keymaster/StrongBox failure) vs an ordinary error. Walks the
-    /// cause chain because Keymaster errors surface wrapped — e.g. an
-    /// android.security.KeyStoreException (INCOMPATIBLE_MGF_DIGEST and friends)
-    /// arrives as the cause of a ProviderException / crypto exception thrown from
-    /// cipher.doFinal or key generation. Matches by class-name substring and
-    /// message so we don't have to import every vendor-specific exception type.
-    private fun isHardwareUnavailable(e: Throwable): Boolean {
-        var cause: Throwable? = e
-        while (cause != null) {
-            if (cause is StrongBoxUnavailableException) return true
-            val name = cause.javaClass.name
-            if (name.contains("KeyStoreException") ||
-                name.contains("ProviderException") ||
-                name.contains("StrongBox") ||
-                cause is java.security.NoSuchAlgorithmException ||
-                cause is java.security.NoSuchProviderException
-            ) {
-                return true
-            }
-            val msg = cause.message ?: ""
-            if (msg.contains("INCOMPATIBLE_MGF_DIGEST") ||
-                msg.contains("Keymaster") ||
-                msg.contains("Keystore") ||
-                msg.contains("StrongBox")
-            ) {
-                return true
-            }
-            cause = cause.cause
-        }
-        return false
-    }
+    private fun isHardwareUnavailable(e: Throwable): Boolean = HotKeyLogic.isHardwareUnavailable(e)
 
     private fun deleteAliasQuietly(alias: String) {
         try {
@@ -871,7 +839,7 @@ class HotKeyPlugin : Plugin() {
      */
     private fun signRecoverable(secret: ByteArray, digestBytes: ByteArray): String {
         val d = BigInteger(1, secret)
-        if (d.signum() == 0 || d >= SECP256K1.n) {
+        if (!HotKeyLogic.isValidScalar(d, SECP256K1.n)) {
             throw IllegalArgumentException("hot-key scalar out of secp256k1 range")
         }
 
@@ -939,28 +907,10 @@ class HotKeyPlugin : Plugin() {
 
     // -- Helpers ---------------------------------------------------------------
 
-    /// Strict wire-format parse: "<24-char b64 of 16-byte tag>:<b64 of exactly
-    /// 256-byte RSA-2048 payload>", bounded before any decode. Throws
-    /// IllegalArgumentException on anything else.
-    private fun parseCiphertext(ct: String): Pair<String, ByteArray> {
-        if (ct.length > MAX_CIPHERTEXT_CHARS) {
-            throw IllegalArgumentException("Hot-key ciphertext too large")
-        }
-        val parts = ct.split(":", limit = 2)
-        if (parts.size != 2 || parts[0].isEmpty()) {
-            throw IllegalArgumentException("Malformed hot-key ciphertext")
-        }
-        val suffix = Base64.decode(parts[0], Base64.NO_WRAP)
-        if (suffix.size != TAG_SUFFIX_BYTES) {
-            throw IllegalArgumentException("Malformed hot-key ciphertext tag")
-        }
-        val payload = Base64.decode(parts[1], Base64.NO_WRAP)
-        if (payload.size != RSA_PAYLOAD_BYTES) {
-            throw IllegalArgumentException("Malformed hot-key ciphertext payload")
-        }
-        val alias = KEY_ALIAS_PREFIX + parts[0]
-        return alias to payload
-    }
+    /// Strict wire-format parse — pure logic in HotKeyLogic (JUnit-covered),
+    /// with android.util.Base64 injected as the decoder.
+    private fun parseCiphertext(ct: String): Pair<String, ByteArray> =
+        HotKeyLogic.parseCiphertext(ct) { Base64.decode(it, Base64.NO_WRAP) }
 
     private fun oaepParams(mgf1Digest: MGF1ParameterSpec): OAEPParameterSpec =
         // Explicit OAEP params: main digest is always SHA-256 (matches the
