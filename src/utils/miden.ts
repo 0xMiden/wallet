@@ -7,7 +7,16 @@ export const isHexAddress = (address: string) => {
 const MIDEN_MAINNET_PREFIX = 'mm1';
 const MIDEN_TESTNET_PREFIX = 'mtst1';
 const MIDEN_DEVNET_PREFIX = 'mdev1';
-const MIDEN_BECH32_PREFIXES = [MIDEN_MAINNET_PREFIX, MIDEN_TESTNET_PREFIX, MIDEN_DEVNET_PREFIX];
+// Localnet uses the `mlcl` HRP (see getNetworkId's LOCALNET branch). Without it,
+// recipient validation rejects localnet addresses and the send flow's Confirm
+// button never enables — breaking sends on a localnet/localhost network.
+const MIDEN_LOCALNET_PREFIX = 'mlcl1';
+const MIDEN_BECH32_PREFIXES = [
+  MIDEN_MAINNET_PREFIX,
+  MIDEN_TESTNET_PREFIX,
+  MIDEN_DEVNET_PREFIX,
+  MIDEN_LOCALNET_PREFIX
+];
 
 const isValidBech32Address = (address: string) => {
   return MIDEN_BECH32_PREFIXES.some(prefix => address.startsWith(prefix));
