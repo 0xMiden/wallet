@@ -171,7 +171,8 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
 
   /**
    * Drive the real Settings → RotateGuardian → RotateGuardianReview → confirm
-   * flow to switch the current account's guardian to `newEndpoint`, then await
+   * → password reauthentication flow to switch the current account's guardian
+   * to `newEndpoint`, then await
    * the resulting `switch-guardian` transaction reaching Completed (throws on
    * Failed or timeout). `newEndpoint` must match one entry's `endpoint` from
    * `getGuardianOptionsForNetwork()` — e.g. the localnet-only second guardian
@@ -837,13 +838,19 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await endpointOption.first().click();
     await this.page.getByTestId('choose-guardian-continue').click();
 
-    // RotateGuardianReview: confirm, then follow the tx to the generating-
-    // transaction screen and read its final status straight from IndexedDB
-    // (mirrors the pattern in helpers/bridge.ts / helpers/swap.ts).
+    // RotateGuardianReview: Confirm now opens the fresh-authentication step;
+    // extension wallets use the password established during onboarding.
     const confirmButton = this.page.getByTestId('rotate-guardian-confirm');
     await confirmButton.waitFor({ timeout: 20_000 });
     await confirmButton.click();
 
+    const passwordInput = this.page.locator('#rotate-guardian-password');
+    await passwordInput.waitFor({ timeout: 20_000 });
+    await passwordInput.fill(PASSWORD);
+    await this.page.getByTestId('rotate-guardian-auth-submit').click();
+
+    // Follow the authenticated tx to the generating-transaction screen and
+    // read its final status straight from IndexedDB (mirrors bridge/swap helpers).
     await this.page.waitForURL(/generating-transaction/, { timeout: 60_000 });
     const txId = this.extractTransactionIdFromUrl();
     if (!txId) {

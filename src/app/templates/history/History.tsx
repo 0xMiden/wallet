@@ -17,7 +17,8 @@ import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
   ITransaction,
-  ITransactionStatus
+  ITransactionStatus,
+  ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
@@ -189,6 +190,8 @@ async function fetchTransactionsAsHistoryEntries(
       tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
     const earnWithdraw: IEarnWithdrawExtraInputs | undefined = tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
     const earnDeposit: IEarnDepositExtraInputs | undefined = tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
+    const guardianSwitch: ISwitchGuardianExtraInputs | undefined =
+      tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
     // Source side (USDC) while in flight, destination side once the bridged note
     // was consumed — see `earnWithdrawAmountFields`.
     const earnWithdrawFields = earnWithdraw
@@ -233,6 +236,8 @@ async function fetchTransactionsAsHistoryEntries(
       noteType: tx.noteType,
       faucetId: tx.faucetId,
       txType: tx.type,
+      previousGuardianEndpoint: guardianSwitch?.previousGuardianEndpoint,
+      newGuardianEndpoint: guardianSwitch?.newGuardianEndpoint,
       errorMessage: tx.error,
       isCancelled,
       bridgeProvider: bridge?.provider,
@@ -274,6 +279,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
     const earnDeposit: IEarnDepositExtraInputs | undefined = tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
+    const guardianSwitch: ISwitchGuardianExtraInputs | undefined =
+      tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
     return {
       key: `pending-${tx.id}`,
@@ -294,6 +301,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       noteType: tx.noteType,
       faucetId: tx.faucetId,
       txType: tx.type,
+      previousGuardianEndpoint: guardianSwitch?.previousGuardianEndpoint,
+      newGuardianEndpoint: guardianSwitch?.newGuardianEndpoint,
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,

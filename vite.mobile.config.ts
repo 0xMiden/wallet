@@ -97,7 +97,11 @@ export default defineConfig({
             plugins: ['@svgr/plugin-jsx'],
             exportType: 'named',
             namedExport: 'ReactComponent',
-            jsxRuntime: 'automatic'
+            // Classic runtime so SVGR imports React into each generated component,
+            // matching the bundler's classic JSX compile (see vite.extension.config.ts
+            // for the full rationale) — automatic emits `React.createElement` with an
+            // undefined `React`, crashing minified production builds.
+            jsxRuntime: 'classic'
           },
           { filePath }
         );

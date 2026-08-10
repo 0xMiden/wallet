@@ -69,8 +69,16 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
         const midenClient = await getMidenClient();
 
         try {
-          await midenClient.waitForTransactionCommit(executedTx.id().toHex());
+          // Relay to the transport layer BEFORE waiting for commit. The block hint
+          // sendPrivateNote attaches is the client's current sync height, and the
+          // recipient scans FORWARD from it for the note's on-chain commitment.
+          // Waiting for commit first advances sync height to/past the commitment
+          // block, so on fast chains the hint overshoots the commitment and the
+          // recipient never finds the note (silent non-delivery). Relaying first
+          // keeps the hint below the commitment; the commit wait still gates the
+          // Completed status below.
           await midenClient.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
+          await midenClient.waitForTransactionCommit(executedTx.id().toHex());
         } catch (error) {
           console.error('Failed to send private note through the transport layer', {
             txId: transaction.id,
@@ -438,9 +446,11 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     try {
       await withWasmClientLock(async () => {
         const midenClient = await getMidenClient();
-        await midenClient.waitForTransactionCommit(executedTx.id().toHex());
         await setTransactionStage(tx.id, 'delivering');
         try {
+          // Relay BEFORE waiting for commit — same reason as completeCustomTransaction:
+          // the sync-height block hint must stay below the note's commitment block, or
+          // the recipient scans past it and never receives.
           await midenClient.sendPrivateNote(note, tx.secondaryAccountId);
         } catch (error) {
           console.warn('Private-note transport failed; SDK outbox will retry on next sync', {
@@ -450,6 +460,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
             error
           });
         }
+        await midenClient.waitForTransactionCommit(executedTx.id().toHex());
       });
     } catch (error) {
       // Lock acquisition or pre-transport step (e.g. waitForTransactionCommit)

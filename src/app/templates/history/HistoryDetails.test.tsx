@@ -98,6 +98,28 @@ jest.mock('app/layouts/PageLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="page-layout">{children}</div>
 }));
 
+jest.mock('components/GuardianTransitionHero', () => ({
+  GuardianTransitionHero: ({
+    previousEndpoint,
+    newEndpoint,
+    previousLabel,
+    newLabel
+  }: {
+    previousEndpoint?: string;
+    newEndpoint?: string;
+    previousLabel: string;
+    newLabel: string;
+  }) => (
+    <div
+      data-testid="guardian-transition-hero"
+      data-previous={previousEndpoint ?? 'unknown'}
+      data-new={newEndpoint ?? 'unknown'}
+      data-previous-label={previousLabel}
+      data-new-label={newLabel}
+    />
+  )
+}));
+
 jest.mock('components/ScreenHeader', () => ({
   ScreenHeader: ({ title, backLabel, onBack }: { title: string; backLabel: string; onBack: () => void }) => (
     <div data-testid="screen-header">
@@ -248,6 +270,56 @@ afterEach(() => {
 });
 
 describe('HistoryDetails', () => {
+  describe('Guardian switch details', () => {
+    it('renders the From/To hero, status, generic details, and no wallet destination rows', async () => {
+      mockGetTransactionById.mockResolvedValue({
+        ...baseSendTx,
+        type: 'switch-guardian',
+        displayMessage: 'Guardian switched',
+        displayIcon: 'DEFAULT',
+        secondaryAccountId: 'misleading-wallet-address',
+        amount: undefined,
+        faucetId: undefined,
+        outputNoteIds: undefined,
+        extraInputs: {
+          previousGuardianEndpoint: 'https://old.example',
+          newGuardianEndpoint: 'https://new.example'
+        }
+      });
+      await renderAndLoad();
+
+      const hero = screen.getByTestId('guardian-transition-hero');
+      expect(hero).toHaveAttribute('data-previous', 'https://old.example');
+      expect(hero).toHaveAttribute('data-new', 'https://new.example');
+      expect(hero).toHaveAttribute('data-previous-label', 'from');
+      expect(hero).toHaveAttribute('data-new-label', 'to');
+      expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
+      expect(screen.queryByTestId('tx-icon')).toBeNull();
+      expect(screen.getByTestId('detail-card')).toHaveAttribute('data-title', 'details');
+      expect(rowByLabel('date')).toBeDefined();
+      expect(rowByLabel('txIdLabel')).toBeDefined();
+      expect(rowByLabel('from')).toBeUndefined();
+      expect(rowByLabel('to')).toBeUndefined();
+    });
+
+    it('keeps legacy metadata readable with an unknown source', async () => {
+      mockGetTransactionById.mockResolvedValue({
+        ...baseSendTx,
+        type: 'switch-guardian',
+        transactionId: undefined,
+        amount: undefined,
+        faucetId: undefined,
+        outputNoteIds: undefined,
+        extraInputs: { newGuardianEndpoint: 'https://new.example' }
+      });
+      await renderAndLoad();
+
+      expect(screen.getByTestId('guardian-transition-hero')).toHaveAttribute('data-previous', 'unknown');
+      expect(screen.getByTestId('guardian-transition-hero')).toHaveAttribute('data-new', 'https://new.example');
+      expect(rowByLabel('txIdLabel')?.textContent).toContain('tx-1');
+    });
+  });
+
   describe('loading & error states', () => {
     it('renders the spinner while the transaction is still loading', () => {
       // Never-resolving fetch keeps entry === null && no error → spinner branch.

@@ -90,7 +90,7 @@ jest.mock('app/atoms/Spinner/Spinner', () => ({
 
 jest.mock('app/icons/v2', () => ({
   Icon: (props: { name?: string }) => <span data-testid="icon" data-name={props.name} />,
-  IconName: { Close: 'Close' }
+  IconName: { ChevronLeft: 'ChevronLeft', Close: 'Close' }
 }));
 
 jest.mock('components/Button', () => ({
@@ -249,6 +249,19 @@ describe('PageLayout', () => {
     render(<PageLayout>content</PageLayout>);
     expect(screen.getByTestId(PageLayoutSelectors.BackButton)).toBeInTheDocument();
     expect(mockRegisterBackHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders a leading chevron for back-style navigation', () => {
+    mockLocation = { historyPosition: 3, pathname: '/foo' };
+    render(
+      <PageLayout navigationStyle="back" pageTitle={<>Review</>}>
+        content
+      </PageLayout>
+    );
+
+    expect(screen.getByTestId(PageLayoutSelectors.BackButton)).toBeInTheDocument();
+    expect(screen.getByTestId('icon')).toHaveAttribute('data-name', 'ChevronLeft');
+    expect(screen.getByText('Review')).toHaveStyle({ fontSize: '24px' });
   });
 
   // -- back button visibility branches ------------------------------------

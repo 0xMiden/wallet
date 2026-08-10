@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Compte #: $number$ ",
-    "englishSource": "Account #: $number$",
+    "message": "Adresse : $number$",
+    "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -2282,6 +2282,14 @@
     "message": "Nouveau",
     "englishSource": "New"
   },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "Authentifiez-vous pour approuver ce commutateur Guardian.",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "L'authentification n'est pas disponible. Réessayez avant de changer de Guardian.",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
+  },
   "walletKeyHot": {
     "message": "Clé du portefeuille (chaud)",
     "englishSource": "Wallet key (hot)"
@@ -3815,5 +3823,89 @@
   "sourceTx": {
     "message": "Source TX",
     "englishSource": "Source TX"
+  },
+  "developerSettingsTitle": {
+    "message": "Paramètres du développeur",
+    "englishSource": "Developer Settings"
+  },
+  "developerSettingsWarningTitle": {
+    "message": "Pour les utilisateurs avancés",
+    "englishSource": "For advanced users"
+  },
+  "developerSettingsWarning": {
+    "message": "La plupart des gens ne devraient jamais les changer. De mauvaises valeurs briseront votre portefeuille.",
+    "englishSource": "Most people should never change these. Wrong values will break your wallet."
+  },
+  "devEndpointPreset": {
+    "message": "Préréglage réseau",
+    "englishSource": "Network preset"
+  },
+  "devEndpointCustom": {
+    "message": "Coutume",
+    "englishSource": "Custom"
+  },
+  "devEndpointNetworkId": {
+    "message": "ID de réseau",
+    "englishSource": "Network ID"
+  },
+  "devEndpointRpc": {
+    "message": "URL du nœud RPC",
+    "englishSource": "RPC node URL"
+  },
+  "devEndpointProver": {
+    "message": "URL du fournisseur de transactions",
+    "englishSource": "Transaction prover URL"
+  },
+  "devEndpointNoteTransport": {
+    "message": "Note URL de transport",
+    "englishSource": "Note transport URL"
+  },
+  "devEndpointFaucet": {
+    "message": "Faucet URL du site Web",
+    "englishSource": "Faucet website URL"
+  },
+  "devEndpointFaucetApi": {
+    "message": "Faucet URL de l'API",
+    "englishSource": "Faucet API URL"
+  },
+  "devEndpointExplorer": {
+    "message": "URL de l'explorateur",
+    "englishSource": "Explorer URL"
+  },
+  "devEndpointGuardian": {
+    "message": "URL du tuteur personnalisé",
+    "englishSource": "Custom guardian URL"
+  },
+  "devEndpointChecking": {
+    "message": "Vérification…",
+    "englishSource": "Checking…"
+  },
+  "devEndpointReachable": {
+    "message": "Hôte joignable",
+    "englishSource": "Host reachable"
+  },
+  "devEndpointNoResponse": {
+    "message": "Aucune réponse",
+    "englishSource": "No response"
+  },
+  "devEndpointSaveContinue": {
+    "message": "Enregistrer et continuer",
+    "englishSource": "Save & continue"
+  },
+  "devEndpointResetDefaults": {
+    "message": "Réinitialiser aux valeurs par défaut",
+    "englishSource": "Reset to defaults"
+  },
+  "devEndpointResetAndReonboard": {
+    "message": "Réinitialiser les paramètres par défaut et réintégrer",
+    "englishSource": "Reset to defaults & re-onboard"
+  },
+  "devEndpointsRow": {
+    "message": "Points de terminaison du réseau",
+    "englishSource": "Network endpoints"
+  },
+  "devEndpointResetConfirm": {
+    "message": "Cela efface définitivement ce portefeuille, y compris vos clés et l'historique des transactions. Vous aurez besoin de votre Seed Phrase pour le restaurer.",
+    "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   }
 }
