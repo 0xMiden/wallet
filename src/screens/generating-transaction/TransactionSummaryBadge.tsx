@@ -11,26 +11,70 @@ import { useWalletStore } from 'lib/store';
 import { truncateAddress } from 'utils/string';
 
 export interface TransactionSummaryBadgeProps {
-  /** Rendered before the arrow. */
+  /** Rendered before the separator. */
   lhs?: ReactNode;
-  /** Rendered after the arrow. */
+  /** Rendered after the separator. */
   rhs?: ReactNode;
   /** Applied to the pill root; lets the caller own outer spacing so the badge can render `null` without leaving a gap. */
   className?: string;
+  /**
+   * Glyph rendered between `lhs` and `rhs`. Defaults to the horizontal arrow
+   * (tinted by `fillForArrow`); pass a node to override — e.g. the up-arrow used
+   * when opening an earn position.
+   */
+  separator?: ReactNode;
+  /** Tints the default horizontal arrow. Ignored when `separator` is provided. */
   fillForArrow?: string;
 }
 
 export interface TransactionSummaryBadgeContent {
   lhs: ReactNode;
   rhs: ReactNode;
+  separator?: ReactNode;
   fillForArrow?: string;
 }
+
+/** Default separator — the horizontal "→" arrow, tinted by `fill`. */
+const HorizontalArrowGlyph: FC<{ fill?: string }> = ({ fill }) => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect width="24" height="24" rx="12" fill={fill ?? '#91ACC1'} />
+    <path d="M6.22266 12.0889H16.5071" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
+    <path
+      d="M14.6582 9.77832L17.0849 12.0894L14.6582 14.4006"
+      stroke="white"
+      stroke-width="2.20995"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </svg>
+);
+
+/** Separator used when opening an earn position — an up "↑" arrow in a grey circle. */
+export const EarnDepositArrowGlyph: FC = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect width="24" height="24" rx="12" fill="#6E6E73" />
+    <path d="M11.6523 17.5195L11.6523 7.23506" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
+    <path
+      d="M9.3418 9.08398L11.6529 6.65731L13.964 9.08398"
+      stroke="white"
+      stroke-width="2.20995"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </svg>
+);
 
 /**
  * Dynamic one-line summary pill shown under the "Generating transaction"
  * title.
  */
-export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({ lhs, rhs, className, fillForArrow }) => {
+export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({
+  lhs,
+  rhs,
+  className,
+  separator,
+  fillForArrow
+}) => {
   if (lhs === null || lhs === undefined || lhs === false || rhs === null || rhs === undefined || rhs === false) {
     return null;
   }
@@ -46,17 +90,7 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({ lhs,
         {lhs}
       </div>
       <span className="shrink-0" aria-hidden="true">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="24" height="24" rx="12" fill={fillForArrow ?? '#91ACC1'} />
-          <path d="M6.22266 12.0889H16.5071" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
-          <path
-            d="M14.6582 9.77832L17.0849 12.0894L14.6582 14.4006"
-            stroke="white"
-            stroke-width="2.20995"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
+        {separator ?? <HorizontalArrowGlyph fill={fillForArrow} />}
       </span>
       <div className="flex min-w-0 items-center gap-2 font-bold text-heading-gray text-xl font-heading dark:text-pure-white">
         {rhs}
@@ -99,11 +133,26 @@ export const resolveSwapAsset = (
   };
 };
 
+/** USDC fallback decimals for an earn deposit when the faucet has no metadata (mirrors `MIDEN_USDC_DECIMALS`). */
+const EARN_USDC_DECIMALS = 6;
+
+/** Human protocol labels per Epoch lender key (the `LENDER` segment of a `marketUid`). */
+const EARN_LENDER_LABELS: Record<string, string> = { DUMMY_LENDING: 'AAVE' };
+
+/** Build the "AAVE-USDC" pair label from an Epoch `marketUid` (`LENDER:chainId:token`). USDC-only today. */
+const earnMarketLabel = (marketUid: string): string | undefined => {
+  const lenderKey = marketUid.split(':')[0];
+  if (!lenderKey) return undefined;
+  const protocol = EARN_LENDER_LABELS[lenderKey] ?? lenderKey;
+  return `${protocol}-USDC`;
+};
+
 /**
  * Implemented variants:
  *
- *   send  →  {amount} {symbol}        ->  {recipient}
- *   swap  →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
+ *   send          →  {amount} {symbol}        ->  {recipient}
+ *   swap          →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
+ *   earn-deposit  →  {amount} {symbol}        ↑   {protocol}-USDC   (up-arrow separator)
  *
  * Other transaction types (consume/claim, switch-guardian, bridged sends)
  * render nothing for now. See CLAUDE.md -> "Transaction summary badge" for how
@@ -115,6 +164,23 @@ export const useTransactionSummaryBadgeContent = (
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
 
   return useMemo(() => {
+    if (transaction?.type === 'earn-deposit') {
+      const tokenMetadata = transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
+      const decimals = tokenMetadata?.decimals ?? EARN_USDC_DECIMALS;
+      const symbol = tokenMetadata?.symbol ?? 'USDC';
+      const amount = transaction.amount !== undefined ? formatAmount(transaction.amount, decimals) : undefined;
+      const marketUid: unknown = transaction.extraInputs?.marketUid;
+      const rhs = typeof marketUid === 'string' ? earnMarketLabel(marketUid) : undefined;
+
+      if (!amount || !rhs) return undefined;
+
+      return {
+        lhs: `${amount} ${symbol}`,
+        rhs,
+        separator: <EarnDepositArrowGlyph />
+      };
+    }
+
     if (transaction?.type === 'swap') {
       const offered = resolveSwapAsset(transaction.faucetId, assetsMetadata);
       const requestedFaucetId = transaction.extraInputs?.requestedFaucetId;

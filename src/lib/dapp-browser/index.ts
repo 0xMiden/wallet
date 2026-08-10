@@ -16,6 +16,7 @@ export {
   FEATURED_DAPPS,
   CAROUSEL_DAPPS,
   EXPLORE_GRID_DAPPS,
+  getExploreGridDapps,
   type FeaturedDapp,
   type FeaturedDappBadge,
   type FeaturedDappCategory

@@ -4,6 +4,7 @@
 // Direct import avoids this because transaction-processor doesn't need the
 // activity module's full init chain.
 import { type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import * as Repo from 'lib/miden/repo';
 import {
   cancelStuckTransactions,
   getAllUncompletedTransactions,
@@ -13,6 +14,7 @@ import { WalletMessageType } from 'lib/shared/types';
 
 import { getIntercom } from './defaults';
 import { accountsUpdated, withUnlocked } from './store';
+import type { Vault } from './vault';
 
 // NOTE: `webextension-polyfill` throws at module load time when
 // `globalThis.chrome?.runtime?.id` is undefined (non-extension
@@ -50,11 +52,42 @@ let isProcessing = false;
 /**
  * Sign callback that runs in the service worker.
  * Re-acquires the vault on each call (same pattern as dapp.ts).
+ *
+ * Exported for testing. Uses `withUnlockedVault` (not the bare `withUnlocked`)
+ * so a background Guardian consume that reaches `executeTransaction`'s sign
+ * step AFTER an auto-lock nulled the vault throws an explicit locked-classified
+ * error instead of an opaque `TypeError: Cannot read properties of null`. The
+ * guardian transaction loop classifies that locked error and DEFERS the tx
+ * (leaves it Queued for retry after unlock) rather than marking it Failed and
+ * losing the note-claim (issue #313).
  */
-async function swSignCallback(publicKey: string, signingInputs: string): Promise<Uint8Array> {
-  return withUnlocked(async ({ vault }) => {
+export async function swSignCallback(publicKey: string, signingInputs: string): Promise<Uint8Array> {
+  return withUnlockedVault(async ({ vault }) => {
     const signatureHex = await vault.signTransaction(publicKey, signingInputs);
     return new Uint8Array(Buffer.from(signatureHex, 'hex'));
+  });
+}
+
+/**
+ * Like `withUnlocked`, but additionally guards against a NULL vault.
+ *
+ * `withUnlocked` → `assertUnlocked` only asserts the store is INITED; it does
+ * NOT check that the vault is actually present. A LOCKED wallet has
+ * `inited === true` but `vault === null`, so a factory that dereferences the
+ * vault throws an opaque `TypeError: Cannot read properties of null`. That
+ * TypeError is not recognised as a "locked" failure by the transaction loop,
+ * so a background Guardian consume that runs while the wallet is locked gets
+ * marked Failed (losing the note-claim) instead of deferred (issue #313).
+ *
+ * Throwing an explicit locked-classified error (matched by `isLockedError`)
+ * lets the loop leave the tx Queued for retry after the wallet unlocks.
+ */
+function withUnlockedVault<T>(factory: (ctx: { vault: Vault }) => T): T {
+  return withUnlocked(({ vault }) => {
+    if (!vault) {
+      throw Object.assign(new Error('Wallet is locked: vault unavailable'), { reason: 'locked' as const });
+    }
+    return factory({ vault });
   });
 }
 
@@ -62,24 +95,24 @@ async function swSignCallback(publicKey: string, signingInputs: string): Promise
  * Vault-backed Guardian account provider for service worker context.
  * Uses the Vault directly instead of the Zustand store.
  */
-const vaultGuardianProvider: GuardianAccountProvider = {
+export const vaultGuardianProvider: GuardianAccountProvider = {
   getAccounts: async () => {
-    return withUnlocked(async ({ vault }) => {
+    return withUnlockedVault(async ({ vault }) => {
       return await vault.fetchAccounts();
     });
   },
   getPublicKeyForCommitment: async (commitment: string) => {
-    return withUnlocked(async ({ vault }) => {
+    return withUnlockedVault(async ({ vault }) => {
       return await vault.getPublicKeyForCommitment(commitment);
     });
   },
   signWord: async (publicKey: string, wordHex: string) => {
-    return withUnlocked(async ({ vault }) => {
+    return withUnlockedVault(async ({ vault }) => {
       return await vault.signWord(publicKey, wordHex);
     });
   },
   persistNewHotKey: async (newHotPubKey: string, newHotCiphertext: string) => {
-    return withUnlocked(async ({ vault }) => {
+    return withUnlockedVault(async ({ vault }) => {
       await vault.persistNewHotKey(newHotPubKey, newHotCiphertext);
     });
   },
@@ -95,7 +128,7 @@ const vaultGuardianProvider: GuardianAccountProvider = {
     // intercom-driven path; we don't route through Actions.swapHotKey here
     // because importing actions.ts drags webextension-polyfill into the
     // transaction-processor's init chain.
-    return withUnlocked(async ({ vault }) => {
+    return withUnlockedVault(async ({ vault }) => {
       const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
       accountsUpdated(updated);
     });
@@ -104,7 +137,7 @@ const vaultGuardianProvider: GuardianAccountProvider = {
     // Mirror swapHotKey: persist then `accountsUpdated` so the Effector store
     // (and every popup pulling from it) reflects the new per-account endpoint.
     // Otherwise the popup keeps resolving the old guardian for this account.
-    return withUnlocked(async ({ vault }) => {
+    return withUnlockedVault(async ({ vault }) => {
       const updated = await vault.setGuardianEndpoint(accountPublicKey, guardianEndpoint);
       accountsUpdated(updated);
     });
@@ -153,7 +186,11 @@ export async function startTransactionProcessing(): Promise<void> {
     }
 
     let attempts = 0;
-    const maxAttempts = 60; // Max 5 minutes (60 * 5 seconds)
+    // Loop-pass ceiling, not a wall-clock bound: a single pass can now spend up
+    // to the guardian conflict-retry budget (~60s), so 60 passes is NOT "5
+    // minutes". Terminal per-tx caps live elsewhere (MAX_QUEUED_AGE /
+    // MAX_WAIT_BEFORE_CANCEL).
+    const maxAttempts = 60;
 
     while (attempts < maxAttempts) {
       attempts++;
@@ -185,6 +222,104 @@ export async function startTransactionProcessing(): Promise<void> {
   }
 }
 
+// Diagnostic record persisted to `chrome.storage.local` when the self-heal
+// keeps failing. Read it from the SW DevTools console with
+// `chrome.storage.local.get('stuckTxHealDiagnostic')`.
+const STUCK_TX_HEAL_DIAGNOSTIC_KEY = 'stuckTxHealDiagnostic';
+interface StuckTxHealDiagnostic {
+  lastFailureAt: number;
+  message: string;
+  consecutiveFailures: number;
+}
+
+/**
+ * Escalate a self-heal failure that survived the Dexie re-open + retry.
+ *
+ * A bare `console.error` is invisible without an open DevTools session, so a
+ * silently-wedged heal is undiagnosable in the field. The obvious escalation
+ * sink — Segment via `back/analytics.ts` — is DEAD in the shipped SW build:
+ * that module throws at load unless `ALEO_WALLET_SEGMENT_WRITE_KEY` is set, and
+ * the background Vite build (`vite.background.config.ts`) never defines it, so a
+ * dynamic `import('./analytics')` here would only ever reject and emit nothing.
+ * Escalating to a Dexie table is just as self-defeating: the heal usually fails
+ * BECAUSE IndexedDB is down. Persist a small diagnostic to `chrome.storage.local`
+ * instead — it works in the MV3 service worker and survives a broken IndexedDB —
+ * bumping a consecutive-failure counter so a persistently-wedged heal is visible.
+ * Loaded lazily via `getBrowser()` and fully swallowed on error so escalation
+ * can never break the heal itself (and so non-extension bundles never touch it).
+ */
+async function reportHealFailure(err: unknown): Promise<void> {
+  console.error('[TransactionProcessor] Stuck-tx self-heal failed:', err);
+  try {
+    const browser = await getBrowser();
+    const previous = (await browser.storage.local.get(STUCK_TX_HEAL_DIAGNOSTIC_KEY))[STUCK_TX_HEAL_DIAGNOSTIC_KEY] as
+      | StuckTxHealDiagnostic
+      | undefined;
+    const diagnostic: StuckTxHealDiagnostic = {
+      lastFailureAt: Date.now(),
+      message: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      consecutiveFailures: (previous?.consecutiveFailures ?? 0) + 1
+    };
+    await browser.storage.local.set({ [STUCK_TX_HEAL_DIAGNOSTIC_KEY]: diagnostic });
+  } catch {
+    // No `browser.storage` (non-extension bundle) or a storage write failure —
+    // the console.error above remains as the fallback diagnostic surface.
+  }
+}
+
+/**
+ * Clear the persisted heal-failure diagnostic after a successful heal.
+ *
+ * `reportHealFailure` bumps `consecutiveFailures` but never resets it, so
+ * without this a record persisted while the DB was down would linger forever
+ * once the DB recovers — implying a wedged heal that has actually healed, and
+ * turning `consecutiveFailures` into a monotonic total. Removing the key on a
+ * successful heal keeps the counter truly *consecutive*. The `remove` is
+ * idempotent (a no-op when nothing is stored) and fully swallowed on error so
+ * clearing can never break the heal (and so non-extension bundles never touch
+ * `browser.storage`).
+ */
+async function clearHealDiagnostic(): Promise<void> {
+  try {
+    const browser = await getBrowser();
+    await browser.storage.local.remove(STUCK_TX_HEAL_DIAGNOSTIC_KEY);
+  } catch {
+    // No `browser.storage` (non-extension bundle) or a remove failure — a stale
+    // record, if any, is harmless and the next failed heal re-persists a fresh one.
+  }
+}
+
+/**
+ * Run the stuck-transaction self-heal, recovering from a stale Dexie handle.
+ *
+ * An MV3 SW respawn can leave the Dexie connection closed, so the first read
+ * inside `cancelStuckTransactions` rejects with `DatabaseClosedError` and,
+ * without recovery, every subsequent alarm tick fails identically and the
+ * heal never progresses (issue #254). Re-open the connection once and retry;
+ * if that (or any other error) still fails, escalate rather than swallow.
+ */
+async function healStuckTransactions(): Promise<void> {
+  try {
+    await cancelStuckTransactions();
+    // First-call success: clear any diagnostic left by earlier failed ticks.
+    await clearHealDiagnostic();
+  } catch (err) {
+    if ((err as { name?: unknown })?.name === 'DatabaseClosedError') {
+      try {
+        await Repo.db.open();
+        await cancelStuckTransactions();
+        // Post-reopen retry success: clear any lingering diagnostic too.
+        await clearHealDiagnostic();
+        return;
+      } catch (retryErr) {
+        await reportHealFailure(retryErr);
+        return;
+      }
+    }
+    await reportHealFailure(err);
+  }
+}
+
 /**
  * Set up on SW startup: check for orphaned transactions and resume processing.
  */
@@ -203,9 +338,7 @@ export function setupTransactionProcessor(): void {
           // processingStartedAt is past MAX_WAIT_BEFORE_CANCEL. This is
           // independent of `startTransactionProcessing` so we don't depend
           // on the SW being mid-loop when an orphan ages out.
-          cancelStuckTransactions().catch(err =>
-            console.warn('[TransactionProcessor] Stuck-tx heal alarm error:', err)
-          );
+          void healStuckTransactions();
         }
       });
       // Long-period self-heal alarm. Chrome MV3 clamps periodInMinutes to
@@ -246,5 +379,5 @@ export function setupTransactionProcessor(): void {
   // orphan is reaped even when nothing else is queued. (The alarm above
   // catches the steady state; this catches the very-first SW respawn
   // after long idle, before the first alarm tick.)
-  cancelStuckTransactions().catch(err => console.warn('[TransactionProcessor] Startup heal error:', err));
+  void healStuckTransactions();
 }

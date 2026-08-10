@@ -1,6 +1,7 @@
 import React, { FC, ReactNode, useLayoutEffect, useRef, useState } from 'react';
 
 import classNames from 'clsx';
+import { useTranslation } from 'react-i18next';
 
 import CopyButton from 'app/atoms/CopyButton';
 import { Icon, IconName } from 'app/icons/v2';
@@ -37,6 +38,14 @@ const CARD_COLOR_BOTTOM: Record<CardColor, string> = {
   blue: 'bg-card-blue-deep',
   green: 'bg-card-green-deep',
   purple: 'bg-card-purple-deep'
+};
+
+const CARD_COLOR_ICON: Record<CardColor, string> = {
+  slate: 'text-card-slate-deep',
+  orange: 'text-card-orange-deep',
+  blue: 'text-card-blue-deep',
+  green: 'text-card-green-deep',
+  purple: 'text-card-purple-deep'
 };
 
 export interface BalanceCardProps {
@@ -111,6 +120,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   state = 'default',
   className
 }) => {
+  const { t } = useTranslation();
   const isLoading = state === 'loading';
   const isHidden = state === 'hidden';
   const isZero = state === 'zero';
@@ -128,7 +138,9 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   return (
     <div className={classNames('relative w-full overflow-hidden text-surface-balance-fg rounded-lg-token', className)}>
       <div className={classNames('px-3.5 pt-4 pb-3.5', CARD_COLOR_TOP[cardColor])}>
-        <div className="text-sm font-medium text-surface-balance-fg-muted leading-none">Total Balance</div>
+        <div className="text-sm font-medium text-surface-balance-fg-muted leading-none">
+          {t('balanceCardTotalBalance')}
+        </div>
 
         <div ref={rowRef} className="mt-2.5 flex items-end gap-1 leading-none min-w-0">
           {isLoading ? (
@@ -140,6 +152,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
                 style={{ fontSize: `${fontSizeRem}rem` }}
                 className="font-heading font-extrabold leading-none whitespace-nowrap"
               >
+                {/* eslint-disable-next-line i18next/no-literal-string -- balance-mask glyphs / pre-formatted zero value, not translatable copy */}
                 {isHidden ? '••••••' : isZero ? '$0.00' : amount}
               </span>
               <span className="shrink-0 font-heading text-base font-semibold text-surface-balance-fg-muted">
@@ -158,7 +171,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
                 pillBg
               )}
             >
-              {delta.absolute} ({delta.percentage})
+              {t('balanceCardDeltaPill', { absolute: delta.absolute, percentage: delta.percentage })}
             </span>
           </div>
         )}
@@ -166,27 +179,31 @@ export const BalanceCard: FC<BalanceCardProps> = ({
 
       <div
         className={classNames(
-          'flex items-center justify-between gap-2 py-3 border-t border-dashed px-3.5 border-t-[#FFFFFF4D]',
+          'flex items-center justify-between gap-2 py-2 border-t border-dashed px-3.5 border-t-[#FFFFFF4D]',
           CARD_COLOR_BOTTOM[cardColor]
         )}
       >
         <CopyButton
           text={accountId ?? accountNumber}
           className={classNames(
-            'text-xs font-semibold leading-none tracking-tight truncate min-w-0 text-left',
+            'flex items-center gap-1 text-xs font-heading font-bold leading-none tracking-tight min-w-0 text-left',
             'text-surface-balance-fg hover:bg-transparent active:opacity-80 transition-opacity'
           )}
         >
-          Account #: {accountNumber}
+          <span className="truncate">{t('balanceCardAccount', { number: accountNumber })}</span>
+          {/* The `!` on the size classes is load-bearing: <Icon> injects a default `md` (w-6 h-6)
+              size class that, under Tailwind v4's scale-ordered output, otherwise wins the cascade.
+              Do not drop the `!` (same for the settings icon below). */}
+          <Icon name={IconName.CopyNew} className="w-3.5! h-3.5! shrink-0" />
         </CopyButton>
         {onMore && (
           <button
             type="button"
             onClick={handleMoreClick}
-            aria-label="Account options"
-            className={classNames('shrink-0 flex items-center justify-center', 'w-5 h-5 rounded-full bg-[#F6F4F261] ')}
+            aria-label={t('balanceCardAccountOptions')}
+            className="shrink-0 flex items-center justify-center w-4.5 h-4.5 rounded-full bg-pure-white"
           >
-            <Icon name={IconName.More} className="w-3 h-3" fill="currentColor" />
+            <Icon name={IconName.SettingsNew} className={classNames('w-3! h-3!', CARD_COLOR_ICON[cardColor])} />
           </button>
         )}
       </div>

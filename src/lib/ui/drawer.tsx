@@ -6,6 +6,7 @@ import { Drawer as VaulDrawer } from 'vaul';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
+import { isExtension } from 'lib/platform';
 
 import { cn } from './util';
 
@@ -28,7 +29,7 @@ function Drawer({ open = false, onOpenChange, children }: DrawerProps) {
   useHideNavbarWhileOpen(open);
   return (
     <DrawerContext.Provider value={{ open, onClose }}>
-      <VaulDrawer.Root open={open} onOpenChange={onOpenChange} shouldScaleBackground direction="bottom">
+      <VaulDrawer.Root open={open} onOpenChange={onOpenChange} shouldScaleBackground={isExtension()} direction="bottom">
         {children}
       </VaulDrawer.Root>
     </DrawerContext.Provider>
@@ -57,7 +58,10 @@ function DrawerContent({ className, overlayClassName, children, hideHandle = tru
         data-slot="drawer-content"
         aria-describedby={undefined}
         className={cn(
-          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[20px] bg-surface-solid text-sm outline-none',
+          // pb: the sheet is fixed to the viewport bottom, so body's safe-area
+          // padding (mobile.html) doesn't reach it — pad past the Android nav
+          // bar / iOS home indicator ourselves (env() is 0 on extension).
+          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[20px] bg-surface-solid text-sm outline-none pb-[env(safe-area-inset-bottom)]',
           className
         )}
         {...props}

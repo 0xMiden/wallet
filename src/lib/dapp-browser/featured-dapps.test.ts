@@ -2,10 +2,17 @@ import {
   FEATURED_DAPPS,
   CAROUSEL_DAPPS,
   EXPLORE_GRID_DAPPS,
+  getExploreGridDapps,
   type FeaturedDapp,
   type FeaturedDappBadge,
   type FeaturedDappCategory
 } from './featured-dapps';
+
+const mockSwapEnabled = { value: true };
+
+jest.mock('lib/feature-flags', () => ({
+  isSwapEnabled: () => mockSwapEnabled.value
+}));
 
 const VALID_CATEGORIES: FeaturedDappCategory[] = ['defi', 'nft', 'tools', 'social'];
 const VALID_BADGES: FeaturedDappBadge[] = ['featured', 'new', 'verified'];
@@ -19,10 +26,12 @@ describe('FEATURED_DAPPS', () => {
       'miden',
       'zoro',
       'faucet',
+      'forkchoice-faucet',
       'lumina',
       'qash',
       'playground',
-      'miden-name'
+      'miden-name',
+      'swap-faucet'
     ]);
   });
 
@@ -95,6 +104,16 @@ describe('FEATURED_DAPPS', () => {
     expect(FEATURED_DAPPS.some(d => d.featured === true)).toBe(true);
     expect(FEATURED_DAPPS.some(d => d.featured === undefined)).toBe(true);
   });
+
+  it('flags isExchange only on DEX/exchange entries', () => {
+    // Both the exchange and non-exchange branches exist in the data.
+    expect(FEATURED_DAPPS.some(d => d.isExchange === true)).toBe(true);
+    expect(FEATURED_DAPPS.some(d => d.isExchange === undefined)).toBe(true);
+    // Every exchange-flagged entry is a DEX genre (the surface hidden on iOS).
+    for (const d of FEATURED_DAPPS.filter(d => d.isExchange)) {
+      expect(d.genre).toBe('DEX');
+    }
+  });
 });
 
 describe('CAROUSEL_DAPPS', () => {
@@ -122,11 +141,11 @@ describe('CAROUSEL_DAPPS', () => {
 });
 
 describe('EXPLORE_GRID_DAPPS', () => {
-  it('contains the four curated apps in explicit display order', () => {
+  it('contains the curated apps in explicit display order', () => {
     // Exercises the `.flatMap` over the id list and the inner
     // `.filter(d => d.id === id)` predicate (matching + non-matching ids).
-    expect(EXPLORE_GRID_DAPPS.map(d => d.id)).toEqual(['zoro', 'qash', 'faucet', 'miden-name']);
-    expect(EXPLORE_GRID_DAPPS).toHaveLength(4);
+    expect(EXPLORE_GRID_DAPPS.map(d => d.id)).toEqual(['faucet', 'forkchoice-faucet']);
+    expect(EXPLORE_GRID_DAPPS).toHaveLength(2);
   });
 
   it('resolves each id to the corresponding FEATURED_DAPPS entry by identity', () => {
@@ -137,11 +156,27 @@ describe('EXPLORE_GRID_DAPPS', () => {
     }
   });
 
-  it('preserves the requested order even when it differs from FEATURED_DAPPS order', () => {
-    // 'zoro' precedes 'faucet' in the grid, matching the id list — not the
-    // source-array order where faucet also appears before qash.
-    const gridIds = EXPLORE_GRID_DAPPS.map(d => d.id);
-    expect(gridIds.indexOf('zoro')).toBeLessThan(gridIds.indexOf('faucet'));
-    expect(gridIds.indexOf('qash')).toBeLessThan(gridIds.indexOf('faucet'));
+  it('contains only the two testnet faucets, and no exchange (DEX) tile', () => {
+    expect(EXPLORE_GRID_DAPPS.map(d => d.id)).toEqual(['faucet', 'forkchoice-faucet']);
+    expect(EXPLORE_GRID_DAPPS.some(d => d.isExchange)).toBe(false);
+  });
+});
+
+describe('getExploreGridDapps', () => {
+  afterEach(() => {
+    mockSwapEnabled.value = true;
+  });
+
+  it('returns the full grid unchanged when swap is enabled (off-iOS)', () => {
+    mockSwapEnabled.value = true;
+    expect(getExploreGridDapps()).toEqual(EXPLORE_GRID_DAPPS);
+  });
+
+  it('returns the faucet-only grid unchanged when swap is disabled (no exchange tile to drop)', () => {
+    mockSwapEnabled.value = false;
+    const grid = getExploreGridDapps();
+    // The grid holds only the two faucets, so the exchange filter is a no-op.
+    expect(grid.some(d => d.isExchange)).toBe(false);
+    expect(grid.map(d => d.id)).toEqual(['faucet', 'forkchoice-faucet']);
   });
 });

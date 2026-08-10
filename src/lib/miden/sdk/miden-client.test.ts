@@ -1,4 +1,4 @@
-import { runWhenClientIdle, withWasmClientLock } from './miden-client';
+import { isWasmClientBusy, runWhenClientIdle, tryWithWasmClientLock, withWasmClientLock } from './miden-client';
 
 describe('withWasmClientLock', () => {
   it('executes a single operation and returns its result', async () => {
@@ -261,6 +261,86 @@ describe('AsyncMutex idle queue — high-priority interruption', () => {
     await new Promise(resolve => setTimeout(resolve, 10));
     // No crash — the queue processed cleanly
     expect(true).toBe(true);
+  });
+});
+
+describe('isWasmClientBusy', () => {
+  it('is false when the mutex is idle', () => {
+    expect(isWasmClientBusy()).toBe(false);
+  });
+
+  it('is true while a withWasmClientLock operation holds the lock, false after', async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+
+    // Lock is acquired synchronously when idle, so it reports busy immediately.
+    const op = withWasmClientLock(async () => {
+      await gate;
+    });
+    expect(isWasmClientBusy()).toBe(true);
+
+    release!();
+    await op;
+    expect(isWasmClientBusy()).toBe(false);
+  });
+
+  it('stays busy for a queued operation until the whole chain drains', async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+
+    const first = withWasmClientLock(async () => {
+      await gate;
+    });
+    // Second op queues behind the first; the mutex stays held throughout.
+    const second = withWasmClientLock(async () => {});
+    expect(isWasmClientBusy()).toBe(true);
+
+    release!();
+    await Promise.all([first, second]);
+    expect(isWasmClientBusy()).toBe(false);
+  });
+});
+
+describe('tryWithWasmClientLock', () => {
+  it('runs the operation and returns { ran: true, value } when the lock is free', async () => {
+    const op = jest.fn(async () => 42);
+    const res = await tryWithWasmClientLock(op);
+    expect(res).toEqual({ ran: true, value: 42 });
+    expect(op).toHaveBeenCalledTimes(1);
+    expect(isWasmClientBusy()).toBe(false); // released
+  });
+
+  it('skips (ran: false) and does not run the operation while the lock is held', async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const holder = withWasmClientLock(async () => {
+      await gate;
+    });
+    expect(isWasmClientBusy()).toBe(true);
+
+    const op = jest.fn(async () => 'value');
+    const res = await tryWithWasmClientLock(op);
+    expect(res).toEqual({ ran: false });
+    expect(op).not.toHaveBeenCalled();
+
+    release!();
+    await holder;
+    expect(isWasmClientBusy()).toBe(false);
+  });
+
+  it('releases the lock even if the operation throws', async () => {
+    await expect(
+      tryWithWasmClientLock(async () => {
+        throw new Error('boom');
+      })
+    ).rejects.toThrow('boom');
+    expect(isWasmClientBusy()).toBe(false);
   });
 });
 

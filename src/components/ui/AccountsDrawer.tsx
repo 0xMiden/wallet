@@ -18,7 +18,7 @@ export interface AccountsDrawerProps {
 }
 
 /**
- * Bottom sheet opened from the BalanceCard "more" (3-dots) button. Lists
+ * Bottom sheet opened from the BalanceCard settings button. Lists
  * the balance-card color picker and account-level actions: Settings
  * (navigates to /settings) and a disabled "Add Account" placeholder.
  */
@@ -79,7 +79,7 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
             className={classNames(
               'flex w-full items-center justify-center gap-2 rounded-xl px-4 py-4',
               'bg-surface-input',
-              'text-sm font-semibold text-gray-secondary',
+              'text-sm font-semibold text-gray-secondary dark:text-pure-white',
               'transition-colors hover:bg-[#ECEAE7] dark:hover:bg-[#3f3f3f] rounded-2xl'
             )}
           >

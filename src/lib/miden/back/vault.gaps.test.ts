@@ -17,6 +17,14 @@ import { PublicError } from './defaults';
 import { encryptAndSaveMany, savePlain } from './safe-storage';
 import { Vault } from './vault';
 
+// Nearly every test here seeds a real vault, which runs the production PBKDF2
+// key derivation (~10.3M SHA-256 iterations). Each test passes comfortably in
+// isolation, but under full-suite CPU contention on CI the derivation can push
+// a single test past Jest's 5s default, intermittently failing the coverage
+// job. Raise the per-test ceiling for this crypto-heavy file so a slow-but-
+// healthy run doesn't flake; a genuine hang would still blow past this.
+jest.setTimeout(30_000);
+
 const memoryStore: Record<string, any> = {};
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: jest.fn(() => ({
@@ -60,7 +68,8 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 
 jest.mock('../sdk/helpers', () => ({
-  getBech32AddressFromAccountId: jest.fn((id: any) => (typeof id === 'string' ? id : 'bech32:unknown'))
+  getBech32AddressFromAccountId: jest.fn((id: any) => (typeof id === 'string' ? id : 'bech32:unknown')),
+  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
 }));
 
 jest.mock('lib/miden/reset', () => ({
@@ -408,8 +417,9 @@ describe('Vault.spawn: Guardian recovery (lookup + adopt)', () => {
     }));
 
     try {
-      // Guardian recovery resolves the guardian endpoint from storage, so seed
-      // the endpoint the way the onboarding flow does before calling spawn.
+      // Guardian recovery now reads the endpoint from storage and throws if
+      // missing (DEFAULT_GUARDIAN_ENDPOINT is gone), so seed it like the
+      // onboarding flow does before calling spawn.
       const { putToStorage } = await import('../front/storage');
       const { GUARDIAN_URL_STORAGE_KEY } = await import('lib/settings/constants');
       await putToStorage(GUARDIAN_URL_STORAGE_KEY, 'https://my-guardian.example');

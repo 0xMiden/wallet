@@ -8,6 +8,12 @@ import { goBack, navigate } from 'lib/woozie';
 import { EARN_DATA } from './data';
 import EarnPositions from './EarnPositions';
 
+// i18n: assert on keys, not English copy. Interpolated values (e.g. APY) are
+// discarded by this key-only stub, so those assertions target the key.
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
+
 // Pull the mocked router/haptics fns back out for assertions.
 
 // `lib/woozie` is the SPA router; stub `goBack`/`navigate` so we can assert the
@@ -63,6 +69,22 @@ jest.mock('./components', () => ({
   )
 }));
 
+// The screen reads live Epoch data through `useEarnPositions`, which pulls in
+// `useAccount` + SWR. Feed it the static demo fixture instead so the assertions
+// below can stay pinned to `EARN_DATA`.
+jest.mock('./useEarnPositions', () => {
+  const { EARN_DATA } = jest.requireActual<typeof import('./data')>('./data');
+  return {
+    useEarnPositions: () => ({
+      summary: EARN_DATA.summary,
+      positions: EARN_DATA.positions,
+      vaults: EARN_DATA.vaults,
+      isLoading: false,
+      error: undefined
+    })
+  };
+});
+
 const mockGoBack = goBack as jest.Mock;
 const mockNavigate = navigate as jest.Mock;
 const mockHapticLight = hapticLight as jest.Mock;
@@ -76,7 +98,7 @@ describe('EarnPositions', () => {
     render(<EarnPositions />);
 
     expect(screen.getByTestId('earn-positions-page')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 1, name: 'My positions' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'earnPositionsTitle' })).toBeInTheDocument();
   });
 
   it('renders the summary panel wired to EARN_DATA.summary and the fixed titleId', () => {
@@ -90,7 +112,7 @@ describe('EarnPositions', () => {
   it('renders one position card per entry in EARN_DATA.positions', () => {
     render(<EarnPositions />);
 
-    const region = screen.getByRole('region', { name: 'Positions' });
+    const region = screen.getByRole('region', { name: 'earnPositionsRegionLabel' });
     const cards = within(region).getAllByRole('button');
     expect(cards).toHaveLength(EARN_DATA.positions.length);
 
@@ -106,14 +128,15 @@ describe('EarnPositions', () => {
   it('renders each card with its protocol/asset, APY, amount, rewards, deposited amount and active duration', () => {
     render(<EarnPositions />);
 
-    const region = screen.getByRole('region', { name: 'Positions' });
+    const region = screen.getByRole('region', { name: 'earnPositionsRegionLabel' });
     const firstPosition = EARN_DATA.positions[0]!;
 
     // "{protocol} • {asset}" — one occurrence per position (both share the copy).
     expect(within(region).getAllByText(`${firstPosition.protocol} • ${firstPosition.asset}`)).toHaveLength(
       EARN_DATA.positions.length
     );
-    expect(within(region).getAllByText(`${firstPosition.apy} APY`)).toHaveLength(EARN_DATA.positions.length);
+    // APY renders via t('earnPositionsApy', { apy }); the key-only stub drops the value.
+    expect(within(region).getAllByText('earnPositionsApy')).toHaveLength(EARN_DATA.positions.length);
     expect(within(region).getAllByText(firstPosition.amount)).toHaveLength(EARN_DATA.positions.length);
     expect(within(region).getAllByText(firstPosition.rewards)).toHaveLength(EARN_DATA.positions.length);
     expect(within(region).getAllByText(firstPosition.depositedAmount)).toHaveLength(EARN_DATA.positions.length);
@@ -128,7 +151,7 @@ describe('EarnPositions', () => {
   it('calls goBack when the header back button is pressed', () => {
     render(<EarnPositions />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
 
     expect(mockGoBack).toHaveBeenCalledTimes(1);
     expect(mockHapticLight).not.toHaveBeenCalled();
@@ -144,7 +167,7 @@ describe('EarnPositions', () => {
   it('fires haptics and navigates to the position route when a card is tapped', () => {
     render(<EarnPositions />);
 
-    const region = screen.getByRole('region', { name: 'Positions' });
+    const region = screen.getByRole('region', { name: 'earnPositionsRegionLabel' });
     const cards = within(region).getAllByRole('button');
 
     fireEvent.click(cards[0]!);
@@ -157,7 +180,7 @@ describe('EarnPositions', () => {
   it('navigates to the correct route for each distinct position id', () => {
     render(<EarnPositions />);
 
-    const region = screen.getByRole('region', { name: 'Positions' });
+    const region = screen.getByRole('region', { name: 'earnPositionsRegionLabel' });
     const cards = within(region).getAllByRole('button');
 
     cards.forEach((card, index) => {

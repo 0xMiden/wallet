@@ -14,6 +14,7 @@ import { NoteTypeEnum } from '../types';
 import {
   completeSendTransaction,
   getCompletedTransactions,
+  getSwapSettlementNotes,
   cancelStaleQueuedTransactions,
   waitForTransactionCompletion,
   generateTransactionsLoop,
@@ -141,7 +142,20 @@ jest.mock('../helpers', () => ({
 }));
 
 jest.mock('../sdk/helpers', () => ({
-  getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub')
+  getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub'),
+  // Needed once a test enters the Guardian branch of generateTransaction
+  // (isGuardianAccount → true): the per-account lock key is canonicalized and
+  // wallet-account matching is done via these helpers.
+  canonicalWalletAccountId: (id: string) => id,
+  sameWalletAccountId: (a: string, b: string) => a === b
+}));
+
+// The guardian branch wraps generateGuardianTransaction in a per-account lock;
+// run the callback straight through so the branch is exercised without the real
+// navigator.locks-backed serializer.
+jest.mock('lib/miden/guardian/serialize', () => ({
+  withGuardianAccountLock: (_key: string, fn: () => Promise<unknown>) => fn(),
+  withGuardianConflictRetry: (fn: () => Promise<unknown>) => fn()
 }));
 
 jest.mock('lib/store', () => ({
@@ -367,6 +381,92 @@ describe('getCompletedTransactions', () => {
   });
 });
 
+describe('getSwapSettlementNotes', () => {
+  it('groups completed settlement consumes by kind and dedupes note ids', async () => {
+    txStore.push(
+      {
+        id: 'c-1',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1', 'n-2'],
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-2',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        // Same note re-tagged by a later batch — must not appear twice.
+        noteIds: ['n-2'],
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-3',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteId: 'n-3',
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim' }
+      }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settled).toEqual(['n-1', 'n-2']);
+    expect(notes.reclaimed).toEqual(['n-3']);
+  });
+
+  it('treats an untagged kind as a settle and reads the singular noteId', async () => {
+    txStore.push({
+      id: 'c-1',
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      noteId: 'n-1',
+      extraInputs: { swapOrderTxId: 'swap-1' }
+    });
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settled).toEqual(['n-1']);
+    expect(notes.reclaimed).toEqual([]);
+  });
+
+  it('ignores consumes for other orders, other types and non-completed rows', async () => {
+    txStore.push(
+      {
+        id: 'c-other-order',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-x'],
+        extraInputs: { swapOrderTxId: 'swap-2', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-queued',
+        type: 'consume',
+        status: ITransactionStatus.Queued,
+        noteIds: ['n-y'],
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-not-consume',
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-z'],
+        extraInputs: { swapOrderTxId: 'swap-1' }
+      },
+      { id: 'c-untagged', type: 'consume', status: ITransactionStatus.Completed, noteIds: ['n-w'] }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settled).toEqual([]);
+    expect(notes.reclaimed).toEqual([]);
+  });
+
+  it('returns empty buckets when the order has no settlement consumes at all', async () => {
+    const notes = await getSwapSettlementNotes('swap-unknown');
+    expect(notes).toEqual({ settled: [], reclaimed: [] });
+  });
+});
+
 describe('cancelStaleQueuedTransactions', () => {
   it('cancels transactions that exceeded MAX_QUEUED_AGE', async () => {
     const longAgo = Math.floor(Date.now() / 1000) - 3600; // 1 hour ago
@@ -538,6 +638,57 @@ describe('generateTransactionsLoop error paths', () => {
     sdk.withWasmClientLock = origLock;
   });
 
+  it('leaves a Guardian tx Queued (not Failed) when the wallet is locked at consume time (#313)', async () => {
+    // A background Guardian consume that runs while the wallet is locked hits
+    // `isGuardianAccount` → `guardianProvider.getAccounts()` first, which throws
+    // because the vault is null. That failure must be recognised as "locked" and
+    // the tx DEFERRED (left non-Failed) for the next cycle — NOT cancelled like a
+    // genuine error, otherwise the note-claim is lost.
+    const gm = require('lib/miden/front/guardian-manager');
+    gm.isGuardianAccount.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('Wallet is locked: vault unavailable'), { reason: 'locked' });
+    });
+
+    txStore.push({
+      id: 'tx-guardian-locked',
+      type: 'consume',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'guardian-acc'
+    });
+
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(result).toBe(false);
+    expect(txStore[0]!.status).not.toBe(ITransactionStatus.Failed);
+  });
+
+  it('leaves a Guardian tx Queued (not Failed) when the wallet locks mid-guardian-flow, e.g. at sign time (#313)', async () => {
+    // Distinct from the getAccounts-preflight case above: here we ENTER the
+    // guardian branch (isGuardianAccount → true, getAccounts already passed) and
+    // a locked-classified error surfaces DEEPER inside generateGuardianTransaction
+    // — the null-vault sign step (`swSignCallback`) is the motivating case, but the
+    // guardian catch is source-agnostic, so any locked error from the flow must
+    // route the same way. It must be re-thrown by the guardian catch and DEFERRED
+    // by the loop, NOT cancelled to Failed (which would lose the note-claim).
+    const gm = require('lib/miden/front/guardian-manager');
+    gm.isGuardianAccount.mockImplementationOnce(async () => true);
+    gm.getOrCreateMultisigService.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('Wallet is locked: vault unavailable'), { reason: 'locked' });
+    });
+
+    txStore.push({
+      id: 'tx-guardian-sign-locked',
+      type: 'consume',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'guardian-acc'
+    });
+
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(result).toBe(false);
+    expect(txStore[0]!.status).not.toBe(ITransactionStatus.Failed);
+  });
+
   it('invokes the wrapped sign callback during dispatch (success path)', async () => {
     // Default withWasmClientLock runs fn(), so generateTransaction reaches
     // getMidenClient(options) and the mock invokes the wrapped sign callback.
@@ -570,6 +721,67 @@ describe('generateTransactionsLoop error paths', () => {
     await generateTransactionsLoop(signThrows, true, stubGuardianProvider);
 
     expect(signThrows).toHaveBeenCalled();
+  });
+});
+
+describe('generateTransactionsLoop — head-of-line fairness', () => {
+  const dummySign = jest.fn(async () => new Uint8Array([1]));
+
+  it("skips a cooling-down requeued tx and runs another account's eligible tx that cycle", async () => {
+    // Regression for the guardian pending-delta requeue starving other accounts:
+    // a persistently-conflicting tx is always the OLDEST by initiatedAt, so after
+    // it is requeued it would be re-picked every cycle and burn the retry budget
+    // while a second account's freshly-queued tx never runs — until it ages out at
+    // MAX_QUEUED_AGE (~30 min). The backoff (nextEligibleAt) makes it yield the slot.
+    const now = Math.floor(Date.now() / 1000);
+
+    // Account A: oldest, but cooling down after a pending-conflict requeue
+    // (nextEligibleAt in the future) — must NOT be picked this cycle.
+    txStore.push({
+      id: 'tx-A-cooldown',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: now - 100,
+      nextEligibleAt: now + 300,
+      accountId: 'acc-A'
+    });
+    // Account B: newer, no cooldown — the only eligible tx, must run this cycle.
+    txStore.push({
+      id: 'tx-B-eligible',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: now - 50,
+      accountId: 'acc-B'
+    });
+
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+
+    const a = txStore.find(t => t.id === 'tx-A-cooldown');
+    const b = txStore.find(t => t.id === 'tx-B-eligible');
+    // A is untouched — still Queued, still cooling down; it did not block B.
+    expect(a!.status).toBe(ITransactionStatus.Queued);
+    // B was selected and processed (left the queue), proving the cooling-down A
+    // yielded the slot instead of being re-picked as the oldest row.
+    expect(b!.status).not.toBe(ITransactionStatus.Queued);
+  });
+
+  it('still runs a cooling-down tx once its nextEligibleAt has passed (terminal cap unaffected)', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    // A single queued tx whose cooldown already elapsed — must be picked normally.
+    txStore.push({
+      id: 'tx-cooldown-expired',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: now - 100,
+      nextEligibleAt: now - 1,
+      accountId: 'acc-A'
+    });
+
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+
+    const row = txStore.find(t => t.id === 'tx-cooldown-expired');
+    // Cooldown elapsed → eligible again → selected and processed (left the queue).
+    expect(row!.status).not.toBe(ITransactionStatus.Queued);
   });
 });
 

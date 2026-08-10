@@ -1,14 +1,23 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
+
 import {
   EMPTY_WALLET_PROMPT_STORAGE,
   WalletPromptStatus,
   WalletPromptType,
   completeWalletPrompt,
   dismissWalletPrompt,
+  faucet,
+  fetchActiveBridgePrompts,
+  fetchHotKeyHardwareError,
   fetchWalletPromptStorage,
+  getPendingNotesUsdTotal,
   isWalletPromptPending,
   normalizeWalletPromptStorage,
+  pollActiveBridgePrompts,
+  reportHotKeyHardwareFailure,
   seedWalletPrompt,
   setWalletPromptStatus,
   useWalletPromptStorage
@@ -19,6 +28,41 @@ jest.mock('lib/platform', () => ({
   isDesktop: () => true,
   isExtension: () => false
 }));
+
+jest.mock('lib/miden-chain/faucet-api', () => ({
+  mintFromMidenFaucet: jest.fn()
+}));
+
+const bridgeRows: ITransaction[] = [];
+const findClaimableDeposit = jest.fn();
+const updateClaimStatus = jest.fn();
+const pollEpochIntentFill = jest.fn();
+
+jest.mock('lib/miden/repo', () => ({
+  transactions: {
+    filter: (predicate: (row: ITransaction) => boolean) => ({
+      toArray: async () => bridgeRows.filter(predicate)
+    })
+  }
+}));
+jest.mock('lib/agglayer', () => ({
+  findClaimableMidenToEvmDeposit: (...args: unknown[]) => findClaimableDeposit(...args)
+}));
+jest.mock('lib/miden/transaction/complete', () => ({
+  updateBridgeClaimStatus: (...args: unknown[]) => updateClaimStatus(...args)
+}));
+jest.mock('lib/epoch', () => ({
+  pollEpochIntentFill: (...args: unknown[]) => pollEpochIntentFill(...args)
+}));
+
+const mintFromMidenFaucetMock = jest.mocked(mintFromMidenFaucet);
+
+const fetchMock = jest.fn();
+Object.defineProperty(globalThis, 'fetch', {
+  value: fetchMock,
+  writable: true,
+  configurable: true
+});
 
 describe('wallet prompts', () => {
   beforeEach(() => {
@@ -34,6 +78,47 @@ describe('wallet prompts', () => {
     expect(normalizeWalletPromptStorage({ version: 1, prompts: { verifySeedPhrase: 'bad-status' } })).toEqual(
       EMPTY_WALLET_PROMPT_STORAGE
     );
+  });
+
+  it('coerces a non-object prompts field on an object value to an empty prompt set', () => {
+    // The value itself is an object (so it isn't short-circuited at the top),
+    // but its `prompts` field is missing / not a record — drop it rather than
+    // iterating a non-object.
+    expect(normalizeWalletPromptStorage({ prompts: null })).toEqual(EMPTY_WALLET_PROMPT_STORAGE);
+    expect(normalizeWalletPromptStorage({ prompts: 'not-an-object' })).toEqual(EMPTY_WALLET_PROMPT_STORAGE);
+    expect(normalizeWalletPromptStorage({ prompts: 5 })).toEqual(EMPTY_WALLET_PROMPT_STORAGE);
+    expect(normalizeWalletPromptStorage({})).toEqual(EMPTY_WALLET_PROMPT_STORAGE);
+  });
+
+  it('normalizes pending-note prompt state and valid unique dismissed note ids', () => {
+    expect(
+      normalizeWalletPromptStorage({
+        version: 1,
+        prompts: { pendingNotes: 'dismissed' },
+        pendingNotesDismissedIds: ['note-1', '', 7, 'note-1', 'note-2']
+      })
+    ).toEqual({
+      version: 1,
+      prompts: { [WalletPromptType.PendingNotes]: WalletPromptStatus.Dismissed },
+      pendingNotesDismissedIds: ['note-1', 'note-2']
+    });
+  });
+
+  it('calculates the aggregate pending-note USD value across token decimals and prices', () => {
+    expect(
+      getPendingNotesUsdTotal(
+        [
+          { id: 'note-1', amount: '1250000', metadata: { decimals: 6, symbol: 'MIDEN' } },
+          { id: 'note-2', amount: '200000000', metadata: { decimals: 8, symbol: 'IMIDEN' } },
+          { id: 'note-3', amount: '3000000', metadata: { decimals: 6, symbol: 'UNKNOWN' } }
+        ],
+        {
+          MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
+          IMIDEN: { price: 0.5, change24h: 0, percentageChange24h: 0 }
+        }
+      )
+    ).toBe(6.5);
+    expect(getPendingNotesUsdTotal([], {})).toBe(0);
   });
 
   it('seeds a pending prompt when no prompt state exists', async () => {
@@ -78,6 +163,50 @@ describe('wallet prompts', () => {
     );
   });
 
+  it('stores the faucet alongside the other prompts', async () => {
+    await seedWalletPrompt(WalletPromptType.Faucet);
+    await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
+
+    const storage = await fetchWalletPromptStorage();
+    expect(storage.prompts).toEqual({
+      [WalletPromptType.Faucet]: WalletPromptStatus.Pending,
+      [WalletPromptType.VerifySeedPhrase]: WalletPromptStatus.Pending
+    });
+  });
+
+  it('requests tokens from both the forkchoice and official Miden faucets', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200 } as Response);
+    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+
+    await faucet('mtst1testaddress');
+
+    expect(fetchMock).toHaveBeenCalledWith('https://faucet-api.forkchoice.xyz/api/mint', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        token: 'IMIDEN',
+        address: 'mtst1testaddress',
+        amount: 1_000_000_000,
+        note_type: 'public'
+      })
+    });
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledWith('mtst1testaddress', 100_000_000n);
+  });
+
+  it('rejects unsuccessful forkchoice faucet responses', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 429 } as Response);
+    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+
+    await expect(faucet('mtst1testaddress')).rejects.toThrow('Faucet request failed with status 429');
+  });
+
+  it('rejects when the official Miden faucet fails even if forkchoice succeeds', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200 } as Response);
+    mintFromMidenFaucetMock.mockRejectedValue(new Error('Faucet PoW request failed with status 429'));
+
+    await expect(faucet('mtst1testaddress')).rejects.toThrow('Faucet PoW request failed with status 429');
+  });
+
   it('loads prompt storage in the hook and exposes pending checks', async () => {
     await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
 
@@ -113,6 +242,28 @@ describe('wallet prompts', () => {
       expect((await fetchWalletPromptStorage()).prompts[WalletPromptType.VerifySeedPhrase]).toBe(
         WalletPromptStatus.Completed
       );
+    });
+  });
+
+  it('atomically stores a pending-note dismissal and its note ids', async () => {
+    const { result } = renderHook(() => useWalletPromptStorage());
+
+    act(() => {
+      result.current.setPromptStatus(WalletPromptType.PendingNotes, WalletPromptStatus.Dismissed, [
+        'note-1',
+        'note-1',
+        'note-2'
+      ]);
+    });
+
+    expect(result.current.storage).toEqual({
+      version: 1,
+      prompts: { [WalletPromptType.PendingNotes]: WalletPromptStatus.Dismissed },
+      pendingNotesDismissedIds: ['note-1', 'note-2']
+    });
+
+    await waitFor(async () => {
+      expect(await fetchWalletPromptStorage()).toEqual(result.current.storage);
     });
   });
 
@@ -158,5 +309,144 @@ describe('wallet prompts', () => {
 
     setItemSpy.mockRestore();
     warnSpy.mockRestore();
+  });
+});
+
+describe('bridge prompts', () => {
+  const baseBridge = (over: Partial<ITransaction>): ITransaction =>
+    ({
+      id: 'bridge-1',
+      type: 'bridged-send',
+      accountId: 'acct-1',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 100,
+      displayIcon: 'SEND',
+      extraInputs: { provider: 'epoch' },
+      ...over
+    }) as ITransaction;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    bridgeRows.splice(0);
+    findClaimableDeposit.mockResolvedValue(undefined);
+    updateClaimStatus.mockResolvedValue(undefined);
+    pollEpochIntentFill.mockResolvedValue(undefined);
+  });
+
+  it('returns unsettled bridged-sends for the account, newest first', async () => {
+    bridgeRows.push(
+      baseBridge({ id: 'in-flight', status: ITransactionStatus.GeneratingTransaction, initiatedAt: 50 }),
+      baseBridge({ id: 'epoch-pending', extraInputs: { provider: 'epoch', epochStatus: 'pending' }, initiatedAt: 300 }),
+      baseBridge({ id: 'epoch-confirmed', extraInputs: { provider: 'epoch', epochStatus: 'confirmed' } }),
+      baseBridge({
+        id: 'agg-unclaimed',
+        extraInputs: { provider: 'agglayer', claimStatus: 'pending' },
+        initiatedAt: 200
+      }),
+      baseBridge({ id: 'agg-claimed', extraInputs: { provider: 'agglayer', claimStatus: 'claimed' } }),
+      baseBridge({ id: 'failed', status: ITransactionStatus.Failed }),
+      baseBridge({ id: 'other-account', accountId: 'acct-2', initiatedAt: 400 })
+    );
+
+    const active = await fetchActiveBridgePrompts('acct-1');
+
+    expect(active.map(tx => tx.id)).toEqual(['epoch-pending', 'agg-unclaimed', 'in-flight']);
+  });
+
+  it('flips a pending AggLayer bridge to ready once its deposit is claimable', async () => {
+    findClaimableDeposit.mockResolvedValue({ deposit: true });
+    const claimable = baseBridge({
+      id: 'agg-ready',
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+    const alreadyReady = baseBridge({
+      id: 'agg-already',
+      extraInputs: { provider: 'agglayer', claimStatus: 'ready', destinationAddress: '0xdest' }
+    });
+    const stillProving = baseBridge({ id: 'proving', status: ITransactionStatus.GeneratingTransaction });
+    const notBridge = baseBridge({ id: 'send', type: 'send' });
+
+    await pollActiveBridgePrompts([claimable, alreadyReady, stillProving, notBridge]);
+
+    expect(findClaimableDeposit).toHaveBeenCalledTimes(1);
+    expect(updateClaimStatus).toHaveBeenCalledWith('agg-ready', 'ready', { depositReady: true });
+  });
+
+  it('leaves a pending AggLayer bridge untouched while no deposit is claimable', async () => {
+    await pollActiveBridgePrompts([
+      baseBridge({
+        id: 'agg-wait',
+        extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+      })
+    ]);
+
+    expect(updateClaimStatus).not.toHaveBeenCalled();
+  });
+
+  it('records an Epoch fill once the intent settles and skips unfilled or settled intents', async () => {
+    pollEpochIntentFill.mockResolvedValue({ status: 'confirmed', fillTxHash: '0xfill', fillChainId: 8453 });
+    const filling = baseBridge({
+      id: 'epoch-filling',
+      extraInputs: { provider: 'epoch', epochStatus: 'pending', intentNonce: 'n1', destinationAddress: '0xdest' }
+    });
+    const settled = baseBridge({
+      id: 'epoch-settled',
+      extraInputs: { provider: 'epoch', epochStatus: 'confirmed', intentNonce: 'n2', destinationAddress: '0xdest' }
+    });
+    const noNonce = baseBridge({
+      id: 'epoch-no-nonce',
+      extraInputs: { provider: 'epoch', epochStatus: 'pending', destinationAddress: '0xdest' }
+    });
+
+    await pollActiveBridgePrompts([filling, settled, noNonce]);
+
+    expect(pollEpochIntentFill).toHaveBeenCalledTimes(1);
+    expect(updateClaimStatus).toHaveBeenCalledWith('epoch-filling', 'not-applicable', {
+      epochStatus: 'confirmed',
+      fillTxHash: '0xfill',
+      fillChainId: 8453
+    });
+  });
+
+  it('keeps polling an Epoch intent whose fill is still pending without a hash', async () => {
+    pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
+
+    await pollActiveBridgePrompts([
+      baseBridge({
+        id: 'epoch-unfilled',
+        extraInputs: { provider: 'epoch', epochStatus: 'pending', intentNonce: 'n1', destinationAddress: '0xdest' }
+      })
+    ]);
+
+    expect(updateClaimStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('hot-key hardware failure report', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('returns null while no failure has been recorded or the record is malformed', async () => {
+    expect(await fetchHotKeyHardwareError()).toBeNull();
+    localStorage.setItem('hot_key_hardware_error_v1', JSON.stringify({ message: 42 }));
+    expect(await fetchHotKeyHardwareError()).toBeNull();
+  });
+
+  it('stores the native error and seeds the report prompt', async () => {
+    await reportHotKeyHardwareFailure('SecureEnclave unavailable');
+
+    expect(await fetchHotKeyHardwareError()).toEqual({ message: 'SecureEnclave unavailable' });
+    const storage = await fetchWalletPromptStorage();
+    expect(storage.prompts[WalletPromptType.HotKeyHardwareUnavailable]).toBe(WalletPromptStatus.Pending);
+  });
+
+  it('does not re-seed the prompt after the user dismissed it', async () => {
+    await dismissWalletPrompt(WalletPromptType.HotKeyHardwareUnavailable);
+    await reportHotKeyHardwareFailure('still broken');
+
+    const storage = await fetchWalletPromptStorage();
+    expect(storage.prompts[WalletPromptType.HotKeyHardwareUnavailable]).toBe(WalletPromptStatus.Dismissed);
+    expect(await fetchHotKeyHardwareError()).toEqual({ message: 'still broken' });
   });
 });

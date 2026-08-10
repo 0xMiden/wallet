@@ -43,6 +43,7 @@ const mockLocation: { pathname: string; trigger: string | null } = {
 };
 const mockEnv = { popup: false, fullPage: false };
 const mockMiden = { ready: false, locked: false, hydrated: false };
+const mockSwapEnabled = { value: true };
 
 // `lib/woozie` bundles the full history/location stack; keep the real Router so
 // createMap/resolve/SKIP behave exactly as in production, and stub the four
@@ -100,8 +101,15 @@ jest.mock('app/pages/OpenSidePanel', () => ({
   __esModule: true,
   default: () => <div data-testid="open-side-panel" />
 }));
-jest.mock('app/pages/Pending', () => ({ Pending: () => <div data-testid="pending" /> }));
+jest.mock('app/pages/PendingNotes', () => ({
+  __esModule: true,
+  default: () => <div data-testid="pending" />
+}));
 jest.mock('app/pages/Receive', () => ({ Receive: () => <div data-testid="receive" /> }));
+jest.mock('app/pages/BridgeDeposit', () => ({
+  __esModule: true,
+  default: () => <div data-testid="bridge-deposit" />
+}));
 jest.mock('app/pages/Settings', () => ({
   __esModule: true,
   default: ({ tabSlug }: { tabSlug?: string }) => <div data-testid="settings" data-tab-slug={tabSlug ?? ''} />
@@ -109,6 +117,12 @@ jest.mock('app/pages/Settings', () => ({
 jest.mock('app/pages/Unlock', () => ({ __esModule: true, default: () => <div data-testid="unlock" /> }));
 jest.mock('app/pages/Welcome', () => ({ __esModule: true, default: () => <div data-testid="welcome" /> }));
 
+jest.mock('screens/developer-settings/DeveloperSettings', () => ({
+  __esModule: true,
+  default: ({ readOnly }: { readOnly?: boolean }) => (
+    <div data-testid="developer-settings" data-read-only={String(!!readOnly)} />
+  )
+}));
 jest.mock('screens/earn-flow/EarnDepositAmount', () => ({
   __esModule: true,
   default: ({ vaultId }: { vaultId?: string }) => <div data-testid="earn-deposit-amount" data-vault-id={vaultId} />
@@ -145,6 +159,11 @@ jest.mock('screens/send-flow/SendManager', () => ({
   )
 }));
 jest.mock('screens/swap-flow/SwapManager', () => ({ SwapFlow: () => <div data-testid="swap-flow" /> }));
+
+// Swap is disabled on iOS; toggle the flag to assert `/swap` renders vs redirects.
+jest.mock('lib/feature-flags', () => ({
+  isSwapEnabled: () => mockSwapEnabled.value
+}));
 
 jest.mock('./pages/AllHistory', () => ({
   __esModule: true,
@@ -204,6 +223,7 @@ beforeEach(() => {
   resolveRootViewMock.mockReset();
   resolveRootViewMock.mockImplementation(realResolveRootView);
   window.scrollTo = scrollToMock as unknown as typeof window.scrollTo;
+  mockSwapEnabled.value = true;
 });
 
 describe('app/PageRouter — pre-ready / special routes', () => {
@@ -253,6 +273,28 @@ describe('app/PageRouter — pre-ready / special routes', () => {
     const redirect = screen.getByTestId('redirect');
     expect(redirect).toBeInTheDocument();
     expect(redirect).toHaveAttribute('data-to', '/');
+  });
+
+  // The hidden dev-endpoints screen is reachable via a 7-tap gesture on the
+  // Welcome logo, i.e. precisely when the wallet is NOT ready yet — so it must
+  // sit ahead of the `!ready` catch-all below (like `/finish-side-panel`)
+  // rather than being an `onlyReady`-guarded route, which could never resolve
+  // during onboarding.
+  it('/developer-settings renders DeveloperSettings inside FullScreenPage even before ready (onboarding)', () => {
+    renderAt('/developer-settings', { ready: false, locked: false, hydrated: true });
+    const el = screen.getByTestId('developer-settings');
+    expect(screen.getByTestId('full-screen-page')).toContainElement(el);
+  });
+
+  it('/developer-settings still renders once the wallet is ready', () => {
+    renderAt('/developer-settings', ready);
+    expect(screen.getByTestId('developer-settings')).toBeInTheDocument();
+  });
+
+  it('/developer-settings SKIPs to the locked catch-all (Unlock) when locked', () => {
+    renderAt('/developer-settings', { locked: true, ready: true, hydrated: true });
+    expect(screen.getByTestId('unlock')).toBeInTheDocument();
+    expect(screen.queryByTestId('developer-settings')).not.toBeInTheDocument();
   });
 });
 
@@ -343,6 +385,17 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(screen.getByTestId('settings')).toHaveAttribute('data-tab-slug', '');
   });
 
+  // Registered ahead of the generic `/settings/:tabSlug?` route above so it
+  // matches first — otherwise that route's pattern would swallow this path
+  // with tabSlug='network-endpoints' and render the wrong screen.
+  it('/settings/network-endpoints renders DeveloperSettings in readOnly mode inside FullScreenPage', () => {
+    renderAt('/settings/network-endpoints', ready);
+    const el = screen.getByTestId('developer-settings');
+    expect(screen.getByTestId('full-screen-page')).toContainElement(el);
+    expect(el).toHaveAttribute('data-read-only', 'true');
+    expect(screen.queryByTestId('settings')).not.toBeInTheDocument();
+  });
+
   it('/browser renders Browser inside TabLayout', () => {
     renderAt('/browser', ready);
     expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('browser'));
@@ -353,8 +406,8 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('receive'));
   });
 
-  it('/pending renders Pending inside FullScreenPage', () => {
-    renderAt('/pending', ready);
+  it('/pending-notes renders PendingNotes inside FullScreenPage', () => {
+    renderAt('/pending-notes', ready);
     expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('pending'));
   });
 
@@ -384,9 +437,17 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(el).toHaveAttribute('data-is-loading', 'false');
   });
 
-  it('/swap renders SwapFlow inside TabLayout', () => {
+  it('/swap renders SwapFlow inside TabLayout when swap is enabled', () => {
     renderAt('/swap', ready);
     expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('swap-flow'));
+  });
+
+  it('/swap redirects home when swap is disabled', () => {
+    mockSwapEnabled.value = false;
+    renderAt('/swap', ready);
+    expect(screen.queryByTestId('swap-flow')).toBeNull();
+    const redirect = screen.getByTestId('redirect');
+    expect(redirect).toHaveAttribute('data-to', '/');
   });
 
   it('/earn/vaults/:vaultId/deposit/review passes the vault id into EarnDepositReview', () => {

@@ -1,35 +1,50 @@
 import React from 'react';
 
+import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
-import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
-import { SOLVER_MARGIN, SwapToken } from 'lib/miden/swap/tokens';
+import { ReviewAmount, ReviewLabel, ReviewLayout, ReviewRow } from 'components/review';
+import { Toggle } from 'components/Toggle';
+import { SOLVER_MARGIN, SwapEta, SwapToken } from 'lib/miden/swap/tokens';
 
 export interface ReviewSwapProps {
   offerToken: SwapToken;
   offerAmount: string;
   requestToken: SwapToken;
   requestAmount: string;
-  /** USD price per whole token, used to render the (wired) Rate row. */
-  offerPrice?: number;
-  requestPrice?: number;
+  /** Latest quote for the pair; drives the Rate and "Usually fills in" rows. */
+  swapEta?: SwapEta;
+  expirySeconds: string;
+  autoConsume: boolean;
+  onExpirySecondsChange: (seconds: string) => void;
+  onAutoConsumeChange: (enabled: boolean) => void;
   submitError?: string | null;
   onGoBack: () => void;
   onSubmit: () => void;
 }
 
-/** "1 {offer} ≈ {ratio} {request}" from the two USD prices, or undefined if unavailable. */
-function formatRate(
-  offerSymbol: string,
-  requestSymbol: string,
-  offerPrice?: number,
-  requestPrice?: number
-): string | undefined {
-  if (!offerPrice || !requestPrice) return undefined;
-  const ratio = offerPrice / requestPrice;
-  if (!Number.isFinite(ratio) || ratio <= 0) return undefined;
-  const formatted = Number(ratio.toPrecision(4)).toString();
+/** "1 {offer} ≈ {marketPrice} {request}" from the oracle rate, or undefined if unavailable. */
+function formatRate(offerSymbol: string, requestSymbol: string, marketPrice?: string): string | undefined {
+  const rate = Number(marketPrice);
+  if (!rate || !Number.isFinite(rate)) return undefined;
+  const formatted = Number(rate.toPrecision(4)).toString();
   return `1 ${offerSymbol} ≈ ${formatted} ${requestSymbol}`;
+}
+
+/**
+ * Human "usually fills in" estimate. Prefers the live next-batch ETA when the
+ * order crosses resting liquidity, then the pair's 24h median, then a static
+ * fallback (both live signals are often null on the current testnet book).
+ */
+function formatFillsIn(t: TFunction, swapEta?: SwapEta): string {
+  const seconds =
+    swapEta?.canFill && swapEta.estimatedSeconds != null ? swapEta.estimatedSeconds : swapEta?.median24hSeconds;
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) {
+    return t('swapEtaFallback');
+  }
+  return seconds < 90
+    ? t('swapEtaSeconds', { seconds: Math.round(seconds) })
+    : t('swapEtaMinutes', { minutes: Math.round(seconds / 60) });
 }
 
 const SwapArrows: React.FC = () => (
@@ -53,6 +68,13 @@ const SwapArrows: React.FC = () => (
   </span>
 );
 
+const ReviewControlRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div className="flex items-center justify-between gap-4 py-6">
+    <ReviewLabel className="shrink-0">{label}</ReviewLabel>
+    <div className="flex min-w-0 items-center justify-end">{children}</div>
+  </div>
+);
+
 /**
  * Swap review screen: a two-amount hero (You Send / You Receive) with a swap
  * glyph between them, then the Rate row. When a rate is available the receive
@@ -65,15 +87,18 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   offerAmount,
   requestToken,
   requestAmount,
-  offerPrice,
-  requestPrice,
+  swapEta,
+  expirySeconds,
+  autoConsume,
+  onExpirySecondsChange,
+  onAutoConsumeChange,
   submitError,
   onGoBack,
   onSubmit
 }) => {
   const { t } = useTranslation();
   const divider = <div className="h-0.75 flex-1 bg-[#ECEBE8]" />;
-  const rate = formatRate(offerToken.symbol, requestToken.symbol, offerPrice, requestPrice);
+  const rate = formatRate(offerToken.symbol, requestToken.symbol, swapEta?.marketPrice);
 
   const hero = (
     <div className="mt-3">
@@ -109,10 +134,36 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
     >
       <ReviewRow label={t('rate')} value={rate} />
       {rate && (
-        <p className="pt-1 text-xs text-[#6B6862]">
+        <p className="pt-1 text-xs text-heading-gray">
           {t('swapSolverFeeNote', { percent: `${Math.round(SOLVER_MARGIN * 100)}%` })}
         </p>
       )}
+      <ReviewRow label={t('usuallyFillsIn')} value={formatFillsIn(t, swapEta)} />
+      <ReviewControlRow label={t('expires')}>
+        <label className="inline-flex items-center justify-end gap-2 font-heading text-2xl font-bold text-heading-gray">
+          <input
+            data-testid="swap-expiry-seconds"
+            type="number"
+            min={1}
+            step={1}
+            inputMode="numeric"
+            enterKeyHint="done"
+            value={expirySeconds}
+            onChange={event => onExpirySecondsChange(event.target.value)}
+            className="w-24 appearance-none rounded-lg border border-border-light bg-transparent px-3 py-2 text-right outline-none [appearance:textfield] focus:border-primary-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          />
+          <span>{t('seconds')}</span>
+        </label>
+      </ReviewControlRow>
+      <ReviewControlRow label={t('swapAutoConsume')}>
+        <Toggle
+          data-testid="swap-auto-consume"
+          value={autoConsume}
+          onChangeValue={onAutoConsumeChange}
+          aria-label={t('swapAutoConsume')}
+          className="!h-8 !w-16 !px-1.5 [&>div]:!h-5 [&>div]:!w-5"
+        />
+      </ReviewControlRow>
       {submitError && <p className="select-text pt-2 text-sm font-medium text-status-negative">{submitError}</p>}
     </ReviewLayout>
   );

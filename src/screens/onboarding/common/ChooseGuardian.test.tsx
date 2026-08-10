@@ -13,8 +13,10 @@ jest.mock('react-i18next', () => ({
 }));
 
 // Guardian provider list — controlled per-test so we can exercise the
-// create/switch/empty branches deterministically. Ids MUST match the
-// module-private `GUARDIAN_LOGOS` keys or the component throws on lookup.
+// create/switch/empty branches deterministically. Ids normally match the
+// module-private `GUARDIAN_LOGOS` keys; an id with no matching entry falls
+// back to the generic avatar instead of throwing (see the "unknown operator"
+// regression test below).
 const mockGetGuardianOptions = jest.fn();
 jest.mock('lib/miden-chain/constants', () => ({
   getGuardianOptionsForNetwork: (...args: unknown[]) => mockGetGuardianOptions(...args)
@@ -52,19 +54,23 @@ jest.mock('components/Button', () => ({
   )
 }));
 
-// `Input` — thin controlled input echoing the props the screen threads through.
+// `Input` — thin controlled input echoing the props the screen threads through
+// (rest props forwarded so keyboard attributes like enterKeyHint are assertable).
 jest.mock('components/Input', () => ({
   Input: ({
     id,
     value,
     placeholder,
-    onChange
+    onChange,
+    ...rest
   }: {
     id?: string;
     value?: string;
     placeholder?: string;
     onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  }) => <input data-testid="custom-input" id={id} value={value} placeholder={placeholder} onChange={onChange} />
+  } & React.InputHTMLAttributes<HTMLInputElement>) => (
+    <input data-testid="custom-input" id={id} value={value} placeholder={placeholder} onChange={onChange} {...rest} />
+  )
 }));
 
 // `GuardianInfoDrawer` — surface the open flag and a close hook so the
@@ -246,6 +252,32 @@ describe('ChooseGuardianScreen', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it('falls back to the generic avatar (no throw) for a provider id with no registered logo', () => {
+    // Regression: an operator id absent from the module-private GUARDIAN_LOGOS
+    // map (e.g. a newly-added / E2E-only provider whose wordmark hasn't been
+    // registered yet) must render a generic-avatar card, not crash the whole
+    // screen -- this is exactly what broke when the localnet-only "OpenZeppelin
+    // B" test provider was added to getGuardianOptionsForNetwork() without a
+    // matching GUARDIAN_LOGOS entry.
+    const UNKNOWN = {
+      id: 'unknown-operator',
+      name: 'Mystery Operator',
+      operatedBy: 'Mystery Co',
+      location: 'US-WEST',
+      endpoint: 'https://mystery.example.com'
+    };
+    mockGetGuardianOptions.mockReturnValue([{ ...OZ }, UNKNOWN]);
+
+    let container!: HTMLElement;
+    expect(() => {
+      ({ container } = render(<ChooseGuardianScreen />));
+    }).not.toThrow();
+
+    expect(optionButtons(container)).toHaveLength(2);
+    expect(screen.getByText('Mystery Co')).toBeInTheDocument();
+    expect(screen.getByText('US-WEST')).toBeInTheDocument();
+  });
+
   // --- switch flow (currentEndpoint) ---------------------------------------
 
   it('pre-selects and badges the current provider in the switch flow', () => {
@@ -384,5 +416,32 @@ describe('ChooseGuardianScreen', () => {
     expect(input.value).toBe('https://abc.example.com');
     // No error was ever shown.
     expect(screen.queryByText('invalidUrl')).not.toBeInTheDocument();
+  });
+});
+
+describe('ChooseGuardianScreen — custom endpoint keyboard (regression)', () => {
+  it('gives the URL field a url keyboard with autocorrect off and a Done key', () => {
+    render(<ChooseGuardianScreen allowCustomEndpoint />);
+    fireEvent.click(screen.getByText('useCustomGuardianUrl'));
+
+    const input = screen.getByTestId('custom-input');
+    expect(input.getAttribute('inputmode')).toBe('url');
+    expect(input.getAttribute('autocapitalize')).toBe('none');
+    expect(input.getAttribute('autocorrect')).toBe('off');
+    expect(input.getAttribute('spellcheck')).toBe('false');
+    expect(input.getAttribute('enterkeyhint')).toBe('done');
+  });
+
+  it('Enter blurs the URL field so the keyboard dismisses', () => {
+    render(<ChooseGuardianScreen allowCustomEndpoint />);
+    fireEvent.click(screen.getByText('useCustomGuardianUrl'));
+
+    const input = screen.getByTestId('custom-input') as HTMLInputElement;
+    input.focus();
+    expect(document.activeElement).toBe(input);
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(document.activeElement).not.toBe(input);
   });
 });

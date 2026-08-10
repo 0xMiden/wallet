@@ -3,6 +3,17 @@ import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 import * as Repo from 'lib/miden/repo';
 import { isMobile } from 'lib/platform';
 
+import {
+  formatRawTransactionError,
+  INVALID_NOTE_ERROR,
+  resolveTransactionErrorMessage,
+  TRANSACTION_EXPIRED_ERROR,
+  TRANSACTION_FORCE_CANCELLED_ERROR,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
+  TRANSACTION_STUCK_ERROR,
+  USER_CANCELLED_TRANSACTION_REASON
+} from './constants';
 import { getTransactionsInProgress } from './get';
 import { updateTransactionStatus } from './helper';
 import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
@@ -15,7 +26,7 @@ export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins o
 // Maximum age for a queued transaction before it's considered stale and cancelled
 export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
 
-export const cancelTransaction = async (transaction: Transaction, error: any) => {
+export const cancelTransaction = async (transaction: Transaction, error: any, displayMessage: string = 'Failed') => {
   // Refuse to downgrade a finalized transaction. A late error fired AFTER
   // completeXxxTransaction has already marked the tx Completed (most often
   // a transient guardian-canonicalization sync error) would otherwise flip
@@ -29,11 +40,21 @@ export const cancelTransaction = async (transaction: Transaction, error: any) =>
     return;
   }
 
+  // The stage the tx died in (persisted by setTransactionStage) disambiguates
+  // otherwise-opaque SDK errors, e.g. a prover timeout during 'proving'.
+  const failedStage = existing?.stage;
+  const rawError = formatRawTransactionError(error);
+  const displayError =
+    error === USER_CANCELLED_TRANSACTION_REASON || error === TRANSACTION_INTERRUPTED_ON_STARTUP
+      ? error
+      : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction);
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
     dbTx.completedAt = Math.floor(Date.now() / 1000); // Convert to seconds
     dbTx.status = ITransactionStatus.Failed;
-    dbTx.error = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-    dbTx.displayMessage = 'Failed';
+    dbTx.error = displayError;
+    // Keep the untouched thrown error around when the display message rewrote it.
+    if (displayError !== rawError) dbTx.rawError = rawError;
+    dbTx.displayMessage = displayMessage;
     dbTx.displayIcon = 'FAILED';
   });
 };
@@ -55,7 +76,7 @@ export const cancelStuckTransactions = async () => {
       if (!tx.processingStartedAt) return true;
       return Math.floor(Date.now() / 1000) - tx.processingStartedAt > MAX_WAIT_BEFORE_CANCEL;
     })
-    .map(async tx => cancelTransaction(tx, 'Transaction took too long to process and was cancelled'));
+    .map(async tx => cancelTransaction(tx, TRANSACTION_STUCK_ERROR));
 
   await Promise.all(cancelTransactionUpdates);
 };
@@ -66,7 +87,37 @@ export const cancelStuckTransactions = async () => {
 export const cancelStaleQueuedTransactions = async () => {
   const queued = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
   const stale = queued.filter(tx => Math.floor(Date.now() / 1000) - tx.initiatedAt > MAX_QUEUED_AGE);
-  await Promise.all(stale.map(tx => cancelTransaction(tx, 'Transaction expired after being queued too long')));
+  await Promise.all(stale.map(tx => cancelTransaction(tx, TRANSACTION_EXPIRED_ERROR)));
+};
+
+/**
+ * Fail every transaction still in `GeneratingTransaction`, regardless of age.
+ *
+ * Called from the extension's `browser.runtime.onStartup` handler, which fires
+ * ONLY on a genuine browser/profile cold-start — never on a service-worker
+ * idle-wake. Any row still `GeneratingTransaction` at that point is
+ * definitionally orphaned: the tab/SW that was driving it died when the browser
+ * closed, so nothing will ever resume it. The steady-state
+ * `cancelStuckTransactions` reaper only ages these out after
+ * `MAX_WAIT_BEFORE_CANCEL` (30 min on desktop) because `processingStartedAt` is
+ * stamped to "now" at `generateTransaction`, so a send interrupted mid-prove
+ * sits on "Sending" with no feedback for up to half an hour (issue #282).
+ * Failing them immediately on startup closes that gap.
+ *
+ * We deliberately do NOT auto-retry. In the rare window where `submit()` landed
+ * on chain but the browser died before the local apply/complete, the tx IS on
+ * chain; resubmitting would trip the node's nullifier check. The next sync
+ * reconciles that case — which is why the copy says "check your activity" rather
+ * than promising nothing was submitted (the existing 30-min reaper already
+ * marks that same edge case Failed, so this is not a new regression).
+ */
+export const failInterruptedTransactions = async () => {
+  const transactions = await getTransactionsInProgress();
+  await Promise.all(
+    transactions.map(async tx =>
+      cancelTransaction(tx, TRANSACTION_INTERRUPTED_ON_STARTUP, 'Interrupted — check your activity after it syncs')
+    )
+  );
 };
 
 /**
@@ -76,7 +127,7 @@ export const cancelStaleQueuedTransactions = async () => {
 export const forceCaneclAllInProgressTransactions = async () => {
   const transactions = await getTransactionsInProgress();
   const cancelTransactionUpdates = transactions.map(async tx =>
-    cancelTransaction(tx, 'Transaction force-cancelled for debugging')
+    cancelTransaction(tx, TRANSACTION_FORCE_CANCELLED_ERROR)
   );
   await Promise.all(cancelTransactionUpdates);
 };
@@ -143,7 +194,7 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
         resolvedCount++;
       } else if (note.state === InputNoteState.Invalid) {
         // Note is invalid - mark transaction as failed
-        await cancelTransaction(tx, 'Note is invalid');
+        await cancelTransaction(tx, INVALID_NOTE_ERROR);
         resolvedCount++;
       } else if (
         note.state === InputNoteState.Committed ||
@@ -154,7 +205,7 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
         // This prevents cancelling transactions that are actively being processed
         const processingTime = tx.processingStartedAt ? Math.floor(Date.now() / 1000) - tx.processingStartedAt : 0;
         if (processingTime > MIN_PROCESSING_TIME_BEFORE_STUCK) {
-          await cancelTransaction(tx, 'Transaction was interrupted');
+          await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR);
           resolvedCount++;
         }
       }

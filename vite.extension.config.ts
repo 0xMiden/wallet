@@ -216,6 +216,17 @@ const sharedDefine = {
   'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
   'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
   'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+  'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
+  'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
+    process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
+  ),
+  'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
+    process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'
+  ),
+  'process.env.EPOCH_POSITIONS_URL': JSON.stringify(
+    process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
+  ),
+  'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
   'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
   // Requires the explicit-prover fix from 0xMiden/web-sdk#182
   // (>= 0.15.0-alpha.6); see the rationale block in
@@ -253,7 +264,17 @@ export default defineConfig({
             plugins: ['@svgr/plugin-jsx'],
             exportType: 'named',
             namedExport: 'ReactComponent',
-            jsxRuntime: 'automatic',
+            // Classic runtime so SVGR emits `import * as React from "react"` into
+            // each generated component. The output is returned as `moduleType: 'jsx'`
+            // and recompiled by the bundler with the CLASSIC runtime (tsconfig
+            // `jsx: "react"`, which rolldown-vite honors for these modules and which
+            // neither `esbuild` nor `oxc` JSX options override) → `React.createElement`.
+            // With the automatic runtime SVGR imports nothing from 'react', so those
+            // `React.createElement` calls reference an undefined `React` — harmless in
+            // unminified dev builds (a stray React leaks into the chunk) but crashing
+            // minified production builds ("React is not defined"). Classic keeps the
+            // import and the reference matched.
+            jsxRuntime: 'classic',
             prettier: false,
             svgo: false,
             titleProp: true,

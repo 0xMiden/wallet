@@ -45,7 +45,7 @@ describe('usePasswordToggle', () => {
       expect(button).toBeInTheDocument();
       expect(button).toHaveAttribute('type', 'button');
       expect(button).toHaveAttribute('tabindex', '1');
-      expect(button).toHaveClass('absolute', 'inset-y-0', 'right-3');
+      expect(button).toHaveClass('absolute', 'inset-y-0', 'right-3', 'text-heading-gray');
     });
 
     it('renders the 24x24 eye icon (open eye while hidden)', () => {

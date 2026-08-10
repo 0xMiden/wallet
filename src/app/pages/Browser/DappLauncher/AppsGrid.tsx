@@ -1,5 +1,5 @@
 /**
- * 2-column grid of the curated Explore apps (`EXPLORE_GRID_DAPPS`).
+ * 2-column grid containing the two faucet apps from `EXPLORE_GRID_DAPPS`.
  *
  * Replaces the old FeaturedCarousel + CategoryRow + MyDappsGrid stack:
  * the simplified Explore page shows a hand-picked set of apps as
@@ -18,7 +18,7 @@ import React, { type FC, useState } from 'react';
 import { motion } from 'framer-motion';
 
 import { useSprings } from 'lib/animation';
-import { EXPLORE_GRID_DAPPS, type FeaturedDapp } from 'lib/dapp-browser';
+import { getExploreGridDapps, type FeaturedDapp } from 'lib/dapp-browser';
 import { hapticLight } from 'lib/mobile/haptics';
 
 interface AppsGridProps {
@@ -91,7 +91,7 @@ const AppCard: FC<AppCardProps> = ({ dapp, onOpen }) => {
 
 export const AppsGrid: FC<AppsGridProps> = ({ onOpen }) => (
   <section className="grid grid-cols-2 gap-3 px-4">
-    {EXPLORE_GRID_DAPPS.map(dapp => (
+    {getExploreGridDapps().map(dapp => (
       <AppCard key={dapp.id} dapp={dapp} onOpen={onOpen} />
     ))}
   </section>

@@ -2,6 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { SwapEta } from 'lib/miden/swap/tokens';
+
 import { ReviewSwap, ReviewSwapProps } from './ReviewSwap';
 
 // react-i18next: echo the key back, and fold interpolation options into the
@@ -10,8 +12,10 @@ import { ReviewSwap, ReviewSwapProps } from './ReviewSwap';
 // `useTranslation` with `t: (key) => key`).
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, opts?: Record<string, unknown>) =>
-      opts && 'percent' in opts ? `${key}_${opts.percent as string}` : key
+    t: (key: string, opts?: Record<string, unknown>) => {
+      const values = opts ? Object.values(opts) : [];
+      return values.length > 0 ? `${key}_${values.join('_')}` : key;
+    }
   })
 }));
 
@@ -37,11 +41,13 @@ jest.mock('components/review', () => {
         R.createElement('span', { 'data-testid': 'ra-label' }, label),
         R.createElement('span', { 'data-testid': 'ra-amount' }, `${amount} ${symbol}`)
       ),
-    ReviewRow: ({ label, value }: any) =>
+    ReviewLabel: ({ children, className }: any) =>
+      R.createElement('span', { 'data-testid': 'review-label', className }, children),
+    ReviewRow: ({ label, value, children }: any) =>
       R.createElement(
         'div',
         { 'data-testid': 'review-row', 'data-label': label },
-        R.createElement('span', { 'data-testid': 'rr-value' }, value ?? '')
+        R.createElement('span', { 'data-testid': 'rr-value' }, children ?? value ?? '')
       ),
     ReviewLayout: ({ hero, heroDivider, dividers, primary, secondary, children }: any) =>
       R.createElement(
@@ -60,6 +66,24 @@ jest.mock('components/review', () => {
   };
 });
 
+/** A `SwapEta` carrying just the oracle rate; fill signals default to "no data". */
+const etaWithRate = (marketPrice: string): SwapEta => ({
+  canFill: false,
+  estimatedSeconds: null,
+  offMarket: false,
+  marketPrice,
+  median24hSeconds: null
+});
+
+jest.mock('components/Toggle', () => ({
+  Toggle: ({ value, onChangeValue, ...props }: any) =>
+    React.createElement('button', {
+      ...props,
+      'data-value': String(value),
+      onClick: () => onChangeValue?.(!value)
+    })
+}));
+
 const OFFER_TOKEN = { symbol: 'IMIDEN', faucetId: 'f-offer', decimals: 8, logoSymbol: 'MIDEN' };
 const REQUEST_TOKEN = { symbol: 'IETH', faucetId: 'f-request', decimals: 8, logoSymbol: 'ETH' };
 
@@ -69,8 +93,11 @@ const renderComponent = (overrides: Partial<ReviewSwapProps> = {}) => {
     offerAmount: '1.5',
     requestToken: REQUEST_TOKEN,
     requestAmount: '3',
-    offerPrice: undefined,
-    requestPrice: undefined,
+    swapEta: undefined,
+    expirySeconds: '120',
+    autoConsume: true,
+    onExpirySecondsChange: jest.fn(),
+    onAutoConsumeChange: jest.fn(),
     submitError: null,
     onGoBack: jest.fn(),
     onSubmit: jest.fn(),
@@ -118,52 +145,105 @@ describe('ReviewSwap', () => {
   });
 
   describe('rate row', () => {
-    it('shows no rate value and no solver-fee note when both prices are missing', () => {
-      renderComponent({ offerPrice: undefined, requestPrice: undefined });
+    const rateValue = () => screen.getAllByTestId('rr-value')[0];
 
-      const row = screen.getByTestId('review-row');
+    it('shows no rate value and no solver-fee note when there is no quote', () => {
+      renderComponent({ swapEta: undefined });
+
+      const row = screen.getAllByTestId('review-row')[0];
       expect(row).toHaveAttribute('data-label', 'rate');
-      expect(screen.getByTestId('rr-value')).toHaveTextContent('');
+      expect(rateValue()).toHaveTextContent('');
       expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
     });
 
-    it('shows no rate when only the offer price is present (request price missing)', () => {
-      renderComponent({ offerPrice: 2, requestPrice: undefined });
-      expect(screen.getByTestId('rr-value')).toHaveTextContent('');
+    it('shows no rate when the market price is zero (falsy)', () => {
+      renderComponent({ swapEta: etaWithRate('0') });
+      expect(rateValue()).toHaveTextContent('');
       expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
     });
 
-    it('shows no rate when the offer price is zero (falsy)', () => {
-      renderComponent({ offerPrice: 0, requestPrice: 1 });
-      expect(screen.getByTestId('rr-value')).toHaveTextContent('');
+    it('shows no rate when the market price is not a number', () => {
+      renderComponent({ swapEta: etaWithRate('not-a-number') });
+      expect(rateValue()).toHaveTextContent('');
       expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
     });
 
-    it('shows no rate when the computed ratio is non-finite (Infinity / Infinity = NaN)', () => {
-      renderComponent({ offerPrice: Number.POSITIVE_INFINITY, requestPrice: Number.POSITIVE_INFINITY });
-      expect(screen.getByTestId('rr-value')).toHaveTextContent('');
+    it('shows no rate when the market price is non-finite', () => {
+      renderComponent({ swapEta: etaWithRate('Infinity') });
+      expect(rateValue()).toHaveTextContent('');
       expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
     });
 
-    it('shows no rate when the computed ratio is <= 0 (negative offer price)', () => {
-      renderComponent({ offerPrice: -2, requestPrice: 1 });
-      expect(screen.getByTestId('rr-value')).toHaveTextContent('');
-      expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
-    });
+    it('renders a whole-number rate and the solver-fee note when the market price is valid', () => {
+      renderComponent({ swapEta: etaWithRate('2') });
 
-    it('renders a whole-number rate and the solver-fee note when both prices are valid', () => {
-      renderComponent({ offerPrice: 2, requestPrice: 1 });
-
-      expect(screen.getByTestId('rr-value')).toHaveTextContent('1 IMIDEN ≈ 2 IETH');
+      expect(rateValue()).toHaveTextContent('1 IMIDEN ≈ 2 IETH');
       // Percent is Math.round(0.05 * 100) = 5.
       expect(screen.getByText('swapSolverFeeNote_5%')).toBeInTheDocument();
     });
 
+    it('colours the solver-fee note with a theme token that flips in dark mode, not a hardcoded light hex', () => {
+      renderComponent({ swapEta: etaWithRate('2') });
+
+      // The note sits on the dark app background in dark mode, so its colour must
+      // come from a token that flips. `text-heading-gray` (--color-text-secondary)
+      // is #484848 in light (9.15:1 on white) and #ffffff in dark — both clear AA.
+      const note = screen.getByText('swapSolverFeeNote_5%');
+      expect(note.className).toContain('text-heading-gray');
+      expect(note.className).not.toContain('text-[#6B6862]');
+    });
+
     it('renders a fractional rate rounded to 4 significant figures', () => {
-      renderComponent({ offerPrice: 1, requestPrice: 3 });
-      // 1/3 -> toPrecision(4) = "0.3333" -> Number -> "0.3333".
-      expect(screen.getByTestId('rr-value')).toHaveTextContent('1 IMIDEN ≈ 0.3333 IETH');
+      renderComponent({ swapEta: etaWithRate('0.333333333') });
+      expect(rateValue()).toHaveTextContent('1 IMIDEN ≈ 0.3333 IETH');
       expect(screen.getByText('swapSolverFeeNote_5%')).toBeInTheDocument();
+    });
+  });
+
+  describe('usually-fills-in row', () => {
+    const fillsInValue = () => screen.getAllByTestId('rr-value')[1];
+
+    it('falls back to the static estimate when both live signals are absent', () => {
+      renderComponent({ swapEta: undefined });
+      expect(screen.getAllByTestId('review-row')[1]).toHaveAttribute('data-label', 'usuallyFillsIn');
+      expect(fillsInValue()).toHaveTextContent('swapEtaFallback');
+    });
+
+    it('prefers the next-batch ETA in seconds when the order can fill', () => {
+      renderComponent({ swapEta: { ...etaWithRate('2'), canFill: true, estimatedSeconds: 12 } });
+      expect(fillsInValue()).toHaveTextContent('swapEtaSeconds_12');
+    });
+
+    it('renders minutes once the estimate reaches 90s', () => {
+      renderComponent({ swapEta: { ...etaWithRate('2'), canFill: true, estimatedSeconds: 150 } });
+      expect(fillsInValue()).toHaveTextContent('swapEtaMinutes_3');
+    });
+
+    it('falls back to the 24h median when the order cannot fill right now', () => {
+      renderComponent({ swapEta: { ...etaWithRate('2'), estimatedSeconds: 12, median24hSeconds: 45 } });
+      expect(fillsInValue()).toHaveTextContent('swapEtaSeconds_45');
+    });
+  });
+
+  describe('settlement controls', () => {
+    it('renders the expiry in seconds and auto-consume enabled by default', () => {
+      renderComponent();
+      const expiry = screen.getByTestId('swap-expiry-seconds');
+      const toggle = screen.getByTestId('swap-auto-consume');
+      expect(expiry).toHaveValue(120);
+      expect(expiry).toHaveClass('[appearance:textfield]');
+      expect(toggle).toHaveAttribute('data-value', 'true');
+      expect(toggle).toHaveClass('!h-8', '!w-16');
+      expect(screen.getByText('expires').parentElement).toHaveClass('justify-between');
+      expect(screen.getByText('swapAutoConsume').parentElement).toHaveClass('justify-between');
+    });
+
+    it('forwards expiry edits and auto-consume toggles', () => {
+      const { props } = renderComponent();
+      fireEvent.change(screen.getByTestId('swap-expiry-seconds'), { target: { value: '300' } });
+      fireEvent.click(screen.getByTestId('swap-auto-consume'));
+      expect(props.onExpirySecondsChange).toHaveBeenCalledWith('300');
+      expect(props.onAutoConsumeChange).toHaveBeenCalledWith(false);
     });
   });
 

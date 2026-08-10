@@ -45,11 +45,18 @@ jest.mock('lib/miden/repo', () => ({
       if (typeof arg === 'string') {
         const field = arg;
         return {
-          equals: (val: any) => ({
-            filter: (fn: (tx: any) => boolean) => ({
-              toArray: async () => txStore.filter(t => t[field] === val).filter(fn)
-            })
-          })
+          equals: (val: any) => {
+            // `noteIds` is a multi-entry index: a row matches when the value is
+            // in the array. Scalar fields match by equality.
+            const matches = () =>
+              txStore.filter(t => (Array.isArray(t[field]) ? t[field].includes(val) : t[field] === val));
+            return {
+              toArray: async () => matches(),
+              filter: (fn: (tx: any) => boolean) => ({
+                toArray: async () => matches().filter(fn)
+              })
+            };
+          }
         };
       }
       return {
@@ -122,7 +129,9 @@ jest.mock('../helpers', () => ({
 
 jest.mock('../sdk/helpers', () => ({
   getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub'),
-  accountIdStringToSdk: (x: any) => ({ __accountIdStub: x })
+  accountIdStringToSdk: (x: any) => ({ __accountIdStub: x }),
+  canonicalWalletAccountId: (id: string) => id.split('_')[0] ?? id,
+  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
 }));
 
 const mockTransactionResultDeserialize = jest.fn();
@@ -691,32 +700,30 @@ describe('generateTransaction execute + consume default switch arms', () => {
 
     const sdk = require('../sdk/miden-client');
     const origGetClient = sdk.getMidenClient;
+    const apply = jest.fn(async () => {});
     const guardianTxApi = {
-      executeRequest: jest.fn(async () => fullResult),
-      prove: jest.fn(async () => ({ proved: true })),
-      submitProven: jest.fn(async (_proven?: unknown, _executed?: unknown) => ({ blockNumber: 1 })),
-      apply: jest.fn(async () => {})
+      // Guardian submit drives the high-level SDK chain
+      // (executeRequest -> prove -> submit -> apply) and destructures
+      // `{ id, result }` off the executed transaction; mirror
+      // `makeTransactionsApi` in transactions.guardian.test.ts.
+      executeRequest: jest.fn(async () => ({
+        id: { toHex: () => 'guardian-consume-hash' },
+        result: fullResult,
+        prove: async () => ({
+          submit: async () => ({ blockNumber: 1, result: fullResult, apply })
+        })
+      }))
     };
     sdk.getMidenClient = async () => ({
       syncState: jest.fn(async () => {}),
-      client: {
-        transactions: guardianTxApi,
-        // Guardian submit runs through the manual `_withInnerWebClient` path
-        // (execute -> prove -> submit -> apply); mirror `makeClientApi` in
-        // transactions.guardian.test.ts so this consume completes.
-        _withInnerWebClient: jest.fn(async (fn: (inner: any) => Promise<unknown>) =>
-          fn({
-            executeTransaction: guardianTxApi.executeRequest,
-            proveTransaction: guardianTxApi.prove,
-            submitProvenTransaction: async (proven: unknown, executed: unknown) =>
-              (await guardianTxApi.submitProven(proven, executed)).blockNumber,
-            applyTransaction: guardianTxApi.apply
-          })
-        )
-      }
+      client: { transactions: guardianTxApi }
     });
     try {
-      await generateTransaction(txStore[0] as any, jest.fn(), false, {} as any);
+      // A real GuardianAccountProvider always implements getAccounts (the
+      // sync-status gate in generateGuardianTransaction reads it); `{}` would
+      // throw before reaching the branch under test here.
+      const provider = { getAccounts: async () => [{ publicKey: 'guardian-acc' }] };
+      await generateTransaction(txStore[0] as any, jest.fn(), false, provider as any);
       // Reaching here without throwing means the `case 'consume': ... break;`
       // arm at lines 911-913 in the outer switch ran.
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);

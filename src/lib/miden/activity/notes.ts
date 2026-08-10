@@ -23,10 +23,27 @@ type StoredEntry = string | QueuedNoteImport;
 const normalizeEntry = (entry: StoredEntry): QueuedNoteImport =>
   typeof entry === 'string' ? { bytes: entry, attempts: 0 } : entry;
 
-export const queueNoteImport = async (noteBytes: string) => {
-  const queuedImports = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
-  await putToStorage(IMPORT_NOTES_KEY, [...queuedImports, noteBytes]);
+// Serializes every read-modify-write of IMPORT_NOTES_KEY so enqueues and the
+// import-pass rewrite can't interleave. Without it, an enqueue landing between
+// the rewrite's read and write is clobbered — losing a private note whose bytes
+// are its only copy — or a processed note is re-added. The lock is intentionally
+// scoped to just the storage read/slice/write, never the WASM import work or the
+// syncState delay, so enqueues are never blocked for more than a storage round-trip.
+let queueTail: Promise<unknown> = Promise.resolve();
+const withQueueLock = <T>(fn: () => Promise<T>): Promise<T> => {
+  const run = queueTail.then(fn, fn);
+  queueTail = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
 };
+
+export const queueNoteImport = async (noteBytes: string) =>
+  withQueueLock(async () => {
+    const queuedImports = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
+    await putToStorage(IMPORT_NOTES_KEY, [...queuedImports, noteBytes]);
+  });
 
 export const importAllNotes = async () => {
   const rawQueue = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
@@ -63,15 +80,16 @@ export const importAllNotes = async () => {
     // means a syncState throw can't leave processed notes queued for retry without
     // bumping their attempt count, which would let a poison note loop unbounded.
     //
-    // NOTE: queueNoteImport's read-modify-write is not serialized against this
-    // rewrite (it runs outside the WASM lock), so a concurrent enqueue landing
-    // between the read and write below can be lost or a processed note re-added.
-    // Neither can re-brick the wallet (a re-added note is just retried under the
-    // cap), but a queue-level lock shared by queueNoteImport and this rewrite
-    // would close the window entirely.
-    const current = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
-    const appendedDuringPass = current.slice(rawQueue.length);
-    await putToStorage(IMPORT_NOTES_KEY, [...retry, ...appendedDuringPass]);
+    // The read-slice-write runs under withQueueLock, the same lock queueNoteImport
+    // holds, so a concurrent enqueue can't land between the read and write and be
+    // clobbered (or cause a processed note to be re-added). The lock covers only
+    // this storage rewrite — not the import work above or the syncState delay
+    // below — so enqueues are never blocked for more than a storage round-trip.
+    await withQueueLock(async () => {
+      const current = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
+      const appendedDuringPass = current.slice(rawQueue.length);
+      await putToStorage(IMPORT_NOTES_KEY, [...retry, ...appendedDuringPass]);
+    });
 
     await new Promise(resolve => setTimeout(resolve, 2000));
     await midenClient.syncState();

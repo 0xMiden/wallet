@@ -1,10 +1,66 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 import type { IdbDumpSource } from './idb-dump';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 
-const PASSWORD = '123456';
+// Must satisfy CreatePassword's real strength gate (CreatePasswordScreen:
+// isValidPassword requires >1 of {minChar, upper+lower, letter+digit,
+// specialChar, strongLength}). The recovery journey drives that real UI, so a
+// weak all-digit password (the old '123456') leaves the submit button disabled
+// forever. This value passes all five checks. The bypass paths accept any value.
+const PASSWORD = 'Test1234!';
 const SYNC_WAIT_MS = 3_500;
+
+/**
+ * Strip an optional `0x` prefix and lowercase, so a guardian commitment read
+ * from on-chain storage (`getGuardianCommitmentFromAccount`) compares equal to
+ * one obtained from a guardian operator's `GET /pubkey` response — mirrors
+ * `normalizeHex` in `src/lib/miden/guardian/operator-map.ts` (duplicated here
+ * rather than imported so the E2E harness doesn't reach into `src/lib` — no
+ * other file under `playwright/` does).
+ */
+function normalizeHex(h: string): string {
+  return (h.startsWith('0x') ? h.slice(2) : h).toLowerCase();
+}
+
+/**
+ * Sub-phase of an in-flight transaction (`ITransaction.stage` in
+ * `src/lib/miden/db/types.ts`) while its `status` is still
+ * Queued/GeneratingTransaction. Duplicated here rather than imported --
+ * mirrors `normalizeHex` above: no file under `playwright/` reaches into
+ * `src/lib`.
+ */
+export type TransactionStage =
+  | 'syncing'
+  | 'sending'
+  | 'creating-proposal'
+  | 'signing-proposal'
+  | 'executing'
+  | 'proving'
+  | 'submitting'
+  | 'confirming'
+  | 'registering-guardian'
+  | 'delivering'
+  | 'guardian-syncing'
+  | 'guardian-synced'
+  | 'complete';
+
+/**
+ * `ITransaction.type` values `waitForStage` knows how to filter on --
+ * duplicated (not imported) for the same reason as `TransactionStage` above.
+ * Both types drive the same stage machine in `src/lib/miden/transaction/index.ts`
+ * (`setTransactionStage` calls are keyed by stage name, not transaction type),
+ * but only `switch-guardian` gets an explicit `'registering-guardian'` stamp
+ * immediately before its guardian-register call
+ * (`completeSwitchGuardianTransaction`, `transaction/complete.ts:369`) --
+ * `replace-hot-key`'s equivalent call (`reRegisterCurrentStateOnGuardian` inside
+ * `completeReplaceHotKeyTransaction`, `transaction/complete.ts:236-323`) has no
+ * stage stamp of its own, so `'confirming'` (the last stage stamped before that
+ * function runs, shared by both types at `transaction/index.ts:890`) is the
+ * closest available proxy for "about to attempt guardian registration" on a
+ * rotation row.
+ */
+export type StageTrackedTransactionType = 'switch-guardian' | 'replace-hot-key';
 
 /**
  * Platform-neutral wallet interaction surface.
@@ -67,8 +123,18 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   readonly extensionId: string;
   readonly userDataDir: string;
   /**
+   * The wallet's derived EVM address (`0x…`) — the Epoch earn EVM owner. Chrome
+   * only (the earn e2e is Chrome); add to WalletPage + the mobile POMs when earn
+   * specs run on device.
+   */
+  getEvmAddress(): Promise<string>;
+  /**
    * Complete the create-wallet flow choosing the Guardian recovery method,
-   * pointing the account at `guardianUrl` (a locally-spawned guardian).
+   * pointing the account at `guardianUrl` (a locally-spawned guardian). The
+   * returned `seedPhrase` is the account's real recovery mnemonic (read back
+   * off the E2E-only `__TEST_LAST_GENERATED_SEED__` global the onboarding
+   * bypass stashes it on) -- usable to recover this exact account from a
+   * separate, clean wallet profile via `recoverGuardianFromSeed`.
    */
   createGuardianWallet(guardianUrl: string, password?: string): Promise<{ address: string; seedPhrase: string[] }>;
   /** Fast, non-invasive balance + pending-notes + outgoing-tx snapshot. */
@@ -102,12 +168,206 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   // IdbDumpSource — driven store-at-a-time by streamIndexedDBToFile so a long
   // run's dump can't OOM the page. This is where the Miden SDK keeps per-tx
   // commit status — the ground truth for "did this tx land?".
+
+  /**
+   * Drive the real Settings → RotateGuardian → RotateGuardianReview → confirm
+   * → password reauthentication flow to switch the current account's guardian
+   * to `newEndpoint`, then await
+   * the resulting `switch-guardian` transaction reaching Completed (throws on
+   * Failed or timeout). `newEndpoint` must match one entry's `endpoint` from
+   * `getGuardianOptionsForNetwork()` — e.g. the localnet-only second guardian
+   * (gated on `MIDEN_E2E_TEST`) at `http://localhost:3001`.
+   */
+  switchGuardian(newEndpoint: string): Promise<void>;
+  /**
+   * Recover a Guardian account from its seed phrase.
+   *
+   * `viaUI: false` — fast path via the onboarding `__test_skip_onboarding`
+   * bypass (`walletType=guardian&seed=…`), mirroring `createGuardianWallet`.
+   * `guardianUrl`, if given, seeds `GUARDIAN_URL_STORAGE_KEY` before the
+   * bypass navigation — required on a fresh profile/context so the vault's
+   * import-recovery scan (`Vault.spawn`) probes the RIGHT guardian instead of
+   * silently falling back to `DEFAULT_GUARDIAN_ENDPOINT`. Omit it only when
+   * this page's browser profile already carries the correct value (e.g. a
+   * `createGuardianWallet` call earlier in the same context).
+   *
+   * `viaUI: true` — drives the real recovery journey: Welcome → "Recover your
+   * account" → 12-word seed grid → submit → (extension: full password step,
+   * unavoidable off-mobile) → ImportRecoveryMethod (probe-detected or manual)
+   * → Continue → Confirmation → submit → `completeHotKeyRotation()`.
+   */
+  recoverGuardianFromSeed(seed: string, opts: { viaUI: boolean; guardianUrl?: string }): Promise<void>;
+  /**
+   * Drive a fresh, not-yet-onboarded wallet from the Welcome screen to the
+   * ImportSeedPhrase 12-word grid (Welcome → "Recover your account"),
+   * stopping there instead of completing the rest of the recovery journey.
+   * For probes that only need to exercise seed-phrase VALIDATION (e.g.
+   * case-insensitivity / paste handling) — see `recoverGuardianFromSeed`
+   * for the full end-to-end recovery flow this is a prefix of. Requires the
+   * page to still be on a fresh profile (i.e. nothing has been created or
+   * recovered on it yet).
+   */
+  openImportSeedPhraseScreen(): Promise<void>;
+  /**
+   * Observe the `HotKeyRotationGate` blocking overlay to its cleared
+   * (unmounted) state — the authoritative "rotation complete" signal (the
+   * flag clears only once `replace_signer` lands on-chain). Throws if the
+   * gate instead reaches its terminal-failure surface (`hot-key-rotation-failed`)
+   * within the timeout, or if the gate never appears at all.
+   */
+  completeHotKeyRotation(): Promise<void>;
+  /**
+   * Assert a Guardian account's on-chain auth shape via `getGuardianAuthInfo`:
+   * the active signer count and the `update_guardian` procedure threshold
+   * (mirrors the pattern already used in guardian-send-consume.spec.ts).
+   * `guardianCommitment`, if given, is asserted against `info.guardianCommitment`
+   * — the active guardian-operator commitment read from the on-chain
+   * `GUARDIAN_SLOT_NAMES.PUBLIC_KEY` storage slot. This is a SEPARATE slot from
+   * the multisig `signerCommitments` (`[hot, cold]`): a guardian switch changes
+   * the guardian commitment while the signer set / `update_guardian` threshold
+   * stay put, so this is the field that actually proves a switch landed — do
+   * NOT assert `guardianCommitment` as a member of `signerCommitments`, it
+   * never is. The expected value is whatever the spec obtains from the target
+   * guardian's `GET /pubkey?scheme=ecdsa` (`{ commitment, pubkey }`) — the
+   * same hex representation (mod `0x` prefix / case; compared normalized),
+   * per production's own `resolveGuardianDrift` / `identifyGuardianOperator`
+   * (`src/lib/miden/back/guardian-drift.ts`,
+   * `src/lib/miden/guardian/operator-map.ts`), which perform this exact
+   * cross-check between the two sources.
+   */
+  assertGuardianAuth(
+    pk: string,
+    expected: { signerCount: number; threshold: number; guardianCommitment?: string }
+  ): Promise<void>;
+  /**
+   * Read the current account's active guardian endpoint straight from the
+   * frontend Zustand store's `currentAccount.guardianEndpoint` -- the exact
+   * field `useCurrentGuardianEndpoint()` (`app/hooks/useCurrentGuardianEndpoint.ts`,
+   * backing GuardianSettings / RotateGuardian) prioritizes over the legacy
+   * global storage key. `completeSwitchGuardianTransaction`
+   * (`lib/miden/transaction/complete.ts`) persists this PER-ACCOUNT (not just
+   * in-memory) via `setGuardianEndpoint`, so it's also what should survive a
+   * `reopen()`. Returns `''` if unset or the store is unavailable.
+   */
+  currentGuardianEndpoint(): Promise<string>;
+  /**
+   * Close and reopen the wallet: closes the current extension page and opens
+   * a fresh one navigated back to `fullpage.html` -- mirroring a user closing
+   * the wallet tab and reopening it a moment later. The service worker (and
+   * therefore any in-memory vault key) is untouched by this, since only the
+   * PAGE is torn down; IndexedDB persists regardless. `this.page` is updated
+   * to the fresh page so subsequent POM calls operate on it. Waits for the
+   * page to settle back on either the Explore surface (the common case,
+   * still unlocked) or the unlock screen, unlocking with the default test
+   * password if needed. Used to prove state that must be durably persisted
+   * (e.g. a switched guardian endpoint) survives a fresh session, not just
+   * the one that made the change.
+   *
+   * Returns whether it took the crash-recovery RELAUNCH path -- i.e. the browser
+   * was dead, so the whole persistent context was relaunched from the on-disk
+   * profile with a cold SW -- vs a normal warm page swap. A spec that used
+   * `killBrowser()` can assert the return is `true` to prove the crash path
+   * actually ran (guarding against e.g. a Playwright change that made
+   * `killBrowser()` a no-op, which would otherwise pass silently on the fast
+   * path).
+   */
+  reopen(): Promise<boolean>;
+  /**
+   * Terminate the wallet mid-flight: closes the current page and, unlike
+   * `reopen()`, does NOT open a fresh one -- models a user closing the
+   * wallet tab (or the tab crashing) while an operation is in progress.
+   * The extension service worker is a SEPARATE process/context and is left
+   * completely untouched (no `chrome.runtime.reload()`, same rationale as
+   * `reopen()`'s doc comment) -- only the page is torn down, so anything the
+   * SW itself is awaiting (e.g. a guardian HTTP round-trip) keeps running
+   * regardless of this call.
+   *
+   * Callers must follow up with `reopen()` (or their own fresh page) to
+   * interact with the wallet again; `this.page` is left pointing at the
+   * closed page in the meantime.
+   */
+  kill(): Promise<void>;
+  /**
+   * Like `kill()`, but tears down the ENTIRE browser (its persistent context
+   * AND the service worker), not just the page -- simulating the wallet's whole
+   * Chromium process crashing mid-flight, which the CI runner does
+   * intermittently in these specs. The follow-up `reopen()` detects the dead
+   * browser and recovers by relaunching the context on the same on-disk profile,
+   * so the wallet is restored from its persisted IndexedDB state and comes back
+   * USABLE (the SW's in-memory vault key is gone, so it comes back locked and
+   * `reopen()` unlocks it). Use this over `kill()` when a spec must
+   * DETERMINISTICALLY exercise that crash-recovery relaunch path rather than rely
+   * on an incidental (~coin-flip) crash. Callers must follow up with `reopen()`.
+   *
+   * NOTE: this does NOT auto-resume an in-flight transaction. Production's
+   * cold-start handler (`runtime.onStartup` -> `failInterruptedTransactions`)
+   * deliberately FAILS interrupted rows and requires a manual Retry, and the
+   * unpacked test extension never fires `runtime.onStartup` on relaunch anyway
+   * -- so a spec must not assert that a transaction interrupted by killBrowser()
+   * resumes (see guardian-recovery-stress.spec.ts's browser-crash describe).
+   */
+  killBrowser(): Promise<void>;
+  /**
+   * Poll for a transaction row of `transactionType` (`ITransaction.stage` in
+   * `src/lib/miden/db/types.ts`) to reach `stage` while its status is still
+   * GeneratingTransaction -- read straight from the SDK's Dexie
+   * `transactions` store via raw IndexedDB (same idiom as the private
+   * `waitForTransactionRowComplete` this class already uses for
+   * `switchGuardian`'s own completion wait).
+   *
+   * Exists for stress specs that call `switchGuardian(...)` (or, via
+   * `recoverGuardianFromSeed`/`HotKeyRotationGate`, a `replace-hot-key`
+   * rotation) **without** awaiting it (so they can `kill()` mid-flight) --
+   * such a caller never gets a transaction id back, but there is exactly one
+   * row of a given `transactionType` in flight per account at a time, so
+   * matching on type + status is unambiguous without one.
+   *
+   * `transactionType` defaults to `'switch-guardian'` (this method's
+   * original, and still most common, caller); pass `'replace-hot-key'` to
+   * track a device-key rotation row instead -- see `StageTrackedTransactionType`'s
+   * doc comment for why `'confirming'` is the closest available stage for that
+   * type (it has no `'registering-guardian'`-equivalent stamp of its own).
+   */
+  waitForStage(
+    stage: TransactionStage,
+    timeoutMs?: number,
+    transactionType?: StageTrackedTransactionType
+  ): Promise<void>;
+  /**
+   * Wait until no transaction row is left `Queued`/`GeneratingTransaction`
+   * (`ITransactionStatus` 0/1) -- i.e. the FIFO processing loop
+   * (`safeGenerateTransactionsLoop`, `src/lib/miden/transaction/index.ts`) has
+   * driven every currently-known transaction to a terminal state (`Completed`
+   * or `Failed`).
+   *
+   * Exists for stress specs that fire multiple transactions concurrently
+   * (e.g. a `sendTokens(...)` and a `switchGuardian(...)` in the same
+   * `Promise.all`) and need to wait for BOTH to actually finish processing
+   * before reading final account state. Unlike `switchGuardian`, which awaits
+   * its own transaction row internally (`waitForTransactionRowComplete`),
+   * `sendTokens` resolves as soon as its submit button detaches -- the UI's
+   * "accepted" signal -- well before the underlying tx clears the
+   * per-account guardian lock (`withGuardianAccountLock`,
+   * `lib/miden/guardian/serialize.ts`) that serializes it against any other
+   * in-flight guardian transaction for the same account. Polling raw
+   * IndexedDB (same idiom as `waitForStage` / the private
+   * `waitForTransactionRowComplete`) is what actually proves both operations
+   * settled, rather than just both UI submissions having been accepted.
+   */
+  waitForQueueDrained(timeoutMs?: number): Promise<void>;
 }
 
 export interface GuardianAuthInfo {
   threshold: number;
   signerCommitments: string[];
   procedureThresholds: Record<string, number>;
+  /**
+   * Active guardian-operator commitment (`GUARDIAN_SLOT_NAMES.PUBLIC_KEY`) —
+   * a SEPARATE on-chain storage slot from `signerCommitments` above (which is
+   * the multisig `[hot, cold]` signer set). Undefined if the account has no
+   * guardian slot set, or the hook predates this field (older builds).
+   */
+  guardianCommitment?: string;
   error?: string;
 }
 
@@ -116,14 +376,30 @@ export interface GuardianAuthInfo {
  * Encapsulates all UI interactions, reusing selectors from popup-smoke.spec.ts.
  */
 export class ChromeWalletPage implements ChromeWalletPageApi {
-  readonly page: Page;
+  private currentPage: Page;
   readonly extensionId: string;
   readonly userDataDir: string;
+  // Optional recovery hook (wired by the two-wallets fixture). reopen() calls it
+  // when it finds the browser PROCESS dead (not just the page): it relaunches
+  // this wallet's persistent context on the same userDataDir and returns the
+  // fresh page, so the wallet resumes from its on-disk profile.
+  private readonly relaunch?: () => Promise<Page>;
 
-  constructor(page: Page, extensionId: string, userDataDir: string = '') {
-    this.page = page;
+  constructor(page: Page, extensionId: string, userDataDir: string = '', relaunch?: () => Promise<Page>) {
+    this.currentPage = page;
     this.extensionId = extensionId;
     this.userDataDir = userDataDir;
+    this.relaunch = relaunch;
+  }
+
+  /**
+   * Current Playwright page for this wallet instance. Mutable (unlike
+   * `extensionId`/`userDataDir`) because `reopen()` swaps in a fresh page
+   * after closing the old one -- every other method reads through this
+   * getter so they transparently pick up the swap.
+   */
+  get page(): Page {
+    return this.currentPage;
   }
 
   // ── Navigation ────────────────────────────────────────────────────────────
@@ -178,12 +454,17 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     seed?: string[];
   }): Promise<{ address: string; seedPhrase: string[] }> {
     // Guardian accounts read GUARDIAN_URL_STORAGE_KEY ('guardian_url_setting')
-    // from chrome.storage.local at register() time. Seed it BEFORE the bypass
-    // navigation so the account is created against the local guardian endpoint.
-    if (opts.walletType === 'guardian') {
-      if (!opts.guardianUrl) {
-        throw new Error('createWalletViaBypass: guardianUrl is required for the guardian wallet type');
-      }
+    // from chrome.storage.local at register() time — for a fresh create this is
+    // what points a new account at the right guardian; for a seed-recovery
+    // import it's also what Vault.spawn's recovery scan probes against (else it
+    // silently falls back to DEFAULT_GUARDIAN_ENDPOINT). Seed it BEFORE the
+    // bypass navigation whenever the caller supplies one. `createGuardianWallet`
+    // / `createNewWallet` always pass one (required by their own signatures);
+    // `recoverGuardianFromSeed(..., { viaUI: false })` may omit it when this
+    // profile's storage already carries the right endpoint (e.g. a prior
+    // `createGuardianWallet` call in the same browser context) — in that case
+    // whatever's already in storage is left untouched.
+    if (opts.walletType === 'guardian' && opts.guardianUrl) {
       await this.navigateHome();
       const guardianUrl = opts.guardianUrl;
       await this.page.evaluate(
@@ -225,6 +506,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           if (/^m[a-z]{1,4}1[a-z0-9]+/i.test(pk)) return true;
           return !!document.querySelector('[data-testid="explore-page"]');
         },
+        // `arg` (3rd overload param is `options`) must be passed explicitly:
+        // omitting it shifts `{ timeout }` into the `arg` slot for a
+        // zero-parameter pageFunction, silently dropping the timeout override
+        // (only ever surfaced a hang, never a fast reject -- see guardian-fault
+        // A3's smoke test, the first caller to exercise the failure path).
+        undefined,
         { timeout: 120_000 }
       );
     } catch (e) {
@@ -240,13 +527,28 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     }
 
     const address = await this.getAccountAddress();
-    return { address, seedPhrase: opts.seed ?? [] };
+
+    // The bypass's Welcome.tsx effect stashes the mnemonic it actually used
+    // (freshly generated for Create, or the caller's own for Import) on
+    // `__TEST_LAST_GENERATED_SEED__` -- see that effect's doc comment. Prefer
+    // it over `opts.seed` so a CREATE call (no seed supplied) still returns
+    // the real, recoverable mnemonic instead of an empty array; fall back to
+    // `opts.seed` only if the global is missing (e.g. an older extension
+    // build without the hook).
+    const generatedSeed = await this.page
+      .evaluate(
+        () => (globalThis as unknown as { __TEST_LAST_GENERATED_SEED__?: string }).__TEST_LAST_GENERATED_SEED__ ?? ''
+      )
+      .catch(() => '');
+    const seedPhrase = generatedSeed ? generatedSeed.trim().split(/\s+/) : (opts.seed ?? []);
+
+    return { address, seedPhrase };
   }
 
   /**
    * Complete the "Create a new wallet" onboarding flow via the v0-UI bypass.
-   * Returns the wallet address and (for created wallets) an empty seed phrase
-   * (the bypass generates a random mnemonic that the UI never surfaces).
+   * Returns the wallet address and the account's real recovery mnemonic (see
+   * `createWalletViaBypass`'s `__TEST_LAST_GENERATED_SEED__` doc comment).
    */
   async createNewWallet(
     password: string = PASSWORD,
@@ -333,6 +635,35 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     }
     await this.navigateHome();
     return match[0].trim();
+  }
+
+  /**
+   * Read the wallet's derived EVM address (`0x…`) from the Zustand
+   * `__TEST_STORE__` currentAccount, polling briefly (it's derived
+   * asynchronously after onboarding). The earn-withdraw e2e needs it to seed the
+   * position under the wallet's OWN EVM owner — `EarnWithdrawReview` aborts with
+   * `earnWithdrawNotOwned` unless `account.evmAddress === position.owner`.
+   */
+  async getEvmAddress(): Promise<string> {
+    const evm = await this.page
+      .waitForFunction(
+        () => {
+          const store = (
+            window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { evmAddress?: string } } } }
+          ).__TEST_STORE__;
+          const addr = store?.getState?.().currentAccount?.evmAddress ?? '';
+          return /^0x[0-9a-fA-F]{40}$/.test(addr) ? addr : false;
+        },
+        { timeout: 15_000 }
+      )
+      .then(handle => handle.jsonValue() as Promise<string>)
+      .catch(() => '');
+    if (!evm) {
+      throw new Error(
+        'Could not read currentAccount.evmAddress from __TEST_STORE__ (earn withdraw needs the wallet EVM owner).'
+      );
+    }
+    return evm.trim();
   }
 
   // ── Balance ───────────────────────────────────────────────────────────────
@@ -469,6 +800,484 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       }
       return await fn(pk);
     }, accountPublicKey);
+  }
+
+  // ── Guardian switch / recovery ───────────────────────────────────────────────
+
+  /**
+   * Drive RotateGuardian → RotateGuardianReview → confirm to switch the
+   * current account's guardian to `newEndpoint`, then await the resulting
+   * `switch-guardian` transaction reaching Completed.
+   *
+   * Navigates straight to `/rotate-guardian` (the real top-level route
+   * `RotateGuardian.tsx` renders at -- see `PageRouter.tsx`) rather than via
+   * Settings → "Guardian Settings" → its `rotateGuardian` button: that path
+   * is a `<Drawer>` (`Settings.tsx`'s `guardian-settings` tab has `isDrawer:
+   * true`), and `Settings`'s `activeTab` lookup explicitly excludes drawer
+   * tabs (`allTabs.find(tab => tab.slug === tabSlug && !tab.isDrawer)`), so
+   * a direct hash navigation to `/settings/guardian-settings` never opens
+   * it -- it silently falls back to the Settings root list. `/rotate-guardian`
+   * mounts `ChooseGuardianScreen` directly with no further click needed,
+   * matching how every other flow helper in this file (`sendTokens`, etc.)
+   * navigates straight to a flow's route instead of clicking through menus.
+   */
+  async switchGuardian(newEndpoint: string): Promise<void> {
+    await this.navigateTo('/rotate-guardian');
+
+    // ChooseGuardian (RotateGuardian.tsx): pick the option whose endpoint
+    // matches, then continue to the review screen.
+    await this.page.getByTestId('onboarding-choose-guardian').waitFor({ timeout: 20_000 });
+    const endpointOption = this.page.locator(`[data-guardian-endpoint="${newEndpoint}"]`);
+    const optionCount = await endpointOption.count().catch(() => 0);
+    if (optionCount === 0) {
+      throw new Error(
+        `switchGuardian: no guardian picker option with endpoint "${newEndpoint}" ` +
+          `(check getGuardianOptionsForNetwork() / MIDEN_E2E_TEST for the localnet 2nd guardian)`
+      );
+    }
+    await endpointOption.first().click();
+    await this.page.getByTestId('choose-guardian-continue').click();
+
+    // RotateGuardianReview: Confirm now opens the fresh-authentication step;
+    // extension wallets use the password established during onboarding.
+    const confirmButton = this.page.getByTestId('rotate-guardian-confirm');
+    await confirmButton.waitFor({ timeout: 20_000 });
+    await confirmButton.click();
+
+    const passwordInput = this.page.locator('#rotate-guardian-password');
+    await passwordInput.waitFor({ timeout: 20_000 });
+    await passwordInput.fill(PASSWORD);
+    await this.page.getByTestId('rotate-guardian-auth-submit').click();
+
+    // Follow the authenticated tx to the generating-transaction screen and
+    // read its final status straight from IndexedDB (mirrors bridge/swap helpers).
+    await this.page.waitForURL(/generating-transaction/, { timeout: 60_000 });
+    const txId = this.extractTransactionIdFromUrl();
+    if (!txId) {
+      throw new Error(`switchGuardian: could not extract a transaction id from URL ${this.page.url()}`);
+    }
+    await this.waitForTransactionRowComplete(txId);
+  }
+
+  /**
+   * See the interface doc comment (ChromeWalletPageApi).
+   */
+  async openImportSeedPhraseScreen(): Promise<void> {
+    // Welcome → "Recover your account" → ImportSeedPhrase (12-word grid).
+    await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
+    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
+    await this.page.locator('#import-link').click();
+    await this.page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
+  }
+
+  /**
+   * Recover a Guardian account from its seed phrase. See the interface doc
+   * comment (ChromeWalletPageApi) for the `viaUI` split.
+   */
+  async recoverGuardianFromSeed(seed: string, opts: { viaUI: boolean; guardianUrl?: string }): Promise<void> {
+    const words = seed.trim().split(/\s+/);
+
+    if (!opts.viaUI) {
+      await this.createWalletViaBypass({
+        walletType: 'guardian',
+        password: PASSWORD,
+        guardianUrl: opts.guardianUrl,
+        seed: words
+      });
+      return;
+    }
+
+    await this.openImportSeedPhraseScreen();
+
+    for (let i = 0; i < words.length; i++) {
+      // `id="seed-phrase-input-N"` is the component's own stable per-word id
+      // (see ImportSeedPhrase.tsx) — reused as-is rather than adding a
+      // redundant data-testid.
+      await this.page.locator(`#seed-phrase-input-${i}`).fill(words[i]!);
+    }
+    await this.page.getByTestId('import-seed-submit').click();
+
+    // Extension builds have no hardware-security path (checkHardwareSecurityAvailable
+    // is unconditionally false off mobile/desktop), so the import flow always
+    // routes through the full password step before recovery-method selection.
+    await this.page.getByTestId('create-password-input').waitFor({ timeout: 15_000 });
+    await this.page.getByTestId('create-password-input').fill(PASSWORD);
+    await this.page.getByTestId('create-password-verify-input').fill(PASSWORD);
+    await this.page.getByTestId('create-password-submit').click();
+
+    // ImportRecoveryMethod: wait for the guardian auto-detection probe to
+    // reach a terminal state (detected or not), then accept it as-is — the
+    // detected/default endpoint is prefilled and valid either way.
+    await this.page
+      .getByTestId('guardian-detected')
+      .or(this.page.getByTestId('guardian-not-detected'))
+      .first()
+      .waitFor({ timeout: 30_000 });
+    await this.page.getByTestId('recovery-method-continue').click();
+
+    // Confirmation: submit runs register() (isImport=true, walletType=Guardian).
+    await this.page.getByTestId('onboarding-confirmation').waitFor({ timeout: 30_000 });
+    await this.page.getByTestId('onboarding-confirmation-submit').click();
+
+    // A seed-only recovery can never recover the device-bound hot key, so the
+    // recovered account always carries requiresHotKeyRotation — see
+    // HotKeyRotationGate.tsx.
+    await this.completeHotKeyRotation();
+  }
+
+  /**
+   * Observe the `HotKeyRotationGate` blocking overlay to its cleared
+   * (unmounted) state. Throws if it instead reaches its terminal-failure
+   * surface within the timeout.
+   */
+  async completeHotKeyRotation(): Promise<void> {
+    const gate = this.page.getByTestId('hot-key-rotation-gate');
+    await gate.waitFor({ state: 'visible', timeout: 30_000 });
+
+    await Promise.race([
+      gate.waitFor({ state: 'detached', timeout: 120_000 }),
+      this.page
+        .getByTestId('hot-key-rotation-failed')
+        .waitFor({ state: 'visible', timeout: 120_000 })
+        .then(() => {
+          throw new Error('completeHotKeyRotation: rotation reached its terminal-failure surface');
+        })
+    ]);
+  }
+
+  /**
+   * Assert a Guardian account's on-chain auth shape via `getGuardianAuthInfo`.
+   * See the interface doc comment for why `threshold` maps to the
+   * `update_guardian` procedure threshold rather than the overall multisig
+   * threshold, and how `guardianCommitment` is checked.
+   */
+  async assertGuardianAuth(
+    pk: string,
+    expected: { signerCount: number; threshold: number; guardianCommitment?: string }
+  ): Promise<void> {
+    const info = await this.getGuardianAuthInfo(pk);
+    if (info.error) {
+      throw new Error(`assertGuardianAuth: getGuardianAuthInfo(${pk}) failed: ${info.error}`);
+    }
+    expect(info.signerCommitments.length, `signer count for ${pk}`).toBe(expected.signerCount);
+    expect(info.procedureThresholds.update_guardian, `update_guardian threshold for ${pk}`).toBe(expected.threshold);
+    if (expected.guardianCommitment) {
+      if (!info.guardianCommitment) {
+        throw new Error(
+          `assertGuardianAuth: expected guardian commitment ${expected.guardianCommitment} for ${pk}, ` +
+            `but getGuardianAuthInfo returned no guardianCommitment (account has no guardian slot set, ` +
+            `or the build predates the field)`
+        );
+      }
+      // Compare the REAL guardian-operator commitment (on-chain
+      // `GUARDIAN_SLOT_NAMES.PUBLIC_KEY`), not `signerCommitments` — the
+      // multisig signer set (`[hot, cold]`) never contains the guardian's key,
+      // so a switch (which changes the guardian commitment while the signer
+      // set/threshold stay put) would pass this assertion wrongly if checked
+      // against `signerCommitments`. Normalized (strip `0x` + lowercase) since
+      // `expected.guardianCommitment` typically comes from a guardian
+      // operator's `GET /pubkey` response, which may format hex differently.
+      expect(
+        normalizeHex(info.guardianCommitment),
+        `expected active guardian commitment ${expected.guardianCommitment} for ${pk}, got ${info.guardianCommitment}`
+      ).toBe(normalizeHex(expected.guardianCommitment));
+    }
+  }
+
+  async currentGuardianEndpoint(): Promise<string> {
+    return this.page.evaluate(() => {
+      const store = (
+        window as unknown as {
+          __TEST_STORE__?: { getState(): { currentAccount?: { guardianEndpoint?: string } } };
+        }
+      ).__TEST_STORE__;
+      return store?.getState?.().currentAccount?.guardianEndpoint ?? '';
+    });
+  }
+
+  async reopen(): Promise<boolean> {
+    // Deliberately does NOT use chrome.runtime.reload(): that reloads the
+    // whole extension bundle (tearing down and respawning the service
+    // worker), and MV3 invalidates every currently-open extension page as
+    // part of that -- but the existing Playwright page's next
+    // chrome-extension:// navigation fails fast with
+    // net::ERR_BLOCKED_BY_CLIENT and never recovers within any retry budget
+    // (observed live). Simulating close+reopen with a genuinely fresh page
+    // sidesteps the trap entirely and is the pattern already used
+    // successfully elsewhere in this file (e.g. navigateHome,
+    // createWalletViaBypass, recoverGuardianFromSeed) -- it also better
+    // matches what "closing the tab and reopening it" actually means for the
+    // user. The service worker (and any in-memory vault key it holds) is
+    // untouched, since only the page is torn down; IndexedDB persists
+    // regardless.
+    //
+    // `this.page` may already be closed here -- a caller that invoked
+    // `kill()` first (to prove state survives a page that's ALREADY gone,
+    // not just one this method tears down itself) would otherwise make the
+    // `.close()` below redundant. `Page.close()` on an already-closed page is
+    // documented as a no-op, but guard explicitly rather than rely on that.
+    const context = this.page.context();
+    if (!this.page.isClosed()) {
+      await this.page.close();
+    }
+
+    // Set when openFreshPage takes the crash-recovery relaunch path below. The
+    // relaunched context has a genuinely COLD service worker (it must re-load the
+    // ~14MB WASM before intercom answers), so the readiness wait needs the same
+    // reload-retry budget as the initial launch rather than a single window.
+    let relaunched = false;
+
+    // context.newPage() can transiently fail on a resource-constrained CI runner
+    // with a Chromium protocol error ("Target.createTarget: Failed to open a new
+    // tab") right after a page teardown, before the browser has reclaimed the
+    // closed target. Retry with a short backoff rather than let a resource blip
+    // fail an otherwise-successful reopen.
+    const openFreshPage = async (): Promise<Page> => {
+      let lastErr: unknown;
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        try {
+          return await context.newPage();
+        } catch (err) {
+          lastErr = err;
+          // A disconnected browser is a DEAD context, not the transient
+          // "Target.createTarget: Failed to open a new tab" blip this retry
+          // loop exists for -- retrying newPage on it can never succeed. The
+          // whole Chromium instance vanished between kill() and reopen(): an
+          // intermittent browser crash the guardian recovery specs hit here
+          // (NOT OOM -- CI dmesg/free showed ~12GB free). Recover the way a real
+          // user would after their browser crashed: if this wallet was given a
+          // relaunch hook, relaunch its persistent context on the same on-disk
+          // profile so it resumes from persisted state (IndexedDB survives).
+          // Then reopen()'s tail below re-navigates + unlocks the reopened,
+          // already-onboarded wallet exactly as for a normal page swap.
+          if (context.browser()?.isConnected() === false) {
+            if (this.relaunch) {
+              relaunched = true;
+              return await this.relaunch();
+            }
+            throw new Error(
+              'reopen: the browser process for this wallet is gone (context disconnected) and no relaunch hook ' +
+                'was provided -- the Chromium instance crashed between kill() and reopen(). ' +
+                `Original: ${(err as Error).message}`
+            );
+          }
+          await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+        }
+      }
+      throw lastErr;
+    };
+    const freshPage = await openFreshPage();
+    this.currentPage = freshPage;
+
+    const explore = this.page.getByTestId('explore-page');
+    const unlock = this.page.getByTestId('unlock-password');
+
+    // Wait for the reopened, already-onboarded wallet to settle on either the
+    // Explore surface (normal case, still unlocked) or the unlock screen.
+    //
+    // On a normal page swap the service worker stays warm, so ONE 90s window is
+    // ample. On the crash-recovery relaunch path the SW is COLD and must re-load
+    // the ~14MB WASM before intercom answers -- which can outlast a single window
+    // under CI load. So mirror the initial launch (launchWalletInstance): give
+    // the relaunch case up to 3 windows, re-navigating between them so a cold
+    // init that misses one window gets a fresh retry instead of failing reopen().
+    const readinessAttempts = relaunched ? 3 : 1;
+    for (let attempt = 1; attempt <= readinessAttempts; attempt++) {
+      await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
+      try {
+        await explore.or(unlock).first().waitFor({ timeout: 90_000 });
+        break;
+      } catch (err) {
+        if (attempt === readinessAttempts) throw err;
+        // Cold SW still parsing WASM -- let React mount what it can, then the
+        // next iteration re-navigates for a fresh intercom retry window.
+        await this.page.waitForSelector('#root > *', { timeout: 15_000 }).catch(() => {});
+      }
+    }
+
+    if (await unlock.isVisible().catch(() => false)) {
+      await this.unlockWallet();
+    } else {
+      await explore.waitFor({ timeout: 15_000 });
+    }
+
+    return relaunched;
+  }
+
+  async kill(): Promise<void> {
+    // Mirrors the closing half of reopen() -- see that method's doc comment
+    // for why this deliberately does NOT touch the service worker (no
+    // chrome.runtime.reload()). Swallow a close error rather than let it mask
+    // whatever the test is actually asserting: a page that's already mid-
+    // teardown (e.g. from a crash) throwing here shouldn't fail the "kill"
+    // step, only the "did the wallet recover" step that follows it.
+    await this.page.close().catch(() => {});
+  }
+
+  async killBrowser(): Promise<void> {
+    // Tear down the ENTIRE browser (persistent context + service worker), not
+    // just the page -- a DETERMINISTIC stand-in for the intermittent Chromium
+    // process crash the CI runner produces mid-rotation. `context.browser()` is
+    // the Browser backing this wallet's persistent context; closing it drops the
+    // context too, so the following reopen() sees
+    // `context.browser()?.isConnected() === false` and takes its crash-recovery
+    // path (relaunch from the on-disk profile). Swallow errors: the browser may
+    // already be gone (e.g. it genuinely crashed first).
+    const browser = this.page.context().browser();
+    await browser?.close().catch(() => {});
+  }
+
+  async waitForStage(
+    stage: TransactionStage,
+    timeoutMs: number = 90_000,
+    transactionType: StageTrackedTransactionType = 'switch-guardian'
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const reached = await this.page.evaluate(
+        async ({
+          targetStage,
+          targetType
+        }: {
+          targetStage: TransactionStage;
+          targetType: StageTrackedTransactionType;
+        }) => {
+          const idb = (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB;
+          const db: IDBDatabase = await new Promise((res, rej) => {
+            const r = idb.open('TridentMain');
+            r.onsuccess = () => res(r.result);
+            r.onerror = () => rej(r.error);
+          });
+          try {
+            if (!db.objectStoreNames.contains('transactions')) return false;
+            const rows: Array<{ type?: string; status?: number; stage?: string }> = await new Promise((res, rej) => {
+              const r = db.transaction('transactions', 'readonly').objectStore('transactions').getAll();
+              r.onsuccess = () => res(r.result);
+              r.onerror = () => rej(r.error);
+            });
+            // status 1 === GeneratingTransaction (ITransactionStatus) -- `stage`
+            // is only meaningful while a row is actively processing (see the
+            // ITransaction.stage doc comment in src/lib/miden/db/types.ts).
+            return rows.some(row => row.type === targetType && row.status === 1 && row.stage === targetStage);
+          } finally {
+            db.close();
+          }
+        },
+        { targetStage: stage, targetType: transactionType }
+      );
+
+      if (reached) return;
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `waitForStage: no ${transactionType} transaction reached stage "${stage}" within ${timeoutMs}ms`
+        );
+      }
+      await this.page.waitForTimeout(500);
+    }
+  }
+
+  /**
+   * See the interface doc comment. Requires `STABLE_EMPTY_THRESHOLD`
+   * consecutive empty polls (not just one) before declaring the queue
+   * drained -- a single empty pass is ambiguous when two operations were
+   * kicked off via `Promise.all`: the queue can look momentarily empty
+   * between the first op's row completing and the second op's row actually
+   * being written (they don't necessarily enqueue in the same tick).
+   */
+  async waitForQueueDrained(timeoutMs: number = 180_000): Promise<void> {
+    const STABLE_EMPTY_THRESHOLD = 3;
+    const POLL_INTERVAL_MS = 1_000;
+    const deadline = Date.now() + timeoutMs;
+    let stableEmpty = 0;
+
+    for (;;) {
+      const uncompletedCount = await this.page.evaluate(async () => {
+        const idb = (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB;
+        const db: IDBDatabase = await new Promise((res, rej) => {
+          const r = idb.open('TridentMain');
+          r.onsuccess = () => res(r.result);
+          r.onerror = () => rej(r.error);
+        });
+        try {
+          if (!db.objectStoreNames.contains('transactions')) return 0;
+          const rows: Array<{ status?: number }> = await new Promise((res, rej) => {
+            const r = db.transaction('transactions', 'readonly').objectStore('transactions').getAll();
+            r.onsuccess = () => res(r.result);
+            r.onerror = () => rej(r.error);
+          });
+          // status 0 === Queued, 1 === GeneratingTransaction (ITransactionStatus).
+          return rows.filter(row => row.status === 0 || row.status === 1).length;
+        } finally {
+          db.close();
+        }
+      });
+
+      if (uncompletedCount === 0) {
+        stableEmpty++;
+        if (stableEmpty >= STABLE_EMPTY_THRESHOLD) return;
+      } else {
+        stableEmpty = 0;
+      }
+
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `waitForQueueDrained: ${uncompletedCount} transaction(s) still Queued/GeneratingTransaction ` +
+            `after ${timeoutMs}ms`
+        );
+      }
+      await this.page.waitForTimeout(POLL_INTERVAL_MS);
+    }
+  }
+
+  /** Extract the `:txId` path param from the current `/generating-transaction[-full]/:txId` URL. */
+  private extractTransactionIdFromUrl(): string {
+    const match = this.page.url().match(/generating-transaction(?:-full)?\/([^/?#]+)/);
+    return match?.[1] ? decodeURIComponent(match[1]) : '';
+  }
+
+  /**
+   * Poll the SDK's Dexie `transactions` store (raw IndexedDB — same idiom as
+   * helpers/bridge.ts / helpers/swap.ts) for `txId` reaching Completed;
+   * throws on Failed or on timeout. `ITransactionStatus`: Queued=0,
+   * GeneratingTransaction=1, Completed=2, Failed=3.
+   */
+  private async waitForTransactionRowComplete(txId: string, timeoutMs: number = 120_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const row = await this.page.evaluate(async (id: string) => {
+        const idb = (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB;
+        const db: IDBDatabase = await new Promise((res, rej) => {
+          const r = idb.open('TridentMain');
+          r.onsuccess = () => res(r.result);
+          r.onerror = () => rej(r.error);
+        });
+        try {
+          if (!db.objectStoreNames.contains('transactions')) return null;
+          const found: { status?: number; error?: string; displayMessage?: string } | undefined = await new Promise(
+            (res, rej) => {
+              const r = db.transaction('transactions', 'readonly').objectStore('transactions').get(id);
+              r.onsuccess = () => res(r.result);
+              r.onerror = () => rej(r.error);
+            }
+          );
+          return found ? { status: found.status, error: found.error, displayMessage: found.displayMessage } : null;
+        } finally {
+          db.close();
+        }
+      }, txId);
+
+      if (row?.status === 2 /* Completed */) return;
+      if (row?.status === 3 /* Failed */) {
+        throw new Error(`Guardian transaction ${txId} failed: ${row.error ?? row.displayMessage ?? 'unknown error'}`);
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Guardian transaction ${txId} did not complete within ${timeoutMs}ms ` +
+            `(last status=${row?.status ?? 'row not found'})`
+        );
+      }
+      await this.page.waitForTimeout(2_000);
+    }
   }
 
   /**
@@ -783,9 +1592,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.waitForSelector('#root > *', { timeout: 15_000 }).catch(() => {});
     await this.page.waitForTimeout(3_000);
     await this.injectClaimableMetadata();
-    // Claimable notes live on their own /pending page now, which mounts the
+    // Claimable notes live on their own /pending-notes page, which mounts the
     // claim UI directly (no tab to switch to).
-    await this.navigateTo('/pending');
+    await this.navigateTo('/pending-notes');
     await this.page.waitForTimeout(3_000);
   }
 
@@ -871,12 +1680,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
                 // button may vanish mid-iteration as the list re-renders
               }
             }
-            // Return to the faucet summary list.
-            await this.page
-              .getByTestId('pending-detail-back')
-              .click({ timeout: 5_000 })
-              .catch(() => {});
-            await this.page.waitForTimeout(1_000);
+            // A successful claim can navigate to the transaction progress
+            // screen. Reloading the pending route also reliably returns from
+            // the in-page asset detail view, which has no desktop back button.
+            await this.reloadAndPreparePending();
           } catch {
             // Row vanished as the list re-rendered — try the next pass.
           }
@@ -905,12 +1712,59 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     if (Date.now() >= deadline) {
       const remaining = await readPendingCount().catch(() => -1);
-      console.log(`[WalletPage.claimAllNotes] TIMEOUT after ${timeoutMs}ms, pending=${remaining} (iter=${iteration})`);
+      // Diagnostic: a pending note that never drains means the consume tx
+      // stalled or failed. Dump the transactions table so the failure reason
+      // (Failed + error, or stuck GeneratingTransaction + which stage) is in
+      // the test log instead of hidden in the SW.
+      const txDump = await this.dumpTransactions().catch(() => 'unavailable');
+      console.log(`[WalletPage.claimAllNotes] transactions at timeout: ${txDump}`);
+      throw new Error(
+        `[WalletPage.claimAllNotes] timed out after ${timeoutMs}ms with ${remaining} pending note(s) ` +
+          `after ${iteration} iteration(s). Transactions: ${txDump}`
+      );
     } else {
       console.log(`[WalletPage.claimAllNotes] drained in ${iteration} iteration(s)`);
     }
 
     await this.navigateHome();
+  }
+
+  /**
+   * Diagnostic: read every row of `TridentMain.transactions` and return a
+   * compact one-line summary (`id·type·status·stage·error`) for each. Used to
+   * surface a stalled/failed consume's real reason in the test log rather than
+   * leaving it buried in the service worker. status: 0=Queued 1=Generating
+   * 2=Completed 3=Failed.
+   */
+  async dumpTransactions(): Promise<string> {
+    return this.page.evaluate(async () => {
+      const idb = (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB;
+      const db: IDBDatabase = await new Promise((res, rej) => {
+        const r = idb.open('TridentMain');
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+      try {
+        if (!db.objectStoreNames.contains('transactions')) return '[]';
+        const rows: Array<Record<string, unknown>> = await new Promise((res, rej) => {
+          const r = db.transaction('transactions', 'readonly').objectStore('transactions').getAll();
+          r.onsuccess = () => res(r.result);
+          r.onerror = () => rej(r.error);
+        });
+        return JSON.stringify(
+          rows.map(row => ({
+            id: String(row.id ?? '').slice(0, 8),
+            type: row.type,
+            status: row.status,
+            stage: row.stage,
+            error: typeof row.error === 'string' ? row.error.slice(0, 300) : row.error,
+            errorMessage: typeof row.errorMessage === 'string' ? row.errorMessage.slice(0, 300) : undefined
+          }))
+        );
+      } finally {
+        db.close();
+      }
+    });
   }
 
   /**
@@ -999,22 +1853,26 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       );
       await this.page.waitForTimeout(clicked ? 8_000 : 2_000);
 
-      // Back to the summary list for the next pass.
-      await this.page
-        .getByTestId('pending-detail-back')
-        .click({ timeout: 5_000 })
-        .catch(() => {});
+      // A successful group claim navigates to the transaction progress screen.
+      // Reload the pending route so the next iteration always resumes at the
+      // asset summary rather than depending on an in-page back control.
+      await this.reloadAndPreparePending();
 
       // If the count hasn't budged for a few passes, a prior claim may have left
       // notes gated by `isBeingClaimed`; a full reload clears the in-memory gate.
-      if (stuckSameCountIters >= 3) {
-        await this.reloadAndPreparePending();
-        stuckSameCountIters = 0;
-      }
+      if (stuckSameCountIters >= 3) stuckSameCountIters = 0;
       await this.page.waitForTimeout(2_000);
     }
 
-    console.log(`[WalletPage.claimNotesByGroup] done after ${iteration} iteration(s)`);
+    if (Date.now() >= deadline) {
+      const remaining = await readPendingCount().catch(() => -1);
+      throw new Error(
+        `[WalletPage.claimNotesByGroup] timed out after ${timeoutMs}ms with ${remaining} pending note(s) ` +
+          `after ${iteration} iteration(s)`
+      );
+    }
+
+    console.log(`[WalletPage.claimNotesByGroup] drained after ${iteration} iteration(s)`);
     await this.navigateHome();
   }
 
@@ -1048,6 +1906,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     // 2. SelectRecipient: fill the recipient address and confirm.
     await sendFlow.getByTestId('send-recipient-input').fill(params.recipientAddress);
+    if (params.recipientAddress.trim().startsWith('0x')) {
+      await sendFlow.getByTestId('send-network-selector').click({ timeout: STEP_TIMEOUT_MS });
+      await this.page.getByTestId('send-network-sepolia').click({ timeout: STEP_TIMEOUT_MS });
+    }
     await sendFlow.getByTestId('send-recipient-confirm').click({ timeout: STEP_TIMEOUT_MS });
 
     // 3. SelectAmount: open the token picker, pick a token, then fill the

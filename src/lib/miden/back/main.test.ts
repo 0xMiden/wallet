@@ -39,7 +39,7 @@ jest.mock('lib/miden/back/store', () => ({
 }));
 
 jest.mock('./sync-manager', () => ({
-  doSync: () => (globalThis as any).__mainTest.doSync()
+  doSync: (force?: boolean) => (globalThis as any).__mainTest.doSync(force)
 }));
 
 jest.mock('./transaction-processor', () => ({
@@ -87,7 +87,11 @@ jest.mock('lib/miden/back/actions', () => ({
   getAllDAppSessions: jest.fn(),
   removeDAppSession: jest.fn(),
   isDAppEnabled: jest.fn(),
-  processDApp: jest.fn()
+  processDApp: jest.fn(),
+  setGuardianOperatorCommitment: jest.fn(),
+  setGuardianSyncStatus: jest.fn(),
+  checkGuardianDrift: jest.fn(),
+  applyUserGuardianEndpoint: jest.fn()
 }));
 const Actions: any = jest.requireMock('lib/miden/back/actions');
 
@@ -141,7 +145,12 @@ describe('processRequest', () => {
   it('SyncRequest → SyncResponse and triggers doSync', async () => {
     const res = await dispatch({ type: WalletMessageType.SyncRequest });
     expect(res.type).toBe(WalletMessageType.SyncResponse);
-    expect(mockDoSync).toHaveBeenCalled();
+    expect(mockDoSync).toHaveBeenCalledWith(undefined);
+  });
+
+  it('forwards a forced SyncRequest', async () => {
+    await dispatch({ type: WalletMessageType.SyncRequest, force: true });
+    expect(mockDoSync).toHaveBeenCalledWith(true);
   });
 
   it('NoteClaimStarted broadcasts the note id and returns ack', async () => {
@@ -350,6 +359,49 @@ describe('processRequest', () => {
       key: 'pk'
     });
     expect(res.key).toBe('secret-key');
+  });
+
+  it('SetGuardianOperatorCommitmentRequest forwards to Actions', async () => {
+    const res = await dispatch({
+      type: WalletMessageType.SetGuardianOperatorCommitmentRequest,
+      accountPublicKey: 'pk',
+      guardianOperatorCommitment: 'commitment-hex'
+    });
+    expect(Actions.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk', 'commitment-hex');
+    expect(res.type).toBe(WalletMessageType.SetGuardianOperatorCommitmentResponse);
+  });
+
+  it('SetGuardianSyncStatusRequest forwards to Actions', async () => {
+    const res = await dispatch({
+      type: WalletMessageType.SetGuardianSyncStatusRequest,
+      accountPublicKey: 'pk',
+      guardianSyncStatus: 'needs-user-input'
+    });
+    expect(Actions.setGuardianSyncStatus).toHaveBeenCalledWith('pk', 'needs-user-input');
+    expect(res.type).toBe(WalletMessageType.SetGuardianSyncStatusResponse);
+  });
+
+  it('CheckGuardianDriftRequest forwards to Actions and returns the resolved status', async () => {
+    Actions.checkGuardianDrift.mockResolvedValueOnce('needs-user-input');
+    const res = await dispatch({
+      type: WalletMessageType.CheckGuardianDriftRequest,
+      accountPublicKey: 'pk'
+    });
+    expect(Actions.checkGuardianDrift).toHaveBeenCalledWith('pk');
+    expect(res.type).toBe(WalletMessageType.CheckGuardianDriftResponse);
+    expect(res.guardianSyncStatus).toBe('needs-user-input');
+  });
+
+  it('ApplyUserGuardianEndpointRequest forwards to Actions and returns whether it applied', async () => {
+    Actions.applyUserGuardianEndpoint.mockResolvedValueOnce(true);
+    const res = await dispatch({
+      type: WalletMessageType.ApplyUserGuardianEndpointRequest,
+      accountPublicKey: 'pk',
+      guardianEndpoint: 'https://mine'
+    });
+    expect(Actions.applyUserGuardianEndpoint).toHaveBeenCalledWith('pk', 'https://mine');
+    expect(res.type).toBe(WalletMessageType.ApplyUserGuardianEndpointResponse);
+    expect(res.applied).toBe(true);
   });
 
   it('DAppGetAllSessionsRequest returns the sessions map', async () => {

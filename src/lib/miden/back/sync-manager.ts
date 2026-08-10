@@ -3,6 +3,12 @@ import browser from 'webextension-polyfill';
 import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
+import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
+import {
+  areBackgroundSettingsMirrored,
+  isAutoConsumeEnabledAsync,
+  isDelegateProofEnabledAsync
+} from 'lib/settings/helpers';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { toNoteTypeString } from '../helpers';
@@ -10,8 +16,13 @@ import { fetchTokenMetadata } from '../metadata';
 import { getIntercom } from './defaults';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
+import { getFaucetIdSetting } from '../assets';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
+import { reconcileSwapOrderNotes } from '../swap/settlement';
+import { initiateConsumeTransaction } from '../transaction/initiate';
+import { ConsumableNote, NoteTypeEnum } from '../types';
 
 // `init_vault` is the ESM module factory for `./vault`, injected by Vite's
 // SW bundle transform. We must NOT add a source-level binding (e.g.
@@ -43,6 +54,7 @@ const BACKOFF_MS = 30_000;
 // The previous boolean-guard silently no-op'd concurrent calls, so a single stuck
 // sync made every triggerSync() during that window return without having synced.
 let inFlight: Promise<void> | null = null;
+let queuedForcedSync: Promise<void> | null = null;
 
 // Circuit-breaker state. Module-level is fine — the SW process is the only
 // doSync caller in the extension path; mobile/desktop runs have one sync loop.
@@ -62,12 +74,23 @@ async function getVault() {
   return _vault;
 }
 
-export function doSync(): Promise<void> {
-  if (inFlight) return inFlight;
+export function doSync(force = false): Promise<void> {
+  if (inFlight) {
+    if (!force) return inFlight;
+    if (!queuedForcedSync) {
+      queuedForcedSync = inFlight
+        .catch(() => {})
+        .then(() => {
+          queuedForcedSync = null;
+          return doSync(true);
+        });
+    }
+    return queuedForcedSync;
+  }
   // Circuit-breaker: short-circuit if recent syncs failed and we're waiting out
   // the backoff window. Returning resolved-void here keeps the existing contract
   // for callers (triggerSync, alarm) that don't distinguish success from skip.
-  if (Date.now() < syncBackoffUntilMs) {
+  if (!force && Date.now() < syncBackoffUntilMs) {
     return Promise.resolve();
   }
   inFlight = runSync().finally(() => {
@@ -104,6 +127,7 @@ async function runSync(): Promise<void> {
         await withTimeout(client.syncState(), SYNC_TIMEOUT_MS);
       });
       consecutiveSyncFailures = 0;
+      syncBackoffUntilMs = 0;
       // Sync went through end-to-end: the user has connectivity AND the
       // node is responding. Clear any active reachability category. We
       // don't touch `prover` — that's a separate service with separate
@@ -146,6 +170,10 @@ async function runSync(): Promise<void> {
     const accountPubKey = await vault2.getCurrentAccountPublicKey();
 
     if (accountPubKey) {
+      // Loaded once per sync and threaded into classify + reconcile below —
+      // localSwapOrders is an unindexed full scan of the transactions table.
+      const swapOrderRows = await localSwapOrders(accountPubKey);
+
       // [Lock 2] Read notes + vault assets from warm WASM client
       const { parsedNotes, vaultAssets } = await withWasmClientLock(async () => {
         const client = await getMidenClient();
@@ -154,6 +182,11 @@ async function runSync(): Promise<void> {
 
         // Read consumable notes
         const rawNotes = await client.getConsumableNotes(accountPubKey);
+        // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
+        // custom transaction — hidden from the claimable UI until the user
+        // confirms (or forever, if they cancel). See note-quarantine.ts.
+        const quarantined = await getQuarantinedNoteIds();
+        const swapOrders = await classifySwapOrderNotes(rawNotes || [], accountPubKey, client, swapOrderRows);
         const notes: SerializedConsumableNote[] = (rawNotes || [])
           .map((note: any) => {
             try {
@@ -161,6 +194,7 @@ async function runSync(): Promise<void> {
               // consumed — skip until sync completes them.
               const noteId = note.id()?.toString();
               if (!noteId) return null;
+              if (quarantined.has(noteId)) return null;
               const noteMeta = note.metadata();
               const details = note.details();
               const fungibleAssets = details.assets().fungibleAssets();
@@ -172,7 +206,8 @@ async function runSync(): Promise<void> {
                 faucetId: getBech32AddressFromAccountId(firstAsset.faucetId()),
                 amountBaseUnits: firstAsset.amount().toString(),
                 senderAddress: noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : '',
-                noteType: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown'
+                noteType: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown',
+                swapOrder: swapOrders.get(noteId)
               };
             } catch {
               return null;
@@ -230,9 +265,53 @@ async function runSync(): Promise<void> {
         }
       }
 
-      // Always update seenNoteIds for background dedup consistency
-      const noteIds = parsedNotes.map(n => n.id);
-      const newIds = await mergeAndPersistSeenNoteIds(noteIds);
+      // Always update seenNoteIds for background dedup consistency. Every
+      // note id goes into the seen set — including swap-managed ones —
+      // otherwise a transient classification failure (note untagged for one
+      // cycle) makes an already-known note look brand new. Swap-managed
+      // auto-consume notes are excluded only from the notification below.
+      // Native-asset (MIDEN) note auto-consume — the background counterpart to the
+      // frontend NativeNoteAutoConsumeManager (mobile/desktop). Resolve eligibility
+      // here so the "click to claim" notification below can exclude notes we are about
+      // to auto-consume; the actual consume is enqueued after the swap block. The SW has
+      // no localStorage, so the toggle is read from the platform KV mirror — and only
+      // once the popup has mirrored the user's REAL settings (areBackgroundSettingsMirrored),
+      // so we never act on read-miss defaults for a user who opted out of auto-consume or
+      // remote proving (the frontend still covers the app-open case in the meantime).
+      let nativeAutoConsumeNotes: ConsumableNote[] = [];
+      try {
+        if ((await areBackgroundSettingsMirrored()) && (await isAutoConsumeEnabledAsync())) {
+          const nativeFaucetId = await getFaucetIdSetting();
+          if (nativeFaucetId) {
+            nativeAutoConsumeNotes = parsedNotes.flatMap(n => {
+              if (n.faucetId !== nativeFaucetId || n.swapOrder) return [];
+              const type: ConsumableNote['type'] =
+                n.noteType === NoteTypeEnum.Public || n.noteType === NoteTypeEnum.Private ? n.noteType : 'unknown';
+              return [
+                {
+                  id: n.id,
+                  faucetId: n.faucetId,
+                  amount: n.amountBaseUnits,
+                  senderAddress: n.senderAddress,
+                  isBeingClaimed: false,
+                  type,
+                  swapOrder: undefined
+                }
+              ];
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('[native-auto-consume] eligibility check failed', err);
+      }
+
+      const managedAutoConsumeIds = new Set([
+        ...parsedNotes.filter(n => n.swapOrder && n.swapOrder.autoConsume !== false).map(n => n.id),
+        ...nativeAutoConsumeNotes.map(n => n.id)
+      ]);
+      const newIds = (await mergeAndPersistSeenNoteIds(parsedNotes.map(n => n.id))).filter(
+        id => !managedAutoConsumeIds.has(id)
+      );
 
       // Write sync data to chrome.storage.local — the reliable data channel.
       // Frontends read from here via chrome.storage.onChanged (works across all extension contexts).
@@ -262,6 +341,73 @@ async function runSync(): Promise<void> {
             : getMessage('noteReceivedMultiple', { count: String(newIds.length) }) ||
               `You have ${newIds.length} new notes to claim`;
         showBackgroundNotification(title, message);
+      }
+
+      // Reuse the notes classified above under Lock 2 — re-running
+      // settleSwapOrders here would repeat the consumable-notes read and all
+      // lineage lookups under a fresh WASM lock for no new information.
+      const managedNotes: ConsumableNote[] = parsedNotes.flatMap(n => {
+        if (!n.swapOrder) return [];
+        const type: ConsumableNote['type'] =
+          n.noteType === NoteTypeEnum.Public || n.noteType === NoteTypeEnum.Private ? n.noteType : 'unknown';
+        return [
+          {
+            id: n.id,
+            faucetId: n.faucetId,
+            amount: n.amountBaseUnits,
+            senderAddress: n.senderAddress,
+            isBeingClaimed: false,
+            type,
+            swapOrder: { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true }
+          }
+        ];
+      });
+      // Gate on orders, not notes: an order with no consumable notes left may
+      // still need its settlement stamp repaired inside reconcile.
+      if (swapOrderRows.length > 0) {
+        try {
+          const settlement = await reconcileSwapOrderNotes(
+            accountPubKey,
+            managedNotes,
+            undefined,
+            undefined,
+            swapOrderRows
+          );
+          if (settlement.queuedTransactionIds.length > 0) {
+            const { startTransactionProcessing } = await import('./transaction-processor');
+            startTransactionProcessing().catch(err => console.warn('[swap-settlement] processing failed', err));
+          }
+        } catch (err) {
+          console.warn('[swap-settlement] reconcile failed', err);
+        }
+      }
+
+      // Enqueue the native-note auto-consume computed above (after swap so swap-managed
+      // native notes are already excluded by the `!swapOrder` filter). ONE consume tx
+      // PER NOTE (mirroring the Home-page consumer), NOT a batch: a Miden tx is atomic,
+      // so batching lets a single un-consumable note fail the whole tx and — because the
+      // #215 backoff gate keys on the shared row's noteIds — throttle its healthy
+      // batch-mates (and the frontend consumer) too. Per-note isolates failures. Dedup +
+      // backoff live inside initiateConsumeTransaction, so a repeated ~30s tick never
+      // spawns duplicate rows. Proving follows the user's delegated/local setting via the
+      // SW-readable mirror — like every other proving path in the wallet.
+      if (nativeAutoConsumeNotes.length > 0) {
+        try {
+          const delegate = await isDelegateProofEnabledAsync();
+          for (const note of nativeAutoConsumeNotes) {
+            // Per-note try/catch so one note's enqueue failure can't skip its mates or the
+            // processing kick below — matching the per-note isolation intent above.
+            try {
+              await initiateConsumeTransaction(accountPubKey, note, delegate);
+            } catch (noteErr) {
+              console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+            }
+          }
+          const { startTransactionProcessing } = await import('./transaction-processor');
+          startTransactionProcessing().catch(err => console.warn('[native-auto-consume] processing failed', err));
+        } catch (err) {
+          console.warn('[native-auto-consume] native pass failed', err);
+        }
       }
     } else {
       // No account — broadcast bare SyncCompleted (just sync status)

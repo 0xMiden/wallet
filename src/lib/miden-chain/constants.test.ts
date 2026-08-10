@@ -86,6 +86,31 @@ describe('miden-chain/constants', () => {
         expect(getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.MAINNET)).toEqual([]);
       });
     });
+
+    describe('localnet second guardian (E2E only)', () => {
+      const prev = process.env.MIDEN_E2E_TEST;
+      afterEach(() => {
+        process.env.MIDEN_E2E_TEST = prev;
+      });
+
+      it('exposes OpenZeppelin B on localnet only under MIDEN_E2E_TEST', () => {
+        process.env.MIDEN_E2E_TEST = 'true';
+        jest.isolateModules(() => {
+          const { getGuardianOptionsForNetwork, MIDEN_NETWORK_NAME } = require('./constants');
+          const opts = getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.LOCALNET);
+          expect(opts.map((o: { endpoint: string }) => o.endpoint)).toContain('http://localhost:3001');
+        });
+      });
+
+      it('hides OpenZeppelin B when not in E2E', () => {
+        process.env.MIDEN_E2E_TEST = 'false';
+        jest.isolateModules(() => {
+          const { getGuardianOptionsForNetwork, MIDEN_NETWORK_NAME } = require('./constants');
+          const opts = getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.LOCALNET);
+          expect(opts.map((o: { endpoint: string }) => o.endpoint)).not.toContain('http://localhost:3001');
+        });
+      });
+    });
   });
 
   describe('ensureSdkWasmReady', () => {
@@ -251,7 +276,8 @@ describe('miden-chain/constants', () => {
         expect(MIDEN_GUARDIAN_ENDPOINTS.get('testnet')).toEqual([
           'https://guardian.openzeppelin.com',
           'https://miden-guardian.dev.eu-north-3.gateway.fm',
-          'https://miden-guardian.lambdaclass.com'
+          'https://miden-guardian.lambdaclass.com',
+          'https://guardian-testnet.kodax.com'
         ]);
         // Only OpenZeppelin runs a devnet Guardian.
         expect(MIDEN_GUARDIAN_ENDPOINTS.get('devnet')).toEqual(['https://guardian-stg.openzeppelin.com']);

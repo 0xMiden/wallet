@@ -1,0 +1,243 @@
+import SignClient from '@walletconnect/sign-client';
+import { buildApprovedNamespaces } from '@walletconnect/utils';
+import { createWalletClient, defineChain, http, numberToHex, type WalletClient } from 'viem';
+import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
+
+/**
+ * Headless WalletConnect v2 counterparty "wallet" for the bridge-IN iOS harness.
+ *
+ * It plays the WALLET/responder side of the real WalletConnect handshake the app
+ * (native Reown) initiates: pairs off the `wc:` URI (from the app's `connectUri`
+ * hook), approves an `eip155:11155111` session for a viem local account, and
+ * answers the app's `eth_sendTransaction` / `personal_sign` / `eth_signTypedData`
+ * requests — signing + broadcasting to a LOCAL Anvil. The WalletConnect handshake
+ * + signing are 100% real; only the chain (Anvil) and the URI delivery are local.
+ *
+ * Pairing rides the public relay (relay.walletconnect.org) with the app's
+ * project id, so it is NOT hermetic on the connection layer (by design — the same
+ * external dependency class as bridge-out's hosted services).
+ */
+
+const RELAY_URL = process.env.WC_RELAY_URL ?? 'wss://relay.walletconnect.org';
+// The counterparty authenticates its OWN relay connection, independent of the
+// app's — WC peers don't need to share a projectId. Prefer a dedicated one
+// (WC_COUNTERPARTY_PROJECT_ID) so CI can halve per-projectId relay load and cut
+// the chance of tripping the free-tier rate limit that connection bursts hit.
+const PROJECT_ID =
+  process.env.WC_COUNTERPARTY_PROJECT_ID ?? process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67';
+const ANVIL_RPC = process.env.E2E_EVM_RPC_URL ?? 'http://127.0.0.1:8545';
+const CHAIN_ID = 11155111;
+// Anvil's first deterministic dev account (pre-funded with 10000 ETH).
+const DEFAULT_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+
+const anvilChain = defineChain({
+  id: CHAIN_ID,
+  name: 'anvil-sepolia',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: { default: { http: [ANVIL_RPC] } }
+});
+
+export interface WcRequestLog {
+  method: string;
+  params: unknown;
+  result?: unknown;
+  error?: string;
+}
+
+export class WcCounterparty {
+  readonly account: PrivateKeyAccount;
+  private client!: Awaited<ReturnType<typeof SignClient.init>>;
+  private wallet: WalletClient;
+  private topic?: string;
+  private connectedResolve!: () => void;
+  /** Resolves once a session is approved (the app reports connected). */
+  readonly connected: Promise<void>;
+  /** Every session_request handled, for assertions. */
+  readonly requests: WcRequestLog[] = [];
+
+  constructor(opts: { privateKey?: `0x${string}`; rpcUrl?: string } = {}) {
+    this.account = privateKeyToAccount(opts.privateKey ?? (DEFAULT_KEY as `0x${string}`));
+    this.wallet = createWalletClient({
+      account: this.account,
+      chain: anvilChain,
+      transport: http(opts.rpcUrl ?? ANVIL_RPC)
+    });
+    this.connected = new Promise<void>(res => {
+      this.connectedResolve = res;
+    });
+  }
+
+  get address(): `0x${string}` {
+    return this.account.address;
+  }
+
+  async start(): Promise<void> {
+    if (this.client) return; // idempotent — connectWithRetry may call this too
+    this.client = await SignClient.init({
+      projectId: PROJECT_ID,
+      relayUrl: RELAY_URL,
+      metadata: {
+        name: 'Bridge-in E2E Wallet',
+        description: 'Headless WC counterparty for the bridge-in harness',
+        url: 'https://miden.io',
+        icons: []
+      }
+    });
+
+    this.client.on('session_proposal', async proposal => {
+      try {
+        const namespaces = buildApprovedNamespaces({
+          proposal: proposal.params,
+          supportedNamespaces: {
+            eip155: {
+              chains: [`eip155:${CHAIN_ID}`],
+              methods: [
+                'eth_sendTransaction',
+                'personal_sign',
+                'eth_sign',
+                'eth_signTypedData',
+                'eth_signTypedData_v4'
+              ],
+              events: ['chainChanged', 'accountsChanged'],
+              accounts: [`eip155:${CHAIN_ID}:${this.account.address}`]
+            }
+          }
+        });
+        const { topic, acknowledged } = await this.client.approve({ id: proposal.id, namespaces });
+        this.topic = topic;
+        await acknowledged();
+        this.connectedResolve();
+      } catch (err) {
+        console.error('[wc-counterparty] approve failed', err);
+      }
+    });
+
+    this.client.on('session_request', async event => this.handleRequest(event));
+  }
+
+  async pair(uri: string): Promise<void> {
+    await this.client.pair({ uri });
+  }
+
+  /**
+   * Robust connect: run the full WalletConnect handshake — fetch a fresh `wc:`
+   * URI from the app, pair, wait for the session to be approved, and confirm the
+   * app reports connected — retrying the WHOLE handshake with backoff.
+   *
+   * The public relay rate-limits connection bursts and its subscribe can time out
+   * ("Subscribing to <topic> failed, please try again"), which can hit the URI
+   * fetch OR the pair/approve step. Retrying only the URI fetch (as the specs did
+   * inline) left the subscribe timeout fatal — the cause of the intermittent
+   * Bridge-IN E2E failures. A dedicated `WC_COUNTERPARTY_PROJECT_ID` (see the note
+   * at the top of this file) halves per-projectId relay load and is the durable
+   * infra-side fix; this keeps the handshake resilient in the meantime.
+   */
+  async connectWithRetry(
+    getUri: () => Promise<string>,
+    verifyAppConnected: () => Promise<boolean>,
+    opts: { attempts?: number; backoffMs?: number; sessionTimeoutMs?: number } = {}
+  ): Promise<void> {
+    const { attempts = 5, backoffMs = 15_000, sessionTimeoutMs = 45_000 } = opts;
+    await this.start();
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        const uri = await getUri();
+        if (!uri.startsWith('wc:')) throw new Error(`expected a wc: pairing URI, got "${uri}"`);
+        await this.pair(uri);
+        // The relay subscribe inside pair/approve can stall without erroring;
+        // bound the wait so a stall triggers a retry instead of hanging.
+        await Promise.race([
+          this.connected,
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(new Error(`WC session not approved within ${sessionTimeoutMs}ms (relay subscribe timeout?)`)),
+              sessionTimeoutMs
+            )
+          )
+        ]);
+        for (let poll = 0; poll < 30; poll++) {
+          if (await verifyAppConnected()) return;
+          await this.sleep(2000);
+        }
+        throw new Error('WC session approved but the app never reported connected');
+      } catch (err) {
+        lastErr = err;
+        if (attempt === attempts) {
+          throw new Error(
+            `WalletConnect handshake failed after ${attempts} attempts (public relay subscribe/rate-limit): ${String(lastErr)}`
+          );
+        }
+        await this.sleep(backoffMs);
+      }
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private async handleRequest(event: {
+    topic: string;
+    id: number;
+    params: { request: { method: string; params: unknown } };
+  }): Promise<void> {
+    const { topic, id, params } = event;
+    const { method, params: rpcParams } = params.request;
+    const log: WcRequestLog = { method, params: rpcParams };
+    try {
+      let result: unknown;
+      if (method === 'eth_sendTransaction') {
+        const tx = (rpcParams as Array<Record<string, string>>)[0];
+        if (!tx) throw new Error('eth_sendTransaction: missing tx params');
+        result = await this.wallet.sendTransaction({
+          account: this.account,
+          chain: anvilChain,
+          to: tx.to as `0x${string}`,
+          data: (tx.data as `0x${string}`) ?? undefined,
+          value: tx.value ? BigInt(tx.value) : undefined,
+          gas: tx.gas ? BigInt(tx.gas) : undefined
+        });
+      } else if (method === 'personal_sign' || method === 'eth_sign') {
+        const arr = rpcParams as string[];
+        const raw = (method === 'personal_sign' ? arr[0] : arr[1]) as `0x${string}`;
+        result = await this.account.signMessage({ message: { raw } });
+      } else if (method.startsWith('eth_signTypedData')) {
+        const arr = rpcParams as string[];
+        const typed = typeof arr[1] === 'string' ? JSON.parse(arr[1]) : arr[1];
+        result = await this.account.signTypedData(typed);
+      } else {
+        throw new Error(`unsupported method ${method}`);
+      }
+      log.result = result;
+      this.requests.push(log);
+      await this.client.respond({ topic, response: { id, jsonrpc: '2.0', result: result as string } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error = message;
+      this.requests.push(log);
+      await this.client.respond({
+        topic,
+        response: { id, jsonrpc: '2.0', error: { code: 5000, message } }
+      });
+    }
+  }
+
+  async stop(): Promise<void> {
+    try {
+      if (this.topic) {
+        await this.client.disconnect({
+          topic: this.topic,
+          reason: { code: 6000, message: 'test complete' }
+        });
+      }
+      await this.client.core.relayer.transportClose();
+    } catch {
+      /* best-effort cleanup */
+    }
+  }
+
+  // Marker so `numberToHex` is retained for chainId responses if needed later.
+  static chainIdHex = numberToHex(CHAIN_ID);
+}

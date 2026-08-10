@@ -153,6 +153,18 @@ describe('AmountInput', () => {
     });
   });
 
+  describe('divider', () => {
+    it('renders by default', () => {
+      render(<AmountInput data-testid={TESTID} />);
+      expect(screen.getByTestId('amount-token-divider')).toBeInTheDocument();
+    });
+
+    it('can be hidden by the caller', () => {
+      render(<AmountInput showDivider={false} data-testid={TESTID} />);
+      expect(screen.queryByTestId('amount-token-divider')).not.toBeInTheDocument();
+    });
+  });
+
   describe('input props passthrough', () => {
     it('uses the default placeholder of 0.00', () => {
       render(<AmountInput data-testid={TESTID} />);

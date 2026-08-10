@@ -22,6 +22,16 @@ export class MobileIntercomAdapter {
     console.log('MobileIntercomAdapter: Initializing backend');
     await Actions.init();
 
+    // E2E-only (dead-stripped in prod): mobile runs a single page/backend
+    // context, so the bridge-in reconciliation hooks — which the extension
+    // installs SW-side in back/main.ts — are installed here. They only
+    // create/read a tracking row and set a module var (no SW-direct signing),
+    // so they run correctly in the mobile WebView.
+    if (process.env.MIDEN_E2E_TEST === 'true') {
+      const { installBridgeInTestHooks } = await import('lib/miden/activity/bridge-in-test-hooks');
+      installBridgeInTestHooks();
+    }
+
     // Watch store changes and notify subscribers
     const frontStore = store.map(toFront);
     frontStore.watch(() => {
@@ -166,6 +176,14 @@ export class MobileIntercomAdapter {
         };
       }
 
+      case WalletMessageType.SignEvmRequest: {
+        const evmSignResult = await Actions.signEvm(req.accountPublicKey, req.operation);
+        return {
+          type: WalletMessageType.SignEvmResponse,
+          result: evmSignResult
+        };
+      }
+
       case WalletMessageType.PersistNewHotKeyRequest: {
         await Actions.persistNewHotKey(req.newHotPubKey, req.newHotCiphertext);
         return {
@@ -184,6 +202,36 @@ export class MobileIntercomAdapter {
         await Actions.setGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
         return {
           type: WalletMessageType.SetGuardianEndpointResponse
+        };
+      }
+
+      case WalletMessageType.SetGuardianOperatorCommitmentRequest: {
+        await Actions.setGuardianOperatorCommitment(req.accountPublicKey, req.guardianOperatorCommitment);
+        return {
+          type: WalletMessageType.SetGuardianOperatorCommitmentResponse
+        };
+      }
+
+      case WalletMessageType.SetGuardianSyncStatusRequest: {
+        await Actions.setGuardianSyncStatus(req.accountPublicKey, req.guardianSyncStatus);
+        return {
+          type: WalletMessageType.SetGuardianSyncStatusResponse
+        };
+      }
+
+      case WalletMessageType.CheckGuardianDriftRequest: {
+        const guardianSyncStatus = await Actions.checkGuardianDrift(req.accountPublicKey);
+        return {
+          type: WalletMessageType.CheckGuardianDriftResponse,
+          guardianSyncStatus
+        };
+      }
+
+      case WalletMessageType.ApplyUserGuardianEndpointRequest: {
+        const applied = await Actions.applyUserGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
+        return {
+          type: WalletMessageType.ApplyUserGuardianEndpointResponse,
+          applied
         };
       }
 

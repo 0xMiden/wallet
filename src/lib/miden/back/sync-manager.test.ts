@@ -33,6 +33,11 @@ jest.mock('./note-checker-storage', () => ({
   mergeAndPersistSeenNoteIds: (...args: unknown[]) => mockMergeAndPersistSeenNoteIds(...args)
 }));
 
+const mockGetQuarantinedNoteIds = jest.fn(async () => new Set<string>());
+jest.mock('lib/miden/note-quarantine', () => ({
+  getQuarantinedNoteIds: () => mockGetQuarantinedNoteIds()
+}));
+
 const mockFetchTokenMetadata = jest.fn();
 jest.mock('lib/miden/metadata', () => ({
   fetchTokenMetadata: (...args: unknown[]) => mockFetchTokenMetadata(...args)
@@ -90,6 +95,38 @@ const mockStorageSet = jest.fn();
   }
 };
 
+// Native-note auto-consume deps (background pass). Defaults keep the pass a no-op
+// for the rest of the suite; the native-note tests below flip them on.
+const mockIsAutoConsumeAsync = jest.fn(async (): Promise<boolean> => false);
+const mockIsDelegateProofAsync = jest.fn(async (): Promise<boolean> => true);
+const mockAreBgMirrored = jest.fn(async (): Promise<boolean> => true);
+jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual('lib/settings/helpers'),
+  isAutoConsumeEnabledAsync: () => mockIsAutoConsumeAsync(),
+  isDelegateProofEnabledAsync: () => mockIsDelegateProofAsync(),
+  areBackgroundSettingsMirrored: () => mockAreBgMirrored()
+}));
+
+const mockGetFaucetIdSetting = jest.fn(async (): Promise<string | null> => null);
+jest.mock('../assets', () => ({
+  ...jest.requireActual('../assets'),
+  getFaucetIdSetting: () => mockGetFaucetIdSetting()
+}));
+
+const mockInitiateConsume = jest.fn((..._args: any[]) => Promise.resolve('consume-tx'));
+jest.mock('../transaction/initiate', () => ({
+  ...jest.requireActual('../transaction/initiate'),
+  // Lazy wrapper (not a direct ref): a direct `mockInitiateConsume` here hits a
+  // temporal-dead-zone error because requireActual('../assets') transitively loads this
+  // mocked module before the const is initialized. The native pass consumes per-note via
+  // initiateConsumeTransaction (single-note), so mock that.
+  initiateConsumeTransaction: (...args: any[]) => mockInitiateConsume(...args)
+}));
+
+jest.mock('./transaction-processor', () => ({
+  startTransactionProcessing: jest.fn(async () => {})
+}));
+
 // ── Imports under test ─────────────────────────────────────────────
 
 import { doSync, setupSyncManager } from './sync-manager';
@@ -127,6 +164,15 @@ beforeEach(() => {
   });
   mockMergeAndPersistSeenNoteIds.mockResolvedValue([]);
   mockHasClients.mockReturnValue(true);
+  mockGetQuarantinedNoteIds.mockResolvedValue(new Set());
+  // Reset the native-consume mocks to defaults — jest.clearAllMocks() clears calls but
+  // NOT mockResolvedValue impls, so a per-test override (e.g. areBgMirrored=false) would
+  // otherwise leak and silently gate off later tests' native path.
+  mockAreBgMirrored.mockResolvedValue(true);
+  mockIsAutoConsumeAsync.mockResolvedValue(false);
+  mockIsDelegateProofAsync.mockResolvedValue(true);
+  mockGetFaucetIdSetting.mockResolvedValue(null);
+  mockInitiateConsume.mockResolvedValue('consume-tx');
 });
 
 describe('doSync', () => {
@@ -170,6 +216,20 @@ describe('doSync', () => {
         miden_sync_data: expect.objectContaining({ accountPublicKey: 'pk-1' })
       })
     );
+  });
+
+  it('excludes quarantined notes from the cached consumable-notes write', async () => {
+    mockClient.getConsumableNotes.mockResolvedValueOnce([
+      fakeNote({ id: 'quarantined-note', faucetId: 'f1' }),
+      fakeNote({ id: 'visible-note', faucetId: 'f1' })
+    ]);
+    mockGetQuarantinedNoteIds.mockResolvedValueOnce(new Set(['quarantined-note']));
+
+    await doSync();
+
+    const call = mockStorageSet.mock.calls.find(c => 'miden_cached_consumable_notes' in c[0]);
+    const cached = call?.[0]?.miden_cached_consumable_notes as Array<{ id: string }>;
+    expect(cached.map(n => n.id)).toEqual(['visible-note']);
   });
 
   it('shows a desktop notification when a new note arrives and no frontends are connected', async () => {
@@ -512,6 +572,35 @@ describe('doSync — note metadata branches', () => {
 // is module-level. Each test isolates the module so the counter starts at 0
 // and the backoff window is closed at the start of every case.
 describe('doSync — syncState timeout + circuit breaker', () => {
+  it('queues one forced retry when a sync is already in flight', async () => {
+    await jest.isolateModulesAsync(async () => {
+      mockClient.syncState.mockReset();
+      let signalStarted!: () => void;
+      let releaseSync!: () => void;
+      const started = new Promise<void>(resolve => {
+        signalStarted = resolve;
+      });
+      const syncGate = new Promise<void>(resolve => {
+        releaseSync = resolve;
+      });
+      mockClient.syncState
+        .mockImplementationOnce(async () => {
+          signalStarted();
+          await syncGate;
+        })
+        .mockResolvedValueOnce(undefined);
+
+      const { doSync: isolated } = await import('./sync-manager');
+      const active = isolated();
+      await started;
+      const forced = isolated(true);
+      releaseSync();
+      await Promise.all([active, forced]);
+
+      expect(mockClient.syncState).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it('increments the failure counter when syncState rejects and trips the breaker after consecutive failures', async () => {
     await jest.isolateModulesAsync(async () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
@@ -531,6 +620,9 @@ describe('doSync — syncState timeout + circuit breaker', () => {
       await isolated();
       await isolated();
       expect(mockClient.syncState).toHaveBeenCalledTimes(3);
+
+      await isolated(true);
+      expect(mockClient.syncState).toHaveBeenCalledTimes(4);
 
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('circuit breaker open — skipping syncs'));
       warnSpy.mockRestore();
@@ -559,6 +651,27 @@ describe('doSync — syncState timeout + circuit breaker', () => {
 
       // All four calls reached syncState; breaker never opened.
       expect(mockClient.syncState).toHaveBeenCalledTimes(4);
+    });
+  });
+
+  it('a successful forced probe closes the existing backoff window', async () => {
+    await jest.isolateModulesAsync(async () => {
+      jest.spyOn(console, 'warn').mockImplementation();
+      mockClient.syncState.mockReset();
+      mockClient.syncState
+        .mockRejectedValueOnce(new Error('offline 1'))
+        .mockRejectedValueOnce(new Error('offline 2'))
+        .mockRejectedValueOnce(new Error('offline 3'))
+        .mockResolvedValue(undefined);
+
+      const { doSync: isolated } = await import('./sync-manager');
+      await isolated();
+      await isolated();
+      await isolated();
+      await isolated(true);
+      await isolated();
+
+      expect(mockClient.syncState).toHaveBeenCalledTimes(5);
     });
   });
 
@@ -614,5 +727,90 @@ describe('doSync — syncState timeout + circuit breaker', () => {
 
       nowSpy.mockRestore();
     });
+  });
+});
+
+describe('doSync — native-note auto-consume', () => {
+  it('auto-consumes native notes PER NOTE, following the user delegated-proving setting', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockIsDelegateProofAsync.mockResolvedValue(false); // user picked LOCAL proving
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockClient.getConsumableNotes.mockResolvedValueOnce([
+      fakeNote({ id: 'native-a', faucetId: 'native-faucet' }),
+      fakeNote({ id: 'native-b', faucetId: 'native-faucet' }),
+      fakeNote({ id: 'other-note', faucetId: 'other-faucet' })
+    ]);
+
+    await doSync();
+
+    // One consume tx PER native note (not a batch, so a poison note can't block its
+    // mates), and proving honors the user's LOCAL choice rather than forced delegated.
+    expect(mockInitiateConsume).toHaveBeenCalledTimes(2);
+    const consumed = mockInitiateConsume.mock.calls.map(c => (c[1] as { id: string }).id).sort();
+    expect(consumed).toEqual(['native-a', 'native-b']);
+    mockInitiateConsume.mock.calls.forEach((c: unknown[]) => {
+      expect(c[0]).toBe('pk-1');
+      expect(c[2]).toBe(false); // delegate follows the user setting
+    });
+  });
+
+  it('does not auto-consume when the toggle is off', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(false);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+
+    await doSync();
+
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
+  });
+
+  it('suppresses the "click to claim" notification for a native note it is auto-consuming', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockHasClients.mockReturnValue(false); // popup closed
+    mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['native-note']); // note is "new" this tick
+    (globalThis as any).chrome.notifications = { create: jest.fn() };
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+
+    await doSync();
+
+    // It is being auto-consumed, so it is excluded from newIds and must NOT also raise a
+    // "click to claim" prompt — while still being consumed.
+    expect((globalThis as any).chrome.notifications.create).not.toHaveBeenCalled();
+    expect(mockInitiateConsume).toHaveBeenCalledTimes(1);
+    expect((mockInitiateConsume.mock.calls[0]![1] as { id: string }).id).toBe('native-note');
+  });
+
+  it('holds off until the popup has mirrored the user settings (migration window)', async () => {
+    mockAreBgMirrored.mockResolvedValue(false); // settings not yet mirrored into the SW store
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+
+    await doSync();
+
+    // Never act on read-miss defaults for a user who may have opted out.
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
+  });
+
+  it('resolves cleanly when the eligibility resolve (getFaucetIdSetting) rejects', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockRejectedValue(new Error('storage boom'));
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+
+    await expect(doSync()).resolves.toBeUndefined();
+    expect(mockGetFaucetIdSetting).toHaveBeenCalled(); // the rejecting path WAS exercised
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(mockStorageSet).toHaveBeenCalled(); // sync still completed
+  });
+
+  it('resolves cleanly when the per-note enqueue rejects', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockInitiateConsume.mockRejectedValueOnce(new Error('enqueue boom'));
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+
+    await expect(doSync()).resolves.toBeUndefined();
+    expect(mockInitiateConsume).toHaveBeenCalled(); // the rejecting path WAS exercised
   });
 });

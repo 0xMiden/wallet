@@ -13,6 +13,10 @@ import {
   updateSettings,
   signTransaction,
   getAuthSecretKey,
+  setGuardianOperatorCommitment,
+  setGuardianSyncStatus,
+  checkGuardianDrift,
+  applyUserGuardianEndpoint,
   getAllDAppSessions,
   getCurrentAccount,
   createHDAccount,
@@ -44,7 +48,10 @@ const mockVault = {
   updateSettings: jest.fn(),
   signTransaction: jest.fn(),
   getAuthSecretKey: jest.fn(),
-  importAccountFromPrivateKey: jest.fn()
+  importAccountFromPrivateKey: jest.fn(),
+  setGuardianEndpoint: jest.fn(),
+  setGuardianOperatorCommitment: jest.fn(),
+  setGuardianSyncStatus: jest.fn()
 };
 
 // Mock store callbacks
@@ -64,6 +71,11 @@ let mockStoreState = {
   settings: null,
   ownMnemonic: null
 };
+
+jest.mock('lib/miden/back/guardian-drift', () => ({
+  resolveGuardianDrift: jest.fn(),
+  applyUserGuardianEndpoint: jest.fn()
+}));
 
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
@@ -109,6 +121,7 @@ jest.mock('./dapp', () => ({
   requestAssets: jest.fn(),
   requestImportPrivateNote: jest.fn(),
   requestConsumableNotes: jest.fn(),
+  requestGuardianInfo: jest.fn(),
   waitForTransaction: jest.fn()
 }));
 
@@ -235,6 +248,9 @@ describe('actions', () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       const mockVaultInstance = {
         migrateLegacyGuardianAccounts: jest.fn().mockResolvedValue(undefined),
+        // Unlock also backfills wallet-derived EVM addresses onto legacy HD
+        // accounts (needed by the earn flow) before reading the accounts list.
+        backfillEvmAddresses: jest.fn().mockResolvedValue(undefined),
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),
@@ -246,6 +262,7 @@ describe('actions', () => {
 
       expect(Vault.setup).toHaveBeenCalledWith('password123');
       expect(mockVaultInstance.migrateLegacyGuardianAccounts).toHaveBeenCalled();
+      expect(mockVaultInstance.backfillEvmAddresses).toHaveBeenCalled();
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockVaultInstance.fetchSettings).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
@@ -386,6 +403,157 @@ describe('actions', () => {
 
       expect(mockVault.getAuthSecretKey).toHaveBeenCalledWith('key-id');
       expect(result).toBe('secret-key');
+    });
+  });
+
+  describe('setGuardianOperatorCommitment', () => {
+    it('updates the vault and fires accountsUpdated', async () => {
+      const updated = { accounts: [], currentAccount: undefined };
+      mockVault.setGuardianOperatorCommitment.mockResolvedValueOnce(updated);
+
+      await setGuardianOperatorCommitment('pk1', 'commitment-hex');
+
+      expect(mockVault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk1', 'commitment-hex');
+      expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
+    });
+  });
+
+  describe('setGuardianSyncStatus', () => {
+    it('updates the vault and fires accountsUpdated', async () => {
+      const updated = { accounts: [], currentAccount: undefined };
+      mockVault.setGuardianSyncStatus.mockResolvedValueOnce(updated);
+
+      await setGuardianSyncStatus('pk1', 'needs-user-input');
+
+      expect(mockVault.setGuardianSyncStatus).toHaveBeenCalledWith('pk1', 'needs-user-input');
+      expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
+    });
+  });
+
+  describe('checkGuardianDrift', () => {
+    it('delegates to resolveGuardianDrift and broadcasts the refreshed account state when changed', async () => {
+      const { resolveGuardianDrift } = jest.requireMock('lib/miden/back/guardian-drift');
+      const accounts = [{ publicKey: 'pk1' }];
+      const currentAccount = accounts[0];
+      mockVault.fetchAccounts.mockResolvedValue(accounts);
+      mockVault.getCurrentAccount.mockResolvedValue(currentAccount);
+      resolveGuardianDrift.mockResolvedValueOnce({ status: 'needs-user-input', changed: true });
+
+      const result = await checkGuardianDrift('pk1');
+
+      expect(result).toBe('needs-user-input');
+      expect(resolveGuardianDrift).toHaveBeenCalledWith(expect.any(Object), 'pk1');
+      expect(mockAccountsUpdated).toHaveBeenCalledWith({ accounts, currentAccount });
+    });
+
+    it('does not re-fetch accounts or broadcast when resolveGuardianDrift reports no change (no-op drift check)', async () => {
+      const { resolveGuardianDrift } = jest.requireMock('lib/miden/back/guardian-drift');
+      resolveGuardianDrift.mockResolvedValueOnce({ status: 'in-sync', changed: false });
+      mockVault.fetchAccounts.mockClear();
+      mockVault.getCurrentAccount.mockClear();
+
+      const result = await checkGuardianDrift('pk1');
+
+      expect(result).toBe('in-sync');
+      expect(mockVault.fetchAccounts).not.toHaveBeenCalled();
+      expect(mockVault.getCurrentAccount).not.toHaveBeenCalled();
+      expect(mockAccountsUpdated).not.toHaveBeenCalled();
+    });
+
+    it('wires the vault adapter passed to resolveGuardianDrift to the real vault methods', async () => {
+      const { resolveGuardianDrift } = jest.requireMock('lib/miden/back/guardian-drift');
+      const accounts = [
+        { publicKey: 'pk1', guardianOperatorCommitment: 'abc' },
+        { publicKey: 'pk2', guardianOperatorCommitment: 'def' }
+      ];
+      mockVault.fetchAccounts.mockResolvedValue(accounts);
+      mockVault.getCurrentAccount.mockResolvedValue(undefined);
+      mockVault.setGuardianEndpoint.mockResolvedValueOnce({ accounts, currentAccount: undefined });
+      mockVault.setGuardianOperatorCommitment.mockResolvedValueOnce({ accounts, currentAccount: undefined });
+      mockVault.setGuardianSyncStatus.mockResolvedValueOnce({ accounts, currentAccount: undefined });
+
+      resolveGuardianDrift.mockImplementationOnce(async (driftVault: any, pk: string) => {
+        const account = await driftVault.getAccount(pk);
+        expect(account).toEqual(accounts[0]);
+        await driftVault.setGuardianEndpoint(pk, 'https://new-operator');
+        await driftVault.setGuardianOperatorCommitment(pk, 'newC');
+        await driftVault.setGuardianSyncStatus(pk, 'in-sync');
+        return { status: 'in-sync', changed: true };
+      });
+
+      await checkGuardianDrift('pk1');
+
+      expect(mockVault.setGuardianEndpoint).toHaveBeenCalledWith('pk1', 'https://new-operator');
+      expect(mockVault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk1', 'newC');
+      expect(mockVault.setGuardianSyncStatus).toHaveBeenCalledWith('pk1', 'in-sync');
+    });
+
+    it("adapter's getAccount returns undefined when no account matches the public key", async () => {
+      const { resolveGuardianDrift } = jest.requireMock('lib/miden/back/guardian-drift');
+      mockVault.fetchAccounts.mockResolvedValue([{ publicKey: 'other-pk' }]);
+      mockVault.getCurrentAccount.mockResolvedValue(undefined);
+
+      resolveGuardianDrift.mockImplementationOnce(async (driftVault: any, pk: string) => {
+        const account = await driftVault.getAccount(pk);
+        expect(account).toBeUndefined();
+        return { status: 'in-sync', changed: false };
+      });
+
+      await checkGuardianDrift('missing-pk');
+    });
+  });
+
+  describe('applyUserGuardianEndpoint', () => {
+    it('persists via the guardian-drift verifier and broadcasts the refreshed account state when applied', async () => {
+      const { applyUserGuardianEndpoint: applyVerified } = jest.requireMock('lib/miden/back/guardian-drift');
+      const accounts = [{ publicKey: 'pk1' }];
+      const currentAccount = accounts[0];
+      mockVault.fetchAccounts.mockResolvedValue(accounts);
+      mockVault.getCurrentAccount.mockResolvedValue(currentAccount);
+      applyVerified.mockResolvedValueOnce(true);
+
+      const result = await applyUserGuardianEndpoint('pk1', 'https://mine');
+
+      expect(result).toBe(true);
+      expect(applyVerified).toHaveBeenCalledWith(expect.any(Object), 'pk1', 'https://mine');
+      expect(mockAccountsUpdated).toHaveBeenCalledWith({ accounts, currentAccount });
+    });
+
+    it('does not re-read or broadcast account state when the endpoint fails verification', async () => {
+      const { applyUserGuardianEndpoint: applyVerified } = jest.requireMock('lib/miden/back/guardian-drift');
+      applyVerified.mockResolvedValueOnce(false);
+      mockAccountsUpdated.mockClear();
+      mockVault.fetchAccounts.mockReset();
+
+      const result = await applyUserGuardianEndpoint('pk1', 'https://wrong');
+
+      expect(result).toBe(false);
+      expect(mockAccountsUpdated).not.toHaveBeenCalled();
+    });
+
+    it('wires the vault adapter passed to the verifier to the real vault setters', async () => {
+      const { applyUserGuardianEndpoint: applyVerified } = jest.requireMock('lib/miden/back/guardian-drift');
+      const accounts = [{ publicKey: 'pk1', guardianOperatorCommitment: 'abc' }];
+      mockVault.fetchAccounts.mockResolvedValue(accounts);
+      mockVault.getCurrentAccount.mockResolvedValue(undefined);
+      mockVault.setGuardianEndpoint.mockResolvedValueOnce({ accounts, currentAccount: undefined });
+      mockVault.setGuardianOperatorCommitment.mockResolvedValueOnce({ accounts, currentAccount: undefined });
+      mockVault.setGuardianSyncStatus.mockResolvedValueOnce({ accounts, currentAccount: undefined });
+
+      applyVerified.mockImplementationOnce(async (driftVault: any, pk: string) => {
+        const account = await driftVault.getAccount(pk);
+        expect(account).toEqual(accounts[0]);
+        await driftVault.setGuardianEndpoint(pk, 'https://new-operator');
+        await driftVault.setGuardianOperatorCommitment(pk, 'newC');
+        await driftVault.setGuardianSyncStatus(pk, 'in-sync');
+        return true;
+      });
+
+      await applyUserGuardianEndpoint('pk1', 'https://new-operator');
+
+      expect(mockVault.setGuardianEndpoint).toHaveBeenCalledWith('pk1', 'https://new-operator');
+      expect(mockVault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk1', 'newC');
+      expect(mockVault.setGuardianSyncStatus).toHaveBeenCalledWith('pk1', 'in-sync');
     });
   });
 
@@ -574,6 +742,17 @@ describe('actions', () => {
 
       expect(requestAssets).toHaveBeenCalledWith('https://example.com', req);
       expect(result).toEqual({ assets: [] });
+    });
+
+    it('handles GuardianInfoRequest', async () => {
+      const { requestGuardianInfo } = jest.requireMock('./dapp');
+      requestGuardianInfo.mockResolvedValueOnce({ guardianInfo: {} });
+
+      const req = { type: MidenDAppMessageType.GuardianInfoRequest, sourcePublicKey: 'pk' };
+      const result = await processDApp('https://example.com', req as any);
+
+      expect(requestGuardianInfo).toHaveBeenCalledWith('https://example.com', req);
+      expect(result).toEqual({ guardianInfo: {} });
     });
 
     it('handles ImportPrivateNoteRequest', async () => {

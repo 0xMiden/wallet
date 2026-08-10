@@ -7,6 +7,7 @@ import { getEnvironmentConfig } from '../config/environments';
 import { attachConsoleCapture } from '../harness/browser-capture';
 import { CLIRunner } from '../harness/cli-runner';
 import { buildFailureReport, saveFailureReport } from '../harness/failure-report';
+import { installGuardianFaults, type GuardianFaultPolicy, type GuardianOrigins } from '../harness/guardian-fault';
 import {
   SW_FETCH_LOG_PREFIX,
   attachNetworkCapture,
@@ -22,9 +23,21 @@ import { ChromeWalletPage, type ChromeWalletPageApi } from '../helpers/wallet-pa
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
+/**
+ * Test-only controls layered onto the wallet page object so specs can arm/
+ * clear guardian HTTP faults (see harness/guardian-fault.ts) without reaching
+ * into the BrowserContext directly.
+ */
+export interface GuardianFaultTestApi {
+  armGuardianFault(policy: GuardianFaultPolicy): void;
+  clearFaults(): void;
+}
+
+export type GuardianAwareWalletPage = ChromeWalletPageApi & GuardianFaultTestApi;
+
 type TwoWalletFixtures = {
-  walletA: ChromeWalletPageApi;
-  walletB: ChromeWalletPageApi;
+  walletA: GuardianAwareWalletPage;
+  walletB: GuardianAwareWalletPage;
   midenCli: MidenCli;
   timeline: TimelineRecorder;
   steps: TestStepRunner;
@@ -32,6 +45,15 @@ type TwoWalletFixtures = {
 };
 
 // ── Constants ───────────────────────────────────────────────────────────────
+
+// The guardian operator origins fault injection keys on, for the active
+// E2E_NETWORK: local containers on localhost, the real operators on
+// devnet/testnet. Read at install time so faults match whichever guardians
+// the wallet actually talks to on this network.
+const guardianOrigins = (): GuardianOrigins => {
+  const cfg = getEnvironmentConfig();
+  return { a: cfg.guardianUrl, b: cfg.guardianUrlB };
+};
 
 const ROOT_DIR = path.resolve(__dirname, '../../..');
 const DEFAULT_EXTENSION_PATH = path.join(ROOT_DIR, 'dist', 'chrome_unpacked');
@@ -87,22 +109,31 @@ function buildChromeSnapshotCaps(page: Page, context: BrowserContext, extensionI
   };
 }
 
-async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, timeline: TimelineRecorder) {
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), `miden-wallet-${label}-`));
+// Chromium launch args, shared by the initial wallet launch and reopen()'s
+// crash-recovery relaunch so the two can never drift.
+function chromeLaunchArgs(extensionPath: string): string[] {
+  return [
+    `--disable-extensions-except=${extensionPath}`,
+    `--load-extension=${extensionPath}`,
+    '--no-first-run',
+    '--no-default-browser-check',
+    // CI hardening for the guardian recovery specs. Peak RAM on the runner is
+    // high: two persistent contexts (A + B) plus the full docker stack
+    // (node/sequencer/prover/2 guardians/2 postgres). `--disable-dev-shm-usage`
+    // moves Chromium's shared memory off the small /dev/shm tmpfs onto disk (the
+    // standard CI fix for `Target.createTarget: Failed to open a new tab`);
+    // `--disable-gpu` drops the unused GPU process under xvfb. Both are inert to
+    // extension/SW behaviour. (They alone did NOT stop the intermittent browser
+    // crash the recovery specs hit -- that is now recovered from in reopen() by
+    // relaunching the context; see relaunchContext.)
+    '--disable-dev-shm-usage',
+    '--disable-gpu'
+  ];
+}
 
-  const context = await chromium.launchPersistentContext(userDataDir, {
-    headless: false,
-    args: [
-      `--disable-extensions-except=${extensionPath}`,
-      `--load-extension=${extensionPath}`,
-      '--no-first-run',
-      '--no-default-browser-check'
-    ],
-    ignoreDefaultArgs: ['--disable-extensions']
-  });
-
-  // Wait for the service worker to register.
-  // Extension loading in Playwright can be flaky -- poll for the SW to appear.
+// Poll for the extension's service worker to register (extension loading under
+// Playwright is flaky). Shared by the initial launch and the relaunch.
+async function waitForExtensionServiceWorker(context: BrowserContext) {
   let serviceWorker = context.serviceWorkers()[0];
   if (!serviceWorker) {
     const SW_TIMEOUT = 60_000;
@@ -113,11 +144,68 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
       await new Promise(r => setTimeout(r, 500));
     }
     if (!serviceWorker) {
-      serviceWorker = await context.waitForEvent('serviceworker', {
-        timeout: 30_000
-      });
+      serviceWorker = await context.waitForEvent('serviceworker', { timeout: 30_000 });
     }
   }
+  return serviceWorker;
+}
+
+// Relaunch a wallet's persistent context on the SAME userDataDir after its
+// Chromium process DIED mid-test (an intermittent browser crash -- not OOM,
+// confirmed via CI dmesg/free -- that the guardian recovery specs hit at
+// reopen()). Reusing the profile dir means the on-disk state (IndexedDB:
+// accounts + pending tx rows) survives, so the wallet resumes from persisted
+// state -- exactly the "browser crashed, user reopens the app, wallet resumes"
+// recovery those specs assert on.
+//
+// Deliberately lighter than launchWalletInstance: it re-installs guardian fault
+// injection (so armGuardianFault()/clearFaults() keep targeting the live
+// context) and opens the extension page, but SKIPS the console/network
+// observability re-attach (diagnostic-only, and this is a rare recovery path)
+// and the fresh-onboarding wait -- reopen()'s own tail waits for the
+// unlock/explore surface of the already-onboarded profile instead.
+async function relaunchContext(userDataDir: string, extensionPath: string) {
+  // A hard browser crash can leave Chromium's profile singleton lock behind,
+  // which makes a relaunch on the same dir fail with "profile appears to be in
+  // use". Clear the stale locks first.
+  for (const lock of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
+    try {
+      fs.rmSync(path.join(userDataDir, lock), { force: true });
+    } catch {}
+  }
+  const context = await chromium.launchPersistentContext(userDataDir, {
+    headless: false,
+    args: chromeLaunchArgs(extensionPath),
+    ignoreDefaultArgs: ['--disable-extensions']
+  });
+  const serviceWorker = await waitForExtensionServiceWorker(context);
+  const extensionId = new URL(serviceWorker.url()).host;
+  const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
+  let page = context.pages().find(p => p.url().includes(extensionId));
+  if (!page) {
+    page = await context.newPage();
+    await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded' });
+  }
+  for (const p of context.pages()) {
+    if (p !== page) await p.close().catch(() => {});
+  }
+  const faults = installGuardianFaults(context, guardianOrigins());
+  return { context, page, faults };
+}
+
+async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, timeline: TimelineRecorder) {
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), `miden-wallet-${label}-`));
+
+  // `let` (not `const`): reopen()'s relaunch swaps these in place after a
+  // browser crash so teardown closes the LIVE context and the fault methods
+  // target it.
+  let context = await chromium.launchPersistentContext(userDataDir, {
+    headless: false,
+    args: chromeLaunchArgs(extensionPath),
+    ignoreDefaultArgs: ['--disable-extensions']
+  });
+
+  const serviceWorker = await waitForExtensionServiceWorker(context);
   const extensionId = new URL(serviceWorker.url()).host;
 
   // Attach observability
@@ -201,8 +289,14 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
   // Wait for it and reuse that page, or create our own if it doesn't appear.
   await new Promise(r => setTimeout(r, 3_000));
 
-  let page = context.pages().find(p => p.url().includes(extensionId));
-  if (!page) {
+  // Typed `Page` (not `Page | undefined`): the return exposes this via a getter
+  // (relaunch swaps it), and a getter body can't carry the control-flow
+  // narrowing an inline `return` would, so the variable itself must be `Page`.
+  const existingPage = context.pages().find(p => p.url().includes(extensionId));
+  let page: Page;
+  if (existingPage) {
+    page = existingPage;
+  } else {
     page = await context.newPage();
     await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded' });
   }
@@ -300,9 +394,54 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
     data: { extensionId, userDataDir }
   });
 
-  const walletPage = new ChromeWalletPage(page, extensionId, userDataDir);
+  // Guardian fault-injection: intercepts guardian HTTP calls (made from the
+  // extension's service worker) by target/path, applying whatever
+  // GuardianFaultPolicy the spec arms via the wallet page object below.
+  // `let`: relaunch swaps in the new context's faults so armGuardianFault()/
+  // clearFaults() (captured by reference below) keep targeting the live context.
+  let faults = installGuardianFaults(context, guardianOrigins());
 
-  return { walletPage, context, extensionId, userDataDir, page };
+  // Passed to ChromeWalletPage.reopen(): when the browser PROCESS has died (not
+  // just the page), relaunch a fresh context on this same userDataDir and swap
+  // it in, so the wallet resumes from its on-disk profile. Reassigning the
+  // captured context/page/faults keeps teardown and the fault methods pointed at
+  // the live context.
+  const relaunch = async (): Promise<Page> => {
+    timeline.emit({
+      category: 'test_lifecycle',
+      severity: 'warn',
+      wallet: label,
+      message: `Wallet ${label} browser process died mid-test; relaunching from on-disk profile to resume`,
+      data: { userDataDir }
+    });
+    const next = await relaunchContext(userDataDir, extensionPath);
+    context = next.context;
+    page = next.page;
+    faults = next.faults;
+    return page;
+  };
+
+  const walletPage: GuardianAwareWalletPage = Object.assign(
+    new ChromeWalletPage(page, extensionId, userDataDir, relaunch),
+    {
+      armGuardianFault: (policy: GuardianFaultPolicy) => faults.arm(policy),
+      clearFaults: () => faults.clear()
+    }
+  );
+
+  // context/page via getters: relaunch reassigns them, and teardown
+  // (instance.context.close()) must close the LIVE context, not the dead one.
+  return {
+    walletPage,
+    get context() {
+      return context;
+    },
+    extensionId,
+    userDataDir,
+    get page() {
+      return page;
+    }
+  };
 }
 
 function writeDebugSession(

@@ -3,8 +3,9 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { type InputNoteRecord } from '@miden-sdk/miden-sdk/lazy';
 
 import { getUncompletedTransactions } from 'lib/miden/activity';
+import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import { isExtension, isIOS } from 'lib/platform';
-import { SerializedConsumableNote, WalletMessageType } from 'lib/shared/types';
+import { SerializedConsumableNote, SyncData, WalletMessageType } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 
@@ -13,7 +14,8 @@ import { toNoteTypeString } from '../helpers';
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
-import { ConsumableNote, NoteTypeEnum } from '../types';
+import { classifySwapOrderNotes } from '../swap/classification';
+import { ConsumableNote, NoteTypeEnum, SwapOrderNoteMetadata } from '../types';
 import { useTokensMetadata } from './assets';
 import { isTestSyncPaused } from './test-sync-pause';
 
@@ -37,11 +39,16 @@ type ParsedNote = {
   senderAddress: string;
   isBeingClaimed: boolean;
   type: NoteTypeEnum | 'unknown';
+  swapOrder?: SwapOrderNoteMetadata;
 };
 
 // -------------------- Pure helpers (no side effects) --------------------
 
-function parseNotes(rawNotes: InputNoteRecord[], notesBeingClaimed: Set<string>): ParsedNote[] {
+function parseNotes(
+  rawNotes: InputNoteRecord[],
+  notesBeingClaimed: Set<string>,
+  swapOrders: Map<string, SwapOrderNoteMetadata> = new Map()
+): ParsedNote[] {
   const parsed: ParsedNote[] = [];
 
   for (const note of rawNotes) {
@@ -72,7 +79,8 @@ function parseNotes(rawNotes: InputNoteRecord[], notesBeingClaimed: Set<string>)
         amountBaseUnits,
         senderAddress,
         isBeingClaimed: notesBeingClaimed.has(noteId),
-        type: kind
+        type: kind,
+        swapOrder: swapOrders.get(noteId)
       });
     } catch (err) {
       console.error('Error processing note:', err);
@@ -127,7 +135,8 @@ function attachMetadataToNotes(
       metadata: metadataByFaucetId[n.faucetId]!,
       senderAddress: n.senderAddress,
       isBeingClaimed: n.isBeingClaimed,
-      type: n.type
+      type: n.type,
+      swapOrder: n.swapOrder
     }));
 }
 
@@ -165,23 +174,47 @@ async function fetchNotesFromLocalClient(
 
   const uncompletedTxs = await getUncompletedTransactions(publicAddress);
   const notesBeingClaimed = new Set(
-    uncompletedTxs.filter(tx => tx.type === 'consume' && tx.noteId != null).map(tx => tx.noteId!)
+    uncompletedTxs
+      .filter(tx => tx.type === 'consume')
+      .flatMap(tx => tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []))
   );
 
-  return parseNotes(rawNotes, notesBeingClaimed);
+  const swapOrders = await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient();
+    return classifySwapOrderNotes(rawNotes, publicAddress, midenClient);
+  });
+
+  // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
+  // custom transaction — hidden from the claimable UI until the user
+  // confirms (or forever, if they cancel). See note-quarantine.ts.
+  //
+  // NOTE: `parseNotes`'s 2nd arg (`notesBeingClaimed`) only flags matching
+  // notes as `isBeingClaimed` — it does NOT remove them from the result, so
+  // it cannot be reused to hide quarantined notes. We instead filter the
+  // parsed result by id (parseNotes derives ids the same way, via
+  // `note.id()?.toString()`, so the ids match exactly).
+  const quarantined = await getQuarantinedNoteIds();
+  const parsed = parseNotes(rawNotes, notesBeingClaimed, swapOrders);
+  return quarantined.size === 0 ? parsed : parsed.filter(n => !quarantined.has(n.id));
 }
 
 // -------------------- Extension hook (reads from Zustand) --------------------
 
-function useExtensionClaimableNotes(_publicAddress: string, enabled: boolean) {
+function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   const extensionNotes = useWalletStore(s => s.extensionClaimableNotes);
   const extensionClaimingNoteIds = useWalletStore(s => s.extensionClaimingNoteIds);
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
 
   // Poll chrome.storage.local for notes on mount + every 3s.
-  // The SW writes miden_cached_consumable_notes on every sync cycle.
+  // The SW writes miden_sync_data on every sync cycle (see sync-manager.ts).
   // This is the primary data channel — more reliable than intercom broadcasts
   // which can be lost if any port in the forEach throws.
+  //
+  // We read the account-scoped miden_sync_data (which carries both `notes` and
+  // the `accountPublicKey` they belong to) rather than the bare, wallet-wide
+  // miden_cached_consumable_notes key. Without this guard, after an account
+  // switch the previous account's cached notes are served to — and auto-consumed
+  // under — the newly selected account (#280).
   useEffect(() => {
     if (!enabled) return;
 
@@ -190,9 +223,16 @@ function useExtensionClaimableNotes(_publicAddress: string, enabled: boolean) {
     if (!g.chrome?.storage?.local) return;
 
     const poll = () => {
-      g.chrome.storage.local.get('miden_cached_consumable_notes', (result: any) => {
-        const cached: SerializedConsumableNote[] = result?.miden_cached_consumable_notes || [];
-        useWalletStore.getState().setExtensionClaimableNotes(cached);
+      g.chrome.storage.local.get('miden_sync_data', (result: any) => {
+        const syncData: SyncData | undefined = result?.miden_sync_data;
+        // Nothing synced yet — leave the store untouched so isLoading stays true.
+        if (!syncData) return;
+        // Only serve notes that belong to the account currently being viewed;
+        // for any other account, clear to [] so a stale set is never displayed
+        // or auto-consumed.
+        const notes: SerializedConsumableNote[] =
+          syncData.accountPublicKey === publicAddress ? (syncData.notes ?? []) : [];
+        useWalletStore.getState().setExtensionClaimableNotes(notes);
       });
     };
 
@@ -202,13 +242,14 @@ function useExtensionClaimableNotes(_publicAddress: string, enabled: boolean) {
     // Then poll every 3s (aligned with useSyncTrigger's SyncRequest interval)
     const timer = setInterval(poll, 3_000);
     return () => clearInterval(timer);
-  }, [enabled]);
+  }, [enabled, publicAddress]);
 
   // Map serialized notes to ConsumableNote with metadata
   const computedData = useMemo(() => {
     if (!enabled || extensionNotes === null) return undefined;
 
     return extensionNotes
+      .filter(n => !n.swapOrder || n.swapOrder.autoConsume === false)
       .filter(n => n.metadata || assetsMetadata[n.faucetId])
       .map(n => ({
         id: n.id,
@@ -217,7 +258,8 @@ function useExtensionClaimableNotes(_publicAddress: string, enabled: boolean) {
         metadata: (n.metadata as AssetMetadata) || assetsMetadata[n.faucetId],
         senderAddress: n.senderAddress,
         isBeingClaimed: extensionClaimingNoteIds.has(n.id),
-        type: (n.noteType as NoteTypeEnum | 'unknown') ?? 'unknown'
+        type: (n.noteType as NoteTypeEnum | 'unknown') ?? 'unknown',
+        swapOrder: n.swapOrder ? { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true } : undefined
       }));
   }, [enabled, extensionNotes, extensionClaimingNoteIds, assetsMetadata]);
 
@@ -251,7 +293,9 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
   });
 
   const fetchClaimableNotes = useCallback(async () => {
-    const parsedNotes = await fetchNotesFromLocalClient(publicAddress, debugInfoRef);
+    const parsedNotes = (await fetchNotesFromLocalClient(publicAddress, debugInfoRef)).filter(
+      note => !note.swapOrder || note.swapOrder.autoConsume === false
+    );
 
     // 2) Seed metadata map from cache (and baked-in MIDEN)
     const metadataByFaucetId = await buildMetadataMapFromCache(parsedNotes, allTokensBaseMetadataRef.current);

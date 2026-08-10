@@ -3,8 +3,8 @@ import React from 'react';
 import { render } from '@testing-library/react';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import TransactionIcon from './TransactionIcon';
-import { isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
+import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
+import { bridgeStatusOf, isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
 
 // `app/icons/v2` is the real barrel that switches an `IconName` onto one of
 // ~100 SVG imports and pulls in `lib/miden-chain/constants`. Replace it with a
@@ -13,7 +13,7 @@ import { isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
 // without the barrel's heavy dependency graph.
 jest.mock('app/icons/v2', () => ({
   __esModule: true,
-  IconName: { Convert: 'convert' },
+  IconName: { Convert: 'convert', Close: 'close', Earn: 'earn' },
   Icon: ({ name, size, className }: { name: string; size?: string; className?: string }) => (
     <div data-testid="v2-icon" data-name={name} data-size={size} className={className} />
   )
@@ -25,11 +25,16 @@ jest.mock('app/icons/v2', () => ({
 // feed the inline `backgroundColor` styles.
 jest.mock('./transactionUtils', () => ({
   __esModule: true,
+  bridgeStatusOf: jest.fn(() => 'confirmed'),
   isFaucetRequest: jest.fn(() => false),
+  // Faithful to the real one-liner (`entry.earnDepositStatus ?? 'pending'`) so the
+  // failed-lending-leg branch is exercised, not stubbed away.
+  earnDepositSettlementOf: (entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending',
   TRANSACTION_COLORS: { send: '#91ACC1', receive: '#99AC94', faucet: '#891DB1' }
 }));
 
 const mockIsFaucetRequest = isFaucetRequest as jest.MockedFunction<typeof isFaucetRequest>;
+const mockBridgeStatusOf = bridgeStatusOf as jest.MockedFunction<typeof bridgeStatusOf>;
 
 // The SVG imports (faucet / rotate / receive / send) resolve to the `svg`
 // string host element via the jest svgMock, so each renders as a real
@@ -49,9 +54,62 @@ const root = (container: HTMLElement) => container.firstChild as HTMLElement;
 
 beforeEach(() => {
   mockIsFaucetRequest.mockReturnValue(false);
+  mockBridgeStatusOf.mockReturnValue('confirmed');
 });
 
 describe('TransactionIcon', () => {
+  describe('earn transaction branch', () => {
+    it('renders the Earn glyph for an opened position even when its persisted icon is RECEIVE', () => {
+      const { container, getByTestId } = render(
+        <TransactionIcon entry={makeEntry({ txType: 'earn-deposit', transactionIcon: 'RECEIVE' })} size="lg" />
+      );
+
+      expect(root(container)).toHaveClass('w-18', 'h-18', 'rounded-10', 'bg-tx-earn');
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-name', 'earn');
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-size', 'lg');
+    });
+
+    it('renders the failed cross for a failed Smart Withdraw', () => {
+      const { container } = render(
+        <TransactionIcon entry={makeEntry({ txType: 'earn-withdraw', earnWithdrawPhase: 'failed' })} />
+      );
+
+      expect(root(container)).toHaveClass('bg-status-negative');
+      expect(container.querySelector('svg')).toBeInTheDocument();
+    });
+
+    it('accents earn rows with the earn token and failed withdrawals with red', () => {
+      expect(getTransactionIconBackgroundColor(makeEntry({ txType: 'earn-deposit' }))).toBe('var(--tx-earn)');
+      expect(
+        getTransactionIconBackgroundColor(makeEntry({ txType: 'earn-withdraw', earnWithdrawPhase: 'failed' }))
+      ).toBe('#CC5D5D');
+    });
+
+    it('reddens a deposit whose lending leg settled failed (agrees with the Failed chip)', () => {
+      // earnDepositStatus 'failed' with a non-FAILED transactionIcon: the Miden collateral
+      // note landed but the Sepolia lending leg failed. The accent + glyph must go red so
+      // they do not contradict the red "Failed" status chip the activity list renders.
+      expect(
+        getTransactionIconBackgroundColor(makeEntry({ txType: 'earn-deposit', earnDepositStatus: 'failed' }))
+      ).toBe('#CC5D5D');
+      const { container } = render(
+        <TransactionIcon entry={makeEntry({ txType: 'earn-deposit', earnDepositStatus: 'failed' })} />
+      );
+      expect(root(container)).toHaveClass('bg-status-negative');
+    });
+  });
+
+  it('renders a failed glyph for a terminal bridge failure', () => {
+    mockBridgeStatusOf.mockReturnValue('failed');
+
+    const { getByTestId, container } = render(
+      <TransactionIcon entry={makeEntry({ txType: 'bridged-send', transactionIcon: 'SEND' })} />
+    );
+
+    expect(root(container)).toHaveClass('bg-status-negative');
+    expect(getByTestId('v2-icon')).toHaveAttribute('data-name', 'close');
+  });
+
   describe('pending / processing spinner branch', () => {
     it.each([
       ['PendingTransaction', HistoryEntryType.PendingTransaction],

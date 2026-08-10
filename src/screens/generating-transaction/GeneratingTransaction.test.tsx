@@ -281,6 +281,26 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
+  it('marks the step matching the frozen stage as failed, not the last step', async () => {
+    mockRowState = { row: makeTx({ status: 3, stage: 'proving' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    const stateByStep = Object.fromEntries(
+      Array.from(container.querySelectorAll('[data-transaction-step]')).map(el => [
+        el.getAttribute('data-transaction-step'),
+        el.getAttribute('data-state')
+      ])
+    );
+    expect(stateByStep).toEqual({
+      'guardian-approving': 'complete',
+      'generating-proof': 'failed',
+      submitting: 'pending',
+      'syncing-guardian': 'pending'
+    });
+    act(() => root.unmount());
+  });
+
   it('wires onViewExplorer to openExternalUrl when an explorer url is available', async () => {
     mockRowState = { row: makeTx({ status: 2, transactionId: '0xhash' }), loaded: true };
     mockWalletStoreState.lastCompletedTxHash = '0xhash';
@@ -418,6 +438,12 @@ describe('GeneratingTransaction stage + state rendering', () => {
     );
     expect(container.textContent).toContain('generatingTransaction');
     expect(container.textContent).toContain('generatingTransactionDescription');
+    const helper = Array.from(container.querySelectorAll('p')).find(
+      paragraph =>
+        paragraph.textContent === 'generatingTransactionDescription' && paragraph.classList.contains('font-bold')
+    );
+    expect(helper).toHaveClass('text-heading-gray');
+    expect(helper).not.toHaveClass('dark:text-white');
     act(() => root.unmount());
   });
 

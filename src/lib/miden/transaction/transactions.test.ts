@@ -17,9 +17,12 @@ import {
   initiateUpdateProcedureThresholdTransaction,
   cancelStuckTransactions,
   cancelStaleQueuedTransactions,
+  failInterruptedTransactions,
   generateTransaction,
   MAX_WAIT_BEFORE_CANCEL,
   MAX_QUEUED_AGE,
+  REMOTE_PROVER_FAILED_ERROR,
+  LOCAL_PROVER_FAILED_ERROR,
   MAX_CONSECUTIVE_CONSUME_FAILURES,
   RECENT_FAILURE_WINDOW_SEC,
   RETRY_COOLDOWN_SEC
@@ -316,14 +319,21 @@ describe('transactions utilities', () => {
       type: NoteTypeEnum.Private
     };
 
-    const mockDedupQuery = (rows: any[]) => {
-      mockTransactionsWhere.mockReturnValueOnce({
-        equals: jest.fn().mockReturnValueOnce({
-          filter: jest.fn().mockReturnValueOnce({
+    // The dedup reads two indexes per note: scalar `noteId` (legacy/single
+    // rows) and multi-entry `noteIds` (batch rows). Tests feed legacy rows
+    // through the scalar query; batch rows can be supplied separately.
+    const mockDedupQuery = (rows: any[], batchRows: any[] = []) => {
+      mockTransactionsWhere
+        .mockReturnValueOnce({
+          equals: jest.fn().mockReturnValueOnce({
             toArray: jest.fn().mockResolvedValueOnce(rows)
           })
         })
-      });
+        .mockReturnValueOnce({
+          equals: jest.fn().mockReturnValueOnce({
+            toArray: jest.fn().mockResolvedValueOnce(batchRows)
+          })
+        });
     };
 
     it('creates consume transaction when none exists', async () => {
@@ -418,6 +428,48 @@ describe('transactions utilities', () => {
       const result = await initiateConsumeTransaction('account-1', note);
 
       expect(result).toBe('recent-failed-tx');
+      expect(mockTransactionsAdd).not.toHaveBeenCalled();
+    });
+
+    it('queues a fresh attempt on a manual retry even while the cooldown has not elapsed', async () => {
+      // The bounded-retry gate throttles auto-consume's background polling, but
+      // an explicit user retry (manualRetry=true) must bypass it — otherwise the
+      // Retry button silently no-ops for up to RETRY_COOLDOWN_SEC.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const recentFailed = {
+        id: 'recent-failed-tx',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Failed,
+        initiatedAt: nowSec - 30,
+        completedAt: nowSec - 10
+      };
+      mockDedupQuery([recentFailed]);
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+
+      const result = await initiateConsumeTransaction('account-1', note, undefined, true);
+
+      expect(result).not.toBe('recent-failed-tx');
+      expect(mockTransactionsAdd).toHaveBeenCalled();
+    });
+
+    it('still dedups a manual retry against an in-flight consume for the same note', async () => {
+      // manualRetry only bypasses the Failed-row backoff — it must NOT double-queue
+      // when a Queued/Generating/Completed row is already in flight.
+      const existingTx = {
+        id: 'existing-tx',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100
+      };
+      mockDedupQuery([existingTx]);
+
+      const result = await initiateConsumeTransaction('account-1', note, undefined, true);
+
+      expect(result).toBe('existing-tx');
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
     });
 
@@ -600,13 +652,18 @@ describe('transactions utilities', () => {
       mockGetInputNote.mockReturnValueOnce({
         metadata: () => ({ noteType: () => 'public' })
       });
-      mockTransactionsWhere.mockReturnValueOnce({
-        equals: jest.fn().mockReturnValueOnce({
-          filter: jest.fn().mockReturnValueOnce({
+      // Scalar `noteId` query + multi-entry `noteIds` query (batch rows).
+      mockTransactionsWhere
+        .mockReturnValueOnce({
+          equals: jest.fn().mockReturnValueOnce({
             toArray: jest.fn().mockResolvedValueOnce([])
           })
         })
-      });
+        .mockReturnValueOnce({
+          equals: jest.fn().mockReturnValueOnce({
+            toArray: jest.fn().mockResolvedValueOnce([])
+          })
+        });
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
 
       const result = await initiateConsumeTransactionFromId('account-1', 'note-456');
@@ -689,6 +746,155 @@ describe('transactions utilities', () => {
       await cancelStuckTransactions();
 
       expect(mockModify).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('failInterruptedTransactions', () => {
+    it('leaves a freshly-orphaned send untouched under cancelStuckTransactions (documents the #282 gap)', async () => {
+      // A private send orphaned when the browser closed mid-prove has
+      // processingStartedAt set to "now" (stamped atomically at
+      // generateTransaction). The 30-min gate means the reaper does nothing,
+      // so the row sits on "Sending" with no feedback until it finally ages out.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const orphan = {
+        id: 'orphan-send',
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        stage: 'sending',
+        initiatedAt: nowSec - 5,
+        processingStartedAt: nowSec
+      };
+
+      mockTransactionsFilter.mockReturnValueOnce({
+        toArray: jest.fn().mockResolvedValueOnce([orphan])
+      });
+      const mockModify = jest.fn();
+      mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
+
+      await cancelStuckTransactions();
+
+      expect(mockModify).not.toHaveBeenCalled();
+    });
+
+    it('immediately fails a freshly-orphaned in-progress send with the interrupted message', async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const orphan = {
+        id: 'orphan-send',
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        stage: 'sending',
+        initiatedAt: nowSec - 5,
+        processingStartedAt: nowSec
+      };
+
+      mockTransactionsFilter.mockReturnValueOnce({
+        toArray: jest.fn().mockResolvedValueOnce([orphan])
+      });
+      const dbTx: any = { transactionId: 'preexisting-should-not-be-touched' };
+      const mockModify = jest.fn(async (fn: (t: any) => void) => fn(dbTx));
+      mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
+
+      await failInterruptedTransactions();
+
+      expect(mockModify).toHaveBeenCalledTimes(1);
+      expect(dbTx.status).toBe(ITransactionStatus.Failed);
+      expect(dbTx.displayMessage).toMatch(/interrupted/i);
+      // We do NOT resubmit, so cancelTransaction must not stamp or alter an on-chain tx id.
+      expect(dbTx.transactionId).toBe('preexisting-should-not-be-touched');
+    });
+
+    it('no-ops when there are no in-progress transactions', async () => {
+      mockTransactionsFilter.mockReturnValueOnce({
+        toArray: jest.fn().mockResolvedValueOnce([])
+      });
+      const mockModify = jest.fn();
+      mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
+
+      await failInterruptedTransactions();
+
+      expect(mockModify).not.toHaveBeenCalled();
+    });
+
+    it('sweeps ONLY GeneratingTransaction rows — Queued/Completed are excluded by the predicate', async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const gen = {
+        id: 'gen',
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: nowSec - 1,
+        processingStartedAt: nowSec
+      };
+      const queued = { id: 'queued', type: 'send', status: ITransactionStatus.Queued, initiatedAt: nowSec - 2 };
+      const completed = { id: 'done', type: 'send', status: ITransactionStatus.Completed, initiatedAt: nowSec - 3 };
+
+      // Actually apply getTransactionsInProgress's predicate to a mixed dataset,
+      // so a regression that broadened the sweep (e.g. getAllUncompletedTransactions)
+      // would be caught.
+      mockTransactionsFilter.mockImplementationOnce((pred: (t: any) => boolean) => ({
+        toArray: jest.fn().mockResolvedValueOnce([gen, queued, completed].filter(pred))
+      }));
+      const modifiedIds: string[] = [];
+      mockTransactionsWhere.mockImplementation(({ id }: { id: string }) => ({
+        first: jest.fn().mockResolvedValue(undefined),
+        modify: jest.fn(async (fn: (t: any) => void) => {
+          modifiedIds.push(id);
+          fn({});
+        })
+      }));
+
+      await failInterruptedTransactions();
+
+      expect(modifiedIds).toEqual(['gen']);
+    });
+
+    it('leaves a row that completed between the snapshot and the sweep untouched (finalized guard)', async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const gen = {
+        id: 'raced',
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: nowSec - 1,
+        processingStartedAt: nowSec
+      };
+      mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([gen]) });
+      const mockModify = jest.fn();
+      // The row was marked Completed after the snapshot → cancelTransaction's finalized
+      // guard must block the downgrade so the on-chain-landed tx isn't flipped to Failed.
+      mockTransactionsWhere.mockReturnValue({
+        first: jest.fn().mockResolvedValue({ id: 'raced', status: ITransactionStatus.Completed }),
+        modify: mockModify
+      });
+
+      await failInterruptedTransactions();
+
+      expect(mockModify).not.toHaveBeenCalled();
+    });
+
+    it('keeps the interrupted error (not a prover-failure) for a tx interrupted mid-prove', async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      // Guardian txs stamp an explicit 'proving' stage while still GeneratingTransaction,
+      // which would otherwise make resolveTransactionErrorMessage relabel the error.
+      const orphan = {
+        id: 'guardian-send',
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        stage: 'proving',
+        initiatedAt: nowSec - 1,
+        processingStartedAt: nowSec
+      };
+      mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([orphan]) });
+      const dbTx: any = {};
+      const mockModify = jest.fn(async (fn: (t: any) => void) => fn(dbTx));
+      mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(orphan), modify: mockModify });
+
+      await failInterruptedTransactions();
+
+      expect(dbTx.status).toBe(ITransactionStatus.Failed);
+      expect(dbTx.displayMessage).toMatch(/interrupted/i);
+      // Must NOT be relabelled as a prover failure ("please try again") just because the
+      // tx died in the 'proving' stage — that would invite the retry the sweep avoids.
+      expect(dbTx.error).toMatch(/interrupted/i);
+      expect(dbTx.error).not.toMatch(/prov(e|ing)|try again/i);
     });
   });
 
@@ -775,6 +981,58 @@ describe('transactions utilities', () => {
       modifyFn(dbTx);
 
       expect(dbTx.error).toBe('simple error string');
+    });
+
+    it('rewrites a proving-stage failure to the matching prover message (remote vs local) and keeps the raw error', async () => {
+      const runProvingCancel = async (delegateTransaction: boolean | undefined) => {
+        const mockModify = jest.fn();
+        mockTransactionsWhere
+          // Finalized-guard lookup returns the live row, exposing the stage it died in.
+          .mockReturnValueOnce({
+            first: jest.fn().mockResolvedValueOnce({ id: 'tx-1', status: ITransactionStatus.Queued, stage: 'proving' })
+          })
+          .mockReturnValueOnce({ modify: mockModify });
+        await cancelTransaction({ id: 'tx-1', delegateTransaction } as Transaction, new Error('prover exploded'));
+        const dbTx: any = {};
+        mockModify.mock.calls[0]![0](dbTx);
+        return dbTx;
+      };
+
+      // Delegated (remote) proving → remote message.
+      const remote = await runProvingCancel(true);
+      expect(remote.error).toBe(REMOTE_PROVER_FAILED_ERROR);
+      expect(remote.rawError).toBe('Error: prover exploded');
+
+      // Local (on-device / native) proving → local message, NOT the remote one.
+      const local = await runProvingCancel(false);
+      expect(local.error).toBe(LOCAL_PROVER_FAILED_ERROR);
+      expect(local.rawError).toBe('Error: prover exploded');
+    });
+
+    it('rewrites a sending-stage timeout to the matching prover message but passes through non-timeout sending failures raw', async () => {
+      const runCancel = async (message: string, delegateTransaction?: boolean) => {
+        const mockModify = jest.fn();
+        mockTransactionsWhere
+          .mockReturnValueOnce({
+            first: jest.fn().mockResolvedValueOnce({ id: 'tx-1', status: ITransactionStatus.Queued, stage: 'sending' })
+          })
+          .mockReturnValueOnce({ modify: mockModify });
+        await cancelTransaction({ id: 'tx-1', delegateTransaction } as Transaction, new Error(message));
+        const dbTx: any = {};
+        mockModify.mock.calls[0]![0](dbTx);
+        return dbTx;
+      };
+
+      const remoteTimedOut = await runCancel('request timeout hit', true);
+      expect(remoteTimedOut.error).toBe(REMOTE_PROVER_FAILED_ERROR);
+      expect(remoteTimedOut.rawError).toBe('Error: request timeout hit');
+
+      const localTimedOut = await runCancel('request timeout hit', false);
+      expect(localTimedOut.error).toBe(LOCAL_PROVER_FAILED_ERROR);
+
+      const other = await runCancel('insufficient balance');
+      expect(other.error).toBe('Error: insufficient balance');
+      expect(other.rawError).toBeUndefined();
     });
   });
 

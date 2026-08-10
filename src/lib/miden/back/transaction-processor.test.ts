@@ -16,6 +16,9 @@
 const mockAlarmsCreate = jest.fn();
 const mockAlarmsClear = jest.fn();
 const mockAlarmsOnAlarm = { addListener: jest.fn() };
+const mockStorageGet = jest.fn();
+const mockStorageSet = jest.fn();
+const mockStorageRemove = jest.fn();
 
 // The real webextension-polyfill module shape. Tests override the
 // import behavior in specific cases to force rejection.
@@ -24,6 +27,13 @@ const mockPolyfill = {
     create: (...args: unknown[]) => mockAlarmsCreate(...args),
     clear: (...args: unknown[]) => mockAlarmsClear(...args),
     onAlarm: mockAlarmsOnAlarm
+  },
+  storage: {
+    local: {
+      get: (...args: unknown[]) => mockStorageGet(...args),
+      set: (...args: unknown[]) => mockStorageSet(...args),
+      remove: (...args: unknown[]) => mockStorageRemove(...args)
+    }
   }
 };
 
@@ -43,6 +53,11 @@ jest.mock('lib/miden/transaction', () => ({
   cancelStuckTransactions: (...args: unknown[]) => mockCancelStuckTransactions(...args)
 }));
 
+const mockDbOpen = jest.fn();
+jest.mock('lib/miden/repo', () => ({
+  db: { open: (...args: unknown[]) => mockDbOpen(...args) }
+}));
+
 const mockWithUnlocked = jest.fn();
 jest.mock('./store', () => ({
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
@@ -59,6 +74,10 @@ beforeEach(() => {
   mockGetAllUncompletedTransactions.mockResolvedValue([]);
   mockSafeGenerateTransactionsLoop.mockResolvedValue({ success: true });
   mockCancelStuckTransactions.mockResolvedValue(undefined);
+  mockDbOpen.mockResolvedValue(undefined);
+  mockStorageGet.mockResolvedValue({});
+  mockStorageSet.mockResolvedValue(undefined);
+  mockStorageRemove.mockResolvedValue(undefined);
 });
 
 /** Flush a few microtask / macrotask ticks so in-flight awaits can progress. */
@@ -217,6 +236,149 @@ describe('setupTransactionProcessor', () => {
     expect(mockCancelStuckTransactions).toHaveBeenCalled();
   });
 
+  it('re-opens Dexie and retries the heal once when it hits DatabaseClosedError (issue #254)', async () => {
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    mockCancelStuckTransactions.mockClear();
+    mockDbOpen.mockClear();
+
+    // An MV3 SW respawn can leave a stale/closed Dexie handle; the first read
+    // rejects with DatabaseClosedError, the retry after re-open succeeds.
+    const dbClosed = new Error('database is closed');
+    dbClosed.name = 'DatabaseClosedError';
+    mockCancelStuckTransactions.mockRejectedValueOnce(dbClosed).mockResolvedValueOnce(undefined);
+
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+    listener({ name: 'miden-tx-stuck-heal' });
+    await flushAsync();
+
+    expect(mockDbOpen).toHaveBeenCalledTimes(1);
+    expect(mockCancelStuckTransactions).toHaveBeenCalledTimes(2);
+    // A recovered heal must not escalate — no diagnostic gets persisted.
+    expect(mockStorageSet).not.toHaveBeenCalled();
+  });
+
+  it('persists a diagnostic to chrome.storage.local when the heal keeps failing after re-open (issue #254)', async () => {
+    // The Segment escalation the PR originally used is dead in the shipped SW
+    // build (`back/analytics.ts` throws without ALEO_WALLET_SEGMENT_WRITE_KEY,
+    // which the background Vite build never defines), so a persistently-wedged
+    // heal must be recorded to `chrome.storage.local` — a sink that actually
+    // works in the MV3 SW and survives a broken IndexedDB.
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    mockCancelStuckTransactions.mockClear();
+    mockStorageSet.mockClear();
+
+    const dbClosed = new Error('database is closed');
+    dbClosed.name = 'DatabaseClosedError';
+    // Rejects persistently — the re-open + retry still fails.
+    mockCancelStuckTransactions.mockRejectedValue(dbClosed);
+
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+    listener({ name: 'miden-tx-stuck-heal' });
+    await flushAsync();
+
+    expect(mockStorageSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stuckTxHealDiagnostic: expect.objectContaining({
+          message: expect.stringContaining('DatabaseClosedError'),
+          consecutiveFailures: 1,
+          lastFailureAt: expect.any(Number)
+        })
+      })
+    );
+  });
+
+  it('increments the consecutiveFailures counter across repeated persistent heal failures (issue #254)', async () => {
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    mockCancelStuckTransactions.mockClear();
+    mockStorageSet.mockClear();
+
+    // A prior diagnostic already exists from earlier failed ticks.
+    mockStorageGet.mockResolvedValue({
+      stuckTxHealDiagnostic: { lastFailureAt: 1, message: 'old failure', consecutiveFailures: 4 }
+    });
+    mockCancelStuckTransactions.mockRejectedValueOnce(new Error('still broken'));
+
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+    listener({ name: 'miden-tx-stuck-heal' });
+    await flushAsync();
+
+    expect(mockStorageSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stuckTxHealDiagnostic: expect.objectContaining({ consecutiveFailures: 5 })
+      })
+    );
+  });
+
+  it('clears the persisted diagnostic on a successful heal so consecutiveFailures is truly consecutive (issue #254)', async () => {
+    // Without a clear-on-success, `consecutiveFailures` is really a monotonic
+    // total: a recovered DB would leave a stale record lingering forever,
+    // implying a wedged heal that has actually healed. A successful heal must
+    // remove the diagnostic key so the counter is truly consecutive.
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+
+    // A tick fails and persists the diagnostic...
+    mockCancelStuckTransactions.mockRejectedValueOnce(new Error('still broken'));
+    mockStorageSet.mockClear();
+    listener({ name: 'miden-tx-stuck-heal' });
+    await flushAsync();
+    expect(mockStorageSet).toHaveBeenCalled();
+
+    // ...then a later tick succeeds and must clear the lingering diagnostic.
+    mockStorageRemove.mockClear();
+    mockCancelStuckTransactions.mockResolvedValueOnce(undefined);
+    listener({ name: 'miden-tx-stuck-heal' });
+    await flushAsync();
+
+    expect(mockStorageRemove).toHaveBeenCalledWith('stuckTxHealDiagnostic');
+  });
+
+  it('clears the persisted diagnostic when the heal succeeds after a Dexie re-open (issue #254)', async () => {
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    mockCancelStuckTransactions.mockClear();
+    mockStorageRemove.mockClear();
+
+    // First read rejects with DatabaseClosedError; the retry after re-open
+    // succeeds — the post-reopen success path must also clear the diagnostic.
+    const dbClosed = new Error('database is closed');
+    dbClosed.name = 'DatabaseClosedError';
+    mockCancelStuckTransactions.mockRejectedValueOnce(dbClosed).mockResolvedValueOnce(undefined);
+
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+    listener({ name: 'miden-tx-stuck-heal' });
+    await flushAsync();
+
+    expect(mockStorageRemove).toHaveBeenCalledWith('stuckTxHealDiagnostic');
+  });
+
+  it('escalates a non-DatabaseClosedError without attempting a Dexie re-open (issue #254)', async () => {
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    mockCancelStuckTransactions.mockClear();
+    mockDbOpen.mockClear();
+    mockStorageSet.mockClear();
+
+    mockCancelStuckTransactions.mockRejectedValueOnce(new Error('some other failure'));
+
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+    listener({ name: 'miden-tx-stuck-heal' });
+    await flushAsync();
+
+    expect(mockDbOpen).not.toHaveBeenCalled();
+    expect(mockStorageSet).toHaveBeenCalledWith(expect.objectContaining({ stuckTxHealDiagnostic: expect.any(Object) }));
+  });
+
   it('keepalive alarm tick does not invoke cancelStuckTransactions', async () => {
     const mod = await import('./transaction-processor');
     mod.setupTransactionProcessor();
@@ -235,6 +397,62 @@ describe('setupTransactionProcessor', () => {
     await flushAsync();
     expect(warnSpy).toHaveBeenCalledWith('[TransactionProcessor] Startup check error:', expect.any(Error));
     warnSpy.mockRestore();
+  });
+});
+
+describe('vaultGuardianProvider — locked-vault guard (#313)', () => {
+  it('getAccounts throws a locked-classified error (not a raw null-deref) when the vault is locked', async () => {
+    // Simulate a LOCKED wallet: `inited === true` but `vault === null`.
+    // The real `withUnlocked` only asserts `inited`, so it invokes the
+    // factory with a null vault — the exact state a background Guardian
+    // consume hits when the wallet is locked.
+    mockWithUnlocked.mockImplementation((fn: (ctx: { vault: unknown }) => unknown) => fn({ vault: null }));
+    const mod = await import('./transaction-processor');
+
+    let caught: unknown;
+    try {
+      await mod.vaultGuardianProvider.getAccounts();
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    const message = (caught as Error).message;
+    // Recognisable "locked" signal so the transaction loop DEFERS (requeues)
+    // the tx for retry after unlock…
+    expect(message).toMatch(/locked/i);
+    expect((caught as { reason?: string }).reason).toBe('locked');
+    // …instead of the opaque null-vault TypeError the unguarded path threw,
+    // which the loop could not classify and so cancelled the tx.
+    expect(message).not.toMatch(/Cannot read propert/i);
+  });
+
+  it('swSignCallback throws a locked-classified error (not a raw null-deref) when the vault is locked at sign time', async () => {
+    // The sign step of a background Guardian consume: `getAccounts` already
+    // passed (live vault) but an auto-lock nulled the vault before
+    // `executeTransaction` invoked the sign callback. `withUnlocked` only
+    // asserts `inited`, so it hands the factory a null vault. An unguarded
+    // `vault.signTransaction(...)` would throw the opaque
+    // `TypeError: Cannot read properties of null` — which the guardian catch
+    // cannot classify as locked, so the tx is Failed and the note-claim lost.
+    mockWithUnlocked.mockImplementation((fn: (ctx: { vault: unknown }) => unknown) => fn({ vault: null }));
+    const mod = await import('./transaction-processor');
+
+    let caught: unknown;
+    try {
+      await mod.swSignCallback('pubkey-hex', 'signing-inputs-hex');
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    const message = (caught as Error).message;
+    // Recognisable "locked" signal (matched by `isLockedError`) so the guardian
+    // catch re-throws and the loop DEFERS the tx for retry after unlock…
+    expect(message).toMatch(/locked/i);
+    expect((caught as { reason?: string }).reason).toBe('locked');
+    // …not the opaque null-vault TypeError the unguarded sign path threw.
+    expect(message).not.toMatch(/Cannot read propert/i);
   });
 });
 

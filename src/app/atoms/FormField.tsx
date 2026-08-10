@@ -204,6 +204,10 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
             onChange={handleChange}
             onFocus={handleFocus}
             onBlur={handleBlur}
+            // Default Done label on mobile keyboards; textareas keep the
+            // platform return key (Enter inserts a newline there). Callers
+            // can override via the enterKeyHint prop (spread below).
+            enterKeyHint={textarea ? undefined : 'done'}
             {...rest}
           />
 
@@ -271,7 +275,7 @@ const SecretBanner: React.FC<SecretBannerProps> = ({ secretBannerDisplayed, hand
       onClick={handleSecretBannerClick}
     >
       <div className="rounded-lg flex flex-col items-center">
-        <EyeClosedIcon className="m-auto h-5 w-5 opacity-60" />
+        <EyeClosedIcon className="m-auto h-5 w-5 text-heading-gray opacity-60" />
 
         <p className="mt-1 flex items-center text-sm text-text-muted">
           <span>{t('clickToRevealField')}</span>

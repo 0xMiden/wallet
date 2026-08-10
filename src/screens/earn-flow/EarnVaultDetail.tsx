@@ -1,6 +1,7 @@
 import React, { FC, useMemo, useState } from 'react';
 
 import classNames from 'clsx';
+import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { IconName } from 'app/icons/v2';
@@ -11,12 +12,12 @@ import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
 import { MetricCard } from './components';
-import { EARN_DATA } from './data';
+import { placeholderVault } from './earn-mapping';
 import { EarnVault } from './types';
+import { useEarnPositions } from './useEarnPositions';
 
 const TIMEFRAMES = ['1D', '1W', '1M', 'All'];
 const CHART_GREEN = '#90BA89';
-const DEFAULT_VAULT = EARN_DATA.vaults[0]!;
 
 interface EarnVaultDetailProps {
   vaultId: string;
@@ -24,7 +25,9 @@ interface EarnVaultDetailProps {
 
 const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
   const [timeframe, setTimeframe] = useState('1M');
-  const vault = useMemo(() => EARN_DATA.vaults.find(item => item.id === vaultId) ?? DEFAULT_VAULT, [vaultId]);
+  const { t } = useTranslation();
+  const { vaults } = useEarnPositions();
+  const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-vault-detail-page">
@@ -35,13 +38,13 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
             onClick={goBack}
             className="h-10 w-10 bg-gray-25 text-heading-gray hover:bg-gray-50 focus:bg-gray-50"
             size="md"
-            aria-label="Back"
+            aria-label={t('back')}
           />
           <h1 className="min-w-0 truncate font-heading text-[26px] font-bold leading-none text-heading-gray">
             {vault.protocol} &bull; {vault.asset}
           </h1>
           <span className="shrink-0 rounded-full bg-[#DDD4CE] px-3 py-1.5 text-xs font-medium leading-none text-heading-gray">
-            {vault.asset} on {vault.network}
+            {t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}
           </span>
         </div>
       </header>
@@ -56,7 +59,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
               {vault.apy}
             </div>
             <div className="mt-2 text-xs font-bold uppercase leading-none tracking-wide text-gray-secondary">
-              Current APY
+              {t('earnCurrentApy')}
             </div>
             <div className="mt-0.5 text-xl font-semibold leading-none text-status-positive">{vault.apyChange24h}</div>
           </section>
@@ -87,9 +90,11 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
 
           <div className="mt-auto pt-16">
             <Button
-              title="Deposit"
+              data-testid="earn-vault-deposit-btn"
+              title={t('earnDeposit')}
               variant={ButtonVariant.Primary}
-              onClick={() => navigate(`/earn/vaults/${vault.id}/deposit`)}
+              disabled={!vault.id}
+              onClick={() => navigate(`/earn/vaults/${vaultId}/deposit`)}
               className="h-14 max-w-none rounded-full text-lg font-bold"
             />
           </div>
@@ -149,24 +154,32 @@ const VaultAreaChart: FC<{ vault: EarnVault }> = ({ vault }) => {
   );
 };
 
-const VaultStats: FC<{ vault: EarnVault }> = ({ vault }) => (
-  <div className="mt-6 grid grid-cols-3 gap-2">
-    <MetricCard label="TVL" value={vault.tvl} className="px-3" />
-    <MetricCard label="Risk" value={vault.risk} valueClassName="text-[#009B3A]" className="px-3" />
-    <MetricCard
-      label="Audited"
-      value={vault.audited ? '✓ Yes' : 'No'}
-      className="px-3"
-      valueClassName={vault.audited ? 'text-heading-gray' : undefined}
-    />
-  </div>
-);
+const VaultStats: FC<{ vault: EarnVault }> = ({ vault }) => {
+  const { t } = useTranslation();
 
-const VaultAbout: FC<{ vault: EarnVault }> = ({ vault }) => (
-  <section className="mt-4">
-    <h2 className="font-heading text-base font-bold leading-none text-heading-gray">About</h2>
-    <p className="mt-3 text-sm leading-snug text-heading-gray">{vault.about}</p>
-  </section>
-);
+  return (
+    <div className="mt-6 grid grid-cols-3 gap-2">
+      <MetricCard label={t('earnTvlLabel')} value={vault.tvl} className="px-3" />
+      <MetricCard label={t('earnRiskLabel')} value={vault.risk} valueClassName="text-[#009B3A]" className="px-3" />
+      <MetricCard
+        label={t('earnAuditedLabel')}
+        value={vault.audited ? `✓ ${t('yes')}` : t('no')}
+        className="px-3"
+        valueClassName={vault.audited ? 'text-heading-gray' : undefined}
+      />
+    </div>
+  );
+};
+
+const VaultAbout: FC<{ vault: EarnVault }> = ({ vault }) => {
+  const { t } = useTranslation();
+
+  return (
+    <section className="mt-4">
+      <h2 className="font-heading text-base font-bold leading-none text-heading-gray">{t('about')}</h2>
+      <p className="mt-3 text-sm leading-snug text-heading-gray">{vault.about}</p>
+    </section>
+  );
+};
 
 export default EarnVaultDetail;

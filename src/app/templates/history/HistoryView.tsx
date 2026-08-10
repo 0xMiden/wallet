@@ -6,13 +6,27 @@ import { useTranslation } from 'react-i18next';
 import InfiniteScroll from 'react-infinite-scroller';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
+import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoint';
 import { Icon, IconName } from 'app/icons/v2';
+import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
+import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 import { ActivityRow, ActivityStatusTone } from 'components/ui';
 import { navigate } from 'lib/woozie';
 
 import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { isFaucetRequest } from './transactionUtils';
+import {
+  BRIDGE_STATUS_LABEL_KEY,
+  bridgeInRowDisplay,
+  bridgeRowDisplay,
+  EARN_DEPOSIT_STATUS_LABEL_KEY,
+  EARN_WITHDRAW_STATUS_LABEL_KEY,
+  earnDepositSettlementOf,
+  earnWithdrawToneOf,
+  isBridgeInEntry,
+  isEarnWithdrawEntry,
+  isFaucetRequest
+} from './transactionUtils';
 
 type HistoryViewProps = {
   entries: IHistoryEntry[];
@@ -20,6 +34,8 @@ type HistoryViewProps = {
   loadMore: (page: number) => Promise<void>;
   hasMore: boolean;
   scrollParentRef?: RefObject<HTMLDivElement>;
+  /** Set on a token-scoped view (Token Detail); signs swap rows by side. */
+  tokenId?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
   className?: string;
@@ -52,10 +68,62 @@ const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
 // Map an IHistoryEntry to the visual props ActivityRow expects: icon glyph,
 // colored square background, amount string with sign, and status pill (dot +
 // label). Faucet requests get their own dark-blue glyph regardless of icon.
-function buildRowProps(entry: IHistoryEntry, t: (k: string) => string) {
+function buildRowProps(
+  entry: IHistoryEntry,
+  t: (k: string, opts?: Record<string, unknown>) => string,
+  tokenId?: string
+) {
+  // Bridge rows get a dedicated swap-style layout: "Bridge IN → OUT" / "Via
+  // <provider> → <network>" / output amount / status dot. The Miden-side icon
+  // (SEND) and signed amount don't apply. Bridge-in consumes (auto-consumed
+  // EVM→Miden deposits) reuse the same layout with the direction flipped.
+  // A user-cancelled bridge falls through to the plain cancelled row below.
+  if (!entry.isCancelled && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
+    const bridgeIn = entry.txType !== 'bridged-send';
+    const d = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
+    const failed = d.status === 'failed';
+    return {
+      icon: failed ? <Icon name={IconName.Close} size="sm" fill="currentColor" /> : <SwapIcon className="w-5 h-5" />,
+      iconBg: failed ? 'bg-status-negative' : 'bg-[#777487]',
+      title: t('bridgeRowTitle', { from: d.inSymbol, to: d.outSymbol }),
+      subtitle: t('bridgeRowVia', { provider: d.providerLabel, network: d.network }),
+      amount: d.outAmount
+        ? {
+            value: `${bridgeIn ? '+' : ''}${d.outAmount} ${d.outSymbol}`,
+            direction: bridgeIn ? ('positive' as const) : ('neutral' as const)
+          }
+        : undefined,
+      status: { label: t(BRIDGE_STATUS_LABEL_KEY[d.status]), tone: d.status }
+    };
+  }
+
+  // Smart Withdraw row: "Withdraw from Earn" / "Via Epoch → Miden" with a
+  // positive incoming amount and a phase-driven status dot (Redeeming →
+  // Delivering → Received, or Failed). Reuses the bridge status tones.
+  if (!entry.isCancelled && isEarnWithdrawEntry(entry)) {
+    const phase = entry.earnWithdrawPhase ?? 'redeeming';
+    const failed = phase === 'failed';
+    return {
+      icon: failed ? (
+        <FailedCrossIcon className="w-3.5 h-3.5" />
+      ) : (
+        <Icon name={IconName.Earn} size="sm" className="[&_path]:fill-pure-white [&_path]:stroke-pure-white" />
+      ),
+      iconBg: failed ? 'bg-status-negative' : 'bg-tx-earn',
+      title: t('earnWithdrawRowTitle'),
+      subtitle: t('earnWithdrawRowVia'),
+      amount:
+        failed || entry.amount === undefined
+          ? undefined
+          : { value: `+${entry.amount.toString()}`, symbol: entry.token, direction: 'positive' as const },
+      status: { label: t(EARN_WITHDRAW_STATUS_LABEL_KEY[phase]), tone: earnWithdrawToneOf(phase) }
+    };
+  }
+
   const faucet = isFaucetRequest(entry);
   const icon = entry.transactionIcon ?? 'DEFAULT';
-  const isFailed = icon === 'FAILED' || entry.message === 'Transaction failed';
+  const isCancelled = entry.isCancelled === true;
+  const isFailed = !isCancelled && (icon === 'FAILED' || entry.message === 'Transaction failed');
 
   let iconNode: React.ReactNode;
   let iconBg = 'bg-gray-50';
@@ -64,13 +132,19 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string) => string) {
   // Glyphs mirror the home action-bar logos (Send / Receive / Earn / Swap),
   // rendered white over their own hue (set as `iconBg`). The source SVGs ship
   // with hardcoded fills/strokes, so force them white via `[&_path]:*` here.
-  if (faucet) {
+  if (isCancelled) {
+    iconNode = <FailedCrossIcon className="w-3.5 h-3.5" />;
+    iconBg = 'bg-gray-400';
+  } else if (faucet) {
     iconNode = <Icon name={IconName.Faucet} size="sm" className="[&_path]:fill-pure-white" fill="currentColor" />;
     iconBg = 'bg-tx-faucet';
     amountDirection = 'positive';
   } else if (isFailed) {
-    iconNode = <Icon name={IconName.Close} size="sm" fill="currentColor" />;
-    iconBg = 'bg-status-negative';
+    iconNode = <FailedCrossIcon className="w-3.5 h-3.5" />;
+    iconBg = 'bg-[#CC5D5D]';
+  } else if (entry.txType === 'switch-guardian') {
+    iconNode = <SwapIcon className="w-5 h-5" />;
+    iconBg = 'bg-[#777487]';
   } else if (icon === 'RECEIVE') {
     iconNode = <Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />;
     iconBg = 'bg-tx-received';
@@ -87,27 +161,65 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string) => string) {
     iconNode = <Icon name={IconName.Earn} size="sm" className="[&_path]:fill-pure-white [&_path]:stroke-pure-white" />;
     iconBg = 'bg-tx-earn';
     amountDirection = 'positive';
+  } else if (entry.txType === 'earn-deposit') {
+    // Position deposits carry a DEFAULT icon — tag them with the Earn glyph, or a red
+    // cross when the lending leg settled `failed` so the row icon agrees with the red
+    // "Failed" status chip rendered below (statusTone) for that same state.
+    const earnFailed = earnDepositSettlementOf(entry) === 'failed';
+    iconNode = earnFailed ? (
+      <FailedCrossIcon className="w-3.5 h-3.5" />
+    ) : (
+      <Icon name={IconName.Earn} size="sm" className="[&_path]:fill-pure-white [&_path]:stroke-pure-white" />
+    );
+    iconBg = earnFailed ? 'bg-[#CC5D5D]' : 'bg-tx-earn';
+    amountDirection = 'negative';
   } else {
     iconNode = <Icon name={IconName.More} size="sm" fill="currentColor" />;
   }
 
   // Swap rows read "Swap {offered} → {requested}" with the venue as the
   // subtitle, and show the requested side (what the user receives) on the right.
-  const isSwap = !faucet && !isFailed && entry.txType === 'swap';
+  const isSwap = !faucet && !isFailed && !isCancelled && entry.txType === 'swap';
 
-  const title = faucet
-    ? t('faucetRequestTitle')
-    : isSwap && entry.token && entry.requestedToken
-      ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
-      : entry.message || '';
-  const subtitle = isSwap
-    ? t('viaInProtocolDex')
-    : entry.secondaryAddress
-      ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
+  const title = isCancelled
+    ? t('cancelled')
+    : faucet
+      ? t('faucetRequestTitle')
+      : isSwap && entry.token && entry.requestedToken
+        ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
+        : entry.message || '';
+  const subtitle =
+    entry.txType === 'switch-guardian'
+      ? `${guardianEndpointDisplayName(
+          entry.previousGuardianEndpoint,
+          t('unknown')
+        )} → ${guardianEndpointDisplayName(entry.newGuardianEndpoint, t('unknown'))}`
+      : isSwap
+        ? t('viaInProtocolDex')
+        : entry.secondaryAddress
+          ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
+          : undefined;
+
+  // A swap row shows up in BOTH sides' token-scoped histories. On such a page
+  // the row is read as a movement of *that* token, so show the matching side
+  // and sign it: the offered token left the wallet, the requested one arrived.
+  // The unscoped activity list has no side to privilege, so it keeps showing
+  // the requested amount unsigned.
+  const swapSide =
+    isSwap && tokenId
+      ? tokenId === entry.requestedFaucetId
+        ? 'requested'
+        : tokenId === entry.faucetId
+          ? 'offered'
+          : undefined
       : undefined;
 
   let amount: { value: string; symbol?: string; direction: 'positive' | 'negative' | 'neutral' } | undefined;
-  if (isSwap && entry.requestedAmount) {
+  if (swapSide === 'requested' && entry.requestedAmount) {
+    amount = { value: `+${entry.requestedAmount}`, symbol: entry.requestedToken, direction: 'positive' };
+  } else if (swapSide === 'offered' && entry.amount !== undefined) {
+    amount = { value: `-${entry.amount.toString()}`, symbol: entry.token, direction: 'negative' };
+  } else if (isSwap && entry.requestedAmount) {
     amount = { value: entry.requestedAmount, symbol: entry.requestedToken, direction: 'neutral' };
   } else if (entry.amount !== undefined) {
     const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
@@ -116,7 +228,10 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string) => string) {
 
   let statusTone: ActivityStatusTone = 'confirmed';
   let statusLabel = t('confirmed');
-  if (isFailed) {
+  if (isCancelled) {
+    statusTone = 'cancelled';
+    statusLabel = t('cancelled');
+  } else if (isFailed) {
     statusTone = 'failed';
     statusLabel = t('failed');
   } else if (
@@ -125,6 +240,23 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string) => string) {
   ) {
     statusTone = 'pending';
     statusLabel = t('pending');
+  } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
+    // A deposit row completes when the Miden collateral note lands, but the
+    // position only exists once the solver-fulfilled Sepolia lending leg settles —
+    // the chip tracks that leg (mirrors `EarnDepositStatusPill` on the details
+    // page). Deliberately checked AFTER cancelled/failed/pending so a Miden-side
+    // failure always wins over the lending leg's state.
+    const settlement = earnDepositSettlementOf(entry);
+    statusTone = settlement;
+    statusLabel = t(EARN_DEPOSIT_STATUS_LABEL_KEY[settlement]);
+  } else if (isSwap && entry.swapSettlement === 'pending') {
+    // A completed swap row is the single trace of the whole order (its
+    // settlement consumes are suppressed) — the chip reflects settlement.
+    statusTone = 'pending';
+    statusLabel = t('pending');
+  } else if (isSwap && entry.swapSettlement === 'reclaimed') {
+    statusTone = 'cancelled';
+    statusLabel = t('reclaimed');
   }
 
   return {
@@ -145,7 +277,17 @@ function shortAddr(addr: string): string {
 }
 
 const HistoryView = memo<HistoryViewProps>(
-  ({ entries, initialLoading, loadMore, hasMore, scrollParentRef, fullHistory, centerEmptyState, className }) => {
+  ({
+    entries,
+    initialLoading,
+    loadMore,
+    hasMore,
+    scrollParentRef,
+    tokenId,
+    fullHistory,
+    centerEmptyState,
+    className
+  }) => {
     const { t } = useTranslation();
     const noEntries = entries.length === 0;
     const noOperationsClass = fullHistory
@@ -201,7 +343,7 @@ const HistoryView = memo<HistoryViewProps>(
             <DateSeparator dateMs={dateMs} />
             <div className="flex flex-col divide-y divide-rule-default dark:divide-pure-white">
               {dateEntries.map(entry => {
-                const props = buildRowProps(entry, t);
+                const props = buildRowProps(entry, t, tokenId);
                 return (
                   <ActivityRow
                     key={entry.key}

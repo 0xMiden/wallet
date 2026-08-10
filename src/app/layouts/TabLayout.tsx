@@ -9,7 +9,10 @@ import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import { BottomNav, SegmentedActionBar } from 'components/ui';
 import { springs } from 'lib/animation';
+import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
+import { useKeyboardVisible } from 'lib/mobile/useKeyboardVisible';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
@@ -60,6 +63,12 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { pathname } = useLocation();
   const hasUnclaimedNotes = useHasUnclaimedNotes();
   const prevPathnameRef = useRef<string | null>(null);
+
+  // Hide the floating BottomNav whenever the mobile soft keyboard is up —
+  // the keyboard inset (mobile.html) shrinks the layout, and the navbar
+  // hovering right above the keyboard looks odd. Refcounted with the other
+  // useHideNavbarWhileOpen callers (drawers, flows), so it composes.
+  useHideNavbarWhileOpen(useKeyboardVisible());
 
   // During render `prevPathnameRef.current` still holds the previous path
   // (the effect below updates it AFTER commit). That's exactly what we need
@@ -115,16 +124,21 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       label: 'Receive',
       icon: <Icon name={IconName.Receive} className="w-5 h-5" />
     },
-    // {
-    //   id: 'earn',
-    //   label: 'Earn',
-    //   icon: <Icon name={IconName.Earn} className="w-5 h-5" />
-    // },
     {
-      id: 'swap',
-      label: 'Swap',
-      icon: <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
-    }
+      id: 'earn',
+      label: 'Earn',
+      icon: <Icon name={IconName.Earn} className="w-5 h-5" />
+    },
+    // Only the Swap segment is feature-gated (isSwapEnabled); Earn ships unconditionally.
+    ...(isSwapEnabled()
+      ? [
+          {
+            id: 'swap',
+            label: 'Swap',
+            icon: <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
+          }
+        ]
+      : [])
   ];
 
   const activeTab = activeTabFromPath(pathname);
@@ -223,7 +237,14 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       >
         {/* Mobile: the body's safe-area padding (max(16px, env(...)) in
             mobile.html) already keeps the pill off the screen edge. */}
-        <div className={classNames('pointer-events-auto flex-1 px-4', !isMobile() && 'pb-2')}>
+        {/* `min-w-0` lets this flex child shrink to the footer width instead of
+            ballooning to the pill's min-content (the nav's wide `px-13.5` padding
+            makes its min-content ~367px, which otherwise pushed the flex item to
+            399px and overflowed the right edge by ~8px on a 375px-wide viewport).
+            `justify-center` then centers the pill within the row. */}
+        <div
+          className={classNames('pointer-events-auto flex-1 min-w-0 px-4 flex justify-center', !isMobile() && 'pb-2')}
+        >
           <BottomNav items={tabs} activeId={activeTab} onChange={handleTabChange} />
         </div>
       </div>

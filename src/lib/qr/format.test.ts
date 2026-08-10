@@ -2,7 +2,7 @@ import { encodeAddress, decodeAddress, isValidMidenAddress } from './format';
 
 describe('QR format utilities', () => {
   const testnetAddress = 'mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
-  const mainnetAddress = 'm1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
+  const mainnetAddress = 'mm1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
 
   describe('encodeAddress', () => {
     it('adds miden: prefix to address', () => {

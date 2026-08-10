@@ -322,7 +322,13 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   const visibleTitle = transactionComplete ? headerText() : t(processingTitleKey);
   const processingTitle = t('transactionProcessingHeader', { defaultValue: 'Processing' });
   const footerDescription = transactionComplete ? descriptionText() : t('generatingTransactionDescription');
-  const activeStepIndex = transactionComplete ? TRANSACTION_STEPS.length : getActiveTransactionStepIndex(activeStage);
+  // On failure the row's stage freezes at the failing phase (setTransactionStage
+  // never writes past a terminal status), so it pins the cross to the right step.
+  const activeStepIndex = hasErrors
+    ? Math.min(getActiveTransactionStepIndex(activeStage), TRANSACTION_STEPS.length - 1)
+    : transactionComplete
+      ? TRANSACTION_STEPS.length
+      : getActiveTransactionStepIndex(activeStage);
   // A successful tx still renders here for SUCCESS_RECEIPT_DELAY_MS before the
   // receipt takes over, so the hero has to show a settled success state — not
   // the spinner — while the title already reads "Transaction completed".
@@ -348,7 +354,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
         <section className="flex w-full flex-1 flex-col items-center pt-5">
           <TransactionHeroIcon state={heroState} />
 
-          <h2 className="mt-6 w-full px-1 text-center font-heading text-[2rem] font-bold leading-none text-heading-gray dark:text-pure-white">
+          <h2 className="mt-6 w-full px-1 text-center font-heading text-[2rem] font-bold leading-none text-heading-gray">
             {visibleTitle}
           </h2>
 
@@ -371,7 +377,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             })}
           </div>
           {footerDescription && (
-            <p className="w-full text-center text-sm font-heading text-heading-gray pt-4 font-bold dark:text-white">
+            <p className="w-full text-center text-sm font-heading text-heading-gray pt-4 font-bold">
               {footerDescription}
             </p>
           )}

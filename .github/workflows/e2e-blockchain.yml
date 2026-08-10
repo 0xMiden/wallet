@@ -562,7 +562,17 @@ jobs:
       # reaches them via simctl by UDID, independent of xcodebuild.
 
       - name: Build iOS app
-        run: yarn test:e2e:mobile:build
+        # Self-heal the recurring GitHub macOS-runner SwiftPM cache
+        # corruption ("xcodebuild: error: Could not resolve package
+        # dependencies: ... org.swift.swiftpm/repositories/<pkg> ... No
+        # such file or directory"): on a failed build, wipe the corrupt
+        # SwiftPM cache + derived data and retry once before failing.
+        run: |
+          yarn test:e2e:mobile:build || {
+            echo "::warning::iOS build failed; clearing SwiftPM cache (runner cache corruption) and retrying once"
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm" ios/App/build
+            yarn test:e2e:mobile:build
+          }
 
       - name: Run blockchain E2E (mobile, devnet)
         id: e2e
@@ -735,7 +745,17 @@ jobs:
       # reaches them via simctl by UDID, independent of xcodebuild.
 
       - name: Build iOS app
-        run: yarn test:e2e:mobile:build
+        # Self-heal the recurring GitHub macOS-runner SwiftPM cache
+        # corruption ("xcodebuild: error: Could not resolve package
+        # dependencies: ... org.swift.swiftpm/repositories/<pkg> ... No
+        # such file or directory"): on a failed build, wipe the corrupt
+        # SwiftPM cache + derived data and retry once before failing.
+        run: |
+          yarn test:e2e:mobile:build || {
+            echo "::warning::iOS build failed; clearing SwiftPM cache (runner cache corruption) and retrying once"
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm" ios/App/build
+            yarn test:e2e:mobile:build
+          }
 
       - name: Run blockchain E2E (mobile, testnet)
         # --retries=2 absorbs flaky CDP "no pages found" errors and degraded-
@@ -945,7 +965,17 @@ jobs:
       # reaches them via simctl by UDID, independent of xcodebuild.
 
       - name: Build iOS app
-        run: yarn test:e2e:mobile:build
+        # Self-heal the recurring GitHub macOS-runner SwiftPM cache
+        # corruption ("xcodebuild: error: Could not resolve package
+        # dependencies: ... org.swift.swiftpm/repositories/<pkg> ... No
+        # such file or directory"): on a failed build, wipe the corrupt
+        # SwiftPM cache + derived data and retry once before failing.
+        run: |
+          yarn test:e2e:mobile:build || {
+            echo "::warning::iOS build failed; clearing SwiftPM cache (runner cache corruption) and retrying once"
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm" ios/App/build
+            yarn test:e2e:mobile:build
+          }
 
       - name: Run Guardian E2E (mobile, devnet)
         id: e2e
@@ -1116,7 +1146,17 @@ jobs:
       # reaches them via simctl by UDID, independent of xcodebuild.
 
       - name: Build iOS app
-        run: yarn test:e2e:mobile:build
+        # Self-heal the recurring GitHub macOS-runner SwiftPM cache
+        # corruption ("xcodebuild: error: Could not resolve package
+        # dependencies: ... org.swift.swiftpm/repositories/<pkg> ... No
+        # such file or directory"): on a failed build, wipe the corrupt
+        # SwiftPM cache + derived data and retry once before failing.
+        run: |
+          yarn test:e2e:mobile:build || {
+            echo "::warning::iOS build failed; clearing SwiftPM cache (runner cache corruption) and retrying once"
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm" ios/App/build
+            yarn test:e2e:mobile:build
+          }
 
       - name: Run Guardian E2E (mobile, testnet)
         # --retries=2 absorbs the residual onboarding flake + flaky CDP on macos-26

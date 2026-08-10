@@ -1,7 +1,16 @@
+import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
 import { getDateFnsLocale } from 'lib/i18n';
-import { ITransaction, ITransactionType } from 'lib/miden/db/types';
+import {
+  IEarnDepositExtraInputs,
+  IEarnWithdrawExtraInputs,
+  IEarnWithdrawPhase,
+  ITransaction,
+  ITransactionStatus,
+  ITransactionType
+} from 'lib/miden/db/types';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
@@ -22,6 +31,8 @@ export interface SwapHistoryFields {
   /** Requested side — what the activity row shows on the right. */
   requestedAmount?: string;
   requestedToken?: string;
+  /** Requested-side faucet, so a token-scoped view can tell which side it is. */
+  requestedFaucetId?: string;
 }
 
 /**
@@ -41,7 +52,8 @@ export const resolveSwapHistoryFields = async (tx: ITransaction): Promise<SwapHi
     token: offered.symbol,
     requestedAmount:
       extra.requestedAmount !== undefined ? formatAmount(extra.requestedAmount, requested.decimals) : undefined,
-    requestedToken: requested.symbol
+    requestedToken: requested.symbol,
+    requestedFaucetId: extra.requestedFaucetId
   };
 };
 
@@ -51,6 +63,175 @@ export const isFaucetRequest = (entry: IHistoryEntry): boolean => {
   return (
     entry.transactionIcon === 'RECEIVE' && entry.faucetId === midenFaucetId && entry.secondaryAddress === midenFaucetId
   );
+};
+
+export const isCompletedTransaction = (message: string): boolean => {
+  return message === 'Sent' || message === 'Received' || message === 'Reclaimed' || message === 'Executed';
+};
+
+/**
+ * Round a bridge's (USDC) destination output to 2 decimals for display. The
+ * stored value is full 18-decimal precision; the row + detail only ever show 2.
+ * Passes non-numeric input through unchanged.
+ */
+export const formatBridgeOutputAmount = (amount: string | undefined): string | undefined => {
+  if (amount === undefined) return undefined;
+  const n = Number(amount);
+  return Number.isFinite(n) ? n.toFixed(2) : amount;
+};
+
+export type BridgeStatus = 'pending' | 'confirmed' | 'failed';
+
+/**
+ * Normalize a `bridged-send` row to a single Pending/Confirmed/Failed status
+ * across both routes: Agglayer derives it from the L1 claim lifecycle, Epoch from
+ * the polled intent fill status.
+ */
+export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
+  // A failed Miden transaction never created a bridge deposit. Its terminal
+  // transaction status must win over the initial route metadata (Agglayer
+  // rows are born with `claimStatus: pending`).
+  if (entry.status === ITransactionStatus.Failed) return 'failed';
+
+  if (entry.txType === 'bridged-receive') {
+    if (entry.bridgeInPhase === 'ready' || entry.bridgeInPhase === 'received') return 'confirmed';
+    if (entry.bridgeInPhase === 'failed') return 'failed';
+    return 'pending';
+  }
+  if (entry.txType === 'consume' && entry.bridgeInProvider) return 'confirmed';
+  if (entry.bridgeProvider === 'agglayer') {
+    if (entry.bridgeClaimStatus === 'claimed') return 'confirmed';
+    if (entry.bridgeClaimStatus === 'failed') return 'failed';
+    return 'pending';
+  }
+  return entry.bridgeEpochStatus ?? 'pending';
+};
+
+/** i18n key for each bridge status (shared by the summary row + full Activity row). */
+export const BRIDGE_STATUS_LABEL_KEY: Record<BridgeStatus, string> = {
+  pending: 'pending',
+  confirmed: 'confirmed',
+  failed: 'bridgeFailed'
+};
+
+export interface BridgeRowDisplay {
+  inSymbol: string;
+  outSymbol: string;
+  /** Quoted destination output (2dp), falling back to the input amount for legacy/in-flight rows. */
+  outAmount?: string;
+  providerLabel: string;
+  network: string;
+  status: BridgeStatus;
+}
+
+/**
+ * Shared display fields for a `bridged-send` activity entry, so the summary row
+ * (`HistoryItem`) and the full Activity row (`HistoryView` → `ActivityRow`) render
+ * identically: "Bridge IN → OUT", "Via <provider> → <network>", output amount, status.
+ */
+export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
+  const inSymbol = entry.token ?? '—';
+  const outSymbol = entry.bridgeOutputSymbol ?? (entry.bridgeProvider === 'agglayer' ? 'ETH' : 'USDC');
+  const outAmount = formatBridgeOutputAmount(entry.bridgeOutputAmount) ?? entry.amount?.toString();
+  const providerLabel =
+    entry.bridgeProvider === 'agglayer' ? 'Agglayer' : entry.bridgeProvider === 'epoch' ? 'Epoch' : 'Bridge';
+  return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Sepolia', status: bridgeStatusOf(entry) };
+};
+
+/** `consume` rows that claimed a bridged-in (EVM → Miden) note render as bridge rows. */
+export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
+  entry.txType === 'bridged-receive' || (entry.txType === 'consume' && entry.bridgeInProvider !== undefined);
+
+/**
+ * Display fields for a bridge-in `consume` entry, mirroring `bridgeRowDisplay`
+ * with the direction flipped: EVM-side input token → Miden token received. The
+ * row is only tagged once the consume is on-chain-final, so status is always
+ * confirmed.
+ */
+export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
+  const inSymbol = entry.bridgeInSourceSymbol ?? 'USDC';
+  const outSymbol = entry.bridgeInOutputSymbol ?? entry.token ?? '—';
+  const outAmount =
+    entry.bridgeInPhase === 'received' || entry.txType === 'consume'
+      ? entry.amount?.toString()
+      : (formatBridgeOutputAmount(entry.bridgeInOutputAmount) ?? entry.amount?.toString());
+  const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
+  return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
+};
+
+/** `earn-withdraw` rows carry a Smart Withdraw lifecycle phase. */
+export const isEarnWithdrawEntry = (entry: IHistoryEntry): boolean => entry.txType === 'earn-withdraw';
+
+/** Trim a human decimal amount to at most 2 places (e.g. `2.50000000` → `2.5`). */
+export const formatEarnWithdrawAmount = (human: string): string => {
+  const n = new BigNumber(human);
+  return n.isFinite() ? n.decimalPlaces(2, BigNumber.ROUND_DOWN).toFixed() : human;
+};
+
+/** Map each withdraw phase to the row status-chip tone (reuses the bridge tones). */
+export const earnWithdrawToneOf = (phase: IEarnWithdrawPhase | undefined): BridgeStatus => {
+  if (phase === 'received') return 'confirmed';
+  if (phase === 'failed') return 'failed';
+  return 'pending';
+};
+
+/** i18n key for each withdraw phase status chip. */
+export const EARN_WITHDRAW_STATUS_LABEL_KEY: Record<IEarnWithdrawPhase, string> = {
+  redeeming: 'earnWithdrawStatusRedeeming',
+  delivering: 'earnWithdrawStatusDelivering',
+  received: 'received',
+  failed: 'failed'
+};
+
+/** The amount/symbol pair an `earn-withdraw` row (and its detail hero) displays. */
+export interface EarnWithdrawAmountFields {
+  amount?: string;
+  token?: string;
+}
+
+/**
+ * Which side of a Smart Withdraw the activity shows.
+ *
+ * While the withdrawal is in flight (or dead) the only known figure is the
+ * redeemed source side — human-decimal USDC on Sepolia, NOT the row's atomic
+ * `amount`. Once the bridged note is consumed (`phase === 'received'`) the
+ * consume path patches the row with the amount that actually arrived,
+ * denominated in `faucetId`'s asset — so the row must switch to its own amount
+ * scaled by that faucet's metadata. The consume row is suppressed from Activity
+ * (this row is the single trace), so keeping the source side would let the row
+ * claim "+10 USDC" when a different amount of a different asset landed.
+ */
+export const earnWithdrawAmountFields = (
+  extra: IEarnWithdrawExtraInputs,
+  rowAmount: bigint | undefined,
+  destinationMetadata: AssetMetadata | undefined
+): EarnWithdrawAmountFields => {
+  if (extra.phase === 'received' && rowAmount !== undefined) {
+    return {
+      amount: formatAmount(rowAmount, destinationMetadata?.decimals),
+      token: destinationMetadata?.symbol ?? extra.outputSymbol
+    };
+  }
+  return { amount: formatEarnWithdrawAmount(extra.sourceAmount), token: extra.sourceSymbol };
+};
+
+/** Settlement state of a Smart Deposit's Sepolia lending leg (`extraInputs.epochStatus`). */
+export type EarnDepositSettlement = NonNullable<IEarnDepositExtraInputs['epochStatus']>;
+
+/**
+ * An `earn-deposit` row goes database-Completed the moment the Miden collateral
+ * note lands, but the leg that actually opens the lending position is
+ * solver-fulfilled and tracked separately — so an unstamped/pending leg must not
+ * render as Confirmed. Mirrors `EarnDepositStatusPill` on the detail page.
+ */
+export const earnDepositSettlementOf = (entry: IHistoryEntry): EarnDepositSettlement =>
+  entry.earnDepositStatus ?? 'pending';
+
+/** i18n key per deposit settlement state (reuses the shared status labels). */
+export const EARN_DEPOSIT_STATUS_LABEL_KEY: Record<EarnDepositSettlement, string> = {
+  pending: 'pending',
+  confirmed: 'confirmed',
+  failed: 'failed'
 };
 
 export const fontColorForType = (type: ITransactionType): string => {

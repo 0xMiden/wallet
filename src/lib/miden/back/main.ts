@@ -6,6 +6,7 @@ import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/sp
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
+import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { SerializedInputNoteDetail, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
@@ -25,6 +26,11 @@ export async function start() {
   // NOTE: The Vite sw-patches plugin injects await init_*() calls here
   // (between intercom registration and Actions.init)
 
+  // Apply any developer endpoint override before any client/vault init reads
+  // endpoints. Must run before primeNativeAssetId() below — its cache keys
+  // are derived from getEffectiveNetworkName() at call time.
+  await loadEndpointOverrides();
+
   await Actions.init();
 
   // E2E-only (dead-stripped in prod): expose the swap taker discovery + fill in
@@ -35,6 +41,10 @@ export async function start() {
       const sigHex = await Actions.signTransaction(Buffer.from(pk).toString('hex'), Buffer.from(si).toString('hex'));
       return new Uint8Array(Buffer.from(sigHex, 'hex'));
     });
+    const { installBridgeInTestHooks } = await import('lib/miden/activity/bridge-in-test-hooks');
+    installBridgeInTestHooks();
+    const { installEarnTestHooks } = await import('lib/miden/activity/earn-test-hooks');
+    installEarnTestHooks();
   }
 
   // SpeculationManager wires through the same MidenClientInterface singleton
@@ -58,10 +68,9 @@ export async function start() {
 }
 
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
-  console.log('[processRequest] type:', req?.type);
   switch (req?.type) {
     case WalletMessageType.SyncRequest:
-      doSync().catch(err => console.warn('[SyncManager] Error:', err));
+      doSync(req.force).catch(err => console.warn('[SyncManager] Error:', err));
       return { type: WalletMessageType.SyncResponse };
     case WalletMessageType.NoteClaimStarted:
       intercom.broadcast({ type: WalletMessageType.NoteClaimStarted, noteId: req.noteId });
@@ -270,6 +279,12 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         type: WalletMessageType.SignWordResponse,
         signature: wordSignature
       };
+    case WalletMessageType.SignEvmRequest:
+      const evmSignResult = await Actions.signEvm(req.accountPublicKey, req.operation);
+      return {
+        type: WalletMessageType.SignEvmResponse,
+        result: evmSignResult
+      };
     case WalletMessageType.PersistNewHotKeyRequest:
       await Actions.persistNewHotKey(req.newHotPubKey, req.newHotCiphertext);
       return {
@@ -284,6 +299,28 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       await Actions.setGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
       return {
         type: WalletMessageType.SetGuardianEndpointResponse
+      };
+    case WalletMessageType.SetGuardianOperatorCommitmentRequest:
+      await Actions.setGuardianOperatorCommitment(req.accountPublicKey, req.guardianOperatorCommitment);
+      return {
+        type: WalletMessageType.SetGuardianOperatorCommitmentResponse
+      };
+    case WalletMessageType.SetGuardianSyncStatusRequest:
+      await Actions.setGuardianSyncStatus(req.accountPublicKey, req.guardianSyncStatus);
+      return {
+        type: WalletMessageType.SetGuardianSyncStatusResponse
+      };
+    case WalletMessageType.CheckGuardianDriftRequest:
+      const driftStatus = await Actions.checkGuardianDrift(req.accountPublicKey);
+      return {
+        type: WalletMessageType.CheckGuardianDriftResponse,
+        guardianSyncStatus: driftStatus
+      };
+    case WalletMessageType.ApplyUserGuardianEndpointRequest:
+      const applied = await Actions.applyUserGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
+      return {
+        type: WalletMessageType.ApplyUserGuardianEndpointResponse,
+        applied
       };
     case WalletMessageType.GetPublicKeyForCommitmentRequest:
       const commitmentPublicKey = await Actions.getPublicKeyForCommitment(req.commitment);

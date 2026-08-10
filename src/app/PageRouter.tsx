@@ -6,28 +6,35 @@ import FullScreenPage from 'app/layouts/FullScreenPage';
 import TabLayout from 'app/layouts/TabLayout';
 import Explore from 'app/pages/Explore';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
-import { Pending } from 'app/pages/Pending';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
+import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import * as Woozie from 'lib/woozie';
+import DeveloperSettings from 'screens/developer-settings/DeveloperSettings';
 import EarnDepositAmount from 'screens/earn-flow/EarnDepositAmount';
 import EarnDepositReview from 'screens/earn-flow/EarnDepositReview';
 import EarnPositionDetail from 'screens/earn-flow/EarnPositionDetail';
 import EarnPositions from 'screens/earn-flow/EarnPositions';
 import EarnVaultDetail from 'screens/earn-flow/EarnVaultDetail';
+import EarnWithdrawReview from 'screens/earn-flow/EarnWithdrawReview';
+import EarnWithdrawStatus from 'screens/earn-flow/EarnWithdrawStatus';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
 import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
 import AllHistory from './pages/AllHistory';
+import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
+import PendingNotes from './pages/PendingNotes';
 import ResetRequired from './pages/ResetRequired';
+import RotateGuardian from './pages/RotateGuardian';
+import RotateGuardianReview from './pages/RotateGuardianReview';
 import TokenDetail from './pages/TokenDetail';
 import { resolveRootView } from './root-view';
 import { HistoryDetails } from './templates/history/HistoryDetails';
@@ -77,6 +84,22 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
           return <ForgotPassword />;
       }
     }
+  ],
+  // Developer endpoint override screen. Reachable during onboarding (before the wallet is
+  // ready) via the 7-tap logo unlock on the Welcome screen, so this must be placed ahead of the
+  // `!ready` catch-all below — an onlyReady-wrapped route would never resolve while ctx.ready is
+  // false. Deliberately NOT wrapped in onlyReady (see that helper below). Still defers to Unlock
+  // when locked: an existing, locked wallet always takes priority over this hidden debug screen.
+  [
+    '/developer-settings',
+    (_p, ctx) =>
+      ctx.locked ? (
+        Woozie.Router.SKIP
+      ) : (
+        <FullScreenPage>
+          <DeveloperSettings />
+        </FullScreenPage>
+      )
   ],
   [
     '*',
@@ -129,6 +152,18 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       </TabLayout>
     ))
   ],
+  // Read-only "Network endpoints" screen, linked from the Settings row that's only
+  // shown while a developer endpoint override is active. Placed ahead of the
+  // generic `/settings/:tabSlug?` route below so it matches first (that route's
+  // pattern would otherwise swallow this path with tabSlug='network-endpoints').
+  [
+    '/settings/network-endpoints',
+    onlyReady(() => (
+      <FullScreenPage>
+        <DeveloperSettings readOnly />
+      </FullScreenPage>
+    ))
+  ],
   [
     '/settings/:tabSlug?',
     onlyReady(({ tabSlug }) => (
@@ -155,12 +190,40 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
-    '/pending',
+    '/pending-notes',
     onlyReady(() => (
       <FullScreenPage>
-        <Pending />
+        <PendingNotes />
       </FullScreenPage>
     ))
+  ],
+  [
+    '/rotate-guardian',
+    onlyReady(() => (
+      <FullScreenPage>
+        <RotateGuardian />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/rotate-guardian/review',
+    onlyReady(() => (
+      <FullScreenPage>
+        <RotateGuardianReview />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/bridge/deposit',
+    onlyReady(() =>
+      isBridgeDepositEnabled() ? (
+        <FullScreenPage>
+          <BridgeDeposit />
+        </FullScreenPage>
+      ) : (
+        <Woozie.Redirect to="/receive" />
+      )
+    )
   ],
   [
     '/history-details/:transactionId',
@@ -197,12 +260,20 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
+    // Swap is disabled on iOS (App Store Guideline 3.1.5(iii) — see
+    // isSwapEnabled). The tab and swipe pane are already hidden there; this
+    // redirects any deep link / stale navigation to `/swap` back home so the
+    // exchange surface is unreachable on iOS.
     '/swap',
-    onlyReady(() => (
-      <TabLayout>
-        <SwapFlow />
-      </TabLayout>
-    ))
+    onlyReady(() =>
+      isSwapEnabled() ? (
+        <TabLayout>
+          <SwapFlow />
+        </TabLayout>
+      ) : (
+        <Woozie.Redirect to="/" />
+      )
+    )
   ],
   [
     '/earn/vaults/:vaultId/deposit/review',
@@ -225,6 +296,22 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(({ vaultId }) => (
       <FullScreenPage>
         <EarnVaultDetail vaultId={vaultId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/earn/withdraw-status/:txId',
+    onlyReady(({ txId }) => (
+      <FullScreenPage>
+        <EarnWithdrawStatus txId={txId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/earn/positions/:positionId/withdraw/review',
+    onlyReady(({ positionId }) => (
+      <FullScreenPage>
+        <EarnWithdrawReview positionId={positionId!} />
       </FullScreenPage>
     ))
   ],

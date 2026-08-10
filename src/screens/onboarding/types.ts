@@ -1,4 +1,16 @@
-import type { WalletAccount } from 'lib/shared/types';
+import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
+
+/**
+ * Progress of the background guardian auto-detection probe kicked off right
+ * after seed-phrase entry (issue #418). Type-only import, so referencing this
+ * never pulls the probe (and its SDK/guardian-client deps) into the onboarding
+ * bundle — the probe itself is loaded dynamically.
+ */
+export type GuardianProbeState =
+  | { status: 'idle' }
+  | { status: 'probing' }
+  | { status: 'done'; result: GuardianDiscoveryResult }
+  | { status: 'error'; message: string };
 
 export enum OnboardingType {
   Create = 'create',
@@ -11,11 +23,6 @@ export enum WalletType {
   OnChain = 'on-chain'
 }
 
-export enum ImportType {
-  SeedPhrase = 'seed-phrase',
-  WalletFile = 'wallet-file'
-}
-
 export enum OnboardingStep {
   Welcome = 'welcome',
   SelectWalletType = 'select-wallet-type',
@@ -24,9 +31,7 @@ export enum OnboardingStep {
   SetupBiometric = 'setup-biometric',
   BackupSeedPhrase = 'backup-seed-phrase',
   VerifySeedPhrase = 'verify-seed-phrase',
-  SelectImportType = 'select-import-type',
   ImportFromSeed = 'import-from-seed',
-  ImportFromFile = 'import-from-file',
   CreatePassword = 'create-password',
   BiometricSetup = 'biometric-setup',
   SelectTransactionType = 'select-transaction-type',
@@ -57,7 +62,7 @@ export type OnboardingActionId =
   | 'choose-guardian'
   | 'import-select-recovery-method'
   | 'confirmation'
-  | 'import-from-file'
+  | 'retry-guardian-probe'
   | 'import-from-seed';
 
 export type CreateWalletAction = {
@@ -92,10 +97,6 @@ export type ChooseGuardianSubmitAction = {
 
 export type SelectImportTypeAction = {
   id: 'select-import-type';
-};
-
-export type ImportFromFileAction = {
-  id: 'import-from-file';
 };
 
 export type ImportFromSeedAction = {
@@ -149,12 +150,6 @@ export type BiometricSetupSubmitAction = {
   payload: boolean; // Whether biometric was enabled
 };
 
-export type ImportWalletFileSubmitAction = {
-  id: 'import-wallet-file-submit';
-  payload: string;
-  walletAccounts: WalletAccount[];
-};
-
 export type ImportSeedPhraseSubmitAction = {
   id: 'import-seed-phrase-submit';
   payload: string;
@@ -166,6 +161,11 @@ export type BackAction = {
 
 export type SwitchToPasswordAction = {
   id: 'switch-to-password';
+};
+
+/** Re-run the guardian auto-detection probe for the already-entered seed phrase. */
+export type RetryGuardianProbeAction = {
+  id: 'retry-guardian-probe';
 };
 
 export type OnboardingAction =
@@ -190,9 +190,8 @@ export type OnboardingAction =
   | ConfirmationAction
   | ImportSeedPhraseSubmitAction
   | BackAction
-  | ImportFromFileAction
   | ImportFromSeedAction
-  | ImportWalletFileSubmitAction
+  | RetryGuardianProbeAction
   | SwitchToPasswordAction;
 
 // TODO: Potentially make this into what the onboarding flows use to render the

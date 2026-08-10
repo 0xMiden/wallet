@@ -2,6 +2,7 @@ import {
   Account,
   AccountFile,
   AuthSecretKey,
+  type ConsumableNoteRecord,
   exportStore,
   getWasmOrThrow,
   importStore,
@@ -16,7 +17,8 @@ import {
   NoteType,
   TransactionProver,
   TransactionRequest,
-  TransactionResult
+  TransactionResult,
+  WasmWebClient
 } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
 
@@ -25,11 +27,11 @@ import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activit
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
 import { getSpeculationManager, type SpeculationParams } from 'lib/miden/back/speculation-manager';
 import {
-  DEFAULT_NETWORK,
-  MIDEN_NETWORK_ENDPOINTS,
-  MIDEN_PROVING_ENDPOINTS,
-  getNoteTransportUrl
-} from 'lib/miden-chain/constants';
+  getEffectiveNetworkName,
+  getEffectiveNoteTransportUrl,
+  getEffectiveProverUrl,
+  getEffectiveRpcUrl
+} from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
 import type { AuthScheme } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -188,7 +190,7 @@ export class MidenClientInterface {
   }
 
   static async create(options: MidenClientCreateOptions = {}) {
-    const network = DEFAULT_NETWORK;
+    const network = getEffectiveNetworkName();
 
     if (process.env.MIDEN_USE_MOCK_CLIENT === 'true') {
       const sdk = await import('@miden-sdk/miden-sdk/lazy');
@@ -199,8 +201,8 @@ export class MidenClientInterface {
     const hasKeystore = !!(options.getKeyCallback || options.insertKeyCallback || options.signCallback);
 
     const midenClient = await MidenClient.create({
-      rpcUrl: MIDEN_NETWORK_ENDPOINTS.get(network)!,
-      noteTransportUrl: getNoteTransportUrl(network),
+      rpcUrl: getEffectiveRpcUrl(),
+      noteTransportUrl: getEffectiveNoteTransportUrl(),
       seed: options.seed,
       keystore: hasKeystore
         ? {
@@ -209,7 +211,7 @@ export class MidenClientInterface {
             sign: options.signCallback!
           }
         : undefined,
-      proverUrl: MIDEN_PROVING_ENDPOINTS.get(network),
+      proverUrl: getEffectiveProverUrl(),
       // On mobile (Capacitor / WKWebView / Android WebView) we MUST opt out
       // of the SDK's Web-Worker shim. Two independent reasons:
       //
@@ -342,7 +344,10 @@ export class MidenClientInterface {
       const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');
       const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
 
-      const lookupClient = new MultisigClient(this.client, { guardianEndpoint });
+      const lookupClient = new MultisigClient(this.client, {
+        guardianEndpoint,
+        midenRpcEndpoint: getEffectiveRpcUrl()
+      });
       const lookupSigner = new EcdsaSigner(coldSk);
       const matches = await lookupClient.recoverByKey(lookupSigner);
 
@@ -471,19 +476,63 @@ export class MidenClientInterface {
   }
 
   async getConsumableNotes(accountId: string): Promise<InputNoteRecord[]> {
-    return await this.client.notes.listAvailable({ account: accountId });
+    // Use the consumability-annotated listing (raw WebClient) instead of the
+    // bare `notes.listAvailable`: a sender-side P2IDE note is "available" but
+    // only consumable-as-reclaimer AFTER its reclaim height. The bare listing
+    // surfaced those as claimable-now, so consume attempts before the height
+    // fail on the kernel's reclaim assertion (#308's 126 failed attempts).
+    // Drop every note whose consumability for this account starts at a future
+    // block; once the height is reached it reappears and becomes recallable.
+    // NOTE: a note whose reclaim height is ALREADY reached is consumable-now
+    // by design and passes this filter — self-sends (where auto-consume would
+    // claim the note right back) are blocked at the send-flow entry instead.
+    //
+    // Reads through a transient raw WasmWebClient (same IndexedDB store as
+    // the main client, separate WASM object so it can't trip the
+    // single-threaded aliasing guard) — the SDK wrapper exposes no
+    // consumability-annotated listing.
+    if (this.network === 'mock') {
+      return await this.client.notes.listAvailable({ account: accountId });
+    }
+    const wasm = await getWasmOrThrow();
+    const syncHeight = await this.client.getSyncHeight();
+    const inner = await WasmWebClient.createClient(getEffectiveRpcUrl());
+    try {
+      const records: ConsumableNoteRecord[] = await inner.getConsumableNotes(resolveAccountId(wasm, accountId));
+      return records
+        .filter(record => {
+          // One consumability entry per relevant account; we queried a single
+          // account, so any entry gated on a future block hides the note.
+          // `consumableAfterBlock()` is undefined for consumable-now (and for
+          // never-consumable — those keep the pre-existing behavior).
+          const gatedUntil = record
+            .noteConsumability()
+            .map(entry => entry.consumptionStatus().consumableAfterBlock())
+            .find(after => after !== undefined);
+          return gatedUntil === undefined || gatedUntil <= syncHeight;
+        })
+        .map(record => record.inputNoteRecord());
+    } finally {
+      inner.terminate();
+    }
   }
 
   async sendTransaction(dbTransaction: SendTransaction): Promise<TransactionResult> {
     const { accountId, secondaryAccountId, faucetId, noteType, amount, extraInputs } = dbTransaction;
 
+    // extraInputs.recallBlocks is a RELATIVE blocks-until-recall offset (every
+    // producer — send UI, dApp path, epoch bridge — passes an offset). This is
+    // the ONE place it becomes an absolute reclaim height; the SDK bakes
+    // `reclaimAfter` verbatim into the P2IDE note inputs. Adding an
+    // already-absolute value here doubles the chain height and makes recall
+    // fail for days (#308).
     let reclaimAfter: number | undefined;
     if (extraInputs?.recallBlocks) {
       const syncResult = await this.client.sync();
       reclaimAfter = syncResult.blockNum() + extraInputs.recallBlocks;
     }
 
-    return this.withProverFallback(async prover => {
+    return proveWithFallback(async prover => {
       if (this.shouldUseOffscreenProver(prover)) {
         // SpeculationParams MUST hash identically to whatever the popup
         // sent in SPECULATE_SEND_REQUEST so the cache hits. We skip the
@@ -581,10 +630,13 @@ export class MidenClientInterface {
   }
 
   async consumeNoteId(transaction: ConsumeTransaction): Promise<TransactionResult> {
-    const { accountId, noteId } = transaction;
+    const { accountId, noteId, noteIds } = transaction;
+
+    // Batch claims consume every note in one transaction (one proof/submit).
+    const targetNoteIds = noteIds && noteIds.length > 0 ? noteIds : [noteId];
 
     recordProveTiming(`consumeNoteId entered noteId=${noteId} delegateTransaction=${transaction.delegateTransaction}`);
-    return this.withProverFallback(async prover => {
+    return proveWithFallback(async prover => {
       recordProveTiming(`consumeNoteId closure entered, prover=${prover ? 'set' : 'undefined'}`);
       if (this.shouldUseOffscreenProver(prover)) {
         return await this.proveLocallyViaOffscreen(async (wasm, inner) => {
@@ -599,15 +651,18 @@ export class MidenClientInterface {
           // produces a tx with zero input notes (the prove succeeds, then
           // completeConsumeTransaction trips on `inputNotes().notes()[0]`
           // being undefined).
-          recordProveTiming('consumeNoteId buildExecuteArgs: calling getInputNote');
-          const inputNoteRecord = await inner.getInputNote(noteId);
-          recordProveTiming(`consumeNoteId buildExecuteArgs: getInputNote returned, found=${!!inputNoteRecord}`);
-          if (!inputNoteRecord) {
-            throw new Error(`Note ${noteId} not found in store`);
+          const notes: Note[] = [];
+          for (const id of targetNoteIds) {
+            recordProveTiming('consumeNoteId buildExecuteArgs: calling getInputNote');
+            const inputNoteRecord = await inner.getInputNote(id);
+            recordProveTiming(`consumeNoteId buildExecuteArgs: getInputNote returned, found=${!!inputNoteRecord}`);
+            if (!inputNoteRecord) {
+              throw new Error(`Note ${id} not found in store`);
+            }
+            notes.push(inputNoteRecord.toNote());
           }
-          const note: Note = inputNoteRecord.toNote();
           recordProveTiming('consumeNoteId buildExecuteArgs: toNote done; calling newConsumeTransactionRequest');
-          const request: TransactionRequest = await inner.newConsumeTransactionRequest([note]);
+          const request: TransactionRequest = await inner.newConsumeTransactionRequest(notes);
           recordProveTiming('consumeNoteId buildExecuteArgs: newConsumeTransactionRequest returned');
           const acctId = resolveAccountId(wasm, accountId);
           recordProveTiming('consumeNoteId buildExecuteArgs: resolveAccountId returned');
@@ -615,22 +670,19 @@ export class MidenClientInterface {
         });
       }
       recordProveTiming('consumeNoteId calling SDK client.transactions.consume');
-      let result;
       try {
-        const r = await this.client.transactions.consume({
+        const { result } = await this.client.transactions.consume({
           account: accountId,
-          notes: [noteId],
+          notes: targetNoteIds,
           prover
         });
-        result = r.result;
-      } catch (err) {
-        recordProveTiming(
-          `consumeNoteId SDK consume THREW: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`
-        );
-        throw err;
+        recordProveTiming('consumeNoteId SDK consume returned');
+        return result;
+      } catch (error) {
+        const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+        recordProveTiming(`consumeNoteId SDK consume THREW ${detail}`);
+        throw error;
       }
-      recordProveTiming('consumeNoteId SDK consume returned');
-      return result;
     }, transaction.delegateTransaction);
   }
 
@@ -651,7 +703,7 @@ export class MidenClientInterface {
     const offer = { token: faucetId, amount };
     const request = { token: extraInputs.requestedFaucetId, amount: extraInputs.requestedAmount };
 
-    return this.withProverFallback(async prover => {
+    return proveWithFallback(async prover => {
       const { result } = await this.client.transactions.pswapCreate({
         account: accountId,
         offer,
@@ -669,7 +721,7 @@ export class MidenClientInterface {
   ): Promise<TransactionResult> {
     const transactionRequest = TransactionRequest.deserialize(requestBytes);
 
-    return this.withProverFallback(async prover => {
+    return proveWithFallback(async prover => {
       if (this.shouldUseOffscreenProver(prover)) {
         return await this.proveLocallyViaOffscreen(async wasm => {
           // `inner.executeTransaction` consumes both args by value. We get a
@@ -839,64 +891,81 @@ export class MidenClientInterface {
   ): Promise<void> {
     await this.client.transactions.waitFor(transactionId, { timeout: maxWaitMs, interval: delayMs });
   }
+}
 
-  private async withProverFallback<T>(
-    fn: (prover?: TransactionProver) => Promise<T>,
-    delegateTransaction?: boolean
-  ): Promise<T> {
-    recordProveTiming(`withProverFallback entered delegateTransaction=${delegateTransaction}`);
-    const shouldDelegate = delegateTransaction === true;
+/**
+ * Select the prover and run `fn(prover)` for a transaction. Shared by EVERY
+ * wallet transaction path (guardian and non-guardian) so proving behaves
+ * identically everywhere:
+ *  - delegate (setting on) → `fn()` with no explicit prover, so the caller
+ *    proves via its remote prover; on failure, fall back to the local/native
+ *    prover below.
+ *  - otherwise → `fn(localProver)`, where localProver is the native Rust prover
+ *    on mobile (off the main thread via @miden/native-prover) and the WASM local
+ *    prover on desktop/extension.
+ *
+ * On mobile we must NEVER prove with WASM on the main thread — it freezes the UI
+ * for the whole multi-second prove. Callers driving the raw inner WebClient
+ * directly (the guardian pipeline) must pass an explicit remote prover in the
+ * delegate branch, since the raw client's default prover is the main-thread WASM
+ * one; see `generateGuardianTransaction`.
+ */
+export async function proveWithFallback<T>(
+  fn: (prover?: TransactionProver) => Promise<T>,
+  delegateTransaction?: boolean
+): Promise<T> {
+  recordProveTiming(`withProverFallback entered delegateTransaction=${delegateTransaction}`);
+  const shouldDelegate = delegateTransaction === true;
 
-    // Mobile builds prove via the native iOS / Android Capacitor plugin
-    // (@miden/native-prover) instead of WASM. iOS WKWebView can't be made
-    // crossOriginIsolated under Capacitor 8, so the MT WASM bundle can't
-    // instantiate; rather than fall back to (very slow) ST WASM, we
-    // route to a native Rust prover linked into the app. Same wire
-    // format as RemoteTransactionProver — bytes in, bytes out — so the
-    // SDK dispatch path is unchanged downstream.
-    const localProverFactory = (): TransactionProver => {
-      if (isMobile()) {
-        return TransactionProver.newCallbackProver(buildNativeProverCallback());
-      }
-      return TransactionProver.newLocalProver();
-    };
-
-    try {
-      const t0 = performance.now();
-      const result = !shouldDelegate ? await fn(localProverFactory()) : await fn();
-      const pathLabel = shouldDelegate ? 'delegate' : isMobile() ? 'native-mobile' : 'local';
-      const durationMs = (performance.now() - t0).toFixed(1);
-      recordProveTiming(`path=${pathLabel} duration_ms=${durationMs} platform=${isMobile() ? 'mobile' : 'desktop'}`);
-      // A successful prover call (whether local or remote) means the prover
-      // pathway the wallet actually uses is healthy. If we'd previously
-      // marked the prover as down, clear it now — the old design never
-      // cleared and the banner pinned forever after a single transient 502.
-      clearConnectivityIssue('prover');
-      return result;
-    } catch (err) {
-      if (shouldDelegate) {
-        // The remote prover path failed. Whether or not we can fall back
-        // locally, the user-facing surface should know remote proving is
-        // unavailable. Only categorize transport-shaped errors so we
-        // don't trip the banner on semantic WASM errors (e.g. "note has
-        // already been consumed").
-        if (isLikelyNetworkError(err)) {
-          markConnectivityIssue('prover');
-        }
-        // Fall back to the local path. On mobile this is the native
-        // Rust prover; on desktop / extension it's the WASM local prover.
-        recordProveTiming('delegate failed, retrying with local prover');
-        const t0 = performance.now();
-        const result = await fn(localProverFactory());
-        recordProveTiming(
-          `path=${isMobile() ? 'native-mobile-fallback' : 'local-fallback'} duration_ms=${(
-            performance.now() - t0
-          ).toFixed(1)}`
-        );
-        return result;
-      }
-      throw err;
+  // Mobile builds prove via the native iOS / Android Capacitor plugin
+  // (@miden/native-prover) instead of WASM. iOS WKWebView can't be made
+  // crossOriginIsolated under Capacitor 8, so the MT WASM bundle can't
+  // instantiate; rather than fall back to (very slow) ST WASM, we
+  // route to a native Rust prover linked into the app. Same wire
+  // format as RemoteTransactionProver — bytes in, bytes out — so the
+  // SDK dispatch path is unchanged downstream.
+  const localProverFactory = (): TransactionProver => {
+    if (isMobile()) {
+      return TransactionProver.newCallbackProver(buildNativeProverCallback());
     }
+    return TransactionProver.newLocalProver();
+  };
+
+  try {
+    const t0 = performance.now();
+    const result = !shouldDelegate ? await fn(localProverFactory()) : await fn();
+    const pathLabel = shouldDelegate ? 'delegate' : isMobile() ? 'native-mobile' : 'local';
+    const durationMs = (performance.now() - t0).toFixed(1);
+    recordProveTiming(`path=${pathLabel} duration_ms=${durationMs} platform=${isMobile() ? 'mobile' : 'desktop'}`);
+    // A successful prover call (whether local or remote) means the prover
+    // pathway the wallet actually uses is healthy. If we'd previously
+    // marked the prover as down, clear it now — the old design never
+    // cleared and the banner pinned forever after a single transient 502.
+    clearConnectivityIssue('prover');
+    return result;
+  } catch (err) {
+    if (shouldDelegate) {
+      // The remote prover path failed. Whether or not we can fall back
+      // locally, the user-facing surface should know remote proving is
+      // unavailable. Only categorize transport-shaped errors so we
+      // don't trip the banner on semantic WASM errors (e.g. "note has
+      // already been consumed").
+      if (isLikelyNetworkError(err)) {
+        markConnectivityIssue('prover');
+      }
+      // Fall back to the local path. On mobile this is the native
+      // Rust prover; on desktop / extension it's the WASM local prover.
+      recordProveTiming('delegate failed, retrying with local prover');
+      const t0 = performance.now();
+      const result = await fn(localProverFactory());
+      recordProveTiming(
+        `path=${isMobile() ? 'native-mobile-fallback' : 'local-fallback'} duration_ms=${(
+          performance.now() - t0
+        ).toFixed(1)}`
+      );
+      return result;
+    }
+    throw err;
   }
 }
 

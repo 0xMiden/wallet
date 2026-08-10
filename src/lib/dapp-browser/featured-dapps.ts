@@ -13,12 +13,14 @@
  */
 
 import faucetIcon from 'app/misc/dapp-icons/faucet.png';
+import forkchoiceFaucetIcon from 'app/misc/dapp-icons/forkchoice-faucet.png';
 import luminaIcon from 'app/misc/dapp-icons/lumina.png';
 import midenNameIcon from 'app/misc/dapp-icons/miden-name.png';
 import midenIcon from 'app/misc/dapp-icons/miden.png';
 import playgroundIcon from 'app/misc/dapp-icons/playground.png';
 import qashIcon from 'app/misc/dapp-icons/qash.png';
 import zoroIcon from 'app/misc/dapp-icons/zoro.png';
+import { isSwapEnabled } from 'lib/feature-flags';
 
 export type FeaturedDappCategory = 'defi' | 'nft' | 'tools' | 'social';
 export type FeaturedDappBadge = 'featured' | 'new' | 'verified';
@@ -42,6 +44,13 @@ export interface FeaturedDapp {
   badge?: FeaturedDappBadge;
   /** Marks dApps that should appear in the hero carousel (vs. just the grid). */
   featured?: boolean;
+  /**
+   * Marks a swap/exchange (DEX) surface. These are hidden from the curated
+   * launcher on iOS, where the app ships without an exchange surface (Apple
+   * treats in-app crypto exchange as requiring licensing under Guideline
+   * 3.1.5(iii)). See `getExploreGridDapps` / `isSwapEnabled`.
+   */
+  isExchange?: boolean;
 }
 
 export const FEATURED_DAPPS: FeaturedDapp[] = [
@@ -66,7 +75,8 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     brandColor: '#1D4ED8',
     category: 'defi',
     badge: 'featured',
-    featured: true
+    featured: true,
+    isExchange: true
   },
   {
     id: 'faucet',
@@ -80,6 +90,16 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     badge: 'verified'
   },
   {
+    id: 'forkchoice-faucet',
+    name: 'Forkchoice Faucet',
+    url: 'https://faucets.forkchoice.xyz/',
+    icon: forkchoiceFaucetIcon,
+    shortDescription: 'Gamified testnet MIDEN faucet',
+    genre: 'Helper Tool',
+    brandColor: '#2563EB',
+    category: 'tools'
+  },
+  {
     id: 'lumina',
     name: 'Lumina Engine',
     url: 'https://beta.luminaengine.ai/',
@@ -89,7 +109,8 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     brandColor: '#FACC15',
     category: 'defi',
     badge: 'new',
-    featured: true
+    featured: true,
+    isExchange: true
   },
   {
     id: 'qash',
@@ -120,13 +141,35 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     genre: 'Naming Service',
     brandColor: '#10B981',
     category: 'tools'
+  },
+  {
+    id: 'swap-faucet',
+    name: 'Miden Swap Faucet',
+    url: 'https://faucets.forkchoice.xyz',
+    shortDescription: 'The Faucet tokens for swap testing',
+    genre: 'tools',
+    brandColor: '#E77537',
+    icon: midenIcon,
+    category: 'tools'
   }
 ];
 
 /** dApps surfaced in the hero carousel — subset of FEATURED_DAPPS. */
 export const CAROUSEL_DAPPS = FEATURED_DAPPS.filter(d => d.featured);
 
-/** The four curated apps shown on the simplified Explore grid, in display order. */
-export const EXPLORE_GRID_DAPPS: FeaturedDapp[] = ['zoro', 'qash', 'faucet', 'miden-name'].flatMap(id =>
+/** The curated apps shown on the simplified Explore grid, in display order. */
+export const EXPLORE_GRID_DAPPS: FeaturedDapp[] = ['faucet', 'forkchoice-faucet'].flatMap(id =>
   FEATURED_DAPPS.filter(d => d.id === id)
 );
+
+/**
+ * The Explore grid for the current platform. On iOS, where the app ships
+ * without a swap surface (App Store Guideline 3.1.5(iii)), swap/exchange (DEX)
+ * dApps are filtered out so the launcher does not first-party-promote an
+ * exchange the build otherwise omits. Off-iOS it returns EXPLORE_GRID_DAPPS
+ * unchanged. Call at render time (not module scope) so the platform check runs
+ * after Capacitor is initialized.
+ */
+export function getExploreGridDapps(): FeaturedDapp[] {
+  return isSwapEnabled() ? EXPLORE_GRID_DAPPS : EXPLORE_GRID_DAPPS.filter(d => !d.isExchange);
+}

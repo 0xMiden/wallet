@@ -205,6 +205,7 @@ describe('FormField', () => {
 
       const banner = screen.getByText('clickToRevealField');
       expect(banner).toBeInTheDocument();
+      expect(container.querySelector('svg')).toHaveClass('text-heading-gray');
 
       act(() => {
         fireEvent.click(banner);
@@ -407,5 +408,23 @@ describe('FormField', () => {
     expect(screen.getByTestId('extra-section')).toBeInTheDocument();
     expect(screen.getByTestId('dropdown-inner')).toBeInTheDocument();
     expect(screen.getByTestId('extra-button')).toBeInTheDocument();
+  });
+});
+
+describe('FormField — mobile enter key (regression)', () => {
+  it('defaults the input return key to Done', () => {
+    const { container } = render(<FormField />);
+    expect(getInput(container).getAttribute('enterkeyhint')).toBe('done');
+  });
+
+  it('leaves the textarea return key alone (Enter inserts a newline there)', () => {
+    const { container } = render(<FormField textarea />);
+    const textarea = container.querySelector('textarea');
+    expect(textarea?.getAttribute('enterkeyhint')).toBeNull();
+  });
+
+  it('lets callers override the default', () => {
+    const { container } = render(<FormField enterKeyHint="go" />);
+    expect(getInput(container).getAttribute('enterkeyhint')).toBe('go');
   });
 });

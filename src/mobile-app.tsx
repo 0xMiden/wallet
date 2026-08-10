@@ -15,6 +15,7 @@ import { WindowType } from 'app/env';
 import { getMobileIntercomAdapter } from 'lib/intercom/mobile-adapter';
 import { installGuardianCorsBypass } from 'lib/miden/guardian/native-http';
 import { initMobileBackHandler } from 'lib/mobile/back-handler';
+import { initKeyboardInset } from 'lib/mobile/keyboard-inset';
 import { initTheme } from 'lib/settings/theme';
 
 initTheme();
@@ -56,6 +57,8 @@ async function initMobile() {
 
     console.log('Mobile app: Initializing back handler');
     await initMobileBackHandler();
+
+    await initKeyboardInset();
 
     console.log('Mobile app: Backend initialized, rendering UI');
 

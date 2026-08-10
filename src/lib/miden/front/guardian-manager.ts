@@ -4,6 +4,7 @@ import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
+import { sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
 // Cache MultisigService instances to avoid re-initialization on every sync cycle.
@@ -69,7 +70,9 @@ export async function getOrCreateMultisigService(
   const initPromise = (async () => {
     // Verify this is a Guardian account
     const accounts = await provider.getAccounts();
-    const account = accounts.find(acc => acc.publicKey === accountPublicKey);
+    // Match tolerant of id form: dApp-initiated txs arrive with the bare bech32
+    // address while WalletAccount.publicKey is a composite `<address>_<suffix>`.
+    const account = accounts.find(acc => sameWalletAccountId(acc.publicKey, accountPublicKey));
     if (!account || account.type !== WalletType.Guardian) {
       throw new Error('Account is not a Guardian account');
     }
@@ -103,7 +106,9 @@ export async function getOrCreateMultisigService(
     // Get the Account object from the Miden client.
     const { sdkAccount } = await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
-      const sdkAccount = await midenClient.getAccount(accountPublicKey);
+      // Use the matched account's stored publicKey (the form the in-wallet path
+      // uses) rather than the possibly-bare dApp-supplied id.
+      const sdkAccount = await midenClient.getAccount(account.publicKey);
       return { sdkAccount };
     });
 
@@ -145,7 +150,9 @@ export async function getOrCreateMultisigService(
  */
 export async function isGuardianAccount(accountPublicKey: string, provider: GuardianAccountProvider): Promise<boolean> {
   const accounts = await provider.getAccounts();
-  const account = accounts.find(acc => acc.publicKey === accountPublicKey);
+  // Tolerant match — see sameWalletAccountId. A raw `===` misses when a dApp
+  // supplies the bare bech32 address, misrouting a Guardian account non-guardian.
+  const account = accounts.find(acc => sameWalletAccountId(acc.publicKey, accountPublicKey));
   return account?.type === WalletType.Guardian;
 }
 

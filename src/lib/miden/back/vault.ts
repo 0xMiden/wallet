@@ -1,4 +1,3 @@
-import { derivePath } from '@demox-labs/aleo-hd-key';
 import { SendTransaction, SignKind } from '@demox-labs/miden-wallet-adapter-base';
 import {
   AccountBuilder,
@@ -9,6 +8,9 @@ import {
   Word
 } from '@miden-sdk/miden-sdk/lazy';
 import * as Bip39 from 'bip39';
+import { parseTransaction, toHex } from 'viem';
+import type { Hex } from 'viem';
+import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
 
 import { getMessage } from 'lib/i18n';
 import { PublicError } from 'lib/miden/back/defaults';
@@ -22,19 +24,20 @@ import {
 } from 'lib/miden/back/safe-storage';
 import * as Passworder from 'lib/miden/passworder';
 import { clearStorage } from 'lib/miden/reset';
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
+import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
-import { AuthScheme, WalletAccount, WalletSettings } from 'lib/shared/types';
+import { AuthScheme, GuardianSyncStatus, SignEvmOperation, WalletAccount, WalletSettings } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { compareAccountIds } from '../activity/utils';
 import { fetchFromStorage, putToStorage } from '../front/storage';
 import type { CreatedGuardianKeys } from '../guardian/account';
 import { getSignerDetailsFromAccount } from '../guardian/account';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { deriveClientSeed, makeColdSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
+import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 
@@ -107,6 +110,7 @@ enum StorageEntity {
   Mnemonic = 'mnemonic',
   AccAuthSecretKey = 'accauthsecretkey',
   AccColdSecretKey = 'accouldsecretkey',
+  AccEvmSecretKey = 'accevmsecretkey',
   AccAuthPubKey = 'accauthpubkey',
   AccPubKey = 'accpubkey',
   AccViewKey = 'accviewkey',
@@ -124,6 +128,10 @@ const accAuthSecretKeyStrgKey = createDynamicStorageKey(StorageEntity.AccAuthSec
 // Mirror of cold-key blobs keyed by cold pubkey, separate from accAuthSecretKey
 // so role-aware signWord (Phase 3) can route hot vs cold by storage entity.
 const accColdSecretKeyStrgKey = createDynamicStorageKey(StorageEntity.AccColdSecretKey);
+// Wallet-derived EVM private key blobs, keyed by lowercased EVM address.
+// Derived once per account (creation / unlock backfill) so the signing path
+// never has to decrypt the mnemonic — see Vault.signEvm.
+const accEvmSecretKeyStrgKey = createDynamicStorageKey(StorageEntity.AccEvmSecretKey);
 const accAuthPubKeyStrgKey = createDynamicStorageKey(StorageEntity.AccAuthPubKey);
 const currentAccPubKeyStrgKey = createStorageKey(StorageEntity.CurrentAccPubKey);
 const accountsStrgKey = createStorageKey(StorageEntity.Accounts);
@@ -179,6 +187,15 @@ async function persistGuardianKeys(vaultKey: CryptoKey, keys: CreatedGuardianKey
 async function persistRecoveredGuardianColdKey(vaultKey: CryptoKey, coldPublicKey: string, coldSecretKeyHex: string) {
   await encryptAndSaveMany([[accColdSecretKeyStrgKey(coldPublicKey), coldSecretKeyHex]], vaultKey);
 }
+/**
+ * Persist a wallet-derived EVM private key under the vault key, mirroring the
+ * guardian cold-key blob pattern. Idempotent: re-deriving the same account
+ * always yields the same address/key pair.
+ */
+async function persistEvmKey(vaultKey: CryptoKey, evmAddress: Hex, privateKeyHex: Hex) {
+  await encryptAndSaveMany([[accEvmSecretKeyStrgKey(evmAddress.toLowerCase()), privateKeyHex]], vaultKey);
+}
+
 export class Vault {
   constructor(private vaultKey: CryptoKey) {}
 
@@ -392,9 +409,12 @@ export class Vault {
       if (isGuardianRecovery) {
         console.log('[Vault.spawn] Step 7a: recovering Guardian accounts (adopt only — rotation deferred)...');
         const guardianEndpoint =
-          (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+          (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || getEffectiveDefaultGuardianEndpoint();
+        // makeColdSeedDeriver pays the 2048-round PBKDF2 once across the whole
+        // 20-index scan; a per-index deriveClientSeed closure would re-run it
+        // for every index.
         const recovered = await midenClient.recoverGuardianAccountsBySeed(
-          (idx: number) => deriveClientSeed(WalletType.Guardian, mnemonic!, idx),
+          makeColdSeedDeriver(mnemonic!, WalletType.Guardian),
           guardianEndpoint
         );
         createdAccounts = recovered.map(r => ({
@@ -466,6 +486,14 @@ export class Vault {
         ];
       }
 
+      // Wallet-derived EVM identity per HD account, derived while the mnemonic
+      // is in scope. Only the address is stamped on the record; the key is
+      // persisted encrypted in the loop below.
+      const evmKeys = new Map<number, { address: Hex; privateKeyHex: Hex }>();
+      for (const c of createdAccounts) {
+        evmKeys.set(c.hdIndex, deriveEvmKeyPair(mnemonic, walletType, c.hdIndex));
+      }
+
       const initialAccounts: WalletAccount[] = createdAccounts.map((c, idx) => ({
         publicKey: c.accountId,
         name: getMessage('defaultAccountName', { accountNumber: String(idx + 1) }),
@@ -473,6 +501,7 @@ export class Vault {
         type: walletType,
         hdIndex: c.hdIndex,
         authScheme: c.authScheme,
+        evmAddress: evmKeys.get(c.hdIndex)?.address,
         ...(c.guardianEndpoint && { guardianEndpoint: c.guardianEndpoint }),
         ...(c.guardianKeys && {
           hotPublicKey: c.guardianKeys.hotPublicKey,
@@ -494,6 +523,10 @@ export class Vault {
         vaultKey
       );
       for (const c of createdAccounts) {
+        const evmKey = evmKeys.get(c.hdIndex);
+        if (evmKey) {
+          await persistEvmKey(vaultKey, evmKey.address, evmKey.privateKeyHex);
+        }
         if (c.guardianKeys) {
           await persistGuardianKeys(vaultKey, c.guardianKeys);
         }
@@ -602,15 +635,34 @@ export class Vault {
         throw new PublicError('Encrypted file contains no restorable accounts');
       }
 
+      // Stamp wallet-derived EVM identities for HD accounts and persist their
+      // encrypted key blobs (the encrypted file carries account records only,
+      // so blobs must be re-derived on every import). Guard on a real
+      // mnemonic: registerImportedWallet may pass '' when the file carried no
+      // seed, and no EVM key is derivable then.
+      let accountsToSave = walletAccounts;
+      if (mnemonic) {
+        accountsToSave = [];
+        for (const wa of walletAccounts) {
+          if (wa.hdIndex < 0) {
+            accountsToSave.push(wa);
+            continue;
+          }
+          const evmKey = deriveEvmKeyPair(mnemonic, wa.type, wa.hdIndex);
+          await persistEvmKey(vaultKey, evmKey.address, evmKey.privateKeyHex);
+          accountsToSave.push({ ...wa, evmAddress: evmKey.address });
+        }
+      }
+
       await encryptAndSaveMany(
         [
           [checkStrgKey, generateCheck()],
           [mnemonicStrgKey, mnemonic ?? ''],
-          [accountsStrgKey, walletAccounts]
+          [accountsStrgKey, accountsToSave]
         ],
         vaultKey
       );
-      await savePlain(currentAccPubKeyStrgKey, walletAccounts[0]!.publicKey);
+      await savePlain(currentAccPubKeyStrgKey, accountsToSave[0]!.publicKey);
       await savePlain(ownMnemonicStrgKey, true);
 
       // Return the vault instance so caller doesn't need to call unlock() separately
@@ -708,6 +760,10 @@ export class Vault {
 
       const accName = name || getNewAccountName(allAccounts);
 
+      // Wallet-derived EVM identity. Skipped when the vault has no real
+      // mnemonic (encrypted-file imports may store '').
+      const evmKey = mnemonic ? deriveEvmKeyPair(mnemonic, walletType, hdAccIndex) : undefined;
+
       const newAccount: WalletAccount = {
         type: walletType,
         name: accName,
@@ -715,6 +771,7 @@ export class Vault {
         isPublic: walletType === WalletType.OnChain,
         hdIndex: hdAccIndex,
         authScheme: newScheme,
+        ...(evmKey && { evmAddress: evmKey.address }),
         ...(created.guardianEndpoint && { guardianEndpoint: created.guardianEndpoint }),
         ...(created.guardianKeys && {
           hotPublicKey: created.guardianKeys.hotPublicKey,
@@ -734,6 +791,9 @@ export class Vault {
       );
       if (created.guardianKeys) {
         await persistGuardianKeys(this.vaultKey, created.guardianKeys);
+      }
+      if (evmKey) {
+        await persistEvmKey(this.vaultKey, evmKey.address, evmKey.privateKeyHex);
       }
 
       return newAllAcounts;
@@ -957,6 +1017,48 @@ export class Vault {
   }
 
   /**
+   * Persist the operator-wide guardian key commitment baseline for an account,
+   * used by out-of-band-switch detection to know whether the on-chain guardian
+   * signer still matches the account's stored `guardianEndpoint`.
+   */
+  async setGuardianOperatorCommitment(accountPublicKey: string, guardianOperatorCommitment: string) {
+    return withError('Failed to set guardian operator commitment', async () => {
+      const allAccounts = await this.fetchAccounts();
+      const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
+      if (!account) {
+        throw new PublicError('Account not found');
+      }
+      const newAllAccounts = allAccounts.map(acc =>
+        acc.publicKey === accountPublicKey ? { ...acc, guardianOperatorCommitment } : acc
+      );
+      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
+      const currentAccount = await this.getCurrentAccount();
+      return { accounts: newAllAccounts, currentAccount };
+    });
+  }
+
+  /**
+   * Persist the local reconciliation state (`GuardianSyncStatus`) for an
+   * account — 'in-sync', 'resolving', or 'needs-user-input'. Updated as
+   * out-of-band guardian switches are detected and resolved.
+   */
+  async setGuardianSyncStatus(accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) {
+    return withError('Failed to set guardian sync status', async () => {
+      const allAccounts = await this.fetchAccounts();
+      const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
+      if (!account) {
+        throw new PublicError('Account not found');
+      }
+      const newAllAccounts = allAccounts.map(acc =>
+        acc.publicKey === accountPublicKey ? { ...acc, guardianSyncStatus } : acc
+      );
+      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
+      const currentAccount = await this.getCurrentAccount();
+      return { accounts: newAllAccounts, currentAccount };
+    });
+  }
+
+  /**
    * One-time, in-place migration of legacy single-signer Guardian accounts to
    * the 3-key model. Called on every unlock; idempotent (a no-op once an
    * account carries `coldPublicKey` or `requiresHotKeyRotation`).
@@ -1057,6 +1159,37 @@ export class Vault {
     }
   }
 
+  /**
+   * Idempotent, best-effort backfill of the wallet-derived EVM identity for
+   * HD accounts created before `evmAddress` existed. Called on every unlock
+   * (see Actions.unlock); a failure must never block unlock. Imported
+   * accounts (hdIndex < 0) are skipped forever — their keys aren't derivable
+   * from the mnemonic.
+   */
+  async backfillEvmAddresses(): Promise<void> {
+    try {
+      const allAccounts = await this.fetchAccounts();
+      if (!allAccounts.some(acc => !acc.evmAddress && acc.hdIndex >= 0)) return;
+
+      const mnemonic = await fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, this.vaultKey);
+      if (!mnemonic) return; // no seed (keyless encrypted-file import) — leave untouched
+
+      const nextAccounts: WalletAccount[] = [];
+      for (const acc of allAccounts) {
+        if (acc.evmAddress || acc.hdIndex < 0) {
+          nextAccounts.push(acc);
+          continue;
+        }
+        const evmKey = deriveEvmKeyPair(mnemonic, acc.type, acc.hdIndex);
+        await persistEvmKey(this.vaultKey, evmKey.address, evmKey.privateKeyHex);
+        nextAccounts.push({ ...acc, evmAddress: evmKey.address });
+      }
+      await encryptAndSaveMany([[accountsStrgKey, nextAccounts]], this.vaultKey);
+    } catch (e) {
+      console.warn('[Vault.backfillEvmAddresses] failed (non-fatal):', e);
+    }
+  }
+
   async updateSettings(settings: Partial<WalletSettings>) {
     return withError('Failed to update settings', async () => {
       const current = await this.fetchSettings();
@@ -1094,7 +1227,9 @@ export class Vault {
     // tag-stripping consumer — Guardian — but isn't guaranteed to round-trip through the SDK's
     // `Signature.deserialize`.)
     if (signKind === 'word' && accountId) {
-      const account = (await this.fetchAccounts()).find(acc => acc.publicKey === accountId);
+      // Tolerant match: a dApp signBytes supplies the bare bech32 address, but the
+      // stored publicKey is a composite `<address>_<suffix>` (see sameWalletAccountId).
+      const account = (await this.fetchAccounts()).find(acc => sameWalletAccountId(acc.publicKey, accountId));
       if (account?.hotPublicKey) {
         const wordHex = `0x${bytesToHex(b64ToU8(data))}`;
         const sigHex = await this.signWord(account.hotPublicKey, wordHex);
@@ -1179,6 +1314,39 @@ export class Vault {
       this.vaultKey
     );
     return secureHotKey.signHotDigest(hotCiphertext, wordHex);
+  }
+
+  /**
+   * Sign an EVM payload with the wallet-derived EVM key of the given Miden
+   * account. The ONLY EVM API on the vault — its three operations back the
+   * viem `toAccount` CustomSource callbacks of the frontend WalletClient
+   * (see lib/epoch/evm-account.ts). Decrypts only the 32-byte leaf key
+   * (never the mnemonic), signs, and lets every reference fall out of scope.
+   */
+  async signEvm(accountPublicKey: string, operation: SignEvmOperation): Promise<Hex> {
+    return withError('Failed to sign EVM payload', async () => {
+      const accounts = await this.fetchAccounts();
+      const account = accounts.find(acc => sameWalletAccountId(acc.publicKey, accountPublicKey));
+      if (!account?.evmAddress) {
+        throw new PublicError('Account has no EVM key');
+      }
+      const privateKeyHex = await fetchAndDecryptOneWithLegacyFallBack<Hex>(
+        accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase()),
+        this.vaultKey
+      );
+      if (!privateKeyHex) {
+        throw new PublicError('EVM key not found');
+      }
+      const evmAccount = privateKeyToAccount(privateKeyHex);
+      switch (operation.op) {
+        case 'transaction':
+          return evmAccount.signTransaction(parseTransaction(operation.serializedTransaction));
+        case 'typed-data':
+          return evmAccount.sign({ hash: operation.digest });
+        case 'message':
+          return evmAccount.signMessage({ message: { raw: operation.messageHex } });
+      }
+    });
   }
 
   async getPublicKeyForCommitment(pkc: string): Promise<string> {
@@ -1417,25 +1585,29 @@ function isValidHex(s: string): boolean {
   return /^[0-9a-fA-F]+$/.test(s);
 }
 
-function getMainDerivationPath(walletType: WalletType, accIndex: number) {
-  let walletTypeIndex = 0;
-  if (walletType === WalletType.OnChain) {
-    walletTypeIndex = 0;
-  } else if (walletType === WalletType.OffChain) {
-    walletTypeIndex = 1;
-  } else if (walletType === WalletType.Guardian) {
-    walletTypeIndex = 2;
-  } else {
-    throw new Error('Invalid wallet type');
+/**
+ * One-time derivation of the wallet's EVM identity for a Miden HD account,
+ * at account creation / unlock backfill. BIP-44 Ethereum path
+ * m/44'/60'/{walletTypeIndex}'/0/{hdIndex}, deliberately independent of the
+ * bls12_377 SLIP-0010 branch used by `deriveClientSeed` (coin type 60 vs 0), so
+ * the Miden and EVM key families can never collide. The walletTypeIndex segment
+ * mirrors getMainDerivationPath: hdIndex is allocated per privacy bucket, so
+ * without it an OnChain and an OffChain account at the same bucket index would
+ * derive the SAME EVM key/address — commingling Epoch positions and breaking
+ * public/private account isolation. Nothing key-bearing escapes except the
+ * returned pair, which callers persist encrypted and drop.
+ */
+function deriveEvmKeyPair(
+  mnemonic: string,
+  walletType: WalletType,
+  hdIndex: number
+): { address: Hex; privateKeyHex: Hex } {
+  const hdAccount = mnemonicToAccount(mnemonic, { accountIndex: walletTypeIndex(walletType), addressIndex: hdIndex });
+  const privateKey = hdAccount.getHdKey().privateKey;
+  if (!privateKey) {
+    throw new PublicError('EVM key derivation failed');
   }
-  return `m/44'/0'/${walletTypeIndex}'/${accIndex}'`;
-}
-
-function deriveClientSeed(walletType: WalletType, mnemonic: string, hdAccIndex: number) {
-  const seed = Bip39.mnemonicToSeedSync(mnemonic);
-  const path = getMainDerivationPath(walletType, hdAccIndex);
-  const { seed: childSeed } = derivePath(path, seed.toString('hex'));
-  return new Uint8Array(childSeed);
+  return { address: hdAccount.address, privateKeyHex: toHex(privateKey) };
 }
 
 function createStorageKey(id: StorageEntity) {

@@ -6,11 +6,18 @@ import { hapticLight } from 'lib/mobile/haptics';
 
 import { BalanceCard } from './BalanceCard';
 
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
+
 jest.mock('app/icons/v2', () => ({
-  Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
+  Icon: ({ name, className }: { name: string; className?: string }) => (
+    <span data-testid="icon" data-name={name} className={className} />
+  ),
   IconName: {
-    More: 'More',
-    MidenLogo: 'MidenLogo'
+    CopyNew: 'CopyNew',
+    MidenLogo: 'MidenLogo',
+    SettingsNew: 'SettingsNew'
   }
 }));
 
@@ -137,7 +144,7 @@ describe('BalanceCard states, delta, and interactions', () => {
 
     const pill = container.querySelector('.rounded-full');
     expect(pill).not.toBeNull();
-    expect(pill?.textContent).toBe('+$12.34 (+2.5%)');
+    expect(pill?.textContent).toBe('balanceCardDeltaPill');
     expect(pill?.className).toContain('bg-[#A8BBA3]');
   });
 
@@ -166,20 +173,34 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(screen.queryByText(/\+0\.1%/)).toBeNull();
   });
 
-  it('fires haptic feedback and onMore when the more button is clicked', () => {
+  it('fires haptic feedback and onMore when the settings button is clicked', () => {
     const onMore = jest.fn();
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={onMore} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Account options' }));
+    fireEvent.click(screen.getByRole('button', { name: 'balanceCardAccountOptions' }));
 
     expect(onMore).toHaveBeenCalledTimes(1);
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
-  it('omits the more button when onMore is not provided', () => {
+  it('renders the new copy icon and a settings icon colored with the card secondary tone', () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={jest.fn()} />);
+
+    const copyIcon = screen.getByText('balanceCardAccount').nextElementSibling;
+    expect(copyIcon?.getAttribute('data-name')).toBe('CopyNew');
+    // Guards the load-bearing `!` size override (Icon injects a default md size that otherwise wins).
+    expect(copyIcon?.className).toContain('w-3.5!');
+
+    const settingsIcon = screen.getByRole('button', { name: 'balanceCardAccountOptions' }).querySelector('[data-name]');
+    expect(settingsIcon?.getAttribute('data-name')).toBe('SettingsNew');
+    expect(settingsIcon?.className).toContain('text-card-slate-deep');
+    expect(settingsIcon?.className).toContain('w-3!');
+  });
+
+  it('omits the settings button when onMore is not provided', () => {
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" />);
 
-    expect(screen.queryByRole('button', { name: 'Account options' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'balanceCardAccountOptions' })).toBeNull();
   });
 
   it('renders a custom currency and the account label', () => {
@@ -193,7 +214,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     );
 
     expect(screen.getByText('EUR')).toBeTruthy();
-    expect(screen.getByText(/Account #:/)).toBeTruthy();
+    expect(screen.getByText('balanceCardAccount')).toBeTruthy();
   });
 
   it('observes row and text and disconnects on unmount when ResizeObserver exists', () => {

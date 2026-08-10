@@ -111,12 +111,17 @@ const FullActionProbe: React.FC = () => {
     swallow(() => ctx.createAccount?.('on-chain', 'name'));
     swallow(() => ctx.updateCurrentAccount?.('pk'));
     swallow(() => ctx.editAccountName?.('pk', 'new-name'));
+    swallow(() => ctx.setGuardianOperatorCommitment?.('pk', 'commitment-hex'));
+    swallow(() => ctx.setGuardianSyncStatus?.('pk', 'needs-user-input'));
+    swallow(() => ctx.checkGuardianDrift?.('pk'));
+    swallow(() => ctx.applyUserGuardianEndpoint?.('pk', 'https://mine'));
     swallow(() => ctx.revealMnemonic?.('pw'));
     swallow(() => ctx.updateSettings?.({ contacts: [] }));
     swallow(() => ctx.signData?.('pk', 'payload'));
     swallow(() => ctx.signTransaction?.('pk', 'payload'));
     swallow(() => ctx.getAuthSecretKey?.('k'));
     swallow(() => ctx.getDAppPayload?.('id'));
+    swallow(() => ctx.simulateCustomTransaction?.('id'));
     swallow(() => ctx.confirmDAppPermission?.('id', true, 'acc', 'AUTO', 1));
     swallow(() => ctx.confirmDAppSign?.('id', true));
     swallow(() => ctx.confirmDAppPrivateNotes?.('id', true));

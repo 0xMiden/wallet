@@ -47,8 +47,10 @@ jest.mock('components/Button', () => ({
   }
 }));
 
-// 12 distinct valid words. `wordslist` is whatever we hand the component, so
-// membership is fully deterministic.
+// 12 distinct valid words drawn from the BIP-39 English list. `wordslist` is
+// whatever we hand the component, so per-word membership is deterministic.
+// These words all pass wordlist membership but the phrase FAILS the BIP-39
+// checksum — the exact class of input the regression guards against.
 const WORDS = [
   'abandon',
   'ability',
@@ -64,6 +66,10 @@ const WORDS = [
   'accident'
 ];
 
+// Canonical BIP-39 test vector: 11x "abandon" + "about" is checksum-valid.
+// Every word is also present in `WORDS`, so `wordslist={WORDS}` accepts it.
+const VALID_MNEMONIC = [...Array(11).fill('abandon'), 'about'];
+
 const changeWord = (index: number, value: string) => {
   act(() => {
     mockInputProps[index].onChange({ target: { value } });
@@ -78,9 +84,11 @@ const pasteInto = (index: number, text: string) => {
   return event;
 };
 
-const fillValidPhrase = () => {
-  WORDS.forEach((word, i) => changeWord(i, word));
+const fillPhrase = (words: string[]) => {
+  words.forEach((word, i) => changeWord(i, word));
 };
+
+const fillValidPhrase = () => fillPhrase(VALID_MNEMONIC);
 
 const setup = (overrides: Partial<React.ComponentProps<typeof ImportSeedPhraseScreen>> = {}) =>
   render(<ImportSeedPhraseScreen wordslist={WORDS} {...overrides} />);
@@ -152,6 +160,17 @@ describe('ImportSeedPhraseScreen', () => {
       expect(mockButtonProps.disabled).toBe(true);
     });
 
+    it('surfaces a distinct checksum error (not the wordlist-typo error) when all words are known but the phrase is invalid', () => {
+      setup();
+
+      // All words are in the wordlist, so there is no per-word typo error, but
+      // the phrase fails the BIP-39 checksum.
+      fillPhrase(WORDS);
+
+      expect(screen.getByText('justValidPreGeneratedMnemonic')).toBeInTheDocument();
+      expect(screen.queryByText('importSeedPhraseError')).not.toBeInTheDocument();
+    });
+
     it('shows the error banner from the isError prop even when every word is empty/valid', () => {
       setup({ isError: true });
 
@@ -167,7 +186,8 @@ describe('ImportSeedPhraseScreen', () => {
 
       fillValidPhrase();
 
-      // Every word is in the wordslist -> valid -> button enabled, no error.
+      // Every word is in the wordslist AND the checksum is valid -> button
+      // enabled, no error.
       expect(mockButtonProps.disabled).toBe(false);
       expect(screen.getByTestId('submit-button')).toBeEnabled();
       expect(screen.queryByText('importSeedPhraseError')).not.toBeInTheDocument();
@@ -175,7 +195,25 @@ describe('ImportSeedPhraseScreen', () => {
       fireEvent.click(screen.getByTestId('submit-button'));
 
       expect(onSubmit).toHaveBeenCalledTimes(1);
-      expect(onSubmit).toHaveBeenCalledWith(WORDS.join(' '));
+      expect(onSubmit).toHaveBeenCalledWith(VALID_MNEMONIC.join(' '));
+    });
+
+    it('keeps submit disabled and never emits for a checksum-invalid phrase whose words are all known', () => {
+      const onSubmit = jest.fn();
+      setup({ onSubmit });
+
+      // Every word is in the wordslist but the phrase fails the BIP-39 checksum
+      // (the "repeated word" / arbitrary-12-words case from the bug report).
+      fillPhrase(WORDS);
+
+      expect(mockButtonProps.disabled).toBe(true);
+      expect(screen.getByTestId('submit-button')).toBeDisabled();
+
+      // Bypass the disabled attribute: the handler guard must still refuse.
+      act(() => {
+        mockButtonProps.onClick();
+      });
+      expect(onSubmit).not.toHaveBeenCalled();
     });
 
     it('does not call onSubmit while the phrase is invalid (isValid false branch)', () => {
@@ -211,16 +249,16 @@ describe('ImportSeedPhraseScreen', () => {
       const onSubmit = jest.fn();
       setup({ onSubmit });
 
-      const event = pasteInto(0, WORDS.join(' '));
+      const event = pasteInto(0, VALID_MNEMONIC.join(' '));
 
       expect(event.preventDefault).toHaveBeenCalledTimes(1);
       // All 12 words distributed across the inputs.
-      WORDS.forEach((word, i) => expect(mockInputProps[i].value).toBe(word));
+      VALID_MNEMONIC.forEach((word, i) => expect(mockInputProps[i].value).toBe(word));
       // Full valid phrase -> button enabled and submit emits the joined phrase.
       expect(mockButtonProps.disabled).toBe(false);
 
       fireEvent.click(screen.getByTestId('submit-button'));
-      expect(onSubmit).toHaveBeenCalledWith(WORDS.join(' '));
+      expect(onSubmit).toHaveBeenCalledWith(VALID_MNEMONIC.join(' '));
     });
 
     it('trims surrounding whitespace and splits on the mixed delimiter set', () => {
@@ -232,10 +270,31 @@ describe('ImportSeedPhraseScreen', () => {
       expect(mockInputProps[0].value).toBe('abandon');
       expect(mockInputProps[1].value).toBe('ability');
       expect(mockInputProps[2].value).toBe('able');
-      // Only three words were pasted, so later seedPhrase entries are undefined
-      // and the corresponding inputs render empty.
-      expect(mockInputProps[3].value).toBeUndefined();
+      // Only three words were pasted; the remaining slots are padded with ''.
+      expect(mockInputProps[3].value).toBe('');
       expect(screen.getByTestId('seed-phrase-input-3')).toHaveValue('');
+    });
+
+    it('lowercases pasted words and keeps the input array at 12 entries', () => {
+      setup();
+
+      pasteInto(0, VALID_MNEMONIC.map(w => w.toUpperCase()).join(' ') + ' extra');
+
+      VALID_MNEMONIC.forEach((word, i) => expect(mockInputProps[i].value).toBe(word));
+      // Words beyond the 12th are dropped rather than growing the array.
+      expect(mockInputProps).toHaveLength(12);
+      expect(mockButtonProps.disabled).toBe(false);
+    });
+  });
+
+  describe('typed input normalization', () => {
+    it('lowercases typed words and strips whitespace', () => {
+      setup();
+
+      changeWord(0, ' Abandon ');
+
+      expect(mockInputProps[0].value).toBe('abandon');
+      expect(screen.queryByText('importSeedPhraseError')).not.toBeInTheDocument();
     });
   });
 });

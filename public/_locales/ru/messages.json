@@ -1,4 +1,489 @@
 {
+  "payload": {
+    "message": "Полезная нагрузка",
+    "englishSource": "Payload"
+  },
+  "bridgeDepositTitle": {
+    "message": "Миденский мост",
+    "englishSource": "Miden Bridge"
+  },
+  "bridgeDepositHeading": {
+    "message": "Подтвердите свой депозит",
+    "englishSource": "Confirm your deposit"
+  },
+  "bridgeDepositSubheading": {
+    "message": "Ваш кошелек откроется, чтобы утвердить точную сумму и войти в Sepolia.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+  },
+  "bridgeDepositYouReceive": {
+    "message": "Вы получаете",
+    "englishSource": "You receive"
+  },
+  "bridgeDepositBridgeOption": {
+    "message": "Вариант моста",
+    "englishSource": "Bridge option"
+  },
+  "bridgeDepositApprovingTitle": {
+    "message": "Что вы одобряете",
+    "englishSource": "What you're approving"
+  },
+  "bridgeDepositApprovingBody": {
+    "message": "Ваш кошелек запросит подтверждение $tokenSymbol$ и подпишем залог на Сеполию. Средства поступают на Miden после подтверждения.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "placeholders": {
+      "tokensymbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "balanceCardTotalBalance": {
+    "message": "Общий баланс",
+    "englishSource": "Total Balance"
+  },
+  "balanceCardDeltaPill": {
+    "message": "$absolute$ ($percentage$)",
+    "englishSource": "$absolute$ ($percentage$)",
+    "placeholders": {
+      "absolute": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
+  "balanceCardAccount": {
+    "message": "Адрес: $number$",
+    "englishSource": "Address: $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "balanceCardAccountOptions": {
+    "message": "Параметры учетной записи",
+    "englishSource": "Account options"
+  },
+  "dappSwitcherLoading": {
+    "message": "Загрузка…",
+    "englishSource": "Loading…"
+  },
+  "dappSwitcherCardActivate": {
+    "message": "$name$. Activate to switch to this dApp.",
+    "englishSource": "$name$. Activate to switch to this dApp.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappSwitcherCloseCard": {
+    "message": "Закрывать $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "promptCardDismiss": {
+    "message": "Увольнять",
+    "englishSource": "Dismiss"
+  },
+  "promptCardLoading": {
+    "message": "Загрузка",
+    "englishSource": "Loading"
+  },
+  "priceChangeAmountNeutral": {
+    "message": "$amount$",
+    "englishSource": "$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "priceChangeAmountPositive": {
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "priceChangeAmountNegative": {
+    "message": "- $amount$ ",
+    "englishSource": "-$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "priceChangePercent": {
+    "message": "$value$%",
+    "englishSource": "$value$%",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingTabApproxUsd": {
+    "message": "≈  $value$ ",
+    "englishSource": "≈ $value$",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailChange24h": {
+    "message": "$change$%",
+    "englishSource": "$change$%",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyDetailsIdLabel": {
+    "message": "ИДЕНТИФИКАТОР: $id$ ",
+    "englishSource": "ID: $id$",
+    "placeholders": {
+      "id": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyDetailsAmountFilledValue": {
+    "message": "$filled$ / $total$$symbol$",
+    "englishSource": "$filled$ / $total$$symbol$",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
+  "historyDetailsLoadError": {
+    "message": "Не удалось загрузить транзакцию",
+    "englishSource": "Failed to load transaction"
+  },
+  "historyDetailsFiatApprox": {
+    "message": "≈  $amount$ доллар США",
+    "englishSource": "≈ $amount$ USD",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappTileVerifiedLabel": {
+    "message": "$name$, проверенное децентрализованное приложение",
+    "englishSource": "$name$, verified dApp",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappPeekCardOverflowBadge": {
+    "message": "+ $count$ ",
+    "englishSource": "+$count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "settingsVersion": {
+    "message": "Версия $version$ ",
+    "englishSource": "Version $version$",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
+  },
+  "unlockBrandName": {
+    "message": "Хлеб",
+    "englishSource": "Bread"
+  },
+  "earnPositionHeaderTitle": {
+    "message": "Мой $protocol$  •  $asset$ позиция",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnAssetOnNetwork": {
+    "message": "$asset$ в $network$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnMetricDeposited": {
+    "message": "Депонированный",
+    "englishSource": "Deposited"
+  },
+  "earnMetricTotalEarned": {
+    "message": "Всего заработано",
+    "englishSource": "Total Earned"
+  },
+  "earnMetricDailyAvg": {
+    "message": "Среднее значение за день",
+    "englishSource": "Daily Avg"
+  },
+  "earnMetricTimeActive": {
+    "message": "Время активности",
+    "englishSource": "Time Active"
+  },
+  "earnMetricStarted": {
+    "message": "Началось",
+    "englishSource": "Started"
+  },
+  "earnProjectedEarnings": {
+    "message": "~  $estimate$ · в $apy$ APY",
+    "englishSource": "~ $estimate$ · at $apy$ APY",
+    "placeholders": {
+      "estimate": {
+        "content": "$1"
+      },
+      "apy": {
+        "content": "$2"
+      }
+    }
+  },
+  "protocol": {
+    "message": "Протокол",
+    "englishSource": "Protocol"
+  },
+  "position": {
+    "message": "Позиция",
+    "englishSource": "Position"
+  },
+  "withdraw": {
+    "message": "Отзывать",
+    "englishSource": "Withdraw"
+  },
+  "earnDepositMore": {
+    "message": "Внесите больше",
+    "englishSource": "Deposit more"
+  },
+  "earnWithdrawAmount": {
+    "message": "Сумма вывода",
+    "englishSource": "Withdraw Amount"
+  },
+  "earnWithdrawalLabel": {
+    "message": "Снятие",
+    "englishSource": "Withdrawal"
+  },
+  "earnFullPositionGasless": {
+    "message": "Полное положение (без газа)",
+    "englishSource": "Full position (gasless)"
+  },
+  "earnEstimatedTimeLabel": {
+    "message": "Расчетное время",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeOneMinute": {
+    "message": "~1 минута",
+    "englishSource": "~1 minute"
+  },
+  "withdrawing": {
+    "message": "Снятие…",
+    "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "Эта позиция не принадлежит текущей учетной записи EVM, основанной на кошельке.",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
+  },
+  "earnGaslessWithdrawalFailed": {
+    "message": "Безгазовый вывод не удался.",
+    "englishSource": "Gasless withdrawal failed."
+  },
+  "earnCurrentApy": {
+    "message": "Текущая годовая доходность",
+    "englishSource": "Current APY"
+  },
+  "earnDeposit": {
+    "message": "Депозит",
+    "englishSource": "Deposit"
+  },
+  "earnTvlLabel": {
+    "message": "ТВЛ",
+    "englishSource": "TVL"
+  },
+  "earnRiskLabel": {
+    "message": "Риск",
+    "englishSource": "Risk"
+  },
+  "earnAuditedLabel": {
+    "message": "Проверено",
+    "englishSource": "Audited"
+  },
+  "earnDepositAmountTitle": {
+    "message": "Сумма депозита",
+    "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "Открытая позиция",
+    "englishSource": "Open position"
+  },
+  "earnProjection1Month": {
+    "message": "1 месяц",
+    "englishSource": "1 Month"
+  },
+  "earnProjection6Months": {
+    "message": "6 месяцев",
+    "englishSource": "6 Months"
+  },
+  "earnProjection1Year": {
+    "message": "1 год",
+    "englishSource": "1 Year"
+  },
+  "earnProjectionNow": {
+    "message": "Сейчас",
+    "englishSource": "Now"
+  },
+  "earnProjectedRewardAmount": {
+    "message": "+ $amount$ ",
+    "englishSource": "+$amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnCollateralLabel": {
+    "message": "Залог",
+    "englishSource": "Collateral"
+  },
+  "earnCollateralValue": {
+    "message": "Miden P2IDE (безгазовый)",
+    "englishSource": "Miden P2IDE (gasless)"
+  },
+  "earnDepositRoute": {
+    "message": "Миден -> $protocol$  ( $network$ )",
+    "englishSource": "Miden -> $protocol$ ($network$)",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnEstimatedTime": {
+    "message": "Расчетное время",
+    "englishSource": "Estimated time"
+  },
+  "earnEstimatedTimeValue": {
+    "message": "~30 секунд",
+    "englishSource": "~30 seconds"
+  },
+  "earnNoEvmAddress": {
+    "message": "Для этой учетной записи нет адреса EVM.",
+    "englishSource": "No EVM address available for this account."
+  },
+  "earnFailedToOpenPosition": {
+    "message": "Не удалось открыть позицию",
+    "englishSource": "Failed to open position"
+  },
+  "earnTotalEarnedRewards": {
+    "message": "Всего заработанных наград",
+    "englishSource": "Total Earned Rewards"
+  },
+  "earnEarningBlendedApy": {
+    "message": "Заработок $apy$ смешанный APY",
+    "englishSource": "Earning $apy$ blended APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnTotalDeposited": {
+    "message": "Всего внесено",
+    "englishSource": "Total Deposited"
+  },
+  "earnEstimatedRewards": {
+    "message": "Предполагаемые награды",
+    "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "Мои позиции",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "Позиции",
+    "englishSource": "Positions"
+  },
+  "earnPositionsApy": {
+    "message": "$apy$ APY",
+    "englishSource": "$apy$ APY",
+    "placeholders": {
+      "apy": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnDeposited": {
+    "message": "Депонированный",
+    "englishSource": "Deposited"
+  },
+  "earnDepositAmountLabel": {
+    "message": "Сумма депозита",
+    "englishSource": "Deposit Amount"
+  },
+  "earnSeeAll": {
+    "message": "Посмотреть все",
+    "englishSource": "See All"
+  },
+  "earnVaultsTitle": {
+    "message": "Рекомендуемые хранилища",
+    "englishSource": "Featured Vaults"
+  },
+  "earnApyLabel": {
+    "message": "APY",
+    "englishSource": "APY"
+  },
+  "earnVaultAssetOnNetwork": {
+    "message": "$asset$ в $network$",
+    "englishSource": "$asset$ on $network$",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "Текущие позиции",
+    "englishSource": "Current Positions"
+  },
   "advanced": {
     "message": "Передовой",
     "englishSource": "Advanced"
@@ -137,6 +622,18 @@
     "message": "Отмена",
     "englishSource": "Cancel"
   },
+  "cancelled": {
+    "message": "Отменено",
+    "englishSource": "Cancelled"
+  },
+  "showFullError": {
+    "message": "Показать полную ошибку",
+    "englishSource": "Show full error"
+  },
+  "hideFullError": {
+    "message": "Скрыть полную ошибку",
+    "englishSource": "Hide full error"
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"
@@ -193,26 +690,6 @@
   "noPreview": {
     "message": "Предварительный просмотр недоступен",
     "englishSource": "No preview is available"
-  },
-  "requirements": {
-    "message": "Требования:",
-    "englishSource": "<b>Requirements:</b>"
-  },
-  "atLeast8Characters": {
-    "message": "Минимум 8 символов - чем больше символов, тем лучше.",
-    "englishSource": "At least 8 characters - the more characters, the better."
-  },
-  "mixtureOfUppercaseAndLowercaseLetters": {
-    "message": "Смесь прописных и строчных букв.",
-    "englishSource": "A mixture of both uppercase and lowercase letters."
-  },
-  "mixtureOfLettersAndNumbers": {
-    "message": "Смесь букв и цифр.",
-    "englishSource": "A mixture of letters and numbers."
-  },
-  "atLeast1SpecialCharacter": {
-    "message": "Включение хотя бы одного специального символа, например, ! @",
-    "englishSource": "Inclusion of at least one special character, e.g., ! @ # ? ] - (optional, recommended)."
   },
   "mnemonicWordsAmountConstraint": {
     "message": "12, 15, 18, 21 или 24 слова на английском языке",
@@ -306,19 +783,6 @@
       }
     }
   },
-  "encryptedFileImportedAccountsOmittedRestoreNotice": {
-    "message": "Этот зашифрованный файл был экспортирован с помощью $importedCount$ импортированные учетные записи, которые не являются частью резервной копии. Эти учетные записи не появятся в вашем восстановленном кошельке — для их повторного добавления вам понадобятся их оригинальные закрытые ключи. Нажмите «Продолжить импорт», чтобы продолжить.",
-    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
-  },
-  "continueImport": {
-    "message": "Продолжить импорт",
-    "englishSource": "Continue Import"
-  },
   "editAccountName": {
     "message": "Изменить имя учетной записи",
     "englishSource": "Edit Account Name"
@@ -375,6 +839,10 @@
     "message": "Это может занять некоторое время в зависимости от сетевого трафика. Вы можете закрыть это — мы сообщим вам, когда это будет сделано.",
     "englishSource": "This may take a moment depending on network traffic. You can close this — we'll notify you when it's done."
   },
+  "transactionProcessingHeader": {
+    "message": "Обработка",
+    "englishSource": "Processing"
+  },
   "transactionTitleSend": {
     "message": "Отправка платежа",
     "englishSource": "Sending Payment"
@@ -398,6 +866,15 @@
   "transactionStepSyncingGuardian": {
     "message": "Синхронизация с Guardian",
     "englishSource": "Syncing with Guardian"
+  },
+  "transactionStepDurationSec": {
+    "message": "$seconds$ sec",
+    "englishSource": "$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
   },
   "transactionStageSyncing": {
     "message": "Синхронизация аккаунта",
@@ -554,10 +1031,6 @@
   "about": {
     "message": "О",
     "englishSource": "About"
-  },
-  "aboutMidenWallet": {
-    "message": "О хлебе",
-    "englishSource": "About Bread"
   },
   "preferences": {
     "message": "Предпочтения",
@@ -913,6 +1386,33 @@
     "message": "Другой",
     "englishSource": "Other"
   },
+  "thousandFormat": {
+    "message": "$thousand$k",
+    "englishSource": "$thousand$k",
+    "placeholders": {
+      "thousand": {
+        "content": "$1"
+      }
+    }
+  },
+  "millionFormat": {
+    "message": "$million$M",
+    "englishSource": "$million$M",
+    "placeholders": {
+      "million": {
+        "content": "$1"
+      }
+    }
+  },
+  "billionFormat": {
+    "message": "$billion$B",
+    "englishSource": "$billion$B",
+    "placeholders": {
+      "billion": {
+        "content": "$1"
+      }
+    }
+  },
   "download": {
     "message": "Скачать",
     "englishSource": "Download"
@@ -926,17 +1426,9 @@
     "message": "Адресная книга",
     "englishSource": "Address Book"
   },
-  "addressBookDescription": {
-    "message": "Управляйте своими контактами здесь",
-    "englishSource": "Manage your contacts here"
-  },
   "chooseRecipient": {
     "message": "Выберите получателя",
     "englishSource": "Choose recipient"
-  },
-  "enterMidenOrEthereumAddress": {
-    "message": "Введите адрес Мидена",
-    "englishSource": "Enter Miden Address"
   },
   "selectAmount": {
     "message": "Выберите сумму",
@@ -979,10 +1471,6 @@
     "message": "Обзор обмена",
     "englishSource": "Review Swap"
   },
-  "reviewSwapDetails": {
-    "message": "Просмотрите детали обмена",
-    "englishSource": "Review Swap Details"
-  },
   "youPay": {
     "message": "Вы платите",
     "englishSource": "You Pay"
@@ -1016,6 +1504,40 @@
       }
     }
   },
+  "usuallyFillsIn": {
+    "message": "Обычно заполняет",
+    "englishSource": "Usually fills in"
+  },
+  "swapEtaSeconds": {
+    "message": "~ $seconds$ с",
+    "englishSource": "~$seconds$s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaMinutes": {
+    "message": "~ $minutes$ мин",
+    "englishSource": "~$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapEtaFallback": {
+    "message": "~30 сек.",
+    "englishSource": "~30s"
+  },
+  "expires": {
+    "message": "Срок действия истекает",
+    "englishSource": "Expires"
+  },
+  "swapAutoConsume": {
+    "message": "Автоматическое потребление",
+    "englishSource": "Auto consume"
+  },
   "swapSameToken": {
     "message": "Выберите два разных жетона для обмена.",
     "englishSource": "Pick two different tokens to swap."
@@ -1028,10 +1550,6 @@
     "message": "Цена недоступна. Повторите попытку через некоторое время.",
     "englishSource": "Price unavailable. Try again shortly."
   },
-  "swapFetchingPrice": {
-    "message": "Получение цены…",
-    "englishSource": "Fetching price…"
-  },
   "swapOrderReservedNote": {
     "message": "Твой $amount$ остается зарезервированным для этого заказа до тех пор, пока он не будет выполнен.",
     "englishSource": "Your $amount$ stays reserved for this order until it's filled.",
@@ -1042,8 +1560,8 @@
     }
   },
   "swapSuccessSourcingLiquidity": {
-    "message": "Мы ищем ликвидность для вашего свопа.",
-    "englishSource": "We're sourcing liquidity for your swap."
+    "message": "Мы ищем ликвидность для вашего свопа. Обычно он заполняется примерно за 30 секунд.",
+    "englishSource": "We're sourcing liquidity for your swap. It usually fills in about 30 seconds."
   },
   "swapSuccessTrackProgress": {
     "message": "Вы можете отслеживать его прогресс в разделе «Действия».",
@@ -1058,6 +1576,28 @@
     "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
     "placeholders": {
       "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "recallTimeInPast": {
+    "message": "Это время уже прошло — выберите будущее время",
+    "englishSource": "This time has already passed — pick a future time"
+  },
+  "expiresInSeconds": {
+    "message": "В $seconds$ секунды",
+    "englishSource": "In $seconds$ seconds",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "expiresInMinutes": {
+    "message": "В $minutes$ минуты",
+    "englishSource": "In $minutes$ minutes",
+    "placeholders": {
+      "minutes": {
         "content": "$1"
       }
     }
@@ -1110,25 +1650,74 @@
     "message": "Проверьте исходную фразу",
     "englishSource": "Verify Seed Phrase"
   },
+  "faucetPromptTitle": {
+    "message": "Пополните свой кошелек",
+    "englishSource": "Fund your wallet"
+  },
+  "faucetPromptBody": {
+    "message": "Добавьте токены в свой кошелек, чтобы начать.",
+    "englishSource": "Add tokens to your wallet to get started."
+  },
+  "faucetPromptAction": {
+    "message": "Фонд сейчас",
+    "englishSource": "Fund now"
+  },
+  "pendingNotesPromptTitle": {
+    "message": "У вас есть ожидающие Notes",
+    "englishSource": "You have Pending Notes"
+  },
+  "pendingNotesPromptBody": {
+    "message": "У вас есть ожидающая стоимость notes $amount$ .",
+    "englishSource": "You have pending notes worth $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesPromptAction": {
+    "message": "Посмотреть сейчас",
+    "englishSource": "See Now"
+  },
   "verifySeedPhrasePromptTitle": {
     "message": "Подтвердите свою фразу восстановления",
     "englishSource": "Verify your recovery phrase"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Подтвердите, что вы сохранили фразу восстановления, чтобы позже можно было восстановить этот кошелек.",
-    "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+    "message": "Запишите фразу восстановления и подтвердите знание ее первого и последнего слов, чтобы вы могли восстановить этот кошелек позже.",
+    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+  },
+  "hotKeyHardwareErrorPromptTitle": {
+    "message": "Безопасная подпись недоступна",
+    "englishSource": "Secure signing unavailable"
+  },
+  "hotKeyHardwareErrorPromptBody": {
+    "message": "Это устройство не могло использовать свое защищенное оборудование для подписи транзакций. Скопируйте ошибку и отправьте ее команде Miden.",
+    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+  },
+  "hotKeyHardwareErrorPromptAction": {
+    "message": "Ошибка копирования",
+    "englishSource": "Copy error"
+  },
+  "bridgePromptTitle": {
+    "message": "Мост в процессе",
+    "englishSource": "Bridge in progress"
+  },
+  "bridgePromptBody": {
+    "message": "Мы продолжим отслеживать ваш мост в фоновом режиме.",
+    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
-    "message": "Вы покажете свою фразу восстановления перед ее проверкой. Убедитесь, что никто не видит ваш эFaucet.",
-    "englishSource": "You will reveal your recovery phrase before verifying it. Make sure no one can see your screen."
+    "message": "Вы запишете фразу восстановления, а затем проверите свои знания, выбрав ее первое и последнее слова. Убедитесь, что никто не видит ваш эFaucet.",
+    "englishSource": "You will write down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
   },
   "verifySeedPhrasePasswordBody": {
     "message": "Разблокируйте свой кошелек, чтобы увидеть фразу восстановления и начать проверку.",
     "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
   },
   "verifySeedPhraseReviewBody": {
-    "message": "Запишите эти слова по порядку. Далее вы проверите первое и последнее слова.",
-    "englishSource": "Write down these words in order. You will verify the first and last words next."
+    "message": "Запишите эти слова по порядку.",
+    "englishSource": "Write down these words in order."
   },
   "word": {
     "message": "Слово $number$ ",
@@ -1203,37 +1792,13 @@
     "message": "Требовать",
     "englishSource": "Claim"
   },
-  "availableToClaim": {
-    "message": "Доступно для претензии",
-    "englishSource": "Available to claim"
-  },
-  "privateTransactionsAnytimeAnywhere": {
-    "message": "Частные транзакции в любое время и в любом месте.",
-    "englishSource": "Private transactions anytime, anywhere."
-  },
   "midenWallet": {
     "message": "Хлеб!",
     "englishSource": "Bread!"
   },
-  "privateTransactions": {
-    "message": "Частные сделки.",
-    "englishSource": "Private transactions."
-  },
-  "anytime": {
-    "message": "В любое время.",
-    "englishSource": "Anytime."
-  },
   "anywhere": {
     "message": "Где угодно.",
     "englishSource": "Anywhere."
-  },
-  "createANewWallet": {
-    "message": "Создать новый кошелек",
-    "englishSource": "Create a new wallet"
-  },
-  "iAlreadyHaveAWallet": {
-    "message": "У меня уже есть кошелек",
-    "englishSource": "I already have a wallet"
   },
   "welcome": {
     "message": "Добро пожаловать",
@@ -1435,6 +2000,22 @@
     "message": "Выберите <b>первое</b> и <b>последнее</b> слово фразы.",
     "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
+  "verifyStepSelectFirst": {
+    "message": "Коснитесь <b>первого</b> слова фразы восстановления.",
+    "englishSource": "Tap the <b>first</b> word of your recovery phrase"
+  },
+  "verifyStepSelectLast": {
+    "message": "Теперь коснитесь <b>последнего</b> слова фразы восстановления.",
+    "englishSource": "Now tap the <b>last</b> word of your recovery phrase"
+  },
+  "verifyStepCorrect": {
+    "message": "Это первое и последнее слово — нажмите «Продолжить».",
+    "englishSource": "That's the first and last word — tap Continue"
+  },
+  "verifyStepWrong": {
+    "message": "Это не первое и последнее слово — нажмите на них еще раз.",
+    "englishSource": "That's not the first and last word — tap them again"
+  },
   "enterYourWalletSeedPhrase": {
     "message": "Введите Seed-фразу из 12 слов вашего кошелька.",
     "englishSource": "Enter your wallet's 12-word Seed phrase."
@@ -1607,11 +2188,6 @@
     "note": "Onboarding",
     "englishSource": "Generate Transactions\nLocally"
   },
-  "chooseFromDevice": {
-    "message": "выбрать с устройства",
-    "note": "Onboarding",
-    "englishSource": "Choose from device"
-  },
   "resetRequired": {
     "message": "Требуется сброс кошелька",
     "englishSource": "Wallet Reset Required"
@@ -1656,34 +2232,6 @@
     "message": "Выход",
     "englishSource": "Sign Out"
   },
-  "chooseImportType": {
-    "message": "Выберите тип импорта",
-    "note": "Onboarding",
-    "englishSource": "Choose Your Import Type"
-  },
-  "chooseImportTypeDescription": {
-    "message": "Восстановите общественный баланс с помощью фразы из 12 слов. Чтобы восстановить частные средства, загрузите зашифрованный файл резервной копии.",
-    "note": "Onboarding",
-    "englishSource": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file."
-  },
-  "importWithSeedPhrase": {
-    "message": "Импорт с исходной фразой",
-    "englishSource": "Import with Seed Phrase"
-  },
-  "importWithSeedPhraseDescription": {
-    "message": "Используйте существующую фразу восстановления из 12 слов. Вы также можете импортировать кошельки от других поставщиков кошельков.",
-    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
-  },
-  "importWithEncryptedWalletFile": {
-    "message": "Импорт с зашифрованным файлом кошелька",
-    "note": "Onboarding",
-    "englishSource": "Import with Encrypted Wallet File"
-  },
-  "importWithEncryptedWalletFileDescription": {
-    "message": "Загрузите зашифрованный файл кошелька, чтобы безопасно импортировать свою учетную запись. Ваши данные остаются конфиденциальными, в цепочке хранится только хешированная информация.",
-    "note": "Onboarding",
-    "englishSource": "Upload your encrypted wallet file to securely import your account. Your data remains private, with only hashed information stored on-chain"
-  },
   "twitter": {
     "message": "Х (Твиттер)",
     "englishSource": "X (Twitter)"
@@ -1700,10 +2248,6 @@
     "message": "Настройки стража",
     "englishSource": "Guardian Settings"
   },
-  "currentGuardianEndpoint": {
-    "message": "Текущий страж",
-    "englishSource": "Current Guardian"
-  },
   "currentLabel": {
     "message": "Текущий",
     "englishSource": "Current"
@@ -1711,22 +2255,6 @@
   "newGuardianEndpoint": {
     "message": "Новая конечная точка Стража",
     "englishSource": "New Guardian Endpoint"
-  },
-  "switchGuardian": {
-    "message": "Переключить стража",
-    "englishSource": "Switch Guardian"
-  },
-  "switchGuardianConfirmation": {
-    "message": "Он подписан вашим ключом восстановления (холодным) и подписан вашим нынешним опекуном. Ваши средства и счет останутся прежними. Продолжать?",
-    "englishSource": "This is signed with your recovery (cold) key and co-signed by your current guardian. Your funds and account stay the same. Continue?"
-  },
-  "confirmSwitchGuardian": {
-    "message": "Подтвердить переключение",
-    "englishSource": "Confirm switch"
-  },
-  "guardianSwitched": {
-    "message": "Guardian успешно переключился.",
-    "englishSource": "Guardian switched successfully."
   },
   "guardianEndpointUnchanged": {
     "message": "Это уже ваш нынешний опекун.",
@@ -1740,10 +2268,6 @@
     "message": "Ключи",
     "englishSource": "Keys"
   },
-  "guardianAboutDescription": {
-    "message": "Guardian подписывает каждую транзакцию из этого кошелька, предоставляя вам второй фактор безопасности, не принимая на себя ответственность за ваши средства. Вы можете поменять или удалить своего Стража в любое время с помощью фразы восстановления.",
-    "englishSource": "Guardian cosigns every transaction from this wallet, giving you a second-factor safety net without taking custody of your funds. You can rotate or remove your Guardian anytime with your recovery phrase."
-  },
   "customGuardian": {
     "message": "Пользовательский страж",
     "englishSource": "Custom Guardian"
@@ -1752,26 +2276,6 @@
     "message": "Поставщик",
     "englishSource": "Provider"
   },
-  "guardianEndpointLabel": {
-    "message": "Конечная точка",
-    "englishSource": "Endpoint"
-  },
-  "guardianRegion": {
-    "message": "Область",
-    "englishSource": "Region"
-  },
-  "customEndpoint": {
-    "message": "Пользовательская конечная точка",
-    "englishSource": "Custom endpoint"
-  },
-  "customEndpointDescription": {
-    "message": "Вставьте URL-адрес Guardian, если вы используете свой собственный.",
-    "englishSource": "Paste a Guardian URL if you're running your own."
-  },
-  "customEndpointPlaceholder": {
-    "message": "https://guardian.example.com",
-    "englishSource": "https://guardian.example.com"
-  },
   "reviewRotation": {
     "message": "Обзор ротации",
     "englishSource": "Review rotation"
@@ -1779,6 +2283,14 @@
   "newLabel": {
     "message": "Новый",
     "englishSource": "New"
+  },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "Пройдите аутентификацию, чтобы одобрить это переключение Guardian.",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "Аутентификация недоступна. Попробуйте еще раз, прежде чем переключать Guardian.",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
     "message": "Ключ от кошелька (горячий)",
@@ -1812,17 +2324,37 @@
     "message": "Подтвердить ротацию",
     "englishSource": "Confirm rotation"
   },
-  "hotKeyRotated": {
-    "message": "Ключ устройства успешно поменялся.",
-    "englishSource": "Device key rotated successfully."
+  "hotKeyRotationOverlayTitle": {
+    "message": "Поворот ключа устройства",
+    "englishSource": "Rotating your device key"
   },
-  "activateHotKeyBannerTitle": {
-    "message": "Активировать ключ устройства",
-    "englishSource": "Activate device key"
+  "hotKeyRotationOverlayBody": {
+    "message": "(Горячая) клавиша вашего устройства вращается. Это необходимо при настройке восстановленной учетной записи, чтобы она могла синхронизироваться и совершать транзакции.",
+    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
-  "activateHotKeyBannerBody": {
-    "message": "Создайте ключ устройства для этой восстановленной учетной записи. Обязательно перед отправкой.",
-    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  "hotKeyRotationFailedTitle": {
+    "message": "Не удалось выполнить ротацию ключа устройства.",
+    "englishSource": "Device key rotation failed"
+  },
+  "hotKeyRotationFailedGeneric": {
+    "message": "При повороте ключа устройства что-то пошло не так.",
+    "englishSource": "Something went wrong while rotating your device key."
+  },
+  "hotKeyRotationRetry": {
+    "message": "Повторить попытку",
+    "englishSource": "Retry"
+  },
+  "guardianChangedTitle": {
+    "message": "Хранитель изменен",
+    "englishSource": "Guardian changed"
+  },
+  "guardianChangedBody": {
+    "message": "Ваш опекун сменился, и мы не смогли определить нового оператора. Введите его URL-адрес для повторного подключения.",
+    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlMismatch": {
+    "message": "Этот оператор не соответствует опекуну вашей учетной записи в цепочке.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "revealHotKey": {
     "message": "Показать ключ устройства",
@@ -1895,6 +2427,14 @@
   "invalidMidenAccountId": {
     "message": "Неверный идентификатор учетной записи Miden",
     "englishSource": "Invalid Miden account ID"
+  },
+  "midenAddressWrongNetwork": {
+    "message": "Этот адрес принадлежит другой сети Miden.",
+    "englishSource": "This address belongs to a different Miden network"
+  },
+  "cannotSendToSelf": {
+    "message": "Вы не можете отправить на свой адрес",
+    "englishSource": "You can't send to your own address"
   },
   "amountMustBeLessThanBalance": {
     "message": "Сумма должна быть меньше остатка",
@@ -2045,43 +2585,6 @@
     "message": "Посмотреть детали",
     "englishSource": "View Details"
   },
-  "multipleTransactionsFailed": {
-    "message": "Не удалось провести $count$ транзакций. Пожалуйста, попробуйте еще раз.",
-    "englishSource": "$count$ transactions failed. Please try again.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "onChainAccountPublic": {
-    "message": "Счет в сети (публичный)",
-    "englishSource": "On-chain Account (Public)"
-  },
-  "onChainAccountDescription": {
-    "message": "Используйте существующую фразу восстановления из 12 слов. Вы также можете импортировать кошельки от других поставщиков кошельков.",
-    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
-  },
-  "offChainAccountPrivate": {
-    "message": "Внесетевой аккаунт (частный)",
-    "englishSource": "Off-chain Account (Private)"
-  },
-  "offChainAccountDescription": {
-    "message": "Быстрые частные операции с минимальными комиссиями в обход прямого взаимодействия с блокчейном.",
-    "englishSource": "Fast, private operations with minimal fees, bypassing direct blockchain interaction."
-  },
-  "chooseYourAccountType": {
-    "message": "Выберите тип учетной записи",
-    "englishSource": "Choose Your Account Type"
-  },
-  "chooseAccountTypeDescription": {
-    "message": "Выберите, как вы хотите взаимодействовать с блокчейном — внутри или вне сети.",
-    "englishSource": "Select how you want to interact with the blockchain -- on-chain or off-chain."
-  },
-  "canAddMultipleAccountsLater": {
-    "message": "Позже вы сможете добавлять и управлять несколькими типами учетных записей в кошельке.",
-    "englishSource": "You can add and manage multiple account types later within the wallet."
-  },
   "chooseRecoveryMethod": {
     "message": "Настройка восстановления учетной записи",
     "englishSource": "Set Up Account Recovery"
@@ -2134,6 +2637,44 @@
     "message": "Используйте другого опекуна",
     "englishSource": "Use a different guardian"
   },
+  "detectingGuardian": {
+    "message": "Ищу своего опекуна…",
+    "englishSource": "Looking for your guardian…"
+  },
+  "guardianDetectedTitle": {
+    "message": "Нашел своего опекуна: $name$ ",
+    "englishSource": "Found your guardian: $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianDetectedMultiple": {
+    "message": "Эту учетную запись знают более одного опекуна. Мы выбрали тот, который содержит ваше последнее состояние.",
+    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
+  },
+  "useCustomGuardianInstead": {
+    "message": "Вместо этого использовать другой?",
+    "englishSource": "Use a different one instead?"
+  },
+  "guardianNotDetected": {
+    "message": "Нам не удалось обнаружить вашего опекуна автоматически. Выберите тот, который вы использовали, или введите его URL.",
+    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianProbePartialFailure": {
+    "message": "Не удалось связаться с $count$ опекуном(ами), поэтому обнаружение может быть неполным.",
+    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "retryGuardianDetection": {
+    "message": "Попробуйте обнаружить еще раз",
+    "englishSource": "Try detecting again"
+  },
   "guardianAccountNotFound": {
     "message": "Нам не удалось найти вашу учетную запись на этом опекуне. Вместо этого проверьте URL-адрес или импортируйте его как общедоступную учетную запись.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
@@ -2170,15 +2711,6 @@
     "message": "(неверная полезная нагрузка)",
     "englishSource": "(invalid payload)"
   },
-  "signTheFollowingWord": {
-    "message": "Подпишите следующее слово $word$ ?",
-    "englishSource": "Sign the following Word $word$?",
-    "placeholders": {
-      "word": {
-        "content": "$1"
-      }
-    }
-  },
   "sharePrivateNoteDataForAccount": {
     "message": "Поделитесь всеми данными личных заметок для учетной записи",
     "englishSource": "Share all private note data for account"
@@ -2186,10 +2718,6 @@
   "downloadPrivateNoteData": {
     "message": "Загрузить данные личной Note",
     "englishSource": "Download Private Note Data"
-  },
-  "transactionAffectsAccountStorage": {
-    "message": "Эта транзакция повлияет на хранилище вашего аккаунта. Просмотрите необработанное резюме, чтобы убедиться",
-    "englishSource": "This transaction affects your account storage. Review the raw summary to verify"
   },
   "failedToParseSigningPayload": {
     "message": "Не удалось проанализировать полезные данные для подписи.",
@@ -2295,6 +2823,38 @@
     "message": "Вызов блоков",
     "englishSource": "Recall blocks"
   },
+  "delegateTransaction": {
+    "message": "Делегировать транзакцию",
+    "englishSource": "Delegate transaction"
+  },
+  "arrives": {
+    "message": "Прибывает",
+    "englishSource": "Arrives"
+  },
+  "ethereum": {
+    "message": "Эфириум",
+    "englishSource": "Ethereum"
+  },
+  "fast": {
+    "message": "Быстрый",
+    "englishSource": "Fast"
+  },
+  "slow": {
+    "message": "Медленный",
+    "englishSource": "Slow"
+  },
+  "seconds": {
+    "message": "Секунды",
+    "englishSource": "Seconds"
+  },
+  "minutes": {
+    "message": "Минуты",
+    "englishSource": "Minutes"
+  },
+  "invalidEthereumAddress": {
+    "message": "Неверный адрес Эфириума",
+    "englishSource": "Invalid Ethereum address"
+  },
   "sendPayment": {
     "message": "Отправить платеж",
     "englishSource": "Send Payment"
@@ -2302,18 +2862,6 @@
   "claimAll": {
     "message": "Претендовать на все",
     "englishSource": "Claim All"
-  },
-  "claimAllSummary": {
-    "message": "$succeeded$ успешно, $failed$ не удалось",
-    "englishSource": "$succeeded$ succeeded, $failed$ failed",
-    "placeholders": {
-      "succeeded": {
-        "content": "$1"
-      },
-      "failed": {
-        "content": "$2"
-      }
-    }
   },
   "claimAllProgress": {
     "message": "Заявить права на все? ( $unclaimed$ / $total$ )",
@@ -2324,15 +2872,6 @@
       },
       "total": {
         "content": "$2"
-      }
-    }
-  },
-  "readyToClaim": {
-    "message": "В ожидании notes: $count$ ",
-    "englishSource": "Pending notes: $count$",
-    "placeholders": {
-      "count": {
-        "content": "$1"
       }
     }
   },
@@ -2357,29 +2896,42 @@
       }
     }
   },
-  "addTokens": {
-    "message": "Добавить токены",
-    "englishSource": "Add tokens"
+  "pendingNotesInfo": {
+    "message": "Miden использует уникальную систему под названием notes. Здесь вы вручную запрашиваете входящие деньги. Это способ защитить ваш кошелек от злоумышленников.",
+    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
+  },
+  "notesPendingAcrossAssets": {
+    "message": "$notes$ notes в ожидании для активов $assets$",
+    "englishSource": "$notes$ notes pending across $assets$ assets",
+    "placeholders": {
+      "notes": {
+        "content": "$1"
+      },
+      "assets": {
+        "content": "$2"
+      }
+    }
+  },
+  "incomingTransfersCount": {
+    "message": "$count$ входящие переводы",
+    "englishSource": "$count$ incoming transfers",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotes": {
+    "message": "Ожидание notes",
+    "englishSource": "Pending notes"
   },
   "getTokens": {
     "message": "Получить токены",
     "englishSource": "Get tokens"
   },
-  "getTokensDescription": {
-    "message": "Вы можете получить токены из faucet или перевести их из другого кошелька или учетной записи.",
-    "englishSource": "You can get tokens from the faucet or transfer them from another wallet or account."
-  },
-  "transferTokens": {
-    "message": "Перевести токены",
-    "englishSource": "Transfer tokens"
-  },
   "midenFaucet": {
     "message": "Миден Faucet",
     "englishSource": "Miden Faucet"
-  },
-  "midenFaucetDescription": {
-    "message": "Нажав кнопку ниже, вы скопируете свой адрес в буфер обмена и перейдете к Miden Faucet.",
-    "englishSource": "Clicking the button below will copy your address to the clipboard and navigate you to the Miden Faucet."
   },
   "accountPublicKey": {
     "message": "Открытый ключ аккаунта",
@@ -2400,22 +2952,6 @@
   "setNewFaucetIdDescription": {
     "message": "Введите идентификатор Faucet Miden",
     "englishSource": "Enter the ID of a miden faucet"
-  },
-  "verifyingTransaction": {
-    "message": "Проверка транзакции",
-    "englishSource": "Verifying transaction"
-  },
-  "transactionProcessingDescription": {
-    "message": "Загруженный файл транзакции обрабатывается для проверки его деталей. Пожалуйста, не обновляйте и не закрывайте приложение.",
-    "englishSource": "The uploaded transaction file is being processed to verify its details. Please do not refresh or close the app."
-  },
-  "yourAddress": {
-    "message": "Ваш адрес",
-    "englishSource": "Your address"
-  },
-  "errorClaiming": {
-    "message": "Ошибка в заявлении:",
-    "englishSource": "Error Claiming: "
   },
   "addAccount": {
     "message": "Добавить аккаунт",
@@ -2469,14 +3005,6 @@
     "message": "Повторить попытку синхронизации",
     "englishSource": "Retry sync"
   },
-  "dragAndDropFile": {
-    "message": "Перетащите файл или",
-    "englishSource": "Drag and drop file or"
-  },
-  "jsonFileType": {
-    "message": ".JSON",
-    "englishSource": ".JSON"
-  },
   "tomorrow": {
     "message": "Завтра",
     "englishSource": "Tomorrow"
@@ -2488,6 +3016,10 @@
   "in2Weeks": {
     "message": "Через 2 недели",
     "englishSource": "In 2 weeks"
+  },
+  "never": {
+    "message": "Никогда",
+    "englishSource": "Never"
   },
   "30mins": {
     "message": "30 минут",
@@ -2516,10 +3048,6 @@
   "andWord": {
     "message": "и",
     "englishSource": "and"
-  },
-  "enterDecryptionPassword": {
-    "message": "Введите пароль, который вы установили при экспорте кошелька. Это позволит расшифровать файл и восстановить доступ.",
-    "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
   },
   "first": {
     "message": "Первый",
@@ -2713,6 +3241,10 @@
     "message": "Сканирование отменено",
     "englishSource": "Scan cancelled"
   },
+  "scan": {
+    "message": "Сканировать",
+    "englishSource": "Scan"
+  },
   "theme": {
     "message": "Тема",
     "englishSource": "Theme"
@@ -2806,13 +3338,17 @@
     "message": "Детали трансфера",
     "englishSource": "Transfer Details"
   },
+  "advancedDetails": {
+    "message": "Дополнительные сведения",
+    "englishSource": "Advanced details"
+  },
+  "options": {
+    "message": "Параметры",
+    "englishSource": "Options"
+  },
   "on": {
     "message": "На",
     "englishSource": "On"
-  },
-  "onLowercase": {
-    "message": "на",
-    "englishSource": "on"
   },
   "off": {
     "message": "Выключенный",
@@ -2922,14 +3458,6 @@
     "message": "Подробности",
     "englishSource": "Details"
   },
-  "addANote": {
-    "message": "Добавьте note",
-    "englishSource": "Add a note"
-  },
-  "advancedOptions": {
-    "message": "Дополнительные параметры",
-    "englishSource": "Advanced Options"
-  },
   "pinExtensionTitle": {
     "message": "кошелек Miden с булавками",
     "englishSource": "Pin Bread"
@@ -2950,9 +3478,9 @@
     "message": "В ожидании",
     "englishSource": "Pending"
   },
-  "pendingNotes": {
-    "message": "Ожидание notes",
-    "englishSource": "Pending notes"
+  "reclaimed": {
+    "message": "Восстановленный",
+    "englishSource": "Reclaimed"
   },
   "faucetRequestTitle": {
     "message": "Faucet Запрос",
@@ -2965,5 +3493,421 @@
   "copy": {
     "message": "Копировать",
     "englishSource": "Copy"
+  },
+  "crossChain": {
+    "message": "Кроссчейн",
+    "englishSource": "Cross-chain"
+  },
+  "evmWalletConnected": {
+    "message": "Кошелек EVM подключен",
+    "englishSource": "EVM wallet connected"
+  },
+  "connectedWallet": {
+    "message": "Подключенный кошелек",
+    "englishSource": "Connected wallet"
+  },
+  "switchWallet": {
+    "message": "Сменить кошелек",
+    "englishSource": "Switch wallet"
+  },
+  "current": {
+    "message": "Текущий",
+    "englishSource": "Current"
+  },
+  "connectAnotherWallet": {
+    "message": "Подключите другой кошелек",
+    "englishSource": "Connect another wallet"
+  },
+  "midenBridge": {
+    "message": "Миденский мост",
+    "englishSource": "Miden Bridge"
+  },
+  "connectEvmWallet": {
+    "message": "Подключите кошелек EVM",
+    "englishSource": "Connect an EVM wallet"
+  },
+  "connectEvmWalletDescription": {
+    "message": "Подключите кошелек для передачи активов в/из Miden.",
+    "englishSource": "Connect a wallet to bridge assets to and from Miden."
+  },
+  "onlyBridgeableTokenSupported": {
+    "message": "Маршрут Slow (Agglayer) поддерживает только мостовой токен. Используйте Fast для отправки других токенов.",
+    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
+  },
+  "connectDestinationWalletToClaim": {
+    "message": "Подключите целевой кошелек для запроса.",
+    "englishSource": "Connect the destination wallet to claim."
+  },
+  "bridgeDetails": {
+    "message": "Детали моста",
+    "englishSource": "Bridge details"
+  },
+  "route": {
+    "message": "Маршрут",
+    "englishSource": "Route"
+  },
+  "selectNetwork": {
+    "message": "Выберите сеть",
+    "englishSource": "Select network"
+  },
+  "receiveOnArrivesAs": {
+    "message": "Получите на $network$ · прибывает как $symbol$ ",
+    "englishSource": "Receive on $network$ · arrives as $symbol$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "noFee": {
+    "message": "Без комиссии",
+    "englishSource": "No fee"
+  },
+  "fastArrival": {
+    "message": "~30 секунд",
+    "englishSource": "~30 sec"
+  },
+  "slowArrival": {
+    "message": "~6 часов",
+    "englishSource": "~6 hours"
+  },
+  "youAreDepositing": {
+    "message": "Вы вносите депозит",
+    "englishSource": "You are depositing"
+  },
+  "confirmDeposit": {
+    "message": "Подтвердить депозит",
+    "englishSource": "Confirm Deposit"
+  },
+  "bridgeDepositProcessing": {
+    "message": "Подтверждение промежуточного депозита",
+    "englishSource": "Confirming bridge deposit"
+  },
+  "bridgeDepositProcessingDescription": {
+    "message": "Одобрите запрос в своем кошельке и оставьте этот эFaucet открытым, пока Сеполия его подтвердит.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+  },
+  "bridgeDepositFailed": {
+    "message": "Бридж-депозит не удался",
+    "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositSubmitted": {
+    "message": "Мост запущен!",
+    "englishSource": "Bridge initiated!"
+  },
+  "bridgeDepositDeliveryDescription": {
+    "message": "Сделка с Sepolia подтверждена. Ваши средства появятся на Miden после завершения доставки моста.",
+    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+  },
+  "viewOnEtherscan": {
+    "message": "Посмотреть на Etherscan",
+    "englishSource": "View on Etherscan"
+  },
+  "delivering": {
+    "message": "Доставка",
+    "englishSource": "Delivering"
+  },
+  "slowNeedsNativeEth": {
+    "message": "Маршрут Slow (Agglayer) поддерживает только собственный ETH в тестовой сети. Выберите ETH, чтобы использовать его.",
+    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
+  },
+  "fastEthWrapNotice": {
+    "message": "Соединение ETH по быстрому маршруту сначала переносит его в WETH, а затем соединяет WETH. Этот маршрут пока недоступен.",
+    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "destinationNetwork": {
+    "message": "Сеть назначения",
+    "englishSource": "Destination network"
+  },
+  "claimStatus": {
+    "message": "Статус заявки",
+    "englishSource": "Claim status"
+  },
+  "claimAsset": {
+    "message": "Заявить права на актив",
+    "englishSource": "Claim Asset"
+  },
+  "claimAssetSubmitted": {
+    "message": "Претензия подана — средства находятся на подключенном кошельке EVM.",
+    "englishSource": "Claim submitted — funds are on the connected EVM wallet."
+  },
+  "claimable": {
+    "message": "Готов предъявить претензии",
+    "englishSource": "Ready to claim"
+  },
+  "claiming": {
+    "message": "Утверждение…",
+    "englishSource": "Claiming…"
+  },
+  "claimed": {
+    "message": "Заявлено",
+    "englishSource": "Claimed"
+  },
+  "claimPending": {
+    "message": "Преодоление — заявка еще не готова",
+    "englishSource": "Bridging — claim not ready yet"
+  },
+  "claimFailedStatus": {
+    "message": "Заявка отклонена",
+    "englishSource": "Claim failed"
+  },
+  "noManualClaimRequired": {
+    "message": "Средства поступают автоматически — претензий не требуется.",
+    "englishSource": "Funds arrive automatically — no claim needed."
+  },
+  "fastRouteLabel": {
+    "message": "Быстрый (Эпоха)",
+    "englishSource": "Fast (Epoch)"
+  },
+  "slowRouteLabel": {
+    "message": "Медленный (Агглер)",
+    "englishSource": "Slow (Agglayer)"
+  },
+  "bridgeRowTitle": {
+    "message": "Мост $from$  →  $to$ ",
+    "englishSource": "Bridge $from$ → $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "to": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeRowVia": {
+    "message": "С помощью $provider$  →  $network$ ",
+    "englishSource": "Via $provider$ → $network$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeInProgress": {
+    "message": "В ходе выполнения",
+    "englishSource": "In progress"
+  },
+  "bridgeFailed": {
+    "message": "Неуспешный",
+    "englishSource": "Failed"
+  },
+  "reclaimFunds": {
+    "message": "Возврат средств",
+    "englishSource": "Reclaim funds"
+  },
+  "reclaiming": {
+    "message": "Восстановление…",
+    "englishSource": "Reclaiming…"
+  },
+  "reclaimableAfterBlock": {
+    "message": "Средства, подлежащие возврату после блокировки",
+    "englishSource": "Funds reclaimable after block"
+  },
+  "receivingTx": {
+    "message": "Получение передачи",
+    "englishSource": "Receiving Tx"
+  },
+  "preparing": {
+    "message": "Подготовка подключения…",
+    "englishSource": "Preparing connection…"
+  },
+  "disconnect": {
+    "message": "Отключить",
+    "englishSource": "Disconnect"
+  },
+  "declaredBySiteVerifying": {
+    "message": "Заявлено на месте — проверка с помощью моделирования…",
+    "englishSource": "Declared by site — verifying by simulation…"
+  },
+  "unverified": {
+    "message": "непроверенный",
+    "englishSource": "unverified"
+  },
+  "couldNotVerifyBySimulation": {
+    "message": "Не удалось проверить путем моделирования. Суммы ниже соответствуют заявленным на сайте.",
+    "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
+  },
+  "couldNotDecodeTransaction": {
+    "message": "Это dApp запрашивает пользовательскую транзакцию. Кошелек не смог расшифровать свои данные — продолжайте, только если вы точно знаете, что он делает.",
+    "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "rawValue": {
+    "message": "Исходное значение",
+    "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "Непрозрачный запрос подписи",
+    "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureWarning": {
+    "message": "Этот сайт попросил вас подписать необработанное значение. Кошелек не может показать, что он авторизует. Продолжайте, только если вы полностью доверяете этому сайту.",
+    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+  },
+  "note": {
+    "message": "Note",
+    "englishSource": "Note"
+  },
+  "earnMarketLabel": {
+    "message": "Market",
+    "englishSource": "Market"
+  },
+  "positionOwnerLabel": {
+    "message": "Position owner",
+    "englishSource": "Position owner"
+  },
+  "earnDepositDetailsTitle": {
+    "message": "Deposit details",
+    "englishSource": "Deposit details"
+  },
+  "earnWithdrawDetailsTitle": {
+    "message": "Withdrawal details",
+    "englishSource": "Withdrawal details"
+  },
+  "depositIntentLabel": {
+    "message": "Deposit intent",
+    "englishSource": "Deposit intent"
+  },
+  "redeemIntentLabel": {
+    "message": "Redeem intent",
+    "englishSource": "Redeem intent"
+  },
+  "earnWithdrawRowTitle": {
+    "message": "Withdraw from Earn",
+    "englishSource": "Withdraw from Earn"
+  },
+  "earnWithdrawRowVia": {
+    "message": "Via Epoch → Miden",
+    "englishSource": "Via Epoch → Miden"
+  },
+  "earnWithdrawStatusRedeeming": {
+    "message": "Redeeming",
+    "englishSource": "Redeeming"
+  },
+  "earnWithdrawStatusDelivering": {
+    "message": "Delivering",
+    "englishSource": "Delivering"
+  },
+  "withdrawalStarted": {
+    "message": "Withdrawal Started!",
+    "englishSource": "Withdrawal Started!"
+  },
+  "withdrawalStartedDescription": {
+    "message": "Your funds are being bridged back to Miden. Track delivery in Activity.",
+    "englishSource": "Your funds are being bridged back to Miden. Track delivery in Activity."
+  },
+  "withdrawalProcessing": {
+    "message": "Processing Withdrawal",
+    "englishSource": "Processing Withdrawal"
+  },
+  "withdrawalProcessingDescription": {
+    "message": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds.",
+    "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
+  },
+  "withdrawalFailed": {
+    "message": "Withdrawal Failed",
+    "englishSource": "Withdrawal Failed"
+  },
+  "transactionComplete": {
+    "message": "Transaction Complete!",
+    "englishSource": "Transaction Complete!"
+  },
+  "totalPaid": {
+    "message": "Total Paid",
+    "englishSource": "Total Paid"
+  },
+  "sourceTx": {
+    "message": "Source TX",
+    "englishSource": "Source TX"
+  },
+  "developerSettingsTitle": {
+    "message": "Настройки разработчика",
+    "englishSource": "Developer Settings"
+  },
+  "developerSettingsWarningTitle": {
+    "message": "Для продвинутых пользователей",
+    "englishSource": "For advanced users"
+  },
+  "developerSettingsWarning": {
+    "message": "Большинству людей никогда не следует их менять. Неправильные ценности сломают ваш кошелек.",
+    "englishSource": "Most people should never change these. Wrong values will break your wallet."
+  },
+  "devEndpointPreset": {
+    "message": "Настройки сети",
+    "englishSource": "Network preset"
+  },
+  "devEndpointCustom": {
+    "message": "Обычай",
+    "englishSource": "Custom"
+  },
+  "devEndpointNetworkId": {
+    "message": "Идентификатор сети",
+    "englishSource": "Network ID"
+  },
+  "devEndpointRpc": {
+    "message": "URL-адрес узла RPC",
+    "englishSource": "RPC node URL"
+  },
+  "devEndpointProver": {
+    "message": "URL-адрес подтверждения транзакции",
+    "englishSource": "Transaction prover URL"
+  },
+  "devEndpointNoteTransport": {
+    "message": "Note URL-адрес транспорта",
+    "englishSource": "Note transport URL"
+  },
+  "devEndpointFaucet": {
+    "message": "Faucet URL-адрес веб-сайта",
+    "englishSource": "Faucet website URL"
+  },
+  "devEndpointFaucetApi": {
+    "message": "Faucet URL-адрес API",
+    "englishSource": "Faucet API URL"
+  },
+  "devEndpointExplorer": {
+    "message": "URL-адрес проводника",
+    "englishSource": "Explorer URL"
+  },
+  "devEndpointGuardian": {
+    "message": "Пользовательский URL-адрес опекуна",
+    "englishSource": "Custom guardian URL"
+  },
+  "devEndpointChecking": {
+    "message": "Проверка…",
+    "englishSource": "Checking…"
+  },
+  "devEndpointReachable": {
+    "message": "Хост доступен",
+    "englishSource": "Host reachable"
+  },
+  "devEndpointNoResponse": {
+    "message": "Нет ответа",
+    "englishSource": "No response"
+  },
+  "devEndpointSaveContinue": {
+    "message": "Сохранить и продолжить",
+    "englishSource": "Save & continue"
+  },
+  "devEndpointResetDefaults": {
+    "message": "Сбросить настройки по умолчанию",
+    "englishSource": "Reset to defaults"
+  },
+  "devEndpointResetAndReonboard": {
+    "message": "Сброс к настройкам по умолчанию и повторная установка",
+    "englishSource": "Reset to defaults & re-onboard"
+  },
+  "devEndpointsRow": {
+    "message": "Конечные точки сети",
+    "englishSource": "Network endpoints"
+  },
+  "devEndpointResetConfirm": {
+    "message": "При этом этот кошелек будет удален без возможности восстановления, включая ваши ключи и историю транзакций. Чтобы восстановить его, вам понадобится фраза восстановления.",
+    "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   }
 }

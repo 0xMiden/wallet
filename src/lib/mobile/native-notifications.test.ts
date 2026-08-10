@@ -143,7 +143,11 @@ describe('native-notifications', () => {
             title: 'Test Title',
             body: 'Test Body',
             autoCancel: true,
-            channelId: 'miden_notes'
+            channelId: 'miden_notes',
+            extra: {
+              type: 'note_received',
+              navigateTo: '/pending-notes'
+            }
           })
         ]
       });
@@ -190,13 +194,13 @@ describe('native-notifications', () => {
       // Simulate notification tap
       await capturedCallback!({
         notification: {
-          extra: { navigateTo: '/receive' }
+          extra: { navigateTo: '/pending-notes' }
         }
       });
 
       jest.advanceTimersByTime(200);
 
-      expect(navigate).toHaveBeenCalledWith('/receive');
+      expect(navigate).toHaveBeenCalledWith('/pending-notes');
 
       jest.useRealTimers();
     });

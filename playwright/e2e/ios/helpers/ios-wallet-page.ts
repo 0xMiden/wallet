@@ -61,6 +61,172 @@ export class IosWalletPage implements WalletPage {
     return this.cdp.evaluate(fn);
   }
 
+  // ── Bridge-IN test hooks (installed page-side on mobile via mobile-adapter) ──
+  // The hooks return Promises, and this RWI bridge's async eval is broken, so
+  // async hooks use the stash-and-poll pattern (start the promise + stash the
+  // result on a global, poll a sync eval for it). Runtime args are interpolated
+  // into the raw eval body via JSON (`evaluate(fn)` closures can't capture vars).
+
+  /** Point the AggLayer sender-match at the runtime "solver" account. Sync hook. */
+  async setAgglayerSender(senderAccountId: string): Promise<void> {
+    await this.cdp.eval(`window.__TEST_SET_AGGLAYER_SENDER__(${JSON.stringify(senderAccountId)}); return null;`);
+  }
+
+  /**
+   * Convert a CLI faucet hex id to the wallet's bech32 form via the installed
+   * `__TEST_HEX_TO_BECH32_FAUCET__` hook — the AggLayer sender-match compares
+   * bech32 prefixes, and a minted note's on-chain sender is the faucet. Polls
+   * for the hook (it's installed after an async SDK import at wallet init).
+   */
+  async hexToBech32Faucet(hex: string, network: 'testnet' | 'devnet' = 'testnet', timeoutMs = 30_000): Promise<string> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const res = await this.cdp.eval<string | null>(
+        `return (typeof window.__TEST_HEX_TO_BECH32_FAUCET__ === 'function') ` +
+          `? window.__TEST_HEX_TO_BECH32_FAUCET__(${JSON.stringify(hex)}, ${JSON.stringify(network)}) : null;`
+      );
+      if (res) return res;
+      if (Date.now() > deadline) throw new Error('hexToBech32Faucet: hook not ready within timeout');
+      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+    }
+  }
+
+  /** Create a `bridged-receive` tracking row; returns its txId. */
+  async createBridgeReceive(args: {
+    accountId: string;
+    amount: string;
+    faucetId: string;
+    provider: 'epoch' | 'agglayer';
+    sourceAddress: string;
+    sourceAmount: string;
+    sourceSymbol: string;
+    outputAmount?: string;
+    outputSymbol?: string;
+  }): Promise<string> {
+    return this.stashAndPoll<string>('__bi_create', `window.__TEST_CREATE_BRIDGE_RECEIVE__(${JSON.stringify(args)})`);
+  }
+
+  /** Read a `bridged-receive` row's current phase/displayMessage for assertions. */
+  async getBridgeReceiveState(txId: string): Promise<{
+    found: boolean;
+    phase?: string;
+    displayMessage?: string;
+    amount?: string;
+    faucetId?: string;
+  }> {
+    return this.stashAndPoll('__bi_state', `window.__TEST_BRIDGE_RECEIVE_STATE__(${JSON.stringify(txId)})`);
+  }
+
+  /** Create a real WalletConnect pairing; returns the `wc:` URI for the counterparty. */
+  async reownConnectUri(): Promise<string> {
+    return this.stashAndPoll<string>('__wc_uri', `window.__TEST_REOWN_CONNECT_URI__()`, 60_000);
+  }
+
+  /** Read the native EVM (Reown) connection state. */
+  async reownState(): Promise<{ connected: boolean; address?: string; chainId?: number }> {
+    return this.stashAndPoll('__wc_state', `window.__TEST_REOWN_STATE__()`);
+  }
+
+  /**
+   * Newest `bridged-receive` row (optionally by provider). The real deposit UI
+   * creates the row inside `handleConfirm` and never surfaces its txId to the
+   * DOM, so the harness reads it back here after confirming the deposit.
+   */
+  async latestBridgeReceive(provider?: 'epoch' | 'agglayer'): Promise<{
+    id: string;
+    amount?: string;
+    faucetId: string;
+    phase?: string;
+    displayMessage?: string;
+  } | null> {
+    const arg = provider ? JSON.stringify(provider) : '';
+    return this.stashAndPoll('__bi_latest', `window.__TEST_LATEST_BRIDGE_RECEIVE__(${arg})`);
+  }
+
+  // ── Bridge-IN deposit UI (EVM → Miden) ──────────────────────────────────────
+  // Real-UI navigation for the deposit flow. EVM connection is established
+  // separately via reownConnectUri() + the headless counterparty (the native
+  // WC modal is outside the WebView and un-tappable via CDP).
+
+  /** Receive → "Cross Chain" → the deposit amount screen (requires EVM connected). */
+  async openBridgeDeposit(): Promise<void> {
+    await this.navigateTo('/receive');
+    await this.waitFor('[data-testid="receive-page"]', { timeoutMs: 15_000 });
+    await this.click('[data-testid="receive-cross-chain"]');
+    // The cross-chain tap reads the EVM `connected` state at click time. The
+    // native WC session is established (getState() reports connected), but that
+    // propagates to React via useNativeReown's async on-mount refresh — so a tap
+    // fired before it lands opens the (un-tappable native) connect modal instead
+    // of navigating. Fall back to the real /bridge/deposit route, which renders
+    // the deposit screen reactively once `connected` propagates: same
+    // destination, no tap-timing race.
+    try {
+      await this.waitFor('[data-testid="send-token-selector"]', { timeoutMs: 8_000 });
+      return;
+    } catch {
+      await this.navigateTo('/bridge/deposit');
+      await this.waitFor('[data-testid="send-token-selector"]', { timeoutMs: 30_000 });
+    }
+  }
+
+  /** Open the bridge token drawer and pick ETH or USDC. */
+  async selectBridgeToken(symbol: 'ETH' | 'USDC'): Promise<void> {
+    await this.click('[data-testid="send-token-selector"]');
+    await this.waitFor(`[data-testid="bridge-token-${symbol}"]`, { timeoutMs: 10_000 });
+    await this.click(`[data-testid="bridge-token-${symbol}"]`);
+  }
+
+  /** Type the deposit amount and confirm to advance to the route step. */
+  async enterBridgeAmount(amount: string): Promise<void> {
+    await this.pollForSelector('[data-testid="send-amount-input"]', 15_000);
+    await this.fillInput('[data-testid="send-amount-input"]', amount);
+    await this.clickWhenEnabled('[data-testid="send-amount-confirm"]', 15_000);
+  }
+
+  /** Pick the AggLayer "Slow" route (ETH only) and continue to review. */
+  async selectBridgeRouteSlow(): Promise<void> {
+    await this.clickWhenEnabled('[data-testid="bridge-route-slow"]', 15_000);
+    await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', 15_000);
+  }
+
+  /**
+   * Pick the Epoch "Fast" route (USDC) and continue to review. The route-confirm
+   * button is gated on the Epoch quote landing (epochStatus === 'quoted'), so the
+   * wider clickWhenEnabled window absorbs the allocator round-trip.
+   */
+  async selectBridgeRouteFast(): Promise<void> {
+    await this.clickWhenEnabled('[data-testid="bridge-route-fast"]', 30_000);
+    await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', 30_000);
+  }
+
+  /** Confirm the deposit on the review step (runs handleConfirm → handleSlowBridge). */
+  async confirmBridgeDeposit(): Promise<void> {
+    await this.clickWhenEnabled('[data-testid="bridge-deposit-review-confirm"]', 20_000);
+  }
+
+  /** Run a Promise-returning hook expression and poll its stashed result. */
+  private async stashAndPoll<T>(prefix: string, promiseExpr: string, timeoutMs = 30_000): Promise<T> {
+    const key = `${prefix}_${Date.now()}`;
+    const k = JSON.stringify(key);
+    await this.cdp.eval(
+      `window[${k}] = undefined; ` +
+        `Promise.resolve(${promiseExpr})` +
+        `.then(function (v) { window[${k}] = { ok: true, v: v }; })` +
+        `.catch(function (e) { window[${k}] = { ok: false, e: String((e && e.message) || e) }; }); ` +
+        `return null;`
+    );
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const r = await this.cdp.eval<{ ok: boolean; v?: T; e?: string } | null>(`return window[${k}] || null;`);
+      if (r) {
+        if (r.ok) return r.v as T;
+        throw new Error(`stashAndPoll(${prefix}): ${r.e}`);
+      }
+      if (Date.now() > deadline) throw new Error(`stashAndPoll(${prefix}): timed out after ${timeoutMs}ms`);
+      await new Promise(res => setTimeout(res, POLL_INTERVAL_MS));
+    }
+  }
+
   // ── iOS-only helpers (used inline by .ios.spec.ts where Chrome reaches
   //    into Playwright internals) ─────────────────────────────────────────
 
@@ -319,9 +485,9 @@ export class IosWalletPage implements WalletPage {
     // separate context. On mobile there's no SW; a reload would drop the
     // in-memory decryption key and kick the UI back to the password
     // screen, where no Claim button exists. Stay in-session instead.
-    // Claimable notes live on their own /pending page (mounts the claim UI
+    // Claimable notes live on their own /pending-notes page (mounts the claim UI
     // directly).
-    await this.navigateTo('/pending');
+    await this.navigateTo('/pending-notes');
     // The wallet's auto-sync runs every 3s (useSyncTrigger). On a freshly
     // installed app the first sync also pays a cold WASM init + IndexedDB
     // open + RPC cold-start cost. Give it ~10s to land at least one full
@@ -494,6 +660,12 @@ export class IosWalletPage implements WalletPage {
     // 1. SelectRecipient: fill the recipient address (textarea) and confirm.
     // Confirm is gated on a valid address, so wait for it to enable.
     await this.fillInput('[data-testid="send-recipient-input"]', params.recipientAddress);
+    if (params.recipientAddress.trim().startsWith('0x')) {
+      await this.pollForSelector('[data-testid="send-network-selector"]', 15_000);
+      await this.click('[data-testid="send-network-selector"]');
+      await this.pollForSelector('[data-testid="send-network-sepolia"]', 15_000);
+      await this.click('[data-testid="send-network-sepolia"]');
+    }
     await this.clickWhenEnabled('[data-testid="send-recipient-confirm"]', 30_000);
 
     // 2. SelectAmount: open the token sub-screen, pick a token, then fill the
@@ -669,7 +841,8 @@ export class IosWalletPage implements WalletPage {
 
   /**
    * Read a Guardian account's on-chain auth structure (overall threshold,
-   * signer commitments, per-procedure thresholds).
+   * signer commitments, per-procedure thresholds, active guardian-operator
+   * commitment).
    *
    * iOS reads this from the `__TEST_GUARDIAN_AUTH_STRUCTURE__` stash that the
    * wallet's own balance poll populates (`fetchBalances` →
@@ -715,7 +888,8 @@ export class IosWalletPage implements WalletPage {
            return {
              threshold: v.threshold,
              signerCommitments: v.signerCommitments,
-             procedureThresholds: v.procedureThresholds
+             procedureThresholds: v.procedureThresholds,
+             guardianCommitment: v.guardianCommitment
            };`
         );
         if (result) return result;

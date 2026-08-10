@@ -11,7 +11,6 @@ import ForgotPassword from './ForgotPassword';
 // jest allows referencing them inside hoisted `jest.mock` factories).
 // ---------------------------------------------------------------------------
 const mockRegisterWallet = jest.fn<Promise<void>, unknown[]>();
-const mockImportWalletFromClient = jest.fn<Promise<void>, unknown[]>();
 const mockClearClientStorage = jest.fn();
 const mockNavigate = jest.fn();
 const mockGenerateMnemonic = jest.fn(() => 'a b c d e f g h i j k l');
@@ -49,8 +48,7 @@ jest.mock('screens/onboarding/navigator', () => ({
 
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({
-    registerWallet: mockRegisterWallet,
-    importWalletFromClient: mockImportWalletFromClient
+    registerWallet: mockRegisterWallet
   })
 }));
 
@@ -83,6 +81,32 @@ jest.mock('bip39', () => ({
 
 jest.mock('bip39/src/wordlists/english.json', () => ['abandon', 'ability', 'able']);
 
+// Guardian auto-detection: the real hook dynamically imports the WASM SDK.
+// Stub it with a controllable start() so tests can steer what the probe found.
+const mockProbeStart = jest.fn<Promise<unknown>, unknown[]>();
+const mockProbeReset = jest.fn();
+jest.mock('lib/miden/guardian/use-guardian-probe', () => ({
+  GUARDIAN_PROBE_WAIT_DEADLINE_MS: 50,
+  useGuardianProbe: () => ({ state: { status: 'idle' }, start: mockProbeStart, reset: mockProbeReset })
+}));
+
+const mockPutToStorage = jest.fn<Promise<void>, unknown[]>();
+jest.mock('lib/miden/front/storage', () => ({
+  putToStorage: (...args: unknown[]) => mockPutToStorage(...args)
+}));
+
+const PROBED_RESULT = {
+  best: {
+    endpoint: 'https://probed.example.com',
+    accountIds: ['acct-1'],
+    hdIndices: [0],
+    nonce: 5n
+  },
+  matches: [],
+  probedEndpoints: ['https://probed.example.com'],
+  failures: []
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -106,7 +130,6 @@ function renderPage() {
 beforeEach(() => {
   jest.clearAllMocks();
   mockRegisterWallet.mockResolvedValue(undefined);
-  mockImportWalletFromClient.mockResolvedValue(undefined);
   mockGenerateMnemonic.mockReturnValue('a b c d e f g h i j k l');
   captured.onAction = undefined;
   captured.backHandler = undefined;
@@ -141,30 +164,12 @@ describe('ForgotPassword', () => {
     expect(el.getAttribute('data-step')).toBe(OnboardingStep.BackupSeedPhrase);
   });
 
-  it('select-import-type: sets Import type and SelectImportType step', async () => {
+  it('select-import-type: sets Import type and jumps straight to ImportFromSeed', async () => {
     const { container } = renderPage();
     await dispatch({ id: 'select-import-type' });
     const el = flow(container);
     expect(el.getAttribute('data-type')).toBe(OnboardingType.Import);
-    expect(el.getAttribute('data-step')).toBe(OnboardingStep.SelectImportType);
-  });
-
-  it('import-from-file: moves to ImportFromFile step', async () => {
-    const { container } = renderPage();
-    await dispatch({ id: 'import-from-file' });
-    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportFromFile);
-  });
-
-  it('import-wallet-file-submit: sets seed, accounts, file flag and CreatePassword step', async () => {
-    const { container } = renderPage();
-    await dispatch({
-      id: 'import-wallet-file-submit',
-      payload: 'foo bar baz',
-      walletAccounts: [{ id: 'acc-1' }]
-    });
-    const el = flow(container);
-    expect(el.getAttribute('data-seed')).toBe('foo,bar,baz');
-    expect(el.getAttribute('data-step')).toBe(OnboardingStep.CreatePassword);
+    expect(el.getAttribute('data-step')).toBe(OnboardingStep.ImportFromSeed);
   });
 
   it('import-from-seed: moves to ImportFromSeed step', async () => {
@@ -222,7 +227,6 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'confirmation' });
     expect(mockClearClientStorage).not.toHaveBeenCalled();
     expect(mockRegisterWallet).not.toHaveBeenCalled();
-    expect(mockImportWalletFromClient).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/');
     // loading toggled back off after the flow completes.
     expect(flow(container).getAttribute('data-loading')).toBe('false');
@@ -241,7 +245,6 @@ describe('ForgotPassword', () => {
       'fmt:a b c d e f g h i j k l',
       false
     );
-    expect(mockImportWalletFromClient).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
@@ -254,6 +257,53 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'confirmation' });
 
     expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, 'pw2', 'fmt:seed words here', true);
+  });
+
+  it('confirmation (Import flow): adopts the probed guardian endpoint before registering', async () => {
+    mockProbeStart.mockResolvedValue(PROBED_RESULT);
+
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockProbeStart).toHaveBeenCalledWith(['seed', 'words', 'here']);
+    expect(mockPutToStorage).toHaveBeenCalledWith('guardian_url_setting', 'https://probed.example.com');
+    expect(mockRegisterWallet).toHaveBeenCalled();
+
+    // Order matters: on desktop clearClientStorage wipes the very localStorage
+    // the adopted endpoint is written to, so adoption must come AFTER it (and
+    // before registerWallet reads the setting).
+    const clearedAt = mockClearClientStorage.mock.invocationCallOrder[0]!;
+    const adoptedAt = mockPutToStorage.mock.invocationCallOrder[0]!;
+    const registeredAt = mockRegisterWallet.mock.invocationCallOrder[0]!;
+    expect(clearedAt).toBeLessThan(adoptedAt);
+    expect(adoptedAt).toBeLessThan(registeredAt);
+  });
+
+  it('confirmation (Create flow after an abandoned import): never adopts the abandoned probe', async () => {
+    mockProbeStart.mockResolvedValue(PROBED_RESULT);
+
+    renderPage();
+    // Start an import, kick the probe…
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    // …then abandon it and create a fresh wallet instead.
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    // Leaving the import path discards the probe, and the create-path
+    // confirmation must not adopt the abandoned seed's detected guardian.
+    expect(mockProbeReset).toHaveBeenCalled();
+    expect(mockPutToStorage).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'secret',
+      'fmt:a b c d e f g h i j k l',
+      false
+    );
   });
 
   it('confirmation (Create flow) swallows a registerWallet rejection', async () => {
@@ -273,44 +323,9 @@ describe('ForgotPassword', () => {
     errSpy.mockRestore();
   });
 
-  it('confirmation (import-with-file flow): calls importWalletFromClient with the imported accounts', async () => {
-    const accounts = [{ id: 'acc-1' }, { id: 'acc-2' }];
-    renderPage();
-    await dispatch({ id: 'import-wallet-file-submit', payload: 'w1 w2 w3', walletAccounts: accounts });
-    await dispatch({ id: 'create-password-submit', payload: { password: 'filepw' } });
-    await dispatch({ id: 'confirmation' });
-
-    expect(mockImportWalletFromClient).toHaveBeenCalledWith('filepw', 'fmt:w1 w2 w3', accounts);
-    expect(mockRegisterWallet).not.toHaveBeenCalled();
-    expect(mockNavigate).toHaveBeenCalledWith('/');
-  });
-
-  it('confirmation (import-with-file flow) swallows an importWalletFromClient rejection', async () => {
-    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const boom = new Error('import failed');
-    mockImportWalletFromClient.mockRejectedValueOnce(boom);
-
-    renderPage();
-    await dispatch({ id: 'import-wallet-file-submit', payload: 'w1 w2 w3', walletAccounts: [] });
-    await dispatch({ id: 'create-password-submit', payload: { password: 'filepw' } });
-    await dispatch({ id: 'confirmation' });
-
-    expect(mockImportWalletFromClient).toHaveBeenCalled();
-    expect(errSpy).toHaveBeenCalledWith(boom);
-    expect(mockNavigate).toHaveBeenCalledWith('/');
-    errSpy.mockRestore();
-  });
-
   // -------------------------------------------------------------------------
   // onAction — back branches
   // -------------------------------------------------------------------------
-  it('back from SelectImportType → Welcome', async () => {
-    const { container } = renderPage();
-    await dispatch({ id: 'select-import-type' });
-    await dispatch({ id: 'back' });
-    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Welcome);
-  });
-
   it('back from VerifySeedPhrase → BackupSeedPhrase', async () => {
     const { container } = renderPage();
     await dispatch({ id: 'verify-seed-phrase' });
@@ -341,18 +356,11 @@ describe('ForgotPassword', () => {
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportFromSeed);
   });
 
-  it('back from ImportFromFile → SelectImportType', async () => {
-    const { container } = renderPage();
-    await dispatch({ id: 'import-from-file' });
-    await dispatch({ id: 'back' });
-    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.SelectImportType);
-  });
-
-  it('back from ImportFromSeed → SelectImportType', async () => {
+  it('back from ImportFromSeed → Welcome', async () => {
     const { container } = renderPage();
     await dispatch({ id: 'import-from-seed' });
     await dispatch({ id: 'back' });
-    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.SelectImportType);
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Welcome);
   });
 
   it('back from Welcome (no matching branch) is a no-op', async () => {
@@ -373,13 +381,13 @@ describe('ForgotPassword', () => {
 
   it('mobile back on a non-Welcome step: triggers the back action and consumes', async () => {
     const { container } = renderPage();
-    await dispatch({ id: 'select-import-type' }); // step = SelectImportType
+    await dispatch({ id: 'select-import-type' }); // step = ImportFromSeed
     let result!: boolean | void;
     await act(async () => {
       result = captured.backHandler!();
     });
     expect(result).toBe(true);
-    // The back action ran, taking SelectImportType → Welcome.
+    // The back action ran, taking ImportFromSeed → Welcome.
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Welcome);
     expect(mockNavigate).not.toHaveBeenCalled();
   });

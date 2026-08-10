@@ -23,7 +23,7 @@ let mockWalletState: {
   closeTransactionModal: jest.Mock;
   setLastCompletedTxHash: jest.Mock;
 };
-let mockPriceResults: Record<string, { data?: number; isLoading: boolean; error?: Error }>;
+let mockSwapEtaResult: { loading: boolean; eta?: Record<string, unknown>; error?: string };
 let mockBalanceData: Array<{ tokenId: string; balance: number }>;
 let mockAllBalancesReturn: { data?: Array<{ tokenId: string; balance: number }> };
 let mockMetadata: Record<string, unknown>;
@@ -39,9 +39,8 @@ let mockDrawerProps: {
 };
 
 const mockGetSwapTokens = jest.fn(() => [mockTokenA, mockTokenB, mockTokenC]);
-const mockGetSwapTokenPrice = jest.fn().mockResolvedValue(1);
 const mockDeriveRequestAmount = jest.fn();
-const mockUseRetryableSWR = jest.fn();
+const mockUseSwapEta = jest.fn();
 const mockUseAccount = jest.fn(() => mockAccountReturn);
 const mockUseAllBalances = jest.fn((_pk: string, _md: Record<string, unknown>) => mockAllBalancesReturn);
 const mockUseAllTokensBaseMetadata = jest.fn(() => mockMetadata);
@@ -92,6 +91,7 @@ jest.mock('./SwapAmounts', () => ({
       <span data-testid="sa-can-proceed">{String(props.canProceed)}</span>
       <span data-testid="sa-status">{props.statusMessage ?? ''}</span>
       <span data-testid="sa-status-error">{String(props.statusIsError)}</span>
+      <span data-testid="sa-request-loading">{String(props.requestLoading)}</span>
       <input data-testid="sa-offer-input" onChange={e => props.onOfferAmountChange(e.target.value)} />
       <input data-testid="sa-request-input" onChange={e => props.onRequestAmountChange(e.target.value)} />
       <button data-testid="sa-select-offer" onClick={props.onSelectOfferToken} />
@@ -109,8 +109,15 @@ jest.mock('./ReviewSwap', () => ({
       <span data-testid="rs-request-token">{props.requestToken.symbol}</span>
       <span data-testid="rs-offer-amount">{props.offerAmount}</span>
       <span data-testid="rs-request-amount">{props.requestAmount}</span>
-      <span data-testid="rs-offer-price">{String(props.offerPrice)}</span>
-      <span data-testid="rs-request-price">{String(props.requestPrice)}</span>
+      <span data-testid="rs-market-price">{String(props.swapEta?.marketPrice)}</span>
+      <input
+        data-testid="rs-expiry"
+        value={props.expirySeconds}
+        onChange={event => props.onExpirySecondsChange(event.target.value)}
+      />
+      <button data-testid="rs-auto-consume" onClick={() => props.onAutoConsumeChange(!props.autoConsume)}>
+        {String(props.autoConsume)}
+      </button>
       <span data-testid="rs-submit-error">{props.submitError ?? ''}</span>
       <button data-testid="rs-go-back" onClick={props.onGoBack} />
       <button data-testid="rs-submit" onClick={props.onSubmit} />
@@ -131,12 +138,11 @@ jest.mock('./SelectSwapToken', () => ({
 
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokens: () => mockGetSwapTokens(),
-  getSwapTokenPrice: (...args: unknown[]) => mockGetSwapTokenPrice(...args),
   deriveRequestAmount: (...args: unknown[]) => mockDeriveRequestAmount(...args)
 }));
 
-jest.mock('lib/swr', () => ({
-  useRetryableSWR: (...args: unknown[]) => mockUseRetryableSWR(...args)
+jest.mock('./useSwapEta', () => ({
+  useSwapEta: (...args: unknown[]) => mockUseSwapEta(...args)
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -203,10 +209,9 @@ beforeEach(() => {
     closeTransactionModal: jest.fn(),
     setLastCompletedTxHash: jest.fn()
   };
-  mockPriceResults = {
-    'faucet-A': { data: 2, isLoading: false, error: undefined },
-    'faucet-B': { data: 1, isLoading: false, error: undefined },
-    'faucet-C': { data: 3, isLoading: false, error: undefined }
+  mockSwapEtaResult = {
+    loading: false,
+    eta: { canFill: false, estimatedSeconds: null, offMarket: false, marketPrice: '2', median24hSeconds: null }
   };
   mockBalanceData = [{ tokenId: 'bech32-faucet-A', balance: 100 }];
   mockAllBalancesReturn = { data: mockBalanceData };
@@ -222,17 +227,7 @@ beforeEach(() => {
   mockIsDelegateProof.mockReturnValue(false);
   mockDeriveRequestAmount.mockImplementation((offerAmount: string) => (Number(offerAmount) > 0 ? '5' : ''));
 
-  // Return SWR data keyed by faucet id; invoke the fetcher so the two
-  // `() => getSwapTokenPrice(token)` closures are covered.
-  mockUseRetryableSWR.mockImplementation((key: [string, string], fetcher: () => Promise<number>) => {
-    try {
-      fetcher();
-    } catch {
-      // fetcher is mocked; ignore
-    }
-    const id = Array.isArray(key) ? key[1] : undefined;
-    return mockPriceResults[id as string] ?? { data: undefined, isLoading: false, error: undefined };
-  });
+  mockUseSwapEta.mockImplementation(() => mockSwapEtaResult);
 });
 
 afterEach(() => {
@@ -257,9 +252,10 @@ describe('SwapFlow / SwapManager', () => {
     expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
     expect(screen.getByTestId('sa-status')).toHaveTextContent('');
 
-    // Review side reflects the live prices from SWR.
-    expect(screen.getByTestId('rs-offer-price')).toHaveTextContent('2');
-    expect(screen.getByTestId('rs-request-price')).toHaveTextContent('1');
+    // Review side reflects the live oracle rate from the swap-eta quote.
+    expect(screen.getByTestId('rs-market-price')).toHaveTextContent('2');
+    expect(screen.getByTestId('rs-expiry')).toHaveValue('120');
+    expect(screen.getByTestId('rs-auto-consume')).toHaveTextContent('true');
 
     // Drawer starts closed, keyed to the offer side by default.
     const drawer = screen.getByTestId('swap-token-drawer');
@@ -451,8 +447,8 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
     });
 
-    it('shows a price-unavailable error when the offer price errors', () => {
-      mockPriceResults['faucet-A'] = { data: undefined, isLoading: false, error: new Error('offer boom') };
+    it('shows a price-unavailable error when the quote errors', () => {
+      mockSwapEtaResult = { loading: false, error: 'quote boom' };
       renderFlow();
       setOffer('10');
 
@@ -460,32 +456,39 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('sa-status-error')).toHaveTextContent('true');
     });
 
-    it('shows a price-unavailable error when the request price errors', () => {
-      mockPriceResults['faucet-B'] = { data: undefined, isLoading: false, error: new Error('request boom') };
+    it('shows no status message once a quote has landed', () => {
       renderFlow();
       setOffer('10');
 
-      expect(screen.getByTestId('sa-status')).toHaveTextContent('swapPriceUnavailable');
+      expect(screen.getByTestId('sa-status')).toHaveTextContent('');
+    });
+  });
+
+  describe('receive-field skeleton', () => {
+    it('flags the receive field as calculating while the first quote is pending', () => {
+      mockDeriveRequestAmount.mockImplementation(() => '');
+      mockSwapEtaResult = { loading: true };
+      renderFlow();
+      setOffer('10');
+
+      expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('true');
     });
 
-    it('shows a fetching-price note while the offer price loads and no quote exists', () => {
-      mockDeriveRequestAmount.mockImplementation(() => '');
-      mockPriceResults['faucet-A'] = { data: undefined, isLoading: true, error: undefined };
+    it('clears the skeleton once the quote seeds the receive amount', () => {
       renderFlow();
       setOffer('10');
 
-      expect(screen.getByTestId('sa-status')).toHaveTextContent('swapFetchingPrice');
-      expect(screen.getByTestId('sa-status-error')).toHaveTextContent('false');
+      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('5');
+      expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('false');
     });
 
-    it('shows a fetching-price note while only the request price loads', () => {
+    it('clears the skeleton when the quote errors instead of spinning forever', () => {
       mockDeriveRequestAmount.mockImplementation(() => '');
-      mockPriceResults['faucet-A'] = { data: 2, isLoading: false, error: undefined };
-      mockPriceResults['faucet-B'] = { data: undefined, isLoading: true, error: undefined };
+      mockSwapEtaResult = { loading: false, error: 'quote boom' };
       renderFlow();
       setOffer('10');
 
-      expect(screen.getByTestId('sa-status')).toHaveTextContent('swapFetchingPrice');
+      expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('false');
     });
   });
 
@@ -502,6 +505,32 @@ describe('SwapFlow / SwapManager', () => {
   });
 
   describe('onSubmit', () => {
+    it('submits the edited expiry and auto-consume preference', async () => {
+      renderFlow();
+      setOffer('10');
+      fireEvent.change(screen.getByTestId('rs-expiry'), { target: { value: '300' } });
+      fireEvent.click(screen.getByTestId('rs-auto-consume'));
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 300, false);
+    });
+
+    it('rejects a non-positive expiry', async () => {
+      renderFlow();
+      setOffer('10');
+      fireEvent.change(screen.getByTestId('rs-expiry'), { target: { value: '0' } });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
+    });
+
     it('rejects an empty pay amount with a validation error', async () => {
       renderFlow();
       await act(async () => {
@@ -607,7 +636,7 @@ describe('SwapFlow / SwapManager', () => {
       });
 
       expect(mockWalletState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
-      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, true);
+      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, true, 120, true);
       expect(mockRequestSWProcessing).toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx%20123', 'replace');
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('');

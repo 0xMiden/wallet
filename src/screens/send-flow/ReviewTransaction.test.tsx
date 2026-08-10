@@ -9,7 +9,6 @@ import {
   requestSpeculateInvalidate,
   requestSWTransactionProcessing
 } from 'lib/miden/activity';
-import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { goBack, navigate } from 'lib/woozie';
@@ -28,6 +27,12 @@ let mockFullPage = false;
 let mockPublicKey: string | null = 'pubkey-1';
 let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
+let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
+let mockEpochQuote: { amount?: string; loading: boolean; error: null } = {
+  amount: undefined,
+  loading: false,
+  error: null
+};
 
 const mockWalletStoreState = {
   setLastCompletedTxHash: jest.fn()
@@ -106,6 +111,20 @@ jest.mock('lib/biometric', () => ({
   confirmSensitiveAction: jest.fn()
 }));
 
+jest.mock('lib/agglayer/b2agg', () => ({
+  initiateB2AggBridge: jest.fn()
+}));
+
+jest.mock('lib/agglayer/b2agg/constant', () => ({
+  EVM_AGGLAYER_NETWORK_ID: 11155111,
+  MIDEN_AGGLAYER_FAUCET_ID: 'agglayer-faucet',
+  getAgglayerFaucetId: () => 'agglayer-faucet'
+}));
+
+jest.mock('lib/epoch', () => ({
+  bridgeEpochSend: jest.fn()
+}));
+
 jest.mock('lib/i18n/numbers', () => ({
   stringToBigInt: jest.fn()
 }));
@@ -122,8 +141,21 @@ jest.mock('lib/miden/front', () => ({
   useAllTokensBaseMetadata: () => mockTokensMeta
 }));
 
+jest.mock('lib/miden/front/client', () => ({
+  useMidenContext: () => ({ signTransaction: jest.fn() })
+}));
+
+jest.mock('lib/miden/front/guardian-sync', () => ({
+  zustandProvider: {}
+}));
+
 jest.mock('lib/miden/types', () => ({
   NoteTypeEnum: { Public: 'public', Private: 'private' }
+}));
+
+jest.mock('lib/miden/sdk/helpers', () => ({
+  accountIdStringToSdk: () => ({ toString: () => 'sdk-faucet' }),
+  sameWalletAccountId: (a: string, b: string) => a === b
 }));
 
 jest.mock('lib/miden-chain/constants', () => ({
@@ -155,11 +187,17 @@ jest.mock('lib/woozie', () => ({
   useLocation: () => ({ search: mockSearch })
 }));
 
-jest.mock('utils/miden', () => ({
-  isValidMidenAddress: jest.fn(() => true)
-}));
+jest.mock('utils/miden', () => {
+  const validate = jest.fn(() => true);
+  return {
+    isValidMidenAddress: validate,
+    isValidRecipientAddress: validate,
+    detectAddressChain: () => mockDetectedChain
+  };
+});
 
 jest.mock('./RecallCalendarDrawer', () => ({
+  SECONDS_PER_BLOCK: 3,
   dateTimeToRecallBlocks: jest.fn(() => 999),
   RecallCalendarDrawer: (props: any) => (
     <div data-testid="recall-drawer" data-open={String(props.open)} data-recall-time={props.recallTime} />
@@ -170,6 +208,10 @@ jest.mock('./send-draft', () => ({
   clearSendDraft: jest.fn()
 }));
 
+jest.mock('./useEpochQuote', () => ({
+  useEpochQuote: () => mockEpochQuote
+}));
+
 // ---------------------------------------------------------------------------
 // Typed handles to the mocks
 // ---------------------------------------------------------------------------
@@ -178,7 +220,6 @@ const stringToBigIntMock = stringToBigInt as jest.Mock;
 const initiateMock = initiateSendTransaction as jest.Mock;
 const requestSpeculateInvalidateMock = requestSpeculateInvalidate as jest.Mock;
 const requestSWMock = requestSWTransactionProcessing as jest.Mock;
-const ensureSdkWasmReadyMock = ensureSdkWasmReady as jest.Mock;
 const isExtensionMock = isExtension as jest.Mock;
 const isDelegateProofEnabledMock = isDelegateProofEnabled as jest.Mock;
 const isValidMidenAddressMock = isValidMidenAddress as jest.Mock;
@@ -186,7 +227,6 @@ const goBackMock = goBack as jest.Mock;
 const navigateMock = navigate as jest.Mock;
 const clearSendDraftMock = clearSendDraft as jest.Mock;
 const dateTimeToRecallBlocksMock = dateTimeToRecallBlocks as jest.Mock;
-const getBlockHeaderMock = (jest.requireMock('@miden-sdk/miden-sdk/lazy') as any).__getBlockHeaderByNumber as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -230,8 +270,6 @@ beforeEach(() => {
   confirmMock.mockResolvedValue(true);
   stringToBigIntMock.mockReturnValue(12345n);
   initiateMock.mockResolvedValue('tx-abc');
-  ensureSdkWasmReadyMock.mockResolvedValue(undefined);
-  getBlockHeaderMock.mockResolvedValue({ blockNum: () => 1000 });
   dateTimeToRecallBlocksMock.mockReturnValue(999);
   isExtensionMock.mockReturnValue(false);
   isDelegateProofEnabledMock.mockReturnValue(false);
@@ -244,6 +282,8 @@ beforeEach(() => {
   mockPublicKey = 'pubkey-1';
   mockBalanceData = undefined;
   mockTokensMeta = [];
+  mockDetectedChain = 'miden';
+  mockEpochQuote = { amount: undefined, loading: false, error: null };
 
   delete process.env.MIDEN_E2E_TEST;
   delete process.env.MIDEN_USE_SPECULATIVE_PROVING;
@@ -280,6 +320,16 @@ describe('ReviewTransaction — redirect guards', () => {
     expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
   });
 
+  it('redirects when a deep link tries to send to the current account', async () => {
+    mockSearch = 'amount=5&to=pubkey-1&tokenId=tok1';
+    mockBalanceData = [VALID_TOKEN];
+
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
+  });
+
   it('redirects when balances are loaded but the token id has no match', async () => {
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1';
     mockBalanceData = [{ ...VALID_TOKEN, tokenId: 'other' }];
@@ -311,23 +361,13 @@ describe('ReviewTransaction — rendering', () => {
     // Recipient row value.
     expect(screen.getByText('0xrecipient')).toBeInTheDocument();
 
-    // Block-height effect resolved -> recallDate seeded -> capitalized relative
+    // Seeding effect ran -> recallDate seeded -> capitalized relative
     // label + reclaim note both present.
     await waitFor(() => expect(screen.getByTestId('row-note')).toBeInTheDocument());
     expect(screen.getByTestId('row-note').textContent).toBe('recallReturnsNote');
     expect(screen.getByText(/^In .+/)).toBeInTheDocument();
-    expect(dateTimeToRecallBlocksMock).toHaveBeenCalledWith(expect.any(Date), 1000);
-  });
-
-  it('shows the "none" expiration label when the block-height fetch fails', async () => {
-    setValidRoute();
-    ensureSdkWasmReadyMock.mockRejectedValue(new Error('wasm down'));
-    render(<ReviewTransaction />);
-    await flush();
-
-    expect(screen.getByText('none')).toBeInTheDocument();
-    expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
-    expect(dateTimeToRecallBlocksMock).not.toHaveBeenCalled();
+    // Relative blocks-until-recall — no block height involved (#308).
+    expect(dateTimeToRecallBlocksMock).toHaveBeenCalledWith(expect.any(Date));
   });
 
   it('renders with an undefined token when balances have not loaded (hero symbol empty)', async () => {
@@ -366,66 +406,61 @@ describe('ReviewTransaction — rendering', () => {
     await flush();
     expect(screen.getByTestId('recall-drawer').getAttribute('data-open')).toBe('true');
   });
-});
 
-// ---------------------------------------------------------------------------
-// Block-height seeding effect — cancellation / catch branches
-// ---------------------------------------------------------------------------
-describe('ReviewTransaction — block-height effect lifecycle', () => {
-  it('bails out (before constructing RpcClient) when unmounted before wasm is ready', async () => {
+  it.each([
+    [40, 'expiresInSeconds'], // 40 blocks * 3s = 120s  (< 180 → seconds)
+    [400, 'expiresInMinutes'] // 400 blocks * 3s = 1200s (< 1800 → minutes)
+  ])('renders the precise expiration label derived from recallBlocks=%d', async (blocks, expectedLabel) => {
+    // The label reads the relative recall offset (recallBlocks), NOT the picked
+    // absolute instant, so it always matches the window the send will apply.
+    dateTimeToRecallBlocksMock.mockReturnValue(blocks);
     setValidRoute();
-    const d = deferred();
-    ensureSdkWasmReadyMock.mockReturnValue(d.promise);
-
     const { unmount } = render(<ReviewTransaction />);
-    unmount(); // cleanup sets cancelled = true
+    await flush();
 
-    await act(async () => {
-      d.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(getBlockHeaderMock).not.toHaveBeenCalled();
-    expect(dateTimeToRecallBlocksMock).not.toHaveBeenCalled();
+    expect(screen.getByText(expectedLabel)).toBeInTheDocument();
+    unmount();
   });
 
-  it('bails out (after fetching the header) when unmounted mid-flight', async () => {
+  it('never shows "None" while a recall offset is attached (label derives from the offset, not the clock)', async () => {
+    // recallBlocks set → P2IDE, so the note IS recallable — the label must surface
+    // the window and never "None" (which would imply a plain P2ID). Being offset-
+    // derived, it also can't count down to "None" or snap backwards as time passes.
+    dateTimeToRecallBlocksMock.mockReturnValue(1); // 1 block * 3s = 3s window
     setValidRoute();
-    const wasmD = deferred();
-    const headerD = deferred<{ blockNum: () => number }>();
-    ensureSdkWasmReadyMock.mockReturnValue(wasmD.promise);
-    getBlockHeaderMock.mockReturnValue(headerD.promise);
-
     const { unmount } = render(<ReviewTransaction />);
+    await flush();
 
-    // Let the wasm-ready then-callback run: constructs RpcClient + calls header.
-    await act(async () => {
-      wasmD.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(getBlockHeaderMock).toHaveBeenCalledTimes(1);
-
-    unmount(); // cancelled = true before the header resolves
-
-    await act(async () => {
-      headerD.resolve({ blockNum: () => 42 });
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(dateTimeToRecallBlocksMock).not.toHaveBeenCalled();
+    expect(screen.queryByText('none')).not.toBeInTheDocument();
+    expect(screen.getByText('expiresInSeconds')).toBeInTheDocument();
+    unmount();
   });
 
-  it('swallows a header-fetch rejection without seeding the date', async () => {
-    setValidRoute();
-    getBlockHeaderMock.mockRejectedValue(new Error('rpc down'));
+  it('renders the slow bridge route without a Miden expiration row', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+
     render(<ReviewTransaction />);
     await flush();
 
-    expect(screen.getByText('none')).toBeInTheDocument();
+    expect(screen.getByText('Sepolia')).toBeInTheDocument();
+    expect(screen.getByText('slow slowArrival')).toBeInTheDocument();
+    expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
     expect(dateTimeToRecallBlocksMock).not.toHaveBeenCalled();
+  });
+
+  it('renders the fast bridge route loading state from the Epoch quote', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '4.8', loading: true, error: null };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+
+    const { container } = render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByText('fast fastArrival')).toBeInTheDocument();
+    expect(container.querySelector('.animate-pulse')).toBeInTheDocument();
   });
 });
 
@@ -453,7 +488,7 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(mockWalletStoreState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
     expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 999, false);
     expect(requestSWMock).not.toHaveBeenCalled();
-    expect(clearSendDraftMock).toHaveBeenCalledTimes(1);
+    expect(clearSendDraftMock).toHaveBeenCalled();
     expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-abc', 'replacestate');
   });
 
@@ -469,17 +504,6 @@ describe('ReviewTransaction — onSubmit', () => {
 
     expect(requestSWMock).toHaveBeenCalledTimes(1);
     expect(navigateMock).toHaveBeenCalledWith('/generating-transaction-full/tx-abc', 'replacestate');
-  });
-
-  it('passes undefined recall blocks when the height was never seeded', async () => {
-    setValidRoute();
-    ensureSdkWasmReadyMock.mockRejectedValue(new Error('wasm down'));
-    render(<ReviewTransaction />);
-    await flush();
-
-    await clickSubmit();
-
-    expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, undefined, false);
   });
 
   it('forwards the delegate-proof flag from settings', async () => {

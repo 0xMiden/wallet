@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
+import { setAgglayerFaucetForE2E } from 'lib/agglayer/b2agg/constant';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
@@ -72,12 +73,12 @@ export const useWalletStore = create<WalletStore>()(
     lastSyncedAt: null,
     hasCompletedInitialSync: false,
 
-    // Initial transaction modal state
-    isTransactionModalOpen: false,
-    isTransactionModalDismissedByUser: false,
+    // Initial transaction and dApp browser UI state
     isDappBrowserOpen: false,
     activeDappSessionId: null,
     lastCompletedTxHash: null,
+    isTransactionModalOpen: false,
+    isTransactionModalDismissedByUser: false,
 
     // Initial note toast state (mobile only)
     seenNoteIds: new Set<string>(),
@@ -110,6 +111,9 @@ export const useWalletStore = create<WalletStore>()(
         const address = state.currentAccount.publicKey;
         fetchBalances(address, get().assetsMetadata, { tokenPrices: get().tokenPrices })
           .then(balances => {
+            // `null` = WASM client was busy and the read was skipped; leave any
+            // prior balances in place and let a later poll refresh.
+            if (balances === null) return;
             set(s => ({
               balances: { ...s.balances, [address]: balances },
               balancesLoading: { ...s.balancesLoading, [address]: false },
@@ -332,6 +336,16 @@ export const useWalletStore = create<WalletStore>()(
       return res.signature;
     },
 
+    signEvm: async (accountPublicKey, operation) => {
+      const res = await request({
+        type: WalletMessageType.SignEvmRequest,
+        accountPublicKey,
+        operation
+      });
+      assertResponse(res.type === WalletMessageType.SignEvmResponse);
+      return res.result;
+    },
+
     persistNewHotKey: async (newHotPubKey, newHotCiphertext) => {
       const res = await request({
         type: WalletMessageType.PersistNewHotKeyRequest,
@@ -357,6 +371,43 @@ export const useWalletStore = create<WalletStore>()(
         guardianEndpoint
       });
       assertResponse(res.type === WalletMessageType.SetGuardianEndpointResponse);
+    },
+
+    setGuardianOperatorCommitment: async (accountPublicKey, guardianOperatorCommitment) => {
+      const res = await request({
+        type: WalletMessageType.SetGuardianOperatorCommitmentRequest,
+        accountPublicKey,
+        guardianOperatorCommitment
+      });
+      assertResponse(res.type === WalletMessageType.SetGuardianOperatorCommitmentResponse);
+    },
+
+    setGuardianSyncStatus: async (accountPublicKey, guardianSyncStatus) => {
+      const res = await request({
+        type: WalletMessageType.SetGuardianSyncStatusRequest,
+        accountPublicKey,
+        guardianSyncStatus
+      });
+      assertResponse(res.type === WalletMessageType.SetGuardianSyncStatusResponse);
+    },
+
+    checkGuardianDrift: async accountPublicKey => {
+      const res = await request({
+        type: WalletMessageType.CheckGuardianDriftRequest,
+        accountPublicKey
+      });
+      assertResponse(res.type === WalletMessageType.CheckGuardianDriftResponse);
+      return res.guardianSyncStatus;
+    },
+
+    applyUserGuardianEndpoint: async (accountPublicKey, guardianEndpoint) => {
+      const res = await request({
+        type: WalletMessageType.ApplyUserGuardianEndpointRequest,
+        accountPublicKey,
+        guardianEndpoint
+      });
+      assertResponse(res.type === WalletMessageType.ApplyUserGuardianEndpointResponse);
+      return res.applied;
     },
 
     getPublicKeyForCommitment: async commitment => {
@@ -385,6 +436,15 @@ export const useWalletStore = create<WalletStore>()(
       });
       assertResponse(res.type === MidenMessageType.DAppGetPayloadResponse);
       return res.payload;
+    },
+
+    simulateCustomTransaction: async (id: string) => {
+      const res = await request({
+        type: MidenMessageType.DAppSimulateTransactionRequest,
+        id
+      });
+      assertResponse(res.type === MidenMessageType.DAppSimulateTransactionResponse);
+      return { summaryBytes: res.summaryBytes, error: res.error };
     },
 
     confirmDAppPermission: async (id, confirmed, accountId, privateDataPermission, allowedPrivateData) => {
@@ -501,6 +561,14 @@ export const useWalletStore = create<WalletStore>()(
           setAssetsMetadata,
           tokenPrices: get().tokenPrices
         });
+        // `null` = WASM client was busy and the read was skipped; clear the
+        // loading flag but keep any prior balances and retry later.
+        if (balances === null) {
+          set(state => ({
+            balancesLoading: { ...state.balancesLoading, [accountAddress]: false }
+          }));
+          return;
+        }
         set(state => ({
           balances: { ...state.balances, [accountAddress]: balances },
           balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
@@ -576,29 +644,28 @@ export const useWalletStore = create<WalletStore>()(
       }
     },
 
-    // Transaction modal actions
+    // Transaction UI actions
+    setLastCompletedTxHash: (txHash: string | null) => {
+      set({ lastCompletedTxHash: txHash });
+    },
+
     openTransactionModal: () => {
       // Reset dismissed flag when explicitly opening the modal (new transaction initiated).
-      // Note: `lastCompletedTxHash` is intentionally NOT cleared here — SendManager
-      // calls `openTransactionModal()` a second time after a successful completion
-      // (via the GenerateTransaction action), and clearing would wipe the hash we
-      // just set. Clearing happens on `closeTransactionModal` and at the start of
-      // a fresh send in `SendManager.onSubmit`.
+      // `lastCompletedTxHash` is intentionally NOT cleared here — clearing happens on
+      // `closeTransactionModal` and at the start of a fresh send.
       set({ isTransactionModalOpen: true, isTransactionModalDismissedByUser: false });
     },
+
     closeTransactionModal: (dismissedByUser = false) => {
       set({
         isTransactionModalOpen: false,
-        // Track if user explicitly dismissed (prevents auto-reopen until transactions complete)
         isTransactionModalDismissedByUser: dismissedByUser,
         lastCompletedTxHash: null
       });
     },
+
     resetTransactionModalDismiss: () => {
       set({ isTransactionModalDismissedByUser: false });
-    },
-    setLastCompletedTxHash: (txHash: string | null) => {
-      set({ lastCompletedTxHash: txHash });
     },
 
     // DApp browser state (mobile only)
@@ -652,7 +719,12 @@ export const useWalletStore = create<WalletStore>()(
       set({
         seenNoteIds: new Set<string>(),
         isNoteToastVisible: false,
-        noteToastShownAt: null
+        noteToastShownAt: null,
+        // Drop the previous account's cached consumable notes so they are never
+        // shown or auto-consumed under the newly selected account (#280). The
+        // account-scoped poll in useExtensionClaimableNotes repopulates this for
+        // the new account on its next tick.
+        extensionClaimableNotes: null
       });
 
       if (isExtension()) {
@@ -704,6 +776,38 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   (globalThis as any).__TEST_STORE__ = useWalletStore;
   (globalThis as any).__TEST_INTERCOM__ = getIntercom();
   installSwapTestHooks();
+  // Point the bridge-OUT AggLayer "Slow" route at a runtime-created test faucet
+  // (the real bridge faucet is un-mintable). Read front-side by createB2AggNote +
+  // the send-flow route gate. Zero production impact (E2E-gated).
+  (globalThis as any).__TEST_SET_AGGLAYER_FAUCET__ = setAgglayerFaucetForE2E;
+  // Point the earn (Epoch lending) collateral faucet at a runtime-created test faucet.
+  // `openEarnPosition` runs page-side (EarnDepositReview), so the override must be set in
+  // THIS (page) realm. The import is LAZY (like the bridge-in hooks) so the Epoch/EVM SDK
+  // that `lib/epoch/earn` pulls in is NOT loaded into the main page bundle at boot — only
+  // when the test calls the hook (by which point the earn route has loaded it anyway). The
+  // fixed `MIDEN_USDC_FAUCET` testnet id can't exist on the localnet node. Zero prod impact.
+  (globalThis as any).__TEST_SET_EARN_FAUCET__ = async (faucetHex: string): Promise<void> => {
+    const { setEarnCollateralFaucetForTest } = await import('lib/epoch/earn');
+    setEarnCollateralFaucetForTest(faucetHex);
+  };
+  // Earn WITHDRAW read hooks live in the PAGE realm (here), NOT the SW-side
+  // earn-test-hooks: the `earn-withdraw` tracking row is created AND advanced
+  // page-side (gaslessEarnWithdrawalToMiden runs in EarnWithdrawReview, and the
+  // note-id reconcile flips it), so the SW's Repo view never sees it. The e2e
+  // reads these via `walletA.page.evaluate` (the deposit rows, created SW-side,
+  // stay on the SW hooks). Lazy Repo import — E2E-gated, zero prod impact.
+  (globalThis as any).__TEST_LATEST_EARN_WITHDRAW__ = async () => {
+    const Repo = await import('lib/miden/repo');
+    const rows = await Repo.transactions.filter((tx: any) => tx.type === 'earn-withdraw').toArray();
+    rows.sort((a: any, b: any) => (b.initiatedAt ?? 0) - (a.initiatedAt ?? 0));
+    const row: any = rows[0];
+    return row ? { id: row.id, phase: row.extraInputs?.phase, displayMessage: row.displayMessage } : null;
+  };
+  (globalThis as any).__TEST_EARN_WITHDRAW_STATE__ = async (txId: string) => {
+    const Repo = await import('lib/miden/repo');
+    const row: any = await Repo.transactions.where({ id: txId }).first();
+    return row ? { id: row.id, phase: row.extraInputs?.phase, displayMessage: row.displayMessage } : null;
+  };
   // Hex→bech32 faucet-id conversion. iOS E2E needs this to inject
   // synthetic metadata for the CLI-deployed test faucet (whose on-chain
   // procedure layout the SDK can't parse, so the real metadata RPC fails
@@ -734,8 +838,13 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   })();
 
   // Guardian on-chain auth structure (overall threshold + signer set + procedure
-  // thresholds) for E2E assertions — the harness's balance checks can't see the
-  // 3-key shape. Dynamic imports avoid a static cycle.
+  // thresholds + the active guardian-operator commitment) for E2E assertions —
+  // the harness's balance checks can't see the 3-key shape. The guardian
+  // commitment (`GUARDIAN_SLOT_NAMES.PUBLIC_KEY`) is a SEPARATE storage slot
+  // from the multisig `signerCommitments` (`[hot, cold]`) — a guardian switch
+  // changes the former while the latter (and its threshold) stay put, so it's
+  // the field E2E specs need to verify a switch actually landed. Dynamic
+  // imports avoid a static cycle.
   (globalThis as any).__TEST_GUARDIAN_AUTH__ = async (accountPublicKey: string) => {
     // Fast path: the balance poll (`fetchBalances`, which reliably completes in
     // the wallet's own flow) stashes this account's auth structure on
@@ -748,7 +857,12 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       globalThis as {
         __TEST_GUARDIAN_AUTH_STRUCTURE__?: Record<
           string,
-          { threshold: number; signerCommitments: string[]; procedureThresholds: Record<string, number> }
+          {
+            threshold: number;
+            signerCommitments: string[];
+            procedureThresholds: Record<string, number>;
+            guardianCommitment?: string;
+          }
         >;
       }
     ).__TEST_GUARDIAN_AUTH_STRUCTURE__;
@@ -782,9 +896,10 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     // on MIDEN_E2E_TEST, tree-shaken from production.
     setTestSyncPaused(true);
     try {
-      const [{ AccountInspector }, { getMidenClient }] = await Promise.all([
+      const [{ AccountInspector }, { getMidenClient }, { getGuardianCommitmentFromAccount }] = await Promise.all([
         import('@openzeppelin/miden-multisig-client'),
-        import('lib/miden/sdk/miden-client')
+        import('lib/miden/sdk/miden-client'),
+        import('lib/miden/guardian/account')
       ]);
       const account = await (await getMidenClient()).getAccount(accountPublicKey);
       if (!account) {
@@ -794,7 +909,12 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       return {
         threshold: config.threshold,
         signerCommitments: config.signerCommitments,
-        procedureThresholds: Object.fromEntries(config.procedureThresholds)
+        procedureThresholds: Object.fromEntries(config.procedureThresholds),
+        // Active guardian-operator commitment — a SEPARATE storage slot
+        // (`GUARDIAN_SLOT_NAMES.PUBLIC_KEY`) from `signerCommitments` above.
+        // A guardian switch changes this while the signer set / threshold
+        // stay put, so this is the field that actually verifies a switch.
+        guardianCommitment: getGuardianCommitmentFromAccount(account)
       };
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };

@@ -1,5 +1,6 @@
 import React, { FC, useEffect, useRef } from 'react';
 
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 
@@ -9,6 +10,8 @@ import { PropsWithChildren } from 'lib/props-with-children';
  */
 const FullScreenPage: FC<PropsWithChildren> = ({ children }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useHideNavbarWhileOpen();
 
   useEffect(() => {
     if (!containerRef.current) return;

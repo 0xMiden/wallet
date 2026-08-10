@@ -8,7 +8,25 @@ permissions:
   contents: read
 jobs:
   chrome-local:
-    name: local-e2e (chrome)
+    # Run the core suite under BOTH block cadences: the miden-node default (3s
+    # block / 1s batch, realistic timing) and fast 500ms blocks. Fast blocks
+    # guarantee a block lands in the wallet's commit->relay window, making
+    # send-private a deterministic guard for the private-note block-hint overshoot
+    # (web-sdk#262 / wallet#502). The fast leg is scoped to that one timing-critical
+    # spec to stay quick and stable; the default leg keeps full-suite coverage.
+    # The default leg's name stays exactly "local-e2e (chrome)" so any required-check
+    # mapping is unaffected.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name_suffix: ""
+            block_interval: ""
+            specs: ""
+          - name_suffix: " [fast blocks]"
+            block_interval: "500ms"
+            specs: "playwright/e2e/tests/send-private.spec.ts"
+    name: local-e2e (chrome)${{ matrix.name_suffix }}
     runs-on: ubuntu-latest
     # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m);
     # warm-cache runs are ~20m. 45m gives the cold run headroom to seed the cache.
@@ -16,6 +34,10 @@ jobs:
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
+      # Empty on the default leg -> docker-compose ${VAR:-<default>} falls back to
+      # the miden-node defaults; "500ms" on the fast leg.
+      MIDEN_NODE_BLOCK_INTERVAL: ${{ matrix.block_interval }}
+      MIDEN_NODE_BATCH_INTERVAL: ${{ matrix.block_interval }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -73,9 +95,6 @@ jobs:
           echo "node RPC (57291) / prover (50052) not ready in time" >&2
           docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color | tail -120
           exit 1
-      - name: Bring up guardian (Tier-2)
-        working-directory: playwright/e2e/local-stack
-        run: docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian up -d guardian
       - name: Start note-transport
         run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Build extension (localnet)
@@ -89,29 +108,20 @@ jobs:
         # E2E): a small margin for a rare balance->send-UI sync hiccup on a loaded
         # runner. Deliberately NOT 2 -- kept at 1 so a genuine regression still fails
         # the (to-be-required) gate rather than passing on a lucky third attempt.
-        run: xvfb-run -a yarn test:e2e:blockchain:run --retries=1
-      - name: Wait for guardian (Tier-2)
-        working-directory: playwright/e2e/local-stack
-        run: |
-          # HTTP probe, not a bare TCP connect: requires the guardian to actually
-          # answer, so a momentarily-bound socket during a restart:on-failure loop
-          # can't satisfy readiness before the specs run.
-          for _ in $(seq 1 120); do
-            curl -s -o /dev/null -m 2 http://127.0.0.1:3000 && echo "guardian(3000) ready" && exit 0
-            sleep 2
-          done
-          echo "guardian HTTP (3000) not ready in time" >&2
-          docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml logs guardian --no-color | tail -150
-          exit 1
-      - name: Run guardian specs (Tier-2)
-        env:
-          GUARDIAN_URL: http://localhost:3000
-        # --retries=1 (see core-specs note): a small margin, not a flake-masker.
-        run: xvfb-run -a yarn test:e2e:guardian:run --retries=1
+        # matrix.specs is empty for the default-timing leg (full core suite) and
+        # scoped to send-private for the fast-blocks leg.
+        run: xvfb-run -a yarn test:e2e:blockchain:run --retries=1 ${{ matrix.specs }}
+      # Guardian (`guardian-*.spec.ts`) coverage lives in its own workflow,
+      # pr-e2e-guardian-lifecycle.yml, which brings up BOTH guardians (A :3000 +
+      # B :3001, `guardian-switch` compose profile) and runs the full suite via
+      # the same playwright.guardian.config.ts. The switch/fault specs REQUIRE
+      # guardian-B, so a single-guardian run here can't cover them -- and running
+      # the identical suite in two workflows would just double the guardian CI
+      # per PR. This workflow stays Tier-1 (core blockchain specs) only.
       - name: Dump stack logs on failure
         if: failure()
         working-directory: playwright/e2e/local-stack
-        run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml logs --no-color | tail -400
+        run: docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color | tail -400
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -120,4 +130,4 @@ jobs:
       - name: Tear down
         if: always()
         working-directory: playwright/e2e/local-stack
-        run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml down -v || true
+        run: docker compose --env-file versions.env -f docker-compose.local.yml down -v || true

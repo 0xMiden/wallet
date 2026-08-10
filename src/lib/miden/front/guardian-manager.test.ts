@@ -226,6 +226,17 @@ describe('guardian-manager', () => {
       await expect(isGuardianAccount(GUARDIAN_PK, provider)).resolves.toBe(true);
     });
 
+    it('matches a dApp-supplied bare address against the stored composite publicKey', async () => {
+      // Regression: dApp/adapter txs arrive with the bare bech32 address, but
+      // WalletAccount.publicKey is a composite `<address>_<suffix>`. A raw `===`
+      // missed → the Guardian account was misrouted through the non-guardian path
+      // (no co-signature → on-chain AUTH_UNAUTHORIZED). Must resolve to guardian.
+      const compositeGuardian = { ...guardianAccount, publicKey: 'mtst1qabc_qr7suffix' };
+      const provider = makeProvider([compositeGuardian, onChainAccount]);
+
+      await expect(isGuardianAccount('mtst1qabc', provider)).resolves.toBe(true);
+    });
+
     it('returns false for a non-Guardian account', async () => {
       const provider = makeProvider([guardianAccount, onChainAccount]);
 

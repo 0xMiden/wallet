@@ -3,7 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
 import { OnboardingFlow } from './navigator';
-import { ImportType, OnboardingStep, OnboardingType, WalletType } from './types';
+import { OnboardingStep, OnboardingType, WalletType } from './types';
 
 // ---------------------------------------------------------------------------
 // Mutable mock state. The factories below close over these `mock*`-prefixed
@@ -116,12 +116,6 @@ jest.mock('./import-wallet-flow/ImportRecoveryMethod', () => ({
 jest.mock('./import-wallet-flow/ImportSeedPhrase', () => ({
   ImportSeedPhraseScreen: (p: any) => mockScreen('import-seed')(p)
 }));
-jest.mock('./import-wallet-flow/ImportWalletFile', () => ({
-  ImportWalletFileScreen: (p: any) => mockScreen('import-file')(p)
-}));
-jest.mock('./import-wallet-flow/SelectImportType', () => ({
-  SelectImportTypeScreen: (p: any) => mockScreen('select-import-type')(p)
-}));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -169,9 +163,7 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
   const headerWithBack: Array<[OnboardingStep, string]> = [
     [OnboardingStep.BackupSeedPhrase, 'screen-backup-seed'],
     [OnboardingStep.VerifySeedPhrase, 'screen-verify-seed'],
-    [OnboardingStep.SelectImportType, 'screen-select-import-type'],
     [OnboardingStep.ImportFromSeed, 'screen-import-seed'],
-    [OnboardingStep.ImportFromFile, 'screen-import-file'],
     [OnboardingStep.CreatePassword, 'screen-create-password'],
     [OnboardingStep.SelectRecoveryMethod, 'screen-select-recovery'],
     [OnboardingStep.ImportSelectRecoveryMethod, 'screen-import-recovery'],
@@ -300,21 +292,6 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(onAction).toHaveBeenLastCalledWith({ id: 'create-password', payload: WalletType.OnChain });
   });
 
-  it('SelectImportType: routes seed / file and ignores unknown', () => {
-    const onAction = jest.fn();
-    renderFlow({ step: OnboardingStep.SelectImportType, onAction });
-
-    act(() => mockCaptured['select-import-type'].onSubmit(ImportType.SeedPhrase));
-    expect(onAction).toHaveBeenLastCalledWith({ id: 'import-from-seed' });
-
-    act(() => mockCaptured['select-import-type'].onSubmit(ImportType.WalletFile));
-    expect(onAction).toHaveBeenLastCalledWith({ id: 'import-from-file' });
-
-    onAction.mockClear();
-    act(() => mockCaptured['select-import-type'].onSubmit('bogus'));
-    expect(onAction).not.toHaveBeenCalled();
-  });
-
   it('ImportFromSeed: passes wordslist and submits the entered phrase', () => {
     const onAction = jest.fn();
     renderFlow({ step: OnboardingStep.ImportFromSeed, wordslist: ['w1', 'w2'], onAction });
@@ -322,19 +299,6 @@ describe('OnboardingFlow — action wiring per screen', () => {
 
     act(() => mockCaptured['import-seed'].onSubmit('my phrase'));
     expect(onAction).toHaveBeenLastCalledWith({ id: 'import-seed-phrase-submit', payload: 'my phrase' });
-  });
-
-  it('ImportFromFile: submits phrase plus wallet accounts', () => {
-    const onAction = jest.fn();
-    renderFlow({ step: OnboardingStep.ImportFromFile, onAction });
-
-    const accounts = [{ id: 'acc-1' }] as any;
-    act(() => mockCaptured['import-file'].onSubmit('file phrase', accounts));
-    expect(onAction).toHaveBeenLastCalledWith({
-      id: 'import-wallet-file-submit',
-      payload: 'file phrase',
-      walletAccounts: accounts
-    });
   });
 
   it('CreatePassword: submits password with biometric disabled', () => {
@@ -435,7 +399,7 @@ describe('OnboardingFlow — progress computation', () => {
   it('import flow keeps 4 steps and the mapped position', () => {
     renderFlow({ step: OnboardingStep.ImportFromSeed, onboardingType: OnboardingType.Import });
     expect(progress()).toHaveAttribute('data-steps', '4');
-    expect(progress()).toHaveAttribute('data-current', '2');
+    expect(progress()).toHaveAttribute('data-current', '1');
   });
 
   it('shifted position of 0 keeps currentStep 0 and hides the indicator (opacity-0)', () => {

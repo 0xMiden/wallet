@@ -1,177 +1,110 @@
-import React, { FC, useCallback, useEffect, useState } from 'react';
+import React, { FC } from 'react';
 
-import { useTranslation } from 'react-i18next';
+import clsx from 'clsx';
+import { Trans, useTranslation } from 'react-i18next';
 
-import GuardianReplaceHotKey from 'app/templates/GuardianReplaceHotKey';
 import {
-  initiateSwitchGuardianTransaction,
-  requestSWTransactionProcessing,
-  waitForTransactionCompletion
-} from 'lib/miden/activity';
-import { fetchFromStorage, onStorageChanged } from 'lib/miden/front';
-import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
-import { isExtension } from 'lib/platform';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
-import { isDelegateProofEnabled, sanitizeGuardianUrl } from 'lib/settings/helpers';
+  guardianEndpointHost,
+  guardianOptionForEndpoint,
+  useCurrentGuardianEndpoint
+} from 'app/hooks/useCurrentGuardianEndpoint';
+import { GUARDIAN_LOGOS, guardianLogoColorClass } from 'app/icons/guardian-operator-logs';
+import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
+import { Button } from 'components/Button';
+import { hapticLight } from 'lib/mobile/haptics';
 import { useWalletStore } from 'lib/store';
-import { ChooseGuardianScreen } from 'screens/onboarding/common/ChooseGuardian';
+import { navigate } from 'lib/woozie';
 
-type Props = {
-  onClose?: () => void;
-};
+const GuardianDetailRow: FC<{ label: string; value: string; isLast?: boolean }> = ({ label, value, isLast }) => (
+  <div
+    className={`flex min-h-12 items-center justify-between gap-4 px-4 py-3 text-heading-gray text-sm font-medium ${isLast ? '' : 'border-b border-border-light'}`}
+  >
+    <span className="shrink-0">{label}</span>
+    <span className="min-w-0 truncate text-right" title={value}>
+      {value}
+    </span>
+  </div>
+);
 
-const GuardianSettings: FC<Props> = ({ onClose }) => {
-  const { t } = useTranslation();
-  const currentEndpoint = useCurrentGuardianEndpoint();
-  const [submitSuccess, setSubmitSuccess] = useState(false);
-  // Two-stage submit: first tap validates + enters confirming, second tap fires the tx.
-  // switch_guardian requires the cold key (co-signed by the current guardian),
-  // so the confirmation step mirrors the cold-signing acknowledgement pattern.
-  const [pendingEndpoint, setPendingEndpoint] = useState<string | null>(null);
-  // `confirming` is fully derived from `pendingEndpoint` — a pending endpoint IS
-  // the confirming state — so the two can never drift out of sync.
-  const confirming = pendingEndpoint !== null;
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+function formatLastSync(timestamp: number, locale: string): string {
+  const elapsedSeconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: 'auto', style: 'narrow' });
 
-  const currentAccount = useWalletStore(s => s.currentAccount);
+  if (elapsedSeconds < 60) return formatter.format(-elapsedSeconds, 'second');
+  if (elapsedSeconds < 3600) return formatter.format(-Math.round(elapsedSeconds / 60), 'minute');
+  if (elapsedSeconds < 86_400) return formatter.format(-Math.round(elapsedSeconds / 3600), 'hour');
+  return formatter.format(-Math.round(elapsedSeconds / 86_400), 'day');
+}
 
-  const runSwitch = useCallback(
-    async (newEndpoint: string) => {
-      if (!currentAccount) return;
-      setSubmitting(true);
-      setError(null);
-      setSubmitSuccess(false);
-      try {
-        const txId = await initiateSwitchGuardianTransaction(
-          currentAccount.publicKey,
-          newEndpoint,
-          isDelegateProofEnabled(),
-          zustandProvider
-        );
-        useWalletStore.getState().openTransactionModal();
-        if (isExtension()) requestSWTransactionProcessing();
+const GuardianSettings: FC = () => {
+  const { t, i18n } = useTranslation();
+  const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
+  const lastSyncedAt = useWalletStore(s => s.lastSyncedAt);
 
-        const result = await waitForTransactionCompletion(txId);
-        if ('errorMessage' in result) {
-          setError(result.errorMessage);
-          return;
-        }
+  const option = guardianOptionForEndpoint(currentEndpoint);
+  const logoEntry = option ? GUARDIAN_LOGOS[option.id] : undefined;
+  const guardianName = option?.name ?? (currentEndpoint ? t('customGuardian') : t('loading'));
+  const provider = option?.operatedBy ?? (currentEndpoint ? t('customGuardian') : t('loading'));
+  const region = option?.location ?? t('unknown');
+  const endpoint = guardianEndpointHost(currentEndpoint) || t('loading');
+  const lastSync = lastSyncedAt
+    ? formatLastSync(lastSyncedAt, i18n?.resolvedLanguage ?? i18n?.language ?? 'en')
+    : t('never');
 
-        setSubmitSuccess(true);
-        setPendingEndpoint(null);
-        // No manual refresh needed: completing the switch persists the new endpoint
-        // and broadcasts `accountsUpdated`, so `useCurrentGuardianEndpoint` (a reactive
-        // store selector) re-renders the "Current guardian" display on its own.
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [currentAccount]
-  );
-
-  const handleSubmit = useCallback(
-    ({ guardianEndpoint }: { guardianId: string; guardianEndpoint: string }) => {
-      if (submitting || !currentAccount) return;
-      setSubmitSuccess(false);
-
-      if (guardianEndpoint === currentEndpoint) {
-        setError(t('guardianEndpointUnchanged'));
-        setPendingEndpoint(null);
-        return;
-      }
-
-      setError(null);
-
-      if (!confirming || pendingEndpoint !== guardianEndpoint) {
-        setPendingEndpoint(guardianEndpoint);
-        return;
-      }
-
-      void runSwitch(guardianEndpoint);
-    },
-    [confirming, currentAccount, currentEndpoint, pendingEndpoint, runSwitch, submitting, t]
-  );
+  const handleRotate = () => {
+    hapticLight();
+    navigate('/rotate-guardian');
+  };
 
   return (
-    <div className="w-full max-w-sm p-2 mx-auto">
-      <div className="mb-4">
-        <p className="text-sm text-heading-gray font-medium mb-1">{t('currentGuardianEndpoint')}</p>
-        <p className="text-sm text-black break-all select-text">{currentEndpoint || t('loading')}</p>
+    <div className="flex min-h-full w-full flex-col">
+      <div className="flex flex-col items-center pt-1">
+        <div className="flex h-16 min-w-16 max-w-full items-center justify-center overflow-hidden rounded-xl bg-surface-interactive px-3">
+          {logoEntry ? (
+            <logoEntry.Logo
+              data-testid="guardian-operator-logo"
+              className={clsx('h-12 w-auto max-w-48', guardianLogoColorClass(logoEntry))}
+            />
+          ) : (
+            <GuardianAvatar data-testid="guardian-avatar" className="h-14 w-14" />
+          )}
+        </div>
+        <h2 className="mt-3 break-all text-center font-heading text-xl font-bold text-heading-gray">{guardianName}</h2>
+        {currentEndpoint && (
+          <div className="mt-2 flex items-center gap-2 rounded-full bg-green-50 px-4 py-1.5 text-xs font-semibold text-green-700 dark:bg-green-500/15 dark:text-green-400">
+            <span className="h-2 w-2 rounded-full bg-green-500" />
+            <span>{t('online')}</span>
+          </div>
+        )}
       </div>
 
-      <ChooseGuardianScreen
-        onSubmit={handleSubmit}
-        currentEndpoint={currentEndpoint}
-        hideHeader
-        allowCustomEndpoint
-        submitLabel={submitting ? t('loading') : confirming ? t('confirmSwitchGuardian') : t('switchGuardian')}
-      />
+      <section className="mt-6">
+        <h3 className="text-sm font-semibold text-gray font-heading">{t('about')}</h3>
+        <p className="mt-2 text-base leading-none text-black">
+          <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="font-semibold" /> }} />
+        </p>
+      </section>
 
-      {confirming && !submitting && !submitSuccess && (
-        <div className="text-xs text-heading-gray mt-3 select-text">{t('switchGuardianConfirmation')}</div>
-      )}
+      <hr className="my-4 border-border-card" />
 
-      {error && <div className="mt-3 text-red-500 text-xs select-text">{error}</div>}
-
-      {submitSuccess && (
-        <div className="mt-4 text-green-600 text-sm font-medium" onAnimationEnd={() => onClose?.()}>
-          {t('guardianSwitched')}
+      <section>
+        <h3 className="mb-2 text-sm font-semibold text-text-muted">{t('details')}</h3>
+        <div className="overflow-hidden rounded-xl border border-border-card bg-white">
+          <GuardianDetailRow label={t('guardianProvider')} value={provider} />
+          <GuardianDetailRow label={t('guardianEndpointLabel')} value={endpoint} />
+          <GuardianDetailRow label={t('guardianRegion')} value={region} />
+          <GuardianDetailRow label={t('guardianLastSync')} value={lastSync} isLast />
         </div>
-      )}
+      </section>
 
-      <hr className="my-6" />
-
-      <GuardianReplaceHotKey onClose={onClose} />
+      <Button
+        className="mt-8 max-w-none shrink-0"
+        data-testid="rotateGuardian"
+        title={t('rotateGuardian')}
+        onClick={handleRotate}
+      />
     </div>
   );
 };
 
 export default GuardianSettings;
-
-// A wallet has a single Guardian account, so the current account's
-// `guardianEndpoint` IS the wallet's guardian. Read it straight off the store as
-// a reactive selector: when a switch persists the new endpoint and broadcasts
-// `accountsUpdated`, this re-renders on its own — no manual storage read/refresh.
-//
-// For accounts created before the per-account field existed, mirror
-// `resolveGuardianEndpoint`'s fallback to the legacy global
-// `GUARDIAN_URL_STORAGE_KEY`, otherwise the "Current guardian" display (and the
-// unchanged-endpoint guard) would misreport a legacy custom operator as the
-// default one.
-function useCurrentGuardianEndpoint(): string {
-  const accountEndpoint = useWalletStore(s => s.currentAccount?.guardianEndpoint);
-  const [legacyEndpoint, setLegacyEndpoint] = useState<string | null>(null);
-
-  useEffect(() => {
-    // The per-account field always wins; only consult the legacy global key when
-    // the account predates it.
-    if (accountEndpoint) {
-      setLegacyEndpoint(null);
-      return;
-    }
-    let active = true;
-    fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)
-      .then(stored => {
-        if (active) setLegacyEndpoint(stored ?? null);
-      })
-      .catch(() => {
-        if (active) setLegacyEndpoint(null);
-      });
-    // Extension builds get storage-change events for free; on mobile/desktop this
-    // is a no-op cleanup.
-    const unsubscribe = onStorageChanged<string>(GUARDIAN_URL_STORAGE_KEY, next => {
-      setLegacyEndpoint(next ?? null);
-    });
-    return () => {
-      active = false;
-      unsubscribe();
-    };
-  }, [accountEndpoint]);
-
-  return sanitizeGuardianUrl(accountEndpoint || legacyEndpoint || DEFAULT_GUARDIAN_ENDPOINT);
-}

@@ -42,6 +42,7 @@ import { ReactComponent as Code } from './code.svg';
 import { ReactComponent as Coins } from './coins.svg';
 import { ReactComponent as ContactsBook } from './contacts-book.svg';
 import { ReactComponent as Convert } from './convert.svg';
+import { ReactComponent as CopyNew } from './copy-new.svg';
 import { ReactComponent as Copy } from './copy.svg';
 import { ReactComponent as CrossChain } from './cross-chain.svg';
 import { ReactComponent as Download } from './download.svg';
@@ -88,6 +89,7 @@ import { ReactComponent as Settings } from './settings.svg';
 import { ReactComponent as Share } from './share.svg';
 import { ReactComponent as SuccessDevnet } from './success-devnet.svg';
 import { ReactComponent as Success } from './success.svg';
+import { ReactComponent as Switch } from './switch.svg';
 import { ReactComponent as Time } from './time.svg';
 import { ReactComponent as Tokens } from './tokens.svg';
 import { ReactComponent as UploadFile } from './upload-file.svg';
@@ -139,6 +141,7 @@ export enum IconName {
   ContactsBook = 'contacts-book',
   Convert = 'convert',
   Copy = 'copy',
+  CopyNew = 'copy-new',
   CrossChain = 'cross-chain',
   Download = 'download',
   Earn = 'earn',
@@ -178,6 +181,7 @@ export enum IconName {
   Settings = 'settings',
   SettingsNew = 'settings-new',
   Share = 'share',
+  Switch = 'switch',
   Time = 'time',
   User = 'user',
   Users = 'users',
@@ -280,6 +284,8 @@ const IconSwitch = (props: IconProps) => {
       return <Convert {...props} />;
     case IconName.Copy:
       return <Copy {...props} />;
+    case IconName.CopyNew:
+      return <CopyNew {...props} />;
     case IconName.CrossChain:
       return <CrossChain {...props} />;
     case IconName.Download:
@@ -358,6 +364,8 @@ const IconSwitch = (props: IconProps) => {
       return <SettingsNew {...props} />;
     case IconName.Share:
       return <Share {...props} />;
+    case IconName.Switch:
+      return <Switch {...props} />;
     case IconName.Time:
       return <Time {...props} />;
     case IconName.User:

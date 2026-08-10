@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { getCurrentLocale } from 'lib/i18n/core';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
@@ -46,6 +46,14 @@ jest.mock('framer-motion', () => ({
 jest.mock('lib/miden-chain/constants', () => ({
   DEFAULT_NETWORK: 'testnet',
   MIDEN_NETWORK_NAME: { DEVNET: 'devnet', TESTNET: 'testnet', MAINNET: 'mainnet' }
+}));
+
+// Defaults to hidden; individual tests flip `mockShowDevEndpoints.value` to
+// exercise the row's async, cancellation-safe mount effect.
+const mockShowDevEndpoints = { value: false };
+const mockIsEndpointOverrideActive = jest.fn(() => Promise.resolve(mockShowDevEndpoints.value));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  isEndpointOverrideActive: () => mockIsEndpointOverrideActive()
 }));
 
 jest.mock('lib/store', () => ({
@@ -99,7 +107,11 @@ jest.mock('lib/ui/drawer', () => ({
     </div>
   ),
   DrawerContent: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-content">{children}</div>,
-  DrawerHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DrawerHeader: ({ className, children }: { className?: string; children: React.ReactNode }) => (
+    <div data-testid="drawer-header" data-classname={className}>
+      {children}
+    </div>
+  ),
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-title">{children}</div>
 }));
 
@@ -234,6 +246,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockIsMobile = false;
   mockReduceMotion = false;
+  mockShowDevEndpoints.value = false;
   setAccount({ type: 'on-chain' });
   mockGetCurrentLocale.mockReturnValue('en-US');
   document.body.removeAttribute('data-drawer-open');
@@ -250,7 +263,7 @@ describe('Settings page — root menu (non-guardian)', () => {
     render(<Settings tabSlug={null} />);
 
     expect(screen.getByTestId('nav-title')).toHaveTextContent('settings');
-    expect(screen.getByText(/^Version /)).toBeInTheDocument();
+    expect(screen.getByText('settingsVersion')).toBeInTheDocument();
   });
 
   it('renders all four group headings', () => {
@@ -324,7 +337,7 @@ describe('Settings page — root menu (non-guardian)', () => {
 
     // A drawer slug does not resolve to an active tab → menu is shown.
     expect(screen.getByTestId('menuitem-generalSettings')).toBeInTheDocument();
-    expect(screen.getByText(/^Version /)).toBeInTheDocument();
+    expect(screen.getByText('settingsVersion')).toBeInTheDocument();
   });
 
   it('renders the root menu for an unknown slug', () => {
@@ -348,6 +361,17 @@ describe('Settings page — guardian account', () => {
 
     expect(screen.getByTestId('guardian-settings-body')).toBeInTheDocument();
   });
+
+  it('titles the Guardian settings drawer as a rotation action', () => {
+    setAccount({ type: 'guardian' });
+    render(<Settings tabSlug={null} />);
+
+    fireEvent.click(screen.getByTestId('menuitem-guardianSettings'));
+
+    const openDrawer = openDrawers()[0]!;
+    expect(within(openDrawer).getByTestId('drawer-title')).toHaveTextContent('rotateGuardian');
+    expect(within(openDrawer).getByTestId('drawer-header')).toHaveAttribute('data-classname', 'mb-0');
+  });
 });
 
 describe('Settings page — drawer interactions', () => {
@@ -361,6 +385,7 @@ describe('Settings page — drawer interactions', () => {
     const open = openDrawers();
     expect(open).toHaveLength(1);
     expect(within(open[0]!).getByTestId('drawer-title')).toHaveTextContent('generalSettings');
+    expect(within(open[0]!).getByTestId('drawer-header')).not.toHaveAttribute('data-classname');
   });
 
   it('closes the drawer via onOpenChange(false)', () => {
@@ -515,6 +540,23 @@ describe('Settings page — active tab routing', () => {
 
     expect(screen.queryByTestId('reveal-secret')).not.toBeInTheDocument();
     expect(screen.getByTestId('menuitem-generalSettings')).toBeInTheDocument();
+  });
+});
+
+describe('Settings page — developer endpoints row', () => {
+  it('stays hidden once the override-active check resolves false (default)', async () => {
+    render(<Settings tabSlug={null} />);
+
+    await waitFor(() => expect(mockIsEndpointOverrideActive).toHaveBeenCalled());
+    expect(screen.queryByTestId('menuitem-devEndpointsRow')).not.toBeInTheDocument();
+  });
+
+  it('appears in the developer group, linked to /settings/network-endpoints, once an override is active', async () => {
+    mockShowDevEndpoints.value = true;
+    render(<Settings tabSlug={null} />);
+
+    const row = await screen.findByTestId('menuitem-devEndpointsRow');
+    expect(row).toHaveAttribute('data-slug', '/settings/network-endpoints');
   });
 });
 

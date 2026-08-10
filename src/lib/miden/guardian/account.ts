@@ -2,9 +2,11 @@ import { Account, AuthSecretKey, MidenClient, Word } from '@miden-sdk/miden-sdk/
 import { EcdsaSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
+import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
+import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
+import type { GuardianProvider } from 'lib/shared/types';
 import { WalletAccount } from 'lib/shared/types';
 
 import { registerGuardianOrigin } from './native-http';
@@ -16,11 +18,11 @@ import { fetchFromStorage } from '../front/storage';
  * Prefers the per-account `guardianEndpoint` (set at create/recovery time and
  * on switch-guardian) so accounts on different operators don't collide. Falls
  * back to the legacy global `GUARDIAN_URL_STORAGE_KEY` for records created
- * before the field existed, then to `DEFAULT_GUARDIAN_ENDPOINT`.
+ * before the field existed, then to the effective network's default guardian.
  */
 export async function resolveGuardianEndpoint(account: WalletAccount): Promise<string> {
   if (account.guardianEndpoint) return account.guardianEndpoint;
-  return (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+  return (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || getEffectiveDefaultGuardianEndpoint();
 }
 
 // Re-export the slot names from the package for reading account state
@@ -29,6 +31,15 @@ export const MULTISIG_SLOT_NAMES = {
   SIGNER_PUBLIC_KEYS: 'openzeppelin::multisig::signer_public_keys',
   EXECUTED_TRANSACTIONS: 'openzeppelin::multisig::executed_transactions',
   PROCEDURE_THRESHOLDS: 'openzeppelin::multisig::procedure_thresholds'
+} as const;
+
+// GUARDIAN_SLOT_NAMES is module-private in @openzeppelin/miden-multisig-client
+// (not re-exported), so we re-declare the slot names locally — same pattern
+// as MULTISIG_SLOT_NAMES above.
+export const GUARDIAN_SLOT_NAMES = {
+  SELECTOR: 'openzeppelin::guardian::selector',
+  PUBLIC_KEY: 'openzeppelin::guardian::public_key',
+  SCHEME_ID: 'openzeppelin::guardian::scheme_id'
 } as const;
 
 /**
@@ -96,6 +107,42 @@ export async function getSignerDetailsFromAccount(account: Account, getCold = fa
 }
 
 /**
+ * Read the on-chain guardian operator key commitment from the
+ * `openzeppelin::guardian::public_key` storage map (index 0) — a SEPARATE
+ * slot from the multisig signer slots read by `getSignerDetailsFromAccount`.
+ * Returns unprefixed hex, or undefined if absent / the empty (all-zero) word.
+ */
+export function getGuardianCommitmentFromAccount(account: Account): string | undefined {
+  const storage = account.storage();
+  const value = storage.getMapItem(GUARDIAN_SLOT_NAMES.PUBLIC_KEY, signerMapKey(0));
+  if (!value) return undefined;
+  const hex = value.toHex();
+  const unprefixed = hex.startsWith('0x') ? hex.slice(2) : hex;
+  return /^0*$/.test(unprefixed) ? undefined : unprefixed;
+}
+
+const PROVIDER_ID_MAP: Record<string, GuardianProvider> = {
+  'open-zeppelin': 'open-zeppelin',
+  gateway: 'gateway',
+  'lambda-class': 'lambda-class'
+};
+
+/**
+ * Reverse-map an endpoint URL to its built-in GUARDIAN_OPTIONS provider id;
+ * 'custom' if the endpoint doesn't match any known provider; null if the
+ * endpoint itself is null (account has no guardian).
+ */
+export function guardianProviderFromEndpoint(endpoint: string | null): GuardianProvider | null {
+  if (!endpoint) return null;
+  for (const option of GUARDIAN_OPTIONS) {
+    for (const url of option.endpoint.values()) {
+      if (url === endpoint) return PROVIDER_ID_MAP[option.id] ?? 'custom';
+    }
+  }
+  return 'custom';
+}
+
+/**
  * Create a 3-key Guardian account: a random hot ECDSA key (held outside the
  * WASM keystore, behind the secure-hot-key facade), an HD-derived cold ECDSA
  * key (held inside the keystore, used for rotation/recovery), and the external
@@ -109,8 +156,8 @@ export async function getSignerDetailsFromAccount(account: Account, getCold = fa
  * @param skipRegistration - Skip guardian registration (used by the import path).
  * @param guardianEndpointOverride - Force a specific guardian URL for pubkey
  *   derivation. Account ID is a content hash that includes the guardian pubkey
- *   baked into storage, so the import flow passes `DEFAULT_GUARDIAN_ENDPOINT`
- *   to reproduce the ID the account originally had.
+ *   baked into storage, so the import flow passes the effective default
+ *   guardian endpoint to reproduce the ID the account originally had.
  */
 export async function createGuardianAccount(
   webClient: MidenClient,
@@ -144,10 +191,13 @@ export async function createGuardianAccount(
     const guardianEndpoint =
       guardianEndpointOverride ??
       (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) ??
-      DEFAULT_GUARDIAN_ENDPOINT;
+      getEffectiveDefaultGuardianEndpoint();
 
     registerGuardianOrigin(guardianEndpoint);
-    const client = new MultisigClient(webClient, { guardianEndpoint });
+    const client = new MultisigClient(webClient, {
+      guardianEndpoint,
+      midenRpcEndpoint: getEffectiveRpcUrl()
+    });
     const { commitment: guardianCommitment, pubkey: guardianPubkey } = await client.guardianClient.getPubkey('ecdsa');
     // Signer order is [hot, cold] by convention — the migration plan diagrams
     // and downstream role-routing code assume this layout.

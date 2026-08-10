@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { useTranslation } from 'react-i18next';
+
 import { Icon, IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
@@ -16,6 +18,8 @@ const keyClass =
   'size-23 rounded-2xl bg-gray-25 text-heading-gray text-[34px] font-medium flex items-center justify-center select-none';
 
 export const Numpad: React.FC<NumpadProps> = ({ onDigit, onDelete, className }) => {
+  const { t } = useTranslation();
+
   const handleDigit = (digit: string) => {
     hapticLight();
     onDigit(digit);
@@ -45,7 +49,7 @@ export const Numpad: React.FC<NumpadProps> = ({ onDigit, onDelete, className }) 
       </button>
       <button
         type="button"
-        aria-label="Delete"
+        aria-label={t('delete')}
         className="size-23 rounded-2xl text-heading-gray flex items-center justify-center select-none"
         onClick={handleDelete}
         data-testid="numpad-delete"

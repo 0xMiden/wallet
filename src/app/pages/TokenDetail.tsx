@@ -86,16 +86,16 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           <div className="flex gap-3">
             <button
               onClick={() => navigate({ pathname: '/send', search: `?tokenId=${tokenId}` })}
-              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-send-blue text-pure-white font-semibold text-sm cursor-pointer"
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-primary-500 hover:bg-primary-600 text-pure-white font-semibold text-sm cursor-pointer transition-colors duration-150"
             >
-              <SendIcon className="w-4 h-4" />
+              <SendIcon className="w-4 h-4 [&_path]:fill-current" />
               {t('send')}
             </button>
             <button
               onClick={() => navigate('/receive')}
-              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-receive-green text-pure-white font-semibold text-sm cursor-pointer"
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-button-secondary hover:bg-button-secondary-hover text-heading-gray font-semibold text-sm cursor-pointer transition-colors duration-150"
             >
-              <ReceiveIcon className="w-4 h-4" />
+              <ReceiveIcon className="w-4 h-4 [&_path]:fill-current" />
               {t('receive')}
             </button>
           </div>
@@ -155,8 +155,9 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
                 : 'text-red-600 bg-red-50 dark:bg-red-500/15 dark:text-red-500'
             )}
           >
-            {priceInfo.change24h >= 0 ? '+' : ''}
-            {priceInfo.change24h.toFixed(1)}%
+            {t('tokenDetailChange24h', {
+              change: `${priceInfo.change24h >= 0 ? '+' : ''}${priceInfo.change24h.toFixed(1)}`
+            })}
           </span>
         </div>
         <span className="font-heading text-2xl font-bold text-heading-gray">${priceInfo.price.toFixed(3)}</span>
