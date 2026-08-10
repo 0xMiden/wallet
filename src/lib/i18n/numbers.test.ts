@@ -8,7 +8,10 @@ import {
   stringToBigInt,
   toLocalFixed,
   toShortened,
-  toFixedRoundedDown
+  toFixedRoundedDown,
+  getAdaptiveDecimalPlaces,
+  toAdaptiveFixed,
+  formatUsd
 } from './numbers';
 
 // `toShortened` delegates the thousand/million/billion labelling to i18next's
@@ -91,6 +94,36 @@ describe('toLocalFormat', () => {
       expect(toLocalFormat('1000', {})).toBe('1,000');
       expect(toLocalFormat(new BigNumber(1000), {})).toBe('1,000');
     });
+  });
+});
+
+describe('adaptive amount formatting', () => {
+  it('keeps two decimal places for ordinary values and zero', () => {
+    expect(getAdaptiveDecimalPlaces(12.345)).toBe(2);
+    expect(toAdaptiveFixed(12.345)).toBe('12.35');
+    expect(toAdaptiveFixed(0)).toBe('0.00');
+  });
+
+  it('shows the first two significant fractional places for small values', () => {
+    expect(getAdaptiveDecimalPlaces('0.001234')).toBe(4);
+    expect(toAdaptiveFixed('0.001234')).toBe('0.0012');
+    expect(toAdaptiveFixed('-0.00005678')).toBe('-0.000057');
+  });
+
+  it('honours a larger normal precision before adapting', () => {
+    expect(getAdaptiveDecimalPlaces('0.0001234', 4)).toBe(6);
+    expect(toAdaptiveFixed('1.23456', 4)).toBe('1.2346');
+  });
+
+  it('preserves non-finite BigNumber output', () => {
+    expect(toAdaptiveFixed(NaN)).toBe('NaN');
+    expect(toAdaptiveFixed(Infinity)).toBe('Infinity');
+    expect(toAdaptiveFixed(-Infinity)).toBe('-Infinity');
+  });
+
+  it('uses adaptive precision for small USD values while preserving grouping', () => {
+    expect(formatUsd(1024.5)).toBe('$1,024.50');
+    expect(formatUsd(0.001234)).toBe('$0.0012');
   });
 });
 

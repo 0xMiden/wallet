@@ -3,6 +3,7 @@ import React, { FC, ReactNode } from 'react';
 import BigNumber from 'bignumber.js';
 import classNames from 'clsx';
 
+import { getAdaptiveDecimalPlaces } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 
 export type ActivityAmountDirection = 'positive' | 'negative' | 'neutral';
@@ -79,7 +80,8 @@ function formatDisplayAmount(value: string): string {
     return value;
   }
 
-  return `${sign}${amount.decimalPlaces(DISPLAY_DECIMAL_PLACES, BigNumber.ROUND_DOWN).toFixed()}`;
+  const decimalPlaces = getAdaptiveDecimalPlaces(amount, DISPLAY_DECIMAL_PLACES);
+  return `${sign}${amount.decimalPlaces(decimalPlaces, BigNumber.ROUND_DOWN).toFixed()}`;
 }
 
 export const ActivityRow: FC<ActivityRowProps> = ({

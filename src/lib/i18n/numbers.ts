@@ -29,6 +29,8 @@ type FormatParams = {
   format?: BigNumber.Format;
 };
 
+const SMALL_AMOUNT_SIGNIFICANT_PLACES = 2;
+
 function localizeDefaultFormattedNumber(formattedNumber: string) {
   const numberSymbols = getNumberSymbols();
   const pointIndex = formattedNumber.indexOf('.');
@@ -74,8 +76,44 @@ export function getPluralKey(keyPrefix: string, amount: number) {
   return `${keyPrefix}_${rules.select(amount)}`;
 }
 
+/**
+ * Keep the normal display precision unless it would hide a small non-zero
+ * value. In that case, include the first non-zero fractional digit and one
+ * more significant place (for example, 0.001234 at 2dp uses 4dp).
+ */
+export function getAdaptiveDecimalPlaces(value: BigNumber.Value, minimumDecimalPlaces: number = 2): number {
+  const bn = new BigNumber(value);
+
+  if (!bn.isFinite() || bn.isZero()) {
+    return minimumDecimalPlaces;
+  }
+
+  const fractionalPart = bn.abs().toFixed().split('.')[1] ?? '';
+  const firstNonZeroIndex = fractionalPart.search(/[1-9]/);
+
+  if (firstNonZeroIndex < minimumDecimalPlaces) {
+    return minimumDecimalPlaces;
+  }
+
+  return firstNonZeroIndex + SMALL_AMOUNT_SIGNIFICANT_PLACES;
+}
+
+export function toAdaptiveFixed(
+  value: BigNumber.Value,
+  minimumDecimalPlaces: number = 2,
+  roundingMode?: BigNumber.RoundingMode
+): string {
+  const bn = new BigNumber(value);
+  const decimalPlaces = getAdaptiveDecimalPlaces(bn, minimumDecimalPlaces);
+  return bn.toFixed(decimalPlaces, roundingMode);
+}
+
 export function formatUsd(value: number): string {
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const decimalPlaces = getAdaptiveDecimalPlaces(value);
+  return `$${value.toLocaleString('en-US', {
+    minimumFractionDigits: decimalPlaces,
+    maximumFractionDigits: decimalPlaces
+  })}`;
 }
 
 export function formatBigInt(amount: bigint, decimals: number = MIDEN_METADATA.decimals): string {

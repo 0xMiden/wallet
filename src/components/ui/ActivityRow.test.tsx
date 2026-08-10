@@ -68,6 +68,12 @@ describe('ActivityRow', () => {
       expect(screen.getByText('MIDEN')).toBeTruthy();
     });
 
+    it('expands precision instead of truncating a small non-zero amount to zero', () => {
+      renderRow({ amount: { value: '0.00012345', symbol: 'MIDEN' } });
+
+      expect(screen.getByText('0.00012')).toBeTruthy();
+    });
+
     it('preserves a leading + sign and formats the remainder', () => {
       renderRow({ amount: { value: '+50.5', direction: 'positive' } });
 
