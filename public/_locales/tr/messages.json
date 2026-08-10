@@ -2275,6 +2275,22 @@
     "message": "sağlayıcı",
     "englishSource": "Provider"
   },
+  "guardianEndpointLabel": {
+    "message": "Uç nokta",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "Bölge",
+    "englishSource": "Region"
+  },
+  "guardianLastSync": {
+    "message": "Son senkronizasyon",
+    "englishSource": "Last sync"
+  },
+  "online": {
+    "message": "Çevrimiçi",
+    "englishSource": "Online"
+  },
   "reviewRotation": {
     "message": "Rotasyonu inceleyin",
     "englishSource": "Review rotation"

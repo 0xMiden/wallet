@@ -2276,6 +2276,22 @@
     "message": "Поставщик",
     "englishSource": "Provider"
   },
+  "guardianEndpointLabel": {
+    "message": "Конечная точка",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "Область",
+    "englishSource": "Region"
+  },
+  "guardianLastSync": {
+    "message": "Последняя синхронизация",
+    "englishSource": "Last sync"
+  },
+  "online": {
+    "message": "Онлайн",
+    "englishSource": "Online"
+  },
   "reviewRotation": {
     "message": "Обзор ротации",
     "englishSource": "Review rotation"

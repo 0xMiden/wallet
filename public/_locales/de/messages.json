@@ -2275,6 +2275,22 @@
     "message": "Anbieter",
     "englishSource": "Provider"
   },
+  "guardianEndpointLabel": {
+    "message": "Endpunkt",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "Region",
+    "englishSource": "Region"
+  },
+  "guardianLastSync": {
+    "message": "Letzte Synchronisierung",
+    "englishSource": "Last sync"
+  },
+  "online": {
+    "message": "Online",
+    "englishSource": "Online"
+  },
   "reviewRotation": {
     "message": "Überprüfungsrotation",
     "englishSource": "Review rotation"

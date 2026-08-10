@@ -2276,6 +2276,34 @@
     "message": "Provider",
     "englishSource": "Provider"
   },
+  "guardianEndpointLabel": {
+    "message": "Endpoint",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "Region",
+    "englishSource": "Region"
+  },
+  "guardianLastSync": {
+    "message": "Last sync",
+    "englishSource": "Last sync"
+  },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
+  },
+  "online": {
+    "message": "Online",
+    "englishSource": "Online"
+  },
   "reviewRotation": {
     "message": "Review rotation",
     "englishSource": "Review rotation"

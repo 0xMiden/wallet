@@ -2275,6 +2275,22 @@
     "message": "공급자",
     "englishSource": "Provider"
   },
+  "guardianEndpointLabel": {
+    "message": "엔드포인트",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "지역",
+    "englishSource": "Region"
+  },
+  "guardianLastSync": {
+    "message": "마지막 동기화",
+    "englishSource": "Last sync"
+  },
+  "online": {
+    "message": "온라인",
+    "englishSource": "Online"
+  },
   "reviewRotation": {
     "message": "순환 검토",
     "englishSource": "Review rotation"

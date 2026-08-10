@@ -2276,6 +2276,34 @@
     "message": "Провайдер",
     "englishSource": "Provider"
   },
+  "guardianEndpointLabel": {
+    "message": "Кінцева точка",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "Регіон",
+    "englishSource": "Region"
+  },
+  "guardianLastSync": {
+    "message": "Остання синхронізація",
+    "englishSource": "Last sync"
+  },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
+  },
+  "online": {
+    "message": "Онлайн",
+    "englishSource": "Online"
+  },
   "reviewRotation": {
     "message": "Оглядова ротація",
     "englishSource": "Review rotation"
