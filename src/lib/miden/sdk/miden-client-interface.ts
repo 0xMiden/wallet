@@ -27,11 +27,11 @@ import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activit
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
 import { getSpeculationManager, type SpeculationParams } from 'lib/miden/back/speculation-manager';
 import {
-  DEFAULT_NETWORK,
-  MIDEN_NETWORK_ENDPOINTS,
-  MIDEN_PROVING_ENDPOINTS,
-  getNoteTransportUrl
-} from 'lib/miden-chain/constants';
+  getEffectiveNetworkName,
+  getEffectiveNoteTransportUrl,
+  getEffectiveProverUrl,
+  getEffectiveRpcUrl
+} from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
 import type { AuthScheme } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -190,7 +190,7 @@ export class MidenClientInterface {
   }
 
   static async create(options: MidenClientCreateOptions = {}) {
-    const network = DEFAULT_NETWORK;
+    const network = getEffectiveNetworkName();
 
     if (process.env.MIDEN_USE_MOCK_CLIENT === 'true') {
       const sdk = await import('@miden-sdk/miden-sdk/lazy');
@@ -201,8 +201,8 @@ export class MidenClientInterface {
     const hasKeystore = !!(options.getKeyCallback || options.insertKeyCallback || options.signCallback);
 
     const midenClient = await MidenClient.create({
-      rpcUrl: MIDEN_NETWORK_ENDPOINTS.get(network)!,
-      noteTransportUrl: getNoteTransportUrl(network),
+      rpcUrl: getEffectiveRpcUrl(),
+      noteTransportUrl: getEffectiveNoteTransportUrl(),
       seed: options.seed,
       keystore: hasKeystore
         ? {
@@ -211,7 +211,7 @@ export class MidenClientInterface {
             sign: options.signCallback!
           }
         : undefined,
-      proverUrl: MIDEN_PROVING_ENDPOINTS.get(network),
+      proverUrl: getEffectiveProverUrl(),
       // On mobile (Capacitor / WKWebView / Android WebView) we MUST opt out
       // of the SDK's Web-Worker shim. Two independent reasons:
       //
@@ -346,7 +346,7 @@ export class MidenClientInterface {
 
       const lookupClient = new MultisigClient(this.client, {
         guardianEndpoint,
-        midenRpcEndpoint: MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!
+        midenRpcEndpoint: getEffectiveRpcUrl()
       });
       const lookupSigner = new EcdsaSigner(coldSk);
       const matches = await lookupClient.recoverByKey(lookupSigner);
@@ -496,7 +496,7 @@ export class MidenClientInterface {
     }
     const wasm = await getWasmOrThrow();
     const syncHeight = await this.client.getSyncHeight();
-    const inner = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(this.network)!);
+    const inner = await WasmWebClient.createClient(getEffectiveRpcUrl());
     try {
       const records: ConsumableNoteRecord[] = await inner.getConsumableNotes(resolveAccountId(wasm, accountId));
       return records

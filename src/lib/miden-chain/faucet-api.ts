@@ -1,4 +1,6 @@
-import { DEFAULT_NETWORK, MIDEN_FAUCET_API_ENDPOINTS } from './constants';
+import { getEffectiveFaucetApiUrl, getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+
+import { MIDEN_FAUCET_API_ENDPOINTS } from './constants';
 
 export interface PowChallenge {
   challenge: string;
@@ -10,8 +12,9 @@ export interface MintedNote {
   noteId: string;
 }
 
-export function getFaucetApiUrl(networkId: string = DEFAULT_NETWORK): string {
-  return MIDEN_FAUCET_API_ENDPOINTS.get(networkId) ?? MIDEN_FAUCET_API_ENDPOINTS.get(DEFAULT_NETWORK)!;
+export function getFaucetApiUrl(networkId: string = getEffectiveNetworkName()): string {
+  if (networkId === getEffectiveNetworkName()) return getEffectiveFaucetApiUrl();
+  return MIDEN_FAUCET_API_ENDPOINTS.get(networkId) ?? getEffectiveFaucetApiUrl();
 }
 
 export async function getPowChallenge(baseUrl: string, accountId: string, amount: bigint): Promise<PowChallenge> {

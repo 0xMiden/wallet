@@ -24,7 +24,7 @@ import {
 } from 'lib/miden/back/safe-storage';
 import * as Passworder from 'lib/miden/passworder';
 import { clearStorage } from 'lib/miden/reset';
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
+import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
@@ -409,7 +409,7 @@ export class Vault {
       if (isGuardianRecovery) {
         console.log('[Vault.spawn] Step 7a: recovering Guardian accounts (adopt only — rotation deferred)...');
         const guardianEndpoint =
-          (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+          (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || getEffectiveDefaultGuardianEndpoint();
         // makeColdSeedDeriver pays the 2048-round PBKDF2 once across the whole
         // 20-index scan; a per-index deriveClientSeed closure would re-run it
         // for every index.

@@ -264,7 +264,17 @@ export default defineConfig({
             plugins: ['@svgr/plugin-jsx'],
             exportType: 'named',
             namedExport: 'ReactComponent',
-            jsxRuntime: 'automatic',
+            // Classic runtime so SVGR emits `import * as React from "react"` into
+            // each generated component. The output is returned as `moduleType: 'jsx'`
+            // and recompiled by the bundler with the CLASSIC runtime (tsconfig
+            // `jsx: "react"`, which rolldown-vite honors for these modules and which
+            // neither `esbuild` nor `oxc` JSX options override) → `React.createElement`.
+            // With the automatic runtime SVGR imports nothing from 'react', so those
+            // `React.createElement` calls reference an undefined `React` — harmless in
+            // unminified dev builds (a stray React leaks into the chunk) but crashing
+            // minified production builds ("React is not defined"). Classic keeps the
+            // import and the reference matched.
+            jsxRuntime: 'classic',
             prettier: false,
             svgo: false,
             titleProp: true,

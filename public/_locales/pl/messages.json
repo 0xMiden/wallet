@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Konto #: $number$ ",
-    "englishSource": "Account #: $number$",
+    "message": "Adres: $number$",
+    "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -3767,5 +3767,89 @@
   "sourceTx": {
     "message": "Source TX",
     "englishSource": "Source TX"
+  },
+  "developerSettingsTitle": {
+    "message": "Ustawienia programisty",
+    "englishSource": "Developer Settings"
+  },
+  "developerSettingsWarningTitle": {
+    "message": "Dla zaawansowanych użytkowników",
+    "englishSource": "For advanced users"
+  },
+  "developerSettingsWarning": {
+    "message": "Większość ludzi nigdy nie powinna tego zmieniać. Złe wartości zrujnują Twój portfel.",
+    "englishSource": "Most people should never change these. Wrong values will break your wallet."
+  },
+  "devEndpointPreset": {
+    "message": "Ustawienia sieciowe",
+    "englishSource": "Network preset"
+  },
+  "devEndpointCustom": {
+    "message": "Zwyczaj",
+    "englishSource": "Custom"
+  },
+  "devEndpointNetworkId": {
+    "message": "Identyfikator sieci",
+    "englishSource": "Network ID"
+  },
+  "devEndpointRpc": {
+    "message": "Adres URL węzła RPC",
+    "englishSource": "RPC node URL"
+  },
+  "devEndpointProver": {
+    "message": "Adres URL potwierdzenia transakcji",
+    "englishSource": "Transaction prover URL"
+  },
+  "devEndpointNoteTransport": {
+    "message": "Note adres URL transportu",
+    "englishSource": "Note transport URL"
+  },
+  "devEndpointFaucet": {
+    "message": "Faucet URL witryny",
+    "englishSource": "Faucet website URL"
+  },
+  "devEndpointFaucetApi": {
+    "message": "Faucet Adres URL interfejsu API",
+    "englishSource": "Faucet API URL"
+  },
+  "devEndpointExplorer": {
+    "message": "Adres URL Eksploratora",
+    "englishSource": "Explorer URL"
+  },
+  "devEndpointGuardian": {
+    "message": "Niestandardowy adres URL opiekuna",
+    "englishSource": "Custom guardian URL"
+  },
+  "devEndpointChecking": {
+    "message": "Kontrola…",
+    "englishSource": "Checking…"
+  },
+  "devEndpointReachable": {
+    "message": "Gospodarz osiągalny",
+    "englishSource": "Host reachable"
+  },
+  "devEndpointNoResponse": {
+    "message": "Brak odpowiedzi",
+    "englishSource": "No response"
+  },
+  "devEndpointSaveContinue": {
+    "message": "Zapisz i kontynuuj",
+    "englishSource": "Save & continue"
+  },
+  "devEndpointResetDefaults": {
+    "message": "Przywróć ustawienia domyślne",
+    "englishSource": "Reset to defaults"
+  },
+  "devEndpointResetAndReonboard": {
+    "message": "Przywróć ustawienia domyślne i włącz ponownie",
+    "englishSource": "Reset to defaults & re-onboard"
+  },
+  "devEndpointsRow": {
+    "message": "Punkty końcowe sieci",
+    "englishSource": "Network endpoints"
+  },
+  "devEndpointResetConfirm": {
+    "message": "Spowoduje to trwałe usunięcie tego portfela, w tym kluczy i historii transakcji. Aby je przywrócić, będziesz potrzebować frazy odzyskiwania.",
+    "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   }
 }

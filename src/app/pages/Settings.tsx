@@ -39,6 +39,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
@@ -267,6 +268,12 @@ const HIDDEN_TABS: Tab[] = [
   }
 ];
 
+// Visibility predicate for the read-only "Network endpoints" row: only shown
+// while a developer endpoint override is active (see lib/miden-chain/effective-endpoints).
+export async function shouldShowDevEndpointsRow(): Promise<boolean> {
+  return isEndpointOverrideActive();
+}
+
 const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const { t } = useTranslation();
   const reduceMotion = useReducedMotion();
@@ -284,16 +291,42 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
     [isGuardianAccount, hasActivatedHotKey]
   );
 
+  // Read-only "Network endpoints" row: only shown while a developer endpoint
+  // override is active. Resolved async on mount; cancellation-safe so a fast
+  // unmount can't set state on a gone component.
+  const [showDevEndpoints, setShowDevEndpoints] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    shouldShowDevEndpointsRow().then(v => {
+      if (!cancelled) setShowDevEndpoints(v);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Filter tabs that are gated to Guardian accounts. Non-Guardian users don't see
   // the Guardian Settings entry at all (menu, drawer, or routable page).
-  const tabGroups = useMemo(
-    () =>
-      TAB_GROUPS.map(group => ({
-        ...group,
-        tabs: group.tabs.filter(tabIsVisible)
-      })).filter(group => group.tabs.length > 0),
-    [tabIsVisible]
-  );
+  const tabGroups = useMemo(() => {
+    const groups = TAB_GROUPS.map(group => ({
+      ...group,
+      tabs: group.tabs.filter(tabIsVisible)
+    })).filter(group => group.tabs.length > 0);
+
+    if (!showDevEndpoints) return groups;
+
+    const devEndpointsTab: Tab = {
+      slug: 'network-endpoints',
+      titleI18nKey: 'devEndpointsRow',
+      Icon: ToolIcon,
+      Component: () => null,
+      hasOwnLayout: true
+    };
+
+    return groups.map(group =>
+      group.titleI18nKey === 'developer' ? { ...group, tabs: [...group.tabs, devEndpointsTab] } : group
+    );
+  }, [tabIsVisible, showDevEndpoints]);
 
   const allTabs = useMemo(
     () => [...tabGroups.flatMap(g => g.tabs), ...HIDDEN_TABS.filter(tabIsVisible)],

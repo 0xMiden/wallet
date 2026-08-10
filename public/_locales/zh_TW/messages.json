@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "帐户 ＃： $number$ ",
-    "englishSource": "Account #: $number$",
+    "message": "地址：$number$",
+    "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -3820,5 +3820,89 @@
   "sourceTx": {
     "message": "Source TX",
     "englishSource": "Source TX"
+  },
+  "developerSettingsTitle": {
+    "message": "开发者设置",
+    "englishSource": "Developer Settings"
+  },
+  "developerSettingsWarningTitle": {
+    "message": "对于高级用户",
+    "englishSource": "For advanced users"
+  },
+  "developerSettingsWarning": {
+    "message": "大多数人永远不应该改变这些。错误的价值观会打破你的钱包。",
+    "englishSource": "Most people should never change these. Wrong values will break your wallet."
+  },
+  "devEndpointPreset": {
+    "message": "网络预设",
+    "englishSource": "Network preset"
+  },
+  "devEndpointCustom": {
+    "message": "风俗",
+    "englishSource": "Custom"
+  },
+  "devEndpointNetworkId": {
+    "message": "网络号",
+    "englishSource": "Network ID"
+  },
+  "devEndpointRpc": {
+    "message": "RPC 节点 URL",
+    "englishSource": "RPC node URL"
+  },
+  "devEndpointProver": {
+    "message": "交易证明 URL",
+    "englishSource": "Transaction prover URL"
+  },
+  "devEndpointNoteTransport": {
+    "message": "Note 传输 URL",
+    "englishSource": "Note transport URL"
+  },
+  "devEndpointFaucet": {
+    "message": "Faucet 网站网址",
+    "englishSource": "Faucet website URL"
+  },
+  "devEndpointFaucetApi": {
+    "message": "Faucet API URL",
+    "englishSource": "Faucet API URL"
+  },
+  "devEndpointExplorer": {
+    "message": "资源管理器网址",
+    "englishSource": "Explorer URL"
+  },
+  "devEndpointGuardian": {
+    "message": "自定义监护人 URL",
+    "englishSource": "Custom guardian URL"
+  },
+  "devEndpointChecking": {
+    "message": "检查…",
+    "englishSource": "Checking…"
+  },
+  "devEndpointReachable": {
+    "message": "主机可达",
+    "englishSource": "Host reachable"
+  },
+  "devEndpointNoResponse": {
+    "message": "没有回应",
+    "englishSource": "No response"
+  },
+  "devEndpointSaveContinue": {
+    "message": "保存并继续",
+    "englishSource": "Save & continue"
+  },
+  "devEndpointResetDefaults": {
+    "message": "重置为默认值",
+    "englishSource": "Reset to defaults"
+  },
+  "devEndpointResetAndReonboard": {
+    "message": "重置为默认值并重新启动",
+    "englishSource": "Reset to defaults & re-onboard"
+  },
+  "devEndpointsRow": {
+    "message": "网络端点",
+    "englishSource": "Network endpoints"
+  },
+  "devEndpointResetConfirm": {
+    "message": "这将永久删除该钱包，包括您的密钥和交易历史记录。您需要恢复短语来恢复它。",
+    "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   }
 }
