@@ -9,6 +9,12 @@ import {
   MIDEN_GUARDIAN_ENDPOINTS,
   DEFAULT_NETWORK
 } from './constants';
+import {
+  getEffectiveAllowNoGuardian,
+  buildDefaultOverrideFor,
+  loadEndpointOverrides,
+  ENDPOINT_OVERRIDE_STORAGE_KEY
+} from './effective-endpoints';
 
 const mockKvStore: Record<string, unknown> = {};
 // Per-test toggle so a single test can simulate a storage-provider failure
@@ -224,5 +230,37 @@ describe('effective-endpoints resolver', () => {
       await m.loadEndpointOverrides();
       expect(m.getActiveOverride()).toBeNull();
     });
+  });
+});
+
+describe('getEffectiveAllowNoGuardian', () => {
+  beforeEach(() => {
+    for (const k of Object.keys(mockKvStore)) delete mockKvStore[k];
+  });
+
+  it('defaults to false when no override is active', async () => {
+    await loadEndpointOverrides(); // nothing stored -> cache null
+    expect(getEffectiveAllowNoGuardian()).toBe(false);
+  });
+
+  it('reflects a stored override value', async () => {
+    mockKvStore[ENDPOINT_OVERRIDE_STORAGE_KEY] = {
+      ...buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+      allowNoGuardian: true
+    };
+    await loadEndpointOverrides();
+    expect(getEffectiveAllowNoGuardian()).toBe(true);
+  });
+
+  it('reads false from a legacy override that predates the field', async () => {
+    const legacy: Record<string, unknown> = { ...buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET) };
+    delete legacy.allowNoGuardian;
+    mockKvStore[ENDPOINT_OVERRIDE_STORAGE_KEY] = legacy;
+    await loadEndpointOverrides();
+    expect(getEffectiveAllowNoGuardian()).toBe(false);
+  });
+
+  it('buildDefaultOverrideFor includes allowNoGuardian:false', () => {
+    expect(buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET).allowNoGuardian).toBe(false);
   });
 });

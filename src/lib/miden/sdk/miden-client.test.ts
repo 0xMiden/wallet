@@ -391,3 +391,115 @@ describe('getMidenClient singleton', () => {
     });
   });
 });
+
+describe('resetMidenClient', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.resetModules();
+  });
+
+  it('frees the no-options singleton and forces the next getMidenClient() to recreate it', async () => {
+    const free = jest.fn();
+    const create = jest.fn(async () => ({ free }));
+    jest.doMock('./miden-client-interface', () => ({
+      MidenClientInterface: class {
+        static create = create;
+        free = free;
+      }
+    }));
+
+    await jest.isolateModulesAsync(async () => {
+      const { getMidenClient, resetMidenClient } = require('./miden-client');
+      const first = await getMidenClient();
+      expect(create).toHaveBeenCalledTimes(1);
+
+      await resetMidenClient();
+      expect(free).toHaveBeenCalledTimes(1);
+
+      const second = await getMidenClient();
+      expect(create).toHaveBeenCalledTimes(2);
+      expect(second).not.toBe(first);
+    });
+  });
+
+  it('is a no-op when no singleton has been created yet', async () => {
+    const create = jest.fn();
+    jest.doMock('./miden-client-interface', () => ({
+      MidenClientInterface: class {
+        static create = create;
+        free() {}
+      }
+    }));
+
+    await jest.isolateModulesAsync(async () => {
+      const { resetMidenClient } = require('./miden-client');
+      await expect(resetMidenClient()).resolves.toBeUndefined();
+      expect(create).not.toHaveBeenCalled();
+    });
+  });
+
+  it('clears an in-flight no-options creation so it cannot repopulate a stale client after the reset', async () => {
+    // Regression for: `disposeAllInstances()` used to only clear `initializingPromise`
+    // inside the `if (this.instance)` guard, so a reset that lands *while* a no-options
+    // `getInstance()` creation is still pending (instance still null) left that pending
+    // promise in place. When it later resolved, it unconditionally set `this.instance`
+    // to a client built against the pre-reset override, silently undoing the reset.
+    const free = jest.fn();
+    let resolveCreate: (client: { free: () => void }) => void = () => {};
+    const pending = new Promise<{ free: () => void }>(resolve => {
+      resolveCreate = resolve;
+    });
+    const create = jest.fn(() => pending);
+    jest.doMock('./miden-client-interface', () => ({
+      MidenClientInterface: class {
+        static create = create;
+        free = free;
+      }
+    }));
+
+    await jest.isolateModulesAsync(async () => {
+      const { getMidenClient, resetMidenClient } = require('./miden-client');
+
+      // Kick off a no-options creation but don't await it — it's left in flight.
+      const firstCall = getMidenClient();
+      expect(create).toHaveBeenCalledTimes(1);
+
+      // Reset while that creation is still pending: `this.instance` is still null, so
+      // the old `if (this.instance)`-guarded clear alone would have left the stale
+      // in-flight promise in place.
+      await resetMidenClient();
+
+      // A getInstance() call issued after the reset (but before the stale creation
+      // settles) must NOT rejoin the stale in-flight promise — it should start its own
+      // fresh creation instead.
+      const secondCall = getMidenClient();
+      expect(create).toHaveBeenCalledTimes(2);
+
+      resolveCreate({ free });
+      await Promise.all([firstCall, secondCall]);
+    });
+  });
+
+  it('also frees an instanceWithOptions singleton, if one exists', async () => {
+    const free = jest.fn();
+    const create = jest.fn(async () => ({ free }));
+    jest.doMock('./miden-client-interface', () => ({
+      MidenClientInterface: class {
+        static create = create;
+        free = free;
+      }
+    }));
+
+    await jest.isolateModulesAsync(async () => {
+      const { getMidenClient, resetMidenClient } = require('./miden-client');
+      await getMidenClient({ seed: new Uint8Array([1]) });
+      expect(create).toHaveBeenCalledTimes(1);
+
+      await resetMidenClient();
+      expect(free).toHaveBeenCalledTimes(1);
+
+      await getMidenClient({ seed: new Uint8Array([2]) });
+      expect(create).toHaveBeenCalledTimes(2);
+    });
+  });
+});

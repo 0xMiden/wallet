@@ -1904,6 +1904,14 @@
     "message": "Узнайте больше о Гардиане",
     "englishSource": "Learn more about the Guardian"
   },
+  "noGuardianOptionTitle": {
+    "message": "Нет опекуна",
+    "englishSource": "No guardian"
+  },
+  "noGuardianOptionSubtitle": {
+    "message": "Расширенный — восстанавливайте только с помощью seed phrase. Нет со-подписавшего опекуна.",
+    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+  },
   "guardianOperatedBy": {
     "message": "Управляется:",
     "englishSource": "Operated by:"
@@ -3865,6 +3873,10 @@
   "devEndpointGuardian": {
     "message": "Пользовательский URL-адрес опекуна",
     "englishSource": "Custom guardian URL"
+  },
+  "devAllowNoGuardian": {
+    "message": "Разрешить опцию «Нет опекуна» при регистрации",
+    "englishSource": "Allow 'No guardian' option in onboarding"
   },
   "devEndpointChecking": {
     "message": "Проверка…",

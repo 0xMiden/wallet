@@ -1904,6 +1904,14 @@
     "message": "가디언에 대해 더 알아보기",
     "englishSource": "Learn more about the Guardian"
   },
+  "noGuardianOptionTitle": {
+    "message": "보호자 없음",
+    "englishSource": "No guardian"
+  },
+  "noGuardianOptionSubtitle": {
+    "message": "고급 — seed phrase로만 복구하세요. 보호자 공동 서명자가 없습니다.",
+    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+  },
   "guardianOperatedBy": {
     "message": "운영하는 사람:",
     "englishSource": "Operated by:"
@@ -3864,6 +3872,10 @@
   "devEndpointGuardian": {
     "message": "맞춤 보호자 URL",
     "englishSource": "Custom guardian URL"
+  },
+  "devAllowNoGuardian": {
+    "message": "온보딩 시 '보호자 없음' 옵션 허용",
+    "englishSource": "Allow 'No guardian' option in onboarding"
   },
   "devEndpointChecking": {
     "message": "확인 중…",

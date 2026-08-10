@@ -1904,6 +1904,14 @@
     "message": "Guardian hakkında daha fazla bilgi edinin",
     "englishSource": "Learn more about the Guardian"
   },
+  "noGuardianOptionTitle": {
+    "message": "Vasi yok",
+    "englishSource": "No guardian"
+  },
+  "noGuardianOptionSubtitle": {
+    "message": "Gelişmiş — yalnızca seed phrase ile kurtarın. Veli ortak imzalayan yok.",
+    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+  },
   "guardianOperatedBy": {
     "message": "Tarafından işletilmektedir:",
     "englishSource": "Operated by:"
@@ -3864,6 +3872,10 @@
   "devEndpointGuardian": {
     "message": "Özel veli URL'si",
     "englishSource": "Custom guardian URL"
+  },
+  "devAllowNoGuardian": {
+    "message": "İlk katılımda 'Veli yok' seçeneğine izin ver",
+    "englishSource": "Allow 'No guardian' option in onboarding"
   },
   "devEndpointChecking": {
     "message": "Kontrol ediliyor…",

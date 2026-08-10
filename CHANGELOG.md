@@ -9,10 +9,12 @@
 - [FIX][all] Renamed the "Tx ID" field on the transaction details screen to "Transaction ID".
 - [FIX][extension] **Developer endpoint settings no longer show "No response" for reachable endpoints.** The reachability probe used a `no-cors` fetch, which an MV3 extension page can never resolve — Chrome routes every extension fetch through the host_permissions/CORS path, so `no-cors` throws `Failed to fetch` and every gRPC field (RPC, prover, note-transport, faucet, explorer, guardian) reported unreachable even when the host was up. The probe now leads with a default-mode fetch (which the extension's `*.miden.io` host permissions and permissive-CORS hosts satisfy) and falls back to `no-cors` for non-extension webviews (Capacitor/Tauri).
 - [FIX][extension] Centered the Save / Reset action block at the bottom of the developer settings screen (the fixed-width buttons were left-aligned on the wide full-page view).
+- [FIX][extension] Developer-settings endpoint overrides now actually take effect. Saving an override only wrote to the frontend's cache/storage — the service worker runs in a separate JS realm with its own override cache (loaded once at boot) and a create-once Miden client singleton with endpoints baked in at creation time, so it kept hitting the build-default RPC until a full reload. Saving now nudges the service worker to reload its override cache and rebuild its Miden client, so the override takes effect immediately.
 
 ### Features
 
 - Add hidden developer endpoint configuration (7-tap the Welcome logo during onboarding) to override RPC / prover / note-transport / faucet / explorer / guardian endpoints and network ID; read-only view with reset-to-defaults in Settings.
+- Dev-only: a "No guardian" option can be enabled from developer settings (7-tap the onboarding logo), which then shows a "No guardian" card on the Choose-your-guardian screen; selecting it creates a private single-key account with no guardian co-signer.
 
 ## 1.15.19 (2026-08-05)
 

@@ -16,6 +16,8 @@ _g.__mainTest = {
   storeWatch: jest.fn(),
   doSync: jest.fn(),
   startTransactionProcessing: jest.fn(),
+  resetMidenClient: jest.fn(),
+  loadEndpointOverrides: jest.fn(),
   client: {
     importNoteBytes: jest.fn(),
     syncState: jest.fn(),
@@ -49,7 +51,12 @@ jest.mock('./transaction-processor', () => ({
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => (globalThis as any).__mainTest.client,
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
-  runWhenClientIdle: () => {}
+  runWhenClientIdle: () => {},
+  resetMidenClient: async () => (globalThis as any).__mainTest.resetMidenClient()
+}));
+
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  loadEndpointOverrides: async () => (globalThis as any).__mainTest.loadEndpointOverrides()
 }));
 
 const mockOnRequest = _g.__mainTest.onRequest;
@@ -57,6 +64,8 @@ const mockBroadcast = _g.__mainTest.broadcast;
 const mockStoreWatch = _g.__mainTest.storeWatch;
 const mockDoSync = _g.__mainTest.doSync;
 const mockStartTransactionProcessing = _g.__mainTest.startTransactionProcessing;
+const mockResetMidenClient = _g.__mainTest.resetMidenClient;
+const mockLoadEndpointOverrides = _g.__mainTest.loadEndpointOverrides;
 const mockClient = _g.__mainTest.client;
 
 jest.mock('../sdk/helpers', () => ({
@@ -166,6 +175,16 @@ describe('processRequest', () => {
     const res = await dispatch({ type: WalletMessageType.ProcessTransactionsRequest });
     expect(res.type).toBe(WalletMessageType.ProcessTransactionsResponse);
     expect(mockStartTransactionProcessing).toHaveBeenCalled();
+  });
+
+  it('ReloadEndpointOverridesRequest re-hydrates the override cache, resets the Miden client, and acks', async () => {
+    // `start()` in beforeEach already calls loadEndpointOverrides once (see main.ts);
+    // clear that call so this assertion is scoped to the dispatched request.
+    mockLoadEndpointOverrides.mockClear();
+    const res = await dispatch({ type: WalletMessageType.ReloadEndpointOverridesRequest });
+    expect(res.type).toBe(WalletMessageType.ReloadEndpointOverridesResponse);
+    expect(mockLoadEndpointOverrides).toHaveBeenCalledTimes(1);
+    expect(mockResetMidenClient).toHaveBeenCalledTimes(1);
   });
 
   it('ImportNoteBytesRequest decodes base64, calls importNoteBytes + syncState, returns id', async () => {

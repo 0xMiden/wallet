@@ -2,7 +2,7 @@ import React from 'react';
 
 import { render, act } from '@testing-library/react';
 
-import { OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
+import { NO_GUARDIAN_ID, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 import Welcome from './Welcome';
 
@@ -456,6 +456,20 @@ describe('Welcome — choose-guardian-submit', () => {
     await dispatch({ id: 'choose-guardian-submit', payload: { guardianEndpoint: 'https://g' } });
     expect(mockFlowProps.current.password).toBeNull();
     expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
+  });
+
+  it('routes a No guardian selection to an OffChain wallet without storing a guardian endpoint', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '111111' });
+    mockPutToStorage.mockClear();
+    await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' } });
+    // clears the guardian endpoint
+    expect(mockPutToStorage).toHaveBeenCalledWith('guardian_url_setting', '');
+    // never persists a real guardian endpoint
+    expect(mockPutToStorage).not.toHaveBeenCalledWith('guardian_url_setting', expect.stringContaining('http'));
+    // driving to confirmation registers a private, no-guardian (OffChain) wallet
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OffChain, '111111', expect.any(String), false);
   });
 });
 

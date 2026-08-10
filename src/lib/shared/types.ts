@@ -129,6 +129,10 @@ export enum WalletMessageType {
   // Transaction processing (popup → SW)
   ProcessTransactionsRequest = 'PROCESS_TRANSACTIONS_REQUEST',
   ProcessTransactionsResponse = 'PROCESS_TRANSACTIONS_RESPONSE',
+  // Developer endpoint overrides (popup → SW): re-hydrate the SW's override
+  // cache + rebuild its Miden client singleton(s) after a save.
+  ReloadEndpointOverridesRequest = 'RELOAD_ENDPOINT_OVERRIDES_REQUEST',
+  ReloadEndpointOverridesResponse = 'RELOAD_ENDPOINT_OVERRIDES_RESPONSE',
   // Note operations (popup → SW)
   ImportNoteBytesRequest = 'IMPORT_NOTE_BYTES_REQUEST',
   ImportNoteBytesResponse = 'IMPORT_NOTE_BYTES_RESPONSE',
@@ -238,6 +242,26 @@ export interface ProcessTransactionsRequest extends WalletMessageBase {
 
 export interface ProcessTransactionsResponse extends WalletMessageBase {
   type: WalletMessageType.ProcessTransactionsResponse;
+}
+
+/**
+ * Tell the SW to re-hydrate `lib/miden-chain/effective-endpoints`'s
+ * module-level override cache from storage and dispose its Miden client
+ * singleton(s), so the next `getMidenClient()` rebuilds against the
+ * freshly-saved endpoints. Fire-and-forget from the caller's perspective
+ * (the response payload carries no data) — mirrors `ProcessTransactionsRequest`.
+ * Still pairs with a Response type: `IntercomServer.processMessage` treats a
+ * handler returning `undefined` as "Not Found" and errors the round trip, so
+ * every case in `processRequest` must resolve to a typed response, even ones
+ * with nothing to report. Extension-only: mobile/desktop share the frontend's
+ * JS realm, so `applyEndpointOverride` alone already takes effect there.
+ */
+export interface ReloadEndpointOverridesRequest extends WalletMessageBase {
+  type: WalletMessageType.ReloadEndpointOverridesRequest;
+}
+
+export interface ReloadEndpointOverridesResponse extends WalletMessageBase {
+  type: WalletMessageType.ReloadEndpointOverridesResponse;
 }
 
 export interface ImportNoteBytesRequest extends WalletMessageBase {
@@ -1009,6 +1033,7 @@ export type WalletRequest =
   | SyncRequest
   | NoteClaimStarted
   | ProcessTransactionsRequest
+  | ReloadEndpointOverridesRequest
   | ImportNoteBytesRequest
   | ExportNoteRequest
   | GetInputNoteDetailsRequest
@@ -1071,6 +1096,7 @@ export type WalletResponse =
   | SyncResponse
   | NoteClaimStartedResponse
   | ProcessTransactionsResponse
+  | ReloadEndpointOverridesResponse
   | ImportNoteBytesResponse
   | ExportNoteResponse
   | GetInputNoteDetailsResponse

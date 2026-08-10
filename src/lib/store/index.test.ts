@@ -4,7 +4,14 @@ import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import { useWalletStore, selectIsReady, selectIsLocked, selectIsIdle, getIntercom } from './index';
+import {
+  useWalletStore,
+  selectIsReady,
+  selectIsLocked,
+  selectIsIdle,
+  getIntercom,
+  reloadEndpointOverridesInSW
+} from './index';
 
 // Mock the intercom module
 const mockRequest = jest.fn();
@@ -849,6 +856,46 @@ describe('useWalletStore', () => {
       const client1 = getIntercom();
       const client2 = getIntercom();
       expect(client1).toBe(client2);
+    });
+  });
+
+  describe('reloadEndpointOverridesInSW', () => {
+    it('sends a ReloadEndpointOverridesRequest and resolves on completion', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ReloadEndpointOverridesResponse });
+      await expect(reloadEndpointOverridesInSW()).resolves.toBeUndefined();
+      expect(mockRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ type: WalletMessageType.ReloadEndpointOverridesRequest })
+      );
+    });
+
+    it('swallows a failed request instead of rejecting', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockRequest.mockRejectedValueOnce(new Error('port disconnected'));
+
+      await expect(reloadEndpointOverridesInSW()).resolves.toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith('[reloadEndpointOverridesInSW] failed to nudge SW:', expect.any(Error));
+
+      warnSpy.mockRestore();
+    });
+
+    it('resolves after a bounded timeout instead of hanging forever when the request never settles (e.g. the SW port disconnects mid-request, which IntercomClient does not surface as a rejection)', async () => {
+      jest.useFakeTimers();
+      try {
+        mockRequest.mockImplementationOnce(() => new Promise(() => {})); // never settles
+
+        const settled = jest.fn();
+        reloadEndpointOverridesInSW().then(settled);
+
+        // Still pending well before the timeout — proves this isn't just a same-tick resolve.
+        await Promise.resolve();
+        expect(settled).not.toHaveBeenCalled();
+
+        await jest.advanceTimersByTimeAsync(4000);
+        expect(settled).toHaveBeenCalledTimes(1);
+        expect(settled).toHaveBeenCalledWith(undefined);
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 

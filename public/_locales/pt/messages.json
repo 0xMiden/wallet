@@ -1904,6 +1904,14 @@
     "message": "Saiba mais sobre o Guardião",
     "englishSource": "Learn more about the Guardian"
   },
+  "noGuardianOptionTitle": {
+    "message": "Sem guardião",
+    "englishSource": "No guardian"
+  },
+  "noGuardianOptionSubtitle": {
+    "message": "Avançado — recupere apenas com seu seed phrase. Nenhum guardião fiador.",
+    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+  },
   "guardianOperatedBy": {
     "message": "Operado por:",
     "englishSource": "Operated by:"
@@ -3862,6 +3870,10 @@
   "devEndpointGuardian": {
     "message": "URL personalizado do responsável",
     "englishSource": "Custom guardian URL"
+  },
+  "devAllowNoGuardian": {
+    "message": "Permitir a opção 'Sem responsável' na integração",
+    "englishSource": "Allow 'No guardian' option in onboarding"
   },
   "devEndpointChecking": {
     "message": "Verificando…",

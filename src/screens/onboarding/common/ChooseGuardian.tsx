@@ -12,6 +12,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import type { GuardianOption } from 'lib/shared/types';
 import { cn } from 'lib/ui/util';
+import { NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
 import { GuardianInfoDrawer } from './GuardianInfoDrawer';
 
@@ -30,6 +31,9 @@ export interface ChooseGuardianScreenProps {
   hideHeader?: boolean;
   // When true, show a "custom Guardian URL" field below the provider grid.
   allowCustomEndpoint?: boolean;
+  // Dev-gated (onboarding only): show a selectable "No guardian" card that
+  // creates a private single-key account with no guardian co-signer.
+  showNoGuardianOption?: boolean;
 }
 
 export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
@@ -39,7 +43,8 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   description,
   submitLabel,
   hideHeader = false,
-  allowCustomEndpoint = false
+  allowCustomEndpoint = false,
+  showNoGuardianOption = false
 }) => {
   const { t } = useTranslation();
   const [isInfoOpen, setIsInfoOpen] = useState(false);
@@ -80,6 +85,10 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   };
 
   const handleContinue = () => {
+    if (selectedId === NO_GUARDIAN_ID) {
+      onSubmit?.({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' });
+      return;
+    }
     if (isCustom) {
       const sanitized = sanitizeGuardianUrl(customUrl);
       if (!isValidGuardianUrl(sanitized)) {
@@ -177,6 +186,23 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             );
           })}
         </div>
+
+        {showNoGuardianOption && (
+          <button
+            type="button"
+            onClick={() => handleSelect(NO_GUARDIAN_ID)}
+            data-testid="choose-no-guardian"
+            className={cn(
+              'mt-4 flex flex-col items-start rounded-[20px] border-2 p-4 text-left transition-all duration-150 shrink-0',
+              selectedId === NO_GUARDIAN_ID ? 'border-primary-500 border-4' : 'border-[#E3E3E3] dark:border-grey-800'
+            )}
+          >
+            <span className="text-base font-semibold text-heading-gray">{t('noGuardianOptionTitle')}</span>
+            <span className="mt-1 text-xs text-gray-secondary dark:text-pure-white">
+              {t('noGuardianOptionSubtitle')}
+            </span>
+          </button>
+        )}
 
         {allowCustomEndpoint && (
           <div className="mt-4 flex flex-col gap-2 shrink-0">

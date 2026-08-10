@@ -285,6 +285,29 @@ class MidenClientSingleton {
       this.initializingPromiseWithOptions = null;
     }
   }
+
+  /**
+   * Free every live singleton (the no-options `instance` and the
+   * `instanceWithOptions`), so the next `getInstance()`/`getInstanceWithOptions()`
+   * call recreates the WASM client from scratch. Used when the effective
+   * endpoints (RPC/prover/note-transport) change underneath a long-lived
+   * singleton — see `resetMidenClient`.
+   */
+  disposeAllInstances(): void {
+    if (this.instance) {
+      this.instance.free();
+      this.instance = null;
+    }
+    // Null unconditionally, not just inside the `this.instance` guard above: if a
+    // no-options `getInstance()` creation is in flight, `this.instance` is still null
+    // here (the guard above never runs) but `initializingPromise` is a pending promise
+    // that a subsequent `getInstance()` call would otherwise return as-is — repopulating
+    // `this.instance` with a client built against the pre-reload override once that
+    // stale creation resolves. Clearing the slot means any `getInstance()` call issued
+    // after this reset starts its own fresh creation instead of rejoining the stale one.
+    this.initializingPromise = null;
+    this.disposeInstanceWithOptions();
+  }
 }
 
 const midenClientSingleton = new MidenClientSingleton();
@@ -300,4 +323,20 @@ export async function getMidenClient(options?: MidenClientCreateOptions): Promis
   }
   const client = await midenClientSingleton.getInstance();
   return client;
+}
+
+/**
+ * Dispose every live MidenClientInterface singleton so the next `getMidenClient()`
+ * call rebuilds one from scratch against the current effective endpoints
+ * (`lib/miden-chain/effective-endpoints`). Use this after the endpoint
+ * override changes underneath an already-created client (e.g. the SW's
+ * `RELOAD_ENDPOINT_OVERRIDES_REQUEST` handler) — the client bakes in
+ * rpcUrl/proverUrl/noteTransportUrl at `MidenClient.create()` time and never
+ * re-reads them. Runs inside `withWasmClientLock` so it can't dispose a
+ * client mid-operation.
+ */
+export async function resetMidenClient(): Promise<void> {
+  await withWasmClientLock(async () => {
+    midenClientSingleton.disposeAllInstances();
+  });
 }

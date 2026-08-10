@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { Checkbox } from 'components/Checkbox';
 import { Input } from 'components/Input';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { TabPicker } from 'components/TabPicker';
@@ -18,6 +19,7 @@ import {
 import { EndpointHealthKind, useEndpointHealth } from 'lib/miden-chain/endpoint-health';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
+import { reloadEndpointOverridesInSW, selectIsIdle, useWalletStore } from 'lib/store';
 import { useConfirm } from 'lib/ui/dialog';
 import { goBack, navigate } from 'lib/woozie';
 
@@ -97,6 +99,9 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   );
   const [form, setForm] = useState<EndpointOverride>(initial);
   const [saving, setSaving] = useState(false);
+  // No wallet registered yet, i.e. this screen is reachable but we're still pre-onboarding.
+  // `handleSave`'s SW nudge is only safe to send in this state — see its comment.
+  const noWalletYet = useWalletStore(selectIsIdle);
 
   const presetTabs = useMemo(
     () =>
@@ -124,6 +129,18 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   const handleSave = async () => {
     setSaving(true);
     await applyEndpointOverride(form);
+    // On the extension, the service worker is a separate JS realm with its own
+    // module-level override cache and a create-once Miden client singleton, so
+    // applyEndpointOverride's write doesn't reach it — nudge it to re-hydrate
+    // and rebuild before navigating away. Mobile/desktop share this realm, so
+    // the override above already took effect and this is a no-op.
+    // Only nudge pre-wallet (onboarding): this screen is also reachable read-write
+    // from a live, unlocked wallet (it's gated on `!locked`, not `!ready` — see
+    // PageRouter), and disposing the SW's Miden client mid-session would tear down
+    // an in-progress sync/tx. Once a wallet exists, an override change here still
+    // applies to this realm but requires an explicit reload to reach the SW,
+    // unchanged from before this nudge existed.
+    if (isExtension() && noWalletYet) await reloadEndpointOverridesInSW();
     setSaving(false);
     navigate('/');
   };
@@ -224,6 +241,26 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
             }
           />
         </div>
+
+        <button
+          type="button"
+          disabled={readOnly}
+          data-testid="dev-allow-no-guardian"
+          onClick={
+            readOnly
+              ? undefined
+              : () =>
+                  setForm(prev => ({
+                    ...prev,
+                    allowNoGuardian: !prev.allowNoGuardian,
+                    presetName: CUSTOM_PRESET
+                  }))
+          }
+          className="flex items-center justify-between gap-3 text-left"
+        >
+          <span className="text-sm font-medium text-heading-gray">{t('devAllowNoGuardian')}</span>
+          <Checkbox value={form.allowNoGuardian} />
+        </button>
       </div>
 
       <div className="px-4 pb-8 pt-4 mt-auto flex flex-col items-center gap-3">

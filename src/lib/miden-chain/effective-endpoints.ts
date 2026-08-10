@@ -24,6 +24,7 @@ export interface EndpointOverride {
   faucetApiUrl: string;
   explorerUrl: string;
   guardianUrl: string; // '' = no custom guardian
+  allowNoGuardian: boolean; // dev-only: expose a "No guardian" card in onboarding
   networkName: MIDEN_NETWORK_NAME; // the "network id": drives NetworkId + endpoint-default seeding
   presetName: string; // 'testnet'|'devnet'|'localnet'|'custom' — UI dropdown seed only
 }
@@ -86,6 +87,11 @@ export function getEffectiveGuardianUrl(): string {
   return overrideCache?.guardianUrl ?? '';
 }
 
+/** Dev-only: whether onboarding should offer a "No guardian" account option. */
+export function getEffectiveAllowNoGuardian(): boolean {
+  return overrideCache?.allowNoGuardian ?? false;
+}
+
 /**
  * Effective-network default guardian endpoint (custom override first), or '' if
  * none. Non-throwing (mirrors the old `DEFAULT_GUARDIAN_ENDPOINT` const's
@@ -112,6 +118,7 @@ export function buildDefaultOverrideFor(network: MIDEN_NETWORK_NAME): EndpointOv
     faucetApiUrl: MIDEN_FAUCET_API_ENDPOINTS.get(network) ?? '',
     explorerUrl: MIDEN_EXPLORER_ENDPOINTS.get(network) ?? '',
     guardianUrl: MIDEN_GUARDIAN_ENDPOINTS.get(network)?.[0] ?? '',
+    allowNoGuardian: false,
     networkName: network,
     presetName: network
   };

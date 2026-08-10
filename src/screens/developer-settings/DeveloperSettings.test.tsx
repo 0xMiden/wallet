@@ -2,6 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { WalletStatus } from 'lib/shared/types';
 import { useConfirm } from 'lib/ui/dialog';
 
 import DeveloperSettings from './DeveloperSettings';
@@ -70,11 +71,16 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
       faucetApiUrl: `https://faucet-api.${n}`,
       explorerUrl: `https://scan.${n}`,
       guardianUrl: `https://guardian.${n}`,
+      allowNoGuardian: false,
       networkName: n,
       presetName: n
     })
   };
 });
+
+jest.mock('components/Checkbox', () => ({
+  Checkbox: ({ value }: { value: boolean }) => <span data-testid="checkbox" data-checked={String(value)} />
+}));
 
 type HealthStatus = 'idle' | 'pending' | 'reachable' | 'error';
 const mockHealthStatus: { value: HealthStatus } = { value: 'idle' };
@@ -86,6 +92,26 @@ const resetStorageDestructive = jest.fn().mockResolvedValue(undefined);
 jest.mock('lib/miden/reset', () => ({
   resetStorageDestructive: () => resetStorageDestructive()
 }));
+
+// `reloadEndpointOverridesInSW` nudges the service worker on the extension
+// (separate JS realm); handleSave's gating on `isExtension()` is asserted
+// against this spy below.
+const reloadEndpointOverridesInSW = jest.fn().mockResolvedValue(undefined);
+// `useWalletStore(selectIsIdle)` gates the SW nudge to pre-wallet (onboarding) —
+// `/developer-settings` is also reachable read-write from a live wallet (gated on
+// `!locked`, not `!ready`), so the nudge must not fire once a wallet exists. Default
+// to idle (no wallet) so the existing extension/non-extension save tests, which predate
+// this gate, keep exercising the "onboarding" case unchanged; a dedicated test below
+// flips it to Ready.
+const mockWalletState: { status: number } = { status: 0 };
+jest.mock('lib/store', () => {
+  const { WalletStatus } = jest.requireActual('lib/shared/types');
+  return {
+    reloadEndpointOverridesInSW: () => reloadEndpointOverridesInSW(),
+    useWalletStore: (selector: (s: typeof mockWalletState) => unknown) => selector(mockWalletState),
+    selectIsIdle: (s: typeof mockWalletState) => s.status === WalletStatus.Idle
+  };
+});
 
 // House components — replace with lightweight stand-ins that forward the
 // props DeveloperSettings actually passes, so testids/values stay assertable
@@ -179,6 +205,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockHealthStatus.value = 'idle';
   mockIsExtension.value = false;
+  mockWalletState.status = WalletStatus.Idle;
   confirm.mockResolvedValue(true);
   mockUseConfirm.mockReturnValue(confirm);
 });
@@ -195,6 +222,36 @@ describe('DeveloperSettings', () => {
     fireEvent.click(screen.getByTestId('dev-endpoints-save'));
     await waitFor(() => expect(applyEndpointOverride).toHaveBeenCalledTimes(1));
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('nudges the service worker to reload endpoint overrides on save when running as an extension with no wallet yet (onboarding)', async () => {
+    mockIsExtension.value = true;
+    mockWalletState.status = WalletStatus.Idle;
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(reloadEndpointOverridesInSW).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not nudge the service worker on save outside the extension (mobile/desktop share the realm)', async () => {
+    mockIsExtension.value = false;
+    mockWalletState.status = WalletStatus.Idle;
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(reloadEndpointOverridesInSW).not.toHaveBeenCalled();
+  });
+
+  it('does not nudge the service worker on save when a wallet already exists (live/unlocked, reachable via /developer-settings without onlyReady), even on the extension', async () => {
+    mockIsExtension.value = true;
+    mockWalletState.status = WalletStatus.Ready;
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(reloadEndpointOverridesInSW).not.toHaveBeenCalled();
   });
 
   it('read-only mode disables inputs and shows the reset action', () => {
@@ -358,6 +415,32 @@ describe('DeveloperSettings', () => {
     expect(screen.queryByText('devEndpointChecking')).not.toBeInTheDocument();
     expect(screen.queryByText('devEndpointReachable')).not.toBeInTheDocument();
     expect(screen.queryByText('devEndpointNoResponse')).not.toBeInTheDocument();
+  });
+});
+
+describe('DeveloperSettings — allowNoGuardian', () => {
+  beforeEach(() => {
+    applyEndpointOverride.mockClear();
+    mockUseConfirm.mockReturnValue(confirm);
+  });
+
+  it('renders the no-guardian toggle row', () => {
+    render(<DeveloperSettings />);
+    expect(screen.getByTestId('dev-allow-no-guardian')).toBeInTheDocument();
+    expect(screen.getByTestId('checkbox')).toHaveAttribute('data-checked', 'false');
+  });
+
+  it('persists allowNoGuardian=true when toggled on and saved', async () => {
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-allow-no-guardian'));
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    await waitFor(() => expect(applyEndpointOverride).toHaveBeenCalled());
+    expect(applyEndpointOverride).toHaveBeenCalledWith(expect.objectContaining({ allowNoGuardian: true }));
+  });
+
+  it('disables the toggle row in read-only mode', () => {
+    render(<DeveloperSettings readOnly />);
+    expect(screen.getByTestId('dev-allow-no-guardian')).toBeDisabled();
   });
 });
 

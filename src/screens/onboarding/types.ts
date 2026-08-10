@@ -12,6 +12,9 @@ export type GuardianProbeState =
   | { status: 'done'; result: GuardianDiscoveryResult }
   | { status: 'error'; message: string };
 
+/** Sentinel guardianId meaning "create a no-guardian account" (dev-gated). */
+export const NO_GUARDIAN_ID = 'no-guardian';
+
 export enum OnboardingType {
   Create = 'create',
   Import = 'import'

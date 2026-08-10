@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { ProgressIndicator } from 'components/ProgressIndicator';
+import { getEffectiveAllowNoGuardian } from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
 
 import { ChooseGuardianScreen } from './common/ChooseGuardian';
@@ -199,7 +200,12 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
           <SetupBiometricScreen onContinue={onSetupBiometricSubmit} onSwitchToPasscode={onBiometricSwitchToPasscode} />
         );
       case OnboardingStep.ChooseGuardian:
-        return <ChooseGuardianScreen onSubmit={onChooseGuardianSubmit} />;
+        return (
+          <ChooseGuardianScreen
+            onSubmit={onChooseGuardianSubmit}
+            showNoGuardianOption={getEffectiveAllowNoGuardian()}
+          />
+        );
       case OnboardingStep.BackupSeedPhrase:
         return <BackUpSeedPhraseScreen seedPhrase={seedPhrase || []} onSubmit={onBackupSeedPhraseSubmit} />;
       case OnboardingStep.VerifySeedPhrase:
