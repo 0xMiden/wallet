@@ -2275,6 +2275,22 @@
     "message": "プロバイダー",
     "englishSource": "Provider"
   },
+  "guardianEndpointLabel": {
+    "message": "終点",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "地域",
+    "englishSource": "Region"
+  },
+  "guardianLastSync": {
+    "message": "最終同期",
+    "englishSource": "Last sync"
+  },
+  "online": {
+    "message": "オンライン",
+    "englishSource": "Online"
+  },
   "reviewRotation": {
     "message": "ローテーションの見直し",
     "englishSource": "Review rotation"

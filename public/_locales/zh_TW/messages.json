@@ -2275,6 +2275,22 @@
     "message": "提供者",
     "englishSource": "Provider"
   },
+  "guardianEndpointLabel": {
+    "message": "端点",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "地区",
+    "englishSource": "Region"
+  },
+  "guardianLastSync": {
+    "message": "上次同步",
+    "englishSource": "Last sync"
+  },
+  "online": {
+    "message": "在线的",
+    "englishSource": "Online"
+  },
   "reviewRotation": {
     "message": "审查轮换",
     "englishSource": "Review rotation"
