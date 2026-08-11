@@ -70,12 +70,19 @@ jest.mock('../sdk/miden-client', () => ({
   runWhenClientIdle: () => {}
 }));
 
-// Stub webextension-polyfill (the real one is also stubbed via @serh11p/jest-webextension-mock)
+// Stub webextension-polyfill (the real one is also stubbed via @serh11p/jest-webextension-mock).
+// sync-manager persists via `browser.storage.local.set`; route it through the shared
+// `mockStorageSet` spy (lazy wrapper avoids the mock-hoisting TDZ, like the mocks below).
 jest.mock('webextension-polyfill', () => ({
   __esModule: true,
   default: {
     alarms: {
       create: jest.fn()
+    },
+    storage: {
+      local: {
+        set: (...args: unknown[]) => mockStorageSet(...args)
+      }
     }
   }
 }));
@@ -128,6 +135,8 @@ jest.mock('./transaction-processor', () => ({
 }));
 
 // ── Imports under test ─────────────────────────────────────────────
+
+import { WalletMessageType } from 'lib/shared/types';
 
 import { doSync, setupSyncManager } from './sync-manager';
 
@@ -216,6 +225,23 @@ describe('doSync', () => {
         miden_sync_data: expect.objectContaining({ accountPublicKey: 'pk-1' })
       })
     );
+  });
+
+  it('logs a warning (not silent) but still finishes the sync when the storage write fails (#386)', async () => {
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'n1', faucetId: 'f1' })]);
+    // Simulate a rejected write (e.g. QUOTA_BYTES exceeded / storage unavailable).
+    mockStorageSet.mockRejectedValueOnce(new Error('QUOTA_BYTES quota exceeded'));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(doSync()).resolves.toBeUndefined();
+
+    // The failed write must not be swallowed silently.
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to persist'), expect.anything());
+    // The SyncCompleted signal still fires — it only clears the sync indicator
+    // (the data is read from storage), so it must not hang on a write failure.
+    expect(mockBroadcast).toHaveBeenCalledWith(expect.objectContaining({ type: WalletMessageType.SyncCompleted }));
+
+    warnSpy.mockRestore();
   });
 
   it('excludes quarantined notes from the cached consumable-notes write', async () => {
