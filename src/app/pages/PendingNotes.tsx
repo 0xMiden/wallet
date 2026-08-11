@@ -24,7 +24,12 @@ const PendingNotes: FC = () => {
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg')}>
-      <ScreenHeader title={t('pendingNotes')} onBack={() => goBack()} />
+      <ScreenHeader
+        title={t('pendingNotes')}
+        backLabel={t('back')}
+        onBack={() => goBack()}
+        className="mx-4 shrink-0"
+      />
       <PendingTab
         safeClaimableNotes={claim.safeClaimableNotes}
         unclaimedNotesCount={claim.unclaimedNotes.length}

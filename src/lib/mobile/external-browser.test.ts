@@ -30,6 +30,14 @@ jest.mock('lib/platform', () => ({
   isMobile: jest.fn()
 }));
 
+jest.mock('lib/mobile/inapp-browser-theme', () => ({
+  getInAppBrowserToolbarTheme: () => ({
+    toolbarColor: '#FFFFFF',
+    toolbarTextColor: '#3F3F3F'
+  }),
+  PREVENT_INPUT_ZOOM_SCRIPT: '/* zoom guard */'
+}));
+
 const mockIsMobile = isMobile as jest.MockedFunction<typeof isMobile>;
 const mockAddListener = InAppBrowser.addListener as jest.Mock;
 const mockOpenWebView = InAppBrowser.openWebView as jest.Mock;
@@ -69,7 +77,9 @@ describe('openExternalUrl', () => {
         title: 'Midenscan',
         toolbarType: ToolBarType.NAVIGATION,
         showReloadButton: true,
-        isPresentAfterPageLoad: false
+        isPresentAfterPageLoad: false,
+        toolbarColor: '#FFFFFF',
+        toolbarTextColor: '#3F3F3F'
       })
     );
   });

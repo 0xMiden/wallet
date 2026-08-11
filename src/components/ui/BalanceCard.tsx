@@ -185,8 +185,10 @@ export const BalanceCard: FC<BalanceCardProps> = ({
       >
         <CopyButton
           text={accountId ?? accountNumber}
+          type="link"
+          aria-label={t('copyHashToClipboard')}
           className={classNames(
-            'flex items-center gap-1 text-xs font-heading font-bold leading-none tracking-tight min-w-0 text-left',
+            'flex items-center gap-1.5 text-xs font-heading font-bold leading-none tracking-tight min-w-0 text-left',
             'text-surface-balance-fg hover:bg-transparent active:opacity-80 transition-opacity'
           )}
         >
@@ -194,7 +196,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
           {/* The `!` on the size classes is load-bearing: <Icon> injects a default `md` (w-6 h-6)
               size class that, under Tailwind v4's scale-ordered output, otherwise wins the cascade.
               Do not drop the `!` (same for the settings icon below). */}
-          <Icon name={IconName.CopyNew} className="w-3.5! h-3.5! shrink-0" />
+          <Icon name={IconName.CopyNew} className="w-4! h-4! shrink-0 opacity-90" aria-hidden />
         </CopyButton>
         {onMore && (
           <button

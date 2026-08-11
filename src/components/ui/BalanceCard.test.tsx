@@ -189,7 +189,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     const copyIcon = screen.getByText('balanceCardAccount').nextElementSibling;
     expect(copyIcon?.getAttribute('data-name')).toBe('CopyNew');
     // Guards the load-bearing `!` size override (Icon injects a default md size that otherwise wins).
-    expect(copyIcon?.className).toContain('w-3.5!');
+    expect(copyIcon?.className).toContain('w-4!');
 
     const settingsIcon = screen.getByRole('button', { name: 'balanceCardAccountOptions' }).querySelector('[data-name]');
     expect(settingsIcon?.getAttribute('data-name')).toBe('SettingsNew');

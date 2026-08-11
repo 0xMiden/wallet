@@ -4,7 +4,20 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import SearchInputDefault, { SearchInput } from './SearchInput';
 
-// The component depends only on React + clsx, so no module mocks are needed.
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
+
+jest.mock('lib/mobile/haptics', () => ({
+  hapticLight: jest.fn()
+}));
+
+jest.mock('app/icons/v2', () => ({
+  IconName: { Close: 'Close' },
+  Icon: ({ name, className }: { name: string; className?: string }) => (
+    <span data-name={name} className={className} />
+  )
+}));
 
 const getInput = () => screen.getByRole('textbox') as HTMLInputElement;
 
@@ -69,8 +82,38 @@ describe('SearchInput — container & input classes', () => {
     expect(input.className).toContain('bg-transparent');
     expect(input.className).toContain('outline-none');
     expect(input.className).toContain('text-center');
-    expect(input.className).toContain('placeholder:text-placeholder-gray');
+    expect(input.className).toContain('placeholder:text-text-muted');
+    expect(input.className).toContain('placeholder:font-medium');
     expect(input.className).toContain('font-bold');
+  });
+});
+
+describe('SearchInput — focus placeholder & clear', () => {
+  it('hides the placeholder while focused so it cannot look like typed text', () => {
+    render(<SearchInput value="" onChange={jest.fn()} placeholder="Find a token" />);
+
+    const input = getInput();
+    expect(input.getAttribute('placeholder')).toBe('Find a token');
+
+    fireEvent.focus(input);
+    expect(input.hasAttribute('placeholder')).toBe(false);
+
+    fireEvent.blur(input);
+    expect(input.getAttribute('placeholder')).toBe('Find a token');
+  });
+
+  it('shows a clear button only when there is a value and clears on press', () => {
+    const onChange = jest.fn();
+    const { rerender } = render(<SearchInput value="" onChange={onChange} data-testid="token-search" />);
+
+    expect(screen.queryByTestId('token-search-clear')).toBeNull();
+
+    rerender(<SearchInput value="mid" onChange={onChange} data-testid="token-search" />);
+    const clear = screen.getByTestId('token-search-clear');
+    expect(clear).toHaveAttribute('aria-label', 'clearSearch');
+
+    fireEvent.click(clear);
+    expect(onChange).toHaveBeenCalledWith('');
   });
 });
 

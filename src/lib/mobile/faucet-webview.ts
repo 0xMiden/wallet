@@ -2,6 +2,7 @@ import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 
 import { InAppBrowser, ToolBarType } from '@miden/dapp-browser';
+import { getInAppBrowserToolbarTheme, PREVENT_INPUT_ZOOM_SCRIPT } from 'lib/mobile/inapp-browser-theme';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { isMobile } from 'lib/platform';
@@ -237,6 +238,8 @@ export async function openFaucetWebview({ url, title, recipientAddress }: Faucet
       return;
     }
     try {
+      // Keep faucet form fields from permanently zooming the WKWebView (#503).
+      await InAppBrowser.executeScript({ code: PREVENT_INPUT_ZOOM_SCRIPT, id: FAUCET_INSTANCE_ID });
       // Inject download interceptor first
       await InAppBrowser.executeScript({ code: DOWNLOAD_INTERCEPTOR_SCRIPT, id: FAUCET_INSTANCE_ID });
       // Then prefill address if provided
@@ -263,12 +266,18 @@ export async function openFaucetWebview({ url, title, recipientAddress }: Faucet
   });
 
   // Open the webview immediately (scripts injected via browserPageLoaded listener)
+  const toolbarTheme = getInAppBrowserToolbarTheme();
   await InAppBrowser.openWebView({
     id: FAUCET_INSTANCE_ID,
     url,
     title,
     toolbarType: ToolBarType.NAVIGATION,
     showReloadButton: true,
-    isPresentAfterPageLoad: false
+    isPresentAfterPageLoad: false,
+    toolbarColor: toolbarTheme.toolbarColor,
+    toolbarTextColor: toolbarTheme.toolbarTextColor,
+    // Run before first paint so focused inputs never trigger iOS zoom (#503).
+    preShowScript: PREVENT_INPUT_ZOOM_SCRIPT,
+    preShowScriptInjectionTime: 'documentStart'
   });
 }

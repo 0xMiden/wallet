@@ -297,6 +297,7 @@
   "selectAmount": "Select Amount",
   "selectAToken": "Select a token",
   "searchForTokens": "Search for tokens",
+  "clearSearch": "Clear search",
   "available": "Available",
   "approxFiatValue": "≈ $value$ USD",
   "reviewDetails": "Review Details",

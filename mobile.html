@@ -46,6 +46,17 @@
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
         text-rendering: optimizeLegibility;
+        /* Match main.css: don't let iOS treat chrome as selectable text (#503). */
+        -webkit-user-select: none;
+        user-select: none;
+      }
+
+      input,
+      textarea,
+      [contenteditable='true'],
+      .select-text {
+        -webkit-user-select: text;
+        user-select: text;
       }
 
       /*

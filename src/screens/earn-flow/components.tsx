@@ -44,7 +44,7 @@ export const MetricCard: FC<{ label: string; value: string; valueClassName?: str
   valueClassName,
   className
 }) => (
-  <div className={classNames('flex py-3 flex-col items-center justify-center rounded-10 bg-gray-25 px-10', className)}>
+  <div className={classNames('flex py-3 flex-col items-center justify-center rounded-10 bg-gray-25 px-4', className)}>
     <div className="text-center text-[10px] font-semibold uppercase leading-none text-gray-secondary">{label}</div>
     <div className={classNames('mt-1 text-center text-sm font-bold leading-none text-black', valueClassName)}>
       {value}
@@ -75,12 +75,13 @@ export const EarnSummaryPanel: FC<{
       </div>
 
       {showMetrics && (
-        <div className="mt-4 flex items-center justify-evenly">
-          <MetricCard label={t('earnTotalDeposited')} value={summary.totalDeposited} />
+        <div className="mt-4 flex items-stretch justify-center gap-3">
+          <MetricCard label={t('earnTotalDeposited')} value={summary.totalDeposited} className="min-w-0 flex-1" />
           <MetricCard
             label={t('earnEstimatedRewards')}
             value={summary.estimatedRewards}
             valueClassName="text-status-positive"
+            className="min-w-0 flex-1"
           />
         </div>
       )}

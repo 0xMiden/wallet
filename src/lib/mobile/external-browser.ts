@@ -1,4 +1,5 @@
 import { InAppBrowser, ToolBarType } from '@miden/dapp-browser';
+import { getInAppBrowserToolbarTheme, PREVENT_INPUT_ZOOM_SCRIPT } from 'lib/mobile/inapp-browser-theme';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { isMobile } from 'lib/platform';
@@ -38,12 +39,17 @@ export async function openExternalUrl({
     await resetViewportAfterWebview();
   });
 
+  const toolbarTheme = getInAppBrowserToolbarTheme();
   await InAppBrowser.openWebView({
     id,
     url,
     title,
     toolbarType: ToolBarType.NAVIGATION,
     showReloadButton: true,
-    isPresentAfterPageLoad: false
+    isPresentAfterPageLoad: false,
+    toolbarColor: toolbarTheme.toolbarColor,
+    toolbarTextColor: toolbarTheme.toolbarTextColor,
+    preShowScript: PREVENT_INPUT_ZOOM_SCRIPT,
+    preShowScriptInjectionTime: 'documentStart'
   });
 }
