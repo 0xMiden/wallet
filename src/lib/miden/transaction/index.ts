@@ -14,7 +14,7 @@ import {
 } from 'lib/miden/guardian/serialize';
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
-import { DEFAULT_NETWORK, MIDEN_NETWORK_ENDPOINTS } from 'lib/miden-chain/constants';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
 import { logger } from 'shared/logger';
 
@@ -39,12 +39,14 @@ import {
   setTransactionStage,
   updateTransactionStatus
 } from './helper';
+import { markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
 import {
   BridgedSendTransaction,
   ConsumeTransaction,
   EarnDepositTransaction,
   ITransaction,
+  ITransactionStage,
   ITransactionStatus,
   ITransactionType,
   ReplaceHotKeyTransaction,
@@ -93,6 +95,45 @@ const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<I
 // comfortably above the processing loop's ~5s poll interval so the skip is not a
 // race; MAX_QUEUED_AGE stays the terminal cap.
 const PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC = 15;
+
+// Cooldown (seconds) applied to a tx requeued after a transient remote-prover
+// outage (#419). A delegated prove step that fails at the 'proving' stage is
+// PRE-submit — nothing reached the chain — so instead of terminal-failing the
+// user's transfer we return it to the queue and retry, letting it complete once
+// the prover recovers. Kept a bit longer than the pending-conflict cooldown to
+// avoid hammering a downed prover; MAX_QUEUED_AGE stays the terminal cap.
+const PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC = 30;
+
+/**
+ * Return a value-moving tx to the Queued state for a later generateTransactionsLoop
+ * cycle instead of terminal-failing it, backing it off with `nextEligibleAt` so it
+ * doesn't starve other accounts' queued txs. Shared by the guardian pending-delta
+ * 409 requeue and the remote-prover-outage requeue (#419). Clearing
+ * `processingStartedAt` avoids cancelStuckTransactions reaping it as stalled;
+ * cancelStaleQueuedTransactions (MAX_QUEUED_AGE) remains the terminal cap.
+ */
+async function requeueTransactionForRetry(
+  txId: string,
+  txType: ITransactionType,
+  stage: ITransactionStage,
+  cooldownSec: number
+): Promise<void> {
+  await updateTransactionStatus(txId, ITransactionStatus.Queued, {
+    processingStartedAt: undefined,
+    stage,
+    nextEligibleAt: Math.floor(Date.now() / 1000) + cooldownSec
+  });
+  // An earn-deposit's requestBytes freeze an ABSOLUTE reclaim height at build
+  // time (syncHeight + recallBlocks); reusing them across a long requeue loop
+  // would strand the collateral at the Epoch allocator. Drop the cached request
+  // so the next cycle rebuilds the P2IDE note against a fresh sync height. Safe:
+  // nothing reached the chain on a pre-submit requeue.
+  if (txType === 'earn-deposit') {
+    await Repo.transactions.where({ id: txId }).modify(t => {
+      t.requestBytes = undefined;
+    });
+  }
+}
 
 /**
  * Run the structural side effects a structural Guardian op needs after its
@@ -272,26 +313,38 @@ export const generateTransaction = async (
       // duplicate delta. They fall through to cancelTransaction — the user retries.
       if (isGuardianPendingConflict(error) && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)) {
         console.warn('[Guardian] proposal still conflicting after retry budget — requeueing for a later cycle');
-        await updateTransactionStatus(transaction.id, ITransactionStatus.Queued, {
-          processingStartedAt: undefined,
-          stage: 'creating-proposal',
-          nextEligibleAt: Math.floor(Date.now() / 1000) + PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC
-        });
-        // An earn-deposit's requestBytes freeze an ABSOLUTE reclaim height at build
-        // time (syncHeight + recallBlocks). Unlike send/swap — whose reused note stays
-        // valid indefinitely — the Epoch allocator rejects a collateral note whose
-        // REMAINING reclaim window has shrunk below its minimum, so reusing the frozen
-        // bytes across a long requeue loop (up to MAX_QUEUED_AGE) would strand the
-        // collateral at the allocator. Drop the cached request so the next cycle rebuilds
-        // the P2IDE note against a fresh sync height. Safe here: no collateral note reached
-        // the chain — any proposal that a 409 from the un-retried
-        // signAndCreateTransactionRequest may have registered was already abandoned by the
-        // submit catch — so rebuilding a fresh note orphans nothing.
-        if (transaction.type === 'earn-deposit') {
-          await Repo.transactions.where({ id: transaction.id }).modify(t => {
-            t.requestBytes = undefined;
-          });
-        }
+        await requeueTransactionForRetry(
+          transaction.id,
+          transaction.type,
+          'creating-proposal',
+          PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC
+        );
+        return;
+      }
+      // A DELEGATED prove step that failed at the 'proving' stage is a PRE-submit
+      // failure (submit is stamped 'submitting' and runs only AFTER prove), so
+      // nothing reached the chain — requeue for a later cycle instead of killing
+      // the user's transfer on a transient remote-prover outage (#419). It retries
+      // (with backoff) and completes once the prover recovers. Re-read the row: the
+      // in-memory `transaction` still carries the stage it was picked at, not the
+      // 'proving' stage set mid-run. Structural ops are gated out via
+      // REQUEUEABLE_ON_PENDING_CONFLICT (a requeue would re-mint a hot key / register
+      // a duplicate delta); MAX_QUEUED_AGE remains the terminal cap. The prover
+      // connectivity banner explains the wait and auto-clears on the next success.
+      const currentRow = await Repo.transactions.where({ id: transaction.id }).first();
+      if (
+        transaction.delegateTransaction === true &&
+        currentRow?.stage === 'proving' &&
+        REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)
+      ) {
+        console.warn('[Guardian] remote prove failed pre-submit — requeueing for a later cycle', error);
+        markConnectivityIssue('prover');
+        await requeueTransactionForRetry(
+          transaction.id,
+          transaction.type,
+          'creating-proposal',
+          PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC
+        );
         return;
       }
       await cancelTransaction(transaction, error);
@@ -442,7 +495,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
     } else {
       syncHeight = await midenClient.client.getSyncHeight();
     }
-    const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
+    const client = await WasmWebClient.createClient(getEffectiveRpcUrl());
     try {
       const tr = await client.newSendTransactionRequest(
         accountIdStringToSdk(transaction.accountId),
@@ -710,7 +763,7 @@ const generateGuardianTransaction = async (
       // second, divergent proposal.
       if (!transaction.requestBytes) {
         const requestBytes = await withWasmClientLock(async () => {
-          const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
+          const client = await WasmWebClient.createClient(getEffectiveRpcUrl());
           try {
             const tr = await client.newPswapCreateTransactionRequest(
               accountIdStringToSdk(swapTx.accountId),

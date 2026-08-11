@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Рахунок №: $number$ ",
-    "englishSource": "Account #: $number$",
+    "message": "Адреса: $number$",
+    "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -2276,6 +2276,34 @@
     "message": "Провайдер",
     "englishSource": "Provider"
   },
+  "guardianEndpointLabel": {
+    "message": "Кінцева точка",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "Регіон",
+    "englishSource": "Region"
+  },
+  "guardianLastSync": {
+    "message": "Остання синхронізація",
+    "englishSource": "Last sync"
+  },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
+  },
+  "online": {
+    "message": "Онлайн",
+    "englishSource": "Online"
+  },
   "reviewRotation": {
     "message": "Оглядова ротація",
     "englishSource": "Review rotation"
@@ -2283,6 +2311,14 @@
   "newLabel": {
     "message": "новий",
     "englishSource": "New"
+  },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "Пройдіть автентифікацію, щоб підтвердити цей перемикач Guardian.",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "Автентифікація недоступна. Спробуйте ще раз, перш ніж змінити Guardian.",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
     "message": "Ключ гаманця (гарячий)",
@@ -2419,6 +2455,10 @@
   "invalidMidenAccountId": {
     "message": "Недійсний ідентифікатор облікового запису Miden",
     "englishSource": "Invalid Miden account ID"
+  },
+  "midenAddressWrongNetwork": {
+    "message": "Ця адреса належить до іншої мережі Miden",
+    "englishSource": "This address belongs to a different Miden network"
   },
   "cannotSendToSelf": {
     "message": "Ви не можете відправити на свою адресу",
@@ -3813,5 +3853,89 @@
   "sourceTx": {
     "message": "Source TX",
     "englishSource": "Source TX"
+  },
+  "developerSettingsTitle": {
+    "message": "Налаштування розробника",
+    "englishSource": "Developer Settings"
+  },
+  "developerSettingsWarningTitle": {
+    "message": "Для досвідчених користувачів",
+    "englishSource": "For advanced users"
+  },
+  "developerSettingsWarning": {
+    "message": "Більшість людей ніколи не повинні змінювати їх. Неправильні значення зламають ваш гаманець.",
+    "englishSource": "Most people should never change these. Wrong values will break your wallet."
+  },
+  "devEndpointPreset": {
+    "message": "Попереднє налаштування мережі",
+    "englishSource": "Network preset"
+  },
+  "devEndpointCustom": {
+    "message": "Custom",
+    "englishSource": "Custom"
+  },
+  "devEndpointNetworkId": {
+    "message": "ID мережі",
+    "englishSource": "Network ID"
+  },
+  "devEndpointRpc": {
+    "message": "URL вузла RPC",
+    "englishSource": "RPC node URL"
+  },
+  "devEndpointProver": {
+    "message": "URL перевірки транзакцій",
+    "englishSource": "Transaction prover URL"
+  },
+  "devEndpointNoteTransport": {
+    "message": "Note транспортна URL-адреса",
+    "englishSource": "Note transport URL"
+  },
+  "devEndpointFaucet": {
+    "message": "Faucet URL-адреса веб-сайту",
+    "englishSource": "Faucet website URL"
+  },
+  "devEndpointFaucetApi": {
+    "message": "Faucet URL-адреса API",
+    "englishSource": "Faucet API URL"
+  },
+  "devEndpointExplorer": {
+    "message": "URL-адреса дослідника",
+    "englishSource": "Explorer URL"
+  },
+  "devEndpointGuardian": {
+    "message": "Спеціальна URL-адреса опікуна",
+    "englishSource": "Custom guardian URL"
+  },
+  "devEndpointChecking": {
+    "message": "Перевірка…",
+    "englishSource": "Checking…"
+  },
+  "devEndpointReachable": {
+    "message": "Хост доступний",
+    "englishSource": "Host reachable"
+  },
+  "devEndpointNoResponse": {
+    "message": "Відповіді немає",
+    "englishSource": "No response"
+  },
+  "devEndpointSaveContinue": {
+    "message": "Зберегти та продовжити",
+    "englishSource": "Save & continue"
+  },
+  "devEndpointResetDefaults": {
+    "message": "Відновити налаштування за замовчуванням",
+    "englishSource": "Reset to defaults"
+  },
+  "devEndpointResetAndReonboard": {
+    "message": "Відновити налаштування за замовчуванням і повторно підключитися",
+    "englishSource": "Reset to defaults & re-onboard"
+  },
+  "devEndpointsRow": {
+    "message": "Кінцеві точки мережі",
+    "englishSource": "Network endpoints"
+  },
+  "devEndpointResetConfirm": {
+    "message": "Це назавжди видаляє цей гаманець, включаючи ваші ключі та історію транзакцій. Щоб відновити його, вам знадобиться ваша фраза відновлення.",
+    "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   }
 }

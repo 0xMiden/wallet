@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Konto #: $number$ ",
-    "englishSource": "Account #: $number$",
+    "message": "Adres: $number$",
+    "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -2227,6 +2227,22 @@
     "message": "Dostawca",
     "englishSource": "Provider"
   },
+  "guardianEndpointLabel": {
+    "message": "Punkt końcowy",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "Region",
+    "englishSource": "Region"
+  },
+  "guardianLastSync": {
+    "message": "Ostatnia synchronizacja",
+    "englishSource": "Last sync"
+  },
+  "online": {
+    "message": "W Internecie",
+    "englishSource": "Online"
+  },
   "reviewRotation": {
     "message": "Przejrzyj rotację",
     "englishSource": "Review rotation"
@@ -2234,6 +2250,14 @@
   "newLabel": {
     "message": "Nowy",
     "englishSource": "New"
+  },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "Uwierzytelnij, aby zatwierdzić tę zmianę Guardiana.",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "Uwierzytelnianie jest niedostępne. Spróbuj ponownie przed zmianą Guardiana.",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
     "message": "Klucz do portfela (gorący)",
@@ -2370,6 +2394,10 @@
   "invalidMidenAccountId": {
     "message": "Nieprawidłowy identyfikator konta Miden",
     "englishSource": "Invalid Miden account ID"
+  },
+  "midenAddressWrongNetwork": {
+    "message": "Ten adres należy do innej sieci Miden",
+    "englishSource": "This address belongs to a different Miden network"
   },
   "cannotSendToSelf": {
     "message": "Nie możesz wysłać na swój własny adres",
@@ -3759,5 +3787,89 @@
   "sourceTx": {
     "message": "Source TX",
     "englishSource": "Source TX"
+  },
+  "developerSettingsTitle": {
+    "message": "Ustawienia programisty",
+    "englishSource": "Developer Settings"
+  },
+  "developerSettingsWarningTitle": {
+    "message": "Dla zaawansowanych użytkowników",
+    "englishSource": "For advanced users"
+  },
+  "developerSettingsWarning": {
+    "message": "Większość ludzi nigdy nie powinna tego zmieniać. Złe wartości zrujnują Twój portfel.",
+    "englishSource": "Most people should never change these. Wrong values will break your wallet."
+  },
+  "devEndpointPreset": {
+    "message": "Ustawienia sieciowe",
+    "englishSource": "Network preset"
+  },
+  "devEndpointCustom": {
+    "message": "Zwyczaj",
+    "englishSource": "Custom"
+  },
+  "devEndpointNetworkId": {
+    "message": "Identyfikator sieci",
+    "englishSource": "Network ID"
+  },
+  "devEndpointRpc": {
+    "message": "Adres URL węzła RPC",
+    "englishSource": "RPC node URL"
+  },
+  "devEndpointProver": {
+    "message": "Adres URL potwierdzenia transakcji",
+    "englishSource": "Transaction prover URL"
+  },
+  "devEndpointNoteTransport": {
+    "message": "Note adres URL transportu",
+    "englishSource": "Note transport URL"
+  },
+  "devEndpointFaucet": {
+    "message": "Faucet URL witryny",
+    "englishSource": "Faucet website URL"
+  },
+  "devEndpointFaucetApi": {
+    "message": "Faucet Adres URL interfejsu API",
+    "englishSource": "Faucet API URL"
+  },
+  "devEndpointExplorer": {
+    "message": "Adres URL Eksploratora",
+    "englishSource": "Explorer URL"
+  },
+  "devEndpointGuardian": {
+    "message": "Niestandardowy adres URL opiekuna",
+    "englishSource": "Custom guardian URL"
+  },
+  "devEndpointChecking": {
+    "message": "Kontrola…",
+    "englishSource": "Checking…"
+  },
+  "devEndpointReachable": {
+    "message": "Gospodarz osiągalny",
+    "englishSource": "Host reachable"
+  },
+  "devEndpointNoResponse": {
+    "message": "Brak odpowiedzi",
+    "englishSource": "No response"
+  },
+  "devEndpointSaveContinue": {
+    "message": "Zapisz i kontynuuj",
+    "englishSource": "Save & continue"
+  },
+  "devEndpointResetDefaults": {
+    "message": "Przywróć ustawienia domyślne",
+    "englishSource": "Reset to defaults"
+  },
+  "devEndpointResetAndReonboard": {
+    "message": "Przywróć ustawienia domyślne i włącz ponownie",
+    "englishSource": "Reset to defaults & re-onboard"
+  },
+  "devEndpointsRow": {
+    "message": "Punkty końcowe sieci",
+    "englishSource": "Network endpoints"
+  },
+  "devEndpointResetConfirm": {
+    "message": "Spowoduje to trwałe usunięcie tego portfela, w tym kluczy i historii transakcji. Aby je przywrócić, będziesz potrzebować frazy odzyskiwania.",
+    "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   }
 }

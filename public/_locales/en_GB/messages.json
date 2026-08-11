@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Account #:  $number$ ",
-    "englishSource": "Account #: $number$",
+    "message": "Address: $number$",
+    "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -2276,6 +2276,34 @@
     "message": "Provider",
     "englishSource": "Provider"
   },
+  "guardianEndpointLabel": {
+    "message": "Endpoint",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "Region",
+    "englishSource": "Region"
+  },
+  "guardianLastSync": {
+    "message": "Last sync",
+    "englishSource": "Last sync"
+  },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
+  },
+  "online": {
+    "message": "Online",
+    "englishSource": "Online"
+  },
   "reviewRotation": {
     "message": "Review rotation",
     "englishSource": "Review rotation"
@@ -2283,6 +2311,14 @@
   "newLabel": {
     "message": "New",
     "englishSource": "New"
+  },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "Authenticate to approve this Guardian switch.",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "Authentication is unavailable. Try again before switching Guardian.",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
     "message": "Wallet key (hot)",
@@ -2419,6 +2455,10 @@
   "invalidMidenAccountId": {
     "message": "Invalid Miden account ID",
     "englishSource": "Invalid Miden account ID"
+  },
+  "midenAddressWrongNetwork": {
+    "message": "This address belongs to a different Miden network",
+    "englishSource": "This address belongs to a different Miden network"
   },
   "cannotSendToSelf": {
     "message": "You can't send to your own address",
@@ -3813,5 +3853,89 @@
   "sourceTx": {
     "message": "Source TX",
     "englishSource": "Source TX"
+  },
+  "developerSettingsTitle": {
+    "message": "Developer Settings",
+    "englishSource": "Developer Settings"
+  },
+  "developerSettingsWarningTitle": {
+    "message": "For advanced users",
+    "englishSource": "For advanced users"
+  },
+  "developerSettingsWarning": {
+    "message": "Most people should never change these. Wrong values will break your wallet.",
+    "englishSource": "Most people should never change these. Wrong values will break your wallet."
+  },
+  "devEndpointPreset": {
+    "message": "Network preset",
+    "englishSource": "Network preset"
+  },
+  "devEndpointCustom": {
+    "message": "Custom",
+    "englishSource": "Custom"
+  },
+  "devEndpointNetworkId": {
+    "message": "Network ID",
+    "englishSource": "Network ID"
+  },
+  "devEndpointRpc": {
+    "message": "RPC node URL",
+    "englishSource": "RPC node URL"
+  },
+  "devEndpointProver": {
+    "message": "Transaction prover URL",
+    "englishSource": "Transaction prover URL"
+  },
+  "devEndpointNoteTransport": {
+    "message": "Note transport URL",
+    "englishSource": "Note transport URL"
+  },
+  "devEndpointFaucet": {
+    "message": "Faucet website URL",
+    "englishSource": "Faucet website URL"
+  },
+  "devEndpointFaucetApi": {
+    "message": "Faucet API URL",
+    "englishSource": "Faucet API URL"
+  },
+  "devEndpointExplorer": {
+    "message": "Explorer URL",
+    "englishSource": "Explorer URL"
+  },
+  "devEndpointGuardian": {
+    "message": "Custom guardian URL",
+    "englishSource": "Custom guardian URL"
+  },
+  "devEndpointChecking": {
+    "message": "Checking…",
+    "englishSource": "Checking…"
+  },
+  "devEndpointReachable": {
+    "message": "Host reachable",
+    "englishSource": "Host reachable"
+  },
+  "devEndpointNoResponse": {
+    "message": "No response",
+    "englishSource": "No response"
+  },
+  "devEndpointSaveContinue": {
+    "message": "Save & continue",
+    "englishSource": "Save & continue"
+  },
+  "devEndpointResetDefaults": {
+    "message": "Reset to defaults",
+    "englishSource": "Reset to defaults"
+  },
+  "devEndpointResetAndReonboard": {
+    "message": "Reset to defaults & re-onboard",
+    "englishSource": "Reset to defaults & re-onboard"
+  },
+  "devEndpointsRow": {
+    "message": "Network endpoints",
+    "englishSource": "Network endpoints"
+  },
+  "devEndpointResetConfirm": {
+    "message": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it.",
+    "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   }
 }

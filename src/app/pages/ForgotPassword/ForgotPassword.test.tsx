@@ -60,6 +60,11 @@ jest.mock('lib/woozie', () => ({
   navigate: (...args: unknown[]) => mockNavigate(...args)
 }));
 
+const mockPostOnboardingRoute = jest.fn<string, []>(() => '/');
+jest.mock('lib/extension/side-panel-handoff', () => ({
+  postOnboardingRoute: () => mockPostOnboardingRoute()
+}));
+
 // Store the latest handler closure so tests can invoke the mobile back handler
 // directly with the component's current `step` / `isLoading` captured in scope.
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
@@ -130,6 +135,7 @@ function renderPage() {
 beforeEach(() => {
   jest.clearAllMocks();
   mockRegisterWallet.mockResolvedValue(undefined);
+  mockPostOnboardingRoute.mockReturnValue('/');
   mockGenerateMnemonic.mockReturnValue('a b c d e f g h i j k l');
   captured.onAction = undefined;
   captured.backHandler = undefined;
@@ -239,13 +245,43 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'confirmation' });
 
     expect(mockClearClientStorage).toHaveBeenCalledTimes(1);
+    // Create flow: no probe runs, so no endpoint is threaded (undefined 5th arg).
     expect(mockRegisterWallet).toHaveBeenCalledWith(
       WalletType.Guardian,
       'secret',
       'fmt:a b c d e f g h i j k l',
-      false
+      false,
+      undefined
     );
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('confirmation hands off to the side panel when available (#428)', async () => {
+    mockPostOnboardingRoute.mockReturnValue('/finish-side-panel');
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/');
+  });
+
+  it('confirmation still navigates (via the handoff) when registration fails — register() swallows the error', async () => {
+    // register() try/catches internally and never throws, so the confirmation
+    // handler always navigates. This matches the pre-fix navigate('/') behavior
+    // (a failed recovery ends on Unlock either way when the vault stays locked);
+    // the handoff route is chosen the same as on success. Documented so the
+    // deliberate swallow isn't mistaken for a missing failure branch.
+    mockPostOnboardingRoute.mockReturnValue('/finish-side-panel');
+    mockRegisterWallet.mockRejectedValue(new Error('guardian not found'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
   });
 
   it('confirmation (Import-from-seed flow): registers with ownMnemonic=true (Import ternary)', async () => {
@@ -256,10 +292,13 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw2' } });
     await dispatch({ id: 'confirmation' });
 
-    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, 'pw2', 'fmt:seed words here', true);
+    // No probe result was set for this test, so detection yields undefined and
+    // the endpoint threaded into registerWallet is undefined (backend then falls
+    // back to the stored / default endpoint).
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, 'pw2', 'fmt:seed words here', true, undefined);
   });
 
-  it('confirmation (Import flow): adopts the probed guardian endpoint before registering', async () => {
+  it('confirmation (Import flow): threads the probed guardian endpoint into registerWallet', async () => {
     mockProbeStart.mockResolvedValue(PROBED_RESULT);
 
     renderPage();
@@ -269,17 +308,23 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'confirmation' });
 
     expect(mockProbeStart).toHaveBeenCalledWith(['seed', 'words', 'here']);
-    expect(mockPutToStorage).toHaveBeenCalledWith('guardian_url_setting', 'https://probed.example.com');
-    expect(mockRegisterWallet).toHaveBeenCalled();
+    // Stage 1 of #408: the detected endpoint is threaded explicitly into
+    // registerWallet rather than written to the global GUARDIAN_URL_STORAGE_KEY.
+    expect(mockPutToStorage).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      'fmt:seed words here',
+      true,
+      'https://probed.example.com'
+    );
 
-    // Order matters: on desktop clearClientStorage wipes the very localStorage
-    // the adopted endpoint is written to, so adoption must come AFTER it (and
-    // before registerWallet reads the setting).
+    // clearClientStorage still runs before registerWallet. The probe result lives
+    // in memory (a ref), so the wipe can't clobber it — no storage-write ordering
+    // constraint is needed anymore.
     const clearedAt = mockClearClientStorage.mock.invocationCallOrder[0]!;
-    const adoptedAt = mockPutToStorage.mock.invocationCallOrder[0]!;
     const registeredAt = mockRegisterWallet.mock.invocationCallOrder[0]!;
-    expect(clearedAt).toBeLessThan(adoptedAt);
-    expect(adoptedAt).toBeLessThan(registeredAt);
+    expect(clearedAt).toBeLessThan(registeredAt);
   });
 
   it('confirmation (Create flow after an abandoned import): never adopts the abandoned probe', async () => {
@@ -295,14 +340,16 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'confirmation' });
 
     // Leaving the import path discards the probe, and the create-path
-    // confirmation must not adopt the abandoned seed's detected guardian.
+    // confirmation must not adopt the abandoned seed's detected guardian — the
+    // threaded endpoint stays undefined (detection only runs on the Import path).
     expect(mockProbeReset).toHaveBeenCalled();
     expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockRegisterWallet).toHaveBeenCalledWith(
       WalletType.Guardian,
       'secret',
       'fmt:a b c d e f g h i j k l',
-      false
+      false,
+      undefined
     );
   });
 

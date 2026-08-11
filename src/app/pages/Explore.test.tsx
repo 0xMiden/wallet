@@ -44,6 +44,7 @@ const mockRequestSWTransactionProcessing = jest.fn();
 const mockStartBackgroundTransactionProcessing = jest.fn();
 const mockSetFaucetIdSetting = jest.fn();
 const mockNavigate = jest.fn();
+const mockClearNoteReceivedNotification = jest.fn();
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -155,6 +156,10 @@ jest.mock('lib/miden/activity', () => ({
   reconcileBridgedReceives: (...args: any[]) => mockReconcileBridgedReceives(...args),
   requestSWTransactionProcessing: (...args: any[]) => mockRequestSWTransactionProcessing(...args),
   startBackgroundTransactionProcessing: (...args: any[]) => mockStartBackgroundTransactionProcessing(...args)
+}));
+
+jest.mock('lib/mobile/native-notifications', () => ({
+  clearNoteReceivedNotification: (...args: any[]) => mockClearNoteReceivedNotification(...args)
 }));
 
 jest.mock('lib/epoch', () => ({
@@ -537,6 +542,30 @@ describe('Explore', () => {
       expect(mockMutateClaimableNotes).toHaveBeenCalled();
       expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
       expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+    });
+
+    it('clears the stale note-received notification once auto-consume takes over (#459)', async () => {
+      mockAutoConsume = true;
+      mockDelegateProof = false;
+      mockIsExtension = false;
+      mockClaimableNotes = [makeNote('n1', 'faucet-native', false)];
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(1);
+      // The "click to claim" notification is obsolete once the wallet auto-claims
+      // the note — dismiss it so it doesn't linger and open to "nothing to claim".
+      expect(mockClearNoteReceivedNotification).toHaveBeenCalled();
+    });
+
+    it('does not clear the note notification when there is nothing to auto-consume', async () => {
+      mockAutoConsume = true;
+      mockClaimableNotes = [];
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockClearNoteReceivedNotification).not.toHaveBeenCalled();
     });
 
     it('dispatches background processing (with signer + provider) when not an extension', async () => {

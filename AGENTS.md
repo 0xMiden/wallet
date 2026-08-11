@@ -48,6 +48,10 @@ The extension manifest version comes from `package.json`, NOT `public/manifest.j
 - **Background auto-ops**: use `startBackgroundTransactionProcessing` (polls 5s × 5min, no modal), not `openLoadingFullPage`.
 - **Sanitized frontend state**: the frontend receives state via `toFront()`; vault/keys stay backend-only.
 
+## Frontend UI, CSS, and Motion
+
+Read `skills/miden-wallet-frontend/SKILL.md` before implementing or reviewing wallet UI, CSS, motion, layout, or interaction changes. Reuse existing wallet components and semantic theme tokens before adding primitives or literal styles. Keep component-specific animation out of `src/main.css`; route nontrivial motion through Framer Motion and the reduced-motion-aware spring helpers. Interactive UI must use accessible semantics, appropriate haptics, localization, and platform isolation, then be verified on every affected surface.
+
 ## Adding a Wallet Action
 
 1. Message type in `src/lib/shared/types.ts`

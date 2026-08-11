@@ -1,0 +1,67 @@
+import {
+  isProverProcedureMismatch,
+  resolveTransactionErrorMessage,
+  PROVER_PROCEDURE_MISMATCH_ERROR,
+  REMOTE_PROVER_FAILED_ERROR,
+  LOCAL_PROVER_FAILED_ERROR
+} from './constants';
+
+// The real native-prover error captured in #487.
+const MISSING_PROCEDURE =
+  'MidenNativeProver: prover rejected the transaction: failed to execute transaction kernel program: ' +
+  'procedure with root digest 0x8bf4fec02765083b9280422f01a814de8f2a53564797969fac2f608197727b22 could not be found';
+
+describe('isProverProcedureMismatch', () => {
+  it('matches the native-prover missing-procedure signature', () => {
+    expect(isProverProcedureMismatch(new Error(MISSING_PROCEDURE))).toBe(true);
+  });
+
+  it('matches regardless of order/casing of the two markers', () => {
+    expect(isProverProcedureMismatch('Could Not Be Found ... procedure with root digest 0xabc')).toBe(true);
+  });
+
+  it('does not match a transient prover timeout', () => {
+    expect(isProverProcedureMismatch(new Error('request timeout while proving'))).toBe(false);
+  });
+
+  it('does not match an unrelated failure', () => {
+    expect(isProverProcedureMismatch(new Error('insufficient balance'))).toBe(false);
+  });
+});
+
+describe('resolveTransactionErrorMessage', () => {
+  it('surfaces the real cause for a native-prover procedure mismatch instead of a remote-timeout relabel (#487)', () => {
+    // On the delegated proving stage a generic failure is rewritten to
+    // REMOTE_PROVER_FAILED_ERROR ("please try again"); a deterministic procedure
+    // mismatch must keep its own message instead of that misleading copy.
+    expect(resolveTransactionErrorMessage(new Error(MISSING_PROCEDURE), 'proving', true)).toBe(
+      PROVER_PROCEDURE_MISMATCH_ERROR
+    );
+    expect(resolveTransactionErrorMessage(new Error(MISSING_PROCEDURE), 'proving', true)).not.toBe(
+      REMOTE_PROVER_FAILED_ERROR
+    );
+    // Same when local/native proving ran (non-delegated), under the broad
+    // 'sending' stage.
+    expect(resolveTransactionErrorMessage(new Error(MISSING_PROCEDURE), 'sending', false)).toBe(
+      PROVER_PROCEDURE_MISMATCH_ERROR
+    );
+  });
+
+  it('still maps a generic delegated proving failure to the remote-prover message', () => {
+    expect(resolveTransactionErrorMessage(new Error('prover exploded'), 'proving', true)).toBe(
+      REMOTE_PROVER_FAILED_ERROR
+    );
+  });
+
+  it('still maps a generic local proving failure to the local-prover message', () => {
+    expect(resolveTransactionErrorMessage(new Error('prover exploded'), 'proving', false)).toBe(
+      LOCAL_PROVER_FAILED_ERROR
+    );
+  });
+
+  it('passes through an unrelated failure raw', () => {
+    expect(resolveTransactionErrorMessage(new Error('insufficient balance'), 'sending')).toBe(
+      'Error: insufficient balance'
+    );
+  });
+});

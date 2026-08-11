@@ -97,7 +97,7 @@ describe('AccountsDrawer', () => {
 
     expect(screen.getByTestId('drawer-title').textContent).toBe('accounts');
     expect(screen.getByText('cardColor')).toBeTruthy();
-    expect(screen.getByText('settings')).toBeTruthy();
+    expect(screen.getByText('settings').closest('button')?.className).toContain('dark:text-pure-white');
     expect(screen.getByText('addAccountComingSoon')).toBeTruthy();
   });
 
