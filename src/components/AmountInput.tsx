@@ -18,6 +18,30 @@ function amountTextSize(value?: string): string {
   return 'text-6xl';
 }
 
+/**
+ * Accept a comma as the decimal separator (comma-decimal locales/keyboards — es,
+ * de, fr, …) by normalizing it to a dot before the field parses the input (#433).
+ * The field keeps the emitted value "."-normalized for the tx pipeline, so there
+ * is no locale detection and no downstream change.
+ *
+ * When a dot is already present the commas are treated as thousands groupings
+ * (e.g. a pasted `1,000.50`) and dropped, so the value stays `1000.50` rather than
+ * collapsing to a broken multi-dot string. Otherwise the comma is the decimal point
+ * and becomes a dot.
+ *
+ * This is aimed at *typed* input, which is the reported problem. Pasting a fully
+ * formatted grouped number is not reliably parsed and is an accepted limitation
+ * (this field disables grouped input anyway): a bare `1,000` is ambiguous and
+ * resolves to `1.000`, and a European-format `1.000,50` (dot groups + comma
+ * decimal) mis-parses because the comma decimal is dropped as if it were a group.
+ */
+export function normalizeDecimalInput(rawValue: string): string {
+  if (rawValue.includes('.')) {
+    return rawValue.replace(/,/g, '');
+  }
+  return rawValue.replace(/,/g, '.');
+}
+
 export interface AmountInputProps {
   value?: string;
   onValueChange?: (value: string | undefined, name?: string, values?: CurrencyInputOnChangeValues) => void;
@@ -86,7 +110,16 @@ export const AmountInput: React.FC<AmountInputProps> = ({
             value={value}
             onValueChange={onValueChange}
             placeholder={placeholder}
+            transformRawValue={normalizeDecimalInput}
             disableGroupSeparators
+            // `disableGroupSeparators` only stops grouping in the *display*; the
+            // library still derives a group separator from the ambient locale and
+            // strips it from the raw input on every keystroke. On a `.`-group
+            // locale (de-DE, pt-BR, …) that strips the dot our normalizer just
+            // produced, undoing the fix. Passing "" doesn't help — the library
+            // coalesces a falsy group separator back to the locale default — so
+            // pin it to a space, which never collides with our "." decimal (#433).
+            groupSeparator=" "
             decimalSeparator="."
             decimalsLimit={6}
             allowNegativeValue={false}
