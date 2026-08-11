@@ -1638,8 +1638,8 @@
     "englishSource": "Fund your wallet"
   },
   "faucetPromptBody": {
-    "message": "Add tokens to your wallet to get started. You'll receive MIDEN plus some IMIDEN test tokens for trying swaps.",
-    "englishSource": "Add tokens to your wallet to get started. You'll receive MIDEN plus some IMIDEN test tokens for trying swaps."
+    "message": "Add tokens to your wallet to get started.",
+    "englishSource": "Add tokens to your wallet to get started."
   },
   "faucetPromptAction": {
     "message": "Fund now",
