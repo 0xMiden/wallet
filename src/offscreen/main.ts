@@ -34,7 +34,7 @@ import {
   decodeArg,
   type OffscreenCallRequest
 } from 'lib/miden/back/offscreen-codec';
-import { getMidenClient } from 'lib/miden/sdk/miden-client';
+import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import type { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
 
 const TAG = '[offscreen-prover]';
@@ -138,7 +138,15 @@ const DISPATCH: Record<string, DispatchFn> = {
 // The offscreen-owned client singleton, created lazily on first OFFSCREEN_CALL.
 let clientPromise: Promise<MidenClientInterface> | null = null;
 function getOrCreateClient(): Promise<MidenClientInterface> {
-  if (!clientPromise) clientPromise = getMidenClient();
+  if (!clientPromise) {
+    // S1: null the cached promise if the create rejects (e.g. a transient RPC
+    // genesis fetch failure) so the NEXT OFFSCREEN_CALL retries within this same
+    // doc — otherwise a one-off failure would stick until the next kill/reopen.
+    clientPromise = getMidenClient().catch((err: unknown) => {
+      clientPromise = null;
+      throw err;
+    });
+  }
   return clientPromise;
 }
 
@@ -158,7 +166,14 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     }
     const client = await getOrCreateClient();
     const args = msg.argsB64.map(decodeArg);
-    const resultBytes = await dispatch(client, ...args);
+    // W1: serialize actual WASM entry inside THIS doc's own mutex (design §5,
+    // §8-risk-5). The offscreen realm has its own module-level `wasmClientMutex`
+    // (imported here in the offscreen bundle — distinct from the SW's instance),
+    // so two concurrent OFFSCREEN_CALLs can't double-borrow the WASM client's
+    // RefCell ("recursive use of an object" crash). The IPC layer already
+    // supports >1 in-flight op; this is where they queue. Slice 4's concurrent
+    // routes inherit this serialization for free.
+    const resultBytes = await withWasmClientLock(() => dispatch(client, ...args));
     sendResponse({
       ok: true,
       op_id: msg.op_id,

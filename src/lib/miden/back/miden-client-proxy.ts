@@ -92,6 +92,8 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
     return;
   }
   if (resp.ok) op.resolveResult(resp.resultB64);
+  // TODO(slice 4): preserve `resp.errorCode` onto the rejection so callers can
+  // classify (retryable vs. deterministic) without string-matching `error`.
   else op.reject(new Error(`Offscreen call '${op.method}' failed: ${resp.error}`));
 }
 
@@ -122,12 +124,20 @@ async function onDeadline(op_id: string): Promise<void> {
   if (isNonSpeculativeProveInFlight()) {
     // A user's real prove owns the doc; don't tear it down for a read. Fail
     // only this op — the offscreen op keeps running and its result is dropped.
+    // TODO(slice 4): generalize `nonSpeculativeProveCount` → a `criticalOpCount`
+    // that also covers proxied writes (sendTransaction/consume/swap) so their
+    // submit→apply window is protected the same way a prove is here (design §4).
     takeInFlight(op_id)?.reject(new OperationAbortedError(op_id, 'deadline-no-kill'));
     return;
   }
 
   const closed = await forceCloseOffscreenDocument();
   // Closing the doc killed every concurrent op's realm — reject them all.
+  // TODO(slice 4): there is a small window where an op whose sendMessage is
+  // mid-flight (but whose result would have been fine) gets rejected as a
+  // collateral 'deadline' abort. Harmless for idempotent reads; slice 4 must
+  // weigh this against the write kill-window taxonomy (design §5) before routing
+  // writes through here.
   rejectAllInFlight('deadline');
   if (closed) {
     // Reopen eagerly so the next call doesn't pay the cold start on its own
@@ -198,6 +208,18 @@ export const midenClientProxy = {
    */
   async getAccount(accountId: string): Promise<Account | null> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      // W2 — CALLER-SIDE LOCKING IS THE CALLER'S JOB ON THIS PATH. This raw
+      // `getMidenClient().getAccount(id)` does NOT take the WASM client lock.
+      // That is correct because it exactly preserves today's behavior: every
+      // current caller supplies its own serialization around getAccount — the
+      // hot balance poll uses `tryWithWasmClientLock` (fetchBalances), and
+      // vault / guardian-sync use `withWasmClientLock`. An unlocked read fired
+      // inside a transaction's `_withInnerWebClient` window double-borrows the
+      // WASM RefCell and crashes (see `sdk/miden-client.ts` isWasmClientBusy).
+      // => Slice 2, when it rewires call sites onto this proxy, MUST keep the
+      //    caller-side lock wrapping the proxy call, or it reintroduces that
+      //    crash on the flag-OFF path. (Flag-ON serializes inside the offscreen
+      //    doc via its own mutex; flag-OFF has no such safety net here.)
       return (await getMidenClient()).getAccount(accountId);
     }
     const resultB64 = await this.call('getAccount', [accountId], { deadlineMs: READ_DEADLINE_MS });

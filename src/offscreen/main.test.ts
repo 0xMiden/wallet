@@ -70,10 +70,29 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
 // The offscreen doc now owns the full client singleton (issue #260 §3.4); mock
 // the SW-side accessor so OFFSCREEN_CALL dispatch is fully controllable and the
 // real client graph never loads. Harmless to the OFFSCREEN_PROVE tests, which
-// never touch getMidenClient.
+// never touch getMidenClient. `withWasmClientLock` is a real (tiny) mutex so
+// W1's serialization of concurrent OFFSCREEN_CALLs is testable; its closure
+// state resets per test because loadModule() re-runs this factory after
+// jest.resetModules().
 jest.mock('lib/miden/sdk/miden-client', () => {
   const g = globalThis as any;
-  return { getMidenClient: (...a: any[]) => g.__off.getMidenClient(...a) };
+  let locked = false;
+  const waiters: Array<() => void> = [];
+  const withWasmClientLock = async <T>(op: () => Promise<T>): Promise<T> => {
+    if (locked) await new Promise<void>(resolve => waiters.push(resolve));
+    else locked = true;
+    try {
+      return await op();
+    } finally {
+      const next = waiters.shift();
+      if (next) next();
+      else locked = false;
+    }
+  };
+  return {
+    getMidenClient: (...a: any[]) => g.__off.getMidenClient(...a),
+    withWasmClientLock
+  };
 });
 
 let capturedListener: Listener | undefined;
@@ -469,5 +488,58 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(ret).toBe(false);
     await flush();
     expect(sendResponse).not.toHaveBeenCalled();
+  });
+
+  it('W1: serializes concurrent OFFSCREEN_CALLs through the offscreen WASM mutex', async () => {
+    await loadModule();
+    const order: string[] = [];
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+    G.__off.clientGetAccount = jest.fn(async (id: string) => {
+      order.push(`start:${id}`);
+      if (id === 'first') await firstGate;
+      order.push(`end:${id}`);
+      return { serialize: () => new Uint8Array([1]) };
+    });
+
+    const r1 = jest.fn();
+    const r2 = jest.fn();
+    capturedListener!(callReq({ op_id: 'op1', method: 'getAccount', argsB64: [encodeArg('first')] }), {}, r1);
+    capturedListener!(callReq({ op_id: 'op2', method: 'getAccount', argsB64: [encodeArg('second')] }), {}, r2);
+    await flush();
+
+    // Second op is queued behind the first's lock — it has NOT begun dispatch.
+    expect(order).toEqual(['start:first']);
+
+    releaseFirst();
+    await flush();
+
+    // First fully completes and releases before the second even starts.
+    expect(order).toEqual(['start:first', 'end:first', 'start:second', 'end:second']);
+    expect(r1.mock.calls[0][0].ok).toBe(true);
+    expect(r2.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('S1: a failed client-create is not cached — the next call retries within the same doc', async () => {
+    await loadModule();
+    G.__off.getMidenClient = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('genesis fetch failed'))
+      .mockResolvedValueOnce({ getAccount: (...a: any[]) => G.__off.clientGetAccount(...a) });
+
+    const r1 = jest.fn();
+    capturedListener!(callReq({ method: 'getAccount', argsB64: [encodeArg('a')] }), {}, r1);
+    await flush();
+    expect(r1.mock.calls[0][0].ok).toBe(false);
+    expect(r1.mock.calls[0][0].error).toContain('genesis fetch failed');
+
+    const r2 = jest.fn();
+    capturedListener!(callReq({ method: 'getAccount', argsB64: [encodeArg('a')] }), {}, r2);
+    await flush();
+    expect(r2.mock.calls[0][0].ok).toBe(true);
+    // The rejected create was not cached → getMidenClient ran again (retry).
+    expect(G.__off.getMidenClient).toHaveBeenCalledTimes(2);
   });
 });

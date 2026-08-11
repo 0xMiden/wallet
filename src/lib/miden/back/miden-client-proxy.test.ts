@@ -305,4 +305,70 @@ describe('MidenClientProxy — deadline kill', () => {
     expect(result).toBeNull();
     expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
   });
+
+  it('recovers after a kill: a fresh call succeeds through the reopened doc (same-store recovery)', async () => {
+    const { midenClientProxy, __test } = await loadProxy(true);
+    const { OperationAbortedError } = await import('./offscreen-codec');
+
+    // First op hangs (wedge) so its deadline kills the doc; after reopen we flip
+    // sendMessage to a healthy response and prove the next call goes through.
+    let wedge = true;
+    fakeChrome.runtime.sendMessage.mockImplementation((env: any) => {
+      if (wedge) return new Promise(() => {});
+      return Promise.resolve({
+        ok: true,
+        op_id: env.op_id,
+        resultB64: Buffer.from([5, 5, 5]).toString('base64'),
+        durationMs: 2
+      });
+    });
+
+    const pKilled = midenClientProxy.call('getAccount', ['a'], { deadlineMs: 20 }).catch((e: Error) => e);
+    await flush();
+    fireReady(); // initial open
+    await flush();
+    await wait(40); // trip deadline → closeDocument + reopen
+    fireReady(); // reopen ready gate
+    await flush();
+    expect(await pKilled).toBeInstanceOf(OperationAbortedError);
+    expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
+
+    // Doc is back up (docExists true after reopen) → a fresh getAccount resolves.
+    wedge = false;
+    const account = await midenClientProxy.getAccount('b');
+    expect(account).toEqual({ __account: [5, 5, 5] });
+    expect(G.__px.accountDeserialize).toHaveBeenCalledTimes(1);
+    expect(__test.inFlightSize()).toBe(0);
+  });
+});
+
+describe('MidenClientProxy — settlement paths', () => {
+  it('an undefined response (doc reaped/closed) → OperationAbortedError(doc-closed)', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const { OperationAbortedError } = await import('./offscreen-codec');
+    fakeChrome.runtime.sendMessage.mockResolvedValue(undefined);
+
+    const p = midenClientProxy.call('getAccount', ['a'], { deadlineMs: null }).catch((e: Error) => e);
+    await flush();
+    fireReady();
+    const err = await p;
+    expect(err).toBeInstanceOf(OperationAbortedError);
+    expect((err as any).reason).toBe('doc-closed');
+    // No deadline armed → no kill.
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+  });
+
+  it('a sendMessage transport rejection surfaces the transport error (finishOpError)', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const { OperationAbortedError } = await import('./offscreen-codec');
+    fakeChrome.runtime.sendMessage.mockRejectedValue(new Error('message port closed before a response'));
+
+    const p = midenClientProxy.call('getAccount', ['a'], { deadlineMs: null }).catch((e: Error) => e);
+    await flush();
+    fireReady();
+    const err = await p;
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(OperationAbortedError);
+    expect((err as Error).message).toContain('message port closed');
+  });
 });
