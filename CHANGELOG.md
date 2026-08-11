@@ -6,6 +6,8 @@
 
 - [CHANGE][all] **Frontend skill guidance now defaults standard actions to the shared wallet button.** The shared frontend skill directs standard wallet actions to `components/Button`, reserving native buttons for compact, icon-only, or inline controls that the full CTA cannot represent.
 
+- [CHANGE][all] **The Send recipient step now suggests recent recipients and can save a new one as a contact.** With the address field empty, a "Recent" list shows up to five of the account's most recent distinct send recipients — named when they match a wallet account or address-book entry, each with a Miden badge or destination-network dot and its truncated address — and tapping one fills the recipient. When a valid address isn't saved yet, the "Address Book" pill becomes "Add to contacts?" and opens a bottom sheet with the address book's add-contact form pre-filled with that address.
+
 - [CHANGE][all] **The Activity page now surfaces pending notes above the history list.** When claimable notes exist, a "Consume your notes" card with the note count links to the claim screen, and an (i) button opens a bottom-sheet explainer describing what pending notes are; the header's pending-notes icon button is gone.
 
 - [CHANGE][all] **Pending-note rows are redesigned around the amount, sender, and note privacy.** Each claimable note now leads with the incoming amount in green, followed by a "from ‹sender› · Private/Public" line, replacing the generic receive-icon tile.

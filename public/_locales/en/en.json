@@ -332,6 +332,8 @@
   "miden": "Miden",
   "addNewContact": "New contact",
   "addContact": "Add Contact",
+  "addToContactsPrompt": "Add to contacts?",
+  "recent": "Recent",
   "newContactPlaceholder": "e.g. Alice Bob",
   "contactWithTheSameAddressAlreadyExists": "Contact with the same address already exists",
   "currentContacts": "Current Contacts",
