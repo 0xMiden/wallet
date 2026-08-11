@@ -136,12 +136,11 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     }
   }, [status, active?.transactionId]);
 
-  // Auto-close once the tx reaches a terminal state (mirrors the old
-  // "left flight" transition, now derived from status rather than the tx
-  // dropping out of the uncompleted list).
+  // Auto-close once the tx reaches a terminal state, but keep the success receipt
+  // visible until the user chooses Done or View in activities (#472).
   const prevTransactionComplete = useRef(false);
   useEffect(() => {
-    if (transactionComplete && !prevTransactionComplete.current) {
+    if (transactionComplete && !prevTransactionComplete.current && hasErrors) {
       new Promise(res => setTimeout(res, AUTO_CLOSE_DELAY_MS)).then(async () => {
         await trackEvent('GeneratingTransaction Page Closed Automatically');
         isAutoCloseEnabled() && onClose();
@@ -149,7 +148,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     }
 
     prevTransactionComplete.current = transactionComplete;
-  }, [transactionComplete, trackEvent, onClose]);
+  }, [transactionComplete, hasErrors, trackEvent, onClose]);
 
   const lastCompletedTxHash = useWalletStore(state => state.lastCompletedTxHash);
   const receiptTxHash = lastCompletedTxHash ?? active?.transactionId ?? null;

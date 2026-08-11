@@ -332,7 +332,7 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
-  it('auto-closes (navigate home) when the row reaches a terminal state and auto-close is enabled', async () => {
+  it('auto-closes (navigate home) when the row fails and auto-close is enabled', async () => {
     isAutoCloseEnabledMock.mockReturnValue(true);
     navigateMock.mockClear();
     window.location.hash = '#/generating-transaction/tx-1';
@@ -340,8 +340,8 @@ describe('GeneratingTransactionPage container effects', () => {
 
     const { root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
-    // Row transitions to Completed → schedules auto-close.
-    mockRowState = { row: makeTx({ status: 2, transactionId: '0xhash' }), loaded: true };
+    // Row transitions to Failed → schedules auto-close.
+    mockRowState = { row: makeTx({ status: 3, transactionId: '0xhash' }), loaded: true };
     await act(async () => {
       root.render(<GeneratingTransactionPage txId="tx-1" />);
     });
@@ -353,6 +353,30 @@ describe('GeneratingTransactionPage container effects', () => {
     await flush();
 
     expect(navigateMock).toHaveBeenCalledWith('/');
+    isAutoCloseEnabledMock.mockReturnValue(false);
+    act(() => root.unmount());
+  });
+
+  it('does not auto-close after a successful completion when auto-close is enabled', async () => {
+    isAutoCloseEnabledMock.mockReturnValue(true);
+    navigateMock.mockClear();
+    window.location.hash = '#/generating-transaction/tx-1';
+    mockRowState = { row: makeTx({ stage: 'submitting' }), loaded: true };
+
+    const { root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    mockRowState = { row: makeTx({ status: 2, transactionId: '0xhash' }), loaded: true };
+    await act(async () => {
+      root.render(<GeneratingTransactionPage txId="tx-1" />);
+    });
+    await flush();
+
+    await act(async () => {
+      jest.advanceTimersByTime(10_000);
+    });
+    await flush();
+
+    expect(navigateMock).not.toHaveBeenCalled();
     isAutoCloseEnabledMock.mockReturnValue(false);
     act(() => root.unmount());
   });
