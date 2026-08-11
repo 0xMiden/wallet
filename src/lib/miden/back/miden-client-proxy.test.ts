@@ -112,6 +112,10 @@ function resetControl() {
     inlineGetInputNoteDetails: jest.fn(async () => [{ __inlineDetail: true }]),
     inlineGetConsumableNoteDtos: jest.fn(async () => [{ __inlineConsumable: true }]),
     inlineConsumeNoteId: jest.fn(async () => ({ __inlineTxResult: true })),
+    // Slice 5b: the flag-off passthrough of each remaining non-guardian write.
+    inlineSendTransaction: jest.fn(async () => ({ __inlineSendResult: true })),
+    inlineSwapTransaction: jest.fn(async () => ({ __inlineSwapResult: true })),
+    inlineNewTransaction: jest.fn(async () => ({ __inlineNewResult: true })),
     // A real pass-through lock so the flag-off "caller lock preserved" assertion
     // is meaningful (spy call count) while still executing the wrapped op.
     withWasmClientLock: jest.fn(async (fn: () => Promise<unknown>) => fn()),
@@ -121,7 +125,10 @@ function resetControl() {
       exportNote: (...a: any[]) => G.__px.inlineExportNote(...a),
       getInputNoteDetails: (...a: any[]) => G.__px.inlineGetInputNoteDetails(...a),
       getConsumableNoteDtos: (...a: any[]) => G.__px.inlineGetConsumableNoteDtos(...a),
-      consumeNoteId: (...a: any[]) => G.__px.inlineConsumeNoteId(...a)
+      consumeNoteId: (...a: any[]) => G.__px.inlineConsumeNoteId(...a),
+      sendTransaction: (...a: any[]) => G.__px.inlineSendTransaction(...a),
+      swapTransaction: (...a: any[]) => G.__px.inlineSwapTransaction(...a),
+      newTransaction: (...a: any[]) => G.__px.inlineNewTransaction(...a)
     }))
   };
 }
@@ -1029,3 +1036,351 @@ describe('MidenClientProxy — slice-5a §5 write kill window', () => {
     expect(__test.inFlightSize()).toBe(0);
   });
 });
+
+// ─── Slice 5b: send / swap / newTransaction (the remaining WRITE pipeline) ────
+//
+// Each mirrors the slice-5a consumeNoteId contract exactly: flag-OFF is
+// BYTE-IDENTICAL to production (inline under withWasmClientLock with the wrapped
+// sign options); flag-ON is a whole-op OFFSCREEN_CALL (minimal DTO / raw bytes in,
+// serialized TransactionResult out) run on the SHARED critical machinery (90s
+// deadline, criticalOp bracketing, op-scoped sign callback). The kill-window /
+// sign-pause / read-downgrade matrix is the SAME shared `dispatchOp` path the
+// slice-5a tests exercise via `__test.dispatchCritical` (method-agnostic); the
+// per-method tests below prove the ROUTING, DTO field-set, byte-identity, and that
+// a killed write rejects with OperationAbortedError (→ the loop marks it Failed).
+
+const sendTx = () => ({
+  id: 'tx-send',
+  type: 'send' as const,
+  accountId: 'mtst1qacc',
+  secondaryAccountId: 'mtst1qrecipient',
+  faucetId: 'mtst1qfaucet',
+  noteType: 'public',
+  amount: 1000n, // a BigInt — proves the DTO ships amount as a string, never JSON.stringify(tx)
+  delegateTransaction: false,
+  extraInputs: { recallBlocks: 100 },
+  status: 0,
+  initiatedAt: 0,
+  displayIcon: 'SEND'
+});
+
+const swapTx = () => ({
+  id: 'tx-swap',
+  type: 'swap' as const,
+  accountId: 'mtst1qacc',
+  faucetId: 'mtst1qoffered',
+  amount: 500n, // BigInt offered amount → decimal string in the DTO
+  delegateTransaction: false,
+  extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: 250n, expirySeconds: 120, autoConsume: true },
+  status: 0,
+  initiatedAt: 0,
+  displayIcon: 'SWAP'
+});
+
+describe('MidenClientProxy — slice-5b sendTransaction flag routing + byte-identity', () => {
+  it('flag OFF → sendTransaction runs inline under withWasmClientLock with wrapped sign options (byte-identical)', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const signCallback = jest.fn(async () => new Uint8Array([1]));
+    const tx = sendTx();
+    const result = await midenClientProxy.sendTransaction(tx as any, signCallback);
+
+    expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
+    expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
+    const opts = G.__px.getMidenClient.mock.calls[0][0];
+    expect(typeof opts.signCallback).toBe('function');
+    // The inline client's sendTransaction ran on the full tx object.
+    expect(G.__px.inlineSendTransaction).toHaveBeenCalledWith(tx);
+    expect(result).toEqual({ __inlineSendResult: true });
+    expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON but no chrome.offscreen API → sendTransaction falls back inline', async () => {
+    installChromeMock({ withOffscreen: false });
+    const { midenClientProxy } = await loadProxy(true);
+    const result = await midenClientProxy.sendTransaction(
+      sendTx() as any,
+      jest.fn(async () => new Uint8Array())
+    );
+    expect(G.__px.inlineSendTransaction).toHaveBeenCalled();
+    expect(result).toEqual({ __inlineSendResult: true });
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → dispatches a whole-op OFFSCREEN_CALL (minimal DTO, 90s deadline, criticalOp bracketed) + rehydrates', async () => {
+    const { midenClientProxy, __test } = await loadProxy(true);
+    const prover = await import('./offscreen-prover');
+    let criticalDuring: boolean | undefined;
+    let signCbSizeDuring: number | undefined;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      criticalDuring = prover.isCriticalOpInFlight();
+      signCbSizeDuring = __test.opSignCallbacksSize();
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1, 2, 3]).toString('base64'), durationMs: 4 };
+    });
+
+    const p = midenClientProxy.sendTransaction(
+      sendTx() as any,
+      jest.fn(async () => new Uint8Array())
+    );
+    await flush();
+    fireReady();
+    const result = await p;
+
+    // Never used the inline SW client, and NEVER held the SW WASM lock.
+    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
+    expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('sendTransaction');
+    expect(env.deadline_ms).toBe(90_000);
+    // The DTO carries only the fields sendTransaction reads — with the BigInt
+    // amount shipped as a decimal STRING (never the BigInt-bearing tx).
+    const sentDto = JSON.parse(env.argsB64[0].slice(2));
+    expect(sentDto).toEqual({
+      accountId: 'mtst1qacc',
+      secondaryAccountId: 'mtst1qrecipient',
+      faucetId: 'mtst1qfaucet',
+      noteType: 'public',
+      amount: '1000',
+      delegateTransaction: false,
+      extraInputs: { recallBlocks: 100 }
+    });
+    expect(criticalDuring).toBe(true);
+    expect(signCbSizeDuring).toBe(1);
+    expect(prover.isCriticalOpInFlight()).toBe(false);
+    expect(__test.opSignCallbacksSize()).toBe(0);
+    expect(G.__px.getWasmOrThrow).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ __txResult: [1, 2, 3] });
+    expect(__test.inFlightSize()).toBe(0);
+  });
+
+  it('flag ON → a null offscreen result throws (a send must always yield a TransactionResult)', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+    const p = midenClientProxy
+      .sendTransaction(
+        sendTx() as any,
+        jest.fn(async () => new Uint8Array())
+      )
+      .catch((e: Error) => e);
+    await flush();
+    fireReady();
+    const err = await p;
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('no TransactionResult bytes');
+  });
+
+  it('§5 kill: a wedged send (own deadline fires) rejects with OperationAbortedError → the loop marks it Failed', async () => {
+    const { __test } = await loadProxy(true);
+    const { OperationAbortedError } = await import('./offscreen-codec');
+    fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+
+    const { promise } = __test.dispatchCritical('sendTransaction', [{}], 20);
+    const p = promise.catch((e: Error) => e);
+    await flush();
+    fireReady();
+    await flush();
+    expect(__test.inFlightSize()).toBe(1);
+
+    await wait(40); // trip the write's own deadline
+    fireReady();
+    await flush();
+
+    const err = await p;
+    expect(err).toBeInstanceOf(OperationAbortedError);
+    expect((err as any).reason).toBe('deadline');
+    expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
+    expect(__test.inFlightSize()).toBe(0);
+  });
+});
+
+describe('MidenClientProxy — slice-5b swapTransaction flag routing + byte-identity', () => {
+  it('flag OFF → swapTransaction runs inline under withWasmClientLock with wrapped sign options (byte-identical)', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const signCallback = jest.fn(async () => new Uint8Array([1]));
+    const tx = swapTx();
+    const result = await midenClientProxy.swapTransaction(tx as any, signCallback);
+
+    expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
+    expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
+    const opts = G.__px.getMidenClient.mock.calls[0][0];
+    expect(typeof opts.signCallback).toBe('function');
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx);
+    expect(result).toEqual({ __inlineSwapResult: true });
+    expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON but no chrome.offscreen API → swapTransaction falls back inline', async () => {
+    installChromeMock({ withOffscreen: false });
+    const { midenClientProxy } = await loadProxy(true);
+    const result = await midenClientProxy.swapTransaction(
+      swapTx() as any,
+      jest.fn(async () => new Uint8Array())
+    );
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalled();
+    expect(result).toEqual({ __inlineSwapResult: true });
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → dispatches a whole-op OFFSCREEN_CALL with the swap DTO (both BigInt amounts as strings) + rehydrates', async () => {
+    const { midenClientProxy, __test } = await loadProxy(true);
+    const prover = await import('./offscreen-prover');
+    let criticalDuring: boolean | undefined;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      criticalDuring = prover.isCriticalOpInFlight();
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([4, 5, 6]).toString('base64'), durationMs: 4 };
+    });
+
+    const p = midenClientProxy.swapTransaction(
+      swapTx() as any,
+      jest.fn(async () => new Uint8Array())
+    );
+    await flush();
+    fireReady();
+    const result = await p;
+
+    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
+    expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('swapTransaction');
+    expect(env.deadline_ms).toBe(90_000);
+    // Offered amount AND requested amount both cross as decimal strings; the
+    // display-only expirySeconds/autoConsume are NOT part of the DTO.
+    const sentDto = JSON.parse(env.argsB64[0].slice(2));
+    expect(sentDto).toEqual({
+      accountId: 'mtst1qacc',
+      faucetId: 'mtst1qoffered',
+      amount: '500',
+      delegateTransaction: false,
+      extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '250' }
+    });
+    expect(criticalDuring).toBe(true);
+    expect(prover.isCriticalOpInFlight()).toBe(false);
+    expect(result).toEqual({ __txResult: [4, 5, 6] });
+    expect(__test.inFlightSize()).toBe(0);
+  });
+
+  it('flag ON → a null offscreen result throws (a swap must always yield a TransactionResult)', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+    const p = midenClientProxy
+      .swapTransaction(
+        swapTx() as any,
+        jest.fn(async () => new Uint8Array())
+      )
+      .catch((e: Error) => e);
+    await flush();
+    fireReady();
+    const err = await p;
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('no TransactionResult bytes');
+  });
+});
+
+describe('MidenClientProxy — slice-5b newTransaction (execute) flag routing + byte-identity', () => {
+  const reqBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
+
+  it('flag OFF → newTransaction runs inline under withWasmClientLock with wrapped sign options (byte-identical)', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const signCallback = jest.fn(async () => new Uint8Array([1]));
+    const result = await midenClientProxy.newTransaction('mtst1qacc', reqBytes, false, signCallback);
+
+    expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
+    expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
+    const opts = G.__px.getMidenClient.mock.calls[0][0];
+    expect(typeof opts.signCallback).toBe('function');
+    // Positional passthrough — accountId, requestBytes, delegateTransaction — verbatim.
+    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', reqBytes, false);
+    expect(result).toEqual({ __inlineNewResult: true });
+    expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON but no chrome.offscreen API → newTransaction falls back inline', async () => {
+    installChromeMock({ withOffscreen: false });
+    const { midenClientProxy } = await loadProxy(true);
+    const result = await midenClientProxy.newTransaction(
+      'mtst1qacc',
+      reqBytes,
+      undefined,
+      jest.fn(async () => new Uint8Array())
+    );
+    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', reqBytes, undefined);
+    expect(result).toEqual({ __inlineNewResult: true });
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → dispatches a whole-op OFFSCREEN_CALL with POSITIONAL args (requestBytes as raw bytes) + rehydrates', async () => {
+    const { midenClientProxy, __test } = await loadProxy(true);
+    const prover = await import('./offscreen-prover');
+    let criticalDuring: boolean | undefined;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      criticalDuring = prover.isCriticalOpInFlight();
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([8, 9]).toString('base64'), durationMs: 4 };
+    });
+
+    const p = midenClientProxy.newTransaction(
+      'mtst1qacc',
+      reqBytes,
+      true,
+      jest.fn(async () => new Uint8Array())
+    );
+    await flush();
+    fireReady();
+    const result = await p;
+
+    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
+    expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('newTransaction');
+    expect(env.deadline_ms).toBe(90_000);
+    // accountId (JSON) + requestBytes (RAW bytes, not JSON) + delegateTransaction (JSON).
+    expect(env.argsB64[0]).toBe('s:"mtst1qacc"');
+    expect(env.argsB64[1].startsWith('b:')).toBe(true);
+    expect(Array.from(b64ToBytesLocal(env.argsB64[1].slice(2)))).toEqual([0xde, 0xad, 0xbe, 0xef]);
+    expect(env.argsB64[2]).toBe('s:true');
+    expect(criticalDuring).toBe(true);
+    expect(prover.isCriticalOpInFlight()).toBe(false);
+    expect(result).toEqual({ __txResult: [8, 9] });
+    expect(__test.inFlightSize()).toBe(0);
+  });
+
+  it('flag ON → a null offscreen result throws (an execute must always yield a TransactionResult)', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+    const p = midenClientProxy
+      .newTransaction(
+        'mtst1qacc',
+        reqBytes,
+        false,
+        jest.fn(async () => new Uint8Array())
+      )
+      .catch((e: Error) => e);
+    await flush();
+    fireReady();
+    const err = await p;
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('no TransactionResult bytes');
+  });
+});
+
+/** Local base64→bytes for the argsB64 raw-bytes assertion (matches offscreen-codec). */
+function b64ToBytesLocal(b64: string): Uint8Array {
+  return new Uint8Array(Buffer.from(b64, 'base64'));
+}

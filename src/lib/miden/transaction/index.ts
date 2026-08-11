@@ -307,27 +307,37 @@ export const generateTransaction = async (
 
   // MidenClient handles the full pipeline (execute → prove → submit → apply).
   //
-  // `consume` is routed through `midenClientProxy.consumeNoteId` so it can run
-  // WHOLE-OP inside the offscreen realm when MIDEN_USE_OFFSCREEN_CLIENT is on
-  // (issue #260, slice 5a) — a wedge anywhere in its execute→prove→submit→apply
-  // then becomes killable. Its flag-OFF path is byte-identical to the inline
-  // switch below (same `withWasmClientLock`, same `getMidenClient(options)`, same
-  // `consumeNoteId(tx)`), so production is unchanged. The proxy owns its own
-  // per-flag locking, so consume is NOT wrapped in the caller lock here (flag-on
-  // must not hold the SW WASM lock across the whole offscreen op — that would
-  // stall SW sync and block the reverse-IPC sign handler).
+  // The non-guardian value-moving writes — `consume` (slice 5a) and
+  // `send`/`swap`/`execute` (slice 5b) — are routed through `midenClientProxy` so
+  // each can run WHOLE-OP inside the offscreen realm when MIDEN_USE_OFFSCREEN_CLIENT
+  // is on (issue #260) — a wedge anywhere in its execute→prove→submit→apply then
+  // becomes killable. Every proxy method's flag-OFF path is BYTE-IDENTICAL to the
+  // inline switch it replaced (same `withWasmClientLock`, same
+  // `getMidenClient(buildSignCallbackOptions(signCallback))` — which is exactly the
+  // `options` built above — same underlying call), so production is unchanged. The
+  // proxy owns its own per-flag locking, so these are NOT wrapped in the caller
+  // lock here (flag-on must not hold the SW WASM lock across the whole offscreen op
+  // — that would stall SW sync and block the reverse-IPC sign handler).
+  //
+  // `bridged-send` and `earn-deposit` stay INLINE for now (a later slice): they
+  // reuse `sendTransaction`/`newTransaction` but carry extra pre/post orchestration,
+  // so they keep the shared `withWasmClientLock` + `getMidenClient(options)` block.
   let result: TransactionResult;
-  if (transaction.type === 'consume') {
-    result = await midenClientProxy.consumeNoteId(transaction as ConsumeTransaction, signCallback);
-  } else {
-    result = await withWasmClientLock(async () => {
-      const midenClient = await getMidenClient(options);
-      switch (transaction.type) {
-        case 'send':
-          return await midenClient.sendTransaction(transaction as SendTransaction);
-        case 'swap':
-          return await midenClient.swapTransaction(transaction as SwapTransaction);
-        case 'bridged-send':
+  switch (transaction.type) {
+    case 'consume':
+      result = await midenClientProxy.consumeNoteId(transaction as ConsumeTransaction, signCallback);
+      break;
+    case 'send':
+      result = await midenClientProxy.sendTransaction(transaction as SendTransaction, signCallback);
+      break;
+    case 'swap':
+      result = await midenClientProxy.swapTransaction(transaction as SwapTransaction, signCallback);
+      break;
+    case 'bridged-send':
+    case 'earn-deposit':
+      result = await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient(options);
+        if (transaction.type === 'bridged-send') {
           // Epoch bridges by sending a recallable P2IDE note (send-style, no
           // `requestBytes`); Agglayer carries a pre-built request.
           if (!transaction.requestBytes) {
@@ -338,18 +348,20 @@ export const generateTransaction = async (
             transaction.requestBytes,
             transaction.delegateTransaction
           );
-        case 'earn-deposit':
-          // Always send-style (recallable P2IDE note to the Epoch allocator).
-          return midenClient.sendTransaction(transaction as SendTransaction);
-        case 'execute':
-        default:
-          return await midenClient.newTransaction(
-            transaction.accountId,
-            transaction.requestBytes!,
-            transaction.delegateTransaction
-          );
-      }
-    });
+        }
+        // earn-deposit: always send-style (recallable P2IDE note to the Epoch allocator).
+        return midenClient.sendTransaction(transaction as SendTransaction);
+      });
+      break;
+    case 'execute':
+    default:
+      result = await midenClientProxy.newTransaction(
+        transaction.accountId,
+        transaction.requestBytes!,
+        transaction.delegateTransaction,
+        signCallback
+      );
+      break;
   }
 
   switch (transaction.type) {

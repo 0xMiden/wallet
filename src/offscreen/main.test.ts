@@ -152,6 +152,14 @@ function resetControl() {
     // TransactionResult-like object exposing serialize() (the offscreen DISPATCH
     // ships the serialized bytes back).
     clientConsumeNoteId: jest.fn(async (_dto: unknown) => ({ serialize: () => new Uint8Array([77, 88, 99]) })),
+    // Slice-5b writes on the offscreen-owned client — each returns a
+    // TransactionResult-like object exposing serialize() (the DISPATCH ships the
+    // serialized bytes back).
+    clientSendTransaction: jest.fn(async (_tx: unknown) => ({ serialize: () => new Uint8Array([11, 22, 33]) })),
+    clientSwapTransaction: jest.fn(async (_tx: unknown) => ({ serialize: () => new Uint8Array([44, 55, 66, 77]) })),
+    clientNewTransaction: jest.fn(async (_a: unknown, _b: unknown, _c: unknown) => ({
+      serialize: () => new Uint8Array([88, 99])
+    })),
     // Create options captured per MidenClientInterface.create call (slice 5).
     createOptions: [] as any[],
     getMidenClient: jest.fn(async () => ({
@@ -160,7 +168,10 @@ function resetControl() {
       exportNote: (...a: any[]) => (globalThis as any).__off.clientExportNote(...a),
       getInputNoteDetails: (...a: any[]) => (globalThis as any).__off.clientGetInputNoteDetails(...a),
       getConsumableNoteDtos: (...a: any[]) => (globalThis as any).__off.clientGetConsumableNoteDtos(...a),
-      consumeNoteId: (...a: any[]) => (globalThis as any).__off.clientConsumeNoteId(...a)
+      consumeNoteId: (...a: any[]) => (globalThis as any).__off.clientConsumeNoteId(...a),
+      sendTransaction: (...a: any[]) => (globalThis as any).__off.clientSendTransaction(...a),
+      swapTransaction: (...a: any[]) => (globalThis as any).__off.clientSwapTransaction(...a),
+      newTransaction: (...a: any[]) => (globalThis as any).__off.clientNewTransaction(...a)
     }))
   };
 }
@@ -732,6 +743,111 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.op_id).toBe('op-abc');
     // resultB64 round-trips the serialized [77,88,99] TransactionResult bytes.
     expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([77, 88, 99]);
+  });
+
+  it('dispatches sendTransaction (whole-op write), re-widens the string amount to BigInt, serializes the result (slice 5b)', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const dto = {
+      accountId: 'mtst1qacc',
+      secondaryAccountId: 'mtst1qrecipient',
+      faucetId: 'mtst1qfaucet',
+      noteType: 'public',
+      amount: '1000',
+      delegateTransaction: false,
+      extraInputs: { recallBlocks: 100 }
+    };
+    const ret = capturedListener!(callReq({ method: 'sendTransaction', argsB64: [encodeArg(dto)] }), {}, sendResponse);
+    expect(ret).toBe(true);
+    await flush();
+
+    // The DTO decoded across the wire; the string amount was re-widened to a BigInt
+    // so the reconstructed row matches what the SDK reads on the SW-inline path.
+    expect(G.__off.clientSendTransaction).toHaveBeenCalledTimes(1);
+    const receivedTx = G.__off.clientSendTransaction.mock.calls[0][0];
+    expect(typeof receivedTx.amount).toBe('bigint');
+    expect(receivedTx.amount).toBe(1000n);
+    expect(receivedTx.accountId).toBe('mtst1qacc');
+    expect(receivedTx.secondaryAccountId).toBe('mtst1qrecipient');
+    expect(receivedTx.noteType).toBe('public');
+    expect(receivedTx.extraInputs).toEqual({ recallBlocks: 100 });
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(resp.op_id).toBe('op-abc');
+    expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([11, 22, 33]);
+  });
+
+  it('dispatches swapTransaction (whole-op write), re-widens both string amounts to BigInt, serializes the result (slice 5b)', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const dto = {
+      accountId: 'mtst1qacc',
+      faucetId: 'mtst1qoffered',
+      amount: '500',
+      delegateTransaction: false,
+      extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '250' }
+    };
+    const ret = capturedListener!(callReq({ method: 'swapTransaction', argsB64: [encodeArg(dto)] }), {}, sendResponse);
+    expect(ret).toBe(true);
+    await flush();
+
+    expect(G.__off.clientSwapTransaction).toHaveBeenCalledTimes(1);
+    const receivedTx = G.__off.clientSwapTransaction.mock.calls[0][0];
+    // Offered amount AND requested amount both re-widened to BigInt.
+    expect(receivedTx.amount).toBe(500n);
+    expect(typeof receivedTx.extraInputs.requestedAmount).toBe('bigint');
+    expect(receivedTx.extraInputs.requestedAmount).toBe(250n);
+    expect(receivedTx.extraInputs.requestedFaucetId).toBe('mtst1qrequested');
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([44, 55, 66, 77]);
+  });
+
+  it('dispatches newTransaction (execute) with positional args — requestBytes as raw bytes — and serializes the result (slice 5b)', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const requestBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
+    const ret = capturedListener!(
+      callReq({
+        method: 'newTransaction',
+        argsB64: [encodeArg('mtst1qacc'), encodeArg(requestBytes), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    expect(ret).toBe(true);
+    await flush();
+
+    expect(G.__off.clientNewTransaction).toHaveBeenCalledTimes(1);
+    const [accountId, bytes, delegate] = G.__off.clientNewTransaction.mock.calls[0];
+    expect(accountId).toBe('mtst1qacc');
+    // requestBytes crossed as RAW bytes (Uint8Array), intact.
+    expect(bytes instanceof Uint8Array).toBe(true);
+    expect(Array.from(bytes)).toEqual([0xde, 0xad, 0xbe, 0xef]);
+    expect(delegate).toBe(true);
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([88, 99]);
+  });
+
+  it('newTransaction maps a JSON-null delegate arg back to undefined for the SDK (slice 5b)', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const requestBytes = new Uint8Array([1, 2]);
+    // encodeArg(undefined) → 's:null'; decodeArg → null; dispatch does `?? undefined`.
+    capturedListener!(
+      callReq({
+        method: 'newTransaction',
+        argsB64: [encodeArg('mtst1qacc'), encodeArg(requestBytes), encodeArg(undefined)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    const [, , delegate] = G.__off.clientNewTransaction.mock.calls[0];
+    expect(delegate).toBeUndefined();
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
   it('consumeNoteId signs mid-execute via the reverse-IPC stub, tagged with the ambient op_id (slice 5)', async () => {

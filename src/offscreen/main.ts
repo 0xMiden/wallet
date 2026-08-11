@@ -37,7 +37,7 @@ import {
   type OffscreenCallRequest,
   type OffscreenSignResponse
 } from 'lib/miden/back/offscreen-codec';
-import type { ConsumeTransaction } from 'lib/miden/db/types';
+import type { ConsumeTransaction, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
 
@@ -243,6 +243,63 @@ const DISPATCH: Record<string, DispatchFn> = {
     dto: { accountId: string; noteId: string; noteIds: string[]; delegateTransaction?: boolean }
   ) => {
     const result = await client.consumeNoteId(dto as unknown as ConsumeTransaction);
+    return result.serialize() as Uint8Array;
+  },
+
+  // The remaining non-guardian WRITES moved offscreen (issue #260, slice 5b),
+  // each mirroring `consumeNoteId` exactly: the whole execute→prove→submit→apply
+  // chain runs here in-realm as one killable op, taking the SDK BUNDLED prove path
+  // (NOT OFFSCREEN_PROVE — `isOffscreenAvailable()` is false inside this doc), with
+  // the mid-execute signature fetched from the SW via the reverse-IPC stub. Only
+  // the final serialized `TransactionResult` crosses back. The BigInt amounts that
+  // crossed as decimal strings are re-widened to BigInt so the reconstructed row
+  // matches exactly what `MidenClientInterface` reads on the SW-inline (flag-off)
+  // path.
+  sendTransaction: async (
+    client,
+    dto: {
+      accountId: string;
+      secondaryAccountId: string;
+      faucetId: string;
+      noteType: unknown;
+      amount: string;
+      delegateTransaction?: boolean;
+      extraInputs: { recallBlocks?: number };
+    }
+  ) => {
+    const tx = { ...dto, amount: BigInt(dto.amount) } as unknown as SendTransaction;
+    const result = await client.sendTransaction(tx);
+    return result.serialize() as Uint8Array;
+  },
+
+  swapTransaction: async (
+    client,
+    dto: {
+      accountId: string;
+      faucetId: string;
+      amount: string;
+      delegateTransaction?: boolean;
+      extraInputs: { requestedFaucetId: string; requestedAmount: string };
+    }
+  ) => {
+    const tx = {
+      ...dto,
+      amount: BigInt(dto.amount),
+      extraInputs: {
+        requestedFaucetId: dto.extraInputs.requestedFaucetId,
+        requestedAmount: BigInt(dto.extraInputs.requestedAmount)
+      }
+    } as unknown as SwapTransaction;
+    const result = await client.swapTransaction(tx);
+    return result.serialize() as Uint8Array;
+  },
+
+  // Positional args (accountId, requestBytes, delegateTransaction) mirroring the
+  // SDK signature — `requestBytes` crossed as raw bytes, not JSON. `?? undefined`
+  // maps a JSON-`null` delegate arg (an `undefined` round-tripped through
+  // encodeArg) back to the SDK's optional-boolean shape.
+  newTransaction: async (client, accountId: string, requestBytes: Uint8Array, delegateTransaction?: boolean) => {
+    const result = await client.newTransaction(accountId, requestBytes, delegateTransaction ?? undefined);
     return result.serialize() as Uint8Array;
   }
 };

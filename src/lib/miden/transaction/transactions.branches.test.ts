@@ -88,6 +88,12 @@ const mockSendPrivateNote = jest.fn().mockResolvedValue(undefined);
 // Raw WASM client's lastAuthError(), read by readLastAuthReason in the
 // generate-loop catch. Default null = no auth failure recorded.
 const mockLastAuthError = jest.fn((): unknown => null);
+// The #260 offscreen client proxy (through which non-guardian send/swap/execute
+// now route their flag-off write) imports getMidenClient / withWasmClientLock via
+// the `lib/...` alias, which jest mocks separately from the relative specifier
+// below; bridge the alias to the same mock so the proxy's flag-off passthrough
+// invokes the wrapped sign callback exactly as the old inline switch did.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async (options?: { signCallback?: (pk: Uint8Array, si: Uint8Array) => Promise<Uint8Array> }) => {
     // Mirror the SDK invoking the wrapped per-tx sign callback so its wrapper

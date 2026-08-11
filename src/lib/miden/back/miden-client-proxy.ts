@@ -42,7 +42,7 @@ import {
   isCriticalOpInFlight,
   isOffscreenAvailable
 } from './offscreen-prover';
-import type { ConsumeTransaction } from '../db/types';
+import type { ConsumeTransaction, SendTransaction, SwapTransaction } from '../db/types';
 import {
   buildSignCallbackError,
   buildSignCallbackOptions,
@@ -50,6 +50,7 @@ import {
   recordLastSignReason,
   type SignCallbackReason
 } from '../transaction/sign-callback';
+import type { NoteType } from '../types';
 
 /**
  * Feature flag: route proxied methods through the offscreen document.
@@ -350,10 +351,11 @@ export async function handleOffscreenSignRequest(
 }
 
 /**
- * The minimal, JSON-clean consume DTO that crosses to the offscreen realm
- * (design §6.1). `consumeNoteId` reads ONLY these four fields, and the full
- * `ConsumeTransaction` carries a BigInt `amount` that `JSON.stringify` can't
- * encode — so we ship exactly what the op needs, no more.
+ * The minimal, JSON-clean write DTOs that cross to the offscreen realm
+ * (design §6.1). Each write method reads ONLY a handful of fields off its tx
+ * row, and the full tx carries a BigInt `amount` that `JSON.stringify` can't
+ * encode — so we ship exactly what the op needs, no more. BigInt amounts cross
+ * as decimal strings and are re-widened to BigInt inside the offscreen dispatch.
  */
 type OffscreenConsumeDto = {
   accountId: string;
@@ -362,28 +364,57 @@ type OffscreenConsumeDto = {
   delegateTransaction?: boolean;
 };
 
+/** `sendTransaction` reads exactly these fields off the `SendTransaction` row
+ * (verified against `MidenClientInterface.sendTransaction`). `amount` is the
+ * row's BigInt as a decimal string; `noteType` is the plain 'public'/'private'
+ * string enum; `extraInputs.recallBlocks` (when present) turns the send into a
+ * recallable P2IDE — all JSON-safe. */
+type OffscreenSendDto = {
+  accountId: string;
+  secondaryAccountId: string;
+  faucetId: string;
+  noteType: NoteType;
+  amount: string;
+  delegateTransaction?: boolean;
+  extraInputs: { recallBlocks?: number };
+};
+
+/** `swapTransaction` reads exactly these fields off the `SwapTransaction` row
+ * (verified against `MidenClientInterface.swapTransaction`). Both the offered
+ * `amount` and the requested `extraInputs.requestedAmount` are the row's BigInts
+ * as decimal strings. */
+type OffscreenSwapDto = {
+  accountId: string;
+  faucetId: string;
+  amount: string;
+  delegateTransaction?: boolean;
+  extraInputs: { requestedFaucetId: string; requestedAmount: string };
+};
+
 /**
- * Run a whole-op offscreen `consumeNoteId` (design §6.2, Option A): the entire
+ * Run a whole-op offscreen WRITE (design §6.2, Option A): the entire
  * execute→prove→submit→apply chain runs inside ONE offscreen op, so a wedge
  * anywhere in it is killable via `closeDocument()`. Only plain bytes cross — a
- * JSON consume DTO in, the serialized `TransactionResult` out; the intermediate
+ * JSON/bytes DTO in, the serialized `TransactionResult` out; the intermediate
  * `TransactionResult`/`ProvenTransaction`/request handles stay opaque in-realm.
+ *
+ * Shared by EVERY non-guardian write — `consumeNoteId` (slice 5a) and
+ * `sendTransaction`/`swapTransaction`/`newTransaction` (slice 5b) — so each runs
+ * on the SAME proven machinery: an op-scoped reverse-IPC sign callback (§2.7),
+ * the clear-then-record locked-reason slot (§2.6, issue #313), `criticalOpCount`
+ * bracketing (§3), and the sign-paused 90s `WRITE_DEADLINE_MS` kill (§3.4). The
+ * ONLY per-method variation is the `method` name and the DTO/bytes `args`.
  *
  * The SW WASM lock is deliberately NOT held: the write serializes inside the
  * offscreen doc's own mutex, and holding the SW lock would both stall SW sync /
  * balance for the whole (multi-second) op and block the reverse-IPC sign handler
  * that must run SW-side mid-op (design §7.1).
  */
-async function dispatchOffscreenConsume(
-  transaction: ConsumeTransaction,
+async function dispatchOffscreenWrite(
+  method: string,
+  args: unknown[],
   signCallback: RawSignCallback
 ): Promise<TransactionResult> {
-  const dto: OffscreenConsumeDto = {
-    accountId: transaction.accountId,
-    noteId: transaction.noteId,
-    noteIds: transaction.noteIds,
-    delegateTransaction: transaction.delegateTransaction
-  };
   const op_id = newOpId();
   // Register BEFORE dispatch so a sign request (which can only arrive AFTER the
   // OFFSCREEN_CALL is sent, from inside the offscreen execute) always finds it.
@@ -393,11 +424,11 @@ async function dispatchOffscreenConsume(
   clearLastSignReason();
   incrementCriticalOp();
   try {
-    const resultB64 = await dispatchOp(op_id, 'consumeNoteId', [dto], WRITE_DEADLINE_MS, /* critical */ true);
+    const resultB64 = await dispatchOp(op_id, method, args, WRITE_DEADLINE_MS, /* critical */ true);
     if (resultB64 == null) {
-      // The offscreen consume always yields a TransactionResult; a null here
-      // means the offscreen op produced nothing, a hard error.
-      throw new Error('consumeNoteId: offscreen document returned no TransactionResult bytes');
+      // Every offscreen write yields a TransactionResult; a null here means the
+      // offscreen op produced nothing, a hard error.
+      throw new Error(`${method}: offscreen document returned no TransactionResult bytes`);
     }
     // The SW needs its own WASM instance to re-hydrate the result for the
     // completion handlers (`.executedTransaction()...`, `.serialize()`).
@@ -406,7 +437,7 @@ async function dispatchOffscreenConsume(
     return TransactionResult.deserialize(b64ToBytes(resultB64));
   } catch (err) {
     // If this op's failure was a LOCKED sign, re-tag the thrown error so
-    // `isLockedError(err)` in the tx loop DEFERS (not Fails) the consume — the
+    // `isLockedError(err)` in the tx loop DEFERS (not Fails) the write — the
     // issue #313 note-loss guard. Only 'locked' matters to `isLockedError`;
     // other reasons are left untagged (a genuine failure should Fail).
     const reason = opSignReasons.get(op_id);
@@ -589,7 +620,103 @@ export const midenClientProxy = {
         (await getMidenClient(buildSignCallbackOptions(signCallback))).consumeNoteId(transaction)
       );
     }
-    return dispatchOffscreenConsume(transaction, signCallback);
+    const dto: OffscreenConsumeDto = {
+      accountId: transaction.accountId,
+      noteId: transaction.noteId,
+      noteIds: transaction.noteIds,
+      delegateTransaction: transaction.delegateTransaction
+    };
+    return dispatchOffscreenWrite('consumeNoteId', [dto], signCallback);
+  },
+
+  /**
+   * Send (create a P2ID / recallable-P2IDE note) — moved offscreen (issue #260,
+   * slice 5b). Same shape as {@link consumeNoteId}: flag-OFF is BYTE-IDENTICAL to
+   * production (inline under the WASM lock with the exact wrapped sign options
+   * `generateTransaction` has always built — same lock, same `getMidenClient(
+   * options)`, same `sendTransaction(tx)`); flag-ON runs the whole
+   * execute→prove→submit→apply chain in the offscreen realm as one killable op.
+   *
+   * The minimal DTO carries EXACTLY the fields `MidenClientInterface.sendTransaction`
+   * reads off the row — `accountId`, `secondaryAccountId`, `faucetId`, `noteType`,
+   * `amount` (BigInt → decimal string), `delegateTransaction`, and
+   * `extraInputs.recallBlocks` — no more. `completeSendTransaction` (SW-side)
+   * consumes the round-tripped `TransactionResult` identically; any private-note
+   * relay it does runs on the SW's own inline client (no further offscreen call).
+   */
+  async sendTransaction(transaction: SendTransaction, signCallback: RawSignCallback): Promise<TransactionResult> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return withWasmClientLock(async () =>
+        (await getMidenClient(buildSignCallbackOptions(signCallback))).sendTransaction(transaction)
+      );
+    }
+    const dto: OffscreenSendDto = {
+      accountId: transaction.accountId,
+      secondaryAccountId: transaction.secondaryAccountId,
+      faucetId: transaction.faucetId,
+      noteType: transaction.noteType,
+      amount: transaction.amount.toString(),
+      delegateTransaction: transaction.delegateTransaction,
+      extraInputs: { recallBlocks: transaction.extraInputs?.recallBlocks }
+    };
+    return dispatchOffscreenWrite('sendTransaction', [dto], signCallback);
+  },
+
+  /**
+   * Create a partial-swap (PSWAP) note — moved offscreen (issue #260, slice 5b).
+   * Same flag-OFF byte-identity + flag-ON whole-op contract as {@link sendTransaction}.
+   * The DTO carries EXACTLY what `MidenClientInterface.swapTransaction` reads —
+   * `accountId`, `faucetId`, the offered `amount` (BigInt → string),
+   * `delegateTransaction`, and `extraInputs.{requestedFaucetId, requestedAmount}`
+   * (BigInt → string). `completeSwapTransaction` consumes the round-tripped
+   * `TransactionResult` identically (no further client call).
+   */
+  async swapTransaction(transaction: SwapTransaction, signCallback: RawSignCallback): Promise<TransactionResult> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return withWasmClientLock(async () =>
+        (await getMidenClient(buildSignCallbackOptions(signCallback))).swapTransaction(transaction)
+      );
+    }
+    const dto: OffscreenSwapDto = {
+      accountId: transaction.accountId,
+      faucetId: transaction.faucetId,
+      amount: transaction.amount.toString(),
+      delegateTransaction: transaction.delegateTransaction,
+      extraInputs: {
+        requestedFaucetId: transaction.extraInputs.requestedFaucetId,
+        requestedAmount: transaction.extraInputs.requestedAmount.toString()
+      }
+    };
+    return dispatchOffscreenWrite('swapTransaction', [dto], signCallback);
+  },
+
+  /**
+   * Execute a pre-built custom `TransactionRequest` (custom-tx / execute) —
+   * moved offscreen (issue #260, slice 5b). Same flag-OFF byte-identity + flag-ON
+   * whole-op contract as the other writes. This one takes POSITIONAL args
+   * mirroring `MidenClientInterface.newTransaction(accountId, requestBytes,
+   * delegateTransaction)` — `requestBytes` crosses as raw bytes (`encodeArg`
+   * base64), never JSON — because the request is opaque serialized bytes, not a
+   * field-set. `completeCustomTransaction` consumes the round-tripped
+   * `TransactionResult` identically; any private-note relay it does runs on the
+   * SW's own inline client.
+   */
+  async newTransaction(
+    accountId: string,
+    requestBytes: Uint8Array,
+    delegateTransaction: boolean | undefined,
+    signCallback: RawSignCallback
+  ): Promise<TransactionResult> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return withWasmClientLock(async () =>
+        (await getMidenClient(buildSignCallbackOptions(signCallback))).newTransaction(
+          accountId,
+          requestBytes,
+          delegateTransaction
+        )
+      );
+    }
+    return dispatchOffscreenWrite('newTransaction', [accountId, requestBytes, delegateTransaction], signCallback);
   }
 };
 
