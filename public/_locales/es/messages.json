@@ -1009,7 +1009,7 @@
     "englishSource": "Advanced Settings"
   },
   "resync": {
-    "message": "resincronizar",
+    "message": "Resincronizar",
     "englishSource": "Resync"
   },
   "about": {
@@ -2778,7 +2778,7 @@
     "englishSource": "Review"
   },
   "close": {
-    "message": "Cerca",
+    "message": "Cerrar",
     "englishSource": "Close"
   },
   "recallBlocks": {
