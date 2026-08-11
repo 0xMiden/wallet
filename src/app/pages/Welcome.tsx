@@ -6,7 +6,7 @@ import wordslist from 'bip39/src/wordlists/english.json';
 import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
-import { canHandoffToSidePanel } from 'lib/extension/side-panel-handoff';
+import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -430,7 +430,10 @@ const Welcome: FC = () => {
           await waitForReadyState(syncFromBackend);
           setIsLoading(false);
           eventCategory = AnalyticsEventCategory.FormSubmit;
-          navigate('/');
+          // Recovery/import completes in this classic handler (the Create flow
+          // takes the auto-create effect above). Hand off to the side panel just
+          // like Create does, instead of always entering in-tab (#428).
+          navigate(postOnboardingRoute());
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);

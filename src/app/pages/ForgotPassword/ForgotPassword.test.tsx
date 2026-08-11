@@ -60,6 +60,11 @@ jest.mock('lib/woozie', () => ({
   navigate: (...args: unknown[]) => mockNavigate(...args)
 }));
 
+const mockPostOnboardingRoute = jest.fn<string, []>(() => '/');
+jest.mock('lib/extension/side-panel-handoff', () => ({
+  postOnboardingRoute: () => mockPostOnboardingRoute()
+}));
+
 // Store the latest handler closure so tests can invoke the mobile back handler
 // directly with the component's current `step` / `isLoading` captured in scope.
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
@@ -130,6 +135,7 @@ function renderPage() {
 beforeEach(() => {
   jest.clearAllMocks();
   mockRegisterWallet.mockResolvedValue(undefined);
+  mockPostOnboardingRoute.mockReturnValue('/');
   mockGenerateMnemonic.mockReturnValue('a b c d e f g h i j k l');
   captured.onAction = undefined;
   captured.backHandler = undefined;
@@ -248,6 +254,34 @@ describe('ForgotPassword', () => {
       undefined
     );
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('confirmation hands off to the side panel when available (#428)', async () => {
+    mockPostOnboardingRoute.mockReturnValue('/finish-side-panel');
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/');
+  });
+
+  it('confirmation still navigates (via the handoff) when registration fails — register() swallows the error', async () => {
+    // register() try/catches internally and never throws, so the confirmation
+    // handler always navigates. This matches the pre-fix navigate('/') behavior
+    // (a failed recovery ends on Unlock either way when the vault stays locked);
+    // the handoff route is chosen the same as on success. Documented so the
+    // deliberate swallow isn't mistaken for a missing failure branch.
+    mockPostOnboardingRoute.mockReturnValue('/finish-side-panel');
+    mockRegisterWallet.mockRejectedValue(new Error('guardian not found'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
   });
 
   it('confirmation (Import-from-seed flow): registers with ownMnemonic=true (Import ternary)', async () => {
