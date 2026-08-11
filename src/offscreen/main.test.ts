@@ -906,6 +906,39 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(Buffer.from(resp.resultB64, 'base64').toString('utf8')).toBe('0ximportedid');
   });
 
+  it('dispatches getSerializedInputNoteDetails → reduces each live record in-realm to the wire DTO array', async () => {
+    await loadModule();
+    // A per-id live record carrying the detail reach-through. Empty fungibleAssets
+    // keeps the reduction off the (unmocked) SDK bech32 helper; state/nullifier/noteId
+    // still prove the in-realm reduction + per-id iteration, and 'missing' is skipped.
+    G.__off.clientGetInputNote = jest.fn(async (id: string) =>
+      id === 'missing'
+        ? null
+        : {
+            details: () => ({ assets: () => ({ fungibleAssets: () => [] }) }),
+            state: () => ({ toString: () => 'Invalid' }),
+            nullifier: () => ({ toString: () => `0x${id}` })
+          }
+    );
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({ method: 'getSerializedInputNoteDetails', argsB64: [encodeArg(['n1', 'missing', 'n2'])] }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    // One getInputNote per requested id, run against the offscreen-owned client.
+    expect(G.__off.clientGetInputNote).toHaveBeenCalledTimes(3);
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    // resultB64 is UTF-8 JSON of the wire DTO array; the not-found note is skipped.
+    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toEqual([
+      { noteId: 'n1', state: 'Invalid', assets: [], nullifier: '0xn1' },
+      { noteId: 'n2', state: 'Invalid', assets: [], nullifier: '0xn2' }
+    ]);
+  });
+
   it('getInputNoteDetails maps a JSON-null query arg back to undefined for the SDK', async () => {
     await loadModule();
     const sendResponse = jest.fn();

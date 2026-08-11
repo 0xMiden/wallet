@@ -838,6 +838,86 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
   });
 });
 
+describe('MidenClientProxy — slice-7-reads getSerializedInputNoteDetails (invalid-note detail batch)', () => {
+  // A live-record mock carrying exactly what the detail reducer reaches through.
+  // `fungibleAssets: []` keeps the reducer off the SDK bech32 helper (unmocked here)
+  // while still proving state/nullifier/noteId reduction and per-id iteration.
+  const record = (state: string, nullifier: string) => ({
+    details: () => ({ assets: () => ({ fungibleAssets: () => [] }) }),
+    state: () => ({ toString: () => state }),
+    nullifier: () => ({ toString: () => nullifier })
+  });
+
+  it('flag OFF → reduces inline records per id, skips a not-found (null) note, never touches offscreen', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    G.__px.inlineGetInputNote = jest.fn(async (id: string) =>
+      id === 'missing' ? null : record('Invalid', `null-${id}`)
+    );
+
+    const notes = await midenClientProxy.getSerializedInputNoteDetails(['n1', 'missing', 'n2']);
+
+    // One inline getInputNote per requested id (byte-identical to the old handler loop).
+    expect(G.__px.inlineGetInputNote).toHaveBeenCalledTimes(3);
+    expect(notes).toEqual([
+      { noteId: 'n1', state: 'Invalid', assets: [], nullifier: 'null-n1' },
+      { noteId: 'n2', state: 'Invalid', assets: [], nullifier: 'null-n2' }
+    ]);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag OFF → skips a note whose lookup throws (the inline per-note try/catch)', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    G.__px.inlineGetInputNote = jest.fn(async (id: string) => {
+      if (id === 'boom') throw new Error('not found');
+      return record('Committed', '0xok');
+    });
+
+    const notes = await midenClientProxy.getSerializedInputNoteDetails(['boom', 'ok']);
+    expect(notes).toEqual([{ noteId: 'ok', state: 'Committed', assets: [], nullifier: '0xok' }]);
+  });
+
+  it('flag ON → dispatches the id batch in ONE op (read deadline) and parses the DTO array back', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const dtos = [
+      { noteId: 'n1', state: 'Invalid', assets: [{ amount: '5', faucetId: 'mtst1qfaucet' }], nullifier: '0xn1' }
+    ];
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify(dtos))).toString('base64'),
+      durationMs: 3
+    }));
+
+    const p = midenClientProxy.getSerializedInputNoteDetails(['n1', 'n2']);
+    await flush();
+    fireReady();
+    const notes = await p;
+
+    // Never used the dormant SW client.
+    expect(G.__px.inlineGetInputNote).not.toHaveBeenCalled();
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('getSerializedInputNoteDetails');
+    expect(env.deadline_ms).toBe(15_000);
+    // The whole id array crosses as ONE JSON arg — one offscreen op, not one-per-note.
+    expect(env.argsB64).toEqual(['s:["n1","n2"]']);
+    expect(notes).toEqual(dtos);
+  });
+
+  it('flag ON → a null result yields [] (no matching notes in the offscreen store)', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+    const p = midenClientProxy.getSerializedInputNoteDetails(['n1']);
+    await flush();
+    fireReady();
+    expect(await p).toEqual([]);
+  });
+});
+
 describe('MidenClientProxy — deadline kill', () => {
   it('deadline → closeDocument + reopen + rejects the op with OperationAbortedError', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);

@@ -38,6 +38,7 @@ import {
   type OffscreenSignResponse
 } from 'lib/miden/back/offscreen-codec';
 import type { ConsumeTransaction, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
+import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
@@ -189,11 +190,15 @@ const DISPATCH: Record<string, DispatchFn> = {
     return account ? (account.serialize() as Uint8Array) : null;
   },
 
-  // Read-method surface (issue #260, slice 3). Each stays serialization-clean:
-  // its result crosses the message boundary either as SDK-serialized bytes,
-  // a plain-JSON DTO, or nothing at all. (getConsumableNotes / getInputNote are
-  // intentionally NOT here — their raw `InputNoteRecord` has no serialize() and
-  // callers reach through to live wasm-bindgen methods, so they stay SW-inline.)
+  // Read-method surface (issue #260, slices 3+). Each stays serialization-clean:
+  // its result crosses the message boundary either as SDK-serialized bytes, a
+  // plain-JSON DTO, or nothing at all. The raw `InputNoteRecord` / consumable-note
+  // records still have no serialize() and can't themselves cross — but the reads
+  // that reach through them (`getConsumableNotes`, slice 4; `getInputNoteSummary`
+  // and `getSerializedInputNoteDetails`, slice 7-reads) now run their reduction
+  // HERE, in-realm, so only the reduced plain DTO crosses. That in-realm reduction
+  // is the whole point once the flag is on: the offscreen client owns the canonical
+  // synced state, so these reads no longer go stale against the dormant SW client.
 
   syncState: async client => {
     // Run the sync; every SW-side caller discards the returned `SyncSummary`,
@@ -260,6 +265,16 @@ const DISPATCH: Record<string, DispatchFn> = {
   getInputNoteSummary: async (client, noteId: string) => {
     const dto = reduceInputNoteSummary(await client.getInputNote(noteId));
     return dto ? new TextEncoder().encode(JSON.stringify(dto)) : null;
+  },
+
+  // Invalid-note detail for a batch of claimable notes (popup invalid-note detection).
+  // Each live `InputNoteRecord` is reduced in-realm to the wire-shaped
+  // `SerializedInputNoteDetail` (assets / processing-state string / nullifier string)
+  // via the SAME shared loop the SW-inline (flag-off) path runs, so only the plain JSON
+  // DTO array crosses. A not-found / un-reducible note is skipped inside the loop.
+  getSerializedInputNoteDetails: async (client, noteIds: string[]) => {
+    const details = await collectInputNoteDetails(noteId => client.getInputNote(noteId), noteIds);
+    return new TextEncoder().encode(JSON.stringify(details));
   },
 
   // Import serialized note bytes into THIS (offscreen) client's store — a store

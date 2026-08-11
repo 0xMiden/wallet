@@ -10,10 +10,9 @@ import { doSync } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
-import { SerializedInputNoteDetail, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
+import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
 import { NoteExportType } from '../sdk/constants';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenMessageType } from '../types';
 
@@ -127,10 +126,16 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return { type: WalletMessageType.ProcessTransactionsResponse };
     case WalletMessageType.ImportNoteBytesRequest: {
       const noteBytes = new Uint8Array(Buffer.from(req.noteBytes, 'base64'));
+      // Byte-identical twin of the `importAllNotes` site slice 7a already routed:
+      // under the flag the note MUST land in the OFFSCREEN store (the realm that
+      // syncs + consumes), or a private note whose bytes are its only copy is
+      // stranded in the dormant SW store. Both the import and the trailing sync
+      // route through the proxy (reusing its existing methods); flag-OFF each is a
+      // pass-through to the same inline client under this lock, so the behavior is
+      // byte-identical to before.
       const noteId = await withWasmClientLock(async () => {
-        const client = await getMidenClient();
-        const id = await client.importNoteBytes(noteBytes);
-        await client.syncState();
+        const id = await midenClientProxy.importNoteBytes(noteBytes);
+        await midenClientProxy.syncState();
         return id;
       });
       return { type: WalletMessageType.ImportNoteBytesResponse, noteId };
@@ -146,34 +151,14 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       if (!req.noteIds.length) {
         return { type: WalletMessageType.GetInputNoteDetailsResponse, notes: [] };
       }
-      const serialized: SerializedInputNoteDetail[] = await withWasmClientLock(async () => {
-        const client = await getMidenClient();
-        const results: SerializedInputNoteDetail[] = [];
-        for (const noteId of req.noteIds) {
-          try {
-            const record = await client.getInputNote(noteId);
-            if (!record) continue;
-            const assets = record
-              .details()
-              .assets()
-              .fungibleAssets()
-              .map((a: any) => ({
-                amount: a.amount()?.toString() ?? '0',
-                faucetId: a.faucetId() ? getBech32AddressFromAccountId(a.faucetId()) : ''
-              }));
-            results.push({
-              noteId,
-              state: record.state()?.toString() ?? 'Unknown',
-              assets,
-              nullifier: record.nullifier()?.toString() ?? ''
-            });
-          } catch {
-            // Skip notes that can't be found
-          }
-        }
-        return results;
-      });
-      return { type: WalletMessageType.GetInputNoteDetailsResponse, notes: serialized };
+      // Route through the proxy so flag-ON the invalid-note detection reads the
+      // OFFSCREEN client's canonical synced state, not the dormant SW store (issue
+      // #260, slice 7-reads). Flag-OFF the proxy runs the exact same per-id
+      // getInputNote loop + reach-through reduction inline under this lock, so the
+      // response is byte-identical to before. The caller owns the WASM lock (as with
+      // the other flag-off proxy reads), so keep the withWasmClientLock wrapper.
+      const notes = await withWasmClientLock(async () => midenClientProxy.getSerializedInputNoteDetails(req.noteIds));
+      return { type: WalletMessageType.GetInputNoteDetailsResponse, notes };
     }
     case WalletMessageType.SpeculateSendRequest: {
       // Fire-and-forget. SpeculationManager queues at most one pending; if

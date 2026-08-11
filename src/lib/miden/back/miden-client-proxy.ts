@@ -19,12 +19,14 @@ import { Buffer } from 'buffer';
 
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
+import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import type { InputNoteSummaryDto } from 'lib/miden/sdk/input-note-summary';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import type { InputNoteDetails } from 'lib/miden/sdk/miden-client-interface';
 import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
+import type { SerializedInputNoteDetail } from 'lib/shared/types';
 
 import {
   OFFSCREEN_CALL,
@@ -762,6 +764,35 @@ export const midenClientProxy = {
     const resultB64 = await this.call('getInputNoteSummary', [noteId], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) return null;
     return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as InputNoteSummaryDto;
+  },
+
+  /**
+   * Read invalid-note detail for a set of claimable notes as plain, wire-shaped
+   * {@link SerializedInputNoteDetail}s (issue #260, slice 7-reads).
+   *
+   * The `GetInputNoteDetailsRequest` handler (popup invalid-note detection, via
+   * `useClaimNotes` under `isExtension()`) reaches through each live `InputNoteRecord`
+   * `getInputNote(id)` returns for its assets / processing `state()` / `nullifier()`.
+   * Under the flag the offscreen client owns that synced note state and the SW client
+   * is dormant, so a SW-inline read is STALE — an "Invalid" note the offscreen realm
+   * knows about would never surface. Route the whole batch through the realm that owns
+   * the notes; the shared `collectInputNoteDetails` runs the per-id loop + reduction in
+   * ONE op, so only the plain DTO array crosses (the live records never do).
+   *
+   * Flag off (default): BYTE-IDENTICAL to the inline handler — the same per-id
+   * `getInputNote` loop + reach-through, reduced here (caller owns the WASM lock, as
+   * with the other flag-off reads). Flag on: forward + JSON round-trip. This is
+   * DISTINCT from {@link getInputNoteDetails}, which returns the numeric-`state`
+   * `InputNoteDetails` shape a different (non-extension) caller consumes.
+   */
+  async getSerializedInputNoteDetails(noteIds: string[]): Promise<SerializedInputNoteDetail[]> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      const client = await getMidenClient();
+      return collectInputNoteDetails(noteId => client.getInputNote(noteId), noteIds);
+    }
+    const resultB64 = await this.call('getSerializedInputNoteDetails', [noteIds], { deadlineMs: READ_DEADLINE_MS });
+    if (resultB64 == null) return [];
+    return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as SerializedInputNoteDetail[];
   },
 
   /**
