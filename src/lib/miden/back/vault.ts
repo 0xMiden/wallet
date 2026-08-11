@@ -40,7 +40,7 @@ import {
   getSignerDetailsFromAccount,
   resolveGuardianEndpoint
 } from '../guardian/account';
-import { identifyGuardianOperator } from '../guardian/operator-map';
+import { buildOperatorKeyMap, normalizeHex } from '../guardian/operator-map';
 import { deriveClientSeed, makeColdSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
@@ -1227,12 +1227,21 @@ export class Vault {
    *
    * For each Guardian record that carries no `guardianEndpoint`, this reads the
    * on-chain guardian public-key commitment and resolves it to a built-in
-   * operator (`identifyGuardianOperator`) — the exact commitment → operator →
-   * endpoint path `resolveGuardianDrift` uses at runtime — then stamps the
-   * operator's endpoint plus the commitment baseline onto the record. After
-   * that, `resolveGuardianEndpoint` reads the per-account field instead of the
-   * legacy global `GUARDIAN_URL_STORAGE_KEY` (which this stage leaves in place
-   * as a fallback; its removal is stage 3).
+   * operator — the exact commitment → operator → endpoint path
+   * `resolveGuardianDrift` uses at runtime — then stamps the operator's endpoint
+   * plus the commitment baseline onto the record. After that,
+   * `resolveGuardianEndpoint` reads the per-account field instead of the legacy
+   * global `GUARDIAN_URL_STORAGE_KEY` (which this stage leaves in place as a
+   * fallback; its removal is stage 3).
+   *
+   * The built-in-operator commitment→option map is built ONCE up front
+   * (`buildOperatorKeyMap`) and each account's on-chain commitment is looked up
+   * against it — so K legacy accounts cost a single operator HTTP probe round,
+   * not one per account (which is what `identifyGuardianOperator` would do).
+   *
+   * NOT awaited on the unlock critical path — the caller (Actions.unlock) fires
+   * this AFTER `unlocked(...)`, detached, so the operator HTTP probes never gate
+   * the unlock UI transition.
    *
    * FUNDS-ADJACENT — a wrong endpoint breaks the guardian, so the rules are:
    *  - NEVER overwrite an existing `guardianEndpoint` (the filter skips any
@@ -1243,16 +1252,20 @@ export class Vault {
    *    unlock, and `resolveGuardianEndpoint`'s global-key fallback covers it in
    *    the meantime.
    *
-   * Per-account try/catch: one account's failure can't block the others or the
-   * unlock. The WASM account read is lock-guarded; the built-in-operator HTTP
-   * probe inside `identifyGuardianOperator` runs outside the lock (mirrors
-   * `resolveGuardianDrift`).
+   * Per-account try/catch: one account's failure can't block the others. The
+   * WASM account read is lock-guarded; the built-in-operator HTTP probe inside
+   * `buildOperatorKeyMap` runs outside the lock (mirrors `resolveGuardianDrift`).
    */
   async backfillGuardianEndpoints(): Promise<void> {
     try {
       const allAccounts = await this.fetchAccounts();
       const legacy = allAccounts.filter(acc => acc.type === WalletType.Guardian && !acc.guardianEndpoint);
       if (legacy.length === 0) return;
+
+      // One probe round for all legacy accounts. If every operator is
+      // unreachable this comes back empty — every lookup then misses and the
+      // accounts are left untouched for the next unlock to retry.
+      const operatorMap = await buildOperatorKeyMap();
 
       for (const acc of legacy) {
         try {
@@ -1264,11 +1277,12 @@ export class Vault {
           // or not actually a guardian account) — leave it; retry next unlock.
           if (!onChainCommitment) continue;
 
-          const operator = await identifyGuardianOperator(onChainCommitment);
-          // No built-in operator holds this commitment (operator down / custom /
+          // Same lookup identifyGuardianOperator does internally. undefined =>
+          // no built-in operator holds this commitment (operator down / custom /
           // self-hosted / rotated key). Do NOT guess an endpoint — leave the
           // account untouched so the global-key fallback still covers it and the
           // next unlock retries once the operator is reachable again.
+          const operator = operatorMap.get(normalizeHex(onChainCommitment));
           if (!operator) continue;
 
           // Endpoint first, commitment baseline last (mirrors resolveGuardianDrift):
