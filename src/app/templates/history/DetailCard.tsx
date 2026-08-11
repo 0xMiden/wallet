@@ -49,13 +49,18 @@ export const DetailRow: FC<{
 
 export const ExternalLinkValue: FC<{
   displayValue: React.ReactNode;
-  href: string;
+  // Undefined when no explorer is configured for the effective network (e.g. a
+  // custom dev-settings override with a blank explorer URL) — render the value
+  // without a dead arrow link rather than linking nowhere.
+  href?: string;
 }> = ({ displayValue, href }) => (
   <div className="flex items-center gap-1 text-sm text-heading-gray font-medium">
     {displayValue}
-    <a href={href} target="_blank" rel="noreferrer">
-      <Icon name={IconName.ArrowRightUp} size="xs" fill="#9E9E9E" />
-    </a>
+    {href && (
+      <a href={href} target="_blank" rel="noreferrer">
+        <Icon name={IconName.ArrowRightUp} size="xs" fill="#9E9E9E" />
+      </a>
+    )}
   </div>
 );
 

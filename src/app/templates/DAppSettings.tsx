@@ -10,6 +10,7 @@ import { ReactComponent as CopySmallIcon } from 'app/icons/copy-small.svg';
 import { ReactComponent as ExternalLinkSmallIcon } from 'app/icons/external-link-small.svg';
 import { useMidenContext, useAccount } from 'lib/miden/front';
 import { MidenDAppSession, MidenDAppSessions } from 'lib/miden/types';
+import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
 import { useRetryableSWR } from 'lib/swr';
 import { useConfirm } from 'lib/ui/dialog';
 
@@ -89,6 +90,7 @@ const DAppCard: FC<{
     privateDataPermission === PrivateDataPermission.UponRequest ? t('permissionUponRequest') : t('permissionAutomatic');
 
   const explorerHash = accountId.split('_')[0] || accountId;
+  const explorerAccountUrl = getExplorerAccountUrl(explorerHash);
 
   return (
     <div className="border border-border-card rounded-10 mb-4 bg-white">
@@ -126,14 +128,16 @@ const DAppCard: FC<{
             <CopyButton text={accountId} small>
               <CopySmallIcon className="w-3 h-3 text-text-muted" />
             </CopyButton>
-            <a
-              href={`https://testnet.midenscan.com/account/${explorerHash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-1 hover:bg-gray-100 rounded-sm transition-colors ease-hover duration-150"
-            >
-              <ExternalLinkSmallIcon className="w-3 h-3 text-text-muted" />
-            </a>
+            {explorerAccountUrl && (
+              <a
+                href={explorerAccountUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-1 hover:bg-gray-100 rounded-sm transition-colors ease-hover duration-150"
+              >
+                <ExternalLinkSmallIcon className="w-3 h-3 text-text-muted" />
+              </a>
+            )}
           </div>
         </div>
 

@@ -144,6 +144,20 @@ jest.mock('./DetailCard', () => ({
   )
 }));
 
+// Sentinel explorer helpers (a NON-testnet host) so the link assertions below
+// prove the tx/account links are built from the override-aware explorer helpers
+// rather than a hardcoded testnet URL. This is the regression guard for the
+// dev-settings explorer-override bug: re-hardcoding `testnet.midenscan.com`
+// would make these hrefs mismatch and fail the test.
+jest.mock('lib/miden-chain/constants', () => ({
+  // `constants` re-exports `./networks-config` (MIDEN_NETWORK_NAME, DEFAULT_NETWORK,
+  // …) which the icon module and others rely on — keep them via requireActual and
+  // override only the two explorer helpers.
+  ...jest.requireActual('lib/miden-chain/constants'),
+  getExplorerTxUrl: (hash: string) => `https://custom-explorer.test/tx/${hash}`,
+  getExplorerAccountUrl: (address: string) => `https://custom-explorer.test/account/${address}`
+}));
+
 jest.mock('./TransactionIcon', () => ({
   __esModule: true,
   default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />,
@@ -299,12 +313,13 @@ describe('HistoryDetails', () => {
       // Date row uses our formatDate stub.
       expect(rowByLabel('date')?.textContent).toContain('formatted:1700000000');
 
-      // External tx id row → HashChip + midenscan link.
+      // External tx id row → HashChip + explorer link built from getExplorerTxUrl
+      // (the override-aware helper), NOT a hardcoded testnet URL.
       const txRow = rowByLabel('txIdLabel')!;
       expect(txRow.querySelector('[data-testid="hash-chip"]')?.textContent).toBe('ext-tx-1');
       expect(txRow.querySelector('a[data-testid="external-link"]')).toHaveAttribute(
         'href',
-        'https://testnet.midenscan.com/tx/ext-tx-1'
+        'https://custom-explorer.test/tx/ext-tx-1'
       );
 
       // 'Sent' => from = accountId (matches current account) / to = secondaryAccountId (matches allAccounts).
@@ -314,6 +329,16 @@ describe('HistoryDetails', () => {
       const toChip = rowByLabel('to')!.querySelector('[data-testid="address-chip"]')!;
       expect(toChip).toHaveAttribute('data-address', 'acct-B');
       expect(toChip).toHaveAttribute('data-displayname', 'you (Other)');
+
+      // From/To account links also come from getExplorerAccountUrl (override-aware).
+      expect(rowByLabel('from')!.querySelector('a[data-testid="external-link"]')).toHaveAttribute(
+        'href',
+        'https://custom-explorer.test/account/acct-A'
+      );
+      expect(rowByLabel('to')!.querySelector('a[data-testid="external-link"]')).toHaveAttribute(
+        'href',
+        'https://custom-explorer.test/account/acct-B'
+      );
 
       // Notes section: created count = outputNoteIds length.
       expect(rowByLabel('created')?.textContent).toBe('1');

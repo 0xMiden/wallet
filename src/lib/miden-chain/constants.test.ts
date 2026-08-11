@@ -156,6 +156,37 @@ describe('miden-chain/constants', () => {
     });
   });
 
+  describe('getExplorerAccountUrl', () => {
+    it('returns the account explorer URL when the network has an entry', () => {
+      jest.isolateModules(() => {
+        const { getExplorerAccountUrl, MIDEN_NETWORK_NAME } = require('./constants');
+        expect(getExplorerAccountUrl('mtst1acc', MIDEN_NETWORK_NAME.TESTNET)).toBe(
+          'https://testnet.midenscan.com/account/mtst1acc'
+        );
+      });
+    });
+
+    it('returns undefined when the network has no explorer mapping', () => {
+      jest.isolateModules(() => {
+        const { getExplorerAccountUrl, MIDEN_NETWORK_NAME } = require('./constants');
+        expect(getExplorerAccountUrl('mlcl1acc', MIDEN_NETWORK_NAME.LOCALNET)).toBeUndefined();
+      });
+    });
+
+    it('falls back to DEFAULT_NETWORK when no network is provided', () => {
+      delete process.env.MIDEN_NETWORK;
+      jest.isolateModules(() => {
+        const { getExplorerAccountUrl } = require('./constants');
+        expect(getExplorerAccountUrl('mtst1acc')).toBe('https://testnet.midenscan.com/account/mtst1acc');
+      });
+    });
+  });
+
+  // The override-respect path (custom explorer URL wins over the build default)
+  // is proven end-to-end in effective-endpoints.test.ts, where applyEndpointOverride
+  // + the in-memory storage mock exercise the real getEffectiveExplorerUrl the two
+  // helpers above delegate to.
+
   describe('getNoteTransportUrl', () => {
     it('returns the per-network endpoint when no override is set', () => {
       delete process.env.MIDEN_NOTE_TRANSPORT_URL;

@@ -92,6 +92,27 @@ describe('effective-endpoints resolver', () => {
     expect(await m.isEndpointOverrideActive()).toBe(false);
   });
 
+  // Regression guard for the reported bug: the dev-settings explorer override
+  // didn't reach the Transaction-ID / account explorer links (they were hardcoded
+  // to testnet.midenscan.com). getExplorerTxUrl/getExplorerAccountUrl (constants.ts)
+  // must resolve their base via the override-aware getEffectiveExplorerUrl. Require
+  // constants + effective-endpoints in ONE isolateModules so the helpers read the
+  // same overrideCache we set here.
+  it('getExplorerTxUrl/getExplorerAccountUrl use the custom explorer override', async () => {
+    let eff!: typeof import('./effective-endpoints');
+    let helpers!: typeof import('./constants');
+    jest.isolateModules(() => {
+      eff = require('./effective-endpoints');
+      helpers = require('./constants');
+    });
+    const override = eff.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
+    override.explorerUrl = 'https://my-explorer.example';
+    await eff.applyEndpointOverride(override);
+
+    expect(helpers.getExplorerTxUrl('0xabc')).toBe('https://my-explorer.example/tx/0xabc');
+    expect(helpers.getExplorerAccountUrl('mtst1acc')).toBe('https://my-explorer.example/account/mtst1acc');
+  });
+
   it('loadEndpointOverrides is a no-op under MIDEN_E2E_TEST', async () => {
     mockKvStore['endpoint_overrides'] = { rpcUrl: 'https://should.ignore/rpc' };
     process.env.MIDEN_E2E_TEST = 'true';
