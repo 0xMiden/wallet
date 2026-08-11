@@ -733,8 +733,11 @@ export class Vault {
       // identical to the former raw global-key read for default-endpoint wallets,
       // but stays correct for non-default ones now that onboarding threads the
       // endpoint per-account instead of writing the global key (#408 stage 1).
-      // undefined when there is no existing Guardian account (createGuardianAccount
-      // then applies its own global/default fallback, exactly as before).
+      // undefined when there is no existing Guardian account, in which case
+      // createGuardianAccount binds to the network default — the frozen global
+      // key is no longer consulted for NEW accounts (#408 stage 3). (Practically
+      // unreachable: a custom global key is only ever written by pre-stage-1
+      // Guardian onboarding, which always creates a sibling Guardian account.)
       const existingGuardianAccount =
         walletType === WalletType.Guardian ? allAccounts.find(a => a.type === WalletType.Guardian) : undefined;
       const guardianEndpoint = existingGuardianAccount
