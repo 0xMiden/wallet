@@ -17,7 +17,7 @@ import { navigate } from 'lib/woozie';
 
 const GuardianDetailRow: FC<{ label: string; value: string; isLast?: boolean }> = ({ label, value, isLast }) => (
   <div
-    className={`flex min-h-12 items-center justify-between gap-4 px-4 py-3 text-heading-gray text-sm font-medium ${isLast ? '' : 'border-b border-border-light'}`}
+    className={`flex min-h-12 items-center justify-between gap-4 py-3 text-heading-gray text-sm font-medium ${isLast ? '' : 'border-b border-border-faint'}`}
   >
     <span className="shrink-0">{label}</span>
     <span className="min-w-0 truncate text-right" title={value}>
@@ -69,27 +69,31 @@ const GuardianSettings: FC = () => {
             <GuardianAvatar data-testid="guardian-avatar" className="h-14 w-14" />
           )}
         </div>
-        <h2 className="mt-3 break-all text-center font-heading text-xl font-bold text-heading-gray">{guardianName}</h2>
+        <h2 className="mt-2 break-all text-center font-heading text-xl font-bold text-heading-gray">{guardianName}</h2>
         {currentEndpoint && (
-          <div className="mt-2 flex items-center gap-2 rounded-full bg-green-50 px-4 py-1.5 text-xs font-semibold text-green-700 dark:bg-green-500/15 dark:text-green-400">
+          <div className="mt-1.5 flex items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-sm font-semibold text-green-700 dark:bg-green-500/15 dark:text-green-400">
             <span className="h-2 w-2 rounded-full bg-green-500" />
             <span>{t('online')}</span>
           </div>
         )}
       </div>
 
-      <section className="mt-6">
-        <h3 className="text-sm font-semibold text-gray font-heading">{t('about')}</h3>
-        <p className="mt-2 text-base leading-none text-black">
+      <section className="mt-5">
+        <h3 className="inline-block self-start rounded-full bg-gray-25 px-3 py-1 text-sm font-semibold text-text-muted">
+          {t('about')}
+        </h3>
+        <p className="mt-2 text-sm leading-5 text-heading-gray">
           <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="font-semibold" /> }} />
         </p>
       </section>
 
-      <hr className="my-4 border-border-card" />
+      <hr className="my-3 border-border-faint" />
 
-      <section>
-        <h3 className="mb-2 text-sm font-semibold text-text-muted">{t('details')}</h3>
-        <div className="overflow-hidden rounded-xl border border-border-card bg-white">
+      <section className="pb-4">
+        <h3 className="inline-block self-start rounded-full bg-gray-25 px-3 py-1 text-sm font-semibold text-text-muted">
+          {t('details')}
+        </h3>
+        <div className="mt-1">
           <GuardianDetailRow label={t('guardianProvider')} value={provider} />
           <GuardianDetailRow label={t('guardianEndpointLabel')} value={endpoint} />
           <GuardianDetailRow label={t('guardianRegion')} value={region} />
@@ -98,7 +102,7 @@ const GuardianSettings: FC = () => {
       </section>
 
       <Button
-        className="mt-8 max-w-none shrink-0"
+        className="mt-auto mb-6 max-w-none shrink-0"
         data-testid="rotateGuardian"
         title={t('rotateGuardian')}
         onClick={handleRotate}

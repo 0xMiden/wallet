@@ -3,6 +3,7 @@ import React, { FC } from 'react';
 import { IBridgedSendExtraInputs } from 'lib/miden/db/types';
 
 import { BridgeSuccess } from './success/BridgeSuccess';
+import { GuardianSwitchSuccess } from './success/GuardianSwitchSuccess';
 import { SendSuccess } from './success/SendSuccess';
 import { SwapSuccess } from './success/SwapSuccess';
 import { TransactionSuccessProps } from './success/TransactionSuccessLayout';
@@ -33,6 +34,10 @@ export const TransactionSuccess: FC<TransactionSuccessProps> = props => {
 
   if (props.transaction?.type === 'swap') {
     return <SwapSuccess {...props} />;
+  }
+
+  if (props.transaction?.type === 'switch-guardian') {
+    return <GuardianSwitchSuccess {...props} />;
   }
 
   if (isBridgedSendExtraInputs(extraInputs)) {

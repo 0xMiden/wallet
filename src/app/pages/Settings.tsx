@@ -12,6 +12,10 @@ import { ReactComponent as AppsIconDevnet } from 'app/icons/settings/dapp-devnet
 import { ReactComponent as AppsIconOrange } from 'app/icons/settings/dapp.svg';
 import { ReactComponent as SettingsIconDevnet } from 'app/icons/settings/general-devnet.svg';
 import { ReactComponent as SettingsIconOrange } from 'app/icons/settings/general.svg';
+import { ReactComponent as GroupAboutIcon } from 'app/icons/settings/group-about.svg';
+import { ReactComponent as GroupDeveloperIcon } from 'app/icons/settings/group-developer.svg';
+import { ReactComponent as GroupPreferencesIcon } from 'app/icons/settings/group-preferences.svg';
+import { ReactComponent as GroupSecurityIcon } from 'app/icons/settings/group-security.svg';
 import { ReactComponent as LanguageIconDevnet } from 'app/icons/settings/language-devnet.svg';
 import { ReactComponent as LanguageIconOrange } from 'app/icons/settings/language.svg';
 import { ReactComponent as PrivacyPolicyIconDevnet } from 'app/icons/settings/privacy-policy-devnet.svg';
@@ -43,7 +47,6 @@ import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { goBack, navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -97,7 +100,7 @@ function getCurrentLanguageLabel(): string {
 type Tab = {
   slug: string;
   titleI18nKey: string;
-  drawerTitleI18nKey?: string;
+  pageTitleI18nKey?: string;
   Icon: React.FC<{ style?: React.CSSProperties }>;
   Component: React.FC<{ onClose?: () => void }>;
   testID?: SettingsSelectors;
@@ -105,7 +108,6 @@ type Tab = {
   hasOwnLayout?: boolean;
   rightText?: string;
   linksOutsideOfWallet?: boolean;
-  isDrawer?: boolean;
   onClick?: () => void;
   guardianOnly?: boolean;
   // Hide on Guardian accounts whose hot key is not yet activated (post-recovery,
@@ -116,27 +118,27 @@ type Tab = {
 
 type TabGroup = {
   titleI18nKey: string;
+  Icon: ImportedSVGComponent;
   tabs: Tab[];
 };
 
 const TAB_GROUPS: TabGroup[] = [
   {
     titleI18nKey: 'preferences',
+    Icon: GroupPreferencesIcon,
     tabs: [
       {
         slug: 'general-settings',
         titleI18nKey: 'generalSettings',
         Icon: SettingsIcon,
         Component: GeneralSettings,
-        testID: SettingsSelectors.GeneralButton,
-        isDrawer: true
+        testID: SettingsSelectors.GeneralButton
       },
       {
         slug: 'address-book',
         titleI18nKey: 'addressBook',
         Icon: AddressBookIcon,
         Component: AddressBook,
-        isDrawer: true,
         testID: SettingsSelectors.AddressBookButton
       },
       {
@@ -144,13 +146,13 @@ const TAB_GROUPS: TabGroup[] = [
         titleI18nKey: 'language',
         Icon: LanguageIcon,
         Component: LanguageSettings,
-        testID: SettingsSelectors.LanguageButton,
-        isDrawer: true
+        testID: SettingsSelectors.LanguageButton
       }
     ]
   },
   {
     titleI18nKey: 'security',
+    Icon: GroupSecurityIcon,
     tabs: [
       {
         slug: 'reveal-seed-phrase',
@@ -165,43 +167,43 @@ const TAB_GROUPS: TabGroup[] = [
         titleI18nKey: 'keys',
         Icon: SecretKeyIcon,
         Component: KeysSettings,
-        testID: SettingsSelectors.KeysButton,
-        isDrawer: true
+        testID: SettingsSelectors.KeysButton
       },
       {
         slug: 'guardian-settings',
         titleI18nKey: 'guardianSettings',
-        drawerTitleI18nKey: 'rotateGuardian',
+        pageTitleI18nKey: 'rotateGuardian',
         Icon: SettingsIcon,
         Component: GuardianSettings,
-        isDrawer: true,
         guardianOnly: true
       }
     ]
   },
   {
     titleI18nKey: 'developer',
+    Icon: GroupDeveloperIcon,
     tabs: [
       {
         slug: 'advanced-settings',
         titleI18nKey: 'advancedSettings',
         Icon: ToolIcon,
         Component: AdvancedSettings,
-        testID: SettingsSelectors.AdvancedSettingsButton,
-        isDrawer: true
+        testID: SettingsSelectors.AdvancedSettingsButton
       },
       {
-        slug: 'dapps',
+        // Distinct slug: the connected-dApps list page owns '/settings/dapps'
+        // (HIDDEN_TABS below); this entry is the toggle screen linking to it.
+        slug: 'dapp-settings',
         titleI18nKey: 'authorizedDApps',
         Icon: AppsIcon,
         Component: DAppDrawerSettings,
-        testID: SettingsSelectors.DAppsButton,
-        isDrawer: true
+        testID: SettingsSelectors.DAppsButton
       }
     ]
   },
   {
     titleI18nKey: 'about',
+    Icon: GroupAboutIcon,
     tabs: [
       {
         slug: PRIVACY_POLICY_URL,
@@ -333,35 +335,28 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
     [tabGroups, tabIsVisible]
   );
 
-  const drawerTabs = useMemo(() => tabGroups.flatMap(g => g.tabs).filter(t => t.isDrawer), [tabGroups]);
-
-  const activeTab = useMemo(
-    () => allTabs.find(tab => tab.slug === tabSlug && !tab.isDrawer) || null,
-    [allTabs, tabSlug]
-  );
+  const activeTab = useMemo(() => allTabs.find(tab => tab.slug === tabSlug) || null, [allTabs, tabSlug]);
   const languageLabel = getCurrentLanguageLabel();
-  const [openDrawer, setOpenDrawer] = useState<string | null>(null);
   const [showSeedWarning, setShowSeedWarning] = useState(false);
 
-  // On mobile, move parked dApp trays out when a settings drawer /
-  // seed-warning overlay takes over the bottom of the screen.
-  const drawerOrSheetOpen = openDrawer !== null || showSeedWarning;
+  // On mobile, move parked dApp trays out when the seed-warning
+  // overlay takes over the bottom of the screen.
   useEffect(() => {
     if (!isMobile()) return;
-    if (drawerOrSheetOpen) {
+    if (showSeedWarning) {
       document.body.setAttribute('data-drawer-open', '');
     } else {
       document.body.removeAttribute('data-drawer-open');
     }
-    // Unmount cleanup: if the Settings page unmounts while a drawer
+    // Unmount cleanup: if the Settings page unmounts while the overlay
     // is still open, force parked dApp trays back in.
     return () => {
       if (!isMobile()) return;
-      if (drawerOrSheetOpen) {
+      if (showSeedWarning) {
         document.body.removeAttribute('data-drawer-open');
       }
     };
-  }, [drawerOrSheetOpen]);
+  }, [showSeedWarning]);
 
   // Mark Settings as an edge-to-edge page. The list container below
   // adds its own bottom padding so the last item can still scroll above
@@ -392,7 +387,9 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
 
   return (
     <>
-      {!activeTab && <NavigationHeader title={t('settings')} onBack={() => navigate('/')} />}
+      {!activeTab && (
+        <NavigationHeader title={t('settings')} onBack={() => navigate('/')} variant="prominent" titleAlign="left" />
+      )}
 
       <div className="flex-1 min-h-0 overflow-y-auto bg-app-bg flex flex-col">
         {activeTab ? (
@@ -400,8 +397,13 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
             <activeTab.Component />
           ) : (
             <>
-              <NavigationHeader title={t(activeTab.titleI18nKey)} onBack={goBack} />
-              <div className="px-4 flex-1 flex flex-col min-h-0">
+              <NavigationHeader
+                title={t(activeTab.pageTitleI18nKey ?? activeTab.titleI18nKey)}
+                onBack={goBack}
+                variant="prominent"
+                titleAlign="left"
+              />
+              <div className="px-4 flex-1 flex flex-col min-h-0 font-heading">
                 <activeTab.Component />
               </div>
             </>
@@ -409,63 +411,50 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
         ) : (
           // pb-[88px] reserves space at the bottom so the last menu item
           // can scroll above the React BottomNav.
-          <div className="flex flex-col w-full pt-4 pb-22 gap-8 text-heading-gray px-4">
-            {tabGroups.map(group => (
-              <div key={group.titleI18nKey}>
-                <h3 className="font-medium pb-4 text-base text-text-muted">{t(group.titleI18nKey)}</h3>
-                <div className="overflow-hidden flex flex-col gap-6">
-                  {group.tabs.map(tab => {
-                    const isExternal = tab.linksOutsideOfWallet;
-                    const isDrawerTab = tab.isDrawer;
-                    const isSeedPhrase = tab.slug === 'reveal-seed-phrase';
-                    const hasCustomClick = isDrawerTab || isSeedPhrase;
-                    const linkTo = isExternal ? tab.slug : hasCustomClick ? undefined : `/settings/${tab.slug}`;
-                    const handleClick = isDrawerTab
-                      ? () => setOpenDrawer(tab.slug)
-                      : isSeedPhrase
+          <div className="flex flex-col w-full pb-22 text-heading-gray px-4">
+            <div className="flex flex-col divide-y divide-border-faint">
+              {tabGroups.map(group => (
+                <div key={group.titleI18nKey} className="py-3 first:pt-0">
+                  <div className="flex items-center gap-1.5 pb-3">
+                    <div className="w-8 h-8 rounded-full bg-gray-25 flex items-center justify-center shrink-0">
+                      <group.Icon className="w-4 h-4" />
+                    </div>
+                    <h3 className="font-heading text-lg font-bold text-heading-gray">{t(group.titleI18nKey)}</h3>
+                  </div>
+                  <div className="overflow-hidden flex flex-col gap-4">
+                    {group.tabs.map(tab => {
+                      const isExternal = tab.linksOutsideOfWallet;
+                      const isSeedPhrase = tab.slug === 'reveal-seed-phrase';
+                      const linkTo = isExternal ? tab.slug : isSeedPhrase ? undefined : `/settings/${tab.slug}`;
+                      const handleClick = isSeedPhrase
                         ? () => {
                             hapticLight();
                             setShowSeedWarning(true);
                           }
                         : undefined;
-                    return (
-                      <div key={tab.slug + tab.titleI18nKey} className="px-2">
+                      return (
                         <MenuItem
+                          key={tab.slug + tab.titleI18nKey}
                           slug={linkTo}
                           titleI18nKey={tab.titleI18nKey}
-                          Icon={tab.Icon}
-                          iconStyle={tab.iconStyle}
                           testID={tab.testID?.toString() || ''}
                           linksOutsideOfWallet={!!isExternal}
                           rightText={tab.slug === 'language' ? languageLabel : undefined}
                           onClick={handleClick}
                         />
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
 
-            <p className="text-base font-medium text-text-muted pt-2">
+            <p className="font-heading text-sm font-medium text-text-muted pt-2">
               {t('settingsVersion', { version: pkg.version })}
             </p>
           </div>
         )}
       </div>
-
-      {drawerTabs.map(tab => (
-        <Drawer key={tab.slug} open={openDrawer === tab.slug} onOpenChange={open => !open && setOpenDrawer(null)}>
-          <DrawerContent>
-            <DrawerHeader className={tab.slug === 'guardian-settings' ? 'mb-0' : undefined}>
-              <DrawerTitle>{t(tab.drawerTitleI18nKey ?? tab.titleI18nKey)}</DrawerTitle>
-            </DrawerHeader>
-            <div className="px-4 pb-6 overflow-y-auto min-h-0">
-              <tab.Component onClose={() => setOpenDrawer(null)} />
-            </div>
-          </DrawerContent>
-        </Drawer>
-      ))}
 
       {/* Seed phrase warning overlay */}
       <AnimatePresence>

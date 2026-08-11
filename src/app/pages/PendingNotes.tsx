@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppEnv } from 'app/env';
 import { useClaimNotes } from 'app/hooks/useClaimNotes';
 import { PendingTab } from 'app/pages/Receive/PendingTab';
-import { ScreenHeader } from 'components/ScreenHeader';
+import { NavigationHeader } from 'components/NavigationHeader';
 import { isMobile } from 'lib/platform';
 import { goBack } from 'lib/woozie';
 
@@ -24,7 +24,7 @@ const PendingNotes: FC = () => {
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg')}>
-      <ScreenHeader title={t('pendingNotes')} onBack={() => goBack()} />
+      <NavigationHeader title={t('pendingNotes')} onBack={() => goBack()} variant="prominent" titleAlign="left" />
       <PendingTab
         safeClaimableNotes={claim.safeClaimableNotes}
         unclaimedNotesCount={claim.unclaimedNotes.length}

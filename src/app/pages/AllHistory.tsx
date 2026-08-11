@@ -83,7 +83,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
               aria-pressed={isActive}
               onClick={() => handleFilterTap(f.id)}
               className={classNames(
-                'px-6 py-2 rounded-full font-heading text-sm leading-[100%] font-medium transition-colors',
+                'px-6 py-3 rounded-full font-heading text-sm leading-[100%] font-medium transition-colors',
                 isActive
                   ? 'bg-accent-primary text-pure-white font-semibold'
                   : 'bg-white text-text-primary-token border border-rule-strong'

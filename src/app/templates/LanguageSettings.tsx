@@ -58,7 +58,13 @@ const LanguageSettings: FC<LanguageSettingsProps> = ({ onClose }) => {
             className="flex items-center justify-between py-3 w-full text-left"
             onClick={() => handleSelect(code)}
           >
-            <span className={`text-sm ${isSelected ? 'text-primary-500 font-semibold' : 'text-black font-medium'}`}>
+            {/* Explicit stack without system-ui: on iOS WKWebView, system-ui/-apple-system
+                swallow per-glyph fallback so CJK names (日本語, 한국어, 中文) render as
+                missing-glyph boxes; falling straight to sans-serif renders them. */}
+            <span
+              className={`text-base ${isSelected ? 'text-primary-500 font-semibold' : 'text-heading-gray font-medium'}`}
+              style={{ fontFamily: "'Nunito', sans-serif" }}
+            >
               {label}
             </span>
             {isSelected && <Icon name={IconName.Checkmark} size="xs" fill={PRIMARY_HEX} />}

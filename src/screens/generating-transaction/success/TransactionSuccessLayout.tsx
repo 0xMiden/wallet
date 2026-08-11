@@ -166,6 +166,8 @@ export interface TransactionSuccessLayoutProps {
   headerTitle: string;
   /** Large centered title (e.g. "Transaction Complete!"). */
   title: string;
+  /** Custom hero artwork; defaults to the green check circle. */
+  hero?: ReactNode;
   /** Body content between the title and the footer (pill, amount block, rows). */
   children?: ReactNode;
   /** Paragraph shown above the footer buttons. */
@@ -174,6 +176,8 @@ export interface TransactionSuccessLayoutProps {
   primaryAction: SuccessAction;
   /** Optional secondary call to action. */
   secondaryAction?: SuccessAction;
+  /** Render the secondary action above the primary one. */
+  secondaryFirst?: boolean;
   /** Invoked by the header close button. */
   onClose: () => void;
 }
@@ -181,10 +185,12 @@ export interface TransactionSuccessLayoutProps {
 export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
   headerTitle,
   title,
+  hero,
   children,
   footerDescription,
   primaryAction,
   secondaryAction,
+  secondaryFirst = false,
   onClose
 }) => {
   const { t } = useTranslation();
@@ -200,7 +206,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
 
       <main className="flex min-h-0 flex-1 flex-col">
         <section className="flex flex-1 flex-col items-center px-3 pt-6">
-          <SuccessHero />
+          {hero ?? <SuccessHero />}
 
           <h2 className="mt-6 w-full text-center text-[2rem] font-heading font-bold text-heading-gray">{title}</h2>
 
@@ -214,8 +220,17 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
 
           {secondaryAction ? (
             <div className="flex w-full flex-col gap-3 items-center justify-between">
-              <FooterAction action={primaryAction} className="w-full" />
-              <FooterAction action={secondaryAction} className="w-full" />
+              {secondaryFirst ? (
+                <>
+                  <FooterAction action={secondaryAction} className="w-full" />
+                  <FooterAction action={primaryAction} className="w-full" />
+                </>
+              ) : (
+                <>
+                  <FooterAction action={primaryAction} className="w-full" />
+                  <FooterAction action={secondaryAction} className="w-full" />
+                </>
+              )}
             </div>
           ) : (
             <FooterAction action={primaryAction} className="w-full" />

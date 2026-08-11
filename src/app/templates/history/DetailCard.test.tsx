@@ -20,7 +20,7 @@ jest.mock('react-i18next', () => ({
 // forwards) plus a minimal `IconName` enum exposing the single member used.
 jest.mock('app/icons/v2', () => ({
   __esModule: true,
-  IconName: { ArrowRightUp: 'arrow-right-up' },
+  IconName: { ArrowRightUp: 'arrow-right-up', Checkmark: 'checkmark', Close: 'close' },
   Icon: ({ name, size, fill }: { name: string; size?: string; fill?: string }) => (
     <span data-testid="v2-icon" data-name={name} data-size={size} data-fill={fill} />
   )
@@ -121,39 +121,47 @@ describe('ExternalLinkValue', () => {
 describe('StatusPill', () => {
   const pill = (container: HTMLElement) => container.firstChild as HTMLElement;
   const dot = (container: HTMLElement) => pill(container).querySelector('div') as HTMLElement;
-  const label = (container: HTMLElement) => pill(container).querySelector('span') as HTMLElement;
+  // The leading icon is also a <span> (the v2-icon mock), so exclude it when
+  // selecting the text label.
+  const label = (container: HTMLElement) =>
+    pill(container).querySelector('span:not([data-testid="v2-icon"])') as HTMLElement;
 
-  it('renders the completed (green) variant for status === Completed', () => {
+  it('renders the completed variant as a solid green pill with a white checkmark', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Completed} />);
 
-    expect(pill(container)).toHaveClass('flex', 'items-center', 'rounded-full', 'bg-green-600/20');
-    expect(dot(container)).toHaveClass('bg-[#1A9C52]');
-    expect(dot(container)).not.toHaveClass('bg-status-negative', 'bg-blue-500');
+    expect(pill(container)).toHaveClass('flex', 'items-center', 'rounded-full', 'bg-[#99AC94]');
+
+    const icon = pill(container).querySelector('[data-testid="v2-icon"]');
+    expect(icon).toHaveAttribute('data-name', 'checkmark');
+    expect(icon).toHaveAttribute('data-fill', 'white');
 
     const text = label(container);
-    expect(text).toHaveClass('text-[#1A9C52]');
+    expect(text).toHaveClass('text-pure-white', 'font-semibold');
     expect(text).toHaveTextContent('t:confirmed');
   });
 
-  it('renders the failed (negative) variant for status === Failed', () => {
+  it('renders the failed variant as a solid negative pill with a white close icon', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Failed} />);
 
-    expect(dot(container)).toHaveClass('bg-status-negative');
-    expect(dot(container)).not.toHaveClass('bg-[#1A9C52]', 'bg-blue-500');
+    expect(pill(container)).toHaveClass('bg-status-negative');
+
+    const icon = pill(container).querySelector('[data-testid="v2-icon"]');
+    expect(icon).toHaveAttribute('data-name', 'close');
+    expect(icon).toHaveAttribute('data-fill', 'white');
 
     const text = label(container);
-    expect(text).toHaveClass('text-status-negative');
+    expect(text).toHaveClass('text-pure-white');
     expect(text).toHaveTextContent('t:failed');
   });
 
   it('renders the in-progress (blue) fallback when status is undefined', () => {
     const { container } = render(<StatusPill />);
 
-    expect(dot(container)).toHaveClass('bg-blue-500');
-    expect(dot(container)).not.toHaveClass('bg-[#1A9C52]', 'bg-status-negative');
+    expect(pill(container)).toHaveClass('bg-[#91ACC1]');
+    expect(dot(container)).toHaveClass('bg-pure-white');
 
     const text = label(container);
-    expect(text).toHaveClass('text-blue-500');
+    expect(text).toHaveClass('text-pure-white');
     expect(text).toHaveTextContent('t:inProgress');
   });
 

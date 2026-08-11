@@ -13,6 +13,10 @@ export interface NavigationHeaderProps extends HTMLAttributes<HTMLDivElement> {
   onClose?: () => void;
   showBorder?: boolean;
   innerDivClassName?: string;
+  /** 'prominent' uses the tab-header title weight and a rounded divider bar below. */
+  variant?: 'default' | 'prominent';
+  /** Title placement; 'left' sits the title next to the back button. */
+  titleAlign?: 'center' | 'left';
 }
 
 export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
@@ -21,24 +25,48 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
   onClose,
   showBorder = false,
   innerDivClassName,
+  variant = 'default',
+  titleAlign = 'center',
   ...props
 }) => {
+  const prominent = variant === 'prominent';
+  const centered = titleAlign === 'center';
   return (
-    <div
-      className={classNames(
-        'flex flex-row px-4 items-center w-full bg-app-bg',
-        showBorder && 'border-b-[0.5px] border-border-card',
-        'py-4',
-        className
-      )}
-    >
-      <div className={classNames('flex flex-row items-center gap-x-4 w-full text-xl text-black', innerDivClassName)}>
-        {onBack ? <CircleButton icon={IconName.ChevronLeft} onClick={onBack} className="shrink-0" size="sm" /> : null}
-        <h1 className={classNames('font-heading flex-1 font-medium text-center', onBack ? 'pr-10' : '')}>
-          {props.title}
-        </h1>
+    <>
+      <div
+        className={classNames(
+          'flex flex-row px-4 items-center w-full bg-app-bg',
+          showBorder && 'border-b-[0.5px] border-border-card',
+          'py-4',
+          className
+        )}
+      >
+        <div className={classNames('flex flex-row items-center gap-x-4 w-full text-xl text-black', innerDivClassName)}>
+          {onBack ? (
+            // text-black auto-flips to white in dark mode; currentColor carries it
+            // into the SVG fill so the arrow stays visible on the dark circle.
+            <CircleButton
+              icon={prominent ? IconName.ArrowLeft : IconName.ChevronLeft}
+              onClick={onBack}
+              className={classNames('shrink-0', prominent && 'w-10 h-10 bg-gray-25 text-black')}
+              size="sm"
+              color={prominent ? 'currentColor' : undefined}
+            />
+          ) : null}
+          <h1
+            className={classNames(
+              'font-heading flex-1',
+              centered ? 'text-center' : 'text-left',
+              prominent ? 'text-[28px] font-bold text-heading-gray' : 'font-medium',
+              onBack && centered ? 'pr-10' : ''
+            )}
+          >
+            {props.title}
+          </h1>
+        </div>
+        {onClose ? <CircleButton icon={IconName.Close} onClick={onClose} className="fill-black text-black" /> : null}
       </div>
-      {onClose ? <CircleButton icon={IconName.Close} onClick={onClose} className="fill-black text-black" /> : null}
-    </div>
+      {prominent && <div aria-hidden="true" className="shrink-0 mx-4 mb-4 h-1 rounded-full bg-gray-50" />}
+    </>
   );
 };

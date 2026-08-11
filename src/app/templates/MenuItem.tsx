@@ -26,11 +26,11 @@ const ClickableContent: FC<Partial<MenuItemProps>> = ({ titleI18nKey, Icon, icon
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           {Icon && <Icon className="w-5 h-5 shrink-0" style={iconStyle} />}
-          <div className="text-base font-medium text-black">{t(titleI18nKey || '')}</div>
+          <div className="font-heading text-base font-semibold text-heading-gray">{t(titleI18nKey || '')}</div>
         </div>
         <div className="flex items-center gap-3 shrink-0 ml-2">
-          {rightText && <span className="text-xs text-black font-normal ">{rightText}</span>}
-          <ChevronRightIcon className="h-4 w-4" style={{ stroke: '#737373' }} aria-hidden="true" />
+          {rightText && <span className="font-heading text-sm text-text-muted font-normal">{rightText}</span>}
+          <ChevronRightIcon className="h-4 w-4 stroke-black" aria-hidden="true" />
         </div>
       </div>
     </div>

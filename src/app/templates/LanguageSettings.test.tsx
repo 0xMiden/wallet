@@ -108,7 +108,7 @@ describe('LanguageSettings', () => {
 
     // …while an unselected row carries the default styling.
     const unselectedLabel = screen.getByText('English');
-    expect(unselectedLabel).toHaveClass('text-black', 'font-medium');
+    expect(unselectedLabel).toHaveClass('text-heading-gray', 'font-medium');
   });
 
   it('falls back to the base language when the locale is region-tagged (en-US → en)', () => {

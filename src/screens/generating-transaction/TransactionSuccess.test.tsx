@@ -43,6 +43,19 @@ jest.mock('lib/shared/format', () => ({
 
 const mockState = { assetsMetadata: {} as Record<string, { symbol?: string; decimals?: number }> | undefined };
 
+// The guardian success view resolves provider names and renders the v2 Icon
+// barrel; both are stubbed so the dispatcher test stays lightweight.
+jest.mock('app/hooks/useCurrentGuardianEndpoint', () => ({
+  guardianEndpointDisplayName: (endpoint: string | undefined, unknown: string) =>
+    endpoint ? `guardian(${endpoint})` : unknown
+}));
+
+jest.mock('app/icons/v2', () => ({
+  __esModule: true,
+  IconName: new Proxy({}, { get: (_t, prop) => String(prop) }),
+  Icon: ({ name }: { name: string }) => <span data-testid="v2-icon" data-name={name} />
+}));
+
 jest.mock('lib/store', () => ({
   useWalletStore: (selector?: (state: typeof mockState) => unknown) => (selector ? selector(mockState) : mockState)
 }));
@@ -138,6 +151,23 @@ describe('TransactionSuccess', () => {
     );
     expect(container.textContent).toContain('Source TX');
     expect(container.querySelectorAll('button[aria-label="viewOnMidenscan"]')).toHaveLength(0);
+    act(() => root.unmount());
+  });
+
+  it('routes switch-guardian transactions to the guardian success view with the provider transition', async () => {
+    const tx = baseTransaction({
+      type: 'switch-guardian',
+      extraInputs: { previousGuardianEndpoint: 'https://old.gd', newGuardianEndpoint: 'https://new.gd' }
+    } as Partial<ITransaction>);
+    const { container, root } = await renderInto(<TransactionSuccess transaction={tx} onDoneClick={() => {}} />);
+
+    expect(container.textContent).toContain('guardianSwitchSuccessTitle');
+    // Previous → new provider pair resolved from the recorded endpoints.
+    expect(container.textContent).toContain('guardian(https://old.gd)');
+    expect(container.textContent).toContain('guardian(https://new.gd)');
+    expect(container.textContent).toContain('guardianSwitchSuccessInfoTitle');
+    expect(container.textContent).toContain('guardianSwitchSuccessInfo1');
+
     act(() => root.unmount());
   });
 

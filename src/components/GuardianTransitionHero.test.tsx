@@ -59,9 +59,10 @@ it('emphasizes the destination and keeps review labels readable in dark mode', (
     />
   );
 
-  expect(screen.getByText('Current')).toHaveClass('text-heading-gray');
-  expect(screen.getByText('EU-WEST')).toHaveClass('text-text-muted');
-  expect(screen.getByText('New')).toHaveClass('text-primary-500');
+  expect(screen.getByText('Current')).toHaveClass('text-text-muted');
+  expect(screen.getByText('Lambda Class · EU-WEST')).toHaveClass('text-text-muted');
+  // Fixed dark grey on the fixed white pill so the chip stays readable in dark mode.
+  expect(screen.getByText('New')).toHaveClass('text-grey-700');
   expect(screen.getByText('Open-Zeppelin · US-EAST')).toHaveClass('text-pure-white');
   expect(screen.getByText('Open-Zeppelin', { selector: 'h2' })).toHaveClass('text-pure-white');
 });

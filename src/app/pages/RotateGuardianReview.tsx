@@ -4,10 +4,12 @@ import { useTranslation } from 'react-i18next';
 
 import FormField from 'app/atoms/FormField';
 import { useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
+import { ReactComponent as GuardianRotationIllustration } from 'app/icons/guardian-rotation-illustration.svg';
+import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
-import { Alert, AlertVariant } from 'components/Alert';
 import { Button } from 'components/Button';
 import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
+import { NavigationHeader } from 'components/NavigationHeader';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { checkBiometricAvailability, isBiometricEnabled } from 'lib/biometric';
 import { initiateSwitchGuardianTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
@@ -17,8 +19,7 @@ import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
-import { DetailCard, DetailRow } from 'lib/ui/DetailCard';
-import { navigate, useLocation } from 'lib/woozie';
+import { goBack, navigate, useLocation } from 'lib/woozie';
 
 const RotateGuardianReview: FC = () => {
   const { t } = useTranslation();
@@ -175,38 +176,43 @@ const RotateGuardianReview: FC = () => {
   }
 
   return (
-    <PageLayout pageTitle={<>{t('reviewRotation')}</>} navigationStyle="back">
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto flex min-h-full w-full max-w-lg flex-col px-4 pb-8">
+    <PageLayout hideToolbar>
+      <NavigationHeader title={t('reviewRotation')} onBack={goBack} variant="prominent" titleAlign="left" />
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="mx-auto flex min-h-full w-full max-w-lg flex-col px-4 pb-8 font-heading">
+          <GuardianRotationIllustration className="mx-auto mb-4 mt-1 h-28 w-auto" />
+
           <GuardianTransitionHero
             previousEndpoint={currentEndpoint}
             newEndpoint={newEndpoint}
-            previousLabel={t('currentLabel')}
-            newLabel={t('newLabel')}
+            previousLabel={t('currentGuardianLabel')}
+            newLabel={t('newGuardianLabel')}
             variant="review"
           />
 
           <div className="mt-4">
-            <DetailCard>
-              <DetailRow label={t('walletKeyHot')} value={hotKeyLabel} />
-              <DetailRow label={t('recoveryPhraseCold')} value={t('required')} isLast />
-            </DetailCard>
+            <h3 className="text-sm font-semibold text-text-muted">{t('details')}</h3>
+            <div className="flex items-center justify-between border-b border-border-faint py-3 text-sm">
+              <span className="font-medium text-text-muted">{t('walletKeyHot')}</span>
+              <span className="font-semibold text-heading-gray">{hotKeyLabel}</span>
+            </div>
+            <div className="flex items-center justify-between py-3 text-sm">
+              <span className="font-medium text-text-muted">{t('recoveryPhraseCold')}</span>
+              <span className="font-semibold text-heading-gray">{t('required')}</span>
+            </div>
           </div>
 
-          <Alert
-            variant={AlertVariant.Warning}
-            className="mt-4"
-            title={
-              <span className="block text-heading-gray">
-                <span className="block text-sm font-semibold text-heading-gray">{t('oldGuardianCantBlockTitle')}</span>
-                <span className="mt-1 block text-sm leading-5 text-heading-gray">{t('oldGuardianCantBlockBody')}</span>
-              </span>
-            }
-          />
+          <div className="mt-2 flex items-start gap-3 rounded-2xl bg-gray-100 p-4">
+            <Icon name={IconName.WarningFill} size="sm" className="mt-0.5 shrink-0" fill="#E8A33D" />
+            <div className="text-sm">
+              <p className="font-semibold text-heading-gray">{t('oldGuardianCantBlockTitle')}</p>
+              <p className="mt-1 leading-5 text-heading-gray">{t('oldGuardianCantBlockBody')}</p>
+            </div>
+          </div>
 
           {error && <div className="mt-3 text-red-500 text-xs select-text">{error}</div>}
 
-          <div className="mt-auto pt-6">
+          <div className="mt-auto pt-4">
             <Button
               className="max-w-none"
               data-testid="rotate-guardian-confirm"
