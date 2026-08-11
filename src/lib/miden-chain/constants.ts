@@ -18,10 +18,22 @@ import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
 
 export * from './networks-config';
 
+/** Effective explorer base for a network: the dev-settings override when it's the active network, else the build default. */
+function getExplorerBaseUrl(network: string): string | undefined {
+  return network === getEffectiveNetworkName() ? getEffectiveExplorerUrl() : MIDEN_EXPLORER_ENDPOINTS.get(network);
+}
+
 export function getExplorerTxUrl(txHash: string, network: string = getEffectiveNetworkName()): string | undefined {
-  const base =
-    network === getEffectiveNetworkName() ? getEffectiveExplorerUrl() : MIDEN_EXPLORER_ENDPOINTS.get(network);
+  const base = getExplorerBaseUrl(network);
   return base ? `${base}/tx/${txHash}` : undefined;
+}
+
+export function getExplorerAccountUrl(
+  address: string,
+  network: string = getEffectiveNetworkName()
+): string | undefined {
+  const base = getExplorerBaseUrl(network);
+  return base ? `${base}/account/${address}` : undefined;
 }
 
 /**

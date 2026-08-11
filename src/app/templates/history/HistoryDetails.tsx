@@ -36,6 +36,7 @@ import {
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
+import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
@@ -776,7 +777,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                             copyIcon={false}
                           />
                         }
-                        href={`https://testnet.midenscan.com/tx/${entry.externalTxId}`}
+                        href={getExplorerTxUrl(entry.externalTxId)}
                       />
                     </DetailRow>
                   )}
@@ -787,7 +788,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         displayValue={
                           <AccountDisplay address={fromAddress} account={account} allAccounts={allAccounts} />
                         }
-                        href={`https://testnet.midenscan.com/account/${fromAddress}`}
+                        href={getExplorerAccountUrl(fromAddress)}
                       />
                     </DetailRow>
                   )}
@@ -798,7 +799,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         displayValue={
                           <AccountDisplay address={toAddress} account={account} allAccounts={allAccounts} />
                         }
-                        href={`https://testnet.midenscan.com/account/${toAddress}`}
+                        href={getExplorerAccountUrl(toAddress)}
                       />
                     </DetailRow>
                   )}
