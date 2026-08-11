@@ -291,6 +291,39 @@ describe('doSync', () => {
     expect(mockStorageSet).toHaveBeenCalled();
   });
 
+  it('logs (with the note id) when a note throws mid-parse instead of dropping it silently (#331)', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // id() succeeds, then metadata() throws — a corrupted/incompatible note the
+    // parser cannot read. Previously it was dropped with a bare `catch { return
+    // null }`, so its funds silently never surfaced and the user could not report
+    // a missing note. The failure must now be logged, ideally naming the note.
+    const corruptNote = {
+      id: () => ({ toString: () => 'corrupt-note-id' }),
+      metadata: () => {
+        throw new Error('Corrupted metadata');
+      },
+      details: () => ({ assets: () => ({ fungibleAssets: () => [] }) })
+    };
+    mockClient.getConsumableNotes.mockResolvedValueOnce([corruptNote]);
+
+    try {
+      await doSync();
+
+      // The note is dropped from this sync (it cannot be parsed)…
+      const cacheCall = mockStorageSet.mock.calls.find(c => c[0] && 'miden_cached_consumable_notes' in c[0]);
+      expect(cacheCall?.[0]?.miden_cached_consumable_notes).toEqual([]);
+      // …but the failure is surfaced in the logs so the missing note is diagnosable.
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('failed to parse consumable note corrupt-note-id'),
+        expect.any(Error)
+      );
+    } finally {
+      // Restore even if an assertion throws, so a failing run doesn't leave
+      // console.warn silenced for the rest of the suite.
+      warnSpy.mockRestore();
+    }
+  });
+
   it('tolerates fetchTokenMetadata rejections and still writes sync data', async () => {
     mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'n1', faucetId: 'f1' })]);
     mockFetchTokenMetadata.mockRejectedValueOnce(new Error('network down'));
