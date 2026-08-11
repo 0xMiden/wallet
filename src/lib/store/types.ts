@@ -128,7 +128,8 @@ export interface WalletActions {
     walletType: WalletType,
     password: string | undefined,
     mnemonic: string,
-    ownMnemonic: boolean
+    ownMnemonic: boolean,
+    guardianEndpoint?: string
   ) => Promise<void>;
   importWalletFromClient: (
     password: string | undefined,

@@ -239,11 +239,13 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'confirmation' });
 
     expect(mockClearClientStorage).toHaveBeenCalledTimes(1);
+    // Create flow: no probe runs, so no endpoint is threaded (undefined 5th arg).
     expect(mockRegisterWallet).toHaveBeenCalledWith(
       WalletType.Guardian,
       'secret',
       'fmt:a b c d e f g h i j k l',
-      false
+      false,
+      undefined
     );
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
@@ -256,10 +258,13 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw2' } });
     await dispatch({ id: 'confirmation' });
 
-    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, 'pw2', 'fmt:seed words here', true);
+    // No probe result was set for this test, so detection yields undefined and
+    // the endpoint threaded into registerWallet is undefined (backend then falls
+    // back to the stored / default endpoint).
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, 'pw2', 'fmt:seed words here', true, undefined);
   });
 
-  it('confirmation (Import flow): adopts the probed guardian endpoint before registering', async () => {
+  it('confirmation (Import flow): threads the probed guardian endpoint into registerWallet', async () => {
     mockProbeStart.mockResolvedValue(PROBED_RESULT);
 
     renderPage();
@@ -269,17 +274,23 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'confirmation' });
 
     expect(mockProbeStart).toHaveBeenCalledWith(['seed', 'words', 'here']);
-    expect(mockPutToStorage).toHaveBeenCalledWith('guardian_url_setting', 'https://probed.example.com');
-    expect(mockRegisterWallet).toHaveBeenCalled();
+    // Stage 1 of #408: the detected endpoint is threaded explicitly into
+    // registerWallet rather than written to the global GUARDIAN_URL_STORAGE_KEY.
+    expect(mockPutToStorage).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      'fmt:seed words here',
+      true,
+      'https://probed.example.com'
+    );
 
-    // Order matters: on desktop clearClientStorage wipes the very localStorage
-    // the adopted endpoint is written to, so adoption must come AFTER it (and
-    // before registerWallet reads the setting).
+    // clearClientStorage still runs before registerWallet. The probe result lives
+    // in memory (a ref), so the wipe can't clobber it — no storage-write ordering
+    // constraint is needed anymore.
     const clearedAt = mockClearClientStorage.mock.invocationCallOrder[0]!;
-    const adoptedAt = mockPutToStorage.mock.invocationCallOrder[0]!;
     const registeredAt = mockRegisterWallet.mock.invocationCallOrder[0]!;
-    expect(clearedAt).toBeLessThan(adoptedAt);
-    expect(adoptedAt).toBeLessThan(registeredAt);
+    expect(clearedAt).toBeLessThan(registeredAt);
   });
 
   it('confirmation (Create flow after an abandoned import): never adopts the abandoned probe', async () => {
@@ -295,14 +306,16 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'confirmation' });
 
     // Leaving the import path discards the probe, and the create-path
-    // confirmation must not adopt the abandoned seed's detected guardian.
+    // confirmation must not adopt the abandoned seed's detected guardian — the
+    // threaded endpoint stays undefined (detection only runs on the Import path).
     expect(mockProbeReset).toHaveBeenCalled();
     expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockRegisterWallet).toHaveBeenCalledWith(
       WalletType.Guardian,
       'secret',
       'fmt:a b c d e f g h i j k l',
-      false
+      false,
+      undefined
     );
   });
 

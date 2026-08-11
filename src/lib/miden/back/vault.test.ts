@@ -1424,6 +1424,43 @@ describe('Vault hardware branches', () => {
     expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
   });
 
+  it('Vault.spawn threads the picked guardianEndpoint into createGuardianMidenWallet (create path)', async () => {
+    // Stage 1 of #408: the endpoint the user picked at choose-guardian is passed
+    // explicitly through spawn instead of round-tripping the global storage key.
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    await Vault.spawn(
+      WalletType.Guardian,
+      'pw-guardian-create',
+      VALID_MNEMONIC,
+      false,
+      'https://picked-guardian.example'
+    );
+    expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
+      expect.anything(),
+      'https://picked-guardian.example'
+    );
+  });
+
+  it('Vault.spawn threads the probed guardianEndpoint into recoverGuardianAccountsBySeed (recovery path)', async () => {
+    // Stage 1 of #408: the probed endpoint reaches the recovery lookup explicitly.
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    await Vault.spawn(
+      WalletType.Guardian,
+      'pw-guardian-recover',
+      VALID_MNEMONIC,
+      true,
+      'https://probed-guardian.example'
+    );
+    expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledWith(
+      expect.any(Function),
+      'https://probed-guardian.example'
+    );
+    // createGuardianMidenWallet must NOT run on the recovery path.
+    expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
+  });
+
   it('createHDAccount supports WalletType.Guardian (derivation index 2)', async () => {
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);

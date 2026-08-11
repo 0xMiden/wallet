@@ -270,10 +270,20 @@ export class MidenClientInterface {
    * ciphertext + cold secret-key bytes the wallet must persist (vault wraps
    * both before writing them to storage).
    */
-  async createGuardianMidenWallet(coldSeed?: Uint8Array): Promise<GuardianAccountCreationResult> {
+  async createGuardianMidenWallet(
+    coldSeed?: Uint8Array,
+    guardianEndpoint?: string
+  ): Promise<GuardianAccountCreationResult> {
     const { createGuardianAccount } = await import('../guardian/account');
-    const { account, keys, guardianEndpoint } = await createGuardianAccount(this.client, coldSeed);
-    return { accountId: getBech32AddressFromAccountId(account.id()), keys, guardianEndpoint };
+    // Forward the caller's picked endpoint as the override so the account binds
+    // to it (stage 1 of #408). When undefined, createGuardianAccount falls back
+    // to the legacy global key then the network default.
+    const {
+      account,
+      keys,
+      guardianEndpoint: usedEndpoint
+    } = await createGuardianAccount(this.client, coldSeed, false, guardianEndpoint);
+    return { accountId: getBech32AddressFromAccountId(account.id()), keys, guardianEndpoint: usedEndpoint };
   }
 
   async importMidenWallet(accountBytes: Uint8Array): Promise<string> {
