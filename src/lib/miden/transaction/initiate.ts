@@ -109,8 +109,9 @@ export const initiateConsumeTransaction = async (
  * tx every 5s until the sync catches up. Notes that are already covered by a live row
  * (scalar `noteId` or batch `noteIds` index) are dropped from the batch. Failed txs are
  * excluded by the existing-non-Failed dedup so retries can recover from transient
- * failures, but bounded by the MAX_CONSECUTIVE_CONSUME_FAILURES + RETRY_COOLDOWN_SEC
- * policy to prevent unbounded retry storms when the failure is deterministic (#215).
+ * failures, but bounded by the terminal-safe exponential-backoff policy
+ * (RETRY_COOLDOWN_SEC · 2^(n-1), capped at MAX_RETRY_BACKOFF_SEC) so a deterministic
+ * failure decays to a daily probe instead of an endless drip (#215, #313).
  *
  * The check-and-add is wrapped in a Dexie `rw` transaction so concurrent callers for the
  * same noteId are serialized at the DB layer. Without this, two callers that slip past
@@ -169,21 +170,20 @@ export const initiateConsumeNotesTransaction = async (
       // auto-consume backoff.
       if (!manualRetry) {
         const nowSec = Math.floor(Date.now() / 1000);
-        const recentFailures = sameAccount
+        const failures = sameAccount
           .filter(tx => tx.status === ITransactionStatus.Failed)
-          .filter(tx => {
-            const completed = tx.completedAt ?? tx.initiatedAt;
-            return nowSec - completed <= RECENT_FAILURE_WINDOW_SEC;
-          })
           .sort((a, b) => (b.completedAt ?? b.initiatedAt) - (a.completedAt ?? a.initiatedAt));
-        if (recentFailures.length > 0) {
-          const mostRecentFailed = recentFailures[0]!;
+        if (failures.length > 0) {
+          const mostRecentFailed = failures[0]!;
           const mostRecentCompletedAt = mostRecentFailed.completedAt ?? mostRecentFailed.initiatedAt;
           const secsSinceLastFailure = nowSec - mostRecentCompletedAt;
-          // Two gates compose: cap on consecutive failures inside the recent window
-          // AND a cooldown since the most recent failure. Either one being unsatisfied
-          // suppresses the new attempt.
-          if (recentFailures.length >= MAX_CONSECUTIVE_CONSUME_FAILURES || secsSinceLastFailure < RETRY_COOLDOWN_SEC) {
+          // Exponential backoff keyed on the note+account's LIFETIME failure count:
+          // the required idle gap doubles with every failure (RETRY_COOLDOWN_SEC ·
+          // 2^(n-1)), capped at MAX_RETRY_BACKOFF_SEC. Counting lifetime failures —
+          // not a sliding window — is what terminates the storm; see the policy note
+          // on the constants below (#215, #313).
+          const backoffSec = Math.min(RETRY_COOLDOWN_SEC * 2 ** (failures.length - 1), MAX_RETRY_BACKOFF_SEC);
+          if (secsSinceLastFailure < backoffSec) {
             blockingId = blockingId ?? mostRecentFailed.id;
             continue;
           }
@@ -221,27 +221,36 @@ export const initiateConsumeNotesTransaction = async (
  * Background: the consume dedup at `initiateConsumeTransaction` excludes
  * `Failed` rows by design so retries can recover from *transient* failures
  * (e.g., kernel `auth::request` errors that clear once chain state
- * advances). But without a cap, an upstream deterministic failure
+ * advances). But without a brake, an upstream deterministic failure
  * combined with auto-consume's polling cadence + tab-switch remounts
  * produces an unbounded retry storm — one user empirically observed 122+
- * consume/Failed rows for 2 notes in 38 minutes. Issue #215 documents
- * this in detail. The follow-up shows the kernel error eventually clears
- * (both notes consumed within 10s of each other after a 65min idle), so
- * we must keep retrying *eventually*, just not on every single tick.
+ * consume/Failed rows for 2 notes in 38 minutes (#215).
  *
- * Policy:
- *   - Cap at MAX_CONSECUTIVE_CONSUME_FAILURES failures inside RECENT_FAILURE_WINDOW_SEC.
- *   - Once capped, require RETRY_COOLDOWN_SEC to elapse since the most
- *     recent Failed `completedAt` before allowing a new attempt.
+ * The original #215 fix was a sliding *window* throttle (cap N failures per
+ * 30 min, then one attempt per 5 min). That bounds the *rate* but never the
+ * *lifetime*: old failures age out of the window, so a note that
+ * `getConsumableNotes` keeps offering yet that fails on-chain every time (a
+ * deterministic rejection the consumability annotation misses, a `mock`
+ * network, an "already consumed" race) drips one failure every 5 min
+ * forever — 49 failures over 4 days in the captured profile (#313).
  *
- * The combined effect: a deterministic failure caps at ~5 retries within
- * ~30 min, then re-attempts at most once every ~5 min. A transient
- * failure that succeeds within the window still retries normally because
- * a Completed row reactivates the existing-non-Failed dedup branch.
+ * Policy (terminal-safe exponential backoff):
+ *   - n = the note+account's LIFETIME Failed rows.
+ *   - Require RETRY_COOLDOWN_SEC · 2^(n-1) of idle since the most recent
+ *     Failed `completedAt` before allowing another attempt, capped at
+ *     MAX_RETRY_BACKOFF_SEC.
+ *
+ * The interval therefore grows without bound (5 min → 10 → 20 → … → 24 h),
+ * so the storm decays to at most a daily probe. It stays a *probe*, not a
+ * permanent give-up: a note that later becomes consumable (its reclaim
+ * height is reached, chain state advances) is retried at the next expiry and
+ * recovers on its own — no failure-class parsing, no stuck-forever state. A
+ * transient failure that clears early still retries promptly because a
+ * Completed row reactivates the existing-non-Failed dedup branch, and an
+ * explicit user Retry (`manualRetry`) bypasses the backoff entirely.
  */
-export const MAX_CONSECUTIVE_CONSUME_FAILURES = 5;
-export const RECENT_FAILURE_WINDOW_SEC = 30 * 60; // 30 minutes
-export const RETRY_COOLDOWN_SEC = 5 * 60; // 5 minutes
+export const RETRY_COOLDOWN_SEC = 5 * 60; // 5 minutes — base backoff after the first failure
+export const MAX_RETRY_BACKOFF_SEC = 24 * 60 * 60; // 24 hours — backoff ceiling
 
 /**
  * Queue a swap (PSWAP-create) transaction: the account offers `offeredAmount`
