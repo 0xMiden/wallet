@@ -37,6 +37,10 @@ export const PasscodeEntry: React.FC<PasscodeEntryProps> = ({
 }) => {
   const { t } = useTranslation();
   const [code, setCode] = useState('');
+  // Synchronous mirror of `code`, updated inside the tap handlers so that several
+  // digits tapped within one React batch (fast typing) each append to the latest
+  // value rather than a stale closure — otherwise all but the last are dropped (#468).
+  const codeRef = useRef('');
   // Remembers the code we've already auto-submitted so that a parent re-render
   // before the digits are cleared (e.g. an attempt-counter bump on a failed
   // unlock, or a fresh inline onSubmit identity) cannot re-fire the same
@@ -44,7 +48,10 @@ export const PasscodeEntry: React.FC<PasscodeEntryProps> = ({
   const submittedCodeRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (error) setCode('');
+    if (error) {
+      setCode('');
+      codeRef.current = '';
+    }
   }, [error]);
 
   useEffect(() => {
@@ -64,20 +71,22 @@ export const PasscodeEntry: React.FC<PasscodeEntryProps> = ({
 
   const handleDigit = useCallback(
     (digit: string) => {
-      if (disabled || isSubmitting || code.length >= PASSCODE_LENGTH) return;
-      const next = code + digit;
+      if (disabled || isSubmitting || codeRef.current.length >= PASSCODE_LENGTH) return;
+      const next = codeRef.current + digit;
+      codeRef.current = next;
       setCode(next);
       onChange?.(next);
     },
-    [disabled, isSubmitting, code, onChange]
+    [disabled, isSubmitting, onChange]
   );
 
   const handleDelete = useCallback(() => {
     if (disabled || isSubmitting) return;
-    const next = code.slice(0, -1);
+    const next = codeRef.current.slice(0, -1);
+    codeRef.current = next;
     setCode(next);
     onChange?.(next);
-  }, [disabled, isSubmitting, code, onChange]);
+  }, [disabled, isSubmitting, onChange]);
 
   const hint = error ?? subtitle ?? t('enterYour6DigitCode');
 

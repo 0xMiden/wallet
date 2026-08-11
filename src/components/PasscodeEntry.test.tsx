@@ -109,6 +109,23 @@ describe('PasscodeEntry', () => {
       expect(screen.getByTestId('numpad')).toBeInTheDocument();
     });
 
+    it('registers every digit when several are tapped in the same tick (#468 fast typing)', () => {
+      const onChange = jest.fn();
+      const { container } = renderComponent({ onChange });
+
+      // Tap three digits synchronously within one act(): React batches the state
+      // updates, so a handler reading `code` from its closure sees a stale value
+      // for all three taps and drops all but the last — the reported bug.
+      act(() => {
+        fireEvent.click(screen.getByTestId('numpad-1'));
+        fireEvent.click(screen.getByTestId('numpad-2'));
+        fireEvent.click(screen.getByTestId('numpad-3'));
+      });
+
+      expect(filledDotCount(container)).toBe(3);
+      expect(onChange).toHaveBeenLastCalledWith('123');
+    });
+
     it('uses the default hint and aria-label when no subtitle/error given', () => {
       renderComponent();
       expect(screen.getByRole('status')).toHaveTextContent('enterYour6DigitCode');
