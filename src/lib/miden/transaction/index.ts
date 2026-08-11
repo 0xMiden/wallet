@@ -108,14 +108,6 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
   'execute'
 ]);
 
-// An offscreen wedge-kill (deadline / `closeDocument`) rejects the in-flight op
-// with an `OperationAbortedError` (issue #260). Duck-typed by `name` rather than
-// `instanceof` so it survives crossing module/test realms. The tx itself did NOT
-// fail — the WASM realm was reclaimed — so a value-moving guardian op is DEFERRED
-// (requeued) rather than terminally Failed (§4.2 kill-window).
-const isOperationAbortedError = (err: unknown): boolean =>
-  !!err && typeof err === 'object' && (err as { name?: unknown }).name === 'OperationAbortedError';
-
 // Cooldown (seconds) applied to a tx requeued after a transient guardian
 // pending-delta 409. A persistently-conflicting tx is always the OLDEST Queued
 // row by initiatedAt, so without a backoff it is re-picked every cycle — burning
@@ -283,26 +275,31 @@ export const generateTransaction = async (
         return;
       }
       // An offscreen wedge-kill (deadline / `closeDocument`) surfaces as a
-      // retryable OperationAbortedError (issue #260, slice 6a). The WASM realm was
-      // reclaimed — the tx itself did NOT fail — and the guardian submit catch
-      // already ran `abandonCandidate`, so a PRE-submit kill left nothing on chain
-      // and a MID/POST-submit kill is caught on the next attempt by the on-chain
-      // consumed-nullifier backstop (the retry's submit is rejected → the classifier
-      // above marks Completed, never double-spends). Terminally Failing a tx that
-      // never actually failed would be wrong, so DEFER value-moving ops back to
-      // Queued for a fresh cycle — the same requeue the transient pending-delta 409
-      // uses (only value-moving types route offscreen this slice; structural stays
-      // inline and never aborts). This makes the offscreen kill-window byte-safe
-      // relative to the inline path.
-      if (isOperationAbortedError(error) && OFFSCREEN_ROUTABLE_GUARDIAN_TYPES.has(transaction.type)) {
-        console.warn('[Guardian] offscreen pipeline aborted (wedge-kill) — requeueing for a later cycle');
-        await updateTransactionStatus(transaction.id, ITransactionStatus.Queued, {
-          processingStartedAt: undefined,
-          stage: 'creating-proposal',
-          nextEligibleAt: Math.floor(Date.now() / 1000) + PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC
-        });
-        return;
-      }
+      // retryable OperationAbortedError (issue #260). It is NOT special-cased here:
+      // it falls through to `cancelTransaction` → Failed, exactly like the proven
+      // non-guardian loop (an abort there also falls through to cancel → Failed at
+      // `generateTransactionsLoop`) and exactly like the guardian flag-OFF path.
+      //
+      // We do NOT auto-requeue it. A guardian send/swap/execute has no input-note
+      // nullifier: each retry builds a FRESH proposal (new random output-note serial)
+      // gated only by the account nonce, so a kill that fired AFTER the offscreen
+      // submit landed on chain, then a requeue, would let the retry build and co-sign
+      // a SECOND valid send — the recipient receives a second note and the account is
+      // debited twice, with no nullifier to reject it (the offscreen path also cannot
+      // distinguish a pre-submit from a post-submit abort, so any requeue is
+      // unconditional). Only `consume` re-consumes the same note (nullifier collision
+      // rejects the retry), but for consistency it too Fails here, matching
+      // non-guardian consume. A safe "verify submit landed on chain via node, then
+      // requeue only if provably not-landed" recovery is a prerequisite for the
+      // flag-flip slice (guardian AND non-guardian alike) — not this PR.
+      //
+      // Flag-OFF is byte-unchanged: OperationAbortedError only arises from the
+      // offscreen dispatch (`dispatchGuardianPipeline`), reached only when
+      // `shouldRouteGuardianLeafOffscreen` is true (MIDEN_USE_OFFSCREEN_CLIENT on).
+      // The inline flag-OFF leaf (`runGuardianPipeline`) never throws it, so the
+      // (former) abort branch was unreachable with the flag off — its removal
+      // cannot change flag-OFF behavior.
+      //
       // A transient guardian 409 (a prior delta still canonicalizing) that
       // outlasted withGuardianConflictRetry's budget is NOT a terminal failure
       // for a VALUE-MOVING op: the single-delta lock clears on its own, and its

@@ -18,10 +18,13 @@
  *     even with the flag ON.
  *   - flag-off/flag-on byte-identity: the completion handler receives a result with
  *     identical `serialize()` bytes on both paths.
- *   - kill-window: an offscreen `OperationAbortedError` runs `abandonCandidate`
- *     exactly once (as inline) and DEFERS the row to Queued (not Failed); a
- *     value-already-moved retry marks Completed via the nullifier backstop, never
- *     re-sends.
+ *   - kill-window (funds-safety): an offscreen `OperationAbortedError` (wedge-kill)
+ *     runs `abandonCandidate` exactly once (as inline) and marks the row FAILED —
+ *     it is NOT auto-requeued, and it dispatches exactly ONCE. A guardian
+ *     send/swap/execute has NO input-note nullifier (each retry builds a FRESH
+ *     proposal with a new random output-note serial), so auto-requeueing would let
+ *     the retry build a second valid send and DOUBLE-SEND. Falling through to Failed
+ *     matches the proven non-guardian path (slices 5a/5b) and guardian flag-OFF.
  *   - errorCode: a round-tripped `ApplyTransactionAfterSubmitFailed` reaches the
  *     GUARDIAN classifier → marks Completed (mirrors the fixed non-guardian bug).
  */
@@ -400,67 +403,39 @@ describe('guardian leaf byte-identity — flag ON result bytes == flag OFF resul
   );
 });
 
-describe('guardian leaf kill-window (funds-safety)', () => {
-  it('a pre-submit offscreen kill runs abandonCandidate exactly once and DEFERS the row to Queued (not Failed)', async () => {
-    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-    // Deadline/closeDocument kill before submit → retryable OperationAbortedError.
-    mockDispatchGuardianPipeline.mockRejectedValue(new OperationAbortedError('op-1', 'deadline'));
-    const { service } = arrange('kill-consume', { type: 'consume', noteId: '0xn', noteIds: ['0xn'] });
+describe('guardian leaf kill-window (funds-safety) — an offscreen kill FAILS the row, no auto-requeue', () => {
+  it.each(valueMovingCases())(
+    '$type: an OperationAbortedError marks the row Failed, does NOT requeue, and dispatches exactly ONCE (no double-send)',
+    async ({ row, complete }) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      // A deadline/`closeDocument` wedge-kill fires AFTER the offscreen submit may
+      // have already landed on chain → retryable OperationAbortedError. A guardian
+      // send/swap/execute has NO input-note nullifier — each retry builds a FRESH
+      // proposal (new random output-note serial) gated only by the account nonce —
+      // so auto-requeueing would let the retry build a SECOND valid send and
+      // DOUBLE-SEND (the recipient gets a second note, the account is debited twice).
+      // The abort must therefore fall through to Failed, exactly like the proven
+      // non-guardian path (slices 5a/5b) and guardian flag-OFF, and must NOT requeue.
+      mockDispatchGuardianPipeline.mockRejectedValue(new OperationAbortedError('op-kill', 'deadline'));
+      const { service } = arrange(`kill-${row.type}`, row);
 
-    await generateTransaction(
-      buildTx('kill-consume', { type: 'consume', noteId: '0xn', noteIds: ['0xn'] }) as never,
-      signCallback,
-      false,
-      provider as never
-    );
+      await generateTransaction(buildTx(`kill-${row.type}`, row) as never, signCallback, false, provider as never);
 
-    // The SW submit-catch abandoned the guardian candidate, exactly once (as inline).
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
-    // The row was DEFERRED to Queued — a transient wedge-kill must NOT terminally Fail.
-    const finalRow = txStore.find(r => r.id === 'kill-consume')!;
-    expect(finalRow.status).toBe(ITransactionStatus.Queued);
-    expect(finalRow.nextEligibleAt).toBeDefined();
-    // The note was NOT claimed (nothing on chain) — completion never ran.
-    expect(mockComplete.consume).not.toHaveBeenCalled();
-  });
-
-  it('co-signed nullifier backstop: after a submit-landed kill + requeue, the retry marks Completed (not re-sent)', async () => {
-    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-
-    // Cycle 1 — killed mid/after submit; the value MAY have landed. Requeued.
-    mockDispatchGuardianPipeline.mockRejectedValueOnce(new OperationAbortedError('op-a', 'deadline'));
-    const { service } = arrange('backstop-send', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' });
-    await generateTransaction(
-      buildTx('backstop-send', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' }) as never,
-      signCallback,
-      false,
-      provider as never
-    );
-    expect(txStore.find(r => r.id === 'backstop-send')!.status).toBe(ITransactionStatus.Queued);
-
-    // Cycle 2 — the retry re-submits; the on-chain consumed-nullifier rejects the
-    // double-spend, surfacing as ApplyTransactionAfterSubmitFailed. The GUARDIAN
-    // classifier marks Completed (value already moved) — NEVER a second send.
-    const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
-    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
-    mockDispatchGuardianPipeline.mockRejectedValueOnce(applyErr);
-    // Re-arm the row to GeneratingTransaction the way the loop would on re-pickup.
-    const row = txStore.find(r => r.id === 'backstop-send')!;
-    row.status = ITransactionStatus.GeneratingTransaction;
-    await generateTransaction(
-      buildTx('backstop-send', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' }) as never,
-      signCallback,
-      false,
-      provider as never
-    );
-
-    expect(txStore.find(r => r.id === 'backstop-send')!.status).toBe(ITransactionStatus.Completed);
-    // No second value-moving completion — the funds are not re-sent.
-    expect(mockComplete.send).not.toHaveBeenCalled();
-    // abandonCandidate ran once per cycle (idempotent), never double-submitted funds.
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(2);
-  });
+      // Dispatched exactly ONCE — the abort did NOT trigger a second offscreen submit.
+      expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+      // The SW submit-catch abandoned the guardian candidate (idempotent), exactly once.
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      // The row is terminally FAILED — NOT requeued to Queued (which would let a fresh
+      // retry double-send), and carries no requeue cooldown stamp.
+      const finalRow = txStore.find(r => r.id === `kill-${row.type}`)!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
+      expect(finalRow.nextEligibleAt).toBeUndefined();
+      // No value-moving completion ran — funds are not (re-)sent.
+      expect(complete).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe('guardian leaf errorCode preservation → guardian classifier marks Completed', () => {
