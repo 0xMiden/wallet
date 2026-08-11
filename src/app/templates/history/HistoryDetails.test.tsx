@@ -575,7 +575,7 @@ describe('HistoryDetails', () => {
       expect(screen.queryByTestId('swap-order-status')).not.toBeInTheDocument();
     });
 
-    it('shows a polling indicator while refreshing an active order', async () => {
+    it('shows a steady tracking indicator while the order is active', async () => {
       let resolveRefresh!: (tracking: {
         orderId: string;
         state: string;
@@ -601,13 +601,15 @@ describe('HistoryDetails', () => {
       );
       await renderAndLoad();
 
-      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+      // The order is active, so the tracking indicator shows steadily — not only
+      // while a poll is momentarily in flight (that per-poll flicker was #486).
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusActive');
+      expect(screen.getByTestId('swap-order-polling')).toHaveTextContent('loading');
 
+      // It stays put across the next background poll rather than blinking off/on.
       await act(async () => {
         jest.advanceTimersByTime(2000);
       });
-
-      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusActive');
       expect(screen.getByTestId('swap-order-polling')).toHaveTextContent('loading');
 
       await act(async () => {
@@ -623,6 +625,50 @@ describe('HistoryDetails', () => {
 
       expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
       expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
+    });
+
+    it('reconciles to Filled once settlement notes are seen locally, even if the lineage still reports active (#486)', async () => {
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      // The on-chain lineage lags — it keeps reporting the order as still active...
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '10',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 0n,
+        remainingRequested: 700n
+      });
+      // ...but this wallet has already observed the settlement consume note.
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-x'], reclaimed: [] });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 10n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      // Local settlement is the source of truth: show Filled and drop the spinner
+      // instead of sitting on "Active" with a flickering loader.
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
+      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+    });
+
+    it('reconciles to Reclaimed when the local settlement is a reclaim (#486)', async () => {
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '11',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 0n,
+        remainingRequested: 700n
+      });
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: [], reclaimed: ['note-r'] });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 11n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusReclaimed');
+      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
     });
 
     it('backs off on unresolved polls and gives up after the cap', async () => {

@@ -8,6 +8,7 @@
 
 ### Fixes
 
+- [FIX][all] **A settled swap's order status no longer sticks on "Active" with a flickering spinner.** The order-tracking row reconciles the on-chain order lineage with the settlement this wallet has already observed: once the settlement (or reclaim) consume notes are seen locally, the status shows "Filled"/"Reclaimed" immediately, even if the lineage poll still lags behind reporting the order as active. The polling indicator is now tied to whether the order is genuinely still resolving rather than to each individual in-flight poll, so it no longer blinks off and on every couple of seconds while an order is active (most visible on iOS).
 - [FIX][all] **Token metadata fetched during sync is now persisted immediately.** Subsequent syncs reuse the existing metadata cache instead of repeatedly requesting the same faucet account from the node.
 - [FIX][all] **A mistyped recipient address is rejected in the Send screen instead of failing after guardian approval.** Miden addresses are now validated with the SDK's full bech32 decode (`Address.fromBech32`) as you type, scan, or pick a contact — previously only the `mtst1`/`mm1`/`mdev1` prefix was checked, so a typo'd address sailed through to the transaction pipeline and surfaced as a bech32 error in Activity. A well-formed address for a different Miden network (e.g. a mainnet `mm1…` address on a testnet build) gets its own "different Miden network" message.
 ### Changes
