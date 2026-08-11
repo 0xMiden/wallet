@@ -123,12 +123,15 @@ jest.mock('../guardian/account', () => ({
   resolveGuardianEndpoint: (...a: unknown[]) => mockResolveGuardianEndpoint(...(a as [any]))
 }));
 
-// backfillGuardianEndpoints resolves the on-chain commitment to a built-in
-// operator via identifyGuardianOperator; mock it to drive the match / no-match
-// branches (undefined => custom / self-hosted / rotated / operator down).
-const mockIdentifyGuardianOperator = jest.fn();
+// backfillGuardianEndpoints builds the operator commitment->option map ONCE via
+// buildOperatorKeyMap, then looks each account's commitment up against it. Mock
+// the map build to drive the match / no-match branches (an empty map or a
+// missing key => custom / self-hosted / rotated / operator down); normalizeHex
+// mirrors the real strip-0x + lowercase so lookups compare equal.
+const mockBuildOperatorKeyMap = jest.fn();
 jest.mock('../guardian/operator-map', () => ({
-  identifyGuardianOperator: (...a: unknown[]) => mockIdentifyGuardianOperator(...a)
+  buildOperatorKeyMap: (...a: unknown[]) => mockBuildOperatorKeyMap(...a),
+  normalizeHex: (h: string) => (h.startsWith('0x') ? h.slice(2) : h).toLowerCase()
 }));
 
 // Unified handle used by tests — matches the old mockMidenClient API.
@@ -1742,10 +1745,10 @@ describe('Vault.backfillGuardianEndpoints', () => {
     mockGetAccount.mockResolvedValue({ id: () => ({ toString: () => 'guardian-legacy' }) });
     mockGetGuardianCommitmentFromAccount.mockReset();
     mockGetGuardianCommitmentFromAccount.mockReturnValue('abc123');
-    // By default the commitment resolves to a built-in operator, so the legacy
+    // By default the operator map holds the account's commitment, so the legacy
     // account gets stamped.
-    mockIdentifyGuardianOperator.mockReset();
-    mockIdentifyGuardianOperator.mockResolvedValue(operator);
+    mockBuildOperatorKeyMap.mockReset();
+    mockBuildOperatorKeyMap.mockResolvedValue(new Map([['abc123', operator]]));
   });
 
   it('stamps a matched legacy Guardian account with the operator endpoint + commitment', async () => {
@@ -1755,28 +1758,49 @@ describe('Vault.backfillGuardianEndpoints', () => {
     const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
     expect(acc.guardianEndpoint).toBe('https://oz.example');
     expect(acc.guardianOperatorCommitment).toBe('abc123');
-    // Resolved via the same commitment -> operator path guardian-drift uses, and
-    // — like guardian-drift — without an explicit network argument.
-    expect(mockIdentifyGuardianOperator).toHaveBeenCalledWith('abc123');
+    // Resolved by looking the on-chain commitment up in the built-in-operator
+    // map — the same commitment -> operator path guardian-drift uses, built once
+    // and (like guardian-drift) without an explicit network argument.
+    expect(mockBuildOperatorKeyMap).toHaveBeenCalledWith();
     // A non-Guardian account is never touched.
     const normal = (await vault.fetchAccounts()).find(a => a.publicKey === 'normal-1')!;
     expect(normal.guardianEndpoint).toBeUndefined();
+  });
+
+  it('builds the operator key map ONCE regardless of how many legacy accounts there are', async () => {
+    const secondLegacy = {
+      publicKey: 'guardian-legacy-2',
+      name: 'Guardian 3',
+      isPublic: true,
+      type: WalletType.Guardian,
+      hdIndex: 2
+    };
+    const vault = await seedVault('pw', { accounts: [legacyGuardian, secondLegacy] as any });
+    await vault.backfillGuardianEndpoints();
+
+    // K accounts => a single operator probe round, not one per account.
+    expect(mockBuildOperatorKeyMap).toHaveBeenCalledTimes(1);
+    const accounts = await vault.fetchAccounts();
+    expect(accounts.find(a => a.publicKey === 'guardian-legacy')!.guardianEndpoint).toBe('https://oz.example');
+    expect(accounts.find(a => a.publicKey === 'guardian-legacy-2')!.guardianEndpoint).toBe('https://oz.example');
   });
 
   it('skips a Guardian account that already carries a guardianEndpoint (idempotent, never overwrites)', async () => {
     const vault = await seedVault('pw', { accounts: [stampedGuardian] as any });
     await vault.backfillGuardianEndpoints();
 
-    // Already-stamped accounts are filtered out before any on-chain read.
+    // Already-stamped accounts are filtered out before the map is built or any
+    // on-chain read happens.
+    expect(mockBuildOperatorKeyMap).not.toHaveBeenCalled();
     expect(mockGetGuardianCommitmentFromAccount).not.toHaveBeenCalled();
-    expect(mockIdentifyGuardianOperator).not.toHaveBeenCalled();
     const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-stamped')!;
     expect(acc.guardianEndpoint).toBe('https://already.example');
   });
 
   it('leaves a NO-MATCH account untouched — never stamps a guessed/default endpoint', async () => {
-    // Operator down / custom / self-hosted / rotated key => undefined.
-    mockIdentifyGuardianOperator.mockResolvedValue(undefined);
+    // Operator down / custom / self-hosted / rotated key => commitment absent
+    // from the map (here: empty map, e.g. every operator unreachable).
+    mockBuildOperatorKeyMap.mockResolvedValue(new Map());
     const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
     await vault.backfillGuardianEndpoints();
 
@@ -1792,8 +1816,7 @@ describe('Vault.backfillGuardianEndpoints', () => {
 
     const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
     expect(acc.guardianEndpoint).toBeUndefined();
-    // Never even reaches operator resolution when there's nothing to resolve.
-    expect(mockIdentifyGuardianOperator).not.toHaveBeenCalled();
+    expect(acc.guardianOperatorCommitment).toBeUndefined();
   });
 
   it("one account's error does not block the others", async () => {
