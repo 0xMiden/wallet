@@ -2,6 +2,10 @@
 
 ## 1.15.20 (TBD)
 
+### Fixes
+
+- [FIX][all] **Guardian provider names are spelled consistently across the wallet.** Onboarding, Settings, Activity and recovery now read each operator's display name from one canonical source, so "OpenZeppelin" and "LambdaClass" render the same everywhere (previously a mix of "Open-Zeppelin"/"Lambda Class"). (#464)
+
 ### Changes
 
 - [CHANGE][all] **Frontend skill guidance now defaults standard actions to the shared wallet button.** The shared frontend skill directs standard wallet actions to `components/Button`, reserving native buttons for compact, icon-only, or inline controls that the full CTA cannot represent.

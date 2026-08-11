@@ -34,7 +34,7 @@ it('renders provider names and a custom endpoint hostname between the supplied l
 
   expect(screen.getByTestId('guardian-transition-hero')).toHaveClass('history-hero');
   expect(screen.getByText('Current')).toBeInTheDocument();
-  expect(screen.getByText('Lambda Class')).toBeInTheDocument();
+  expect(screen.getByText('LambdaClass')).toBeInTheDocument();
   expect(screen.getByTestId('transition-icon')).toHaveTextContent('ArrowDown');
   expect(screen.getByText('New')).toBeInTheDocument();
   expect(screen.getByText('custom.guardian.example')).toBeInTheDocument();
@@ -62,6 +62,6 @@ it('emphasizes the destination and keeps review labels readable in dark mode', (
   expect(screen.getByText('Current')).toHaveClass('text-heading-gray');
   expect(screen.getByText('EU-WEST')).toHaveClass('text-text-muted');
   expect(screen.getByText('New')).toHaveClass('text-primary-500');
-  expect(screen.getByText('Open-Zeppelin · US-EAST')).toHaveClass('text-pure-white');
-  expect(screen.getByText('Open-Zeppelin', { selector: 'h2' })).toHaveClass('text-pure-white');
+  expect(screen.getByText('OpenZeppelin · US-EAST')).toHaveClass('text-pure-white');
+  expect(screen.getByText('OpenZeppelin', { selector: 'h2' })).toHaveClass('text-pure-white');
 });
