@@ -207,6 +207,37 @@ describe('AmountInput', () => {
       expect(onValueChange).toHaveBeenCalled();
     });
 
+    // #433 — on a comma-decimal keyboard/locale (es, de, fr, …) the user types a
+    // comma for the decimal point. Group separators are disabled, so a comma can
+    // only mean "decimal": normalize it to a dot before parsing so the emitted
+    // value stays "."-normalized for the transaction pipeline.
+    it('normalizes a typed comma decimal separator to a dot', () => {
+      const onValueChange = jest.fn();
+      render(<AmountInput onValueChange={onValueChange} data-testid={TESTID} />);
+
+      fireEvent.change(getInput(), { target: { value: '1,5' } });
+
+      expect(onValueChange).toHaveBeenCalledWith('1.5', undefined, expect.objectContaining({ value: '1.5' }));
+    });
+
+    it('normalizes a comma in a sub-one value (0,001 → 0.001)', () => {
+      const onValueChange = jest.fn();
+      render(<AmountInput onValueChange={onValueChange} data-testid={TESTID} />);
+
+      fireEvent.change(getInput(), { target: { value: '0,001' } });
+
+      expect(onValueChange).toHaveBeenCalledWith('0.001', undefined, expect.objectContaining({ value: '0.001' }));
+    });
+
+    it('leaves a dot decimal separator unchanged', () => {
+      const onValueChange = jest.fn();
+      render(<AmountInput onValueChange={onValueChange} data-testid={TESTID} />);
+
+      fireEvent.change(getInput(), { target: { value: '2.75' } });
+
+      expect(onValueChange).toHaveBeenCalledWith('2.75', undefined, expect.objectContaining({ value: '2.75' }));
+    });
+
     it('focuses the input when the amount row is clicked', () => {
       const { container } = render(<AmountInput data-testid={TESTID} />);
       const row = container.querySelector('.cursor-text') as HTMLElement;

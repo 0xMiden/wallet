@@ -18,6 +18,18 @@ function amountTextSize(value?: string): string {
   return 'text-6xl';
 }
 
+/**
+ * Accept a comma as the decimal separator (comma-decimal locales/keyboards — es,
+ * de, fr, …) by normalizing it to a dot before the field parses the input (#433).
+ * Group separators are disabled on this field, so a comma can only mean "decimal";
+ * normalizing here keeps the emitted value "."-normalized for the tx pipeline —
+ * no locale detection and no downstream changes. Same-length substitution, so the
+ * caret position is preserved.
+ */
+export function normalizeDecimalInput(rawValue: string): string {
+  return rawValue.replace(/,/g, '.');
+}
+
 export interface AmountInputProps {
   value?: string;
   onValueChange?: (value: string | undefined, name?: string, values?: CurrencyInputOnChangeValues) => void;
@@ -86,6 +98,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
             value={value}
             onValueChange={onValueChange}
             placeholder={placeholder}
+            transformRawValue={normalizeDecimalInput}
             disableGroupSeparators
             decimalSeparator="."
             decimalsLimit={6}
