@@ -320,30 +320,26 @@ async function runSync(): Promise<void> {
         vaultAssets,
         accountPublicKey: accountPubKey
       };
-      let syncDataPersisted = false;
       try {
         await chrome.storage.local.set({
           miden_cached_consumable_notes: parsedNotes,
           miden_sync_data: syncData
         });
-        syncDataPersisted = true;
       } catch (err) {
         // A failed write (quota exceeded, storage unavailable) must not be
-        // swallowed: frontends read this cache via chrome.storage.onChanged, so
-        // proceeding as if it persisted would surface stale/no data. Log it and
-        // skip the SyncCompleted signal below; the next sync retries the write.
-        console.error('[SyncManager] Failed to persist sync data to chrome.storage.local:', err);
+        // swallowed silently: frontends read this cache, so on failure they keep
+        // the previous data until the next sync retries the write. Log it. The
+        // SyncCompleted signal below still fires — it only clears the sync
+        // indicator (the data itself is read from storage), so gating it would
+        // just hang that indicator without making the data any fresher.
+        console.warn('[SyncManager] Failed to persist sync data to chrome.storage.local:', err);
       }
 
-      // Broadcast bare SyncCompleted as a signal (data is in chrome.storage.local).
-      // Only signal when the write actually landed — otherwise frontends would
-      // refresh onto stale/absent data.
-      if (syncDataPersisted) {
-        try {
-          intercom.broadcast({ type: WalletMessageType.SyncCompleted });
-        } catch {
-          // No frontends connected — that's fine
-        }
+      // Broadcast bare SyncCompleted as a signal (data is in chrome.storage.local)
+      try {
+        intercom.broadcast({ type: WalletMessageType.SyncCompleted });
+      } catch {
+        // No frontends connected — that's fine
       }
 
       if (!intercom.hasClients() && newIds.length > 0) {

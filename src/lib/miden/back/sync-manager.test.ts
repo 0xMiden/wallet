@@ -220,20 +220,21 @@ describe('doSync', () => {
     );
   });
 
-  it('logs the failure and does not signal SyncCompleted when the storage write fails (#386)', async () => {
+  it('logs a warning (not silent) but still finishes the sync when the storage write fails (#386)', async () => {
     mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'n1', faucetId: 'f1' })]);
     // Simulate a rejected write (e.g. QUOTA_BYTES exceeded / storage unavailable).
     mockStorageSet.mockRejectedValueOnce(new Error('QUOTA_BYTES quota exceeded'));
-    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await doSync();
+    await expect(doSync()).resolves.toBeUndefined();
 
-    // The failed write must not be swallowed silently...
-    expect(errSpy).toHaveBeenCalled();
-    // ...and frontends must not be told to read a cache that was never written.
-    expect(mockBroadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: WalletMessageType.SyncCompleted }));
+    // The failed write must not be swallowed silently.
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to persist'), expect.anything());
+    // The SyncCompleted signal still fires — it only clears the sync indicator
+    // (the data is read from storage), so it must not hang on a write failure.
+    expect(mockBroadcast).toHaveBeenCalledWith(expect.objectContaining({ type: WalletMessageType.SyncCompleted }));
 
-    errSpy.mockRestore();
+    warnSpy.mockRestore();
   });
 
   it('excludes quarantined notes from the cached consumable-notes write', async () => {
