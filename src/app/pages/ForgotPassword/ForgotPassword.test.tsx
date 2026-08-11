@@ -268,6 +268,22 @@ describe('ForgotPassword', () => {
     expect(mockNavigate).not.toHaveBeenCalledWith('/');
   });
 
+  it('confirmation still navigates (via the handoff) when registration fails — register() swallows the error', async () => {
+    // register() try/catches internally and never throws, so the confirmation
+    // handler always navigates. This matches the pre-fix navigate('/') behavior
+    // (a failed recovery ends on Unlock either way when the vault stays locked);
+    // the handoff route is chosen the same as on success. Documented so the
+    // deliberate swallow isn't mistaken for a missing failure branch.
+    mockPostOnboardingRoute.mockReturnValue('/finish-side-panel');
+    mockRegisterWallet.mockRejectedValue(new Error('guardian not found'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+  });
+
   it('confirmation (Import-from-seed flow): registers with ownMnemonic=true (Import ternary)', async () => {
     renderPage();
     await dispatch({ id: 'select-import-type' });
