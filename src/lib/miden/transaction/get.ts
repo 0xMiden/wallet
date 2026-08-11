@@ -75,7 +75,11 @@ export const getCompletedTransactions = async (
   if (tokenId) {
     transactions = transactions.filter(tx => matchesTokenId(tx, tokenId));
   }
-  return transactions.slice(offset, limit);
+  // `Array.prototype.slice` takes (start, end), not (start, count). Passing
+  // `limit` as the second argument makes any page past the first resolve to
+  // an empty range.
+  const start = offset ?? 0;
+  return transactions.slice(start, limit === undefined ? undefined : start + limit);
 };
 
 export const getTransactionById = async (id: string) => {
