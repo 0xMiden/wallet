@@ -10,10 +10,15 @@ import { useWalletStore } from 'lib/store';
  * The guardian endpoint the current account actually uses. Mirrors the
  * backend's `resolveGuardianEndpoint`: prefer the per-account
  * `guardianEndpoint` (set at create/recovery and updated on switch-guardian),
- * falling back to the legacy global `GUARDIAN_URL_STORAGE_KEY` for records
- * created before the field existed. Reading only the global key here is wrong:
+ * falling back to the legacy global `GUARDIAN_URL_STORAGE_KEY` for records the
+ * on-chain backfill couldn't resolve. Reading only the global key here is wrong:
  * switch-guardian persists onto the account record, so the global key goes
  * stale and the UI would keep naming the pre-switch operator.
+ *
+ * The global-key read is retained as a frozen, read-only, never-written
+ * last-resort fallback (#408 stage 3) — see `resolveGuardianEndpoint`. It is no
+ * longer written anywhere, so the storage-change subscription below only ever
+ * fires on legacy values; it stays wired for parity with the backend resolver.
  */
 export function useCurrentGuardianEndpoint(): { endpoint: string; refresh: () => void } {
   const accountEndpoint = useWalletStore(s => s.currentAccount?.guardianEndpoint);

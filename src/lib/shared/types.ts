@@ -394,12 +394,15 @@ export interface WalletAccount {
   // once the cold+guardian-signed update_signers tx lands on-chain.
   requiresHotKeyRotation?: boolean;
   /**
-   * Guardian operator endpoint this account is registered with. Set at create /
-   * recovery time and updated when the user switches guardians. Per-account so
-   * multiple Guardian accounts can live on different operators — absence means a
-   * record created before this field existed, in which case consumers fall back
-   * to the legacy global `GUARDIAN_URL_STORAGE_KEY` (see `resolveGuardianEndpoint`).
-   * Non-Guardian accounts leave this undefined.
+   * Guardian operator endpoint this account is registered with — the
+   * authoritative source of truth for endpoint resolution (#408). Set at create /
+   * recovery time, stamped onto legacy accounts by the unlock-time on-chain
+   * backfill, and updated when the user switches guardians. Per-account so
+   * multiple Guardian accounts can live on different operators. When absent (a
+   * legacy record the backfill couldn't resolve on-chain), consumers fall back
+   * to the frozen, read-only, never-written legacy global
+   * `GUARDIAN_URL_STORAGE_KEY` (see `resolveGuardianEndpoint`). Non-Guardian
+   * accounts leave this undefined.
    */
   guardianEndpoint?: string;
   /**

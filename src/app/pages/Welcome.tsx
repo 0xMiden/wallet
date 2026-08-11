@@ -165,6 +165,14 @@ const Welcome: FC = () => {
     // matches the Chrome E2E's private default and keeps non-guardian specs
     // independent of a guardian backend.
     const bypassWalletType = params.get('walletType') === 'guardian' ? WalletType.Guardian : WalletType.OffChain;
+    // Guardian endpoint override for the bypass. Production sets this via the
+    // ChooseGuardian / ImportRecoveryMethod screens, which the bypass skips — so
+    // thread it from the `guardianUrl` param the E2E helper passes. register()
+    // forwards it as the guardianEndpoint override, exactly like the real picker,
+    // so createGuardianAccount (create) and Vault.spawn's recovery scan (import)
+    // bind to it rather than the retired global GUARDIAN_URL_STORAGE_KEY read
+    // (#408 stage 3). Only meaningful for a Guardian wallet.
+    const bypassGuardianUrl = params.get('guardianUrl') || undefined;
     // Optional `seed` param: a space- or comma-separated mnemonic. When present,
     // import that exact seed (onboardingType=Import drives registerWallet's
     // isImport=true) instead of generating a fresh mnemonic + Create. This lets
@@ -194,6 +202,9 @@ const Welcome: FC = () => {
     (globalThis as { __TEST_LAST_GENERATED_SEED__?: string }).__TEST_LAST_GENERATED_SEED__ = testSeed.join(' ');
     const testPassword = params.get('password') || 'password1';
     setWalletType(bypassWalletType);
+    if (bypassWalletType === WalletType.Guardian && bypassGuardianUrl) {
+      setGuardianEndpoint(bypassGuardianUrl);
+    }
     setSeedPhrase(testSeed);
     setPassword(testPassword);
     setOnboardingType(bypassOnboardingType);

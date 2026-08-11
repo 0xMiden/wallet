@@ -33,7 +33,7 @@ import { AuthScheme, GuardianSyncStatus, SignEvmOperation, WalletAccount, Wallet
 import { WalletType } from 'screens/onboarding/types';
 
 import { compareAccountIds } from '../activity/utils';
-import { fetchFromStorage, putToStorage } from '../front/storage';
+import { fetchFromStorage } from '../front/storage';
 import type { CreatedGuardianKeys } from '../guardian/account';
 import {
   getGuardianCommitmentFromAccount,
@@ -353,16 +353,18 @@ export class Vault {
       // Clear storage before any inserts to avoid wiping newly inserted keys later.
       // The picked/probed guardian endpoint now arrives explicitly via the
       // `guardianEndpoint` param (stage 1 of #408) and is threaded straight into
-      // the create/recovery branches below, so it no longer depends on surviving
-      // this wipe. The snapshot/restore is retained only so any legacy global
-      // `GUARDIAN_URL_STORAGE_KEY` written by a prior install still resolves for
-      // pre-existing accounts; stage 3 removes the global key entirely.
+      // the create/recovery branches below.
+      //
+      // The global `GUARDIAN_URL_STORAGE_KEY` is now frozen and never written
+      // anywhere (#408 stage 3), so we no longer restore it across the wipe. We
+      // DO still snapshot its pre-wipe value into this local so the Guardian-
+      // recovery branch below can fall back to it when the operator probe
+      // detected nothing — a legacy custom/self-hosted guardian whose only
+      // pointer is this key. That fallback is now purely in-memory: the value is
+      // read once here and passed forward; it is never written back to storage.
       console.log('[Vault.spawn] Step 3: clearing storage...');
-      const preservedGuardianUrl = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
+      const legacyGlobalGuardianUrl = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
       await clearStorage();
-      if (preservedGuardianUrl) {
-        await putToStorage(GUARDIAN_URL_STORAGE_KEY, preservedGuardianUrl);
-      }
       console.log('[Vault.spawn] Step 4: storage cleared');
 
       // Determine security model: hardware-only or password-based
@@ -415,11 +417,12 @@ export class Vault {
       if (isGuardianRecovery) {
         console.log('[Vault.spawn] Step 7a: recovering Guardian accounts (adopt only — rotation deferred)...');
         // Prefer the endpoint the caller probed/picked for this recovery (stage 1
-        // of #408). Fall back to the legacy global key, then the network default,
-        // so a recovery that detected nothing still resolves exactly as before.
+        // of #408). Fall back to the legacy global key (snapshotted before the
+        // storage wipe above; it is frozen and no longer restored — #408 stage 3),
+        // then the network default, so a recovery that detected nothing still
+        // resolves exactly as before.
         const resolvedGuardianEndpoint =
-          guardianEndpoint ??
-          ((await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || getEffectiveDefaultGuardianEndpoint());
+          guardianEndpoint ?? (legacyGlobalGuardianUrl || getEffectiveDefaultGuardianEndpoint());
         // makeColdSeedDeriver pays the 2048-round PBKDF2 once across the whole
         // 20-index scan; a per-index deriveClientSeed closure would re-run it
         // for every index.
@@ -450,8 +453,9 @@ export class Vault {
               console.log('[Vault.spawn] Step 8: syncing state then creating Guardian account...');
               await midenClient.syncState();
               // Pass the caller's picked endpoint (stage 1 of #408) as the
-              // override; createGuardianAccount falls back to the legacy global
-              // key then the network default when it is undefined.
+              // override; createGuardianAccount falls back to the network default
+              // when it is undefined (it no longer consults the frozen global key
+              // for NEW accounts — #408 stage 3).
               const result = await midenClient.createGuardianMidenWallet(walletSeed, guardianEndpoint);
               // Guardian accounts are always ECDSA under the 3-key model.
               return {
@@ -729,8 +733,11 @@ export class Vault {
       // identical to the former raw global-key read for default-endpoint wallets,
       // but stays correct for non-default ones now that onboarding threads the
       // endpoint per-account instead of writing the global key (#408 stage 1).
-      // undefined when there is no existing Guardian account (createGuardianAccount
-      // then applies its own global/default fallback, exactly as before).
+      // undefined when there is no existing Guardian account, in which case
+      // createGuardianAccount binds to the network default — the frozen global
+      // key is no longer consulted for NEW accounts (#408 stage 3). (Practically
+      // unreachable: a custom global key is only ever written by pre-stage-1
+      // Guardian onboarding, which always creates a sibling Guardian account.)
       const existingGuardianAccount =
         walletType === WalletType.Guardian ? allAccounts.find(a => a.type === WalletType.Guardian) : undefined;
       const guardianEndpoint = existingGuardianAccount
@@ -1231,8 +1238,9 @@ export class Vault {
    * `resolveGuardianDrift` uses at runtime — then stamps the operator's endpoint
    * plus the commitment baseline onto the record. After that,
    * `resolveGuardianEndpoint` reads the per-account field instead of the legacy
-   * global `GUARDIAN_URL_STORAGE_KEY` (which this stage leaves in place as a
-   * fallback; its removal is stage 3).
+   * global `GUARDIAN_URL_STORAGE_KEY` (which stage 3 froze as a read-only,
+   * never-written last-resort fallback rather than removing — a legacy account
+   * on a custom guardian the backfill can't resolve still needs it).
    *
    * The built-in-operator commitment→option map is built ONCE up front
    * (`buildOperatorKeyMap`) and each account's on-chain commitment is looked up

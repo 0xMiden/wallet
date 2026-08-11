@@ -13,14 +13,12 @@ import {
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import * as secureHotKey from 'lib/secure-hot-key';
 import type { GeneratedHotKey } from 'lib/secure-hot-key';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from './account';
 import { registerGuardianOrigin } from './native-http';
 import { WalletSigner, type SignWordFunction } from './signer';
-import { fetchFromStorage } from '../front/storage';
 import { accountIdStringToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
@@ -158,13 +156,12 @@ export class MultisigService {
     accountId: string,
     webClient: MidenClient
   ) {
-    // TODO(#408 stage 2/3): this still reads the global GUARDIAN_URL_STORAGE_KEY
-    // DIRECTLY (no per-account fallback). Dead today (no production callers), but
-    // if a future feature wires it into a non-default guardian import it would
-    // silently bind to the default operator = broken guardian. Migrate to the
-    // per-account guardianEndpoint before the global key is removed.
-    const guardianEndpoint =
-      (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || getEffectiveDefaultGuardianEndpoint();
+    // No production callers today. If a future feature wires this into a
+    // non-default guardian import, thread the per-account `guardianEndpoint` in
+    // (as `MultisigService.init` does) rather than reintroducing a global-key
+    // read: the frozen global GUARDIAN_URL_STORAGE_KEY is intentionally not
+    // consulted here (#408 stage 3), so this binds to the network default.
+    const guardianEndpoint = getEffectiveDefaultGuardianEndpoint();
     const guardian = new GuardianHttpClient(guardianEndpoint);
     const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
     guardian.setSigner(signer);

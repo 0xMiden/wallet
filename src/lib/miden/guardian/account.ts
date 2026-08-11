@@ -17,8 +17,17 @@ import { fetchFromStorage } from '../front/storage';
  *
  * Prefers the per-account `guardianEndpoint` (set at create/recovery time and
  * on switch-guardian) so accounts on different operators don't collide. Falls
- * back to the legacy global `GUARDIAN_URL_STORAGE_KEY` for records created
- * before the field existed, then to the effective network's default guardian.
+ * back to the legacy global `GUARDIAN_URL_STORAGE_KEY`, then to the effective
+ * network's default guardian.
+ *
+ * The global-key fallback is retained BY DESIGN as a frozen, read-only,
+ * never-written last resort (#408 stage 3). The unlock-time backfill stamps a
+ * per-account endpoint on every legacy account it can resolve on-chain, but a
+ * legacy account on a custom/self-hosted/rotated guardian that the backfill
+ * cannot identify has this key as its only pointer — removing the fallback
+ * would strand it. Do NOT delete this read; full removal of the key needs a
+ * "re-enter your guardian URL" user flow (out of scope). The key is no longer
+ * written anywhere in the codebase — grep for writers to confirm.
  */
 export async function resolveGuardianEndpoint(account: WalletAccount): Promise<string> {
   if (account.guardianEndpoint) return account.guardianEndpoint;
@@ -187,11 +196,12 @@ export async function createGuardianAccount(
     // plugin and surfaces here only as opaque ciphertext.
     const hot = await secureHotKey.generateHotKey();
 
-    // Get Guardian endpoint and initialize client
-    const guardianEndpoint =
-      guardianEndpointOverride ??
-      (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) ??
-      getEffectiveDefaultGuardianEndpoint();
+    // Get Guardian endpoint and initialize client. Onboarding always threads the
+    // picked endpoint as the override (stage 1 of #408); with no override we use
+    // the effective network default. The frozen global GUARDIAN_URL_STORAGE_KEY
+    // is intentionally NOT consulted here (#408 stage 3) — a NEW account must
+    // never inherit a stale global pointer.
+    const guardianEndpoint = guardianEndpointOverride ?? getEffectiveDefaultGuardianEndpoint();
 
     registerGuardianOrigin(guardianEndpoint);
     const client = new MultisigClient(webClient, {

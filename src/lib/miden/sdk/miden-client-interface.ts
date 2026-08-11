@@ -251,10 +251,10 @@ export class MidenClientInterface {
       // NOTE: Guardian creation never reaches here — Vault.spawn and
       // createHDAccount always route Guardian to createGuardianMidenWallet
       // (which threads the picked endpoint). This branch passes no endpoint
-      // override, so createGuardianAccount would fall back to the global key /
-      // default. TODO(#408 stage 2/3): if anything ever routes Guardian through
-      // createMidenWallet, thread the per-account endpoint here before the
-      // global key is removed, or it silently binds to the default operator.
+      // override, so createGuardianAccount binds to the network default (the
+      // frozen global key is no longer consulted for NEW accounts — #408
+      // stage 3). If anything ever routes Guardian through createMidenWallet for
+      // a non-default operator, thread the per-account endpoint here.
       const { createGuardianAccount } = await import('../guardian/account');
       const { account } = await createGuardianAccount(this.client, seed);
       return getBech32AddressFromAccountId(account.id());
@@ -283,8 +283,9 @@ export class MidenClientInterface {
   ): Promise<GuardianAccountCreationResult> {
     const { createGuardianAccount } = await import('../guardian/account');
     // Forward the caller's picked endpoint as the override so the account binds
-    // to it (stage 1 of #408). When undefined, createGuardianAccount falls back
-    // to the legacy global key then the network default.
+    // to it (stage 1 of #408). When undefined, createGuardianAccount binds to
+    // the network default (the frozen global key is no longer consulted for NEW
+    // accounts — #408 stage 3).
     const {
       account,
       keys,
