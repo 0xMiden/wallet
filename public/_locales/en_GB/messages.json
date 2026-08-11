@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Account #:  $number$ ",
-    "englishSource": "Account #: $number$",
+    "message": "Address:  $number$ ",
+    "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
         "content": "$1"

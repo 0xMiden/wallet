@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Рахунок №: $number$ ",
-    "englishSource": "Account #: $number$",
+    "message": "Адреса: $number$ ",
+    "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
         "content": "$1"

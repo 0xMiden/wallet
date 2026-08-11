@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "계정 #: $number$ ",
-    "englishSource": "Account #: $number$",
+    "message": "주소: $number$ ",
+    "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
         "content": "$1"
