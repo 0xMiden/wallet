@@ -71,8 +71,8 @@ describe('miden-chain/constants', () => {
         expect(getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.DEVNET)).toEqual([
           {
             id: 'open-zeppelin',
-            name: 'Open-Zeppelin',
-            operatedBy: 'Open-Zeppelin',
+            name: 'OpenZeppelin',
+            operatedBy: 'OpenZeppelin',
             location: 'US-EAST',
             endpoint: 'https://guardian-stg.openzeppelin.com'
           }
@@ -99,6 +99,10 @@ describe('miden-chain/constants', () => {
           const { getGuardianOptionsForNetwork, MIDEN_NETWORK_NAME } = require('./constants');
           const opts = getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.LOCALNET);
           expect(opts.map((o: { endpoint: string }) => o.endpoint)).toContain('http://localhost:3001');
+          // The E2E-only operator must use the canonical brand spelling too (#464).
+          const ozB = opts.find((o: { endpoint: string }) => o.endpoint === 'http://localhost:3001');
+          expect(ozB?.name).toBe('OpenZeppelin B');
+          expect(ozB?.operatedBy).toBe('OpenZeppelin');
         });
       });
 

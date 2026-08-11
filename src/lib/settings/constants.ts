@@ -24,4 +24,14 @@ export type ThemeSetting = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 export const DEFAULT_THEME: ThemeSetting = 'system';
 
+/**
+ * @deprecated Frozen, read-only, never-written last-resort fallback (#408
+ * stage 3). Onboarding threads the guardian endpoint per-account and the
+ * unlock-time backfill stamps legacy accounts by on-chain commitment, so this
+ * key is no longer WRITTEN anywhere in the codebase. It is still READ as the
+ * final fallback for a legacy account on a custom/self-hosted/rotated guardian
+ * that the backfill can't identify — see `resolveGuardianEndpoint` and
+ * `useCurrentGuardianEndpoint`. Do not reintroduce writes; fully deleting the
+ * key needs a "re-enter your guardian URL" user flow (out of scope).
+ */
 export const GUARDIAN_URL_STORAGE_KEY = 'guardian_url_setting';

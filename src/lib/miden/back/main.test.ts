@@ -242,15 +242,16 @@ describe('processRequest', () => {
     expect(res.state).toEqual({ status: 'Ready', accounts: [] });
   });
 
-  it('NewWalletRequest delegates to registerNewWallet', async () => {
+  it('NewWalletRequest delegates to registerNewWallet (forwarding the picked guardianEndpoint)', async () => {
     const res = await dispatch({
       type: WalletMessageType.NewWalletRequest,
       walletType: 'on-chain',
       password: 'pw',
       mnemonic: 'm',
-      ownMnemonic: false
+      ownMnemonic: false,
+      guardianEndpoint: 'https://guardian.example'
     });
-    expect(Actions.registerNewWallet).toHaveBeenCalledWith('on-chain', 'pw', 'm', false);
+    expect(Actions.registerNewWallet).toHaveBeenCalledWith('on-chain', 'pw', 'm', false, 'https://guardian.example');
     expect(res.type).toBe(WalletMessageType.NewWalletResponse);
   });
 

@@ -189,10 +189,12 @@ async function runSync(): Promise<void> {
         const swapOrders = await classifySwapOrderNotes(rawNotes || [], accountPubKey, client, swapOrderRows);
         const notes: SerializedConsumableNote[] = (rawNotes || [])
           .map((note: any) => {
+            // Hoisted so the catch can name the note that failed to parse.
+            let noteId: string | undefined;
             try {
               // Partial (metadata-less) notes have no ID yet and cannot be
               // consumed — skip until sync completes them.
-              const noteId = note.id()?.toString();
+              noteId = note.id()?.toString();
               if (!noteId) return null;
               if (quarantined.has(noteId)) return null;
               const noteMeta = note.metadata();
@@ -209,7 +211,18 @@ async function runSync(): Promise<void> {
                 noteType: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown',
                 swapOrder: swapOrders.get(noteId)
               };
-            } catch {
+            } catch (err) {
+              // A note that throws mid-parse (corrupted metadata, unexpected
+              // structure, WASM boundary issue) would otherwise be dropped
+              // silently and its funds never surfaced — the user can't see or
+              // report a note they still own on-chain (#331). Log it (naming the
+              // note when we got that far) so a missing note is diagnosable.
+              // Still return null: an unparseable note can't be rendered or
+              // consumed this pass; a later sync may complete it.
+              console.warn(
+                `[SyncManager] failed to parse consumable note${noteId ? ` ${noteId}` : ''}; dropping from this sync:`,
+                err
+              );
               return null;
             }
           })
@@ -320,10 +333,25 @@ async function runSync(): Promise<void> {
         vaultAssets,
         accountPublicKey: accountPubKey
       };
-      chrome.storage.local.set({
-        miden_cached_consumable_notes: parsedNotes,
-        miden_sync_data: syncData
-      });
+      try {
+        // Use the webextension-polyfill `browser` (already imported for alarms)
+        // rather than raw `chrome.*`: on the Firefox/MV2 build `chrome.storage`
+        // is callback-based and would resolve the await immediately without ever
+        // rejecting, so `await chrome.storage…set` there is effectively still
+        // fire-and-forget. `browser` gives promise + error semantics on both.
+        await browser.storage.local.set({
+          miden_cached_consumable_notes: parsedNotes,
+          miden_sync_data: syncData
+        });
+      } catch (err) {
+        // A failed write (quota exceeded, storage unavailable) must not be
+        // swallowed silently: frontends read this cache, so on failure they keep
+        // the previous data until the next sync retries the write. Log it. The
+        // SyncCompleted signal below still fires — it only clears the sync
+        // indicator (the data itself is read from storage), so gating it would
+        // just hang that indicator without making the data any fresher.
+        console.warn('[SyncManager] Failed to persist sync data to local storage:', err);
+      }
 
       // Broadcast bare SyncCompleted as a signal (data is in chrome.storage.local)
       try {
