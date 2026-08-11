@@ -129,6 +129,8 @@ jest.mock('./transaction-processor', () => ({
 
 // ── Imports under test ─────────────────────────────────────────────
 
+import { WalletMessageType } from 'lib/shared/types';
+
 import { doSync, setupSyncManager } from './sync-manager';
 
 // Helper: build a fake consumable note WASM record
@@ -216,6 +218,22 @@ describe('doSync', () => {
         miden_sync_data: expect.objectContaining({ accountPublicKey: 'pk-1' })
       })
     );
+  });
+
+  it('logs the failure and does not signal SyncCompleted when the storage write fails (#386)', async () => {
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'n1', faucetId: 'f1' })]);
+    // Simulate a rejected write (e.g. QUOTA_BYTES exceeded / storage unavailable).
+    mockStorageSet.mockRejectedValueOnce(new Error('QUOTA_BYTES quota exceeded'));
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await doSync();
+
+    // The failed write must not be swallowed silently...
+    expect(errSpy).toHaveBeenCalled();
+    // ...and frontends must not be told to read a cache that was never written.
+    expect(mockBroadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: WalletMessageType.SyncCompleted }));
+
+    errSpy.mockRestore();
   });
 
   it('excludes quarantined notes from the cached consumable-notes write', async () => {
