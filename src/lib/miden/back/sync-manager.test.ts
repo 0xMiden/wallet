@@ -306,17 +306,22 @@ describe('doSync', () => {
     };
     mockClient.getConsumableNotes.mockResolvedValueOnce([corruptNote]);
 
-    await doSync();
+    try {
+      await doSync();
 
-    // The note is dropped from this sync (it cannot be parsed)…
-    const cacheCall = mockStorageSet.mock.calls.find(c => c[0] && 'miden_cached_consumable_notes' in c[0]);
-    expect(cacheCall?.[0].miden_cached_consumable_notes).toEqual([]);
-    // …but the failure is surfaced in the logs so the missing note is diagnosable.
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('failed to parse consumable note corrupt-note-id'),
-      expect.any(Error)
-    );
-    warnSpy.mockRestore();
+      // The note is dropped from this sync (it cannot be parsed)…
+      const cacheCall = mockStorageSet.mock.calls.find(c => c[0] && 'miden_cached_consumable_notes' in c[0]);
+      expect(cacheCall?.[0]?.miden_cached_consumable_notes).toEqual([]);
+      // …but the failure is surfaced in the logs so the missing note is diagnosable.
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('failed to parse consumable note corrupt-note-id'),
+        expect.any(Error)
+      );
+    } finally {
+      // Restore even if an assertion throws, so a failing run doesn't leave
+      // console.warn silenced for the rest of the suite.
+      warnSpy.mockRestore();
+    }
   });
 
   it('tolerates fetchTokenMetadata rejections and still writes sync data', async () => {
