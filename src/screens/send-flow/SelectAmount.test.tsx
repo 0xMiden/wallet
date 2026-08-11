@@ -189,6 +189,18 @@ describe('SelectAmount', () => {
       expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('available');
     });
 
+    it('shows the available-balance helper even in embedded mode when showBalanceHelper is on (#461)', () => {
+      // The swap "You Pay" field is embedded but must still show how much is
+      // spendable — previously embedded mode always stripped the helper.
+      renderComponent({ embedded: true, token: baseToken({ balance: 200 }) });
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('available');
+    });
+
+    it('keeps the balance helper off an embedded field when showBalanceHelper is false (swap "You Receive")', () => {
+      renderComponent({ embedded: true, showBalanceHelper: false });
+      expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('available');
+    });
+
     it('renders children below the amount field', () => {
       renderComponent({ children: <div data-testid="extra-child">extra</div> });
       expect(screen.getByTestId('extra-child')).toBeInTheDocument();
@@ -321,10 +333,12 @@ describe('SelectAmount', () => {
       renderComponent({ embedded: true });
       expect(screen.getByTestId('amount-input')).toBeInTheDocument();
       expect(screen.getByTestId('token-logo')).toBeInTheDocument();
-      // No network pill, no confirm button, no helper (helper prop is undefined).
+      // No network pill / confirm button (embedded strips the chrome), but the
+      // available-balance helper now shows — it's controlled by showBalanceHelper,
+      // not by embedded (#461).
       expect(screen.queryByText('miden')).not.toBeInTheDocument();
       expect(screen.queryByTestId('confirm-btn')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('ai-helper')).not.toBeInTheDocument();
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('available');
     });
 
     it('renders the "$" placeholder chip when embedded with no token', () => {
