@@ -246,11 +246,22 @@ describe('actions', () => {
   describe('unlock', () => {
     it('calls Vault.setup and unlocked with password', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
+      // The guardian-endpoint backfill makes external HTTP and must NOT gate the
+      // unlock UI: model it as a promise that never settles and assert unlock()
+      // still resolves (fired detached), while still proving it ran at unlock.
+      let backfillStarted = false;
       const mockVaultInstance = {
         migrateLegacyGuardianAccounts: jest.fn().mockResolvedValue(undefined),
         // Unlock also backfills wallet-derived EVM addresses onto legacy HD
         // accounts (needed by the earn flow) before reading the accounts list.
         backfillEvmAddresses: jest.fn().mockResolvedValue(undefined),
+        // ...and stamps a per-account guardianEndpoint onto legacy Guardian
+        // accounts that predate the field (#408 stage 2) — detached, so a
+        // hanging operator probe can't stall unlock.
+        backfillGuardianEndpoints: jest.fn(() => {
+          backfillStarted = true;
+          return new Promise<void>(() => {}); // never resolves
+        }),
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),
@@ -258,6 +269,7 @@ describe('actions', () => {
       };
       Vault.setup.mockResolvedValueOnce(mockVaultInstance);
 
+      // Resolves even though backfillGuardianEndpoints never settles.
       await unlock('password123');
 
       expect(Vault.setup).toHaveBeenCalledWith('password123');
@@ -266,6 +278,9 @@ describe('actions', () => {
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockVaultInstance.fetchSettings).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
+      // Backfill was kicked off at unlock but did not block it.
+      expect(mockVaultInstance.backfillGuardianEndpoints).toHaveBeenCalled();
+      expect(backfillStarted).toBe(true);
     });
   });
 
