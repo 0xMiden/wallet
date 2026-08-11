@@ -94,18 +94,31 @@ const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<I
   'execute'
 ]);
 
-// Value-moving guardian tx-types whose leaf pipeline is safe to run offscreen
-// (issue #260, slice 6a). Structural types (switch-guardian / replace-hot-key /
-// update-procedure-threshold) and bridged-send / earn-deposit stay INLINE
-// unconditionally this slice — the structural ones carry cold co-sign /
-// mid-flight key persist / commit-wait that slice 6b will move, and bridged /
-// earn are deliberately left inline exactly like their non-guardian
-// counterparts. An unknown type is not in the set, so it stays inline too.
+// Guardian tx-types whose leaf pipeline is safe to run offscreen (issue #260).
+// Slice 6a routed the four value-moving types (send / consume / swap / execute);
+// slice 6b adds the three STRUCTURAL types (switch-guardian / replace-hot-key /
+// update-procedure-threshold). All seven cross the SAME serializable waist: by
+// the time control reaches the leaf, `signAndCreateTransactionRequest` has folded
+// every co-signature (hot + cold + guardian) into the `tr` advice map, which
+// `TransactionRequest.serialize()` preserves (§4.0), so only `executeRequest →
+// prove → submit → apply` moves. Everything the structural types add is SW-side
+// and BEFORE/AFTER this leaf, unchanged flag-on vs flag-off: the switch-guardian
+// cold co-sign and the replace-hot-key `persistNewHotKey` run before dispatch, and
+// the post-pipeline `waitForTransactionCommit` (id re-derived from the round-tripped
+// result) runs after. A killed structural leaf → Failed with NO auto-requeue (the
+// slice-6a behavior; structural types are excluded from REQUEUEABLE_TYPES, so the
+// only recovery is a user-initiated re-run that builds a fresh proposal against the
+// post-change chain state — never a double-apply). bridged-send / earn-deposit stay
+// INLINE unconditionally, exactly like their non-guardian counterparts. An unknown
+// type is not in the set, so it stays inline too.
 const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
   'send',
   'consume',
   'swap',
-  'execute'
+  'execute',
+  'switch-guardian',
+  'replace-hot-key',
+  'update-procedure-threshold'
 ]);
 
 // Cooldown (seconds) applied to a tx requeued after a transient guardian
@@ -538,9 +551,11 @@ const ensureGuardianRecallableSendRequestBytes = async (
  * and is byte-identical to the old inline path — the flag-OFF branch of the
  * per-type route calls exactly this.
  *
- * When the offscreen client is enabled, value-moving guardian types run the SAME
- * leaf offscreen via `dispatchGuardianPipeline` instead; everything BEFORE this
- * (proposal creation, guardian HTTP co-sign, cold co-sign,
+ * When the offscreen client is enabled, the routable guardian types (value-moving
+ * in slice 6a; structural — switch-guardian / replace-hot-key /
+ * update-procedure-threshold — in slice 6b) run the SAME leaf offscreen via
+ * `dispatchGuardianPipeline` instead; everything BEFORE this (proposal creation,
+ * guardian HTTP co-sign, cold co-sign, mid-flight `persistNewHotKey`,
  * `signAndCreateTransactionRequest`) and AFTER it (abandonCandidate on failure,
  * waitForTransactionCommit, completion handlers) stays SW-side, unchanged.
  *

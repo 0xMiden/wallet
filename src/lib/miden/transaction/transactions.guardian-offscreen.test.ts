@@ -1,32 +1,49 @@
 /**
- * Guardian write LEAF PIPELINE → offscreen routing (issue #260, slice 6a).
+ * Guardian write LEAF PIPELINE → offscreen routing (issue #260, slices 6a + 6b).
  *
  * These tests exercise `generateTransaction` at the routing seam: with the
- * offscreen client flag OFF the value-moving guardian leaf runs inline
+ * offscreen client flag OFF the routable guardian leaf runs inline
  * (`runGuardianPipeline` → the mocked SW client's execute→prove→submit→apply);
  * with it ON the SAME leaf crosses to `dispatchGuardianPipeline`. Everything
- * around the leaf — proposal creation, `signAndCreateTransactionRequest`, the
- * `abandonCandidate` submit-catch, the value-moving apply-after-submit classifier
- * — stays SW-side and is asserted unchanged.
+ * around the leaf — proposal creation, cold co-sign, mid-flight `persistNewHotKey`,
+ * `signAndCreateTransactionRequest`, the `abandonCandidate` submit-catch, the
+ * apply-after-submit classifier, and the structural `waitForTransactionCommit` —
+ * stays SW-side and is asserted unchanged.
+ *
+ * Slice 6a covers the four VALUE-MOVING types (send / consume / swap / execute);
+ * slice 6b adds the three STRUCTURAL types (switch-guardian / replace-hot-key /
+ * update-procedure-threshold), which additionally exercise: the cold co-sign +
+ * `persistNewHotKey` running SW-side BEFORE dispatch (byte-identical order flag-on
+ * vs flag-off), the SW-side `waitForTransactionCommit` running AFTER with the
+ * re-derived tx id, and the structural apply-after-submit classifier (reconcile for
+ * replace-hot-key / switch-guardian; Fail for update-procedure-threshold).
  *
  * Coverage:
  *   - §4.0 round-trip: the co-signed request crosses to the offscreen leaf as the
  *     EXACT `tr.serialize()` bytes (advice map — carrying the co-signatures —
  *     intact; the byte-level serialize→transport→deserialize→execute round-trip is
  *     proven in miden-client-proxy.test.ts + offscreen/main.test.ts).
- *   - flag routing OFF/ON per value-moving type; structural / bridged stay inline
+ *   - flag routing OFF/ON per value-moving AND structural type; bridged stays inline
  *     even with the flag ON.
  *   - flag-off/flag-on byte-identity: the completion handler receives a result with
  *     identical `serialize()` bytes on both paths.
+ *   - persistNewHotKey ordering parity: replace-hot-key persists the new hot key
+ *     SW-side, exactly once, with identical args and BEFORE the leaf, on both flags.
+ *   - waitForTransactionCommit: for structural types it runs SW-side AFTER the leaf
+ *     with the id re-derived from `result.executedTransaction().id()`, on both flags.
  *   - kill-window (funds-safety): an offscreen `OperationAbortedError` (wedge-kill)
  *     runs `abandonCandidate` exactly once (as inline) and marks the row FAILED —
  *     it is NOT auto-requeued, and it dispatches exactly ONCE. A guardian
  *     send/swap/execute has NO input-note nullifier (each retry builds a FRESH
  *     proposal with a new random output-note serial), so auto-requeueing would let
- *     the retry build a second valid send and DOUBLE-SEND. Falling through to Failed
- *     matches the proven non-guardian path (slices 5a/5b) and guardian flag-OFF.
+ *     the retry build a second valid send and DOUBLE-SEND; a structural op is
+ *     nonce-gated and excluded from REQUEUEABLE_TYPES (never auto-requeued), so its
+ *     only recovery is a user re-run against post-change chain state — never a
+ *     double-apply. Falling through to Failed matches slices 5a/5b and flag-OFF.
  *   - errorCode: a round-tripped `ApplyTransactionAfterSubmitFailed` reaches the
- *     GUARDIAN classifier → marks Completed (mirrors the fixed non-guardian bug).
+ *     GUARDIAN classifier → value-moving marks Completed (mirrors the fixed
+ *     non-guardian bug); structural replace-hot-key / switch-guardian route to the
+ *     reconcile handler, update-procedure-threshold to Failed.
  */
 
 import { generateTransaction } from './index';
@@ -76,8 +93,14 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
   clearGuardianServiceFor: jest.fn()
 }));
 
+// Cold-service factory (structural ops: switch-guardian cold co-sign, and the
+// cold-bound service that replace-hot-key / update-procedure-threshold create
+// their proposal + final `signAndCreateTransactionRequest` on). Controllable so a
+// structural test can inspect the co-signed-request bytes and abandon/complete
+// call order.
+const mockBuildColdMultisigService = jest.fn();
 jest.mock('lib/miden/guardian', () => ({
-  MultisigService: { buildColdMultisigService: jest.fn() }
+  MultisigService: { buildColdMultisigService: (...a: unknown[]) => mockBuildColdMultisigService(...a) }
 }));
 
 const mockWithWasmClientLock = jest.fn(async (fn: () => Promise<unknown>) => fn());
@@ -91,11 +114,15 @@ jest.mock('../sdk/miden-client', () => ({
 // The routing seam under test: `dispatchGuardianPipeline` is a controllable spy,
 // and `midenClientProxy.syncState` is the pre-guardian sync (no-op here).
 const mockDispatchGuardianPipeline = jest.fn();
+// The SW-side local-client `getAccount` (structural ops resolve the SDK account
+// here to build a cold service / mint the replacement hot key). Value-moving
+// types never call it, so the default `null` is harmless for them.
+const mockProxyGetAccount = jest.fn(async (..._a: unknown[]) => null as unknown);
 jest.mock('../back/miden-client-proxy', () => ({
   dispatchGuardianPipeline: (...a: unknown[]) => mockDispatchGuardianPipeline(...a),
   midenClientProxy: {
     syncState: jest.fn(async () => {}),
-    getAccount: jest.fn(async () => null)
+    getAccount: (...a: unknown[]) => mockProxyGetAccount(...a)
   }
 }));
 
@@ -461,4 +488,283 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
       expect(complete).not.toHaveBeenCalled();
     }
   );
+});
+
+// ─── Structural guardian types (issue #260, slice 6b) ────────────────────────
+// switch-guardian / replace-hot-key / update-procedure-threshold route the SAME
+// leaf offscreen as the value-moving types, but each carries SW-side side effects
+// — cold co-sign, mid-flight persistNewHotKey, post-pipeline commit-wait — that
+// must run in the SAME order (and only SW-side) on both flag states.
+
+// One structural service carrying every proposal creator + the cold `signProposal`,
+// the final `signAndCreateTransactionRequest`, and abandon. A single instance backs
+// BOTH getOrCreateMultisigService (the switch-guardian hot service) and
+// buildColdMultisigService (the cold co-sign / the cold-bound service that
+// replace-hot-key + update-procedure-threshold build on), so a structural run has a
+// single service object to assert on.
+const makeStructuralService = () => ({
+  createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop', nonce: 7 } })),
+  createReplaceHotKeyProposal: jest.fn(async () => ({
+    proposal: { id: 'prop', nonce: 7 },
+    newHot: { publicKeyHex: '0xNEWHOT', ciphertext: new Uint8Array([0xab, 0xcd]) }
+  })),
+  createUpdateProcedureThresholdProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
+  signProposal: jest.fn(async () => {}),
+  signAndCreateTransactionRequest: jest.fn(async () => ({
+    serialize: () => new Uint8Array(TR_BYTES),
+    authArg: () => undefined
+  })),
+  abandonCandidate: jest.fn(async () => {}),
+  sync: jest.fn(async () => {})
+});
+
+// The guardian provider a structural run needs: it resolves a wallet account by
+// publicKey (in-sync, so the sync guard is a no-op) and — for replace-hot-key —
+// persists the freshly-minted hot key.
+const makeStructuralProvider = () => ({
+  getAccounts: async () => [{ publicKey: 'guardian-acc', guardianSyncStatus: 'in-sync' }],
+  getPublicKeyForCommitment: async () => 'pk',
+  signWord: async () => 'sig',
+  persistNewHotKey: jest.fn(async () => {})
+});
+
+type StructuralCase = { type: string; row: Record<string, unknown>; complete: jest.Mock };
+const structuralCases = (): StructuralCase[] => [
+  {
+    type: 'switch-guardian',
+    row: { type: 'switch-guardian', extraInputs: { newGuardianEndpoint: 'https://guardian.new' } },
+    complete: mockComplete.switchGuardian
+  },
+  {
+    type: 'replace-hot-key',
+    row: { type: 'replace-hot-key', extraInputs: {} },
+    complete: mockComplete.replaceHotKey
+  },
+  {
+    type: 'update-procedure-threshold',
+    row: { type: 'update-procedure-threshold', extraInputs: { procedure: '0xproc', threshold: 2 } },
+    complete: mockComplete.updateThreshold
+  }
+];
+
+// All three structural completion handlers take `result` at arg index 1
+// (switch-guardian: (tx, result, service, provider); replace-hot-key:
+// (tx, result, provider); update-procedure-threshold: (tx, result, service)).
+const STRUCTURAL_RESULT_ARG = 1;
+
+/** Arrange a full structural guardian run: row, one shared service, inline client, provider. */
+function arrangeStructural(id: string, extra: Record<string, unknown>, result = makeResult()) {
+  const row = buildTx(id, extra);
+  txStore.push({ ...row });
+  const service = makeStructuralService();
+  mockGetOrCreateMultisigService.mockResolvedValue(service);
+  mockBuildColdMultisigService.mockResolvedValue(service);
+  mockProxyGetAccount.mockResolvedValue({ id: () => ({ toString: () => 'sdk-acc' }) });
+  const inline = makeInlineClient(result);
+  mockGetMidenClient.mockResolvedValue(inline);
+  mockIsGuardianAccount.mockResolvedValue(true);
+  const structuralProvider = makeStructuralProvider();
+  return { row, service, inline, provider: structuralProvider };
+}
+
+describe('structural guardian leaf routing — flag OFF (inline)', () => {
+  it.each(structuralCases())(
+    '$type: runs the inline pipeline, never dispatchGuardianPipeline; commit-wait uses the re-derived id',
+    async ({ row, complete }) => {
+      const { service, inline, provider: sp } = arrangeStructural(`s-off-${row.type}`, row);
+
+      await generateTransaction(buildTx(`s-off-${row.type}`, row) as never, signCallback, false, sp as never);
+
+      // The inline SW leaf ran once; the offscreen leaf was never touched.
+      expect(inline.__executeRequest).toHaveBeenCalledTimes(1);
+      expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+      // Structural completion finalized with the inline result; abandon never ran.
+      expect(complete).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      // waitForTransactionCommit ran SW-side with the id re-derived from the result.
+      expect(inline.waitForTransactionCommit).toHaveBeenCalledTimes(1);
+      expect(inline.waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
+    }
+  );
+});
+
+describe('structural guardian leaf routing — flag ON (offscreen)', () => {
+  it.each(structuralCases())(
+    '$type: crosses the co-signed request bytes to dispatchGuardianPipeline; commit-wait still runs SW-side',
+    async ({ row, complete }) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      const dispatched = makeResult();
+      mockDispatchGuardianPipeline.mockResolvedValue(dispatched);
+      const { inline, provider: sp } = arrangeStructural(`s-on-${row.type}`, row);
+
+      await generateTransaction(buildTx(`s-on-${row.type}`, row) as never, signCallback, false, sp as never);
+
+      // The inline SW leaf never executed; the offscreen leaf did, exactly once.
+      expect(inline.__executeRequest).not.toHaveBeenCalled();
+      expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+      const [acct, trBytes, delegate, cb] = mockDispatchGuardianPipeline.mock.calls[0];
+      expect(acct).toBe('guardian-acc');
+      // §4.0: the fully co-signed request (cold co-sign folded in for switch-guardian)
+      // crossed as the EXACT serialized bytes.
+      expect(Array.from(trBytes as Uint8Array)).toEqual(TR_BYTES);
+      expect(delegate).toBe(false);
+      expect(cb).toBe(signCallback);
+      // waitForTransactionCommit STILL runs SW-side (not offscreen), with the id
+      // re-derived from the round-tripped result — the id never crosses separately.
+      expect(inline.waitForTransactionCommit).toHaveBeenCalledTimes(1);
+      expect(inline.waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
+      // Structural completion finalized with the round-tripped result.
+      expect(complete).toHaveBeenCalledTimes(1);
+      expect(complete.mock.calls[0][STRUCTURAL_RESULT_ARG]).toBe(dispatched);
+    }
+  );
+});
+
+describe('structural guardian leaf byte-identity — flag ON result bytes == flag OFF result bytes', () => {
+  it.each(structuralCases())(
+    '$type: completion handler receives identical serialize() bytes on both paths',
+    async ({ row, complete }) => {
+      // Flag OFF: inline leaf returns a result serializing to [7,7,7].
+      const { provider: spOff } = arrangeStructural(`sbi-off-${row.type}`, row, makeResult([7, 7, 7]));
+      await generateTransaction(buildTx(`sbi-off-${row.type}`, row) as never, signCallback, false, spOff as never);
+      const offResult = complete.mock.calls[0][STRUCTURAL_RESULT_ARG] as ReturnType<typeof makeResult>;
+
+      // Flag ON: the offscreen leaf returns a result serializing to the SAME [7,7,7].
+      jest.clearAllMocks();
+      txStore.length = 0;
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockDispatchGuardianPipeline.mockResolvedValue(makeResult([7, 7, 7]));
+      const { provider: spOn } = arrangeStructural(`sbi-on-${row.type}`, row, makeResult([7, 7, 7]));
+      await generateTransaction(buildTx(`sbi-on-${row.type}`, row) as never, signCallback, false, spOn as never);
+      const onResult = complete.mock.calls[0][STRUCTURAL_RESULT_ARG] as ReturnType<typeof makeResult>;
+
+      expect(Array.from(offResult.serialize())).toEqual(Array.from(onResult.serialize()));
+      expect(Array.from(onResult.serialize())).toEqual([7, 7, 7]);
+    }
+  );
+});
+
+describe('structural persistNewHotKey ordering parity — SW-side, once, before the leaf, both flags', () => {
+  it.each([
+    { flag: 'off', on: false },
+    { flag: 'on', on: true }
+  ])('replace-hot-key persists the new hot key before the leaf (flag $flag)', async ({ on }) => {
+    if (on) {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+    }
+    const row = { type: 'replace-hot-key', extraInputs: {} };
+    const { service, inline, provider: sp } = arrangeStructural(`persist-${on}`, row);
+
+    await generateTransaction(buildTx(`persist-${on}`, row) as never, signCallback, false, sp as never);
+
+    // Persisted exactly once, with the freshly-minted key material, on BOTH flags.
+    expect(sp.persistNewHotKey).toHaveBeenCalledTimes(1);
+    expect(sp.persistNewHotKey).toHaveBeenCalledWith('0xNEWHOT', new Uint8Array([0xab, 0xcd]));
+
+    // Ordering: persist ran BEFORE signAndCreateTransactionRequest, which ran BEFORE the
+    // leaf — the SAME relative order flag-on vs flag-off. The offscreen move does not
+    // change when persistNewHotKey runs relative to submit, so a kill can never desync
+    // the local hot key from chain differently than flag-off does today.
+    const persistOrder = sp.persistNewHotKey.mock.invocationCallOrder[0]!;
+    const signOrder = service.signAndCreateTransactionRequest.mock.invocationCallOrder[0]!;
+    expect(persistOrder).toBeLessThan(signOrder);
+    const leafOrder = (
+      on
+        ? mockDispatchGuardianPipeline.mock.invocationCallOrder[0]
+        : inline.__executeRequest.mock.invocationCallOrder[0]
+    )!;
+    expect(signOrder).toBeLessThan(leafOrder);
+  });
+});
+
+describe('structural guardian leaf kill-window (funds-safety) — an offscreen kill FAILS the row, no auto-requeue', () => {
+  it.each(structuralCases())(
+    '$type: an OperationAbortedError marks the row Failed, abandons once, dispatches once, never requeues',
+    async ({ row, complete }) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      // A deadline/`closeDocument` wedge-kill → retryable OperationAbortedError. A
+      // structural op is nonce-gated and EXCLUDED from REQUEUEABLE_TYPES, so a killed row
+      // is terminally Failed (never auto-requeued): the only recovery is a user re-run
+      // that builds a FRESH proposal against the post-change chain state, which — because
+      // a landed structural change advanced the nonce and changed guardian state — is a
+      // no-op/rejected against that new state, never a double-apply. Same terminal-Failed
+      // model as slice 6a and guardian flag-OFF.
+      mockDispatchGuardianPipeline.mockRejectedValue(new OperationAbortedError('op-kill', 'deadline'));
+      const { service, provider: sp } = arrangeStructural(`s-kill-${row.type}`, row);
+
+      await generateTransaction(buildTx(`s-kill-${row.type}`, row) as never, signCallback, false, sp as never);
+
+      // Dispatched exactly ONCE — the abort did NOT trigger a second offscreen submit.
+      expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+      // The SW submit-catch abandoned the guardian candidate (idempotent), exactly once.
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      // The row is terminally FAILED — NOT requeued, and carries no requeue cooldown stamp.
+      const finalRow = txStore.find(r => r.id === `s-kill-${row.type}`)!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
+      expect(finalRow.nextEligibleAt).toBeUndefined();
+      // No structural completion ran — the change is not (re-)applied locally.
+      expect(complete).not.toHaveBeenCalled();
+    }
+  );
+});
+
+describe('structural guardian leaf errorCode preservation → guardian classifier routes per type', () => {
+  it.each([
+    {
+      type: 'replace-hot-key',
+      row: { type: 'replace-hot-key', extraInputs: {} },
+      complete: mockComplete.replaceHotKey
+    },
+    {
+      type: 'switch-guardian',
+      row: { type: 'switch-guardian', extraInputs: { newGuardianEndpoint: 'https://guardian.new' } },
+      complete: mockComplete.switchGuardian
+    }
+  ])(
+    '$type: a round-tripped ApplyTransactionAfterSubmitFailed reaches the RECONCILE handler (row not Failed)',
+    async ({ type, row, complete }) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
+      applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+      mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
+      const { service, provider: sp } = arrangeStructural(`s-apply-${type}`, row);
+
+      await generateTransaction(buildTx(`s-apply-${type}`, row) as never, signCallback, false, sp as never);
+
+      // The GUARDIAN classifier read the round-tripped errorCode and routed the structural
+      // op to reconcileStructuralApplyFailure — the change IS on chain, so the completion
+      // handler runs (with an UNDEFINED result) to finalize the vault / guardian state
+      // rather than cancelling. This proves the errorCode survived the offscreen round-trip
+      // and reached the guardian classifier.
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(complete).toHaveBeenCalledTimes(1);
+      expect(complete.mock.calls[0]![STRUCTURAL_RESULT_ARG]).toBeUndefined();
+      const finalRow = txStore.find(r => r.id === `s-apply-${type}`)!;
+      expect(finalRow.status).not.toBe(ITransactionStatus.Failed);
+    }
+  );
+
+  it('update-procedure-threshold: a round-tripped ApplyTransactionAfterSubmitFailed reaches the classifier → Failed', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
+    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
+    const row = { type: 'update-procedure-threshold', extraInputs: { procedure: '0xproc', threshold: 2 } };
+    const { service, provider: sp } = arrangeStructural('s-apply-upt', row);
+
+    await generateTransaction(buildTx('s-apply-upt', row) as never, signCallback, false, sp as never);
+
+    // update-procedure-threshold has NO reconcile handler (unlike replace-hot-key /
+    // switch-guardian): the classifier routes its post-submit apply failure straight to
+    // cancelTransaction → Failed — byte-identical to flag-OFF (the same inline apply throw
+    // classifies the same way). The errorCode still reached the classifier; the
+    // type-appropriate outcome is Failed, and the completion handler does not run.
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(mockComplete.updateThreshold).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === 's-apply-upt')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+  });
 });
