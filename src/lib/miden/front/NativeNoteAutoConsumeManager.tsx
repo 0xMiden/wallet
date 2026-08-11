@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
+import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension } from 'lib/platform';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 
@@ -67,6 +68,10 @@ export function NativeNoteAutoConsumeManager(): null {
             console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
           }
         }
+        // This route-independent consumer is the one that fires when the user is
+        // NOT on Home, so it must also dismiss the now-stale "click to claim"
+        // notification once it auto-claims the note (#459).
+        clearNoteReceivedNotification();
         // Drive the queue whenever there is uncompleted work. This suppresses the main
         // over-kick: a Completed note lingering in getConsumableNotes during chain-sync lag
         // leaves the queue empty, so no loop is spawned. While a consume is genuinely
