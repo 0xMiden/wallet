@@ -2,7 +2,11 @@ export const DELEGATE_PROOF_STORAGE_KEY = 'delegate_proof_setting_key';
 export const DEFAULT_DELEGATE_PROOF = true;
 
 export const AUTO_CLOSE_STORAGE_KEY = 'auto_close_setting';
-export const DEFAULT_AUTO_CLOSE = true;
+// Off by default: a completed-transaction screen must stay visible until the
+// user picks an action (Done / View activities) rather than silently redirecting
+// home after a delay (#472). The setting remains configurable via
+// setAutoCloseSetting for anyone who opts into auto-dismiss.
+export const DEFAULT_AUTO_CLOSE = false;
 
 export const AUTO_CONSUME_STORAGE_KEY = 'auto_consume_setting';
 export const DEFAULT_AUTO_CONSUME = true;

@@ -357,6 +357,30 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
+  it('stays on the completion screen (no auto-redirect) when auto-close is disabled — the #472 default', async () => {
+    isAutoCloseEnabledMock.mockReturnValue(false);
+    navigateMock.mockClear();
+    window.location.hash = '#/generating-transaction/tx-1';
+    mockRowState = { row: makeTx({ stage: 'submitting' }), loaded: true };
+
+    const { root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    mockRowState = { row: makeTx({ status: 2, transactionId: '0xhash' }), loaded: true };
+    await act(async () => {
+      root.render(<GeneratingTransactionPage txId="tx-1" />);
+    });
+    await flush();
+
+    // Well past AUTO_CLOSE_DELAY_MS — the screen must not redirect home.
+    await act(async () => {
+      jest.advanceTimersByTime(30_000);
+    });
+    await flush();
+
+    expect(navigateMock).not.toHaveBeenCalledWith('/');
+    act(() => root.unmount());
+  });
+
   it('does not navigate on auto-close when the hash is not on the generating-transaction route', async () => {
     // onClose early-returns when the hash does not include 'generating-transaction'.
     isAutoCloseEnabledMock.mockReturnValue(true);

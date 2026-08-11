@@ -110,6 +110,11 @@ describe('settings helpers', () => {
       expect(isAutoCloseEnabled()).toBe(DEFAULT_AUTO_CLOSE);
     });
 
+    it('defaults to off so a completed transaction screen is not auto-dismissed before the user acts (#472)', () => {
+      // No stored setting (localStorage cleared in beforeEach).
+      expect(isAutoCloseEnabled()).toBe(false);
+    });
+
     it('sets and gets true value', () => {
       setAutoCloseSetting(true);
       expect(isAutoCloseEnabled()).toBe(true);
