@@ -4,6 +4,7 @@ import { generateMnemonic } from 'bip39';
 import wordsList from 'bip39/src/wordlists/english.json';
 
 import { formatMnemonic } from 'app/defaults';
+import { postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
 import { GUARDIAN_PROBE_WAIT_DEADLINE_MS, useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
@@ -134,7 +135,9 @@ const ForgotPassword: FC = () => {
           setIsLoading(true);
           await register();
           setIsLoading(false);
-          navigate('/');
+          // Guardian recovery just completed — hand off to the side panel like
+          // first-run onboarding rather than always entering in-tab (#428).
+          navigate(postOnboardingRoute());
           break;
         case 'back':
           if (step === OnboardingStep.VerifySeedPhrase) {

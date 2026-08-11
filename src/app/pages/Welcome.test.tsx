@@ -66,7 +66,8 @@ jest.mock('lib/biometric', () => ({
 // Chrome side-panel handoff availability (captured once via useMemo at mount).
 let mockCanHandoff = false;
 jest.mock('lib/extension/side-panel-handoff', () => ({
-  canHandoffToSidePanel: () => mockCanHandoff
+  canHandoffToSidePanel: () => mockCanHandoff,
+  postOnboardingRoute: () => (mockCanHandoff ? '/finish-side-panel' : '/')
 }));
 
 // Miden context + store + intercom sync.
@@ -980,6 +981,22 @@ describe('Welcome — side-panel handoff', () => {
     });
     expect(mockRegisterWallet).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalledWith('/finish-side-panel');
+  });
+
+  it('routes a successful guardian-import confirmation to the side-panel handoff (#428)', async () => {
+    mockCanHandoff = true;
+    await renderWelcome();
+    // Recover an existing wallet: import seed → password → guardian recovery.
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    mockNavigate.mockClear();
+    // The auto-create effect is Create-only, so import/recovery completes via
+    // the classic confirmation handler — which must now hand off to the panel.
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/');
   });
 });
 
