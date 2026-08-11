@@ -321,7 +321,12 @@ async function runSync(): Promise<void> {
         accountPublicKey: accountPubKey
       };
       try {
-        await chrome.storage.local.set({
+        // Use the webextension-polyfill `browser` (already imported for alarms)
+        // rather than raw `chrome.*`: on the Firefox/MV2 build `chrome.storage`
+        // is callback-based and would resolve the await immediately without ever
+        // rejecting, so `await chrome.storage…set` there is effectively still
+        // fire-and-forget. `browser` gives promise + error semantics on both.
+        await browser.storage.local.set({
           miden_cached_consumable_notes: parsedNotes,
           miden_sync_data: syncData
         });

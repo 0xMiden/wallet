@@ -70,12 +70,19 @@ jest.mock('../sdk/miden-client', () => ({
   runWhenClientIdle: () => {}
 }));
 
-// Stub webextension-polyfill (the real one is also stubbed via @serh11p/jest-webextension-mock)
+// Stub webextension-polyfill (the real one is also stubbed via @serh11p/jest-webextension-mock).
+// sync-manager persists via `browser.storage.local.set`; route it through the shared
+// `mockStorageSet` spy (lazy wrapper avoids the mock-hoisting TDZ, like the mocks below).
 jest.mock('webextension-polyfill', () => ({
   __esModule: true,
   default: {
     alarms: {
       create: jest.fn()
+    },
+    storage: {
+      local: {
+        set: (...args: unknown[]) => mockStorageSet(...args)
+      }
     }
   }
 }));
