@@ -527,6 +527,46 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp).toEqual({ ok: false, op_id: 'op-abc', error: 'store read boom' });
   });
 
+  it('preserves the SDK errorCode on the ok:false reply when a WRITE throws an apply-after-submit error (#260 funds-critical)', async () => {
+    await loadModule();
+    // The offscreen client runs `useWorker:false`, so a failed write throws the RAW
+    // main-thread JsError still carrying the SDK's `errorCode` string (the exact
+    // shape `extractSdkErrorCode` reads on the flag-off inline path). The catch must
+    // ship that code across the bus, or the SW classifier reads undefined and
+    // MISCLASSIFIES an on-chain-live tx as Failed → requeue → double-spend.
+    const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
+    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    G.__off.clientSendTransaction = jest.fn(async () => {
+      throw applyErr;
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'sendTransaction',
+        argsB64: [
+          encodeArg({
+            accountId: 'mtst1qacc',
+            secondaryAccountId: 'mtst1qrecipient',
+            faucetId: 'mtst1qfaucet',
+            noteType: 'public',
+            amount: '1000',
+            extraInputs: {}
+          })
+        ]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.op_id).toBe('op-abc');
+    expect(resp.error).toContain('local apply failed after submit');
+    // The stable code rides the reply → the SW re-attaches it → Completed, not Failed.
+    expect(resp.errorCode).toBe('ApplyTransactionAfterSubmitFailed');
+  });
+
   it('ignores an OFFSCREEN_CALL not targeted at the offscreen doc (returns false)', async () => {
     await loadModule();
     const sendResponse = jest.fn();

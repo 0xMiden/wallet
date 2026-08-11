@@ -40,6 +40,7 @@ import {
 import type { ConsumeTransaction, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
+import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 
 const TAG = '[offscreen-prover]';
 
@@ -377,7 +378,19 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     });
   } catch (err) {
     console.error(`${TAG} call '${msg?.method}' failed:`, err);
-    sendResponse({ ok: false, op_id: msg?.op_id, error: String((err as { message?: string })?.message ?? err) });
+    // Preserve the SDK's stable `errorCode` (issue #260, funds-critical). The
+    // offscreen client runs `useWorker:false`, so a failed write throws the RAW
+    // main-thread JsError still carrying `errorCode` — extract it with the SAME
+    // helper the SW-inline classifier uses so a round-tripped
+    // `ApplyTransactionAfterSubmitFailed` is classified identically to flag-off
+    // (marked Completed, NOT Failed → requeue → double-spend). `undefined` for a
+    // code-less error keeps the reply shape unchanged (mirrors the flag-off path).
+    sendResponse({
+      ok: false,
+      op_id: msg?.op_id,
+      error: String((err as { message?: string })?.message ?? err),
+      errorCode: extractSdkErrorCode(err)
+    });
   }
 }
 

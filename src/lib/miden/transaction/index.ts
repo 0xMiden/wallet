@@ -59,6 +59,7 @@ import { accountIdStringToSdk, canonicalWalletAccountId, sameWalletAccountId } f
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
+import { extractSdkErrorCode } from '../sdk/sdk-error-code';
 import { NoteTypeEnum } from '../types';
 
 export * from './cancel';
@@ -1096,17 +1097,6 @@ export const generateTransactionsLoop = async (
     return false;
   }
 };
-
-/**
- * Pulls the stable SDK error code off a thrown value, if present. The
- * SDK attaches `errorCode` via `Reflect::set` on JsError — see
- * `js_error_with_context` in miden-client.
- */
-function extractSdkErrorCode(err: unknown): string | undefined {
-  if (!err || typeof err !== 'object') return undefined;
-  const code = (err as { errorCode?: unknown }).errorCode;
-  return typeof code === 'string' ? code : undefined;
-}
 
 export const safeGenerateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,

@@ -1384,3 +1384,110 @@ describe('MidenClientProxy — slice-5b newTransaction (execute) flag routing + 
 function b64ToBytesLocal(b64: string): Uint8Array {
   return new Uint8Array(Buffer.from(b64, 'base64'));
 }
+
+// ─── Slice 5b (funds-critical, #260): errorCode round-trips onto the rejection ─
+//
+// When a whole-op offscreen WRITE fails DETERMINISTICALLY (submit landed on chain
+// but the local apply threw → `ApplyTransactionAfterSubmitFailed`), the offscreen
+// reply carries the SDK's stable `errorCode`. The proxy MUST re-attach it to the
+// rejection in the exact shape the SW tx classifier reads (`extractSdkErrorCode` →
+// `err.errorCode`). If it doesn't, the classifier reads `undefined`, SKIPS the
+// "mark Completed" branch, and falls through to cancel → Failed → REQUEUEABLE
+// (send/consume/swap/execute) → user Retry re-executes against fresh state →
+// DOUBLE-SPEND. All four writes share `dispatchOffscreenWrite`/`finishOp`, so one
+// choke point must preserve the code for every one of them.
+describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-critical #260)', () => {
+  const APPLY = 'ApplyTransactionAfterSubmitFailed';
+
+  const writeCases: Array<{ name: string; invoke: (p: any) => Promise<unknown> }> = [
+    {
+      name: 'sendTransaction',
+      invoke: p =>
+        p.sendTransaction(
+          sendTx() as any,
+          jest.fn(async () => new Uint8Array())
+        )
+    },
+    {
+      name: 'swapTransaction',
+      invoke: p =>
+        p.swapTransaction(
+          swapTx() as any,
+          jest.fn(async () => new Uint8Array())
+        )
+    },
+    {
+      name: 'consumeNoteId',
+      invoke: p =>
+        p.consumeNoteId(
+          consumeTx() as any,
+          jest.fn(async () => new Uint8Array())
+        )
+    },
+    {
+      name: 'newTransaction',
+      invoke: p =>
+        p.newTransaction(
+          'mtst1qacc',
+          new Uint8Array([0xde, 0xad]),
+          false,
+          jest.fn(async () => new Uint8Array())
+        )
+    }
+  ];
+
+  it.each(writeCases)(
+    '$name: an ApplyTransactionAfterSubmitFailed offscreen reply rejects with an error the SW classifier reads as Completed (not Failed → requeue)',
+    async ({ invoke }) => {
+      const { midenClientProxy } = await loadProxy(true);
+      // The REAL classifier extractor — asserting it returns the code proves the SW
+      // takes the `=== 'ApplyTransactionAfterSubmitFailed'` → mark-Completed branch,
+      // exactly as the flag-off inline path does.
+      const { extractSdkErrorCode } = await import('../sdk/sdk-error-code');
+      fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+        ok: false,
+        op_id: env.op_id,
+        error: 'local apply failed after submit',
+        errorCode: APPLY
+      }));
+
+      const p = invoke(midenClientProxy).catch((e: unknown) => e);
+      await flush();
+      fireReady();
+      const err = await p;
+
+      // The offscreen error string is still surfaced on the message...
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toContain('local apply failed after submit');
+      // ...AND the stable code rides the rejection in the exact shape the classifier
+      // reads → Completed, never Failed → requeue → double-spend.
+      expect(extractSdkErrorCode(err)).toBe(APPLY);
+    }
+  );
+
+  it('an ok:false reply with NO errorCode still rejects (abort/undefined-code path unchanged)', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const { extractSdkErrorCode } = await import('../sdk/sdk-error-code');
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'generic offscreen failure'
+    }));
+
+    const p = midenClientProxy
+      .sendTransaction(
+        sendTx() as any,
+        jest.fn(async () => new Uint8Array())
+      )
+      .catch((e: unknown) => e);
+    await flush();
+    fireReady();
+    const err = await p;
+
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('generic offscreen failure');
+    // No code on the reply → none on the rejection (classifier falls through to
+    // Failed, as it always has for a genuinely-failed pre-submit write).
+    expect(extractSdkErrorCode(err)).toBeUndefined();
+  });
+});

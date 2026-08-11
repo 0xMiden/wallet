@@ -169,9 +169,19 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
     return;
   }
   if (resp.ok) op.resolveResult(resp.resultB64);
-  // TODO(slice 4): preserve `resp.errorCode` onto the rejection so callers can
-  // classify (retryable vs. deterministic) without string-matching `error`.
-  else op.reject(new Error(`Offscreen call '${op.method}' failed: ${resp.error}`));
+  else {
+    // Preserve the SDK's stable `errorCode` end-to-end (issue #260, funds-critical).
+    // Re-attach it onto the rejection in the EXACT shape the SW tx classifier reads
+    // (`extractSdkErrorCode` → `err.errorCode`), so a round-tripped
+    // `ApplyTransactionAfterSubmitFailed` from a failed offscreen write is classified
+    // identically to the flag-off inline path (marked Completed, NOT Failed → requeue
+    // → double-spend). Shared by all four writes via `dispatchOffscreenWrite`/this
+    // single choke point. A code-less failure (`undefined`) leaves the error
+    // untagged, exactly as before.
+    const err = new Error(`Offscreen call '${op.method}' failed: ${resp.error}`);
+    if (resp.errorCode !== undefined) (err as { errorCode?: string }).errorCode = resp.errorCode;
+    op.reject(err);
+  }
 }
 
 /** Settle an op that failed at the transport layer (sendMessage rejected). */
