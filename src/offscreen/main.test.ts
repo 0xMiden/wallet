@@ -141,6 +141,8 @@ function resetControl() {
     clientGetAccount: jest.fn(async (_id: string) => ({ serialize: () => new Uint8Array([10, 20, 30]) })),
     // Slice-3 read methods on the offscreen-owned client.
     clientSyncState: jest.fn(async () => ({ __syncSummary: true })),
+    // Slice-6b structural commit-wait on the offscreen-owned client (void).
+    clientWaitForTransactionCommit: jest.fn(async (_id: string) => {}),
     clientExportNote: jest.fn(async (_id: string, _t: string) => new Uint8Array([44, 55, 66])),
     clientGetInputNoteDetails: jest.fn(async (_q: unknown) => [
       { noteId: '0xabc', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
@@ -208,6 +210,7 @@ function resetControl() {
     getMidenClient: jest.fn(async () => ({
       getAccount: (...a: any[]) => (globalThis as any).__off.clientGetAccount(...a),
       syncState: (...a: any[]) => (globalThis as any).__off.clientSyncState(...a),
+      waitForTransactionCommit: (...a: any[]) => (globalThis as any).__off.clientWaitForTransactionCommit(...a),
       exportNote: (...a: any[]) => (globalThis as any).__off.clientExportNote(...a),
       getInputNoteDetails: (...a: any[]) => (globalThis as any).__off.clientGetInputNoteDetails(...a),
       getConsumableNoteDtos: (...a: any[]) => (globalThis as any).__off.clientGetConsumableNoteDtos(...a),
@@ -680,6 +683,28 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.ok).toBe(true);
     expect(resp.op_id).toBe('op-abc');
     // The sync ran, but its SyncSummary is deliberately not serialized.
+    expect(resp.resultB64).toBeNull();
+  });
+
+  it('dispatches waitForTransactionCommit against the offscreen-owned client and returns resultB64:null (void)', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const ret = capturedListener!(
+      callReq({ method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+      {},
+      sendResponse
+    );
+    expect(ret).toBe(true);
+    await flush();
+
+    // The commit-wait polled the OFFSCREEN-owned client — the realm that applied the
+    // tx under the flag — with the id decoded across the wire. This is the fix: the SW
+    // client is dormant flag-on and would time out; polling here uses the live state.
+    expect(G.__off.clientWaitForTransactionCommit).toHaveBeenCalledWith('0xtxid');
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(resp.op_id).toBe('op-abc');
+    // The wait resolves void — nothing to serialize back to the SW.
     expect(resp.resultB64).toBeNull();
   });
 

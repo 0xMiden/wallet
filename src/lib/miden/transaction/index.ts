@@ -1031,10 +1031,15 @@ const generateGuardianTransaction = async (
     transaction.type === 'update-procedure-threshold'
   ) {
     await setTransactionStage(transaction.id, 'confirming');
-    await withWasmClientLock(async () => {
-      const midenClient = await getMidenClient();
-      await midenClient.waitForTransactionCommit(id);
-    });
+    // Route the commit-wait through the proxy so it polls the SAME client that
+    // applied the tx: the offscreen realm flag-on (which ran the whole leaf), the
+    // SW client flag-off. A raw `getMidenClient().waitForTransactionCommit(id)` here
+    // would, flag-on, poll the dormant/unsynced SW client, time out at ~60s, fall
+    // through the guardian catch to cancelTransaction → Failed, and SKIP the
+    // structural completion below (e.g. leaving replace-hot-key's chain rotation done
+    // but the local hot-key pointer stale). Flag-off, the proxy runs the exact same
+    // `withWasmClientLock(getMidenClient().waitForTransactionCommit)` block as before.
+    await midenClientProxy.waitForTransactionCommit(id);
   }
 
   // Sync the cached hot service so the next consumer sees post-tx state.

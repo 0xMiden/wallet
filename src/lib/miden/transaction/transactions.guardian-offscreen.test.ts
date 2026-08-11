@@ -6,15 +6,18 @@
  * (`runGuardianPipeline` → the mocked SW client's execute→prove→submit→apply);
  * with it ON the SAME leaf crosses to `dispatchGuardianPipeline`. Everything
  * around the leaf — proposal creation, cold co-sign, mid-flight `persistNewHotKey`,
- * `signAndCreateTransactionRequest`, the `abandonCandidate` submit-catch, the
- * apply-after-submit classifier, and the structural `waitForTransactionCommit` —
- * stays SW-side and is asserted unchanged.
+ * `signAndCreateTransactionRequest`, and the `abandonCandidate` submit-catch — stays
+ * SW-side and is asserted unchanged. The structural `waitForTransactionCommit` now
+ * routes through `midenClientProxy.waitForTransactionCommit` (issue #260, slice 6b
+ * bug fix) so it polls the SAME client that applied the tx — the offscreen realm
+ * flag-on, the SW client flag-off — instead of always poking the raw SW client
+ * (which flag-on is dormant, timing the wait out and stranding the completion).
  *
  * Slice 6a covers the four VALUE-MOVING types (send / consume / swap / execute);
  * slice 6b adds the three STRUCTURAL types (switch-guardian / replace-hot-key /
  * update-procedure-threshold), which additionally exercise: the cold co-sign +
  * `persistNewHotKey` running SW-side BEFORE dispatch (byte-identical order flag-on
- * vs flag-off), the SW-side `waitForTransactionCommit` running AFTER with the
+ * vs flag-off), the proxy-routed `waitForTransactionCommit` running AFTER with the
  * re-derived tx id, and the structural apply-after-submit classifier (reconcile for
  * replace-hot-key / switch-guardian; Fail for update-procedure-threshold).
  *
@@ -29,8 +32,9 @@
  *     identical `serialize()` bytes on both paths.
  *   - persistNewHotKey ordering parity: replace-hot-key persists the new hot key
  *     SW-side, exactly once, with identical args and BEFORE the leaf, on both flags.
- *   - waitForTransactionCommit: for structural types it runs SW-side AFTER the leaf
- *     with the id re-derived from `result.executedTransaction().id()`, on both flags.
+ *   - waitForTransactionCommit: for structural types it routes through the proxy
+ *     AFTER the leaf with the id re-derived from `result.executedTransaction().id()`,
+ *     on both flags — never the raw SW `getMidenClient().waitForTransactionCommit`.
  *   - kill-window (funds-safety): an offscreen `OperationAbortedError` (wedge-kill)
  *     runs `abandonCandidate` exactly once (as inline) and marks the row FAILED —
  *     it is NOT auto-requeued, and it dispatches exactly ONCE. A guardian
@@ -118,11 +122,18 @@ const mockDispatchGuardianPipeline = jest.fn();
 // here to build a cold service / mint the replacement hot key). Value-moving
 // types never call it, so the default `null` is harmless for them.
 const mockProxyGetAccount = jest.fn(async (..._a: unknown[]) => null as unknown);
+// The post-pipeline commit-wait now routes through the PROXY (issue #260, slice 6b
+// bug fix), not the raw SW client. Mocking it here lets the call-site tests assert
+// the structural path polls the proxy (which internally picks the offscreen realm
+// flag-on / the SW client flag-off — proven in miden-client-proxy.test.ts) and NOT
+// the dormant SW `getMidenClient().waitForTransactionCommit` directly.
+const mockProxyWaitForCommit = jest.fn(async (..._a: unknown[]) => {});
 jest.mock('../back/miden-client-proxy', () => ({
   dispatchGuardianPipeline: (...a: unknown[]) => mockDispatchGuardianPipeline(...a),
   midenClientProxy: {
     syncState: jest.fn(async () => {}),
-    getAccount: (...a: unknown[]) => mockProxyGetAccount(...a)
+    getAccount: (...a: unknown[]) => mockProxyGetAccount(...a),
+    waitForTransactionCommit: (...a: unknown[]) => mockProxyWaitForCommit(...a)
   }
 }));
 
@@ -569,7 +580,7 @@ function arrangeStructural(id: string, extra: Record<string, unknown>, result = 
 
 describe('structural guardian leaf routing — flag OFF (inline)', () => {
   it.each(structuralCases())(
-    '$type: runs the inline pipeline, never dispatchGuardianPipeline; commit-wait uses the re-derived id',
+    '$type: runs the inline pipeline, never dispatchGuardianPipeline; commit-wait routes through the proxy with the re-derived id',
     async ({ row, complete }) => {
       const { service, inline, provider: sp } = arrangeStructural(`s-off-${row.type}`, row);
 
@@ -581,16 +592,24 @@ describe('structural guardian leaf routing — flag OFF (inline)', () => {
       // Structural completion finalized with the inline result; abandon never ran.
       expect(complete).toHaveBeenCalledTimes(1);
       expect(service.abandonCandidate).not.toHaveBeenCalled();
-      // waitForTransactionCommit ran SW-side with the id re-derived from the result.
-      expect(inline.waitForTransactionCommit).toHaveBeenCalledTimes(1);
-      expect(inline.waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
+      // The commit-wait goes through the PROXY (which, flag-off, runs the inline SW
+      // client under its own lock — proven in miden-client-proxy.test.ts) with the id
+      // re-derived from the result. The call site NEVER pokes the raw SW client
+      // directly, so a future flag flip can't strand the wait on a dormant client.
+      expect(mockProxyWaitForCommit).toHaveBeenCalledTimes(1);
+      expect(mockProxyWaitForCommit).toHaveBeenCalledWith('exec-tx-hash');
+      expect(inline.waitForTransactionCommit).not.toHaveBeenCalled();
+      // The wait resolved BEFORE the structural completion ran.
+      const waitOrder = mockProxyWaitForCommit.mock.invocationCallOrder[0]!;
+      const completeOrder = complete.mock.invocationCallOrder[0]!;
+      expect(waitOrder).toBeLessThan(completeOrder);
     }
   );
 });
 
 describe('structural guardian leaf routing — flag ON (offscreen)', () => {
   it.each(structuralCases())(
-    '$type: crosses the co-signed request bytes to dispatchGuardianPipeline; commit-wait still runs SW-side',
+    '$type: crosses the co-signed request bytes to dispatchGuardianPipeline; commit-wait routes through the proxy (offscreen), never the dormant SW client',
     async ({ row, complete }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
       const dispatched = makeResult();
@@ -609,10 +628,20 @@ describe('structural guardian leaf routing — flag ON (offscreen)', () => {
       expect(Array.from(trBytes as Uint8Array)).toEqual(TR_BYTES);
       expect(delegate).toBe(false);
       expect(cb).toBe(signCallback);
-      // waitForTransactionCommit STILL runs SW-side (not offscreen), with the id
-      // re-derived from the round-tripped result — the id never crosses separately.
-      expect(inline.waitForTransactionCommit).toHaveBeenCalledTimes(1);
-      expect(inline.waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
+      // THE FIX (issue #260, slice 6b): the commit-wait routes through the proxy —
+      // which flag-on forwards to the OFFSCREEN realm that applied the tx (proven in
+      // miden-client-proxy.test.ts) — with the id re-derived from the round-tripped
+      // result. It must NEVER poll the raw SW `getMidenClient().waitForTransactionCommit`:
+      // flag-on that client is dormant/unsynced, so a raw wait would time out at ~60s,
+      // fall through to Failed, and SKIP the structural completion (e.g. leaving
+      // replace-hot-key's chain rotation done but the local hot-key pointer stale).
+      expect(mockProxyWaitForCommit).toHaveBeenCalledTimes(1);
+      expect(mockProxyWaitForCommit).toHaveBeenCalledWith('exec-tx-hash');
+      expect(inline.waitForTransactionCommit).not.toHaveBeenCalled();
+      // The wait resolved BEFORE the structural completion ran.
+      const waitOrder = mockProxyWaitForCommit.mock.invocationCallOrder[0]!;
+      const completeOrder = complete.mock.invocationCallOrder[0]!;
+      expect(waitOrder).toBeLessThan(completeOrder);
       // Structural completion finalized with the round-tripped result.
       expect(complete).toHaveBeenCalledTimes(1);
       expect(complete.mock.calls[0][STRUCTURAL_RESULT_ARG]).toBe(dispatched);

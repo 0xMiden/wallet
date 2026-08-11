@@ -338,6 +338,21 @@ const DISPATCH: Record<string, DispatchFn> = {
     const submittedTx = await provenTx.submit();
     await submittedTx.apply();
     return executedTx.result.serialize() as Uint8Array;
+  },
+
+  // Post-pipeline commit-wait for the STRUCTURAL guardian completions (issue #260,
+  // slice 6b — switch-guardian / replace-hot-key / update-procedure-threshold). It
+  // MUST poll the SAME client that applied the tx: under the flag the whole leaf
+  // ran here in the offscreen realm, so the SW client is dormant/unsynced and would
+  // never see the committed record (it would time out at ~60s, fall through the
+  // guardian catch to Failed, and SKIP the structural completion — leaving e.g.
+  // replace-hot-key's on-chain rotation done but the local hot-key pointer stale).
+  // Running the wait HERE polls the realm that owns the applied state. Blocks up to
+  // the SDK's ~60s `waitFor` timeout — the proxy arms a deadline above that. A void
+  // result: the SW-side caller only awaits it, so nothing serializes back.
+  waitForTransactionCommit: async (client, transactionId: string) => {
+    await client.waitForTransactionCommit(transactionId);
+    return null;
   }
 };
 

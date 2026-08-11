@@ -108,6 +108,8 @@ function resetControl() {
     // The inline (flag-off) client also exposes the slice-3/4/5 methods so the
     // flag-off pass-through of each is assertable against a spy.
     inlineSyncState: jest.fn(async () => ({ __syncSummary: true })),
+    // Slice 6b: the flag-off pass-through of the structural commit-wait.
+    inlineWaitForTransactionCommit: jest.fn(async () => {}),
     inlineExportNote: jest.fn(async () => new Uint8Array([1, 2, 3])),
     inlineGetInputNoteDetails: jest.fn(async () => [{ __inlineDetail: true }]),
     inlineGetConsumableNoteDtos: jest.fn(async () => [{ __inlineConsumable: true }]),
@@ -122,6 +124,7 @@ function resetControl() {
     getMidenClient: jest.fn(async () => ({
       getAccount: (...a: any[]) => G.__px.inlineGetAccount(...a),
       syncState: (...a: any[]) => G.__px.inlineSyncState(...a),
+      waitForTransactionCommit: (...a: any[]) => G.__px.inlineWaitForTransactionCommit(...a),
       exportNote: (...a: any[]) => G.__px.inlineExportNote(...a),
       getInputNoteDetails: (...a: any[]) => G.__px.inlineGetInputNoteDetails(...a),
       getConsumableNoteDtos: (...a: any[]) => G.__px.inlineGetConsumableNoteDtos(...a),
@@ -281,6 +284,85 @@ describe('MidenClientProxy — slice-3 reads: syncState', () => {
     expect(env.argsB64).toEqual([]);
     // Sync's backstop deadline sits above the caller's own 30s SYNC_TIMEOUT.
     expect(env.deadline_ms).toBe(45_000);
+  });
+});
+
+describe('MidenClientProxy — slice-6b waitForTransactionCommit (structural commit-wait)', () => {
+  it('flag OFF → waitForTransactionCommit runs inline under withWasmClientLock (byte-identical), never touches offscreen', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const result = await midenClientProxy.waitForTransactionCommit('0xtxid');
+
+    // The caller lock wraps the op (exactly the block the structural completion path
+    // ran before this fix pulled it into the proxy).
+    expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
+    // Polled the SW inline client — the one that applied the tx flag-off.
+    expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineWaitForTransactionCommit).toHaveBeenCalledWith('0xtxid');
+    expect(result).toBeUndefined();
+    // Offscreen never touched.
+    expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON but no chrome.offscreen API → waitForTransactionCommit falls back inline', async () => {
+    installChromeMock({ withOffscreen: false });
+    const { midenClientProxy } = await loadProxy(true);
+    await midenClientProxy.waitForTransactionCommit('0xtxid');
+
+    expect(G.__px.inlineWaitForTransactionCommit).toHaveBeenCalledWith('0xtxid');
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → dispatches OFFSCREEN_CALL to the realm that applied the tx (70s deadline), never the dormant SW client', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    // The offscreen side runs the SDK waitFor and returns null (void discarded).
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 12
+    }));
+
+    const p = midenClientProxy.waitForTransactionCommit('0xtxid');
+    await flush();
+    fireReady();
+    const result = await p;
+
+    expect(result).toBeUndefined();
+    // THE FIX: the wait crossed to the offscreen realm (which owns the applied state);
+    // the raw SW client — dormant/unsynced flag-on — was NEVER polled, so it can't
+    // time out at ~60s and strand the structural completion.
+    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
+    expect(G.__px.inlineWaitForTransactionCommit).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.type).toBe('OFFSCREEN_CALL');
+    expect(env.method).toBe('waitForTransactionCommit');
+    expect(env.argsB64).toEqual(['s:"0xtxid"']); // encodeArg('0xtxid')
+    // A commit-wait blocks up to the SDK's ~60s waitFor, so its deadline sits ABOVE
+    // that (70s) — NOT a read's short 15s READ_DEADLINE_MS.
+    expect(env.deadline_ms).toBe(70_000);
+  });
+
+  it('flag ON → a deadline kill rejects with OperationAbortedError (parity with flag-off waitFor timeout → Failed)', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const { OperationAbortedError } = await import('./offscreen-codec');
+    // The offscreen wait never responds → only the deadline can end it. Use the
+    // generic `call` with a short deadline to exercise the same kill path without
+    // waiting the production 70s (the routing test above pins the real 70s value).
+    fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+
+    const p = midenClientProxy.call('waitForTransactionCommit', ['0xtxid'], { deadlineMs: 20 }).catch((e: Error) => e);
+    await flush();
+    fireReady();
+    await flush();
+    await wait(40);
+    fireReady();
+    await flush();
+
+    const err = await p;
+    expect(err).toBeInstanceOf(OperationAbortedError);
+    expect((err as any).reason).toBe('deadline');
   });
 });
 

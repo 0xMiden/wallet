@@ -93,6 +93,21 @@ const SYNC_DEADLINE_MS = 45_000;
  */
 const WRITE_DEADLINE_MS = 90_000;
 
+/**
+ * Per-op deadline (ms) for `waitForTransactionCommit`. This op BLOCKS inside the
+ * offscreen realm on the SDK's `client.transactions.waitFor(id)` poll loop, which
+ * itself throws "Transaction confirmation timed out" after its own ~60s
+ * (`MidenClientInterface.waitForTransactionCommit` default `maxWaitMs`). This
+ * backstop must therefore sit ABOVE that 60s: a normal ≤60s commit resolves (or
+ * the SDK's own timeout fires and returns) well within it, and this deadline kill
+ * only reclaims a genuinely-wedged realm. NOT a read's short `READ_DEADLINE_MS`
+ * (15s) — a wait that legitimately runs the full 60s must not be mistaken for a
+ * wedge. On a deadline kill the op rejects with `OperationAbortedError`, which the
+ * structural guardian path treats exactly like flag-off's waitFor timeout (→
+ * cancelTransaction → Failed → completion not run, recoverable by re-run).
+ */
+const COMMIT_WAIT_DEADLINE_MS = 70_000;
+
 interface InFlightOp {
   /** Resolve the caller's promise with the raw `resultB64` (or `null`). */
   resolveResult: (resultB64: string | null) => void;
@@ -557,6 +572,38 @@ export const midenClientProxy = {
       return;
     }
     await this.call('syncState', [], { deadlineMs: SYNC_DEADLINE_MS });
+  },
+
+  /**
+   * Wait for a submitted transaction to be committed on chain (issue #260, slice 6b).
+   *
+   * This MUST poll the SAME client that applied the tx, mirroring the `syncState` /
+   * `getAccount` forwarding above:
+   *
+   *   Flag off (default): BYTE-IDENTICAL to production today — the exact
+   *   `withWasmClientLock(async () => { const c = await getMidenClient(); await
+   *   c.waitForTransactionCommit(id); })` block the structural guardian completion
+   *   path used to run inline. The SW client applied the tx flag-off, so it owns the
+   *   committed state and (as with the other flag-off pass-throughs, W2) the caller
+   *   need not — and does not — hold the lock: it is taken here.
+   *
+   *   Flag on: the whole leaf pipeline ran in the OFFSCREEN realm, so the SW client
+   *   is dormant/unsynced and would time out. Forward the wait to the offscreen doc,
+   *   which polls the realm that owns the applied state. It is a READ-style wait — no
+   *   sign callback, NOT a `criticalOp`/write — but it legitimately BLOCKS up to the
+   *   SDK's ~60s `waitFor`, so it carries its own `COMMIT_WAIT_DEADLINE_MS` (70s),
+   *   comfortably above that 60s, rather than a read's short `READ_DEADLINE_MS`. The
+   *   offscreen side discards the void result (nothing to re-hydrate).
+   */
+  async waitForTransactionCommit(transactionId: string): Promise<void> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient();
+        await midenClient.waitForTransactionCommit(transactionId);
+      });
+      return;
+    }
+    await this.call('waitForTransactionCommit', [transactionId], { deadlineMs: COMMIT_WAIT_DEADLINE_MS });
   },
 
   /**
