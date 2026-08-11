@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "tarafından talep edilmediği takdirde gönderene iade edilir $date$ ",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$%",
     "englishSource": "$change$%",
@@ -1618,6 +1627,14 @@
     "message": "Kişi Ekle",
     "englishSource": "Add Contact"
   },
+  "addToContactsPrompt": {
+    "message": "Kişilere eklensin mi?",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "Son",
+    "englishSource": "Recent"
+  },
   "newContactPlaceholder": {
     "message": "ör. Alice Bob",
     "englishSource": "e.g. Alice Bob"
@@ -2939,6 +2956,55 @@
   "pendingNotes": {
     "message": "Beklemede notes",
     "englishSource": "Pending notes"
+  },
+  "whatArePendingNotes": {
+    "message": "notes bekleyenler nelerdir?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "notes adresinizi kullanın",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "Harcamaya başlamak için bu bekleyen fonları bakiyenize ekleyin.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "Birisi size para gönderdiğinde, bunlar gizli olarak gelir",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— yalnızca sizin açabileceğiniz mühürlü paketler.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "Tüketen",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "a note bunu harcanabilir bakiyenize açar. Bunu yapana kadar para sizindir ancak henüz harcanamaz.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "Var",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "beklemek. Bunları istediğiniz zaman tüketin; aceleniz yok ve hiçbir fon risk altında değil.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
   },
   "getTokens": {
     "message": "Jeton alın",

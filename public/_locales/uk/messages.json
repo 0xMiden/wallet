@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "Повертається відправнику, якщо він не затребуваний $date$ ",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$%",
     "englishSource": "$change$%",
@@ -1618,6 +1627,14 @@
     "message": "Додати контакт",
     "englishSource": "Add Contact"
   },
+  "addToContactsPrompt": {
+    "message": "Додати до контактів?",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "Останні",
+    "englishSource": "Recent"
+  },
   "newContactPlaceholder": {
     "message": "напр. Аліса Боб",
     "englishSource": "e.g. Alice Bob"
@@ -2952,6 +2969,55 @@
   "pendingNotes": {
     "message": "Очікує notes",
     "englishSource": "Pending notes"
+  },
+  "whatArePendingNotes": {
+    "message": "Що очікує на розгляд notes?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "Споживайте свій notes",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "Додайте ці незавершені кошти до свого балансу, щоб почати витрачати.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "Коли хтось надсилає вам кошти, вони надходять як приватні",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— герметичні пакети можете відкривати лише ви.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "споживання",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "note розпаковує його на ваш баланс витрат. Поки ви цього не зробите, кошти у вас, але їх ще не можна витратити.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "Ви маєте",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "очікування. Споживайте їх у будь-який час — нікуди не поспішайте, і жодні кошти ніколи не ризикують.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
   },
   "getTokens": {
     "message": "Отримати жетони",

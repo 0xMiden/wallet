@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "請求がない場合は差出人に返送されます $date$ ",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$%",
     "englishSource": "$change$%",
@@ -1618,6 +1627,14 @@
     "message": "連絡先を追加",
     "englishSource": "Add Contact"
   },
+  "addToContactsPrompt": {
+    "message": "連絡先に追加しますか?",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "最近の",
+    "englishSource": "Recent"
+  },
   "newContactPlaceholder": {
     "message": "例えばアリス・ボブ",
     "englishSource": "e.g. Alice Bob"
@@ -2939,6 +2956,55 @@
   "pendingNotes": {
     "message": "保留中 notes",
     "englishSource": "Pending notes"
+  },
+  "whatArePendingNotes": {
+    "message": "保留中の notes は何ですか?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "notes を消費します",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "これらの保留中の資金を残高に追加して、支出を開始してください。",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "誰かがあなたに資金を送金すると、その資金は非公開で届きます",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— あなただけが開けることができる密封されたパッケージ。",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "消費する",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "note により、使用可能な残高に解凍されます。そうするまで、資金はあなたのものになりますが、まだ使用することはできません。",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "あなたが持っている",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "待っている。いつでも消費できます。急ぐ必要はなく、資金が危険にさらされることもありません。",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
   },
   "getTokens": {
     "message": "トークンを取得する",
