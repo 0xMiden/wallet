@@ -376,8 +376,9 @@ describe('createGuardianAccount', () => {
       hotCiphertext: 'hot-ciphertext-hex',
       coldSecretKeyHex: expect.any(String)
     });
-    // Endpoint is returned so vault can persist it per-account. No stored URL
-    // here (beforeEach stubs undefined), so it falls back to the default.
+    // Endpoint is returned so vault can persist it per-account. No override was
+    // supplied and the frozen global key is never consulted for a create, so it
+    // resolves to the effective network default.
     expect(result.guardianEndpoint).toBe('https://default.guardian.test');
   });
 
@@ -404,23 +405,22 @@ describe('createGuardianAccount', () => {
     expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
   });
 
-  it('uses the stored guardian URL when no override is supplied', async () => {
-    mockFetchFromStorage.mockResolvedValueOnce('https://stored.guardian');
+  it('falls back to the default (NOT the frozen global key) when no override is supplied', async () => {
+    // #408 stage 3: a NEW account must never inherit the frozen global key.
+    // createGuardianAccount no longer reads GUARDIAN_URL_STORAGE_KEY at all — the
+    // assertion below proves storage is never consulted. With no override, the
+    // endpoint is the effective network default.
     const webClient = makeWebClient();
     multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
 
     const result = await createGuardianAccount(webClient as never, new Uint8Array(32));
 
-    // When storage yields a URL, create still succeeds — the URL propagation
-    // goes through MultisigClient's constructor which we stubbed, so the
-    // useful signal is that fetchFromStorage was consulted.
-    expect(mockFetchFromStorage).toHaveBeenCalledWith('guardian_url_setting');
-    // And the stored URL is returned for per-account persistence.
-    expect(result.guardianEndpoint).toBe('https://stored.guardian');
+    // The global-key read is gone: storage is never consulted for a create.
+    expect(mockFetchFromStorage).not.toHaveBeenCalled();
+    expect(result.guardianEndpoint).toBe('https://default.guardian.test');
   });
 
-  it('prefers the explicit override over storage and default', async () => {
-    mockFetchFromStorage.mockResolvedValueOnce('https://stored.guardian');
+  it('prefers the explicit override over the default', async () => {
     const webClient = makeWebClient();
     multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
 
@@ -431,7 +431,7 @@ describe('createGuardianAccount', () => {
       'https://override.guardian'
     );
 
-    // Override short-circuits the storage lookup entirely.
+    // Override is used verbatim; storage is never consulted.
     expect(mockFetchFromStorage).not.toHaveBeenCalled();
     expect(result.guardianEndpoint).toBe('https://override.guardian');
   });
