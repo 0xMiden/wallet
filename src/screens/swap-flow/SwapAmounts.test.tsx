@@ -139,9 +139,11 @@ describe('SwapAmounts', () => {
       const pay = screen.getByTestId('select-amount-youPay');
       const receive = screen.getByTestId('select-amount-youReceive');
 
-      // You Pay: the real spendable balance is passed and the helper is on (default).
+      // You Pay: the real spendable balance is passed and the field does not opt
+      // out of the helper (relies on SelectAmount's default-on; the on-render is
+      // covered by SelectAmount's own unit tests).
       expect(parseToken(pay).balance).toBe(42);
-      expect(pay).not.toHaveAttribute('data-show-balance-helper', 'false');
+      expect(pay).toHaveAttribute('data-show-balance-helper', 'undefined');
       // You Receive (output): balance helper explicitly off.
       expect(receive).toHaveAttribute('data-show-balance-helper', 'false');
 
