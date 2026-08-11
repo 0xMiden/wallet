@@ -53,7 +53,7 @@
     }
   },
   "balanceCardAccount": {
-    "message": "주소: $number$",
+    "message": "주소: $number$ ",
     "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
@@ -2545,12 +2545,12 @@
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
-    "message": "이 창을 닫지 마세요. 거래가 생성된 후 홈 페이지로 다시 이동됩니다.",
-    "englishSource": "Do not close this window. You will be navigated back to the home page after the transaction is generated"
+    "message": "거래가 생성될 때까지 이 창을 닫지 마세요.",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "doNotCloseWindowAutoClose": {
-    "message": "이 창을 닫지 마세요. 거래가 생성된 후 창은 자동으로 닫힙니다.",
-    "englishSource": "Do not close this window. Window will auto-close after the transaction is generated"
+    "message": "거래가 생성될 때까지 이 창을 닫지 마세요.",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "transactionSuccessDescription": {
     "message": "귀하의 거래가 성공적으로 처리되었으며 네트워크에서 확인되었습니다.",
@@ -3837,9 +3837,21 @@
     "message": "Total Paid",
     "englishSource": "Total Paid"
   },
+  "totalConsumed": {
+    "message": "총 소비량",
+    "englishSource": "Total Consumed"
+  },
+  "notesConsumed": {
+    "message": "Notes 소비됨",
+    "englishSource": "Notes Consumed"
+  },
+  "consumed": {
+    "message": "소비됨",
+    "englishSource": "Consumed"
+  },
   "sourceTx": {
-    "message": "Source TX",
-    "englishSource": "Source TX"
+    "message": "거래 ID",
+    "englishSource": "Transaction ID"
   },
   "developerSettingsTitle": {
     "message": "개발자 설정",

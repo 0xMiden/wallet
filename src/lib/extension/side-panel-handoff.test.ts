@@ -1,6 +1,11 @@
 import { isExtension } from 'lib/platform';
 
-import { canHandoffToSidePanel, closeOnboardingTab, openSidePanelToWallet } from './side-panel-handoff';
+import {
+  canHandoffToSidePanel,
+  closeOnboardingTab,
+  openSidePanelToWallet,
+  postOnboardingRoute
+} from './side-panel-handoff';
 
 jest.mock('lib/platform', () => ({
   isExtension: jest.fn()
@@ -75,6 +80,25 @@ describe('canHandoffToSidePanel', () => {
   it('is false when the side panel API is absent (e.g. Firefox)', () => {
     setChrome(undefined);
     expect(canHandoffToSidePanel()).toBe(false);
+  });
+});
+
+describe('postOnboardingRoute', () => {
+  it('routes to the side-panel handoff when handoff is available', () => {
+    setChrome(makeChrome());
+    expect(postOnboardingRoute()).toBe('/finish-side-panel');
+  });
+
+  it('routes in-tab to / when the side panel is unavailable (non-extension)', () => {
+    mockIsExtension.mockReturnValue(false);
+    setChrome(makeChrome());
+    expect(postOnboardingRoute()).toBe('/');
+  });
+
+  it('routes in-tab to / under E2E (classic in-tab flow)', () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    setChrome(makeChrome());
+    expect(postOnboardingRoute()).toBe('/');
   });
 });
 

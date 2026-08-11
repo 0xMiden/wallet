@@ -1,18 +1,14 @@
 import {
   DELEGATE_PROOF_STORAGE_KEY,
-  AUTO_CLOSE_STORAGE_KEY,
   AUTO_CONSUME_STORAGE_KEY,
   HAPTIC_FEEDBACK_STORAGE_KEY,
   DEFAULT_DELEGATE_PROOF,
-  DEFAULT_AUTO_CLOSE,
   DEFAULT_AUTO_CONSUME,
   DEFAULT_HAPTIC_FEEDBACK
 } from './constants';
 import {
   setDelegateProofSetting,
   isDelegateProofEnabled,
-  setAutoCloseSetting,
-  isAutoCloseEnabled,
   setAutoConsumeSetting,
   isAutoConsumeEnabled,
   setHapticFeedbackSetting,
@@ -102,24 +98,6 @@ describe('settings helpers', () => {
       setDelegateProofSetting(false);
       expect(isDelegateProofEnabled()).toBe(false);
       expect(localStorage.getItem(DELEGATE_PROOF_STORAGE_KEY)).toBe('false');
-    });
-  });
-
-  describe('auto close setting', () => {
-    it('returns default value when not set', () => {
-      expect(isAutoCloseEnabled()).toBe(DEFAULT_AUTO_CLOSE);
-    });
-
-    it('sets and gets true value', () => {
-      setAutoCloseSetting(true);
-      expect(isAutoCloseEnabled()).toBe(true);
-      expect(localStorage.getItem(AUTO_CLOSE_STORAGE_KEY)).toBe('true');
-    });
-
-    it('sets and gets false value', () => {
-      setAutoCloseSetting(false);
-      expect(isAutoCloseEnabled()).toBe(false);
-      expect(localStorage.getItem(AUTO_CLOSE_STORAGE_KEY)).toBe('false');
     });
   });
 

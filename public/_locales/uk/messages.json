@@ -53,7 +53,7 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Адреса: $number$",
+    "message": "Адреса: $number$ ",
     "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
@@ -2558,12 +2558,12 @@
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
-    "message": "Не закривайте це вікно. Після створення транзакції ви повернетесь на домашню сторінку",
-    "englishSource": "Do not close this window. You will be navigated back to the home page after the transaction is generated"
+    "message": "Не закривайте це вікно, доки транзакція не буде згенерована",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "doNotCloseWindowAutoClose": {
-    "message": "Не закривайте це вікно. Вікно автоматично закриється після створення транзакції",
-    "englishSource": "Do not close this window. Window will auto-close after the transaction is generated"
+    "message": "Не закривайте це вікно, доки транзакція не буде згенерована",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "transactionSuccessDescription": {
     "message": "Ваша транзакція була успішно оброблена та підтверджена в мережі.",
@@ -3850,9 +3850,21 @@
     "message": "Total Paid",
     "englishSource": "Total Paid"
   },
+  "totalConsumed": {
+    "message": "Всього спожито",
+    "englishSource": "Total Consumed"
+  },
+  "notesConsumed": {
+    "message": "Notes Спожито",
+    "englishSource": "Notes Consumed"
+  },
+  "consumed": {
+    "message": "Споживається",
+    "englishSource": "Consumed"
+  },
   "sourceTx": {
-    "message": "Source TX",
-    "englishSource": "Source TX"
+    "message": "ID транзакції",
+    "englishSource": "Transaction ID"
   },
   "developerSettingsTitle": {
     "message": "Налаштування розробника",

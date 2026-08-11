@@ -37,6 +37,18 @@ export function canHandoffToSidePanel(): boolean {
 }
 
 /**
+ * The route a freshly-onboarded OR recovered wallet should enter on. When the
+ * side-panel handoff is available we send it to the dedicated `/finish-side-panel`
+ * screen (its "Open wallet" button opens the panel inside a fresh user gesture);
+ * otherwise — non-extension, E2E, or a missing API — we enter the wallet in-tab
+ * at `/`. Shared by the create flow and the guardian-recovery flows so recovery
+ * opens in the side panel just like first-run onboarding (#428).
+ */
+export function postOnboardingRoute(): '/finish-side-panel' | '/' {
+  return canHandoffToSidePanel() ? '/finish-side-panel' : '/';
+}
+
+/**
  * Open the side panel onto the (already-Ready) wallet and make it the primary
  * action surface. MUST be called synchronously within the user gesture of the
  * final "Open wallet" click. Returns true if the panel opened, false on failure

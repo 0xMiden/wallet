@@ -248,6 +248,13 @@ export class MidenClientInterface {
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array, auth?: AuthScheme): Promise<string> {
     if (walletType === WalletType.Guardian) {
+      // NOTE: Guardian creation never reaches here — Vault.spawn and
+      // createHDAccount always route Guardian to createGuardianMidenWallet
+      // (which threads the picked endpoint). This branch passes no endpoint
+      // override, so createGuardianAccount binds to the network default (the
+      // frozen global key is no longer consulted for NEW accounts — #408
+      // stage 3). If anything ever routes Guardian through createMidenWallet for
+      // a non-default operator, thread the per-account endpoint here.
       const { createGuardianAccount } = await import('../guardian/account');
       const { account } = await createGuardianAccount(this.client, seed);
       return getBech32AddressFromAccountId(account.id());
@@ -270,10 +277,21 @@ export class MidenClientInterface {
    * ciphertext + cold secret-key bytes the wallet must persist (vault wraps
    * both before writing them to storage).
    */
-  async createGuardianMidenWallet(coldSeed?: Uint8Array): Promise<GuardianAccountCreationResult> {
+  async createGuardianMidenWallet(
+    coldSeed?: Uint8Array,
+    guardianEndpoint?: string
+  ): Promise<GuardianAccountCreationResult> {
     const { createGuardianAccount } = await import('../guardian/account');
-    const { account, keys, guardianEndpoint } = await createGuardianAccount(this.client, coldSeed);
-    return { accountId: getBech32AddressFromAccountId(account.id()), keys, guardianEndpoint };
+    // Forward the caller's picked endpoint as the override so the account binds
+    // to it (stage 1 of #408). When undefined, createGuardianAccount binds to
+    // the network default (the frozen global key is no longer consulted for NEW
+    // accounts — #408 stage 3).
+    const {
+      account,
+      keys,
+      guardianEndpoint: usedEndpoint
+    } = await createGuardianAccount(this.client, coldSeed, false, guardianEndpoint);
+    return { accountId: getBech32AddressFromAccountId(account.id()), keys, guardianEndpoint: usedEndpoint };
   }
 
   async importMidenWallet(accountBytes: Uint8Array): Promise<string> {

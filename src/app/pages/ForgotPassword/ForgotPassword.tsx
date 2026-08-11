@@ -4,14 +4,13 @@ import { generateMnemonic } from 'bip39';
 import wordsList from 'bip39/src/wordlists/english.json';
 
 import { formatMnemonic } from 'app/defaults';
+import { postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
-import { putToStorage } from 'lib/miden/front/storage';
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
 import { GUARDIAN_PROBE_WAIT_DEADLINE_MS, useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { clearClientStorage } from 'lib/miden/reset';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { navigate } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import { OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
@@ -41,13 +40,15 @@ const ForgotPassword: FC = () => {
   }, [resetGuardianProbe]);
 
   /**
-   * Adopt the auto-detected guardian, waiting at most
+   * Resolve the auto-detected guardian endpoint, waiting at most
    * {@link GUARDIAN_PROBE_WAIT_DEADLINE_MS} for a probe that is still running.
-   * Silent no-op when nothing was detected — the stored endpoint stands.
+   * Returns undefined when nothing was detected (or the probe timed out); the
+   * caller then threads no endpoint and the backend falls back to the legacy
+   * stored endpoint / network default, exactly as before.
    */
-  const adoptDetectedGuardian = useCallback(async () => {
+  const detectGuardianEndpoint = useCallback(async (): Promise<string | undefined> => {
     const pending = probeResult.current;
-    if (!pending) return;
+    if (!pending) return undefined;
     let deadline: ReturnType<typeof setTimeout> | undefined;
     const result = await Promise.race([
       pending,
@@ -56,25 +57,19 @@ const ForgotPassword: FC = () => {
       })
     ]);
     if (deadline !== undefined) clearTimeout(deadline);
-    if (result?.best) {
-      try {
-        await putToStorage(GUARDIAN_URL_STORAGE_KEY, result.best.endpoint);
-      } catch (error) {
-        // Best-effort refinement: a failed write (quota, private mode, native
-        // disk error) must never abort recovery — fall back to the previously
-        // stored endpoint, exactly as when nothing is detected.
-        console.warn('[guardian/probe] Failed to persist detected guardian endpoint; using stored endpoint:', error);
-      }
-    }
+    return result?.best?.endpoint;
   }, []);
 
   const register = useCallback(async () => {
     if (password && seedPhrase) {
       clearClientStorage();
-      // Adoption MUST follow clearClientStorage: on desktop the guardian-URL
-      // setting lives in the very localStorage that call just wiped, so
-      // adopting first would silently erase the detected endpoint.
-      if (onboardingType === OnboardingType.Import) await adoptDetectedGuardian();
+      // Resolve the probed guardian endpoint (import path only) and thread it
+      // explicitly into registerWallet (stage 1 of #408) rather than writing the
+      // global GUARDIAN_URL_STORAGE_KEY. The probe result is held in memory, so
+      // clearClientStorage above cannot clobber it. When nothing was detected the
+      // endpoint stays undefined and the backend falls back to the stored /
+      // default endpoint.
+      const guardianEndpoint = onboardingType === OnboardingType.Import ? await detectGuardianEndpoint() : undefined;
 
       const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
       try {
@@ -82,13 +77,14 @@ const ForgotPassword: FC = () => {
           WalletType.Guardian,
           password,
           seedPhraseFormatted,
-          onboardingType === OnboardingType.Import // might be able to leverage ownMnemonic to determine whther to attempt imports in general
+          onboardingType === OnboardingType.Import, // might be able to leverage ownMnemonic to determine whther to attempt imports in general
+          guardianEndpoint
         );
       } catch (e) {
         console.error(e);
       }
     }
-  }, [password, seedPhrase, registerWallet, onboardingType, adoptDetectedGuardian]);
+  }, [password, seedPhrase, registerWallet, onboardingType, detectGuardianEndpoint]);
 
   const onAction = useCallback(
     async (action: OnboardingAction) => {
@@ -139,7 +135,9 @@ const ForgotPassword: FC = () => {
           setIsLoading(true);
           await register();
           setIsLoading(false);
-          navigate('/');
+          // Guardian recovery just completed — hand off to the side panel like
+          // first-run onboarding rather than always entering in-tab (#428).
+          navigate(postOnboardingRoute());
           break;
         case 'back':
           if (step === OnboardingStep.VerifySeedPhrase) {

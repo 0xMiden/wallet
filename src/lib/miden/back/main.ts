@@ -171,7 +171,13 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     case WalletMessageType.NewWalletRequest:
       console.log('[processRequest] NEW_WALLET_REQUEST received, calling registerNewWallet...');
       try {
-        await Actions.registerNewWallet(req.walletType, req.password, req.mnemonic, req.ownMnemonic);
+        await Actions.registerNewWallet(
+          req.walletType,
+          req.password,
+          req.mnemonic,
+          req.ownMnemonic,
+          req.guardianEndpoint
+        );
         console.log('[processRequest] registerNewWallet completed successfully');
       } catch (err: unknown) {
         console.error('[processRequest] registerNewWallet FAILED:', err);

@@ -184,12 +184,11 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    *
    * `viaUI: false` — fast path via the onboarding `__test_skip_onboarding`
    * bypass (`walletType=guardian&seed=…`), mirroring `createGuardianWallet`.
-   * `guardianUrl`, if given, seeds `GUARDIAN_URL_STORAGE_KEY` before the
-   * bypass navigation — required on a fresh profile/context so the vault's
-   * import-recovery scan (`Vault.spawn`) probes the RIGHT guardian instead of
-   * silently falling back to `DEFAULT_GUARDIAN_ENDPOINT`. Omit it only when
-   * this page's browser profile already carries the correct value (e.g. a
-   * `createGuardianWallet` call earlier in the same context).
+   * `guardianUrl`, if given, is threaded through the bypass as the onboarding
+   * guardian-endpoint OVERRIDE (a `guardianUrl` query param) — the same path
+   * production uses — so the vault's import-recovery scan (`Vault.spawn`) probes
+   * the RIGHT guardian instead of falling back to the network default. Pass it
+   * whenever the recovery must target a specific operator on a fresh profile.
    *
    * `viaUI: true` — drives the real recovery journey: Welcome → "Recover your
    * account" → 12-word seed grid → submit → (extension: full password step,
@@ -430,8 +429,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
   /**
    * Create a Guardian-backed wallet pointed at a locally-spawned guardian.
-   * Seeds the guardian endpoint into storage (the bypass create flow has no
-   * custom-URL field) and onboards via the v0-UI test bypass.
+   * Threads the guardian endpoint through the v0-UI test bypass as the
+   * onboarding override (the bypass create flow has no custom-URL field), so the
+   * new account binds to it exactly as the production guardian picker would.
    */
   async createGuardianWallet(
     guardianUrl: string,
@@ -453,31 +453,25 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     guardianUrl?: string;
     seed?: string[];
   }): Promise<{ address: string; seedPhrase: string[] }> {
-    // Guardian accounts read GUARDIAN_URL_STORAGE_KEY ('guardian_url_setting')
-    // from chrome.storage.local at register() time — for a fresh create this is
-    // what points a new account at the right guardian; for a seed-recovery
-    // import it's also what Vault.spawn's recovery scan probes against (else it
-    // silently falls back to DEFAULT_GUARDIAN_ENDPOINT). Seed it BEFORE the
-    // bypass navigation whenever the caller supplies one. `createGuardianWallet`
-    // / `createNewWallet` always pass one (required by their own signatures);
-    // `recoverGuardianFromSeed(..., { viaUI: false })` may omit it when this
-    // profile's storage already carries the right endpoint (e.g. a prior
-    // `createGuardianWallet` call in the same browser context) — in that case
-    // whatever's already in storage is left untouched.
-    if (opts.walletType === 'guardian' && opts.guardianUrl) {
-      await this.navigateHome();
-      const guardianUrl = opts.guardianUrl;
-      await this.page.evaluate(
-        ({ key, url }) => new Promise<void>(resolve => chrome.storage.local.set({ [key]: url }, () => resolve())),
-        { key: 'guardian_url_setting', url: guardianUrl }
-      );
-    }
-
+    // The bypass skips the ChooseGuardian / ImportRecoveryMethod screens that
+    // would normally set the onboarding guardian endpoint, so thread it in via
+    // the `guardianUrl` query param instead. Welcome.tsx reads it into its
+    // guardianEndpoint state and register() forwards it as the OVERRIDE — the
+    // same path production uses — so createGuardianAccount (create) and
+    // Vault.spawn's recovery scan (import) both bind to it. Decoupled from the
+    // retired global GUARDIAN_URL_STORAGE_KEY: stage-3 create no longer reads
+    // that key, and recovery only consults it as a frozen last-resort fallback.
+    // `createGuardianWallet` / `createNewWallet` always pass a URL (required by
+    // their signatures); `recoverGuardianFromSeed(..., { viaUI: false })` passes
+    // one whenever it needs a specific operator.
     const params = new URLSearchParams();
     params.set('__test_skip_onboarding', '1');
     params.set('password', opts.password);
     if (opts.walletType === 'guardian') {
       params.set('walletType', 'guardian');
+      if (opts.guardianUrl) {
+        params.set('guardianUrl', opts.guardianUrl);
+      }
     }
     if (opts.seed && opts.seed.length > 0) {
       params.set('seed', opts.seed.join(' '));
