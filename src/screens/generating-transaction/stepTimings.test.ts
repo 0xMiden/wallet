@@ -1,4 +1,4 @@
-import { advanceStepTimings } from './stepTimings';
+import { advanceStepTimings, type StepTimings } from './stepTimings';
 
 /**
  * #530 — the "Guardian approved" duration jumped (~1.488s → ~2.033s) shortly
@@ -37,5 +37,43 @@ describe('advanceStepTimings (#530 duration stability)', () => {
   it('returns the same reference when nothing changes (avoids needless re-renders)', () => {
     const started = advanceStepTimings({}, { stepIndex: 0, transactionComplete: false, now: 1000 });
     expect(advanceStepTimings(started, { stepIndex: 0, transactionComplete: false, now: 2000 })).toBe(started);
+  });
+
+  it('records every step once across the full guardian stage walk (the true #530 repro)', () => {
+    // stepIndex per stage (see getTimedStepIndexForStage): syncing/creating-/signing-proposal -> 0,
+    // sending/proving -> 1, executing -> undefined, submitting -> 2, guardian-syncing -> 3,
+    // guardian-synced -> undefined-as-4, complete -> finalize.
+    const walk: Array<{ stepIndex: number | undefined; complete: boolean }> = [
+      { stepIndex: 0, complete: false }, // syncing
+      { stepIndex: 0, complete: false }, // creating-proposal
+      { stepIndex: 0, complete: false }, // signing-proposal
+      { stepIndex: 1, complete: false }, // sending  -> step 0 ends, step 1 starts
+      { stepIndex: undefined, complete: false }, // executing (no-op)
+      { stepIndex: 1, complete: false }, // proving  -> must NOT bump
+      { stepIndex: 2, complete: false }, // submitting -> step 1 ends, step 2 starts
+      { stepIndex: 3, complete: false }, // guardian-syncing -> step 2 ends, step 3 starts
+      { stepIndex: undefined, complete: false }, // guardian-synced (no-op)
+      { stepIndex: undefined, complete: true } // complete -> step 3 ends
+    ];
+    let t: StepTimings = {};
+    let now = 0;
+    for (const event of walk) {
+      now += 1000;
+      t = advanceStepTimings(t, { stepIndex: event.stepIndex, transactionComplete: event.complete, now });
+    }
+    expect(t['guardian-approving']).toEqual({ startedAt: 1000, endedAt: 4000 });
+    expect(t['generating-proof']).toEqual({ startedAt: 4000, endedAt: 7000 });
+    expect(t['submitting']).toEqual({ startedAt: 7000, endedAt: 8000 });
+    expect(t['syncing-guardian']).toEqual({ startedAt: 8000, endedAt: 10000 });
+  });
+
+  it('sets startedAt when a step is first seen via a transition, so the duration is 0 not NaN', () => {
+    // Tx observed mid-flow: the first event is already a transition to index 1.
+    // The old inline code left the previous step's startedAt undefined, so the
+    // rendered duration was `endedAt - undefined` = NaN.
+    const t = advanceStepTimings({}, { stepIndex: 1, transactionComplete: false, now: 3000 });
+    expect(t['guardian-approving']?.startedAt).toBe(3000);
+    expect(t['guardian-approving']?.endedAt).toBe(3000);
+    expect((t['guardian-approving']!.endedAt! - t['guardian-approving']!.startedAt) / 1000).toBe(0);
   });
 });
