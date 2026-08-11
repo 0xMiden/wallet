@@ -21,12 +21,18 @@ function amountTextSize(value?: string): string {
 /**
  * Accept a comma as the decimal separator (comma-decimal locales/keyboards — es,
  * de, fr, …) by normalizing it to a dot before the field parses the input (#433).
- * Group separators are disabled on this field, so a comma can only mean "decimal";
- * normalizing here keeps the emitted value "."-normalized for the tx pipeline —
- * no locale detection and no downstream changes. Same-length substitution, so the
- * caret position is preserved.
+ * The field keeps the emitted value "."-normalized for the tx pipeline, so there
+ * is no locale detection and no downstream change.
+ *
+ * When a dot is already present the commas are thousands groupings (e.g. a pasted
+ * `1,000.50`) — drop them so the value stays `1000.50` rather than collapsing to
+ * a broken multi-dot string. Otherwise the comma is the user's decimal point, so
+ * turn it into a dot.
  */
 export function normalizeDecimalInput(rawValue: string): string {
+  if (rawValue.includes('.')) {
+    return rawValue.replace(/,/g, '');
+  }
   return rawValue.replace(/,/g, '.');
 }
 

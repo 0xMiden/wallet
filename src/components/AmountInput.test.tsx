@@ -238,6 +238,17 @@ describe('AmountInput', () => {
       expect(onValueChange).toHaveBeenCalledWith('2.75', undefined, expect.objectContaining({ value: '2.75' }));
     });
 
+    it('treats commas as thousands groupings when a dot is present (pasted 1,000.50)', () => {
+      // A dot is already the decimal point, so the commas are groupings — drop
+      // them rather than collapse into a broken multi-dot value.
+      const onValueChange = jest.fn();
+      render(<AmountInput onValueChange={onValueChange} data-testid={TESTID} />);
+
+      fireEvent.change(getInput(), { target: { value: '1,000.50' } });
+
+      expect(onValueChange).toHaveBeenCalledWith('1000.50', undefined, expect.objectContaining({ value: '1000.50' }));
+    });
+
     it('focuses the input when the amount row is clicked', () => {
       const { container } = render(<AmountInput data-testid={TESTID} />);
       const row = container.querySelector('.cursor-text') as HTMLElement;
