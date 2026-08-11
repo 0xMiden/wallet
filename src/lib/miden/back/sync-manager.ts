@@ -337,7 +337,7 @@ async function runSync(): Promise<void> {
         // SyncCompleted signal below still fires — it only clears the sync
         // indicator (the data itself is read from storage), so gating it would
         // just hang that indicator without making the data any fresher.
-        console.warn('[SyncManager] Failed to persist sync data to chrome.storage.local:', err);
+        console.warn('[SyncManager] Failed to persist sync data to local storage:', err);
       }
 
       // Broadcast bare SyncCompleted as a signal (data is in chrome.storage.local)
