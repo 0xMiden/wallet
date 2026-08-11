@@ -43,10 +43,15 @@ const GUARDIAN_KEYS_FIXTURE = {
   hotCiphertext: 'hot-ct',
   coldSecretKeyHex: 'cold-sk'
 };
-const mockCreateGuardianMidenWallet = jest.fn(async (_seed: Uint8Array) => ({
-  accountId: 'guardian-acc-1',
-  keys: GUARDIAN_KEYS_FIXTURE
-}));
+const mockCreateGuardianMidenWallet = jest.fn(
+  async (
+    _seed: Uint8Array,
+    _guardianEndpoint?: string
+  ): Promise<{ accountId: string; keys: typeof GUARDIAN_KEYS_FIXTURE; guardianEndpoint?: string }> => ({
+    accountId: 'guardian-acc-1',
+    keys: GUARDIAN_KEYS_FIXTURE
+  })
+);
 const mockRecoverGuardianAccountsBySeed = jest.fn(async (_deriveColdSeed: any, _endpoint: string) => [
   {
     accountId: 'guardian-acc-imported',
@@ -103,8 +108,14 @@ jest.mock('lib/secure-hot-key', () => ({
 // on-chain index-0 signer via getSignerDetailsFromAccount. Mock it so tests can
 // drive the match / mismatch branches.
 const mockGetSignerDetailsFromAccount = jest.fn();
+// createHDAccount resolves a second Guardian account's endpoint from the sibling
+// account's per-account field via resolveGuardianEndpoint. Default: echo the
+// account's guardianEndpoint (the real function's first-preference), then a
+// stand-in default — so the per-account field wins over any global key.
+const mockResolveGuardianEndpoint = jest.fn(async (acc: any) => acc?.guardianEndpoint ?? 'https://default.example');
 jest.mock('../guardian/account', () => ({
-  getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a)
+  getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
+  resolveGuardianEndpoint: (...a: unknown[]) => mockResolveGuardianEndpoint(...(a as [any]))
 }));
 
 // Unified handle used by tests — matches the old mockMidenClient API.
@@ -1472,6 +1483,51 @@ describe('Vault hardware branches', () => {
       keys: GUARDIAN_KEYS_FIXTURE
     });
     await expect(vlt.createHDAccount(WalletType.Guardian, 'Guardian 1')).resolves.toBeTruthy();
+  });
+
+  it('createHDAccount sources a second Guardian account endpoint from the existing account (not the global key)', async () => {
+    // #408 stage 1: onboarding no longer writes the global GUARDIAN_URL_STORAGE_KEY,
+    // so an added Guardian account must take its endpoint from a sibling account's
+    // per-account field. Spawn a wallet whose first Guardian account is on a
+    // non-default operator, then add a second Guardian account.
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    mockMidenClient.createGuardianMidenWallet.mockResolvedValueOnce({
+      accountId: 'guardian-acc-1',
+      keys: GUARDIAN_KEYS_FIXTURE,
+      guardianEndpoint: 'https://first-guardian.example'
+    });
+    const vlt = await Vault.spawn(
+      WalletType.Guardian,
+      'pw-add-guardian',
+      VALID_MNEMONIC,
+      false,
+      'https://first-guardian.example'
+    );
+
+    // Isolate the createHDAccount call and make the resolved endpoint a sentinel
+    // that can only have come from resolveGuardianEndpoint(existing account).
+    mockMidenClient.createGuardianMidenWallet.mockClear();
+    mockResolveGuardianEndpoint.mockResolvedValueOnce('https://resolved-from-sibling.example');
+    mockMidenClient.createGuardianMidenWallet.mockResolvedValueOnce({
+      accountId: 'guardian-acc-2',
+      keys: GUARDIAN_KEYS_FIXTURE,
+      guardianEndpoint: 'https://resolved-from-sibling.example'
+    });
+
+    await vlt.createHDAccount(WalletType.Guardian, 'Guardian 2');
+
+    // Endpoint was resolved from the existing Guardian account…
+    expect(mockResolveGuardianEndpoint).toHaveBeenCalledWith(
+      expect.objectContaining({ publicKey: 'guardian-acc-1', guardianEndpoint: 'https://first-guardian.example' })
+    );
+    // …and threaded into the second account's creation. Previously this 2nd arg
+    // was absent, forcing createGuardianAccount to fall back to the (now unwritten)
+    // global key — the regression stage 1 would otherwise introduce.
+    expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
+      expect.anything(),
+      'https://resolved-from-sibling.example'
+    );
   });
 
   it('createHDAccount supports WalletType.OffChain (derivation index 1)', async () => {

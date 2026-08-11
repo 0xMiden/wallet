@@ -35,7 +35,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { compareAccountIds } from '../activity/utils';
 import { fetchFromStorage, putToStorage } from '../front/storage';
 import type { CreatedGuardianKeys } from '../guardian/account';
-import { getSignerDetailsFromAccount } from '../guardian/account';
+import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
 import { deriveClientSeed, makeColdSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
@@ -716,6 +716,22 @@ export class Vault {
       const options: MidenClientCreateOptions = {
         insertKeyCallback: insertKeyCallbackWrapper(this.vaultKey)
       };
+
+      // A second Guardian account must bind to the SAME operator endpoint as the
+      // wallet's existing Guardian account(s). Source it from a sibling's
+      // per-account `guardianEndpoint` via resolveGuardianEndpoint (which then
+      // falls back to the legacy global key, then the network default). This is
+      // identical to the former raw global-key read for default-endpoint wallets,
+      // but stays correct for non-default ones now that onboarding threads the
+      // endpoint per-account instead of writing the global key (#408 stage 1).
+      // undefined when there is no existing Guardian account (createGuardianAccount
+      // then applies its own global/default fallback, exactly as before).
+      const existingGuardianAccount =
+        walletType === WalletType.Guardian ? allAccounts.find(a => a.type === WalletType.Guardian) : undefined;
+      const guardianEndpoint = existingGuardianAccount
+        ? await resolveGuardianEndpoint(existingGuardianAccount)
+        : undefined;
+
       console.log('[Vault.createHDAccount] Step 5: seed derived, acquiring WASM lock');
 
       // Wrap WASM client operations in a lock to prevent concurrent access.
@@ -740,7 +756,7 @@ export class Vault {
 
           if (walletType === WalletType.Guardian) {
             console.log('[Vault.createHDAccount] Step 8: createGuardianMidenWallet');
-            const result = await midenClient.createGuardianMidenWallet(walletSeed);
+            const result = await midenClient.createGuardianMidenWallet(walletSeed, guardianEndpoint);
             return {
               accountId: result.accountId,
               guardianKeys: result.keys,
