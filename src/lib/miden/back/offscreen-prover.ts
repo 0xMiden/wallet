@@ -131,6 +131,40 @@ export async function abortSpeculativeProve(): Promise<boolean> {
   });
 }
 
+/**
+ * True while a non-speculative prove (a real send / consume / newTransaction)
+ * is in flight in the offscreen doc.
+ *
+ * The generalized offscreen client (issue #260) shares the SINGLE offscreen doc
+ * with the prover, so a per-op deadline kill on a cheap proxied read must NOT
+ * collateral-kill the realm while a user's real prove is mid-flight (design
+ * §4). The `MidenClientProxy` consults this and, when true, downgrades a read
+ * deadline to a plain reject-without-kill instead of tearing down the doc.
+ */
+export function isNonSpeculativeProveInFlight(): boolean {
+  return nonSpeculativeProveCount > 0;
+}
+
+/**
+ * Unconditionally tear down the offscreen document (OS-level kill) via the same
+ * `closeDocument()` primitive as {@link abortSpeculativeProve}, but WITHOUT its
+ * speculative-only guard — this is the deadline / heal-alarm kill path (design
+ * §3.2), whose whole purpose is to kill a wedged realm. Serialized through
+ * `withLifecycleLock` so the close can't race a concurrent create.
+ *
+ * Callers that must not kill a healthy real prove should gate on
+ * {@link isNonSpeculativeProveInFlight} first; this function itself does not.
+ *
+ * Returns true if a document was actually closed; false if none existed.
+ */
+export async function forceCloseOffscreenDocument(): Promise<boolean> {
+  return await withLifecycleLock(async () => {
+    if (!(await hasOffscreenDocument())) return false;
+    await chrome.offscreen.closeDocument();
+    return true;
+  });
+}
+
 function waitForOffscreenReady(): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
