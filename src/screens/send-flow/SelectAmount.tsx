@@ -181,9 +181,13 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         <span className="font-heading text-gray text-base font-bold">
           {t('available')} {formatBalance(token.balance)} {token.name}
         </span>
-        <span className="font-heading text-gray text-base font-bold">
-          {t('approxFiatValue', { value: `$${availableFiat.toFixed(2)}` })}
-        </span>
+        {/* Only show the fiat approximation when we actually have a price — swap
+            DEX tokens carry no fiatPrice, so a "$0.00" line would be misleading. */}
+        {token.fiatPrice > 0 && (
+          <span className="font-heading text-gray text-base font-bold">
+            {t('approxFiatValue', { value: `$${availableFiat.toFixed(2)}` })}
+          </span>
+        )}
       </>
     ) : null;
 

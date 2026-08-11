@@ -189,6 +189,13 @@ describe('SelectAmount', () => {
       expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('available');
     });
 
+    it('omits the misleading "$0.00" fiat line when the token has no fiat price (swap DEX tokens, #461)', () => {
+      renderComponent({ token: baseToken({ balance: 5, fiatPrice: 0 }) });
+      const helper = screen.getByTestId('ai-helper');
+      expect(helper).toHaveTextContent('available');
+      expect(helper).not.toHaveTextContent('approxFiatValue');
+    });
+
     it('shows the available-balance helper even in embedded mode when showBalanceHelper is on (#461)', () => {
       // The swap "You Pay" field is embedded but must still show how much is
       // spendable — previously embedded mode always stripped the helper.
