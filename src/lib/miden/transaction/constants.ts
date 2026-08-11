@@ -6,7 +6,7 @@ import { ITransactionStage } from '../db/types';
  * the copy stays in one place.
  */
 export const REMOTE_PROVER_FAILED_ERROR =
-  'Remote prover failed — this is most often caused by a timeout. Please try again.';
+  'The proving service was temporarily unavailable, so the transaction could not be completed. No funds moved — please try again in a moment.';
 
 export const LOCAL_PROVER_FAILED_ERROR = 'Local proving failed — please try again.';
 

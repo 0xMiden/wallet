@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
+import { REMOTE_PROVER_FAILED_ERROR } from 'lib/miden/transaction/constants';
+
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
 
@@ -850,7 +852,7 @@ describe('HistoryDetails', () => {
       status: STATUS_FAILED,
       displayMessage: 'Failed',
       displayIcon: 'FAILED',
-      error: 'Remote prover failed — this is most often caused by a timeout. Please try again.',
+      error: REMOTE_PROVER_FAILED_ERROR,
       rawError: 'Error: fetch timeout after 30000ms',
       ...overrides
     });
@@ -863,7 +865,7 @@ describe('HistoryDetails', () => {
         el => el.getAttribute('data-title') === 'error'
       )!;
       expect(errorCard).toBeTruthy();
-      expect(errorCard.textContent).toContain('Remote prover failed');
+      expect(errorCard.textContent).toContain(REMOTE_PROVER_FAILED_ERROR);
 
       // Raw error hidden until the disclosure is toggled.
       expect(errorCard.textContent).not.toContain('fetch timeout');
