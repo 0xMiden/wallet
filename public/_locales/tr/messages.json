@@ -53,7 +53,7 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Adres: $number$",
+    "message": "Adres: $number$ ",
     "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
@@ -2545,12 +2545,12 @@
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
-    "message": "Bu pencereyi kapatmayın. İşlem oluşturulduktan sonra ana sayfaya geri yönlendirileceksiniz",
-    "englishSource": "Do not close this window. You will be navigated back to the home page after the transaction is generated"
+    "message": "İşlem oluşturulana kadar bu pencereyi kapatmayın",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "doNotCloseWindowAutoClose": {
-    "message": "Bu pencereyi kapatmayın. İşlem oluşturulduktan sonra pencere otomatik olarak kapanacak",
-    "englishSource": "Do not close this window. Window will auto-close after the transaction is generated"
+    "message": "İşlem oluşturulana kadar bu pencereyi kapatmayın",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "transactionSuccessDescription": {
     "message": "İşleminiz başarıyla işlendi ve ağda onaylandı.",
@@ -3837,9 +3837,21 @@
     "message": "Total Paid",
     "englishSource": "Total Paid"
   },
+  "totalConsumed": {
+    "message": "Toplam Tüketilen",
+    "englishSource": "Total Consumed"
+  },
+  "notesConsumed": {
+    "message": "Notes Tüketildi",
+    "englishSource": "Notes Consumed"
+  },
+  "consumed": {
+    "message": "Tüketilen",
+    "englishSource": "Consumed"
+  },
   "sourceTx": {
-    "message": "Source TX",
-    "englishSource": "Source TX"
+    "message": "İşlem Kimliği",
+    "englishSource": "Transaction ID"
   },
   "developerSettingsTitle": {
     "message": "Geliştirici Ayarları",

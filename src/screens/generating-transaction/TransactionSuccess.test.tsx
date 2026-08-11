@@ -88,7 +88,7 @@ describe('TransactionSuccess', () => {
     expect(container.textContent).toContain('Transaction Complete!');
     // No amount, no destination, no txHash → no receipt rows, no amount block.
     expect(container.textContent).not.toContain('Total Paid');
-    expect(container.textContent).not.toContain('Source TX');
+    expect(container.textContent).not.toContain('Transaction ID');
     expect(container.querySelectorAll('button[aria-label="viewOnMidenscan"]')).toHaveLength(0);
 
     act(() => root.unmount());
@@ -113,13 +113,42 @@ describe('TransactionSuccess', () => {
     expect(container.textContent).toContain('to');
     expect(container.textContent).toContain('Total Paid');
     expect(container.textContent).toContain('12345 TST');
-    expect(container.textContent).toContain('Source TX');
+    expect(container.textContent).toContain('Transaction ID');
 
     // The source-tx row is clickable → wired to onViewExplorer.
     const explorerButton = container.querySelector('button[aria-label="viewOnMidenscan"]') as HTMLButtonElement;
     expect(explorerButton).not.toBeNull();
     act(() => explorerButton.click());
     expect(onViewExplorer).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+  });
+
+  it('relabels the receipt for a consume: From, Total Consumed and Notes Consumed rows', async () => {
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          type: 'consume',
+          amount: 5n,
+          secondaryAccountId: 'mtst1apsender_addr1234',
+          noteId: '0xnote1aaaaaaaa',
+          noteIds: ['0xnote1aaaaaaaa', '0xnote2bbbbbbbb']
+        })}
+        txHash="0xabcdef1234567890"
+        onDoneClick={() => {}}
+      />
+    );
+
+    expect(container.textContent).toContain('from');
+    expect(container.textContent).not.toContain('Total Paid');
+    expect(container.textContent).toContain('Total Consumed');
+    expect(container.textContent).toContain('Notes Consumed');
+    // Both claimed note ids render, truncated, in the Notes Consumed row.
+    expect(container.textContent).toContain('0xnote…aaaa');
+    expect(container.textContent).toContain('0xnote…bbbb');
+    // The summary pill's right side reads "Consumed" instead of an address.
+    expect(container.textContent).toContain('Consumed');
+    expect(container.textContent).toContain('Transaction ID');
 
     act(() => root.unmount());
   });
@@ -136,7 +165,7 @@ describe('TransactionSuccess', () => {
     const { container, root } = await renderInto(
       <TransactionSuccess transaction={baseTransaction()} txHash="0xdeadbeef0000" onDoneClick={() => {}} />
     );
-    expect(container.textContent).toContain('Source TX');
+    expect(container.textContent).toContain('Transaction ID');
     expect(container.querySelectorAll('button[aria-label="viewOnMidenscan"]')).toHaveLength(0);
     act(() => root.unmount());
   });

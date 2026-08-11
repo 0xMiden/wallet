@@ -53,7 +53,7 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Adresse : $number$",
+    "message": "Adresse: $number$ ",
     "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
@@ -2544,12 +2544,12 @@
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
-    "message": "Ne fermez pas cette fenêtre. Vous serez redirigé vers la page d'accueil une fois la transaction générée.",
-    "englishSource": "Do not close this window. You will be navigated back to the home page after the transaction is generated"
+    "message": "Ne fermez pas cette fenêtre tant que la transaction n'est pas générée",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "doNotCloseWindowAutoClose": {
-    "message": "Ne fermez pas cette fenêtre. La fenêtre se fermera automatiquement une fois la transaction générée",
-    "englishSource": "Do not close this window. Window will auto-close after the transaction is generated"
+    "message": "Ne fermez pas cette fenêtre tant que la transaction n'est pas générée",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "transactionSuccessDescription": {
     "message": "Votre transaction a été traitée et confirmée avec succès sur le réseau.",
@@ -3836,9 +3836,21 @@
     "message": "Total Paid",
     "englishSource": "Total Paid"
   },
+  "totalConsumed": {
+    "message": "Total consommé",
+    "englishSource": "Total Consumed"
+  },
+  "notesConsumed": {
+    "message": "Notes Consommé",
+    "englishSource": "Notes Consumed"
+  },
+  "consumed": {
+    "message": "Consommé",
+    "englishSource": "Consumed"
+  },
   "sourceTx": {
-    "message": "Source TX",
-    "englishSource": "Source TX"
+    "message": "ID de transaction",
+    "englishSource": "Transaction ID"
   },
   "developerSettingsTitle": {
     "message": "Paramètres du développeur",
