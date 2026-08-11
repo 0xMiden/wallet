@@ -2,8 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { navigate } from 'lib/woozie';
 
 import AllHistory from './AllHistory';
@@ -12,17 +12,24 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// The red-dot indicator is driven by this hook; each test controls its return
-// value via the mocked implementation below.
-jest.mock('app/hooks/useHasUnclaimedNotes', () => ({
-  useHasUnclaimedNotes: jest.fn()
+// The red-dot indicator and the pending-notes banner are driven by this hook;
+// each test controls its return value via the mocked implementation below.
+jest.mock('lib/miden/front/claimable-notes', () => ({
+  useClaimableNotes: jest.fn()
 }));
 
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name, className }: { name: string; className?: string }) => (
     <span data-testid="icon" data-name={name} className={className} />
   ),
-  IconName: { PendingNotes: 'PendingNotes', Settings: 'Settings' }
+  IconName: { PendingNotes: 'PendingNotes', Settings: 'Settings', InformationFill: 'InformationFill' }
+}));
+
+// The info drawer pulls in vaul + Button; stub it down to its open state.
+jest.mock('app/templates/PendingNotesInfoDrawer', () => ({
+  __esModule: true,
+  default: ({ open, notesCount }: { open: boolean; notesCount: number }) =>
+    open ? <div data-testid="pending-notes-info-drawer" data-notes-count={notesCount} /> : null
 }));
 
 // `components/ui` is a barrel that pulls in many heavy sibling components
@@ -93,7 +100,7 @@ jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
 
-const mockedUseHasUnclaimedNotes = useHasUnclaimedNotes as jest.MockedFunction<typeof useHasUnclaimedNotes>;
+const mockedUseClaimableNotes = useClaimableNotes as jest.Mock;
 
 const getHistory = () => screen.getByTestId('history');
 const getFilterButton = (label: string) => screen.getByRole('button', { name: label });
@@ -101,7 +108,7 @@ const getFilterButton = (label: string) => screen.getByRole('button', { name: la
 describe('AllHistory', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockedUseHasUnclaimedNotes.mockReturnValue(false);
+    mockedUseClaimableNotes.mockReturnValue({ data: [] });
   });
 
   it('renders the activity header, filter chips and search field', () => {
@@ -146,30 +153,36 @@ describe('AllHistory', () => {
     expect(getFilterButton('sent').className).toContain('bg-white');
   });
 
-  it('shows the unclaimed-notes red dot only when there are unclaimed notes', () => {
-    mockedUseHasUnclaimedNotes.mockReturnValue(true);
-    const { container, rerender, unmount } = render(<AllHistory />);
-    expect(container.querySelector('.bg-red-500')).not.toBeNull();
-
-    unmount();
-
-    mockedUseHasUnclaimedNotes.mockReturnValue(false);
-    const second = render(<AllHistory />);
-    expect(second.container.querySelector('.bg-red-500')).toBeNull();
-
-    // Guard against an unused `rerender` lint complaint while keeping the
-    // first render's cleanup explicit.
-    void rerender;
-  });
-
-  it('navigates to /pending-notes and fires light haptics from the header button', () => {
+  it('hides the pending-notes banner when there are no claimable notes', () => {
     render(<AllHistory />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'pendingNotes' }));
+    expect(screen.queryByText('consumeYourNotes')).toBeNull();
+  });
+
+  it('shows the pending-notes banner with the note count and navigates to /pending-notes on tap', () => {
+    mockedUseClaimableNotes.mockReturnValue({ data: [{}, {}, {}] });
+    render(<AllHistory />);
+
+    expect(screen.getByText('consumeYourNotes')).toBeTruthy();
+    expect(screen.getByText('3')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('consumeYourNotes'));
 
     expect(hapticLight).toHaveBeenCalledTimes(1);
-    expect(navigate).toHaveBeenCalledTimes(1);
     expect(navigate).toHaveBeenCalledWith('/pending-notes');
+  });
+
+  it('opens the info drawer from the banner (i) button', () => {
+    mockedUseClaimableNotes.mockReturnValue({ data: [{}, {}] });
+    render(<AllHistory />);
+
+    expect(screen.queryByTestId('pending-notes-info-drawer')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'whatArePendingNotes' }));
+
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+    const drawer = screen.getByTestId('pending-notes-info-drawer');
+    expect(drawer.getAttribute('data-notes-count')).toBe('2');
   });
 
   it('changes the active filter and propagates it to History on tap', () => {
