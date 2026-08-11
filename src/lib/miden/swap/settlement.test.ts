@@ -1,6 +1,6 @@
+import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import type { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
 import { initiateConsumeNotesTransaction } from 'lib/miden/transaction/initiate';
 import { NoteTypeEnum } from 'lib/miden/types';
 
@@ -15,6 +15,16 @@ jest.mock('lib/miden/repo', () => ({
 
 jest.mock('lib/miden/transaction/initiate', () => ({
   initiateConsumeNotesTransaction: jest.fn(async () => 'consume-1')
+}));
+
+// Slice 7a (issue #260): classifySwapOrderNotes reads per-order PSWAP lineage
+// through `midenClientProxy.getPswapLineage` (a plain PswapLineageDto) instead of a
+// live client — mock it so the classifier consumes a DTO deterministically.
+jest.mock('lib/miden/back/miden-client-proxy', () => ({
+  midenClientProxy: {
+    getPswapLineage: jest.fn(),
+    getConsumableNotes: jest.fn()
+  }
 }));
 
 const tx = (overrides: Record<string, unknown> = {}) => ({
@@ -84,19 +94,17 @@ describe('swap order note settlement', () => {
       note('future-depth-unrelated', [999n, 77n, 99n, 0n]),
       note('same-amount-unrelated', [999n, 88n, 1n, 0n])
     ];
-    const client = {
-      client: {
-        pswap: {
-          lineage: jest.fn(async () => ({
-            currentTipNoteId: () => ({ toString: () => 'tip-2' }),
-            currentDepth: () => 2,
-            state: () => 0
-          }))
-        }
-      }
-    };
+    // The proxy returns a plain PswapLineageDto (slice 7a); classify consumes it.
+    (midenClientProxy.getPswapLineage as jest.Mock).mockResolvedValue({
+      orderId: '77',
+      currentTipNoteId: 'tip-2',
+      currentDepth: 2,
+      state: 0,
+      remainingOffered: '0',
+      remainingRequested: '0'
+    });
 
-    const result = await classifySwapOrderNotes(notes as any, 'account-1', client as unknown as MidenClientInterface);
+    const result = await classifySwapOrderNotes(notes as any, 'account-1');
 
     expect(result.get('tip-2')).toEqual(expect.objectContaining({ orderId: '77', depth: 2, role: 'tip' }));
     expect(result.get('payback-1')).toEqual(expect.objectContaining({ orderId: '77', depth: 1, role: 'payback' }));

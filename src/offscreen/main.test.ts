@@ -171,6 +171,21 @@ function resetControl() {
     clientNewTransaction: jest.fn(async (_a: unknown, _b: unknown, _c: unknown) => ({
       serialize: () => new Uint8Array([88, 99])
     })),
+    // Slice-7a deferred reach-through reads on the offscreen-owned client. The
+    // live-record returns are shaped exactly as the shared reducers read them; the
+    // sync height + pswap lineage are reached through the raw `.client`.
+    clientGetSyncHeight: jest.fn(async () => 4242),
+    clientSync: jest.fn(async () => ({ blockNum: () => 5000 })),
+    clientLineage: jest.fn(async (_orderId: string) => ({
+      orderId: () => '77',
+      currentTipNoteId: () => ({ toString: () => '0xtip' }),
+      currentDepth: () => 2,
+      state: () => 1,
+      remainingOffered: () => 10n,
+      remainingRequested: () => 20n
+    })),
+    clientGetInputNote: jest.fn(async (_id: string) => ({ metadata: () => ({ noteType: () => 1 }) })),
+    clientImportNoteBytes: jest.fn(async (_bytes: Uint8Array) => '0ximportedid'),
     // Slice 6a guardianPipeline: the RAW client transactions API the DISPATCH
     // drives directly (execute→prove→submit→apply on a pre-built request). The
     // default returns a TransactionExecution-like whose result serializes to
@@ -218,11 +233,19 @@ function resetControl() {
       sendTransaction: (...a: any[]) => (globalThis as any).__off.clientSendTransaction(...a),
       swapTransaction: (...a: any[]) => (globalThis as any).__off.clientSwapTransaction(...a),
       newTransaction: (...a: any[]) => (globalThis as any).__off.clientNewTransaction(...a),
-      // The raw client the guardian leaf pipeline drives directly.
+      // Slice-7a: getInputNote / importNoteBytes are interface methods on the
+      // offscreen-owned client; the DISPATCH reduces getInputNote in-realm.
+      getInputNote: (...a: any[]) => (globalThis as any).__off.clientGetInputNote(...a),
+      importNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportNoteBytes(...a),
+      // The raw client the guardian leaf pipeline + slice-7a sync-height/lineage
+      // reads drive directly.
       client: {
         transactions: {
           executeRequest: (...a: any[]) => (globalThis as any).__off.guardianExecuteRequest(...a)
-        }
+        },
+        getSyncHeight: (...a: any[]) => (globalThis as any).__off.clientGetSyncHeight(...a),
+        sync: (...a: any[]) => (globalThis as any).__off.clientSync(...a),
+        pswap: { lineage: (...a: any[]) => (globalThis as any).__off.clientLineage(...a) }
       }
     }))
   };
@@ -779,6 +802,108 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         swapAttachment: null
       }
     ]);
+  });
+
+  // ─── Slice 7a: deferred reach-through reads ─────────────────────────────────
+  it('dispatches getSyncHeight(fresh:false) → reads the last-synced height, JSON-encoded', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const ret = capturedListener!(callReq({ method: 'getSyncHeight', argsB64: [encodeArg(false)] }), {}, sendResponse);
+    expect(ret).toBe(true);
+    await flush();
+
+    // Not fresh → getSyncHeight, never a network sync.
+    expect(G.__off.clientGetSyncHeight).toHaveBeenCalledTimes(1);
+    expect(G.__off.clientSync).not.toHaveBeenCalled();
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toBe(4242);
+  });
+
+  it('dispatches getSyncHeight(fresh:true) → runs a network sync and returns its blockNum', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'getSyncHeight', argsB64: [encodeArg(true)] }), {}, sendResponse);
+    await flush();
+
+    // Fresh → sync().blockNum(), never the cached getSyncHeight.
+    expect(G.__off.clientSync).toHaveBeenCalledTimes(1);
+    expect(G.__off.clientGetSyncHeight).not.toHaveBeenCalled();
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toBe(5000);
+  });
+
+  it('dispatches getPswapLineage → reduces the live record in-realm to a JSON DTO', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'getPswapLineage', argsB64: [encodeArg('77')] }), {}, sendResponse);
+    await flush();
+
+    // The order id decoded across the wire; the reduction ran on the offscreen client.
+    expect(G.__off.clientLineage).toHaveBeenCalledWith('77');
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    // Every field the callers read survives, BigInts as decimal strings.
+    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toEqual({
+      orderId: '77',
+      currentTipNoteId: '0xtip',
+      currentDepth: 2,
+      state: 1,
+      remainingOffered: '10',
+      remainingRequested: '20'
+    });
+  });
+
+  it('dispatches getPswapLineage → returns resultB64:null when the order is not tracked', async () => {
+    await loadModule();
+    G.__off.clientLineage = jest.fn(async () => null);
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'getPswapLineage', argsB64: [encodeArg('99')] }), {}, sendResponse);
+    await flush();
+
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(resp.resultB64).toBeNull();
+  });
+
+  it('dispatches getInputNoteSummary → reduces the live record to its noteType (JSON DTO)', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'getInputNoteSummary', argsB64: [encodeArg('0xn')] }), {}, sendResponse);
+    await flush();
+
+    expect(G.__off.clientGetInputNote).toHaveBeenCalledWith('0xn');
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toEqual({ noteType: 1 });
+  });
+
+  it('dispatches getInputNoteSummary → returns resultB64:null for a not-found note', async () => {
+    await loadModule();
+    G.__off.clientGetInputNote = jest.fn(async () => null);
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'getInputNoteSummary', argsB64: [encodeArg('missing')] }), {}, sendResponse);
+    await flush();
+
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(resp.resultB64).toBeNull();
+  });
+
+  it('dispatches importNoteBytes → imports into the offscreen store and ships the id back as bytes', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const noteBytes = new Uint8Array([0xab, 0xcd, 0xef]);
+    capturedListener!(callReq({ method: 'importNoteBytes', argsB64: [encodeArg(noteBytes)] }), {}, sendResponse);
+    await flush();
+
+    // The raw note bytes crossed intact and were imported into THIS client's store.
+    expect(G.__off.clientImportNoteBytes).toHaveBeenCalledTimes(1);
+    expect(Array.from(G.__off.clientImportNoteBytes.mock.calls[0][0])).toEqual([0xab, 0xcd, 0xef]);
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(Buffer.from(resp.resultB64, 'base64').toString('utf8')).toBe('0ximportedid');
   });
 
   it('getInputNoteDetails maps a JSON-null query arg back to undefined for the SDK', async () => {

@@ -495,7 +495,6 @@ const ensureGuardianRecallableSendRequestBytes = async (
 ): Promise<Uint8Array> => {
   if (transaction.requestBytes) return transaction.requestBytes;
   const requestBytes = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
     // `freshSync` (Epoch bridge + earn collateral): the solver's allocator
     // validates the note's REMAINING reclaim window against its own (later) chain
     // head, so the absolute reclaim height must be measured against a CURRENT head
@@ -504,16 +503,21 @@ const ensureGuardianRecallableSendRequestBytes = async (
     // that must NOT fail an otherwise-submittable request, so fall back to the
     // last-synced height (the recall buffer absorbs mild lag). A plain recallable
     // user send has no such validator, so it reads the cached height directly.
+    //
+    // Routed through `midenClientProxy` (issue #260, slice 7a) so flag-ON the height
+    // is read from the OFFSCREEN client that owns the canonical sync state; flag-OFF
+    // is byte-identical to the inline `getMidenClient().client.sync().blockNum()` /
+    // `.getSyncHeight()` this used to run (the proxy reads run under this caller lock).
     let syncHeight: number;
     if (opts.freshSync) {
       try {
-        syncHeight = (await midenClient.client.sync()).blockNum();
+        syncHeight = await midenClientProxy.getSyncHeight({ fresh: true });
       } catch (syncError) {
         console.warn('[Guardian] fresh sync before P2IDE note build failed; using last-synced height', syncError);
-        syncHeight = await midenClient.client.getSyncHeight();
+        syncHeight = await midenClientProxy.getSyncHeight();
       }
     } else {
-      syncHeight = await midenClient.client.getSyncHeight();
+      syncHeight = await midenClientProxy.getSyncHeight();
     }
     const client = await WasmWebClient.createClient(getEffectiveRpcUrl());
     try {

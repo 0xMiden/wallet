@@ -12,7 +12,7 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { toNoteTypeString } from '../helpers';
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
-import { getMidenClient, runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
+import { runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
 import { classifySwapOrderNotes } from '../swap/classification';
 import { ConsumableNote, NoteTypeEnum, SwapOrderNoteMetadata } from '../types';
 import { useTokensMetadata } from './assets';
@@ -167,10 +167,10 @@ async function fetchNotesFromLocalClient(
       .flatMap(tx => tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []))
   );
 
-  const swapOrders = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
-    return classifySwapOrderNotes(rawNotes, publicAddress, midenClient);
-  });
+  // Per-order PSWAP lineage inside classifySwapOrderNotes routes through the proxy
+  // (issue #260, slice 7a); the caller lock still serializes the flag-OFF inline
+  // lineage reads (byte-identical), and flag-ON they hit the offscreen client.
+  const swapOrders = await withWasmClientLock(async () => classifySwapOrderNotes(rawNotes, publicAddress));
 
   // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
   // custom transaction — hidden from the claimable UI until the user

@@ -67,12 +67,14 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 
 // Since slice 4 (issue #260) claimable-notes reads consumable notes through the
-// proxy (which returns reduced DTOs) rather than getMidenClient().getConsumableNotes.
-// Mock the proxy so the fixtures below are plain DTOs; getMidenClient is still
-// used for the swap-classification lineage arg.
+// proxy (reduced DTOs) rather than getMidenClient().getConsumableNotes; since slice
+// 7a the swap-classification per-order PSWAP lineage also routes through the proxy
+// (getPswapLineage) instead of a live client — so the hook no longer calls
+// getMidenClient directly at all. Mock both proxy reads.
 jest.mock('../back/miden-client-proxy', () => ({
   midenClientProxy: {
-    getConsumableNotes: (...a: any[]) => (globalThis as any).__cnTest.proxyGetConsumableNotes(...a)
+    getConsumableNotes: (...a: any[]) => (globalThis as any).__cnTest.proxyGetConsumableNotes(...a),
+    getPswapLineage: jest.fn(async () => null)
   }
 }));
 
@@ -358,7 +360,7 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     _g.__cnTest.consumableNotes = [badNote, makeMockNote({ id: 'good' })];
     renderHook(() => useClaimableNotes('pk-1'));
     await waitFor(() => {
-      expect(mockGetMidenClient).toHaveBeenCalled();
+      expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalled();
     });
   });
 
@@ -367,7 +369,7 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     _g.__cnTest.consumableNotes = [partialNote, makeMockNote({ id: 'full-note' })];
     renderHook(() => useClaimableNotes('pk-1'));
     await waitFor(() => {
-      expect(mockGetMidenClient).toHaveBeenCalled();
+      expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalled();
     });
   });
 
@@ -384,7 +386,7 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     _g.__cnTest.uncompletedTxs = [{ type: 'consume', noteId: 'note-being-claimed' }];
     renderHook(() => useClaimableNotes('pk-1'));
     await waitFor(() => {
-      expect(mockGetMidenClient).toHaveBeenCalled();
+      expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalled();
     });
   });
 

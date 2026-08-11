@@ -38,8 +38,10 @@ import {
   type OffscreenSignResponse
 } from 'lib/miden/back/offscreen-codec';
 import type { ConsumeTransaction, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
+import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
+import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 
 const TAG = '[offscreen-prover]';
@@ -227,6 +229,45 @@ const DISPATCH: Record<string, DispatchFn> = {
   getConsumableNotes: async (client, accountId: string) => {
     const dtos = await client.getConsumableNoteDtos(accountId);
     return new TextEncoder().encode(JSON.stringify(dtos));
+  },
+
+  // Deferred reach-through READS moved offscreen (issue #260, slice 7a). Each reads
+  // the OFFSCREEN client's canonical synced state — the whole point, since flag-on
+  // the SW client is dormant and these formerly read stale data off it. The results
+  // are all trivially / cleanly serializable (a number, a plain-JSON DTO, a plain
+  // DTO, a string), so nothing reaches through a live wasm-bindgen object across the
+  // boundary; the reduction (for the two live-record reads) runs HERE, in-realm.
+
+  // The reclaim-baseline sync height (guardian recallable-send). `fresh` forces a
+  // network sync first and returns the just-synced block; otherwise the last-synced
+  // height. The number crosses as JSON.
+  getSyncHeight: async (client, fresh: boolean) => {
+    const height = fresh ? (await client.client.sync()).blockNum() : await client.client.getSyncHeight();
+    return new TextEncoder().encode(JSON.stringify(height));
+  },
+
+  // A PSWAP order's lineage, reduced in-realm to a plain JSON DTO (the live
+  // `PswapLineageRecord` has no serializer and callers reach through its methods).
+  // Returns null (→ resultB64 null) when the client isn't tracking the order.
+  getPswapLineage: async (client, orderId: string) => {
+    const dto = reducePswapLineage(await client.client.pswap.lineage(orderId));
+    return dto ? new TextEncoder().encode(JSON.stringify(dto)) : null;
+  },
+
+  // A to-be-consumed note's summary, reduced in-realm to a minimal JSON DTO carrying
+  // just the note's `noteType`. Returns null (→ resultB64 null) for a not-found note,
+  // distinct from a found record whose `noteType` is undefined (the JSON `{}`).
+  getInputNoteSummary: async (client, noteId: string) => {
+    const dto = reduceInputNoteSummary(await client.getInputNote(noteId));
+    return dto ? new TextEncoder().encode(JSON.stringify(dto)) : null;
+  },
+
+  // Import serialized note bytes into THIS (offscreen) client's store — a store
+  // WRITE so the offscreen realm (which syncs + consumes) can see the note. Ships the
+  // imported note id / details-commitment string back as UTF-8 bytes.
+  importNoteBytes: async (client, noteBytes: Uint8Array) => {
+    const id = await client.importNoteBytes(noteBytes);
+    return new TextEncoder().encode(id);
   },
 
   // The first WRITE moved offscreen (issue #260, slice 5a). The WHOLE

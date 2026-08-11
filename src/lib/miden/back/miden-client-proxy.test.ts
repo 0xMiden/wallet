@@ -118,6 +118,22 @@ function resetControl() {
     inlineSendTransaction: jest.fn(async () => ({ __inlineSendResult: true })),
     inlineSwapTransaction: jest.fn(async () => ({ __inlineSwapResult: true })),
     inlineNewTransaction: jest.fn(async () => ({ __inlineNewResult: true })),
+    // Slice 7a: the flag-off passthrough of the deferred reach-through reads. The
+    // raw client (`.client`) exposes getSyncHeight / sync / pswap.lineage; the
+    // interface exposes getInputNote / importNoteBytes. The live-record returns are
+    // shaped exactly as the shared reducers read them.
+    inlineGetSyncHeight: jest.fn(async () => 4242),
+    inlineSync: jest.fn(async () => ({ blockNum: () => 5000 })),
+    inlineLineage: jest.fn(async () => ({
+      orderId: () => '77',
+      currentTipNoteId: () => ({ toString: () => '0xtip' }),
+      currentDepth: () => 2,
+      state: () => 1,
+      remainingOffered: () => 10n,
+      remainingRequested: () => 20n
+    })),
+    inlineGetInputNote: jest.fn(async () => ({ metadata: () => ({ noteType: () => 1 }) })),
+    inlineImportNoteBytes: jest.fn(async () => '0ximportedid'),
     // A real pass-through lock so the flag-off "caller lock preserved" assertion
     // is meaningful (spy call count) while still executing the wrapped op.
     withWasmClientLock: jest.fn(async (fn: () => Promise<unknown>) => fn()),
@@ -131,7 +147,16 @@ function resetControl() {
       consumeNoteId: (...a: any[]) => G.__px.inlineConsumeNoteId(...a),
       sendTransaction: (...a: any[]) => G.__px.inlineSendTransaction(...a),
       swapTransaction: (...a: any[]) => G.__px.inlineSwapTransaction(...a),
-      newTransaction: (...a: any[]) => G.__px.inlineNewTransaction(...a)
+      newTransaction: (...a: any[]) => G.__px.inlineNewTransaction(...a),
+      // Slice 7a: getInputNote / importNoteBytes are interface methods; the sync
+      // height + pswap lineage are reached through the raw `.client`.
+      getInputNote: (...a: any[]) => G.__px.inlineGetInputNote(...a),
+      importNoteBytes: (...a: any[]) => G.__px.inlineImportNoteBytes(...a),
+      client: {
+        getSyncHeight: (...a: any[]) => G.__px.inlineGetSyncHeight(...a),
+        sync: (...a: any[]) => G.__px.inlineSync(...a),
+        pswap: { lineage: (...a: any[]) => G.__px.inlineLineage(...a) }
+      }
     }))
   };
 }
@@ -552,6 +577,264 @@ describe('MidenClientProxy — slice-4 consumable notes (DTO round-trip)', () =>
     await flush();
     fireReady();
     expect(await p).toEqual([]);
+  });
+});
+
+describe('MidenClientProxy — slice-7a reach-through reads', () => {
+  // ── getSyncHeight ─────────────────────────────────────────────────────────
+  it('flag OFF → getSyncHeight() reads the inline client height verbatim (no sync)', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const height = await midenClientProxy.getSyncHeight();
+
+    expect(G.__px.inlineGetSyncHeight).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineSync).not.toHaveBeenCalled();
+    expect(height).toBe(4242);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag OFF → getSyncHeight({ fresh:true }) runs the inline network sync + reads blockNum (byte-identical)', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const height = await midenClientProxy.getSyncHeight({ fresh: true });
+
+    // Verbatim `(await getMidenClient()).client.sync().blockNum()` — NOT getSyncHeight.
+    expect(G.__px.inlineSync).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineGetSyncHeight).not.toHaveBeenCalled();
+    expect(height).toBe(5000);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → getSyncHeight() dispatches with the read deadline + fresh:false and parses the number', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify(4242))).toString('base64'),
+      durationMs: 2
+    }));
+
+    const p = midenClientProxy.getSyncHeight();
+    await flush();
+    fireReady();
+    const height = await p;
+
+    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('getSyncHeight');
+    expect(env.deadline_ms).toBe(15_000);
+    expect(env.argsB64).toEqual(['s:false']);
+    expect(height).toBe(4242);
+  });
+
+  it('flag ON → getSyncHeight({ fresh:true }) carries the SYNC backstop deadline + fresh:true', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify(5000))).toString('base64'),
+      durationMs: 12
+    }));
+
+    const p = midenClientProxy.getSyncHeight({ fresh: true });
+    await flush();
+    fireReady();
+    const height = await p;
+
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('getSyncHeight');
+    // A fresh read runs a network sync → the 45s sync backstop, not the 15s read one.
+    expect(env.deadline_ms).toBe(45_000);
+    expect(env.argsB64).toEqual(['s:true']);
+    expect(height).toBe(5000);
+  });
+
+  it('flag ON → a null getSyncHeight result throws (height must always come back)', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const p = midenClientProxy.getSyncHeight().catch((e: Error) => e);
+    await flush();
+    fireReady();
+    const err = await p;
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('returned no height');
+  });
+
+  // ── getPswapLineage ───────────────────────────────────────────────────────
+  it('flag OFF → getPswapLineage reduces the inline live PswapLineageRecord to a DTO', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const dto = await midenClientProxy.getPswapLineage('77');
+
+    expect(G.__px.inlineLineage).toHaveBeenCalledWith('77');
+    // The shared reducer read every field the two callers use, BigInts → strings.
+    expect(dto).toEqual({
+      orderId: '77',
+      currentTipNoteId: '0xtip',
+      currentDepth: 2,
+      state: 1,
+      remainingOffered: '10',
+      remainingRequested: '20'
+    });
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag OFF → getPswapLineage returns null when the client is not tracking the order', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    G.__px.inlineLineage = jest.fn(async () => null);
+    expect(await midenClientProxy.getPswapLineage('99')).toBeNull();
+  });
+
+  it('flag ON → getPswapLineage dispatches with the order id as a string and parses the DTO back', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const dto = {
+      orderId: '77',
+      currentTipNoteId: '0xtip',
+      currentDepth: 2,
+      state: 1,
+      remainingOffered: '10',
+      remainingRequested: '20'
+    };
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify(dto))).toString('base64'),
+      durationMs: 3
+    }));
+
+    // A BigInt order id must cross as a string (JSON can't encode BigInt).
+    const p = midenClientProxy.getPswapLineage(77n);
+    await flush();
+    fireReady();
+    const result = await p;
+
+    expect(G.__px.inlineLineage).not.toHaveBeenCalled();
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('getPswapLineage');
+    expect(env.deadline_ms).toBe(15_000);
+    expect(env.argsB64).toEqual(['s:"77"']);
+    expect(result).toEqual(dto);
+  });
+
+  it('flag ON → a null getPswapLineage result yields null (order not tracked offscreen)', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+    const p = midenClientProxy.getPswapLineage('77');
+    await flush();
+    fireReady();
+    expect(await p).toBeNull();
+  });
+
+  // ── getInputNoteSummary ───────────────────────────────────────────────────
+  it('flag OFF → getInputNoteSummary reduces the inline live InputNoteRecord to its noteType', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const summary = await midenClientProxy.getInputNoteSummary('0xn');
+
+    expect(G.__px.inlineGetInputNote).toHaveBeenCalledWith('0xn');
+    expect(summary).toEqual({ noteType: 1 });
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag OFF → getInputNoteSummary returns null for a not-found note (preserves the caller throw)', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    G.__px.inlineGetInputNote = jest.fn(async () => null);
+    expect(await midenClientProxy.getInputNoteSummary('missing')).toBeNull();
+  });
+
+  it('flag ON → getInputNoteSummary dispatches by note id and parses the DTO back', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify({ noteType: 1 }))).toString('base64'),
+      durationMs: 2
+    }));
+
+    const p = midenClientProxy.getInputNoteSummary('0xn');
+    await flush();
+    fireReady();
+    const summary = await p;
+
+    expect(G.__px.inlineGetInputNote).not.toHaveBeenCalled();
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('getInputNoteSummary');
+    expect(env.deadline_ms).toBe(15_000);
+    expect(env.argsB64).toEqual(['s:"0xn"']);
+    expect(summary).toEqual({ noteType: 1 });
+  });
+
+  it('flag ON → a null getInputNoteSummary result is a not-found note (null)', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+    const p = midenClientProxy.getInputNoteSummary('missing');
+    await flush();
+    fireReady();
+    expect(await p).toBeNull();
+  });
+
+  // ── importNoteBytes (store WRITE) ─────────────────────────────────────────
+  it('flag OFF → importNoteBytes imports into the inline client store and returns the id', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const bytes = new Uint8Array([1, 2, 3]);
+    const id = await midenClientProxy.importNoteBytes(bytes);
+
+    expect(G.__px.inlineImportNoteBytes).toHaveBeenCalledWith(bytes);
+    expect(id).toBe('0ximportedid');
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → importNoteBytes ships raw bytes to the offscreen store and returns the imported id', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(new TextEncoder().encode('0xoffscreenid')).toString('base64'),
+      durationMs: 3
+    }));
+
+    const p = midenClientProxy.importNoteBytes(new Uint8Array([0xab, 0xcd]));
+    await flush();
+    fireReady();
+    const id = await p;
+
+    // Imported into the OFFSCREEN store, never the dormant SW client.
+    expect(G.__px.inlineImportNoteBytes).not.toHaveBeenCalled();
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('importNoteBytes');
+    expect(env.deadline_ms).toBe(15_000);
+    // Note bytes cross as RAW base64 (the 'b:' tag), never JSON.
+    expect(env.argsB64[0].startsWith('b:')).toBe(true);
+    expect(Array.from(Buffer.from(env.argsB64[0].slice(2), 'base64'))).toEqual([0xab, 0xcd]);
+    expect(id).toBe('0xoffscreenid');
+  });
+
+  it('flag ON → a null importNoteBytes result throws (an import must yield an id)', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+    const p = midenClientProxy.importNoteBytes(new Uint8Array([1])).catch((e: Error) => e);
+    await flush();
+    fireReady();
+    const err = await p;
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('no note id');
   });
 });
 

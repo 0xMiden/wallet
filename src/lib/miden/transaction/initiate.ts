@@ -12,6 +12,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { queueNoteImport } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
+import { midenClientProxy } from '../back/miden-client-proxy';
 import {
   BridgedReceiveTransaction,
   BridgedSendTransaction,
@@ -30,7 +31,7 @@ import {
 } from '../db/types';
 import { toNoteTypeString } from '../helpers';
 import { sameWalletAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { withWasmClientLock } from '../sdk/miden-client';
 import { ConsumableNote, NoteType as NoteTypeString } from '../types';
 
 export const requestCustomTransaction = async (
@@ -59,22 +60,21 @@ export const initiateConsumeTransactionFromId = async (
   noteId: string,
   delegateTransaction?: boolean
 ): Promise<string> => {
-  const sdkNote = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
-
-    return midenClient.getInputNote(noteId);
-  });
-  if (!sdkNote) {
+  // Routed through `midenClientProxy.getInputNoteSummary` (issue #260, slice 7a):
+  // flag-ON it reads the OFFSCREEN client that owns the note (the SW client is
+  // dormant then and may not have it → a spurious "not found"); flag-OFF is the
+  // byte-identical inline `getInputNote(noteId)` reduction under the caller lock.
+  const summary = await withWasmClientLock(async () => midenClientProxy.getInputNoteSummary(noteId));
+  if (!summary) {
     throw new Error(`Note with id ${noteId} not found`);
   }
-  const noteMeta = sdkNote.metadata();
   const note: ConsumableNote = {
     id: noteId,
     faucetId: '',
     amount: '',
     senderAddress: '',
     isBeingClaimed: false,
-    type: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown'
+    type: summary.noteType !== undefined ? toNoteTypeString(summary.noteType) : 'unknown'
   };
 
   return await initiateConsumeTransaction(accountId, note, delegateTransaction);

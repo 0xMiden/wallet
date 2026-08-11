@@ -182,14 +182,14 @@ async function runSync(): Promise<void> {
         // Read consumable notes as DTOs (issue #260, slice 4). The reclaim gate
         // + per-note reduction ran inside the client's realm — OFFSCREEN when the
         // flag is on, so the gate uses the sync-running realm's height instead of
-        // a stale SW-inline one. `client` is still used just below for swap-order
-        // lineage (a separate reach-through, deferred).
+        // a stale SW-inline one. Swap-order lineage inside classifySwapOrderNotes
+        // now routes through the proxy too (slice 7a), so it no longer needs `client`.
         const rawNotes = await midenClientProxy.getConsumableNotes(accountPubKey);
         // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
         // custom transaction — hidden from the claimable UI until the user
         // confirms (or forever, if they cancel). See note-quarantine.ts.
         const quarantined = await getQuarantinedNoteIds();
-        const swapOrders = await classifySwapOrderNotes(rawNotes, accountPubKey, client, swapOrderRows);
+        const swapOrders = await classifySwapOrderNotes(rawNotes, accountPubKey, swapOrderRows);
         const notes: SerializedConsumableNote[] = rawNotes
           .map((note): SerializedConsumableNote | null => {
             // Partial (metadata-less) notes have no ID yet and cannot be

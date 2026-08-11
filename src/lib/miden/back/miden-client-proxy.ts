@@ -19,8 +19,12 @@ import { Buffer } from 'buffer';
 
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
+import type { InputNoteSummaryDto } from 'lib/miden/sdk/input-note-summary';
+import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import type { InputNoteDetails } from 'lib/miden/sdk/miden-client-interface';
+import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
+import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 
 import {
   OFFSCREEN_CALL,
@@ -678,6 +682,113 @@ export const midenClientProxy = {
     const resultB64 = await this.call('getConsumableNotes', [accountId], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) return [];
     return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as ConsumableNoteDto[];
+  },
+
+  /**
+   * Read the client's sync height (issue #260, slice 7a).
+   *
+   * The guardian recallable-send request build reads the reclaim baseline off the
+   * client's sync height. Under the flag the offscreen client owns the synced
+   * height and the SW client is dormant, so a SW-inline read is STALE — which would
+   * understate the absolute reclaim height and can get an Epoch-bridge / earn
+   * collateral note rejected by the solver's allocator. Route it through the realm
+   * that owns the sync state.
+   *
+   * `fresh` mirrors the caller's `freshSync` branch: `true` forces a network sync
+   * first and returns the just-synced block (`(await client.sync()).blockNum()`);
+   * `false` (default) reads the last-synced height (`client.getSyncHeight()`).
+   *
+   * Flag off (default): BYTE-IDENTICAL to the guardian path's inline read — the
+   * exact `(await getMidenClient()).client.sync().blockNum()` / `.getSyncHeight()`
+   * call, no internal lock (the caller owns it). Flag on: forward to the offscreen
+   * doc; a `fresh` read carries the sync backstop deadline (it runs a network sync),
+   * a plain read the short read deadline. The number crosses as JSON.
+   */
+  async getSyncHeight(opts?: { fresh?: boolean }): Promise<number> {
+    const fresh = opts?.fresh ?? false;
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      const client = (await getMidenClient()).client;
+      return fresh ? (await client.sync()).blockNum() : client.getSyncHeight();
+    }
+    const resultB64 = await this.call('getSyncHeight', [fresh], {
+      deadlineMs: fresh ? SYNC_DEADLINE_MS : READ_DEADLINE_MS
+    });
+    if (resultB64 == null) {
+      // getSyncHeight always yields a number; a null here is a hard error.
+      throw new Error('getSyncHeight: offscreen document returned no height');
+    }
+    return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as number;
+  },
+
+  /**
+   * Read a PSWAP order's lineage as a plain {@link PswapLineageDto} (issue #260,
+   * slice 7a). The live `PswapLineageRecord` has no serializer and callers reach
+   * through to `.currentTipNoteId()/.currentDepth()/.state()/.orderId()/…` — none of
+   * which can cross postMessage — so the shared `reducePswapLineage` reducer runs in
+   * whichever realm owns the client and only the JSON-safe DTO crosses.
+   *
+   * Flag off (default): the SW-inline client reduces here (behavior-preserving — the
+   * exact reach-through the callers used, relocated into one reducer; caller owns the
+   * lock). Flag on: the OFFSCREEN client — which owns the synced lineage — reduces,
+   * so a settlement / tracking read can't go stale against a dormant SW client.
+   * `orderId` crosses as a string (a BigInt can't be JSON-encoded).
+   */
+  async getPswapLineage(orderId: string | bigint): Promise<PswapLineageDto | null> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return reducePswapLineage(await (await getMidenClient()).client.pswap.lineage(orderId));
+    }
+    const resultB64 = await this.call('getPswapLineage', [String(orderId)], { deadlineMs: READ_DEADLINE_MS });
+    if (resultB64 == null) return null;
+    return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as PswapLineageDto;
+  },
+
+  /**
+   * Read a to-be-consumed note's summary as a plain {@link InputNoteSummaryDto}
+   * (issue #260, slice 7a). `getInputNote` returns a live `InputNoteRecord` the
+   * caller reaches through for `metadata()?.noteType()`; the record can't cross
+   * postMessage, so `reduceInputNoteSummary` reduces it to the one field the caller
+   * reads and only that crosses. `null` (not found) is preserved so the caller's
+   * "note not found" throw is unchanged.
+   *
+   * Flag off (default): the SW-inline client's `getInputNote` reduces here
+   * (behavior-preserving; caller owns the lock). Flag on: the OFFSCREEN client —
+   * which owns the imported/synced note — reduces, so the read can't miss a note the
+   * dormant SW client never received.
+   */
+  async getInputNoteSummary(noteId: string): Promise<InputNoteSummaryDto | null> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return reduceInputNoteSummary(await (await getMidenClient()).getInputNote(noteId));
+    }
+    const resultB64 = await this.call('getInputNoteSummary', [noteId], { deadlineMs: READ_DEADLINE_MS });
+    if (resultB64 == null) return null;
+    return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as InputNoteSummaryDto;
+  },
+
+  /**
+   * Import a serialized note (NoteFile / Note bytes) into the client's store (issue
+   * #260, slice 7a). This is a STORE WRITE, not a read: under the flag the note MUST
+   * land in the OFFSCREEN client's store, else that client — the one that syncs and
+   * consumes — never sees the note (a private note whose bytes are its only copy
+   * would be lost to the dormant SW store).
+   *
+   * Flag off (default): BYTE-IDENTICAL — inline `(await getMidenClient()).
+   * importNoteBytes(bytes)` (caller owns the lock). Flag on: forward to the
+   * offscreen doc so the import hits the realm that owns the synced store. It is a
+   * quick store op (no prove / sign — NOT a `criticalOp`); a wedge is reclaimed by
+   * the read deadline. Returns the imported note's id / details commitment (the
+   * `importAllNotes` caller discards it).
+   */
+  async importNoteBytes(noteBytes: Uint8Array): Promise<string> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return (await getMidenClient()).importNoteBytes(noteBytes);
+    }
+    const resultB64 = await this.call('importNoteBytes', [noteBytes], { deadlineMs: READ_DEADLINE_MS });
+    if (resultB64 == null) {
+      // importNoteBytes always yields the imported id/commitment string; a null
+      // here means the offscreen op produced nothing, a hard error.
+      throw new Error('importNoteBytes: offscreen document returned no note id');
+    }
+    return new TextDecoder().decode(b64ToBytes(resultB64));
   },
 
   /**

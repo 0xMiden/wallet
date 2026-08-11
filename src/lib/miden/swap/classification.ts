@@ -2,8 +2,9 @@ import { compareAccountIds } from 'lib/miden/activity/utils';
 import { type ITransaction, ITransactionStatus, type SwapTransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
+import { midenClientProxy } from '../back/miden-client-proxy';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
-import type { MidenClientInterface } from '../sdk/miden-client-interface';
+import type { PswapLineageDto } from '../sdk/pswap-lineage';
 import type { SwapOrderNoteMetadata } from '../types';
 
 export const SWAP_ORDER_EXPIRY_SECONDS = 120;
@@ -54,14 +55,16 @@ export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
  * rather than live `InputNoteRecord`s: the per-note swap-order id/depth is
  * precomputed into `dto.swapAttachment` by the reducer (which holds the live
  * record), so this classifier no longer reaches through to `note.attachments()`.
- * The `client` arg is still the live client — it drives the per-order PSWAP
- * lineage lookup (`client.client.pswap.lineage`), a separate reach-through that
- * is NOT reduced to a DTO here and is deferred to a later slice.
+ * Since slice 7a the per-order PSWAP lineage lookup routes through
+ * `midenClientProxy.getPswapLineage` (a plain {@link PswapLineageDto}), so flag-ON
+ * it reads the OFFSCREEN client's canonical synced lineage (the SW client is
+ * dormant then and would classify against stale tip/depth/state); flag-OFF is the
+ * byte-identical inline `client.client.pswap.lineage` reduction under the caller
+ * lock. No live client is threaded through here any more.
  */
 export async function classifySwapOrderNotes(
   notes: ConsumableNoteDto[],
   accountId: string,
-  client: MidenClientInterface,
   preloadedOrders?: SwapOrder[]
 ): Promise<Map<string, SwapOrderNoteMetadata>> {
   const orders = preloadedOrders ?? (await localSwapOrders(accountId));
@@ -70,21 +73,23 @@ export async function classifySwapOrderNotes(
   // Sequential on purpose: the WASM client is single-threaded, and the outer
   // withWasmClientLock held by callers does not serialize sibling promises
   // launched by the same holder — concurrent lineage() calls throw
-  // "recursive use of an object ... unsafe aliasing".
+  // "recursive use of an object ... unsafe aliasing". Flag-ON each getPswapLineage
+  // is a separate offscreen op serialized by the offscreen doc's own mutex, so the
+  // sequential await preserves the one-at-a-time invariant either way.
   for (const order of orders) {
     const orderId = orderIdString(order.extraInputs.orderId);
-    let lineage: Awaited<ReturnType<typeof client.client.pswap.lineage>> = null;
+    let lineage: PswapLineageDto | null = null;
     try {
-      lineage = await client.client.pswap.lineage(orderId);
+      lineage = await midenClientProxy.getPswapLineage(orderId);
     } catch (err) {
       console.warn('[swap-settlement] lineage lookup failed', orderId, err);
       continue;
     }
     if (!lineage) continue;
 
-    const currentTipNoteId = lineage.currentTipNoteId().toString();
-    const currentDepth = lineage.currentDepth();
-    const state = lineageState(lineage.state());
+    const currentTipNoteId = lineage.currentTipNoteId;
+    const currentDepth = lineage.currentDepth;
+    const state = lineageState(lineage.state);
     const expiresAt =
       order.extraInputs.expiresAt ??
       (order.completedAt ?? order.initiatedAt) + (order.extraInputs.expirySeconds ?? SWAP_ORDER_EXPIRY_SECONDS);
