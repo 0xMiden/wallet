@@ -277,8 +277,10 @@ const Explore: FC = () => {
 
       {/* Settings is reachable from the home page too, not only the Explore /
           Activity tabs (which carry the gear via TabHeader). Kept outside the
-          scroll region so it stays put while the asset list scrolls. */}
-      <header className="shrink-0 flex items-center justify-end px-4 pt-3">
+          scroll region so it stays put while the asset list scrolls. A plain
+          div (not <header>) so it doesn't add an unlabeled `banner` landmark —
+          unlike TabHeader's header, this row has no page title. */}
+      <div className="shrink-0 flex items-center justify-end px-4 pt-3">
         <button
           type="button"
           aria-label={t('settings')}
@@ -290,7 +292,7 @@ const Explore: FC = () => {
         >
           <Icon name={IconName.Settings} className="w-4 h-4" fill="currentColor" />
         </button>
-      </header>
+      </div>
 
       <div
         className="relative flex-1 min-h-0 overflow-y-auto overscroll-contain"
