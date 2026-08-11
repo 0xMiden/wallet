@@ -22,6 +22,7 @@ import {
   MAX_WAIT_BEFORE_CANCEL,
   MAX_QUEUED_AGE,
   REMOTE_PROVER_FAILED_ERROR,
+  REMOTE_PROVER_TIMEOUT_ERROR,
   LOCAL_PROVER_FAILED_ERROR,
   RETRY_COOLDOWN_SEC,
   MAX_RETRY_BACKOFF_SEC
@@ -1052,8 +1053,11 @@ describe('transactions utilities', () => {
         return dbTx;
       };
 
+      // The 'sending' stage can't be pinned to pre-submit, so a delegated timeout
+      // gets the hedged copy (no false "no funds moved" claim) — not the definitive
+      // stage-'proving' REMOTE_PROVER_FAILED_ERROR (#419 review).
       const remoteTimedOut = await runCancel('request timeout hit', true);
-      expect(remoteTimedOut.error).toBe(REMOTE_PROVER_FAILED_ERROR);
+      expect(remoteTimedOut.error).toBe(REMOTE_PROVER_TIMEOUT_ERROR);
       expect(remoteTimedOut.rawError).toBe('Error: request timeout hit');
 
       const localTimedOut = await runCancel('request timeout hit', false);

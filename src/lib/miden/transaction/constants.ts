@@ -5,8 +5,17 @@ import { ITransactionStage } from '../db/types';
  * the history row / details view). Keep every failure-reason string here so
  * the copy stays in one place.
  */
+// Shown ONLY for a stage-'proving' delegated failure, which is provably
+// pre-submit (submit runs after the 'submitting' stage), so the "no funds moved"
+// guarantee is real.
 export const REMOTE_PROVER_FAILED_ERROR =
   'The proving service was temporarily unavailable, so the transaction could not be completed. No funds moved — please try again in a moment.';
+
+// Shown for a delegated timeout under the broad non-Guardian 'sending' stage,
+// which runs execute→prove→submit as one call — so a timeout there CANNOT be
+// pinned to pre-submit. Deliberately does NOT claim funds are safe (#419 review).
+export const REMOTE_PROVER_TIMEOUT_ERROR =
+  'The proving service timed out. The transaction may not have completed — check your balance before trying again.';
 
 export const LOCAL_PROVER_FAILED_ERROR = 'Local proving failed — please try again.';
 
@@ -85,10 +94,16 @@ export function resolveTransactionErrorMessage(
   // delegated proving, local/native (on-device) otherwise. The old copy always
   // blamed the "remote prover", which became wrong once local proving shipped:
   // a failed on-device prove was misreported as a remote timeout.
-  const isProveFailure =
-    stage === 'proving' || (stage != null && PROVING_STAGES.includes(stage) && /timeout/i.test(raw));
-  if (isProveFailure) {
+  // Guardian txs stamp an explicit 'proving' stage BEFORE submit, so a failure
+  // there is provably pre-submit — safe to reassure "no funds moved".
+  if (stage === 'proving') {
     return delegateTransaction ? REMOTE_PROVER_FAILED_ERROR : LOCAL_PROVER_FAILED_ERROR;
+  }
+  // Non-Guardian txs surface a prover timeout under the broad 'sending' stage,
+  // which spans execute→prove→submit — so we can't guarantee pre-submit. Use the
+  // hedged timeout copy for the remote case rather than a false safety claim.
+  if (stage != null && PROVING_STAGES.includes(stage) && /timeout/i.test(raw)) {
+    return delegateTransaction ? REMOTE_PROVER_TIMEOUT_ERROR : LOCAL_PROVER_FAILED_ERROR;
   }
   return raw;
 }

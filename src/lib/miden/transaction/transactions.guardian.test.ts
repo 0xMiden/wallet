@@ -1120,6 +1120,7 @@ describe('generateTransaction — Guardian routing', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const txId = 'send-guardian-prover-outage';
     const result = makeResult();
+    const originalInitiatedAt = Math.floor(Date.now() / 1000) - 42;
     txStore.push({
       id: txId,
       type: 'send',
@@ -1129,7 +1130,7 @@ describe('generateTransaction — Guardian routing', () => {
       faucetId: 'faucet',
       amount: '1000',
       delegateTransaction: true,
-      initiatedAt: Math.floor(Date.now() / 1000)
+      initiatedAt: originalInitiatedAt
     });
 
     const multisigService = {
@@ -1175,6 +1176,10 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row.status).toBe(ITransactionStatus.Queued);
     expect(row.nextEligibleAt).toEqual(expect.any(Number));
     expect(row.stage).toBe('creating-proposal');
+    // initiatedAt must be preserved: cancelStaleQueuedTransactions measures the
+    // MAX_QUEUED_AGE terminal cap from original creation, so resetting it would
+    // make a persistent outage requeue forever.
+    expect(row.initiatedAt).toBe(originalInitiatedAt);
     warnSpy.mockRestore();
   });
 
