@@ -20,6 +20,7 @@ import type { WalletAccount } from 'lib/shared/types';
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from './account';
 import { registerGuardianOrigin } from './native-http';
 import { WalletSigner, type SignWordFunction } from './signer';
+import { midenClientProxy } from '../back/miden-client-proxy';
 import { fetchFromStorage } from '../front/storage';
 import { accountIdStringToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
@@ -513,7 +514,7 @@ export class MultisigService {
       const updatedStateBase64 = await withWasmClientLock(async () => {
         const client = await getMidenClient();
         await client.syncState();
-        const account = await client.getAccount(this.accountId);
+        const account = await midenClientProxy.getAccount(this.accountId);
         if (!account) {
           throw new Error(`Updated account ${this.accountId} is missing from local client`);
         }
@@ -578,7 +579,7 @@ export class MultisigService {
     const updatedStateBase64 = await withWasmClientLock(async () => {
       const client = await getMidenClient();
       await client.syncState();
-      const account = await client.getAccount(this.accountId);
+      const account = await midenClientProxy.getAccount(this.accountId);
       if (!account) {
         throw new Error(`Account ${this.accountId} is missing from local client`);
       }

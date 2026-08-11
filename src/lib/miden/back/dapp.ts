@@ -67,6 +67,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
 import { queueNoteImport } from '../activity';
+import { midenClientProxy } from './miden-client-proxy';
 import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
@@ -128,8 +129,7 @@ async function dappLog(message: string): Promise<void> {
 }
 
 async function getAccountPublicKeyB64(accountId: string): Promise<string> {
-  const midenClient = await getMidenClient();
-  const account = await midenClient.getAccount(accountId);
+  const account = await midenClientProxy.getAccount(accountId);
   if (!account) {
     throw new Error('Account not found');
   }
@@ -814,8 +814,7 @@ async function getAssets(accountId: string): Promise<Asset[]> {
     assets = await withUnlocked(async () => {
       // Wrap WASM client operations in a lock to prevent concurrent access
       return await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        const account = await midenClient.getAccount(accountId);
+        const account = await midenClientProxy.getAccount(accountId);
         const fungibleAssets = account?.vault().fungibleAssets() || [];
         const balances = fungibleAssets.map(asset => ({
           faucetId: getBech32AddressFromAccountId(asset.faucetId()),

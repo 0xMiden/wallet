@@ -5,7 +5,8 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { clearGuardianServiceFor, getOrCreateMultisigService, type GuardianAccountProvider } from './guardian-manager';
 import { decideColdReRegisterSelfHeal, type SelfHealAttemptState } from './guardian-selfheal';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { midenClientProxy } from '../back/miden-client-proxy';
+import { withWasmClientLock } from '../sdk/miden-client';
 
 /**
  * Default GuardianAccountProvider backed by the Zustand store. Frontend-only —
@@ -93,7 +94,7 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<vo
     // reRegisterCurrentStateOnGuardian re-syncs on its own for the state it
     // pushes. The two lock uses are sequential (this getAccount releases before
     // the cold service acquires), never nested — no reentrancy deadlock.
-    const sdkAccount = await withWasmClientLock(async () => (await getMidenClient()).getAccount(account.publicKey));
+    const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(account.publicKey));
     if (!sdkAccount) return;
     const coldService = await MultisigService.buildColdMultisigService(sdkAccount, account, zustandProvider.signWord);
     await coldService.reRegisterCurrentStateOnGuardian();

@@ -9,6 +9,7 @@ import { ensureGuardianProcedureThresholds } from './initiate';
 import { takeAgglayerBridgeInInfo, takeBridgeInInfoForNotes } from '../activity/bridge-in';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
+import { midenClientProxy } from '../back/miden-client-proxy';
 import {
   BridgedSendTransaction,
   EarnDepositTransaction,
@@ -278,7 +279,7 @@ export const completeReplaceHotKeyTransaction = async (
       const sdkAccount = await withWasmClientLock(async () => {
         const midenClient = await getMidenClient();
         await midenClient.syncState();
-        return midenClient.getAccount(tx.accountId);
+        return midenClientProxy.getAccount(tx.accountId);
       });
       if (!sdkAccount) {
         throw new Error(`Guardian account ${tx.accountId} not found in local client`);

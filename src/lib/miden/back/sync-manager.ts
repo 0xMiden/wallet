@@ -14,6 +14,7 @@ import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessage
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
 import { getIntercom } from './defaults';
+import { midenClientProxy } from './miden-client-proxy';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
 import { getFaucetIdSetting } from '../assets';
@@ -216,7 +217,7 @@ async function runSync(): Promise<void> {
           .filter(Boolean) as SerializedConsumableNote[];
 
         // Read vault assets
-        const account = await client.getAccount(accountPubKey);
+        const account = await midenClientProxy.getAccount(accountPubKey);
         const assets: SerializedVaultAsset[] = [];
         if (account) {
           const fungibleAssets = account.vault().fungibleAssets();
