@@ -21,6 +21,7 @@
   "priceChangeAmountNegative": "-$amount$",
   "priceChangePercent": "$value$%",
   "pendingTabApproxUsd": "≈ $value$",
+  "noteReturnsToSenderBy": "Returns to the sender if unclaimed by $date$",
   "tokenDetailChange24h": "$change$%",
   "historyDetailsIdLabel": "ID: $id$",
   "historyDetailsAmountFilledValue": "$filled$ / $total$$symbol$",

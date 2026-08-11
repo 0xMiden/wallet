@@ -11,7 +11,7 @@ import {
 } from 'lib/settings/helpers';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
-import { toNoteTypeString } from '../helpers';
+import { getNoteRecallableAtMs, toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
 import { getIntercom } from './defaults';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
@@ -187,6 +187,12 @@ async function runSync(): Promise<void> {
         // confirms (or forever, if they cancel). See note-quarantine.ts.
         const quarantined = await getQuarantinedNoteIds();
         const swapOrders = await classifySwapOrderNotes(rawNotes || [], accountPubKey, client, swapOrderRows);
+        // Height read is best-effort: without it notes still surface, they just
+        // carry no recall-date estimate.
+        let syncHeight: number | undefined;
+        try {
+          syncHeight = await client.client.getSyncHeight();
+        } catch {}
         const notes: SerializedConsumableNote[] = (rawNotes || [])
           .map((note: any) => {
             try {
@@ -207,6 +213,7 @@ async function runSync(): Promise<void> {
                 amountBaseUnits: firstAsset.amount().toString(),
                 senderAddress: noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : '',
                 noteType: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown',
+                recallableAtMs: syncHeight !== undefined ? getNoteRecallableAtMs(note, syncHeight) : undefined,
                 swapOrder: swapOrders.get(noteId)
               };
             } catch {

@@ -24,7 +24,7 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
   closeLabel,
   className
 }) => (
-  <div className={classNames('flex items-center gap-4 border-b border-border-faint py-4', className)}>
+  <div className={classNames('flex items-center gap-4 border-b border-border-faint py-4 px-4', className)}>
     {onBack && (
       <CircleButton
         icon={IconName.BackArrow}

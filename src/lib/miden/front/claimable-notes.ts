@@ -10,7 +10,7 @@ import { getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 
 import { isMidenFaucet } from '../assets';
-import { toNoteTypeString } from '../helpers';
+import { getNoteRecallableAtMs, toNoteTypeString } from '../helpers';
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
@@ -40,6 +40,7 @@ type ParsedNote = {
   isBeingClaimed: boolean;
   type: NoteTypeEnum | 'unknown';
   swapOrder?: SwapOrderNoteMetadata;
+  recallableAtMs?: number;
 };
 
 // -------------------- Pure helpers (no side effects) --------------------
@@ -47,7 +48,8 @@ type ParsedNote = {
 function parseNotes(
   rawNotes: InputNoteRecord[],
   notesBeingClaimed: Set<string>,
-  swapOrders: Map<string, SwapOrderNoteMetadata> = new Map()
+  swapOrders: Map<string, SwapOrderNoteMetadata> = new Map(),
+  syncHeight?: number
 ): ParsedNote[] {
   const parsed: ParsedNote[] = [];
 
@@ -80,7 +82,8 @@ function parseNotes(
         senderAddress,
         isBeingClaimed: notesBeingClaimed.has(noteId),
         type: kind,
-        swapOrder: swapOrders.get(noteId)
+        swapOrder: swapOrders.get(noteId),
+        recallableAtMs: syncHeight !== undefined ? getNoteRecallableAtMs(note, syncHeight) : undefined
       });
     } catch (err) {
       console.error('Error processing note:', err);
@@ -136,7 +139,8 @@ function attachMetadataToNotes(
       senderAddress: n.senderAddress,
       isBeingClaimed: n.isBeingClaimed,
       type: n.type,
-      swapOrder: n.swapOrder
+      swapOrder: n.swapOrder,
+      recallableAtMs: n.recallableAtMs
     }));
 }
 
@@ -158,11 +162,13 @@ async function fetchNotesFromLocalClient(
   debugInfoRef: React.MutableRefObject<ClaimableNotesDebugInfo>
 ): Promise<ParsedNote[]> {
   let rawNotes: any[] = [];
+  let syncHeight: number | undefined;
   try {
-    rawNotes = await withWasmClientLock(async () => {
+    ({ rawNotes, syncHeight } = await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
-      return midenClient.getConsumableNotes(publicAddress);
-    });
+      const notes = await midenClient.getConsumableNotes(publicAddress);
+      return { rawNotes: notes, syncHeight: await midenClient.client.getSyncHeight() };
+    }));
   } catch (e) {
     debugInfoRef.current = {
       ...debugInfoRef.current,
@@ -194,7 +200,7 @@ async function fetchNotesFromLocalClient(
   // parsed result by id (parseNotes derives ids the same way, via
   // `note.id()?.toString()`, so the ids match exactly).
   const quarantined = await getQuarantinedNoteIds();
-  const parsed = parseNotes(rawNotes, notesBeingClaimed, swapOrders);
+  const parsed = parseNotes(rawNotes, notesBeingClaimed, swapOrders, syncHeight);
   return quarantined.size === 0 ? parsed : parsed.filter(n => !quarantined.has(n.id));
 }
 
@@ -259,14 +265,15 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
         senderAddress: n.senderAddress,
         isBeingClaimed: extensionClaimingNoteIds.has(n.id),
         type: (n.noteType as NoteTypeEnum | 'unknown') ?? 'unknown',
-        swapOrder: n.swapOrder ? { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true } : undefined
+        swapOrder: n.swapOrder ? { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true } : undefined,
+        recallableAtMs: n.recallableAtMs
       }));
   }, [enabled, extensionNotes, extensionClaimingNoteIds, assetsMetadata]);
 
   const mutate = useCallback(() => {
     // Trigger a SyncRequest to get fresh data
     const intercom = getIntercom();
-    intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => {});
+    intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => { });
     return Promise.resolve(undefined);
   }, []);
 

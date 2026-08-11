@@ -5,6 +5,11 @@
 ### Changes
 
 - [CHANGE][all] **Frontend skill guidance now defaults standard actions to the shared wallet button.** The shared frontend skill directs standard wallet actions to `components/Button`, reserving native buttons for compact, icon-only, or inline controls that the full CTA cannot represent.
+
+- [CHANGE][all] **The Activity page now surfaces pending notes above the history list.** When claimable notes exist, a "Consume your notes" card with the note count links to the claim screen, and an (i) button opens a bottom-sheet explainer describing what pending notes are; the header's pending-notes icon button is gone.
+
+- [CHANGE][all] **Pending-note rows are redesigned around the amount, sender, and note privacy.** Each claimable note now leads with the incoming amount in green, followed by a "from ‹sender› · Private/Public" line, replacing the generic receive-icon tile.
+
 - [CHANGE][all] **Frontend implementation guidance is now shared across supported coding agents.** The repository now carries one vendor-neutral Miden Wallet frontend skill for component reuse, semantic styling, motion, accessibility, haptics, and cross-platform verification, with matching concise rules in the repository instructions.
 
 ### Fixes
