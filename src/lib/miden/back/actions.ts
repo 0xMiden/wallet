@@ -205,6 +205,11 @@ export function unlock(password?: string) {
       // Stamp wallet-derived EVM addresses on pre-existing HD accounts
       // (best-effort, never throws) before the accounts list is read below.
       await vault.backfillEvmAddresses();
+      // Stamp a per-account guardianEndpoint onto legacy Guardian accounts that
+      // predate the field, by resolving their on-chain guardian commitment to a
+      // built-in operator (#408 stage 2). Best-effort, never throws; skips
+      // already-stamped accounts and leaves unresolved ones for the next unlock.
+      await vault.backfillGuardianEndpoints();
       const accounts = await vault.fetchAccounts();
       const settings = await vault.fetchSettings();
       const currentAccount = await vault.getCurrentAccount();

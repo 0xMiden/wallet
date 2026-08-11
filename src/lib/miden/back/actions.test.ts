@@ -251,6 +251,9 @@ describe('actions', () => {
         // Unlock also backfills wallet-derived EVM addresses onto legacy HD
         // accounts (needed by the earn flow) before reading the accounts list.
         backfillEvmAddresses: jest.fn().mockResolvedValue(undefined),
+        // ...and stamps a per-account guardianEndpoint onto legacy Guardian
+        // accounts that predate the field (#408 stage 2).
+        backfillGuardianEndpoints: jest.fn().mockResolvedValue(undefined),
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),
@@ -263,6 +266,7 @@ describe('actions', () => {
       expect(Vault.setup).toHaveBeenCalledWith('password123');
       expect(mockVaultInstance.migrateLegacyGuardianAccounts).toHaveBeenCalled();
       expect(mockVaultInstance.backfillEvmAddresses).toHaveBeenCalled();
+      expect(mockVaultInstance.backfillGuardianEndpoints).toHaveBeenCalled();
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockVaultInstance.fetchSettings).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
