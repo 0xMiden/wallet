@@ -23,9 +23,8 @@ import {
   MAX_QUEUED_AGE,
   REMOTE_PROVER_FAILED_ERROR,
   LOCAL_PROVER_FAILED_ERROR,
-  MAX_CONSECUTIVE_CONSUME_FAILURES,
-  RECENT_FAILURE_WINDOW_SEC,
-  RETRY_COOLDOWN_SEC
+  RETRY_COOLDOWN_SEC,
+  MAX_RETRY_BACKOFF_SEC
 } from './index';
 
 // Mock functions defined inside factory to avoid hoisting issues with SWC
@@ -384,12 +383,12 @@ describe('transactions utilities', () => {
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
     });
 
-    it('creates a new transaction when only an old Failed consume exists (retry allowed after cooldown)', async () => {
+    it('creates a new transaction when only an old Failed consume exists (retry allowed after backoff)', async () => {
       // The dedup query now returns ALL consume rows for the noteId (Failed
       // included), and the bounded-retry policy decides whether to allow a new
-      // attempt. Single Failed row whose `completedAt` is past both the
-      // RETRY_COOLDOWN_SEC and the RECENT_FAILURE_WINDOW_SEC → cap and cooldown
-      // both clear → new attempt is enqueued.
+      // attempt. A single Failed row means the backoff is only RETRY_COOLDOWN_SEC
+      // (2^0), and its `completedAt` is past that → the backoff has elapsed → a
+      // fresh attempt (re-probe) is enqueued.
       const nowSec = Math.floor(Date.now() / 1000);
       const oldFailedTx = {
         id: 'old-failed-tx',
@@ -397,8 +396,8 @@ describe('transactions utilities', () => {
         noteId: 'note-123',
         accountId: 'account-1',
         status: ITransactionStatus.Failed,
-        initiatedAt: nowSec - RECENT_FAILURE_WINDOW_SEC - 100,
-        completedAt: nowSec - RECENT_FAILURE_WINDOW_SEC - 50
+        initiatedAt: nowSec - RETRY_COOLDOWN_SEC - 100,
+        completedAt: nowSec - RETRY_COOLDOWN_SEC - 50
       };
       mockDedupQuery([oldFailedTx]);
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
@@ -473,13 +472,14 @@ describe('transactions utilities', () => {
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
     });
 
-    it('blocks a new attempt after MAX_CONSECUTIVE_CONSUME_FAILURES inside the recent window', async () => {
-      // The cap is on consecutive failures inside RECENT_FAILURE_WINDOW_SEC.
-      // Build MAX_CONSECUTIVE recent failures, the most recent of which IS
-      // outside the per-attempt cooldown. Cooldown alone would allow; the
-      // cap fires and suppresses.
+    it('grows the backoff with each failure: a gap that clears one failure still blocks after several', async () => {
+      // The backoff doubles with lifetime failures. Five failures require
+      // RETRY_COOLDOWN_SEC · 2^4 = 80 min of idle. The most recent failure is
+      // RETRY_COOLDOWN_SEC + 100s ago — enough to clear the base cooldown a
+      // single failure would impose, but far short of the grown backoff — so the
+      // new attempt is suppressed. This is exactly what a sliding window missed.
       const nowSec = Math.floor(Date.now() / 1000);
-      const failedRows = Array.from({ length: MAX_CONSECUTIVE_CONSUME_FAILURES }, (_, i) => ({
+      const failedRows = Array.from({ length: 5 }, (_, i) => ({
         id: `failed-tx-${i}`,
         type: 'consume',
         noteId: 'note-123',
@@ -497,27 +497,30 @@ describe('transactions utilities', () => {
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
     });
 
-    it('ignores Failed rows older than RECENT_FAILURE_WINDOW_SEC when counting toward the cap', async () => {
-      // 10 Failed rows but all of them are older than the recent window —
-      // none count toward the cap. The single recent Failed clears the
-      // cooldown and is the only one that matters; new attempt allowed.
+    it('blocks re-attempt after many lifetime failures even when all are old (terminal-safe backoff #313)', async () => {
+      // The original #215 sliding window forgot failures older than 30 min, so a
+      // deterministically-unconsumable note that getConsumableNotes keeps offering
+      // dripped a fresh failure every RETRY_COOLDOWN_SEC forever. The lifetime
+      // exponential backoff counts ALL Failed rows: 10 of them push the required
+      // idle gap to MAX_RETRY_BACKOFF_SEC (24h), so a note whose most recent
+      // failure was only ~30 min ago is still suppressed rather than re-attempted.
       const nowSec = Math.floor(Date.now() / 1000);
-      const ancient = Array.from({ length: 10 }, (_, i) => ({
-        id: `ancient-failed-${i}`,
+      const failures = Array.from({ length: 10 }, (_, i) => ({
+        id: `failed-${i}`,
         type: 'consume',
         noteId: 'note-123',
         accountId: 'account-1',
         status: ITransactionStatus.Failed,
-        initiatedAt: nowSec - RECENT_FAILURE_WINDOW_SEC - 10_000 - i,
-        completedAt: nowSec - RECENT_FAILURE_WINDOW_SEC - 5_000 - i
+        initiatedAt: nowSec - 3600 - 100 - i,
+        completedAt: nowSec - 1800 - i // most recent ~30 min ago
       }));
-      mockDedupQuery(ancient);
+      mockDedupQuery(failures);
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
 
       const result = await initiateConsumeTransaction('account-1', note);
 
-      expect(mockTransactionsAdd).toHaveBeenCalled();
-      expect(typeof result).toBe('string');
+      expect(mockTransactionsAdd).not.toHaveBeenCalled();
+      expect(result).toBe('failed-0');
     });
 
     it('does not dedup across different accounts', async () => {
@@ -538,14 +541,13 @@ describe('transactions utilities', () => {
       expect(mockTransactionsAdd).toHaveBeenCalled();
     });
 
-    it('falls back to initiatedAt when a Failed row has no completedAt (cap+cooldown still apply)', async () => {
+    it('falls back to initiatedAt when a Failed row has no completedAt (backoff still applies)', async () => {
       // Edge case: a Failed row whose `completedAt` was never written (e.g. a
-      // crash mid-cancel). The recent-window filter, the sort comparator, AND
-      // the cooldown check all use `completedAt ?? initiatedAt`, so a row
-      // missing `completedAt` must still be considered for the gate. This test
-      // exercises the `?? initiatedAt` fallback on lines 183, 186, and 189 by
-      // ranking a no-completedAt Failed first via initiatedAt and verifying the
-      // cooldown branch suppresses the new attempt.
+      // crash mid-cancel). Both the sort comparator and the backoff check use
+      // `completedAt ?? initiatedAt`, so a row missing `completedAt` must still
+      // be considered for the gate. This test exercises the `?? initiatedAt`
+      // fallback by ranking a no-completedAt Failed first via initiatedAt and
+      // verifying the backoff branch suppresses the new attempt.
       const nowSec = Math.floor(Date.now() / 1000);
       const noCompletedAtFailed = {
         id: 'no-completed-at-failed',
@@ -576,10 +578,11 @@ describe('transactions utilities', () => {
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
     });
 
-    it('drops Failed rows with no completedAt and stale initiatedAt from the recent-window filter', async () => {
-      // Same `?? initiatedAt` fallback on line 183, but this time the fallback
-      // value is OUTSIDE the recent-failure window — the row is filtered out,
-      // leaving zero recent failures, and a new attempt is enqueued.
+    it('re-probes a single stale failure with no completedAt once its backoff has elapsed (initiatedAt fallback)', async () => {
+      // Same `?? initiatedAt` fallback, single failure: the backoff is only
+      // RETRY_COOLDOWN_SEC (2^0), and the row's initiatedAt-derived recency is
+      // far past that, so the backoff has elapsed and a fresh attempt is enqueued
+      // — the re-probe that keeps this a bounded backoff, not a permanent give-up.
       const nowSec = Math.floor(Date.now() / 1000);
       const ancientNoCompletedAt = {
         id: 'ancient-no-completed-at',
@@ -587,7 +590,7 @@ describe('transactions utilities', () => {
         noteId: 'note-123',
         accountId: 'account-1',
         status: ITransactionStatus.Failed,
-        initiatedAt: nowSec - RECENT_FAILURE_WINDOW_SEC - 10_000,
+        initiatedAt: nowSec - RETRY_COOLDOWN_SEC - 10_000,
         completedAt: undefined
       };
       mockDedupQuery([ancientNoCompletedAt]);
@@ -597,6 +600,32 @@ describe('transactions utilities', () => {
 
       expect(mockTransactionsAdd).toHaveBeenCalled();
       expect(result).not.toBe('ancient-no-completed-at');
+    });
+
+    it('re-probes even after many lifetime failures once the capped backoff (24h) has elapsed (#313)', async () => {
+      // Terminal-safe, not terminal: the backoff is capped at MAX_RETRY_BACKOFF_SEC,
+      // so a note stuck for a long time is still retried roughly daily. If it has
+      // since become consumable (reclaim height reached, chain advanced), that probe
+      // succeeds and the note recovers on its own — no permanent give-up, no
+      // failure-class parsing.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const failures = Array.from({ length: 12 }, (_, i) => ({
+        id: `failed-${i}`,
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Failed,
+        // Most recent failure is just past the 24h ceiling.
+        initiatedAt: nowSec - MAX_RETRY_BACKOFF_SEC - 1000 - i,
+        completedAt: nowSec - MAX_RETRY_BACKOFF_SEC - 100 - i
+      }));
+      mockDedupQuery(failures);
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+
+      const result = await initiateConsumeTransaction('account-1', note);
+
+      expect(mockTransactionsAdd).toHaveBeenCalled();
+      expect(typeof result).toBe('string');
     });
 
     it('sort comparator hits the `b.completedAt ?? b.initiatedAt` fallback when an interior row lacks completedAt', async () => {
