@@ -26,8 +26,10 @@ function amountTextSize(value?: string): string {
  *
  * When a dot is already present the commas are thousands groupings (e.g. a pasted
  * `1,000.50`) — drop them so the value stays `1000.50` rather than collapsing to
- * a broken multi-dot string. Otherwise the comma is the user's decimal point, so
- * turn it into a dot.
+ * a broken multi-dot string. Otherwise the comma is treated as the decimal point
+ * and becomes a dot. This is right for *typed* input; a pasted bare grouped value
+ * like `1,000` is inherently ambiguous (1000 vs 1.000) and resolves to `1.000` —
+ * an accepted limitation, since this field disables grouped input anyway.
  */
 export function normalizeDecimalInput(rawValue: string): string {
   if (rawValue.includes('.')) {
@@ -106,6 +108,14 @@ export const AmountInput: React.FC<AmountInputProps> = ({
             placeholder={placeholder}
             transformRawValue={normalizeDecimalInput}
             disableGroupSeparators
+            // `disableGroupSeparators` only stops grouping in the *display*; the
+            // library still derives a group separator from the ambient locale and
+            // strips it from the raw input on every keystroke. On a `.`-group
+            // locale (de-DE, pt-BR, …) that strips the dot our normalizer just
+            // produced, undoing the fix. Passing "" doesn't help — the library
+            // coalesces a falsy group separator back to the locale default — so
+            // pin it to a space, which never collides with our "." decimal (#433).
+            groupSeparator=" "
             decimalSeparator="."
             decimalsLimit={6}
             allowNegativeValue={false}
