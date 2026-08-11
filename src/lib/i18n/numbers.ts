@@ -93,17 +93,11 @@ export function formatBigInt(amount: bigint, decimals: number = MIDEN_METADATA.d
 }
 
 export function stringToBigInt(str: string, decimals: number) {
-  // Parse the string as a float
-  let num = parseFloat(str);
-
-  // Multiply by 10 to the power of the decimal count
-  num *= Math.pow(10, decimals);
-
-  // Round the number to avoid float precision issues
-  num = Math.round(num);
-
-  // Return the result as a BigInt
-  return BigInt(num);
+  // Exact base-unit conversion. `parseFloat(str) * 10 ** decimals` loses
+  // precision past ~15 significant digits — e.g. "1.1" at 18 decimals became
+  // 1100000000000000128, and "99999999.99999999" at 8 decimals lost a base
+  // unit — silently changing the amount that ends up signed and broadcast.
+  return BigInt(new BigNumber(str).shiftedBy(decimals).integerValue(BigNumber.ROUND_HALF_UP).toFixed(0));
 }
 
 export const ALEO_MICROCREDITS_TO_CREDITS = 1_000_000;
