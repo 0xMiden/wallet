@@ -302,6 +302,42 @@ const DISPATCH: Record<string, DispatchFn> = {
   newTransaction: async (client, accountId: string, requestBytes: Uint8Array, delegateTransaction?: boolean) => {
     const result = await client.newTransaction(accountId, requestBytes, delegateTransaction ?? undefined);
     return result.serialize() as Uint8Array;
+  },
+
+  // The GUARDIAN write LEAF PIPELINE moved offscreen (issue #260, slice 6a). A
+  // guardian tx's co-signature is contributed BEFORE execute, so `trBytes` is the
+  // serialized, fully-signed, guardian-co-signed `TransactionRequest` (its
+  // extended advice map — carrying the co-signatures — survives
+  // `TransactionRequest.serialize()`; §4.0). We deserialize it and run the SAME
+  // leaf as the SW-inline path — execute→prove→submit→apply — driving the RAW
+  // client transactions API directly (`client.client.transactions.executeRequest`),
+  // not a bundled `MidenClientInterface` write method, because the request is
+  // pre-built. The mid-execute keystore signature is fetched from the SW via the
+  // reverse-IPC stub. Only the final serialized `TransactionResult` crosses back.
+  //
+  // Prover selection replicates the inline block EXACTLY, minus one branch: the
+  // mobile `newCallbackProver` case is OMITTED because the offscreen document is
+  // extension-only (no chrome.offscreen in mobile WebViews; mobile stays flag-off
+  // inline), so that branch is unreachable here — non-delegated proves with the
+  // pooled main-thread WASM `newLocalProver`, delegated proves remote (`prove({})`)
+  // with a local fallback on remote failure, identical to the SW path on extension.
+  guardianPipeline: async (client, accountId: string, trBytes: Uint8Array, delegateTransaction?: boolean) => {
+    const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
+    const executedTx = await client.client.transactions.executeRequest(accountId, tr);
+    let provenTx;
+    if (!delegateTransaction) {
+      provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
+    } else {
+      try {
+        provenTx = await executedTx.prove({});
+      } catch (proveError) {
+        console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
+        provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
+      }
+    }
+    const submittedTx = await provenTx.submit();
+    await submittedTx.apply();
+    return executedTx.result.serialize() as Uint8Array;
   }
 };
 

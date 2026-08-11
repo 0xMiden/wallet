@@ -463,6 +463,34 @@ async function dispatchOffscreenWrite(
 }
 
 /**
+ * Run a GUARDIAN write LEAF PIPELINE offscreen (issue #260, slice 6a).
+ *
+ * A guardian tx's co-signature is contributed BEFORE execute, so by the time the
+ * SW reaches this point `tr` is a fully-signed, guardian-co-signed
+ * `TransactionRequest` whose `serialize()` preserves the extended advice map (the
+ * co-signatures). Only the leaf `executeRequest → prove → submit → apply` crosses
+ * — the identical op-shape as every non-guardian write — so this delegates to the
+ * SAME `dispatchOffscreenWrite` machinery: the op-scoped reverse-IPC sign callback
+ * (the executeRequest keystore sign, over the EXISTING OFFSCREEN_SIGN_REQUEST
+ * channel), `criticalOp` bracketing, the sign-paused 90s `WRITE_DEADLINE_MS` kill,
+ * and `finishOp`'s `errorCode` re-attach (so a round-tripped
+ * `ApplyTransactionAfterSubmitFailed` reaches the SW GUARDIAN classifier intact).
+ * `trBytes` is `tr.serialize()`; it crosses as raw bytes (`encodeArg`), never JSON.
+ *
+ * The whole guardian graph — `MultisigService`, guardian HTTP co-sign, cold-key
+ * co-sign, `signWord`, `abandonCandidate`, `waitForTransactionCommit` — stays on
+ * the SW thread, unmodified, before/after this call.
+ */
+export function dispatchGuardianPipeline(
+  accountId: string,
+  trBytes: Uint8Array,
+  delegateTransaction: boolean | undefined,
+  signCallback: RawSignCallback
+): Promise<TransactionResult> {
+  return dispatchOffscreenWrite('guardianPipeline', [accountId, trBytes, delegateTransaction], signCallback);
+}
+
+/**
  * The SW-side proxy. Presents (a slice of) the `MidenClientInterface` surface
  * but forwards to the offscreen doc when the flag is on. With the flag off it
  * is a strict pass-through to the inline singleton — a no-op vs. today.

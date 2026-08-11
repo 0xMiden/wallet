@@ -54,6 +54,11 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     TransactionResult: {
       deserialize: (...a: any[]) => g.__off.deserializeTxResult(...a)
     },
+    // Slice 6a: the guardianPipeline DISPATCH deserializes the co-signed request
+    // bytes back into a TransactionRequest before executing it.
+    TransactionRequest: {
+      deserialize: (...a: any[]) => g.__off.deserializeTxRequest(...a)
+    },
     TransactionProver: {
       deserialize: (...a: any[]) => g.__off.deserializeProver(...a),
       newLocalProver: (...a: any[]) => g.__off.newLocalProver(...a)
@@ -125,6 +130,10 @@ function resetControl() {
     webClientCtorCount: 0,
     proveTransaction: jest.fn(async () => ({ serialize: () => new Uint8Array([1, 2, 3]) })),
     deserializeTxResult: jest.fn(() => ({ __txResult: true })),
+    // Slice 6a: TransactionRequest.deserialize(trBytes) → a request handle the
+    // guardianPipeline hands to executeRequest. Echo the bytes so the test can
+    // assert the co-signed request crossed intact.
+    deserializeTxRequest: jest.fn((b: Uint8Array) => ({ __trFromBytes: Array.from(b) })),
     deserializeProver: jest.fn(async (d: string) => ({ __fromDescriptor: d })),
     newLocalProver: jest.fn(() => ({ __local: true })),
     // OFFSCREEN_CALL dispatch: the offscreen-owned client's getAccount returns
@@ -160,6 +169,40 @@ function resetControl() {
     clientNewTransaction: jest.fn(async (_a: unknown, _b: unknown, _c: unknown) => ({
       serialize: () => new Uint8Array([88, 99])
     })),
+    // Slice 6a guardianPipeline: the RAW client transactions API the DISPATCH
+    // drives directly (execute→prove→submit→apply on a pre-built request). The
+    // default returns a TransactionExecution-like whose result serializes to
+    // [55,66,77]; `prove` records the options it was called with (prover
+    // selection assertions) and honors a per-test `guardianProveShouldFailOnce`
+    // flag (the delegated remote→local fallback). Overridable per test.
+    guardianProveCalls: [] as any[],
+    guardianProveShouldFailOnce: false,
+    guardianSubmitted: false,
+    guardianApplied: false,
+    guardianExecuteRequest: jest.fn(async (_accountId: string, _tr: unknown) => {
+      const g2 = globalThis as any;
+      return {
+        result: { serialize: () => new Uint8Array([55, 66, 77]) },
+        id: { toHex: () => 'guardian-exec-hash' },
+        prove: jest.fn(async (options?: any) => {
+          g2.__off.guardianProveCalls.push(options);
+          if (g2.__off.guardianProveShouldFailOnce) {
+            g2.__off.guardianProveShouldFailOnce = false;
+            throw new Error('remote prover deadline expired');
+          }
+          return {
+            submit: jest.fn(async () => {
+              g2.__off.guardianSubmitted = true;
+              return {
+                apply: jest.fn(async () => {
+                  g2.__off.guardianApplied = true;
+                })
+              };
+            })
+          };
+        })
+      };
+    }),
     // Create options captured per MidenClientInterface.create call (slice 5).
     createOptions: [] as any[],
     getMidenClient: jest.fn(async () => ({
@@ -171,7 +214,13 @@ function resetControl() {
       consumeNoteId: (...a: any[]) => (globalThis as any).__off.clientConsumeNoteId(...a),
       sendTransaction: (...a: any[]) => (globalThis as any).__off.clientSendTransaction(...a),
       swapTransaction: (...a: any[]) => (globalThis as any).__off.clientSwapTransaction(...a),
-      newTransaction: (...a: any[]) => (globalThis as any).__off.clientNewTransaction(...a)
+      newTransaction: (...a: any[]) => (globalThis as any).__off.clientNewTransaction(...a),
+      // The raw client the guardian leaf pipeline drives directly.
+      client: {
+        transactions: {
+          executeRequest: (...a: any[]) => (globalThis as any).__off.guardianExecuteRequest(...a)
+        }
+      }
     }))
   };
 }
@@ -997,5 +1046,157 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(r2.mock.calls[0][0].ok).toBe(true);
     // The rejected create was not cached → getMidenClient ran again (retry).
     expect(G.__off.getMidenClient).toHaveBeenCalledTimes(2);
+  });
+
+  // ─── Slice 6a: guardianPipeline (the guardian write LEAF pipeline) ──────────
+  it('guardianPipeline: deserializes the co-signed request, runs execute→prove(local)→submit→apply, ships the serialized result', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const trBytes = new Uint8Array([1, 2, 3, 4]);
+    capturedListener!(
+      callReq({
+        op_id: 'op-g',
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(trBytes), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    // The fully-signed, guardian-co-signed request crossed as bytes and was
+    // deserialized back into a TransactionRequest in-realm (§4.0).
+    expect(G.__off.deserializeTxRequest).toHaveBeenCalledTimes(1);
+    expect(Array.from(G.__off.deserializeTxRequest.mock.calls[0][0])).toEqual([1, 2, 3, 4]);
+    // executeRequest got the accountId + the deserialized request (NOT a bundled
+    // MidenClientInterface write method — the request is pre-built).
+    expect(G.__off.guardianExecuteRequest).toHaveBeenCalledTimes(1);
+    const [acct, tr] = G.__off.guardianExecuteRequest.mock.calls[0];
+    expect(acct).toBe('mtst1qguardian');
+    expect(tr).toEqual({ __trFromBytes: [1, 2, 3, 4] });
+    // Non-delegated → proved with an explicit newLocalProver (no mobile branch).
+    expect(G.__off.newLocalProver).toHaveBeenCalledTimes(1);
+    expect(G.__off.guardianProveCalls).toEqual([{ prover: { __local: true } }]);
+    // submit + apply both ran in-realm.
+    expect(G.__off.guardianSubmitted).toBe(true);
+    expect(G.__off.guardianApplied).toBe(true);
+    // Only the serialized TransactionResult (executedTx.result) crossed back.
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(resp.op_id).toBe('op-g');
+    expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([55, 66, 77]);
+  });
+
+  it('guardianPipeline (delegated): proves remote via empty prove({}), never a local prover, then submits/applies', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    // Delegated success uses the client's default (remote) prover: prove({}).
+    expect(G.__off.guardianProveCalls).toEqual([{}]);
+    expect(G.__off.newLocalProver).not.toHaveBeenCalled();
+    expect(G.__off.guardianApplied).toBe(true);
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('guardianPipeline (delegated): a remote prove failure re-proves locally with newLocalProver (matches inline fallback)', async () => {
+    await loadModule();
+    G.__off.guardianProveShouldFailOnce = true;
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    // First attempt: remote prove({}) threw. Second: local newLocalProver.
+    expect(G.__off.guardianProveCalls[0]).toEqual({});
+    expect(G.__off.guardianProveCalls[1]).toEqual({ prover: { __local: true } });
+    expect(G.__off.newLocalProver).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('delegated guardian prove failed'), expect.any(Error));
+    expect(G.__off.guardianApplied).toBe(true);
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('guardianPipeline: preserves the SDK errorCode when the pipeline throws apply-after-submit (slice 6a funds-critical)', async () => {
+    await loadModule();
+    // useWorker:false → a failed pipeline throws the RAW main-thread JsError still
+    // carrying `errorCode`; the catch must ship it so the SW re-attaches it and the
+    // GUARDIAN classifier marks the tx Completed, never Failed → requeue → double-spend.
+    const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
+    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    G.__off.guardianExecuteRequest = jest.fn(async () => {
+      throw applyErr;
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.error).toContain('local apply failed after submit');
+    expect(resp.errorCode).toBe('ApplyTransactionAfterSubmitFailed');
+  });
+
+  it('guardianPipeline: the executeRequest keystore sign reverses to the SW via OFFSCREEN_SIGN_REQUEST tagged with the op_id', async () => {
+    await loadModule();
+    let signatureSeen: Uint8Array | null = null;
+    G.__off.guardianExecuteRequest = jest.fn(async () => {
+      const signCb = G.__off.createOptions[0].signCallback;
+      signatureSeen = await signCb(new Uint8Array([1, 2]), new Uint8Array([3, 4]));
+      return {
+        result: { serialize: () => new Uint8Array([55, 66, 77]) },
+        id: { toHex: () => 'h' },
+        prove: async () => ({ submit: async () => ({ apply: async () => {} }) })
+      };
+    });
+    let signReq: any = null;
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      if (m?.type === OFFSCREEN_SIGN_REQUEST) {
+        signReq = m;
+        return { ok: true, sign_id: m.sign_id, signatureB64: Buffer.from([7, 7]).toString('base64') };
+      }
+      return undefined;
+    });
+
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-gsign',
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    // The mid-execute sign reversed to the SW over the EXISTING channel, tagged
+    // with the guardian op's ambient id — no new IPC channel.
+    expect(signReq).not.toBeNull();
+    expect(signReq.type).toBe(OFFSCREEN_SIGN_REQUEST);
+    expect(signReq.op_id).toBe('op-gsign');
+    expect(Array.from(Buffer.from(signReq.publicKeyB64, 'base64'))).toEqual([1, 2]);
+    expect(Array.from(signatureSeen!)).toEqual([7, 7]);
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 });

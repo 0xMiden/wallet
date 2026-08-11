@@ -1,4 +1,10 @@
-import { NoteType, TransactionProver, type TransactionResult, WasmWebClient } from '@miden-sdk/miden-sdk/lazy';
+import {
+  NoteType,
+  type TransactionRequest,
+  TransactionProver,
+  type TransactionResult,
+  WasmWebClient
+} from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 
 import {
@@ -40,12 +46,14 @@ import {
   updateTransactionStatus
 } from './helper';
 import { importAllNotes } from '../activity/notes';
-import { midenClientProxy } from '../back/miden-client-proxy';
+import { dispatchGuardianPipeline, midenClientProxy } from '../back/miden-client-proxy';
+import { isOffscreenAvailable } from '../back/offscreen-prover';
 import {
   BridgedSendTransaction,
   ConsumeTransaction,
   EarnDepositTransaction,
   ITransaction,
+  ITransactionStage,
   ITransactionStatus,
   ITransactionType,
   ReplaceHotKeyTransaction,
@@ -85,6 +93,28 @@ const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<I
   'earn-deposit',
   'execute'
 ]);
+
+// Value-moving guardian tx-types whose leaf pipeline is safe to run offscreen
+// (issue #260, slice 6a). Structural types (switch-guardian / replace-hot-key /
+// update-procedure-threshold) and bridged-send / earn-deposit stay INLINE
+// unconditionally this slice — the structural ones carry cold co-sign /
+// mid-flight key persist / commit-wait that slice 6b will move, and bridged /
+// earn are deliberately left inline exactly like their non-guardian
+// counterparts. An unknown type is not in the set, so it stays inline too.
+const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
+  'send',
+  'consume',
+  'swap',
+  'execute'
+]);
+
+// An offscreen wedge-kill (deadline / `closeDocument`) rejects the in-flight op
+// with an `OperationAbortedError` (issue #260). Duck-typed by `name` rather than
+// `instanceof` so it survives crossing module/test realms. The tx itself did NOT
+// fail — the WASM realm was reclaimed — so a value-moving guardian op is DEFERRED
+// (requeued) rather than terminally Failed (§4.2 kill-window).
+const isOperationAbortedError = (err: unknown): boolean =>
+  !!err && typeof err === 'object' && (err as { name?: unknown }).name === 'OperationAbortedError';
 
 // Cooldown (seconds) applied to a tx requeued after a transient guardian
 // pending-delta 409. A persistently-conflicting tx is always the OLDEST Queued
@@ -250,6 +280,27 @@ export const generateTransaction = async (
           // updateTransactionStatus throws if the tx is already finalized — fine.
           console.warn('[Guardian] could not re-mark Completed (likely already finalized):', markErr);
         }
+        return;
+      }
+      // An offscreen wedge-kill (deadline / `closeDocument`) surfaces as a
+      // retryable OperationAbortedError (issue #260, slice 6a). The WASM realm was
+      // reclaimed — the tx itself did NOT fail — and the guardian submit catch
+      // already ran `abandonCandidate`, so a PRE-submit kill left nothing on chain
+      // and a MID/POST-submit kill is caught on the next attempt by the on-chain
+      // consumed-nullifier backstop (the retry's submit is rejected → the classifier
+      // above marks Completed, never double-spends). Terminally Failing a tx that
+      // never actually failed would be wrong, so DEFER value-moving ops back to
+      // Queued for a fresh cycle — the same requeue the transient pending-delta 409
+      // uses (only value-moving types route offscreen this slice; structural stays
+      // inline and never aborts). This makes the offscreen kill-window byte-safe
+      // relative to the inline path.
+      if (isOperationAbortedError(error) && OFFSCREEN_ROUTABLE_GUARDIAN_TYPES.has(transaction.type)) {
+        console.warn('[Guardian] offscreen pipeline aborted (wedge-kill) — requeueing for a later cycle');
+        await updateTransactionStatus(transaction.id, ITransactionStatus.Queued, {
+          processingStartedAt: undefined,
+          stage: 'creating-proposal',
+          nextEligibleAt: Math.floor(Date.now() / 1000) + PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC
+        });
         return;
       }
       // A transient guardian 409 (a prior delta still canonicalizing) that
@@ -476,6 +527,106 @@ const ensureGuardianRecallableSendRequestBytes = async (
   });
   return requestBytes;
 };
+
+/**
+ * The guardian write LEAF PIPELINE — `executeRequest → prove → submit → apply`
+ * for an already-signed, guardian-co-signed `TransactionRequest` (issue #260,
+ * slice 6a).
+ *
+ * This is the VERBATIM extraction of the former inline block (the
+ * `withWasmClientLock(...)` at the guardian submit site): same wrapped keystore
+ * options, same prover selection (non-delegated `newLocalProver` / mobile
+ * `newCallbackProver`; delegated remote `prove({})` with local fallback), same
+ * `executing`/`proving`/`submitting` stage progression. It runs entirely SW-side
+ * and is byte-identical to the old inline path — the flag-OFF branch of the
+ * per-type route calls exactly this.
+ *
+ * When the offscreen client is enabled, value-moving guardian types run the SAME
+ * leaf offscreen via `dispatchGuardianPipeline` instead; everything BEFORE this
+ * (proposal creation, guardian HTTP co-sign, cold co-sign,
+ * `signAndCreateTransactionRequest`) and AFTER it (abandonCandidate on failure,
+ * waitForTransactionCommit, completion handlers) stays SW-side, unchanged.
+ *
+ * Returns the pipeline's `TransactionResult` (was: the executed-transaction
+ * handle; the caller now re-derives the tx id from
+ * `result.executedTransaction().id()`), so its shape matches what
+ * `dispatchGuardianPipeline` re-hydrates from the offscreen round-trip.
+ */
+const runGuardianPipeline = async (
+  accountId: string,
+  tr: TransactionRequest,
+  delegateTransaction: boolean | undefined,
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  setStage: (stage: ITransactionStage) => Promise<void>
+): Promise<TransactionResult> => {
+  const options: MidenClientCreateOptions = {
+    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
+      const keyString = Buffer.from(publicKey).toString('hex');
+      const signingInputsString = Buffer.from(signingInputs).toString('hex');
+      return await signCallback(keyString, signingInputsString);
+    }
+  };
+
+  // MidenClient handles the full pipeline (execute → prove → submit → apply).
+  return withWasmClientLock(async () => {
+    const midenClient = await getMidenClient(options);
+    await setStage('executing');
+    const executedTx = await midenClient.client.transactions.executeRequest(accountId, tr);
+    await setStage('proving');
+    let provenTx;
+    if (!delegateTransaction) {
+      // Local (non-delegated) proving. The guardian pipeline drives the raw
+      // client directly, whose default local prover is the single-threaded
+      // WASM one — which on iOS WKWebView runs on the main thread and freezes
+      // the UI for the whole multi-second prove. Route to the native Rust
+      // prover on mobile (off the main thread via @miden/native-prover),
+      // exactly like `proveWithFallback`'s localProverFactory and the
+      // delegated fallback below; WASM local prover elsewhere.
+      const localProver = isMobile()
+        ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+        : TransactionProver.newLocalProver();
+      provenTx = await executedTx.prove({ prover: localProver });
+    } else {
+      // Delegated (remote) proving. The client's default prover is the remote
+      // gRPC prover on every platform, and its ~10s deadline is too tight for a
+      // heavyweight guardian multisig proof when the machine is under load — a
+      // single "Deadline expired" used to kill the whole co-signed transaction
+      // (surfacing as the guardian 409 canonicalize-conflict retry loop and a
+      // claim timeout), because the guardian pipeline drives the raw client
+      // directly and had none of the local fallback the non-guardian path gets
+      // for free from `proveWithFallback`. Give it that resilience: on remote
+      // failure, re-prove the SAME executed tx locally. Re-proving is safe
+      // because `proveTransaction` borrows the executed result (only the prover
+      // is consumed, and each attempt passes a fresh one). The local prover
+      // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
+      // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
+      try {
+        provenTx = await executedTx.prove({});
+      } catch (proveError) {
+        console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
+        const fallbackProver = isMobile()
+          ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+          : TransactionProver.newLocalProver();
+        provenTx = await executedTx.prove({ prover: fallbackProver });
+      }
+    }
+    await setStage('submitting');
+    const submittedTx = await provenTx.submit();
+    await submittedTx.apply();
+    return executedTx.result;
+  });
+};
+
+// Route a value-moving guardian leaf offscreen only when the offscreen client is
+// enabled AND the offscreen document API is present (mobile hardcodes the flag
+// off — no chrome.offscreen). Read per-call (not a module const) so the route is
+// deterministically togglable in tests; the heavy offscreen machinery it reaches
+// lives in miden-client-proxy — already imported for syncState/getAccount — so
+// there is no dead-code-elimination benefit to a module const here.
+const shouldRouteGuardianLeafOffscreen = (type: ITransactionType): boolean =>
+  process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true' &&
+  isOffscreenAvailable() &&
+  OFFSCREEN_ROUTABLE_GUARDIAN_TYPES.has(type);
 
 /**
  * Generate a transaction for a Guardian account using the MultisigService.
@@ -801,65 +952,34 @@ const generateGuardianTransaction = async (
     await withGuardianConflictRetry(() => coldService.signProposal(proposalResult.id));
   }
 
-  let submittedTransaction;
+  let result: TransactionResult;
   try {
     const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
-    const options: MidenClientCreateOptions = {
-      signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-        const keyString = Buffer.from(publicKey).toString('hex');
-        const signingInputsString = Buffer.from(signingInputs).toString('hex');
-        return await signCallback(keyString, signingInputsString);
-      }
-    };
 
     await setTransactionStage(transaction.id, 'sending');
-    submittedTransaction = await withWasmClientLock(async () => {
-      const midenClient = await getMidenClient(options);
-      await setTransactionStage(transaction.id, 'executing');
-      const executedTx = await midenClient.client.transactions.executeRequest(transaction.accountId, tr);
-      await setTransactionStage(transaction.id, 'proving');
-      let provenTx;
-      if (!transaction.delegateTransaction) {
-        // Local (non-delegated) proving. The guardian pipeline drives the raw
-        // client directly, whose default local prover is the single-threaded
-        // WASM one — which on iOS WKWebView runs on the main thread and freezes
-        // the UI for the whole multi-second prove. Route to the native Rust
-        // prover on mobile (off the main thread via @miden/native-prover),
-        // exactly like `proveWithFallback`'s localProverFactory and the
-        // delegated fallback below; WASM local prover elsewhere.
-        const localProver = isMobile()
-          ? TransactionProver.newCallbackProver(buildNativeProverCallback())
-          : TransactionProver.newLocalProver();
-        provenTx = await executedTx.prove({ prover: localProver });
-      } else {
-        // Delegated (remote) proving. The client's default prover is the remote
-        // gRPC prover on every platform, and its ~10s deadline is too tight for a
-        // heavyweight guardian multisig proof when the machine is under load — a
-        // single "Deadline expired" used to kill the whole co-signed transaction
-        // (surfacing as the guardian 409 canonicalize-conflict retry loop and a
-        // claim timeout), because the guardian pipeline drives the raw client
-        // directly and had none of the local fallback the non-guardian path gets
-        // for free from `proveWithFallback`. Give it that resilience: on remote
-        // failure, re-prove the SAME executed tx locally. Re-proving is safe
-        // because `proveTransaction` borrows the executed result (only the prover
-        // is consumed, and each attempt passes a fresh one). The local prover
-        // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
-        // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
-        try {
-          provenTx = await executedTx.prove({});
-        } catch (proveError) {
-          console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
-          const fallbackProver = isMobile()
-            ? TransactionProver.newCallbackProver(buildNativeProverCallback())
-            : TransactionProver.newLocalProver();
-          provenTx = await executedTx.prove({ prover: fallbackProver });
-        }
-      }
-      await setTransactionStage(transaction.id, 'submitting');
-      const submittedTx = await provenTx.submit();
-      await submittedTx.apply();
-      return executedTx;
-    });
+    if (shouldRouteGuardianLeafOffscreen(transaction.type)) {
+      // Offscreen leaf (issue #260, slice 6a). The fully-signed, guardian-co-
+      // signed request crosses as bytes: its extended advice map — where the hot
+      // / cold / guardian co-signatures live — is preserved by
+      // `TransactionRequest.serialize()` (Rust `Serializable for TransactionRequest`
+      // writes `advice_map.write_into(target)`; §4.0), so the offscreen realm
+      // executes the identical request. execute→prove→submit→apply runs whole-op
+      // in the offscreen doc as ONE killable op; the executeRequest keystore sign
+      // reaches the SW-resident vault via the EXISTING OFFSCREEN_SIGN_REQUEST
+      // reverse channel (no new IPC). On a deadline/close kill the offscreen op
+      // rejects with a retryable OperationAbortedError and the SW catch below
+      // still runs `abandonCandidate`, byte-identical to the inline path.
+      result = await dispatchGuardianPipeline(
+        transaction.accountId,
+        tr.serialize(),
+        transaction.delegateTransaction,
+        signCallback
+      );
+    } else {
+      result = await runGuardianPipeline(transaction.accountId, tr, transaction.delegateTransaction, signCallback, s =>
+        setTransactionStage(transaction.id, s)
+      );
+    }
   } catch (error) {
     console.error('Error during Guardian transaction submission or execution', { error });
     try {
@@ -875,7 +995,12 @@ const generateGuardianTransaction = async (
     throw error;
   }
 
-  const { id, result } = submittedTransaction;
+  // The tx id, re-derived from the (possibly offscreen-round-tripped) result
+  // rather than a separate handle: the offscreen pipeline returns only the
+  // serialized TransactionResult, and `executedTransaction()` survives that
+  // round-trip (slice 5b). Byte-identical to the former
+  // `submittedTransaction.id.toHex()`.
+  const id = result.executedTransaction().id().toHex();
 
   // For switch-guardian, the new guardian must be seeded with the POST-switch
   // account state. submit() returns after submission, not after inclusion, so
@@ -896,7 +1021,7 @@ const generateGuardianTransaction = async (
     await setTransactionStage(transaction.id, 'confirming');
     await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
-      await midenClient.waitForTransactionCommit(id.toHex());
+      await midenClient.waitForTransactionCommit(id);
     });
   }
 

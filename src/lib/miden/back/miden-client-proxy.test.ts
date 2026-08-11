@@ -1491,3 +1491,153 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
     expect(extractSdkErrorCode(err)).toBeUndefined();
   });
 });
+
+// ─── Slice 6a: dispatchGuardianPipeline (the guardian write LEAF offscreen) ───
+//
+// A guardian tx's co-signature is contributed BEFORE execute, so the leaf that
+// crosses is byte-for-byte the same op-shape as a non-guardian write — it reuses
+// `dispatchOffscreenWrite` wholesale. These tests pin the guardian-specific waist:
+// the `guardianPipeline` method name, the [accountId, trBytes, delegate] DTO with
+// the co-signed request crossing as RAW BYTES intact (§4.0), the shared 90s
+// deadline + criticalOp bracketing, the reused OFFSCREEN_SIGN_REQUEST sign channel,
+// the errorCode round-trip, and the retryable abort on a kill.
+describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf offscreen)', () => {
+  const trBytes = () => new Uint8Array([0xca, 0xfe, 0xba, 0xbe]);
+
+  it('flag ON → dispatches a whole-op guardianPipeline OFFSCREEN_CALL (accountId + co-signed tr bytes intact + delegate, 90s deadline, criticalOp bracketed) + rehydrates', async () => {
+    const { dispatchGuardianPipeline, __test } = await loadProxy(true);
+    const prover = await import('./offscreen-prover');
+    const { b64ToBytes } = await import('./offscreen-codec');
+    let criticalDuring: boolean | undefined;
+    let signCbSizeDuring: number | undefined;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      criticalDuring = prover.isCriticalOpInFlight();
+      signCbSizeDuring = __test.opSignCallbacksSize();
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([5, 6, 7]).toString('base64'), durationMs: 4 };
+    });
+
+    const tr = trBytes();
+    const p = dispatchGuardianPipeline(
+      'mtst1qguardian',
+      tr,
+      false,
+      jest.fn(async () => new Uint8Array())
+    );
+    await flush();
+    fireReady();
+    const result = await p;
+
+    // Never used the inline SW client — and NEVER held the SW WASM lock (the
+    // offscreen doc serializes, keeping the SW free + the sign handler unblocked).
+    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
+    expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
+    // Exactly one OFFSCREEN_CALL, method guardianPipeline, 90s write deadline.
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('guardianPipeline');
+    expect(env.deadline_ms).toBe(__test.writeDeadlineMs());
+    expect(env.deadline_ms).toBe(90_000);
+    // DTO: [accountId (s:string), trBytes (b:bytes), delegate (s:bool)].
+    expect(env.argsB64[0]).toBe(`s:${JSON.stringify('mtst1qguardian')}`);
+    expect(env.argsB64[2]).toBe('s:false');
+    // §4.0: the co-signed request crossed as RAW BYTES, byte-for-byte intact —
+    // NOT JSON-mangled — so the advice map carrying the co-signatures survives.
+    expect(env.argsB64[1].startsWith('b:')).toBe(true);
+    expect(Array.from(b64ToBytes(env.argsB64[1].slice(2)))).toEqual(Array.from(tr));
+    // criticalOp + sign callback bracketed AROUND the op, cleaned up after.
+    expect(criticalDuring).toBe(true);
+    expect(signCbSizeDuring).toBe(1);
+    expect(prover.isCriticalOpInFlight()).toBe(false);
+    expect(__test.opSignCallbacksSize()).toBe(0);
+    // SW re-hydrated the serialized TransactionResult (WASM ensured first).
+    expect(G.__px.getWasmOrThrow).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ __txResult: [5, 6, 7] });
+    expect(__test.inFlightSize()).toBe(0);
+  });
+
+  it('flag ON → an ApplyTransactionAfterSubmitFailed reply rejects with the errorCode the GUARDIAN classifier reads (Completed, not Failed → requeue)', async () => {
+    const { dispatchGuardianPipeline } = await loadProxy(true);
+    const { extractSdkErrorCode } = await import('../sdk/sdk-error-code');
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'local apply failed after submit',
+      errorCode: 'ApplyTransactionAfterSubmitFailed'
+    }));
+
+    const p = dispatchGuardianPipeline(
+      'acc',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array())
+    ).catch((e: unknown) => e);
+    await flush();
+    fireReady();
+    const err = await p;
+
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('local apply failed after submit');
+    // The stable code rides the rejection in the shape the guardian classifier reads.
+    expect(extractSdkErrorCode(err)).toBe('ApplyTransactionAfterSubmitFailed');
+  });
+
+  it('flag ON → the executeRequest sign reverses through the op-registered callback over the EXISTING OFFSCREEN_SIGN_REQUEST channel', async () => {
+    const { dispatchGuardianPipeline, handleOffscreenSignRequest, __test } = await loadProxy(true);
+    const { bytesToB64 } = await import('./offscreen-codec');
+    const opSign = jest.fn(async () => new Uint8Array([0xaa, 0xbb]));
+    const fallback = jest.fn(async () => new Uint8Array([0xff]));
+
+    let signResult: any;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      signResult = await handleOffscreenSignRequest(
+        {
+          target: 'sw',
+          type: 'OFFSCREEN_SIGN_REQUEST',
+          op_id: env.op_id,
+          sign_id: 's-g',
+          publicKeyB64: bytesToB64(new Uint8Array([0x01, 0x02])),
+          signingInputsB64: bytesToB64(new Uint8Array([0x03, 0x04]))
+        } as any,
+        fallback
+      );
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([9]).toString('base64'), durationMs: 1 };
+    });
+
+    const p = dispatchGuardianPipeline('acc', trBytes(), true, opSign);
+    await flush();
+    fireReady();
+    await p;
+
+    // The op's OWN callback signed (hex-converted args), never the fallback.
+    expect(opSign).toHaveBeenCalledWith('0102', '0304');
+    expect(fallback).not.toHaveBeenCalled();
+    expect(signResult.ok).toBe(true);
+    expect(Array.from(Buffer.from(signResult.signatureB64, 'base64'))).toEqual([0xaa, 0xbb]);
+    expect(__test.opSignCallbacksSize()).toBe(0); // cleaned up
+  });
+
+  it('flag ON → a doc-closed kill rejects the guardian op with a retryable OperationAbortedError and clears the critical op', async () => {
+    const { dispatchGuardianPipeline, __test } = await loadProxy(true);
+    const prover = await import('./offscreen-prover');
+    const { OperationAbortedError } = await import('./offscreen-codec');
+    // The doc was reaped mid-op → sendMessage resolves undefined (design §3.1).
+    fakeChrome.runtime.sendMessage.mockImplementation(async () => undefined);
+
+    const p = dispatchGuardianPipeline(
+      'acc',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array())
+    ).catch((e: unknown) => e);
+    await flush();
+    fireReady();
+    const err = await p;
+
+    expect(err).toBeInstanceOf(OperationAbortedError);
+    expect((err as any).reason).toBe('doc-closed');
+    // Bookkeeping unwound: no lingering critical op, no in-flight entry.
+    expect(prover.isCriticalOpInFlight()).toBe(false);
+    expect(__test.inFlightSize()).toBe(0);
+    expect(__test.opSignCallbacksSize()).toBe(0);
+  });
+});
