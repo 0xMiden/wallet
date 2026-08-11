@@ -189,7 +189,8 @@ jest.mock('lib/platform', () => ({
 
 jest.mock('lib/settings/helpers', () => ({
   isAutoConsumeEnabled: () => mockAutoConsume,
-  isDelegateProofEnabled: () => mockDelegateProof
+  isDelegateProofEnabled: () => mockDelegateProof,
+  isHapticFeedbackEnabled: () => false
 }));
 
 jest.mock('lib/store', () => ({
@@ -413,6 +414,18 @@ describe('Explore', () => {
       });
 
       expect(mockNavigate).toHaveBeenCalledWith('/token-detail/t-abc');
+    });
+
+    // #434 — Settings must be reachable from the home page, not only from the
+    // Explore/Activity tabs (which carry the gear via TabHeader).
+    it('opens Settings from the home page via the settings button', async () => {
+      await renderExplore();
+
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('settings'));
+      });
+
+      expect(mockNavigate).toHaveBeenCalledWith('/settings');
     });
   });
 

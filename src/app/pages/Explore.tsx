@@ -3,6 +3,7 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { Icon, IconName } from 'app/icons/v2';
 import Balance from 'app/templates/Balance';
 import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
@@ -27,6 +28,7 @@ import type { TokenBalanceData } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { MIDEN_NETWORK_NAME, MIDEN_FAUCET_ENDPOINTS } from 'lib/miden-chain/constants';
+import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
@@ -272,6 +274,23 @@ const Explore: FC = () => {
       <div className="shrink-0">
         <ConnectivityIssueBanner />
       </div>
+
+      {/* Settings is reachable from the home page too, not only the Explore /
+          Activity tabs (which carry the gear via TabHeader). Kept outside the
+          scroll region so it stays put while the asset list scrolls. */}
+      <header className="shrink-0 flex items-center justify-end px-4 pt-3">
+        <button
+          type="button"
+          aria-label={t('settings')}
+          onClick={() => {
+            hapticLight();
+            navigate('/settings');
+          }}
+          className="flex items-center justify-center w-9 h-9 rounded-full bg-gray-25 text-text-primary-token"
+        >
+          <Icon name={IconName.Settings} className="w-4 h-4" fill="currentColor" />
+        </button>
+      </header>
 
       <div
         className="relative flex-1 min-h-0 overflow-y-auto overscroll-contain"
