@@ -456,6 +456,11 @@ export interface NewWalletRequest extends WalletMessageBase {
   mnemonic?: string;
   ownMnemonic?: boolean;
   walletType: WalletType;
+  // Guardian operator endpoint the onboarding flow picked (choose-guardian) or
+  // probed (import / recovery). Threaded explicitly so a new Guardian account
+  // binds to the caller's chosen endpoint without round-tripping through the
+  // legacy global GUARDIAN_URL_STORAGE_KEY. Undefined for non-guardian wallets.
+  guardianEndpoint?: string;
 }
 
 export interface NewWalletResponse extends WalletMessageBase {

@@ -427,13 +427,23 @@ describe('Welcome — onAction forward navigation', () => {
 // ===========================================================================
 
 describe('Welcome — choose-guardian-submit', () => {
-  it('goes straight to confirmation when a passcode password already exists', async () => {
+  it('goes straight to confirmation when a passcode password already exists (and threads the picked endpoint)', async () => {
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '111111' });
     mockNavigate.mockClear();
     await dispatch({ id: 'choose-guardian-submit', payload: { guardianEndpoint: 'https://g' } });
-    expect(mockPutToStorage).toHaveBeenCalledWith('guardian_url_setting', 'https://g');
+    // Stage 1 of #408: the picked endpoint is captured in state (not written to
+    // the global GUARDIAN_URL_STORAGE_KEY) and threaded into registerWallet.
+    expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      '111111',
+      expect.any(String),
+      false,
+      'https://g'
+    );
   });
 
   it('uses hardware-only protection when biometric hardware is available', async () => {
@@ -530,24 +540,37 @@ describe('Welcome — create-password-submit', () => {
 // ===========================================================================
 
 describe('Welcome — import-select-recovery-method', () => {
-  it('persists the guardian endpoint for guardian wallets', async () => {
+  it('captures the guardian endpoint for guardian wallets and threads it into registerWallet', async () => {
     await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     await dispatch({
       id: 'import-select-recovery-method',
       payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
     });
-    expect(mockPutToStorage).toHaveBeenCalledWith('guardian_url_setting', 'https://g');
+    // Stage 1 of #408: no longer written to the global GUARDIAN_URL_STORAGE_KEY.
+    expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, 'pw', expect.any(String), true, 'https://g');
   });
 
-  it('skips storage for non-guardian wallets', async () => {
+  it('threads no endpoint for non-guardian wallets', async () => {
     await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     await dispatch({
       id: 'import-select-recovery-method',
       payload: { walletType: WalletType.OffChain }
     });
     expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OffChain, 'pw', expect.any(String), true, undefined);
   });
 });
 
@@ -562,7 +585,13 @@ describe('Welcome — confirmation / register', () => {
     mockNavigate.mockClear();
     await dispatch({ id: 'confirmation' });
 
-    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, '123456', expect.any(String), false);
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      '123456',
+      expect.any(String),
+      false,
+      undefined
+    );
     // Create flow triggers the verify-seed prompt.
     expect(mockSeedWalletPrompt).toHaveBeenCalledWith('verify-seed-phrase');
     expect(mockSyncFromBackend).toHaveBeenCalled();
@@ -579,7 +608,13 @@ describe('Welcome — confirmation / register', () => {
     await dispatch({ id: 'choose-guardian-submit', payload: { guardianEndpoint: 'https://g' } });
     mockNavigate.mockClear();
     await dispatch({ id: 'confirmation' });
-    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, undefined, expect.any(String), false);
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      undefined,
+      expect.any(String),
+      false,
+      'https://g'
+    );
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 

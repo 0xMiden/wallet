@@ -158,6 +158,11 @@ export class MultisigService {
     accountId: string,
     webClient: MidenClient
   ) {
+    // TODO(#408 stage 2/3): this still reads the global GUARDIAN_URL_STORAGE_KEY
+    // DIRECTLY (no per-account fallback). Dead today (no production callers), but
+    // if a future feature wires it into a non-default guardian import it would
+    // silently bind to the default operator = broken guardian. Migrate to the
+    // per-account guardianEndpoint before the global key is removed.
     const guardianEndpoint =
       (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || getEffectiveDefaultGuardianEndpoint();
     const guardian = new GuardianHttpClient(guardianEndpoint);

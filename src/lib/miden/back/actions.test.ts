@@ -280,9 +280,15 @@ describe('actions', () => {
       };
       Vault.spawn.mockResolvedValueOnce(mockVaultInstance);
 
-      await registerNewWallet(WalletType.Guardian, 'password123', 'mnemonic words', true);
+      await registerNewWallet(WalletType.Guardian, 'password123', 'mnemonic words', true, 'https://guardian.example');
 
-      expect(Vault.spawn).toHaveBeenCalledWith(WalletType.Guardian, 'password123', 'mnemonic words', true);
+      expect(Vault.spawn).toHaveBeenCalledWith(
+        WalletType.Guardian,
+        'password123',
+        'mnemonic words',
+        true,
+        'https://guardian.example'
+      );
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
     });
@@ -301,7 +307,7 @@ describe('actions', () => {
 
       await registerNewWallet(WalletType.Guardian, undefined, 'mnemonic words', true);
 
-      expect(Vault.spawn).toHaveBeenCalledWith(WalletType.Guardian, '', 'mnemonic words', true);
+      expect(Vault.spawn).toHaveBeenCalledWith(WalletType.Guardian, '', 'mnemonic words', true, undefined);
     });
   });
 

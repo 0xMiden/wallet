@@ -134,7 +134,13 @@ export async function isDAppEnabled() {
   return bools.every(Boolean);
 }
 
-export function registerNewWallet(walletType: WalletType, password?: string, mnemonic?: string, ownMnemonic?: boolean) {
+export function registerNewWallet(
+  walletType: WalletType,
+  password?: string,
+  mnemonic?: string,
+  ownMnemonic?: boolean,
+  guardianEndpoint?: string
+) {
   console.log(
     '[Actions.registerNewWallet] Called with walletType:',
     walletType,
@@ -146,7 +152,7 @@ export function registerNewWallet(walletType: WalletType, password?: string, mne
   return withInited(async () => {
     console.log('[Actions.registerNewWallet] Starting...');
     try {
-      const vault = await Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic);
+      const vault = await Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic, guardianEndpoint);
       console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
       const accounts = await vault.fetchAccounts();
       const settings = await vault.fetchSettings();

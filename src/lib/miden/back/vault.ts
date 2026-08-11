@@ -35,7 +35,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { compareAccountIds } from '../activity/utils';
 import { fetchFromStorage, putToStorage } from '../front/storage';
 import type { CreatedGuardianKeys } from '../guardian/account';
-import { getSignerDetailsFromAccount } from '../guardian/account';
+import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
 import { deriveClientSeed, makeColdSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
@@ -330,7 +330,8 @@ export class Vault {
     walletType: WalletType,
     password: string,
     mnemonic?: string,
-    ownMnemonic?: boolean
+    ownMnemonic?: boolean,
+    guardianEndpoint?: string
   ): Promise<Vault> {
     console.log('Spawning new vault with wallet type', walletType);
     return withError('Failed to create wallet', async (): Promise<Vault> => {
@@ -345,12 +346,12 @@ export class Vault {
       }
 
       // Clear storage before any inserts to avoid wiping newly inserted keys later.
-      // clearStorage wipes the entire platform key-value store, which would also
-      // erase the guardian URL that the onboarding flow just wrote for a Guardian import.
-      // Snapshot it and restore after the wipe so downstream reads
-      // (createGuardianAccount / recoverGuardianAccountsBySeed) see the caller's choice.
-      // TODO: thread guardianEndpoint as an explicit arg through registerWallet → spawn
-      // instead of round-tripping through storage.
+      // The picked/probed guardian endpoint now arrives explicitly via the
+      // `guardianEndpoint` param (stage 1 of #408) and is threaded straight into
+      // the create/recovery branches below, so it no longer depends on surviving
+      // this wipe. The snapshot/restore is retained only so any legacy global
+      // `GUARDIAN_URL_STORAGE_KEY` written by a prior install still resolves for
+      // pre-existing accounts; stage 3 removes the global key entirely.
       console.log('[Vault.spawn] Step 3: clearing storage...');
       const preservedGuardianUrl = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
       await clearStorage();
@@ -408,14 +409,18 @@ export class Vault {
 
       if (isGuardianRecovery) {
         console.log('[Vault.spawn] Step 7a: recovering Guardian accounts (adopt only — rotation deferred)...');
-        const guardianEndpoint =
-          (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || getEffectiveDefaultGuardianEndpoint();
+        // Prefer the endpoint the caller probed/picked for this recovery (stage 1
+        // of #408). Fall back to the legacy global key, then the network default,
+        // so a recovery that detected nothing still resolves exactly as before.
+        const resolvedGuardianEndpoint =
+          guardianEndpoint ??
+          ((await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || getEffectiveDefaultGuardianEndpoint());
         // makeColdSeedDeriver pays the 2048-round PBKDF2 once across the whole
         // 20-index scan; a per-index deriveClientSeed closure would re-run it
         // for every index.
         const recovered = await midenClient.recoverGuardianAccountsBySeed(
           makeColdSeedDeriver(mnemonic!, WalletType.Guardian),
-          guardianEndpoint
+          resolvedGuardianEndpoint
         );
         createdAccounts = recovered.map(r => ({
           accountId: r.accountId,
@@ -423,8 +428,8 @@ export class Vault {
           // Guardian accounts are always ECDSA under the 3-key model.
           authScheme: NEW_ACCOUNT_AUTH_SCHEME,
           // Recovery is scoped to a single operator endpoint, so every adopted
-          // account is registered with the same `guardianEndpoint` we looked up against.
-          guardianEndpoint,
+          // account is registered with the same endpoint we looked up against.
+          guardianEndpoint: resolvedGuardianEndpoint,
           recoveredCold: { coldPublicKey: r.coldPublicKey, coldSecretKeyHex: r.coldSecretKeyHex }
         }));
       } else {
@@ -439,7 +444,10 @@ export class Vault {
             if (walletType === WalletType.Guardian) {
               console.log('[Vault.spawn] Step 8: syncing state then creating Guardian account...');
               await midenClient.syncState();
-              const result = await midenClient.createGuardianMidenWallet(walletSeed);
+              // Pass the caller's picked endpoint (stage 1 of #408) as the
+              // override; createGuardianAccount falls back to the legacy global
+              // key then the network default when it is undefined.
+              const result = await midenClient.createGuardianMidenWallet(walletSeed, guardianEndpoint);
               // Guardian accounts are always ECDSA under the 3-key model.
               return {
                 accountId: result.accountId,
@@ -708,6 +716,22 @@ export class Vault {
       const options: MidenClientCreateOptions = {
         insertKeyCallback: insertKeyCallbackWrapper(this.vaultKey)
       };
+
+      // A second Guardian account must bind to the SAME operator endpoint as the
+      // wallet's existing Guardian account(s). Source it from a sibling's
+      // per-account `guardianEndpoint` via resolveGuardianEndpoint (which then
+      // falls back to the legacy global key, then the network default). This is
+      // identical to the former raw global-key read for default-endpoint wallets,
+      // but stays correct for non-default ones now that onboarding threads the
+      // endpoint per-account instead of writing the global key (#408 stage 1).
+      // undefined when there is no existing Guardian account (createGuardianAccount
+      // then applies its own global/default fallback, exactly as before).
+      const existingGuardianAccount =
+        walletType === WalletType.Guardian ? allAccounts.find(a => a.type === WalletType.Guardian) : undefined;
+      const guardianEndpoint = existingGuardianAccount
+        ? await resolveGuardianEndpoint(existingGuardianAccount)
+        : undefined;
+
       console.log('[Vault.createHDAccount] Step 5: seed derived, acquiring WASM lock');
 
       // Wrap WASM client operations in a lock to prevent concurrent access.
@@ -732,7 +756,7 @@ export class Vault {
 
           if (walletType === WalletType.Guardian) {
             console.log('[Vault.createHDAccount] Step 8: createGuardianMidenWallet');
-            const result = await midenClient.createGuardianMidenWallet(walletSeed);
+            const result = await midenClient.createGuardianMidenWallet(walletSeed, guardianEndpoint);
             return {
               accountId: result.accountId,
               guardianKeys: result.keys,
