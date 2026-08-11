@@ -126,6 +126,22 @@ describe('PasscodeEntry', () => {
       expect(onChange).toHaveBeenLastCalledWith('123');
     });
 
+    it('auto-submits once with the full code when all six digits are tapped in one tick (#468)', () => {
+      const onSubmit = jest.fn();
+      renderComponent({ onSubmit });
+
+      // The real symptom: type the whole PIN fast and it never submits.
+      act(() => {
+        for (const digit of '123456') {
+          fireEvent.click(screen.getByTestId(`numpad-${digit}`));
+        }
+      });
+      flushTimers();
+
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+      expect(onSubmit).toHaveBeenCalledWith('123456');
+    });
+
     it('uses the default hint and aria-label when no subtitle/error given', () => {
       renderComponent();
       expect(screen.getByRole('status')).toHaveTextContent('enterYour6DigitCode');
