@@ -625,6 +625,23 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     }
   };
 
+  // Reconcile the (potentially lagging) on-chain order lineage with settlement
+  // this wallet has already observed: once the settlement/reclaim consume notes
+  // are seen locally, the order is terminal regardless of what the lineage poll
+  // still reports. Otherwise the status sits on "Active" with a per-poll
+  // flickering spinner after the swap has actually settled (#486).
+  // A settle consume outranks a reclaim one — funds were received — matching
+  // `repairSettlementStamp`'s precedence so this row agrees with the swap-row
+  // chip when an order carries both kinds (e.g. paybacks settled one tick, tip
+  // reclaimed another).
+  const settledOrderState: SwapOrderState | null = settlementFound
+    ? settlementNotes && settlementNotes.settled.length > 0
+      ? 'filled'
+      : 'reclaimed'
+    : null;
+  const displayOrderState: SwapOrderState | null = settledOrderState ?? swapTracking?.state ?? null;
+  const orderStillResolving = displayOrderState === 'active';
+
   // How much of the requested amount has been filled so far, derived from the
   // original requested amount and the lineage's still-outstanding remainder.
   const filledRequested =
@@ -1073,12 +1090,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <div className="mt-5">
                   <DetailCard title={t('orderTracking')}>
                     <DetailRow label={t('orderStatus')} isLast={!swapTracking}>
-                      {swapTracking ? (
+                      {displayOrderState ? (
                         <div className="flex items-center gap-2">
                           <span data-testid="swap-order-status" className="text-sm text-heading-gray font-medium">
-                            {orderStatusLabel(swapTracking.state)}
+                            {orderStatusLabel(displayOrderState)}
                           </span>
-                          {trackingLoading && (
+                          {orderStillResolving && (
                             <span
                               data-testid="swap-order-polling"
                               className="flex items-center gap-1.5 text-xs font-medium text-text-muted"
