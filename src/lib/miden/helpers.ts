@@ -18,7 +18,7 @@ export const toNoteType = (noteType: NoteTypeString) => (noteType === 'public' ?
 
 // The chain doesn't commit to a fixed cadence, so recall-height → wall-clock
 // conversion is an estimate for display only.
-const ESTIMATED_MS_PER_BLOCK = 5_000;
+export const ESTIMATED_MS_PER_BLOCK = 3_000;
 
 // P2IDE note storage layout (miden-standards src/note/p2ide.rs):
 // [target.suffix, target.prefix, reclaim_height, timelock_height], Felt::ZERO = unset.

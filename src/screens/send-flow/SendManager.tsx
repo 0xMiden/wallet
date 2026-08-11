@@ -28,6 +28,7 @@ import {
 } from 'utils/miden';
 
 import { AccountsListDrawer } from './AccountsList';
+import { AddContactDrawer } from './AddContactDrawer';
 import { SendNetworkId } from './bridge-networks';
 import { Route as RouteStep } from './Route';
 import { SelectAmount } from './SelectAmount';
@@ -35,8 +36,18 @@ import { SelectNetworkDrawer } from './SelectNetwork';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
 import { consumeSendDraft, hasSendDraft, SendDraft, setSendDraft } from './send-draft';
-import { BridgeRoute, Contact, SendFlowAction, SendFlowActionId, SendFlowForm, SendFlowStep, UIToken } from './types';
+import {
+  BridgeRoute,
+  Contact,
+  RecentRecipient,
+  SendFlowAction,
+  SendFlowActionId,
+  SendFlowForm,
+  SendFlowStep,
+  UIToken
+} from './types';
 import { useEpochQuote } from './useEpochQuote';
+import { useRecentRecipients } from './useRecentRecipients';
 import { WalletType } from '../onboarding/types';
 
 const ROUTES: Route[] = [
@@ -95,6 +106,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   const [showContactsDrawer, setShowContactsDrawer] = useState(false);
   // EVM destination networks are selected in a bottom sheet from the recipient step.
   const [showNetworkDrawer, setShowNetworkDrawer] = useState(false);
+  // Saving an unknown-but-valid recipient to the address book, also a bottom sheet.
+  const [showAddContactDrawer, setShowAddContactDrawer] = useState(false);
   // Retain a choice made before the address determines whether the send is Miden or EVM.
   const [recipientNetwork, setRecipientNetwork] = useState<SendNetworkId>();
 
@@ -137,6 +150,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // Handle mobile back button/gesture. Open bottom sheets close first;
   // otherwise back pops the Navigator step or exits the flow.
   useMobileBackHandler(() => {
+    if (showAddContactDrawer) {
+      setShowAddContactDrawer(false);
+      return true;
+    }
     if (showNetworkDrawer) {
       setShowNetworkDrawer(false);
       return true;
@@ -156,7 +173,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     // On first step, close entire flow
     onClose();
     return true;
-  }, [showNetworkDrawer, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
+  }, [showAddContactDrawer, showNetworkDrawer, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
 
   // Dismiss any stale completion modal on send-flow entry.
   //
@@ -248,6 +265,22 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     if (!normalizedAddress) return undefined;
     return allContactsList.find(contact => contact.id.trim().toLowerCase() === normalizedAddress);
   }, [allContactsList, recipientAddress]);
+
+  const isValidRecipient = !errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress);
+  // A valid address that isn't in the wallet or the address book can be saved
+  // straight from the recipient step — the pill offers "Add to contacts?".
+  const canAddContact = isValidRecipient && !selectedContact;
+
+  // Previous recipients, resolved against the contact list for display names.
+  const recentSendRecipients = useRecentRecipients(publicKey);
+  const recents: RecentRecipient[] = useMemo(
+    () =>
+      recentSendRecipients.map(recipient => ({
+        ...recipient,
+        name: allContactsList.find(contact => contact.id.trim().toLowerCase() === recipient.address.toLowerCase())?.name
+      })),
+    [recentSendRecipients, allContactsList]
+  );
 
   // Cross-chain sends over the Slow (Agglayer) route are restricted to the single
   // bridgeable faucet token; Fast (Epoch) bridges any token.
@@ -574,6 +607,18 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     [onAction, applyRecipientValidation]
   );
 
+  // A "Recent" row fills the recipient exactly like picking a contact does.
+  const onSelectRecent = useCallback(
+    (recipient: RecentRecipient) => {
+      onAction({
+        id: SendFlowActionId.SetFormValues,
+        payload: { recipientAddress: recipient.address }
+      });
+      applyRecipientValidation(recipient.address);
+    },
+    [onAction, applyRecipientValidation]
+  );
+
   const onAmountChange = useCallback(
     (amountString: string) => {
       onAction({
@@ -607,13 +652,17 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
           return (
             <SelectRecipient
               address={recipientAddress || ''}
-              isValidAddress={!errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress)}
+              isValidAddress={isValidRecipient}
               error={errors.recipientAddress?.message?.toString()}
               chain={chain}
               network={displayedNetwork}
               recipientName={selectedContact?.name}
+              recents={recents}
+              canAddContact={canAddContact}
               onAddressChange={onAddressChange}
               onAddressBook={() => setShowContactsDrawer(true)}
+              onAddContact={() => setShowAddContactDrawer(true)}
+              onSelectRecent={onSelectRecent}
               onSelectNetwork={() => setShowNetworkDrawer(true)}
               onScan={isScanAvailable() ? onScan : undefined}
               onConfirm={() => goToStep(SendFlowStep.SelectAmount)}
@@ -626,7 +675,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               amount={amount || ''}
               isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
               error={errors.amount?.message?.toString()}
-              footerClassName="pt-4 pb-6"
+              footerClassName="pt-4 pb-[max(0px,calc(1.5rem-var(--keyboard-height,0px)))]"
               onAmountChange={onAmountChange}
               onSelectToken={() => setShowTokenDrawer(true)}
               onConfirm={onConfirmAmount}
@@ -640,7 +689,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               fastFeeUsd={fastFeeUsd}
               fastQuoteLoading={epochQuote.loading}
               slowEnabled={isBridgeableToken}
-              footerClassName="pt-4 pb-6"
+              footerClassName="pt-4 pb-[max(0px,calc(1.5rem-var(--keyboard-height,0px)))]"
               onConfirm={goToReview}
             />
           );
@@ -651,6 +700,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     [
       token,
       recipientAddress,
+      isValidRecipient,
+      recents,
+      canAddContact,
+      onSelectRecent,
       errors.recipientAddress,
       errors.amount,
       onAddressChange,
@@ -703,6 +756,12 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         recipientAccountId={recipientAddress}
         accounts={allContactsList}
         onSelectContact={onSelectContact}
+      />
+
+      <AddContactDrawer
+        open={showAddContactDrawer}
+        onOpenChange={setShowAddContactDrawer}
+        address={recipientAddress ?? ''}
       />
 
       <SelectNetworkDrawer
