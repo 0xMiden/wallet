@@ -580,9 +580,8 @@ async function getPrivateNoteDetails(notefilterType: NoteFilterTypes, noteIds?: 
   try {
     privateNotes = await withUnlocked(async () => {
       return await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
         const query = noteFilterTypeToQuery(notefilterType, noteIds);
-        let allNotes = await midenClient.getInputNoteDetails(query);
+        let allNotes = await midenClientProxy.getInputNoteDetails(query);
         let privateNotes = allNotes.filter(note => note.noteType === NoteType.Private);
         return privateNotes;
       });
@@ -685,7 +684,7 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
       // Wrap WASM client operations in a lock to prevent concurrent access
       return await withWasmClientLock(async () => {
         const midenClient = await getMidenClient();
-        await midenClient.syncState();
+        await midenClientProxy.syncState();
         const notes = await midenClient.getConsumableNotes(accountId);
         const consumableNotesDetails = notes.flatMap(note => {
           // Partial (metadata-less) notes have no ID — and, since 0.15

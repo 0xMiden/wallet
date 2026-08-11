@@ -512,8 +512,7 @@ export class MultisigService {
     try {
       console.log('Finalizing guardian switch to new endpoint:', newGuardianEndpoint);
       const updatedStateBase64 = await withWasmClientLock(async () => {
-        const client = await getMidenClient();
-        await client.syncState();
+        await midenClientProxy.syncState();
         const account = await midenClientProxy.getAccount(this.accountId);
         if (!account) {
           throw new Error(`Updated account ${this.accountId} is missing from local client`);
@@ -577,8 +576,7 @@ export class MultisigService {
    */
   async reRegisterCurrentStateOnGuardian(): Promise<void> {
     const updatedStateBase64 = await withWasmClientLock(async () => {
-      const client = await getMidenClient();
-      await client.syncState();
+      await midenClientProxy.syncState();
       const account = await midenClientProxy.getAccount(this.accountId);
       if (!account) {
         throw new Error(`Account ${this.accountId} is missing from local client`);

@@ -61,6 +61,11 @@ const mockGetMidenClient = jest.fn((): any => ({
   syncState: mockSyncState,
   getInputNote: mockGetInputNote
 }));
+// The #260 offscreen client proxy reads (syncState/getAccount) through the
+// `lib/...` alias of miden-client, which jest mocks separately from the relative
+// specifier below; delegate the alias to the same mock so the proxy's flag-off
+// passthrough hits it.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
   withWasmClientLock: jest.fn((fn: () => Promise<any>) => fn())
@@ -1166,6 +1171,10 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       })),
       withWasmClientLock: jest.fn((cb: () => any) => cb())
     }));
+    // The #260 proxy (routed by index.ts's syncState preflight) imports
+    // getMidenClient via the `lib/...` alias — inside this isolate block the
+    // relative doMock above doesn't cover it, so delegate the alias to it.
+    jest.doMock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       InputNoteState: {

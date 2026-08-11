@@ -16,8 +16,9 @@ import {
 } from './constants';
 import { getTransactionsInProgress } from './get';
 import { updateTransactionStatus } from './helper';
+import { midenClientProxy } from '../back/miden-client-proxy';
 import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { withWasmClientLock } from '../sdk/miden-client';
 
 // On mobile, use a shorter timeout since there's no background processing
 // On desktop extension, transactions can run in background tabs
@@ -175,10 +176,9 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
   // Check each stuck consume transaction (AutoSync handles syncState separately)
   for (const tx of consumeTransactions) {
     try {
-      const noteDetails = await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        return await midenClient.getInputNoteDetails({ ids: [tx.noteId] });
-      });
+      const noteDetails = await withWasmClientLock(async () =>
+        midenClientProxy.getInputNoteDetails({ ids: [tx.noteId] })
+      );
 
       const note = noteDetails[0];
       if (!note) {

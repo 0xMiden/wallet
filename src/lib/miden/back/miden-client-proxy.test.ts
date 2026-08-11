@@ -102,7 +102,17 @@ function resetControl() {
     getWasmOrThrow: jest.fn(async () => ({})),
     accountDeserialize: jest.fn((bytes: Uint8Array) => ({ __account: Array.from(bytes) })),
     inlineGetAccount: jest.fn(async () => ({ __inlineAccount: true })),
-    getMidenClient: jest.fn(async () => ({ getAccount: (...a: any[]) => G.__px.inlineGetAccount(...a) })),
+    // The inline (flag-off) client also exposes the slice-3 read methods so the
+    // flag-off pass-through of each is assertable against a spy.
+    inlineSyncState: jest.fn(async () => ({ __syncSummary: true })),
+    inlineExportNote: jest.fn(async () => new Uint8Array([1, 2, 3])),
+    inlineGetInputNoteDetails: jest.fn(async () => [{ __inlineDetail: true }]),
+    getMidenClient: jest.fn(async () => ({
+      getAccount: (...a: any[]) => G.__px.inlineGetAccount(...a),
+      syncState: (...a: any[]) => G.__px.inlineSyncState(...a),
+      exportNote: (...a: any[]) => G.__px.inlineExportNote(...a),
+      getInputNoteDetails: (...a: any[]) => G.__px.inlineGetInputNoteDetails(...a)
+    })),
     proveInFlight: false
   };
 }
@@ -215,6 +225,168 @@ describe('MidenClientProxy — flag routing', () => {
     const err = await p;
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toContain('boom in offscreen');
+  });
+});
+
+describe('MidenClientProxy — slice-3 reads: syncState', () => {
+  it('flag OFF → syncState goes inline (getMidenClient), never touches offscreen', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const result = await midenClientProxy.syncState();
+
+    expect(G.__px.inlineSyncState).toHaveBeenCalledTimes(1);
+    // The SyncSummary the inline client returns is discarded — resolves void.
+    expect(result).toBeUndefined();
+    expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → syncState dispatches OFFSCREEN_CALL with the sync deadline + empty args, resolves void', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    // Offscreen runs the sync and returns a null result (SyncSummary discarded).
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 12
+    }));
+
+    const p = midenClientProxy.syncState();
+    await flush();
+    fireReady();
+    const result = await p;
+
+    expect(result).toBeUndefined();
+    // Inline client untouched.
+    expect(G.__px.inlineSyncState).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.type).toBe('OFFSCREEN_CALL');
+    expect(env.method).toBe('syncState');
+    expect(env.argsB64).toEqual([]);
+    // Sync's backstop deadline sits above the caller's own 30s SYNC_TIMEOUT.
+    expect(env.deadline_ms).toBe(45_000);
+  });
+});
+
+describe('MidenClientProxy — slice-3 reads: exportNote', () => {
+  it('flag OFF → exportNote goes inline and returns the raw bytes', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const bytes = await midenClientProxy.exportNote('note-1', 'Details' as any);
+
+    expect(G.__px.inlineExportNote).toHaveBeenCalledWith('note-1', 'Details');
+    expect(Array.from(bytes)).toEqual([1, 2, 3]);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → exportNote round-trips the serialized note bytes back verbatim', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from([9, 8, 7, 6]).toString('base64'),
+      durationMs: 4
+    }));
+
+    const p = midenClientProxy.exportNote('note-2', 'Details' as any);
+    await flush();
+    fireReady();
+    const bytes = await p;
+
+    expect(G.__px.inlineExportNote).not.toHaveBeenCalled();
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('exportNote');
+    expect(env.deadline_ms).toBe(15_000);
+    // Args cross the wire: noteId + the (string-enum) export type, both JSON-tagged.
+    expect(env.argsB64).toEqual(['s:"note-2"', 's:"Details"']);
+    // Bytes came back intact (no re-hydration — the caller wants raw bytes).
+    expect(Array.from(bytes)).toEqual([9, 8, 7, 6]);
+  });
+
+  it('flag ON → a null offscreen result throws (exportNote must always yield bytes)', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const p = midenClientProxy.exportNote('note-3', 'Details' as any).catch((e: Error) => e);
+    await flush();
+    fireReady();
+    const err = await p;
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('returned no bytes');
+  });
+});
+
+describe('MidenClientProxy — slice-3 reads: getInputNoteDetails (plain-DTO round-trip)', () => {
+  it('flag OFF → getInputNoteDetails goes inline, forwarding the query', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const details = await midenClientProxy.getInputNoteDetails({ ids: ['n1'] } as any);
+
+    expect(G.__px.inlineGetInputNoteDetails).toHaveBeenCalledWith({ ids: ['n1'] });
+    expect(details).toEqual([{ __inlineDetail: true }]);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → the DTO array survives JSON→bytes→base64→JSON round-trip intact', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    // A representative DTO: NUMERIC NoteType/InputNoteState enums (0/2) plus
+    // string ids/assets — exactly the InputNoteDetails shape. This is the whole
+    // reason getInputNoteDetails CAN move while getConsumableNotes cannot: the
+    // interface already reduced the live InputNoteRecord to plain JSON.
+    const dto = [
+      {
+        noteId: '0xabc',
+        senderAccountId: 'mtst1qsender',
+        assets: [{ amount: '100', faucetId: 'mtst1qfaucet' }],
+        noteType: 0,
+        nullifier: '0xnull',
+        state: 2
+      }
+    ];
+    const bytes = new TextEncoder().encode(JSON.stringify(dto));
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(bytes).toString('base64'),
+      durationMs: 6
+    }));
+
+    const p = midenClientProxy.getInputNoteDetails({ ids: ['0xabc'] } as any);
+    await flush();
+    fireReady();
+    const details = await p;
+
+    expect(G.__px.inlineGetInputNoteDetails).not.toHaveBeenCalled();
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('getInputNoteDetails');
+    // Query arg JSON-tagged across the wire.
+    expect(env.argsB64).toEqual(['s:{"ids":["0xabc"]}']);
+    // The parsed DTO is deep-equal to what the offscreen side produced — the
+    // numeric enums and nested asset strings all survived.
+    expect(details).toEqual(dto);
+  });
+
+  it('flag ON → an undefined query round-trips as JSON null and an empty result → []', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(new TextEncoder().encode('[]')).toString('base64'),
+      durationMs: 2
+    }));
+
+    const p = midenClientProxy.getInputNoteDetails();
+    await flush();
+    fireReady();
+    const details = await p;
+
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    // `undefined` arg is JSON-null on the wire (decodeArg → null → `?? undefined`).
+    expect(env.argsB64).toEqual(['s:null']);
+    expect(details).toEqual([]);
   });
 });
 

@@ -2,6 +2,7 @@ import { Runtime } from 'webextension-polyfill';
 
 import * as Actions from 'lib/miden/back/actions';
 import { intercom } from 'lib/miden/back/defaults';
+import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/speculation-manager';
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync } from 'lib/miden/back/sync-manager';
@@ -90,10 +91,9 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return { type: WalletMessageType.ImportNoteBytesResponse, noteId };
     }
     case WalletMessageType.ExportNoteRequest: {
-      const exportedBytes = await withWasmClientLock(async () => {
-        const client = await getMidenClient();
-        return client.exportNote(req.noteId, NoteExportType.DETAILS);
-      });
+      const exportedBytes = await withWasmClientLock(async () =>
+        midenClientProxy.exportNote(req.noteId, NoteExportType.DETAILS)
+      );
       const exportedB64 = Buffer.from(exportedBytes).toString('base64');
       return { type: WalletMessageType.ExportNoteResponse, noteBytes: exportedB64 };
     }

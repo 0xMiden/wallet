@@ -115,8 +115,9 @@ function getProver() {
 // Alongside the prover-only raw WebClient above, the offscreen doc now owns the
 // FULL MidenClientInterface singleton (design §3.4) — the same client the SW
 // used to run inline. `OFFSCREEN_CALL` messages dispatch a method against it
-// and stream the (serialized) result back. Slice 1 wires exactly one method,
-// `getAccount`; later slices extend the DISPATCH table.
+// and stream the (serialized) result back. Slice 1 wired `getAccount`; slice 3
+// extends the DISPATCH table with the remaining serialization-clean reads
+// (`syncState`, `exportNote`, `getInputNoteDetails`); later slices add writes.
 //
 // State-across-reopen correctness rests on IndexedDB: `closeDocument()` discards
 // the WASM heap by design, and a reopened client re-attaches to the same store.
@@ -132,6 +133,35 @@ const DISPATCH: Record<string, DispatchFn> = {
     // `Account` exposes serialize()/deserialize() (verified in the SDK types),
     // so we ship the full object as bytes and the SW re-hydrates it.
     return account ? (account.serialize() as Uint8Array) : null;
+  },
+
+  // Read-method surface (issue #260, slice 3). Each stays serialization-clean:
+  // its result crosses the message boundary either as SDK-serialized bytes,
+  // a plain-JSON DTO, or nothing at all. (getConsumableNotes / getInputNote are
+  // intentionally NOT here — their raw `InputNoteRecord` has no serialize() and
+  // callers reach through to live wasm-bindgen methods, so they stay SW-inline.)
+
+  syncState: async client => {
+    // Run the sync; every SW-side caller discards the returned `SyncSummary`,
+    // so return null. Nothing to serialize here means nothing to re-hydrate on
+    // the SW — serializing a result no one reads would be pure waste.
+    await client.syncState();
+    return null;
+  },
+
+  exportNote: async (client, noteId: string, exportType) => {
+    // `exportNote` already returns serialized note bytes — ship them verbatim;
+    // the SW hands them straight to the intercom without re-hydrating.
+    return await client.exportNote(noteId, exportType);
+  },
+
+  getInputNoteDetails: async (client, query) => {
+    // Plain-DTO result (§1.4 rule "a"): the interface method already reduces
+    // each `InputNoteRecord` to a JSON-safe DTO, so JSON-encode it to bytes.
+    // `?? undefined` maps a JSON-`null` arg (an `undefined` query round-tripped
+    // through encodeArg) back to the SDK's optional-query shape.
+    const details = await client.getInputNoteDetails(query ?? undefined);
+    return new TextEncoder().encode(JSON.stringify(details));
   }
 };
 

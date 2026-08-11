@@ -14,9 +14,11 @@
 // every method here is a strict pass-through to the existing inline
 // `getMidenClient()` singleton, so production behavior is unchanged.
 
-import { Account, getWasmOrThrow } from '@miden-sdk/miden-sdk/lazy';
+import { Account, getWasmOrThrow, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
 
+import type { NoteExportType } from 'lib/miden/sdk/constants';
 import { getMidenClient } from 'lib/miden/sdk/miden-client';
+import type { InputNoteDetails } from 'lib/miden/sdk/miden-client-interface';
 
 import {
   OFFSCREEN_CALL,
@@ -49,6 +51,15 @@ const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
  * this long is a wedge candidate; the deadline kill reclaims the realm.
  */
 const READ_DEADLINE_MS = 15_000;
+
+/**
+ * Per-op deadline (ms) for a `syncState`. Sync is legitimately slow on testnet
+ * — the balance/notes sync loop already wraps it in its own 30s
+ * `SYNC_TIMEOUT_MS` — so this backstop sits ABOVE that: the caller's own timeout
+ * fires first for an ordinary-slow sync, and this deadline kill only reclaims a
+ * genuinely-wedged realm (design §1.2 `SYNC_DEADLINE`).
+ */
+const SYNC_DEADLINE_MS = 45_000;
 
 interface InFlightOp {
   /** Resolve the caller's promise with the raw `resultB64` (or `null`). */
@@ -229,6 +240,75 @@ export const midenClientProxy = {
     // is a fast, non-wedging op — the expensive DB read ran offscreen.
     await getWasmOrThrow();
     return Account.deserialize(b64ToBytes(resultB64));
+  },
+
+  /**
+   * Sync local state against the node.
+   *
+   * Flag off (default): inline `getMidenClient().syncState()` — identical to
+   * production today, and (like getAccount, W2) the CALLER owns the WASM lock;
+   * this method never takes one on the flag-off path. Every rewired call site
+   * wraps this in its existing `withWasmClientLock`, so flag-off is byte-for-byte
+   * the same as before.
+   *
+   * Flag on: forward to the offscreen doc. Every SW-side caller `await`s and
+   * DISCARDS the returned `SyncSummary` (verified across all call sites), so the
+   * offscreen side runs the sync and returns `null` — nothing is serialized and
+   * nothing is re-hydrated back on the SW thread. That is deliberate: the whole
+   * point of the rehost is to keep WASM work OFF the SW, and re-hydrating a
+   * `SyncSummary` no caller reads would drag a WASM call back onto it.
+   */
+  async syncState(): Promise<void> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      await (await getMidenClient()).syncState();
+      return;
+    }
+    await this.call('syncState', [], { deadlineMs: SYNC_DEADLINE_MS });
+  },
+
+  /**
+   * Export a note to serialized bytes.
+   *
+   * Flag off: inline (caller owns the lock). Flag on: forward — the SDK's
+   * `exportNote` already returns note bytes, so they ride the wire base64 and
+   * are handed back verbatim (no live SDK object to re-hydrate; the caller wants
+   * the raw bytes to ship over the intercom).
+   */
+  async exportNote(noteId: string, exportType: NoteExportType): Promise<Uint8Array> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return (await getMidenClient()).exportNote(noteId, exportType);
+    }
+    const resultB64 = await this.call('exportNote', [noteId, exportType], { deadlineMs: READ_DEADLINE_MS });
+    if (resultB64 == null) {
+      // exportNote always yields bytes; a null here means the offscreen op
+      // produced nothing, which is a hard error rather than an empty result.
+      throw new Error('exportNote: offscreen document returned no bytes');
+    }
+    return b64ToBytes(resultB64);
+  },
+
+  /**
+   * Read reduced note details.
+   *
+   * This exercises the §1.4-rule-"a" serialization path — a PLAIN DTO — distinct
+   * from getAccount's serialize()-bytes path. The interface method already
+   * reduces each live `InputNoteRecord` to a JSON-safe `InputNoteDetails` (string
+   * ids/assets/nullifier, NUMERIC `NoteType` / `InputNoteState` enums), so the
+   * offscreen side JSON-encodes that DTO to bytes and the SW parses it back.
+   * Nothing reaches through to a live wasm-bindgen object, so there is nothing to
+   * re-hydrate — which is exactly why (unlike `getConsumableNotes` /
+   * `getInputNote`, whose raw `InputNoteRecord` has no serializer and IS
+   * reached-through) this method CAN cross the boundary.
+   *
+   * Flag off: inline (caller owns the lock). Flag on: forward + JSON round-trip.
+   */
+  async getInputNoteDetails(query?: NoteQuery): Promise<InputNoteDetails[]> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return (await getMidenClient()).getInputNoteDetails(query);
+    }
+    const resultB64 = await this.call('getInputNoteDetails', [query], { deadlineMs: READ_DEADLINE_MS });
+    if (resultB64 == null) return [];
+    return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as InputNoteDetails[];
   }
 };
 

@@ -123,9 +123,7 @@ async function runSync(): Promise<void> {
     // that clears any active issue, so the steady state is correct.
     try {
       await withWasmClientLock(async () => {
-        const client = await getMidenClient();
-        if (!client) return;
-        await withTimeout(client.syncState(), SYNC_TIMEOUT_MS);
+        await withTimeout(midenClientProxy.syncState(), SYNC_TIMEOUT_MS);
       });
       consecutiveSyncFailures = 0;
       syncBackoffUntilMs = 0;

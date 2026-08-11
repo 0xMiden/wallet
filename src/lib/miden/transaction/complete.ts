@@ -277,8 +277,7 @@ export const completeReplaceHotKeyTransaction = async (
         throw new Error(`Guardian account ${tx.accountId} not found in provider`);
       }
       const sdkAccount = await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        await midenClient.syncState();
+        await midenClientProxy.syncState();
         return midenClientProxy.getAccount(tx.accountId);
       });
       if (!sdkAccount) {

@@ -113,8 +113,17 @@ function resetControl() {
     // OFFSCREEN_CALL dispatch: the offscreen-owned client's getAccount returns
     // an Account-like object exposing serialize() (the SDK's real serializer).
     clientGetAccount: jest.fn(async (_id: string) => ({ serialize: () => new Uint8Array([10, 20, 30]) })),
+    // Slice-3 read methods on the offscreen-owned client.
+    clientSyncState: jest.fn(async () => ({ __syncSummary: true })),
+    clientExportNote: jest.fn(async (_id: string, _t: string) => new Uint8Array([44, 55, 66])),
+    clientGetInputNoteDetails: jest.fn(async (_q: unknown) => [
+      { noteId: '0xabc', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
+    ]),
     getMidenClient: jest.fn(async () => ({
-      getAccount: (...a: any[]) => (globalThis as any).__off.clientGetAccount(...a)
+      getAccount: (...a: any[]) => (globalThis as any).__off.clientGetAccount(...a),
+      syncState: (...a: any[]) => (globalThis as any).__off.clientSyncState(...a),
+      exportNote: (...a: any[]) => (globalThis as any).__off.clientExportNote(...a),
+      getInputNoteDetails: (...a: any[]) => (globalThis as any).__off.clientGetInputNoteDetails(...a)
     }))
   };
 }
@@ -518,6 +527,110 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
     // First fully completes and releases before the second even starts.
     expect(order).toEqual(['start:first', 'end:first', 'start:second', 'end:second']);
+    expect(r1.mock.calls[0][0].ok).toBe(true);
+    expect(r2.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('dispatches syncState, runs the sync, and returns resultB64:null (SyncSummary discarded)', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const ret = capturedListener!(callReq({ method: 'syncState', argsB64: [] }), {}, sendResponse);
+    expect(ret).toBe(true);
+    await flush();
+
+    expect(G.__off.clientSyncState).toHaveBeenCalledTimes(1);
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(resp.op_id).toBe('op-abc');
+    // The sync ran, but its SyncSummary is deliberately not serialized.
+    expect(resp.resultB64).toBeNull();
+  });
+
+  it('dispatches exportNote and ships the serialized note bytes verbatim', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const ret = capturedListener!(
+      callReq({ method: 'exportNote', argsB64: [encodeArg('note-x'), encodeArg('Details')] }),
+      {},
+      sendResponse
+    );
+    expect(ret).toBe(true);
+    await flush();
+
+    // Both args decoded across the wire.
+    expect(G.__off.clientExportNote).toHaveBeenCalledWith('note-x', 'Details');
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([44, 55, 66]);
+  });
+
+  it('dispatches getInputNoteDetails and JSON-encodes the plain DTO array', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const ret = capturedListener!(
+      callReq({ method: 'getInputNoteDetails', argsB64: [encodeArg({ ids: ['0xabc'] })] }),
+      {},
+      sendResponse
+    );
+    expect(ret).toBe(true);
+    await flush();
+
+    // The plain-object query decoded back intact.
+    expect(G.__off.clientGetInputNoteDetails).toHaveBeenCalledWith({ ids: ['0xabc'] });
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    // resultB64 is the UTF-8 JSON of the DTO array — decode + parse it back and
+    // prove the numeric enums (noteType:0, state:2) and strings all survived.
+    const decoded = JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'));
+    expect(decoded).toEqual([
+      { noteId: '0xabc', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
+    ]);
+  });
+
+  it('getInputNoteDetails maps a JSON-null query arg back to undefined for the SDK', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    // encodeArg(undefined) → 's:null'; decodeArg → null; dispatch does `?? undefined`.
+    capturedListener!(callReq({ method: 'getInputNoteDetails', argsB64: [encodeArg(undefined)] }), {}, sendResponse);
+    await flush();
+
+    expect(G.__off.clientGetInputNoteDetails).toHaveBeenCalledWith(undefined);
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('serializes concurrent slice-3 reads through the same offscreen WASM mutex', async () => {
+    await loadModule();
+    const order: string[] = [];
+    let releaseSync!: () => void;
+    const gate = new Promise<void>(resolve => {
+      releaseSync = resolve;
+    });
+    G.__off.clientSyncState = jest.fn(async () => {
+      order.push('sync:start');
+      await gate;
+      order.push('sync:end');
+      return { __syncSummary: true };
+    });
+    G.__off.clientExportNote = jest.fn(async () => {
+      order.push('export:run');
+      return new Uint8Array([1]);
+    });
+
+    const r1 = jest.fn();
+    const r2 = jest.fn();
+    capturedListener!(callReq({ op_id: 'op1', method: 'syncState', argsB64: [] }), {}, r1);
+    capturedListener!(
+      callReq({ op_id: 'op2', method: 'exportNote', argsB64: [encodeArg('n'), encodeArg('Details')] }),
+      {},
+      r2
+    );
+    await flush();
+
+    // exportNote is queued behind syncState's WASM lock — it has NOT run yet.
+    expect(order).toEqual(['sync:start']);
+    releaseSync();
+    await flush();
+    expect(order).toEqual(['sync:start', 'sync:end', 'export:run']);
     expect(r1.mock.calls[0][0].ok).toBe(true);
     expect(r2.mock.calls[0][0].ok).toBe(true);
   });

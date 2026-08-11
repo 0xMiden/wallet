@@ -130,10 +130,7 @@ export const generateTransaction = async (
   // catch block which cancels the transaction — this is intentional fail-fast behavior,
   // since the transaction can't be submitted without network anyway
   await setTransactionStage(transaction.id, 'syncing');
-  await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
-    await midenClient.syncState();
-  });
+  await withWasmClientLock(async () => midenClientProxy.syncState());
 
   // Mark transaction as in progress
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
