@@ -52,6 +52,13 @@ export interface IBridgedReceiveExtraInputs {
   error?: string;
 }
 
+/** Audit metadata for a Guardian operator switch. `previousGuardianEndpoint`
+ * is optional so rows created before the audit trail remain readable. */
+export interface ISwitchGuardianExtraInputs {
+  previousGuardianEndpoint?: string;
+  newGuardianEndpoint: string;
+}
+
 /**
  * Lifecycle of the EVM-side claim for a `bridged-send`. Epoch (Fast) auto-settles
  * on the destination chain, so it is `'not-applicable'`. Agglayer (Slow) requires
@@ -773,10 +780,15 @@ export class SwitchGuardianTransaction implements ITransaction {
   completedAt?: number;
   displayMessage?: string;
   displayIcon: ITransactionIcon;
-  extraInputs: { newGuardianEndpoint: string };
+  extraInputs: ISwitchGuardianExtraInputs;
   delegateTransaction?: boolean | undefined;
 
-  constructor(accountId: string, newGuardianEndpoint: string, delegateTransaction?: boolean) {
+  constructor(
+    accountId: string,
+    newGuardianEndpoint: string,
+    delegateTransaction?: boolean,
+    previousGuardianEndpoint?: string
+  ) {
     this.id = uuid();
     this.type = 'switch-guardian';
     this.accountId = accountId;
@@ -784,7 +796,7 @@ export class SwitchGuardianTransaction implements ITransaction {
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Switching guardian';
-    this.extraInputs = { newGuardianEndpoint };
+    this.extraInputs = { previousGuardianEndpoint, newGuardianEndpoint };
     this.delegateTransaction = delegateTransaction;
   }
 }

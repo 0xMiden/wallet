@@ -1,6 +1,21 @@
 module.exports = {
   Address: {
-    from_string: jest.fn()
+    from_string: jest.fn(),
+    // Loose stand-in for the SDK's strict bech32 decode: known HRP, bech32
+    // charset payload (optionally with a `_…` routing-parameters suffix),
+    // plausible length. Tests override per-case when they need specific
+    // decode outcomes.
+    fromBech32: jest.fn(address => {
+      const wellFormed = /^(mm|mtst|mdev)1[02-9ac-hj-np-z]+(_[02-9ac-hj-np-z]+)?$/.test(address);
+      if (!wellFormed || address.length < 30 || address.length > 100) {
+        throw new Error(`invalid bech32 address: ${address}`);
+      }
+      return {
+        accountId: jest.fn(),
+        interface: jest.fn(() => 'BasicWallet'),
+        toNoteTag: jest.fn()
+      };
+    })
   },
   Program: {
     fromString: jest.fn()

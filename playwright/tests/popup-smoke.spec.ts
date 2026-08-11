@@ -111,13 +111,16 @@ test.describe('Fullpage UI', () => {
     // (a separate context) and closes this tab, so we assert the ready handoff
     // screen here rather than driving the side panel. The "Open wallet" button
     // is gated on the store reaching Ready, so seeing it confirms the wallet was
-    // created and is functional. (The classic in-tab "Get started" → Explore
-    // path is covered by the import flow test below.)
+    // created and is functional. Recovery/import completes the same way (#428) —
+    // see the import flow test below.
     await expect(page.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 30000 });
     await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
   });
 
-  test('onboarding import flow completes and shows Explore page', async ({ extensionContext, extensionId }) => {
+  test('onboarding import flow completes and hands off to the side panel', async ({
+    extensionContext,
+    extensionId
+  }) => {
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const page = await extensionContext.newPage();
 
@@ -156,9 +159,14 @@ test.describe('Fullpage UI', () => {
     // assert the container testid instead of the text.
     await expect(page.getByTestId('onboarding-confirmation')).toBeVisible({ timeout: 30000 });
 
-    // Complete onboarding ("Open wallet") and verify we reach the Explore (home) page.
+    // Complete onboarding. Recovery now hands off to the Chrome side panel just
+    // like first-run create (#428): the wallet becomes Ready in the background and
+    // the "Open wallet" handoff screen appears (rather than the classic in-tab
+    // Explore page). The in-tab path still applies to non-extension / E2E builds
+    // and is covered by the Welcome/ForgotPassword unit tests.
     await page.getByTestId('onboarding-confirmation-submit').click();
-    await expect(page.getByTestId('explore-page')).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 30000 });
+    await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
   });
 
   test('import seed phrase enforces valid words before continue', async ({ extensionContext, extensionId }) => {

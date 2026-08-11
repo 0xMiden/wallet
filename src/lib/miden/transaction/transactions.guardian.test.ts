@@ -13,6 +13,8 @@
 
 import { TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
+import { WalletType } from 'screens/onboarding/types';
+
 import {
   completeReplaceHotKeyTransaction,
   completeSwitchGuardianTransaction,
@@ -188,7 +190,19 @@ const makeClientApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(as
 const makeGuardianProvider = (isGuardian: boolean) => {
   mockIsGuardianAccount.mockResolvedValue(isGuardian);
   return {
-    getAccounts: async () => [],
+    getAccounts: async () =>
+      isGuardian
+        ? [
+            {
+              publicKey: 'acc-1',
+              name: 'Guardian account',
+              isPublic: true,
+              type: WalletType.Guardian,
+              hdIndex: 0,
+              guardianEndpoint: 'https://old.guardian'
+            }
+          ]
+        : [],
     getPublicKeyForCommitment: async () => 'pk',
     signWord: async () => 'sig'
   };
@@ -211,6 +225,7 @@ describe('initiateSwitchGuardianTransaction', () => {
     expect(row.accountId).toBe('acc-1');
     expect(row.type).toBe('switch-guardian');
     const extra = row.extraInputs as Record<string, unknown>;
+    expect(extra.previousGuardianEndpoint).toBe('https://old.guardian');
     expect(extra.newGuardianEndpoint).toBe('https://new.guardian');
   });
 
@@ -1098,6 +1113,131 @@ describe('generateTransaction — Guardian routing', () => {
     // row lands Completed rather than Failed.
     expect(abandonCandidate).not.toHaveBeenCalled();
     expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Completed);
+    warnSpy.mockRestore();
+  });
+
+  it('Guardian send (delegated): a prover outage the local fallback cannot rescue REQUEUES instead of terminal-failing (#419)', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const txId = 'send-guardian-prover-outage';
+    const result = makeResult();
+    const originalInitiatedAt = Math.floor(Date.now() / 1000) - 42;
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true,
+      initiatedAt: originalInitiatedAt
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const client = makeClientApi(result);
+    // BOTH the delegated (remote) prove AND the local fallback fail — a prover
+    // outage the fallback can't rescue. The failure is at the 'proving' stage,
+    // which runs BEFORE submit, so nothing reached the chain.
+    client.transactions.prove.mockRejectedValue(
+      new Error('failed to prove transaction: transport error: connection refused')
+    );
+    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: true
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // Remote prove + local fallback both attempted, both failed.
+    expect(client.transactions.prove).toHaveBeenCalledTimes(2);
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    // Requeued with a backoff — NOT terminal-failed — so the transfer completes
+    // once the prover recovers; stage reset so the next cycle rebuilds from the top.
+    expect(row.status).toBe(ITransactionStatus.Queued);
+    expect(row.nextEligibleAt).toEqual(expect.any(Number));
+    expect(row.stage).toBe('creating-proposal');
+    // initiatedAt must be preserved: cancelStaleQueuedTransactions measures the
+    // MAX_QUEUED_AGE terminal cap from original creation, so resetting it would
+    // make a persistent outage requeue forever.
+    expect(row.initiatedAt).toBe(originalInitiatedAt);
+    warnSpy.mockRestore();
+  });
+
+  it('Guardian send (delegated): a SUBMIT-stage network failure is NOT requeued — only pre-submit prove failures requeue (#419)', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const txId = 'send-guardian-submit-fail';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const client = makeClientApi(result);
+    // Prove SUCCEEDS; submit fails with the SAME transport error. The failure is
+    // at the 'submitting' stage — the tx may already be on chain — so it must
+    // terminal-fail rather than requeue (requeuing would risk a double-submit).
+    client.transactions.submitProven.mockRejectedValue(
+      new Error('failed to submit proven transaction: transport error: connection refused')
+    );
+    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: true
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    // Same transport error, but at the submit stage — terminal-failed, never requeued.
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.nextEligibleAt).toBeUndefined();
     warnSpy.mockRestore();
   });
 

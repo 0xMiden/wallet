@@ -5,6 +5,7 @@ import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
 import {
+  guardianEndpointDisplayName,
   guardianEndpointHost,
   guardianOptionForEndpoint,
   useCurrentGuardianEndpoint
@@ -104,4 +105,12 @@ it('matches guardian options across network endpoints', () => {
 it('formats guardian hosts and preserves invalid custom values', () => {
   expect(guardianEndpointHost('https://guardian.example/path')).toBe('guardian.example');
   expect(guardianEndpointHost('custom guardian')).toBe('custom guardian');
+});
+
+it('formats known, custom, and missing endpoints for Guardian transitions', () => {
+  expect(guardianEndpointDisplayName('https://test.guardian.example', 'Unknown')).toBe('Guardian One');
+  expect(guardianEndpointDisplayName('https://custom.guardian.example/path', 'Unknown')).toBe(
+    'custom.guardian.example'
+  );
+  expect(guardianEndpointDisplayName(undefined, 'Unknown')).toBe('Unknown');
 });

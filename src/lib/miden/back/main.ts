@@ -6,6 +6,7 @@ import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/sp
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
+import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { SerializedInputNoteDetail, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
@@ -24,6 +25,11 @@ export async function start() {
 
   // NOTE: The Vite sw-patches plugin injects await init_*() calls here
   // (between intercom registration and Actions.init)
+
+  // Apply any developer endpoint override before any client/vault init reads
+  // endpoints. Must run before primeNativeAssetId() below — its cache keys
+  // are derived from getEffectiveNetworkName() at call time.
+  await loadEndpointOverrides();
 
   await Actions.init();
 
@@ -165,7 +171,13 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     case WalletMessageType.NewWalletRequest:
       console.log('[processRequest] NEW_WALLET_REQUEST received, calling registerNewWallet...');
       try {
-        await Actions.registerNewWallet(req.walletType, req.password, req.mnemonic, req.ownMnemonic);
+        await Actions.registerNewWallet(
+          req.walletType,
+          req.password,
+          req.mnemonic,
+          req.ownMnemonic,
+          req.guardianEndpoint
+        );
         console.log('[processRequest] registerNewWallet completed successfully');
       } catch (err: unknown) {
         console.error('[processRequest] registerNewWallet FAILED:', err);

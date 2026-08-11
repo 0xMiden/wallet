@@ -504,10 +504,12 @@ describe('MultisigService', () => {
       expect(webClient.accounts.insert).not.toHaveBeenCalled();
     });
 
-    it('falls back to DEFAULT_GUARDIAN_ENDPOINT when storage has no URL', async () => {
-      // Exercises the `|| DEFAULT_GUARDIAN_ENDPOINT` branch on the endpoint lookup.
+    it('binds to the network default WITHOUT reading the frozen global key', async () => {
+      // #408 stage 3: importAccountFromGuardian no longer reads
+      // GUARDIAN_URL_STORAGE_KEY — it binds to the effective network default.
+      // (No production callers today; a future non-default import must thread a
+      // per-account endpoint rather than reintroduce a global-key read.)
       const webClient = { accounts: { insert: jest.fn(async () => {}) } };
-      mockFetchFromStorage.mockResolvedValueOnce(undefined);
       const stateBase64 = Buffer.from('hi').toString('base64');
       guardianConfig.getState.mockResolvedValueOnce({ stateJson: { data: stateBase64 } });
       mockAccountDeserialize.mockReturnValueOnce({ id: () => ({ toString: () => 'acc-id' }) });
@@ -515,6 +517,8 @@ describe('MultisigService', () => {
       await MultisigService.importAccountFromGuardian('pub', 'commit', signWordFn, 'acc-id', webClient as never);
 
       expect(webClient.accounts.insert).toHaveBeenCalled();
+      // The global-key read is gone: storage is never consulted for the import.
+      expect(mockFetchFromStorage).not.toHaveBeenCalled();
     });
   });
 
