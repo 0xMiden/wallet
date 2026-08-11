@@ -2,10 +2,21 @@
 
 ## 1.15.20 (TBD)
 
+### Features
+
+- Add hidden developer endpoint configuration (7-tap the Welcome logo during onboarding) to override RPC / prover / note-transport / faucet / explorer / guardian endpoints and network ID; read-only view with reset-to-defaults in Settings.
+
 ### Fixes
 
 - [FIX][mobile] **The injected dApp bridge no longer broadcasts wallet request payloads to every listener on the page.** `sendToNative`'s non-Capacitor fallback posted the request with `targetOrigin: '*'`. That script is injected into arbitrary third-party dApp pages, so any listener there — including cross-origin iframes — could read the request type and payload. The target origin is now scoped to `window.location.origin`, matching the existing pattern in `lib/adapter/client.ts` and the guard in `contentScript.ts`. The intended listener is on the same page, so behaviour is unchanged.
 - [FIX][all] **Private-note delivery no longer silently fails on fast chains.** The wallet relayed a private note's transport hint *after* waiting for the transaction to commit, so the hint (the client's sync height) could already be at or past the note's commitment block — the recipient scans forward from the hint and would never find the note. The note is now relayed *before* the commit wait (the SDK's prompt-relay flow), so the hint stays below the commitment block and the recipient picks the note up when it lands; the commit wait is preserved so `Completed` status still requires on-chain confirmation. Latent on testnet (slow blocks kept the sync height ≈ the commitment block at relay time); reproduced deterministically on a fast devnet.
+
+### Changes
+
+- [CHANGE][all] **Frontend skill guidance now defaults standard actions to the shared wallet button.** The shared frontend skill directs standard wallet actions to `components/Button`, reserving native buttons for compact, icon-only, or inline controls that the full CTA cannot represent.
+- [CHANGE][all] **Frontend implementation guidance is now shared across supported coding agents.** The repository now carries one vendor-neutral Miden Wallet frontend skill for component reuse, semantic styling, motion, accessibility, haptics, and cross-platform verification, with matching concise rules in the repository instructions.
+- [CHANGE][all] **Every Guardian switch now requires fresh device authentication and leaves a provider audit trail.** Hardware-protected wallets prompt with their platform authentication, while passcode/password wallets verify the credential before anything is queued; cancellation or failed authentication leaves the Guardian unchanged. Guardian Settings now shows the active operator, endpoint, region, sync recency, and availability; the redesigned review clearly separates the current and destination providers with dark-theme-safe contrast. Activity and transaction details show the same provider transition (including custom hostnames and legacy `Unknown` sources) for pending, completed, and failed switch attempts.
+- [CHANGE][all] **The balance card account footer now matches the refreshed design.** The footer labels the truncated value as an address, uses the compact outlined copy icon, and replaces the overflow glyph with a settings gear whose color follows the card's secondary tone; the account drawer's Settings action also keeps a readable foreground in dark mode.
 
 ## 1.15.19 (2026-08-05)
 

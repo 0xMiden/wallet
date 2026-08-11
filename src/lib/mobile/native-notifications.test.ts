@@ -9,6 +9,7 @@ import { navigate } from 'lib/woozie';
 import {
   requestNotificationPermission,
   showNoteReceivedNotification,
+  clearNoteReceivedNotification,
   setupNotificationTapListener,
   initNativeNotifications
 } from './native-notifications';
@@ -60,6 +61,28 @@ describe('native-notifications', () => {
     jest.clearAllMocks();
     mockIsMobile.mockReturnValue(true);
     mockIsAndroid.mockReturnValue(true);
+  });
+
+  describe('clearNoteReceivedNotification', () => {
+    it('does nothing when not on mobile', async () => {
+      mockIsMobile.mockReturnValue(false);
+
+      await clearNoteReceivedNotification();
+
+      expect(LocalNotifications.cancel).not.toHaveBeenCalled();
+    });
+
+    it('cancels the note-received notification by its fixed id', async () => {
+      await clearNoteReceivedNotification();
+
+      expect(LocalNotifications.cancel).toHaveBeenCalledWith({ notifications: [{ id: 1001 }] });
+    });
+
+    it('swallows errors from the platform', async () => {
+      (LocalNotifications.cancel as jest.Mock).mockRejectedValueOnce(new Error('cancel failed'));
+
+      await expect(clearNoteReceivedNotification()).resolves.toBeUndefined();
+    });
   });
 
   describe('requestNotificationPermission', () => {

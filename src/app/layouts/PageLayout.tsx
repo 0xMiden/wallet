@@ -110,6 +110,7 @@ type ToolbarProps = {
   advancedSettingsSection?: ReactNode;
   pageTitle?: ReactNode;
   hasBackAction?: boolean;
+  navigationStyle?: 'close' | 'back';
   step?: number;
   setStep?: (step: number) => void;
   skip?: boolean;
@@ -121,6 +122,7 @@ type ToolbarProps = {
 const Toolbar: FC<ToolbarProps> = ({
   pageTitle,
   hasBackAction = true,
+  navigationStyle = 'close',
   step,
   setStep,
   skip,
@@ -207,13 +209,27 @@ const Toolbar: FC<ToolbarProps> = ({
       }}
     >
       <div
-        className="flex justify-between w-full"
+        className={classNames('flex w-full items-center', navigationStyle === 'back' ? 'gap-3' : 'justify-between')}
         style={{ paddingTop: isMobile() || isDesktop() ? '24px' : '14px', paddingBottom: '14px' }}
       >
+        {navigationStyle === 'back' && isBackButtonAvailable && (
+          <Button
+            variant={ButtonVariant.Ghost}
+            className="h-12 w-12 max-w-none shrink-0 rounded-xl border-0 bg-surface-interactive p-3 text-primary-500 hover:bg-surface-interactive"
+            onClick={step ? onStepBack : onBack}
+            data-testid={PageLayoutSelectors.BackButton}
+          >
+            <Icon name={IconName.ChevronLeft} fill="currentColor" />
+          </Button>
+        )}
+
         {pageTitle && (
           <div
-            className={classNames('flex items-center', 'text-black', 'text-right font-semibold leading-none')}
-            style={{ fontSize: '18px', lineHeight: '44px' }}
+            className={classNames(
+              'flex items-center text-black font-semibold leading-none',
+              navigationStyle === 'back' ? 'flex-1 text-left' : 'text-right'
+            )}
+            style={{ fontSize: navigationStyle === 'back' ? '24px' : '18px', lineHeight: '44px' }}
           >
             {pageTitle}
           </div>
@@ -221,7 +237,7 @@ const Toolbar: FC<ToolbarProps> = ({
 
         <div className="flex items-center self-end">
           {advancedSettingsSection}
-          {isBackButtonAvailable && (
+          {navigationStyle === 'close' && isBackButtonAvailable && (
             <Button
               variant={ButtonVariant.Ghost}
               className={classNames(

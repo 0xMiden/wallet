@@ -27,6 +27,7 @@ import type { TokenBalanceData } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { MIDEN_NETWORK_NAME, MIDEN_FAUCET_ENDPOINTS } from 'lib/miden-chain/constants';
+import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
@@ -113,6 +114,9 @@ const Explore: FC = () => {
       await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
     });
     await Promise.all(promises);
+    // The wallet is now auto-claiming these notes, so the "click to claim"
+    // notification is stale — dismiss it so it doesn't linger (#459).
+    clearNoteReceivedNotification();
     mutateClaimableNotes();
 
     if (isExtension()) {

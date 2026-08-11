@@ -8,12 +8,24 @@ import { useClaimNotes } from 'app/hooks/useClaimNotes';
 import { PendingTab } from 'app/pages/Receive/PendingTab';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { isMobile } from 'lib/platform';
-import { goBack } from 'lib/woozie';
+import { goBack, navigate } from 'lib/woozie';
 
 const PendingNotes: FC = () => {
   const { t } = useTranslation();
   const { fullPage, sidePanel } = useAppEnv();
   const claim = useClaimNotes();
+
+  // Reached in-app there's a screen to return to, so pop history. But this page
+  // can also be opened cold in a fresh tab (a received-note notification deep-
+  // links here — #467), where history.go(-1) is a no-op and would leave a dead
+  // back button; fall back to the wallet home in that case.
+  const handleBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      goBack();
+    } else {
+      navigate('/');
+    }
+  };
 
   const containerClass =
     isMobile() || sidePanel
@@ -24,7 +36,7 @@ const PendingNotes: FC = () => {
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg')}>
-      <ScreenHeader title={t('pendingNotes')} onBack={() => goBack()} />
+      <ScreenHeader title={t('pendingNotes')} backLabel={t('back')} onBack={handleBack} />
       <PendingTab
         safeClaimableNotes={claim.safeClaimableNotes}
         unclaimedNotesCount={claim.unclaimedNotes.length}

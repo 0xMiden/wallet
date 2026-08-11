@@ -4,7 +4,7 @@ import { executeForSummary } from '@openzeppelin/miden-multisig-client';
 import { importedNoteIds, quarantineNoteIds } from 'lib/miden/note-quarantine';
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { DEFAULT_NETWORK, MIDEN_NETWORK_ENDPOINTS } from 'lib/miden-chain/constants';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 
 export interface SimulateCustomTxInput {
@@ -79,12 +79,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // The high-level `MidenClient` overload needs the RPC endpoint explicitly
         // (multisig-client 0.16 / SDK 0.15.8); the raw-WasmWebClient overload is
         // the one that can omit it.
-        const summary = await executeForSummary(
-          client.client,
-          accountIdHex,
-          request,
-          MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!
-        );
+        const summary = await executeForSummary(client.client, accountIdHex, request, getEffectiveRpcUrl());
 
         return { summaryBytes: u8ToB64(summary.serialize()) };
       });

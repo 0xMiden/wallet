@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "アカウント ＃： $number$ ",
-    "englishSource": "Account #: $number$",
+    "message": "アドレス：$number$",
+    "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -2275,6 +2275,22 @@
     "message": "プロバイダー",
     "englishSource": "Provider"
   },
+  "guardianEndpointLabel": {
+    "message": "終点",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "地域",
+    "englishSource": "Region"
+  },
+  "guardianLastSync": {
+    "message": "最終同期",
+    "englishSource": "Last sync"
+  },
+  "online": {
+    "message": "オンライン",
+    "englishSource": "Online"
+  },
   "reviewRotation": {
     "message": "ローテーションの見直し",
     "englishSource": "Review rotation"
@@ -2282,6 +2298,14 @@
   "newLabel": {
     "message": "新しい",
     "englishSource": "New"
+  },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "この Guardian スイッチを承認するには認証を行ってください。",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "認証は利用できません。ガーディアンを切り替える前にもう一度お試しください。",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
     "message": "ウォレットキー（ホット）",
@@ -2418,6 +2442,10 @@
   "invalidMidenAccountId": {
     "message": "無効なMidenアカウントIDです",
     "englishSource": "Invalid Miden account ID"
+  },
+  "midenAddressWrongNetwork": {
+    "message": "このアドレスは別の Miden ネットワークに属しています",
+    "englishSource": "This address belongs to a different Miden network"
   },
   "cannotSendToSelf": {
     "message": "自分の住所には送れない",
@@ -3812,5 +3840,89 @@
   "sourceTx": {
     "message": "Source TX",
     "englishSource": "Source TX"
+  },
+  "developerSettingsTitle": {
+    "message": "開発者設定",
+    "englishSource": "Developer Settings"
+  },
+  "developerSettingsWarningTitle": {
+    "message": "上級ユーザー向け",
+    "englishSource": "For advanced users"
+  },
+  "developerSettingsWarning": {
+    "message": "ほとんどの人はこれらを決して変更すべきではありません。間違った値を設定すると財布が壊れてしまいます。",
+    "englishSource": "Most people should never change these. Wrong values will break your wallet."
+  },
+  "devEndpointPreset": {
+    "message": "ネットワークプリセット",
+    "englishSource": "Network preset"
+  },
+  "devEndpointCustom": {
+    "message": "カスタム",
+    "englishSource": "Custom"
+  },
+  "devEndpointNetworkId": {
+    "message": "ネットワークID",
+    "englishSource": "Network ID"
+  },
+  "devEndpointRpc": {
+    "message": "RPC ノードの URL",
+    "englishSource": "RPC node URL"
+  },
+  "devEndpointProver": {
+    "message": "トランザクション証明者の URL",
+    "englishSource": "Transaction prover URL"
+  },
+  "devEndpointNoteTransport": {
+    "message": "Note トランスポート URL",
+    "englishSource": "Note transport URL"
+  },
+  "devEndpointFaucet": {
+    "message": "Faucet ウェブサイトの URL",
+    "englishSource": "Faucet website URL"
+  },
+  "devEndpointFaucetApi": {
+    "message": "Faucet API URL",
+    "englishSource": "Faucet API URL"
+  },
+  "devEndpointExplorer": {
+    "message": "エクスプローラーの URL",
+    "englishSource": "Explorer URL"
+  },
+  "devEndpointGuardian": {
+    "message": "カスタム ガーディアン URL",
+    "englishSource": "Custom guardian URL"
+  },
+  "devEndpointChecking": {
+    "message": "チェック中…",
+    "englishSource": "Checking…"
+  },
+  "devEndpointReachable": {
+    "message": "ホストに到達可能",
+    "englishSource": "Host reachable"
+  },
+  "devEndpointNoResponse": {
+    "message": "応答なし",
+    "englishSource": "No response"
+  },
+  "devEndpointSaveContinue": {
+    "message": "保存して続行",
+    "englishSource": "Save & continue"
+  },
+  "devEndpointResetDefaults": {
+    "message": "デフォルトにリセットする",
+    "englishSource": "Reset to defaults"
+  },
+  "devEndpointResetAndReonboard": {
+    "message": "デフォルトにリセットして再オンボード",
+    "englishSource": "Reset to defaults & re-onboard"
+  },
+  "devEndpointsRow": {
+    "message": "ネットワークエンドポイント",
+    "englishSource": "Network endpoints"
+  },
+  "devEndpointResetConfirm": {
+    "message": "これにより、キーと取引履歴を含むこのウォレットが永久に消去されます。復元するにはリカバリフレーズが必要です。",
+    "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   }
 }

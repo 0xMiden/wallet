@@ -70,12 +70,19 @@ jest.mock('../sdk/miden-client', () => ({
   runWhenClientIdle: () => {}
 }));
 
-// Stub webextension-polyfill (the real one is also stubbed via @serh11p/jest-webextension-mock)
+// Stub webextension-polyfill (the real one is also stubbed via @serh11p/jest-webextension-mock).
+// sync-manager persists via `browser.storage.local.set`; route it through the shared
+// `mockStorageSet` spy (lazy wrapper avoids the mock-hoisting TDZ, like the mocks below).
 jest.mock('webextension-polyfill', () => ({
   __esModule: true,
   default: {
     alarms: {
       create: jest.fn()
+    },
+    storage: {
+      local: {
+        set: (...args: unknown[]) => mockStorageSet(...args)
+      }
     }
   }
 }));
@@ -128,6 +135,8 @@ jest.mock('./transaction-processor', () => ({
 }));
 
 // ── Imports under test ─────────────────────────────────────────────
+
+import { WalletMessageType } from 'lib/shared/types';
 
 import { doSync, setupSyncManager } from './sync-manager';
 
@@ -218,6 +227,23 @@ describe('doSync', () => {
     );
   });
 
+  it('logs a warning (not silent) but still finishes the sync when the storage write fails (#386)', async () => {
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'n1', faucetId: 'f1' })]);
+    // Simulate a rejected write (e.g. QUOTA_BYTES exceeded / storage unavailable).
+    mockStorageSet.mockRejectedValueOnce(new Error('QUOTA_BYTES quota exceeded'));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(doSync()).resolves.toBeUndefined();
+
+    // The failed write must not be swallowed silently.
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to persist'), expect.anything());
+    // The SyncCompleted signal still fires — it only clears the sync indicator
+    // (the data is read from storage), so it must not hang on a write failure.
+    expect(mockBroadcast).toHaveBeenCalledWith(expect.objectContaining({ type: WalletMessageType.SyncCompleted }));
+
+    warnSpy.mockRestore();
+  });
+
   it('excludes quarantined notes from the cached consumable-notes write', async () => {
     mockClient.getConsumableNotes.mockResolvedValueOnce([
       fakeNote({ id: 'quarantined-note', faucetId: 'f1' }),
@@ -263,6 +289,39 @@ describe('doSync', () => {
     await doSync();
     // The bad note is filtered; doSync still finishes successfully
     expect(mockStorageSet).toHaveBeenCalled();
+  });
+
+  it('logs (with the note id) when a note throws mid-parse instead of dropping it silently (#331)', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // id() succeeds, then metadata() throws — a corrupted/incompatible note the
+    // parser cannot read. Previously it was dropped with a bare `catch { return
+    // null }`, so its funds silently never surfaced and the user could not report
+    // a missing note. The failure must now be logged, ideally naming the note.
+    const corruptNote = {
+      id: () => ({ toString: () => 'corrupt-note-id' }),
+      metadata: () => {
+        throw new Error('Corrupted metadata');
+      },
+      details: () => ({ assets: () => ({ fungibleAssets: () => [] }) })
+    };
+    mockClient.getConsumableNotes.mockResolvedValueOnce([corruptNote]);
+
+    try {
+      await doSync();
+
+      // The note is dropped from this sync (it cannot be parsed)…
+      const cacheCall = mockStorageSet.mock.calls.find(c => c[0] && 'miden_cached_consumable_notes' in c[0]);
+      expect(cacheCall?.[0]?.miden_cached_consumable_notes).toEqual([]);
+      // …but the failure is surfaced in the logs so the missing note is diagnosable.
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('failed to parse consumable note corrupt-note-id'),
+        expect.any(Error)
+      );
+    } finally {
+      // Restore even if an assertion throws, so a failing run doesn't leave
+      // console.warn silenced for the rest of the suite.
+      warnSpy.mockRestore();
+    }
   });
 
   it('tolerates fetchTokenMetadata rejections and still writes sync data', async () => {

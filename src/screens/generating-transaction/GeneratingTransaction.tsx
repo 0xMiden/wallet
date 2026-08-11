@@ -34,24 +34,13 @@ import {
   getStageTitleKey,
   getTransactionStepState
 } from './helper';
+import { advanceStepTimings, type StepTimings } from './stepTimings';
 import { TransactionSuccess } from './TransactionSuccess';
 import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
-import type {
-  GeneratingTransactionPageProps,
-  GeneratingTransactionProps,
-  TransactionHeroState,
-  TransactionStep
-} from './types';
+import type { GeneratingTransactionPageProps, GeneratingTransactionProps, TransactionHeroState } from './types';
 import { useTransactionRow } from './useTransactionRow';
 
 export type { GeneratingTransactionPageProps, GeneratingTransactionProps } from './types';
-
-type TransactionStepId = TransactionStep['id'];
-type TransactionStepTiming = {
-  startedAt: number;
-  endedAt?: number;
-};
-type TransactionStepTimings = Partial<Record<TransactionStepId, TransactionStepTiming>>;
 
 const getTimedStepIndexForStage = (stage?: GeneratingTransactionProps['activeStage']): number | undefined => {
   switch (stage) {
@@ -204,7 +193,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   completedTxHash,
   onViewExplorer
 }) => {
-  const [stepTimings, setStepTimings] = useState<TransactionStepTimings>({});
+  const [stepTimings, setStepTimings] = useState<StepTimings>({});
   const [showSuccessReceipt, setShowSuccessReceipt] = useState(false);
   const { t } = useTranslation();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(activeTransaction);
@@ -230,49 +219,12 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   }, [hasErrors, transactionComplete]);
 
   useEffect(() => {
-    if (transactionComplete) {
-      const now = Date.now();
-      const lastStep = TRANSACTION_STEPS[TRANSACTION_STEPS.length - 1];
-      if (!lastStep) return;
-
-      setStepTimings(prev => ({
-        ...prev,
-        [lastStep.id]: {
-          startedAt: prev[lastStep.id]?.startedAt ?? now,
-          endedAt: now
-        }
-      }));
-      return;
-    }
-
+    // Idempotent: several stages collapse onto one step index (e.g. `sending`
+    // and `proving` -> 1), so this effect re-runs for an already-timed step;
+    // advanceStepTimings records each start/end once so the shown duration
+    // doesn't creep after a step turns green (#530).
     const stepIndex = getTimedStepIndexForStage(activeStage);
-    if (stepIndex === undefined) return;
-
-    const now = Date.now();
-    if (stepIndex === 0) {
-      setStepTimings({ 'guardian-approving': { startedAt: now } });
-      return;
-    }
-
-    const step = TRANSACTION_STEPS[stepIndex];
-    if (!step) return;
-    const prevStep = TRANSACTION_STEPS[stepIndex - 1];
-    // stepIndex === 0 is handled above, so a step past the first always has a
-    // predecessor; guard defensively rather than throwing from an effect if
-    // TRANSACTION_STEPS / getTimedStepIndexForStage ever drift out of sync.
-    if (!prevStep) return;
-    setStepTimings(prev => {
-      return {
-        ...prev,
-        [prevStep.id]: {
-          ...prev[prevStep.id],
-          endedAt: now
-        },
-        [step.id]: {
-          startedAt: now
-        }
-      };
-    });
+    setStepTimings(prev => advanceStepTimings(prev, { stepIndex, transactionComplete, now: Date.now() }));
   }, [activeStage, timingTransactionId, transactionComplete]);
 
   const stepDurationLabels = useMemo(
