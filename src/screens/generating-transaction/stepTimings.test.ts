@@ -42,7 +42,7 @@ describe('advanceStepTimings (#530 duration stability)', () => {
   it('records every step once across the full guardian stage walk (the true #530 repro)', () => {
     // stepIndex per stage (see getTimedStepIndexForStage): syncing/creating-/signing-proposal -> 0,
     // sending/proving -> 1, executing -> undefined, submitting -> 2, guardian-syncing -> 3,
-    // guardian-synced -> undefined-as-4, complete -> finalize.
+    // guardian-synced -> 4 (out of range → no-op), complete -> finalize.
     const walk: Array<{ stepIndex: number | undefined; complete: boolean }> = [
       { stepIndex: 0, complete: false }, // syncing
       { stepIndex: 0, complete: false }, // creating-proposal
@@ -52,7 +52,7 @@ describe('advanceStepTimings (#530 duration stability)', () => {
       { stepIndex: 1, complete: false }, // proving  -> must NOT bump
       { stepIndex: 2, complete: false }, // submitting -> step 1 ends, step 2 starts
       { stepIndex: 3, complete: false }, // guardian-syncing -> step 2 ends, step 3 starts
-      { stepIndex: undefined, complete: false }, // guardian-synced (no-op)
+      { stepIndex: 4, complete: false }, // guardian-synced -> index past the last step, no-op
       { stepIndex: undefined, complete: true } // complete -> step 3 ends
     ];
     let t: StepTimings = {};
