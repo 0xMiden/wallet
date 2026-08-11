@@ -1076,4 +1076,56 @@ describe('Welcome — E2E onboarding bypass', () => {
     expect(mockFlowProps.current.seedPhrase).not.toBeNull();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
   });
+
+  it('threads the guardianUrl param into registerWallet as the endpoint override (create)', async () => {
+    // #408 stage 3 regression guard: the bypass skips the ChooseGuardian screen,
+    // so without this the guardianEndpoint override is undefined and a stage-3
+    // create binds to the network default (ignoring the E2E's faulted endpoint).
+    // The `guardianUrl` param must reach registerWallet's 5th arg (the override).
+    process.env.MIDEN_E2E_TEST = 'true';
+    window.history.replaceState(
+      null,
+      '',
+      '/?__test_skip_onboarding=1&walletType=guardian&guardianUrl=http%3A%2F%2Flocalhost%3A3001&password=pw'
+    );
+    await renderWelcome();
+
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
+    expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
+
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      expect.any(String),
+      false, // not an import
+      'http://localhost:3001' // the threaded override
+    );
+    // The bypass no longer writes the global GUARDIAN_URL_STORAGE_KEY.
+    expect(mockPutToStorage).not.toHaveBeenCalled();
+  });
+
+  it('threads the guardianUrl param into registerWallet as the endpoint override (import/recovery)', async () => {
+    // Recovery path: with a `seed` param the bypass runs an Import, and the same
+    // override must reach registerWallet so Vault.spawn's recovery scan probes
+    // the right operator instead of the retained global-key/default fallback.
+    process.env.MIDEN_E2E_TEST = 'true';
+    window.history.replaceState(
+      null,
+      '',
+      '/?__test_skip_onboarding=1&walletType=guardian&seed=alpha+beta+gamma&guardianUrl=http%3A%2F%2Flocalhost%3A3001&password=pw'
+    );
+    await renderWelcome();
+
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
+
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      expect.any(String),
+      true, // import → ownMnemonic drives Vault.spawn's recovery branch
+      'http://localhost:3001'
+    );
+  });
 });
