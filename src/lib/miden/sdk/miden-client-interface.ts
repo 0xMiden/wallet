@@ -248,6 +248,13 @@ export class MidenClientInterface {
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array, auth?: AuthScheme): Promise<string> {
     if (walletType === WalletType.Guardian) {
+      // NOTE: Guardian creation never reaches here — Vault.spawn and
+      // createHDAccount always route Guardian to createGuardianMidenWallet
+      // (which threads the picked endpoint). This branch passes no endpoint
+      // override, so createGuardianAccount would fall back to the global key /
+      // default. TODO(#408 stage 2/3): if anything ever routes Guardian through
+      // createMidenWallet, thread the per-account endpoint here before the
+      // global key is removed, or it silently binds to the default operator.
       const { createGuardianAccount } = await import('../guardian/account');
       const { account } = await createGuardianAccount(this.client, seed);
       return getBech32AddressFromAccountId(account.id());
