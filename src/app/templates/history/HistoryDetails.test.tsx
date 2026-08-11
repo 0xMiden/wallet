@@ -671,6 +671,29 @@ describe('HistoryDetails', () => {
       expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
     });
 
+    it('treats a mixed settle+reclaim order as Filled — a settle consume outranks a reclaim (#486)', async () => {
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '12',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 0n,
+        remainingRequested: 700n
+      });
+      // Paybacks settled in one consume tick, the tip reclaimed in another — both
+      // buckets are non-empty. The swap-row chip stamps "Settled" (funds received),
+      // so this row must agree rather than showing "Reclaimed".
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-s'], reclaimed: ['note-r'] });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 12n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
+      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+    });
+
     it('backs off on unresolved polls and gives up after the cap', async () => {
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       mockTrackOrderId.mockResolvedValue(null); // never resolves the order

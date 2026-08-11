@@ -630,10 +630,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // are seen locally, the order is terminal regardless of what the lineage poll
   // still reports. Otherwise the status sits on "Active" with a per-poll
   // flickering spinner after the swap has actually settled (#486).
+  // A settle consume outranks a reclaim one — funds were received — matching
+  // `repairSettlementStamp`'s precedence so this row agrees with the swap-row
+  // chip when an order carries both kinds (e.g. paybacks settled one tick, tip
+  // reclaimed another).
   const settledOrderState: SwapOrderState | null = settlementFound
-    ? settlementNotes && settlementNotes.reclaimed.length > 0
-      ? 'reclaimed'
-      : 'filled'
+    ? settlementNotes && settlementNotes.settled.length > 0
+      ? 'filled'
+      : 'reclaimed'
     : null;
   const displayOrderState: SwapOrderState | null = settledOrderState ?? swapTracking?.state ?? null;
   const orderStillResolving = displayOrderState === 'active';
