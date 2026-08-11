@@ -35,7 +35,12 @@ import { WalletType } from 'screens/onboarding/types';
 import { compareAccountIds } from '../activity/utils';
 import { fetchFromStorage, putToStorage } from '../front/storage';
 import type { CreatedGuardianKeys } from '../guardian/account';
-import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
+import {
+  getGuardianCommitmentFromAccount,
+  getSignerDetailsFromAccount,
+  resolveGuardianEndpoint
+} from '../guardian/account';
+import { identifyGuardianOperator } from '../guardian/operator-map';
 import { deriveClientSeed, makeColdSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
@@ -1211,6 +1216,73 @@ export class Vault {
       await encryptAndSaveMany([[accountsStrgKey, nextAccounts]], this.vaultKey);
     } catch (e) {
       console.warn('[Vault.backfillEvmAddresses] failed (non-fatal):', e);
+    }
+  }
+
+  /**
+   * Idempotent, best-effort backfill of the per-account `guardianEndpoint` for
+   * LEGACY Guardian accounts created before that field existed (#408 stage 2).
+   * Called on every unlock (see Actions.unlock); a failure must never block
+   * unlock.
+   *
+   * For each Guardian record that carries no `guardianEndpoint`, this reads the
+   * on-chain guardian public-key commitment and resolves it to a built-in
+   * operator (`identifyGuardianOperator`) — the exact commitment → operator →
+   * endpoint path `resolveGuardianDrift` uses at runtime — then stamps the
+   * operator's endpoint plus the commitment baseline onto the record. After
+   * that, `resolveGuardianEndpoint` reads the per-account field instead of the
+   * legacy global `GUARDIAN_URL_STORAGE_KEY` (which this stage leaves in place
+   * as a fallback; its removal is stage 3).
+   *
+   * FUNDS-ADJACENT — a wrong endpoint breaks the guardian, so the rules are:
+   *  - NEVER overwrite an existing `guardianEndpoint` (the filter skips any
+   *    already-stamped account, which also makes repeat runs a no-op).
+   *  - On NO operator match (operator unreachable right now, or a custom /
+   *    self-hosted / rotated guardian) LEAVE the account untouched — never
+   *    stamp a guessed or default endpoint. It simply retries on the next
+   *    unlock, and `resolveGuardianEndpoint`'s global-key fallback covers it in
+   *    the meantime.
+   *
+   * Per-account try/catch: one account's failure can't block the others or the
+   * unlock. The WASM account read is lock-guarded; the built-in-operator HTTP
+   * probe inside `identifyGuardianOperator` runs outside the lock (mirrors
+   * `resolveGuardianDrift`).
+   */
+  async backfillGuardianEndpoints(): Promise<void> {
+    try {
+      const allAccounts = await this.fetchAccounts();
+      const legacy = allAccounts.filter(acc => acc.type === WalletType.Guardian && !acc.guardianEndpoint);
+      if (legacy.length === 0) return;
+
+      for (const acc of legacy) {
+        try {
+          const onChainCommitment = await withWasmClientLock(async () => {
+            const sdkAccount = await (await getMidenClient()).getAccount(acc.publicKey);
+            return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
+          });
+          // No on-chain guardian commitment to resolve (account not synced yet,
+          // or not actually a guardian account) — leave it; retry next unlock.
+          if (!onChainCommitment) continue;
+
+          const operator = await identifyGuardianOperator(onChainCommitment);
+          // No built-in operator holds this commitment (operator down / custom /
+          // self-hosted / rotated key). Do NOT guess an endpoint — leave the
+          // account untouched so the global-key fallback still covers it and the
+          // next unlock retries once the operator is reachable again.
+          if (!operator) continue;
+
+          // Endpoint first, commitment baseline last (mirrors resolveGuardianDrift):
+          // if the second write fails the account still has the correct endpoint,
+          // and resolveGuardianDrift idempotently re-affirms the baseline later.
+          await this.setGuardianEndpoint(acc.publicKey, operator.endpoint);
+          await this.setGuardianOperatorCommitment(acc.publicKey, onChainCommitment);
+        } catch (e) {
+          console.warn('[Vault.backfillGuardianEndpoints] skipped one account (non-fatal):', acc.publicKey, e);
+        }
+      }
+    } catch (e) {
+      // Best-effort — a failure must never block unlock.
+      console.warn('[Vault.backfillGuardianEndpoints] failed (non-fatal):', e);
     }
   }
 
