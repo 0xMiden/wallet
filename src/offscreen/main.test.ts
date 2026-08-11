@@ -20,7 +20,7 @@
  * (which doesn't export any of the symbols this module needs).
  */
 
-import { encodeArg } from 'lib/miden/back/offscreen-codec';
+import { encodeArg, OFFSCREEN_SIGN_REQUEST } from 'lib/miden/back/offscreen-codec';
 
 type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
 
@@ -95,6 +95,23 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   };
 });
 
+// Slice 5: the offscreen doc creates its client via `MidenClientInterface.create`
+// (with the reverse-IPC sign stub + `useWorker:false`) instead of the SW
+// singleton `getMidenClient`. Delegate `create` to the SAME `g.__off.getMidenClient`
+// control fn so the existing "reuses client" / "S1 retry" assertions keep working;
+// the create options are captured on `g.__off.createOptions` for the new assertions.
+jest.mock('lib/miden/sdk/miden-client-interface', () => {
+  const g = globalThis as any;
+  return {
+    MidenClientInterface: {
+      create: (opts: any) => {
+        g.__off.createOptions.push(opts);
+        return g.__off.getMidenClient(opts);
+      }
+    }
+  };
+});
+
 let capturedListener: Listener | undefined;
 let logSpy: jest.SpyInstance;
 let warnSpy: jest.SpyInstance;
@@ -131,12 +148,19 @@ function resetControl() {
         swapAttachment: null
       }
     ]),
+    // Slice-5 consume: the offscreen-owned client's consumeNoteId returns a
+    // TransactionResult-like object exposing serialize() (the offscreen DISPATCH
+    // ships the serialized bytes back).
+    clientConsumeNoteId: jest.fn(async (_dto: unknown) => ({ serialize: () => new Uint8Array([77, 88, 99]) })),
+    // Create options captured per MidenClientInterface.create call (slice 5).
+    createOptions: [] as any[],
     getMidenClient: jest.fn(async () => ({
       getAccount: (...a: any[]) => (globalThis as any).__off.clientGetAccount(...a),
       syncState: (...a: any[]) => (globalThis as any).__off.clientSyncState(...a),
       exportNote: (...a: any[]) => (globalThis as any).__off.clientExportNote(...a),
       getInputNoteDetails: (...a: any[]) => (globalThis as any).__off.clientGetInputNoteDetails(...a),
-      getConsumableNoteDtos: (...a: any[]) => (globalThis as any).__off.clientGetConsumableNoteDtos(...a)
+      getConsumableNoteDtos: (...a: any[]) => (globalThis as any).__off.clientGetConsumableNoteDtos(...a),
+      consumeNoteId: (...a: any[]) => (globalThis as any).__off.clientConsumeNoteId(...a)
     }))
   };
 }
@@ -678,6 +702,124 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(order).toEqual(['sync:start', 'sync:end', 'export:run']);
     expect(r1.mock.calls[0][0].ok).toBe(true);
     expect(r2.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('creates the offscreen client with the reverse-IPC sign stub + useWorker:false (slice 5)', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'getAccount', argsB64: [encodeArg('a')] }), {}, sendResponse);
+    await flush();
+
+    // MidenClientInterface.create ran once with the two Slice-5 overrides.
+    expect(G.__off.createOptions.length).toBe(1);
+    const opts = G.__off.createOptions[0];
+    expect(opts.useWorker).toBe(false);
+    expect(typeof opts.signCallback).toBe('function');
+  });
+
+  it('dispatches consumeNoteId (whole-op write) and serializes the TransactionResult (slice 5a)', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const dto = { accountId: 'mtst1qacc', noteId: '0xn1', noteIds: ['0xn1', '0xn2'], delegateTransaction: false };
+    const ret = capturedListener!(callReq({ method: 'consumeNoteId', argsB64: [encodeArg(dto)] }), {}, sendResponse);
+    expect(ret).toBe(true);
+    await flush();
+
+    // The plain consume DTO decoded across the wire and drove the offscreen client.
+    expect(G.__off.clientConsumeNoteId).toHaveBeenCalledWith(dto);
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(resp.op_id).toBe('op-abc');
+    // resultB64 round-trips the serialized [77,88,99] TransactionResult bytes.
+    expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([77, 88, 99]);
+  });
+
+  it('consumeNoteId signs mid-execute via the reverse-IPC stub, tagged with the ambient op_id (slice 5)', async () => {
+    await loadModule();
+    // Make the mock client's consumeNoteId invoke the reverse-IPC sign stub with
+    // sample (pubkey, signingInputs) bytes, exactly as the SDK does mid-execute.
+    let signatureSeen: Uint8Array | null = null;
+    G.__off.clientConsumeNoteId = jest.fn(async () => {
+      const signCb = G.__off.createOptions[0].signCallback;
+      signatureSeen = await signCb(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6]));
+      return { serialize: () => new Uint8Array([77, 88, 99]) };
+    });
+    // Intercept the OFFSCREEN_SIGN_REQUEST the stub posts and answer with a signature.
+    let signReq: any = null;
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      if (m?.type === OFFSCREEN_SIGN_REQUEST) {
+        signReq = m;
+        return { ok: true, sign_id: m.sign_id, signatureB64: Buffer.from([9, 9, 9]).toString('base64') };
+      }
+      return undefined; // OFFSCREEN_READY etc.
+    });
+
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-sign',
+        method: 'consumeNoteId',
+        argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'] })]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    // The stub reversed the sign to the SW, tagged with the write op's ambient id.
+    expect(signReq).not.toBeNull();
+    expect(signReq.target).toBe('sw');
+    expect(signReq.type).toBe(OFFSCREEN_SIGN_REQUEST);
+    expect(signReq.op_id).toBe('op-sign');
+    expect(typeof signReq.sign_id).toBe('string');
+    // Only raw bytes crossed — the exact (pubkey, signingInputs) the SDK handed the stub.
+    expect(Array.from(Buffer.from(signReq.publicKeyB64, 'base64'))).toEqual([1, 2, 3]);
+    expect(Array.from(Buffer.from(signReq.signingInputsB64, 'base64'))).toEqual([4, 5, 6]);
+    // The SW's signature bytes flowed back into the SDK sign call.
+    expect(signatureSeen).not.toBeNull();
+    expect(Array.from(signatureSeen!)).toEqual([9, 9, 9]);
+    // And the consume completed, shipping the serialized result.
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('consumeNoteId sign stub throws when the SW responds ok:false (execute fails)', async () => {
+    await loadModule();
+    G.__off.clientConsumeNoteId = jest.fn(async () => {
+      const signCb = G.__off.createOptions[0].signCallback;
+      // The stub must throw so the SDK execute fails; surface that as the op error.
+      await signCb(new Uint8Array([1]), new Uint8Array([2]));
+      return { serialize: () => new Uint8Array([0]) };
+    });
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      if (m?.type === OFFSCREEN_SIGN_REQUEST) {
+        return { ok: false, sign_id: m.sign_id, error: 'vault locked', reason: 'locked' };
+      }
+      return undefined;
+    });
+
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({ method: 'consumeNoteId', argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'] })] }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.error).toContain('offscreen sign failed');
+  });
+
+  it('the reverse-IPC sign stub throws when invoked with no OFFSCREEN_CALL in flight (no ambient op_id)', async () => {
+    await loadModule();
+    // Run (and finish) a dispatch so the client is created + createOptions captured;
+    // after it completes, the ambient op_id is cleared back to null.
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'getAccount', argsB64: [encodeArg('a')] }), {}, sendResponse);
+    await flush();
+
+    const signCb = G.__off.createOptions[0].signCallback;
+    await expect(signCb(new Uint8Array([1]), new Uint8Array([2]))).rejects.toThrow('no ambient op_id');
   });
 
   it('S1: a failed client-create is not cached — the next call retries within the same doc', async () => {

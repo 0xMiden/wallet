@@ -14,11 +14,12 @@
 // every method here is a strict pass-through to the existing inline
 // `getMidenClient()` singleton, so production behavior is unchanged.
 
-import { Account, getWasmOrThrow, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
+import { Account, getWasmOrThrow, TransactionResult, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
+import { Buffer } from 'buffer';
 
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
-import { getMidenClient } from 'lib/miden/sdk/miden-client';
+import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import type { InputNoteDetails } from 'lib/miden/sdk/miden-client-interface';
 
 import {
@@ -26,16 +27,29 @@ import {
   OFFSCREEN_TARGET,
   OperationAbortedError,
   b64ToBytes,
+  bytesToB64,
   encodeArg,
   type OffscreenCallRequest,
-  type OffscreenCallResponse
+  type OffscreenCallResponse,
+  type OffscreenSignRequest,
+  type OffscreenSignResponse
 } from './offscreen-codec';
 import {
+  decrementCriticalOp,
   ensureOffscreenDocument,
   forceCloseOffscreenDocument,
-  isNonSpeculativeProveInFlight,
+  incrementCriticalOp,
+  isCriticalOpInFlight,
   isOffscreenAvailable
 } from './offscreen-prover';
+import type { ConsumeTransaction } from '../db/types';
+import {
+  buildSignCallbackError,
+  buildSignCallbackOptions,
+  clearLastSignReason,
+  recordLastSignReason,
+  type SignCallbackReason
+} from '../transaction/sign-callback';
 
 /**
  * Feature flag: route proxied methods through the offscreen document.
@@ -62,12 +76,38 @@ const READ_DEADLINE_MS = 15_000;
  */
 const SYNC_DEADLINE_MS = 45_000;
 
+/**
+ * Per-op deadline (ms) for a whole-op offscreen WRITE (`consumeNoteId`).
+ *
+ * This is the funds-risk knob (design §3.4). It must clear a legitimate
+ * `execute (~1s) + prove (~3–10s MT) + submit + apply (~ms)` with wide margin,
+ * yet sit far below the 30-min `MAX_WAIT_BEFORE_CANCEL` reaper. Crucially it is
+ * PAUSED for the entire duration of every reverse-IPC sign round-trip
+ * (`pauseDeadline`/`resumeDeadline`, design §2.5), so a slow Face-ID / unlock
+ * sign is NEVER mistaken for a wedge — the deadline measures only WASM-execution
+ * time between sign round-trips. When it does fire, the wedge is overwhelmingly
+ * pre-submit (the multi-second WASM steps), which is fully safe (nothing on
+ * chain); a mid-submit fire is left to node adjudication + `syncState` reconcile
+ * (design §4), the same risk profile as today's eviction, now time-bounded.
+ */
+const WRITE_DEADLINE_MS = 90_000;
+
 interface InFlightOp {
   /** Resolve the caller's promise with the raw `resultB64` (or `null`). */
   resolveResult: (resultB64: string | null) => void;
   reject: (err: unknown) => void;
   timer: ReturnType<typeof setTimeout> | null;
   method: string;
+  /** The op's full deadline (ms), retained so a paused deadline can be re-armed
+   * from scratch after a sign round-trip. `null` ⇒ no deadline. */
+  deadlineMs: number | null;
+  /** True for a whole-op offscreen WRITE. A critical op's OWN deadline MAY kill
+   * the realm (the wedge case, design §3.3); a NON-critical (read) op's deadline
+   * coincident with a critical op in flight downgrades to reject-without-kill. */
+  critical: boolean;
+  /** True while a reverse-IPC sign round-trip is outstanding for this op — its
+   * deadline timer is cleared and re-armed on the sign response (design §2.5). */
+  paused: boolean;
 }
 
 /**
@@ -75,6 +115,30 @@ interface InFlightOp {
  * closing the doc kills every concurrent op's realm (design §1.3, §3.2).
  */
 const inFlight = new Map<string, InFlightOp>();
+
+/** The RAW hex-in/bytes-out sign callback shape the tx loop supplies (the SW's
+ * `swSignCallback`). It is what crosses into the reverse-IPC handler; the SDK
+ * keystore's byte-shaped `sign` is built from it via `buildSignCallbackOptions`. */
+type RawSignCallback = (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
+
+/**
+ * op_id → the RAW `(publicKeyHex, signingInputsHex) => signatureBytes` callback
+ * for that write op's mid-execute signing (design §2.7). The write dispatch
+ * registers it before sending the OFFSCREEN_CALL and deletes it on settle/kill,
+ * so the secret-touching callback is scoped to the op's lifetime. The reverse-IPC
+ * handler looks it up (falling back to the caller-supplied default) when the
+ * offscreen doc requests a signature.
+ */
+const opSignCallbacks = new Map<string, RawSignCallback>();
+
+/**
+ * op_id → the classified reason of that op's LAST failed reverse-IPC sign
+ * (design §2.6). Recorded by the reverse-IPC handler; read by the write path so
+ * a locked-mid-sign failure can be re-tagged onto the thrown error, making
+ * `isLockedError(err)` in the tx loop DEFER (not Fail) the consume — the issue
+ * #313 note-loss guard. Op-scoped (keyed by op_id) so it cannot bleed across ops.
+ */
+const opSignReasons = new Map<string, SignCallbackReason>();
 
 function newOpId(): string {
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
@@ -125,24 +189,30 @@ function rejectAllInFlight(reason: string): void {
 }
 
 /**
- * The deadline handler (design §3.2). Kills the offscreen realm and rejects the
- * in-flight op(s) — UNLESS a real prove is sharing the doc, in which case we
- * must not collateral-kill it (design §4): downgrade to a reject-without-kill
- * of just the deadlined op.
+ * The deadline handler (design §3.2, §3.3). Who may kill during a critical op:
+ *   - a NON-critical (read) op's deadline while ANY critical op is in flight →
+ *     DOWNGRADE to a reject-without-kill of just this op; the realm (and the live
+ *     write / prove) survives. This is the whole point of `criticalOpCount`.
+ *   - a critical op's OWN deadline (the wedge case #260 targets) → MAY kill.
+ *   - a read deadline with no critical op in flight → kill + reopen as before.
  */
 async function onDeadline(op_id: string): Promise<void> {
-  if (!inFlight.has(op_id)) return; // already settled
+  const op = inFlight.get(op_id);
+  if (!op) return; // already settled
+  // Defensive: a paused op's timer is cleared, so onDeadline shouldn't fire for
+  // it — but if a stale timer callback races the pause, do nothing.
+  if (op.paused) return;
 
-  if (isNonSpeculativeProveInFlight()) {
-    // A user's real prove owns the doc; don't tear it down for a read. Fail
-    // only this op — the offscreen op keeps running and its result is dropped.
-    // TODO(slice 4): generalize `nonSpeculativeProveCount` → a `criticalOpCount`
-    // that also covers proxied writes (sendTransaction/consume/swap) so their
-    // submit→apply window is protected the same way a prove is here (design §4).
+  if (!op.critical && isCriticalOpInFlight()) {
+    // A cheap read's deadline while a value-moving critical op owns the doc.
+    // Fail only this read — never tear down the realm running the write
+    // (design §3.3). The offscreen op keeps running; its result is dropped.
     takeInFlight(op_id)?.reject(new OperationAbortedError(op_id, 'deadline-no-kill'));
     return;
   }
 
+  // Either this IS the critical op whose own deadline fired (kill the wedge), or
+  // a read deadline with no critical op in flight (kill + reopen).
   const closed = await forceCloseOffscreenDocument();
   // Closing the doc killed every concurrent op's realm — reject them all.
   // TODO(slice 4): there is a small window where an op whose sendMessage is
@@ -160,25 +230,28 @@ async function onDeadline(op_id: string): Promise<void> {
 }
 
 /**
- * The generic RPC entry (design §1.2 `call`). Forwards a method call to the
- * offscreen doc and enforces the per-op deadline. Resolves with the raw
- * `resultB64` (base64 result, or `null`); typed wrappers decode it.
+ * The low-level dispatch (design §1.2 `call` + §3). Forwards a method call to
+ * the offscreen doc under a caller-supplied `op_id` and enforces the per-op
+ * deadline. `critical` marks a whole-op write so `onDeadline` treats its own
+ * deadline as killable while shielding it from coincident read deadlines.
+ * Resolves with the raw `resultB64` (base64 result, or `null`).
  */
-async function dispatchWithDeadline(
+async function dispatchOp(
+  op_id: string,
   method: string,
   args: unknown[],
-  deadlineMs: number | null
+  deadlineMs: number | null,
+  critical: boolean
 ): Promise<string | null> {
   await ensureOffscreenDocument();
   return new Promise<string | null>((resolve, reject) => {
-    const op_id = newOpId();
     const timer =
       deadlineMs != null
         ? setTimeout(() => {
             void onDeadline(op_id);
           }, deadlineMs)
         : null;
-    inFlight.set(op_id, { resolveResult: resolve, reject, timer, method });
+    inFlight.set(op_id, { resolveResult: resolve, reject, timer, method, deadlineMs, critical, paused: false });
 
     const envelope: OffscreenCallRequest = {
       target: OFFSCREEN_TARGET,
@@ -196,6 +269,156 @@ async function dispatchWithDeadline(
       err => finishOpError(op_id, err)
     );
   });
+}
+
+/** The generic (non-critical) RPC entry: generate an op_id and dispatch a read. */
+function dispatchWithDeadline(method: string, args: unknown[], deadlineMs: number | null): Promise<string | null> {
+  return dispatchOp(newOpId(), method, args, deadlineMs, false);
+}
+
+// --- Reverse-IPC sign channel (issue #260, slice 5, design §2) --------------
+
+/**
+ * PAUSE an op's deadline for the duration of an outstanding sign round-trip
+ * (design §2.5). A sign can block indefinitely on the user (Face ID, an unlock
+ * prompt); the write's deadline must not count that wall-clock, or a slow sign
+ * would be mistaken for a wedge and kill a healthy write. Clears the timer and
+ * marks the op paused; no-op if the op already settled.
+ */
+function pauseDeadline(op_id: string): void {
+  const op = inFlight.get(op_id);
+  if (!op || op.paused) return;
+  if (op.timer) clearTimeout(op.timer);
+  op.timer = null;
+  op.paused = true;
+}
+
+/**
+ * RE-ARM an op's deadline after its sign round-trip resolved (design §2.5). The
+ * deadline restarts from scratch, so it measures only WASM-execution time
+ * BETWEEN sign round-trips. No-op if the op already settled while paused (e.g. a
+ * kill got there first).
+ */
+function resumeDeadline(op_id: string): void {
+  const op = inFlight.get(op_id);
+  if (!op || !op.paused) return;
+  op.paused = false;
+  if (op.deadlineMs != null) {
+    op.timer = setTimeout(() => {
+      void onDeadline(op_id);
+    }, op.deadlineMs);
+  }
+}
+
+/**
+ * SW-side reverse-IPC sign handler (design §2.4). The offscreen client's
+ * `keystore.sign` stub posts an {@link OffscreenSignRequest}; this signs via the
+ * op's registered callback (or `fallbackSignCallback`) — the EXISTING vault
+ * signer — and returns raw signature bytes. Only bytes cross; no SDK handle.
+ *
+ * Deadline pause (§2.5): the op's deadline is cleared on entry and re-armed on
+ * exit, so a slow/blocked sign never trips a kill.
+ *
+ * Locked-defer (§2.6, issue #313): on a sign failure the raw error is classified
+ * exactly as the inline path does (`buildSignCallbackError`) and the reason is
+ * recorded both per-op (so the write path can re-tag the thrown error for
+ * `isLockedError`) and in the SW-side slot (so `readLastAuthReason` sees it).
+ */
+export async function handleOffscreenSignRequest(
+  msg: OffscreenSignRequest,
+  fallbackSignCallback: RawSignCallback
+): Promise<OffscreenSignResponse> {
+  const { op_id, sign_id } = msg;
+  pauseDeadline(op_id);
+  try {
+    const cb = opSignCallbacks.get(op_id) ?? fallbackSignCallback;
+    const publicKeyHex = Buffer.from(b64ToBytes(msg.publicKeyB64)).toString('hex');
+    const signingInputsHex = Buffer.from(b64ToBytes(msg.signingInputsB64)).toString('hex');
+    try {
+      const signature = await cb(publicKeyHex, signingInputsHex);
+      return { ok: true, sign_id, signatureB64: bytesToB64(signature) };
+    } catch (rawErr) {
+      // Classify identically to the inline path so a locked vault DEFERS.
+      const classified = buildSignCallbackError(rawErr);
+      opSignReasons.set(op_id, classified.reason);
+      recordLastSignReason(classified.reason);
+      return { ok: false, sign_id, error: classified.message, reason: classified.reason };
+    }
+  } finally {
+    resumeDeadline(op_id);
+  }
+}
+
+/**
+ * The minimal, JSON-clean consume DTO that crosses to the offscreen realm
+ * (design §6.1). `consumeNoteId` reads ONLY these four fields, and the full
+ * `ConsumeTransaction` carries a BigInt `amount` that `JSON.stringify` can't
+ * encode — so we ship exactly what the op needs, no more.
+ */
+type OffscreenConsumeDto = {
+  accountId: string;
+  noteId: string;
+  noteIds: string[];
+  delegateTransaction?: boolean;
+};
+
+/**
+ * Run a whole-op offscreen `consumeNoteId` (design §6.2, Option A): the entire
+ * execute→prove→submit→apply chain runs inside ONE offscreen op, so a wedge
+ * anywhere in it is killable via `closeDocument()`. Only plain bytes cross — a
+ * JSON consume DTO in, the serialized `TransactionResult` out; the intermediate
+ * `TransactionResult`/`ProvenTransaction`/request handles stay opaque in-realm.
+ *
+ * The SW WASM lock is deliberately NOT held: the write serializes inside the
+ * offscreen doc's own mutex, and holding the SW lock would both stall SW sync /
+ * balance for the whole (multi-second) op and block the reverse-IPC sign handler
+ * that must run SW-side mid-op (design §7.1).
+ */
+async function dispatchOffscreenConsume(
+  transaction: ConsumeTransaction,
+  signCallback: RawSignCallback
+): Promise<TransactionResult> {
+  const dto: OffscreenConsumeDto = {
+    accountId: transaction.accountId,
+    noteId: transaction.noteId,
+    noteIds: transaction.noteIds,
+    delegateTransaction: transaction.delegateTransaction
+  };
+  const op_id = newOpId();
+  // Register BEFORE dispatch so a sign request (which can only arrive AFTER the
+  // OFFSCREEN_CALL is sent, from inside the offscreen execute) always finds it.
+  opSignCallbacks.set(op_id, signCallback);
+  // Fresh slate for the SW-side reason slot so `readLastAuthReason` reads only
+  // THIS op's sign outcome (design §2.6).
+  clearLastSignReason();
+  incrementCriticalOp();
+  try {
+    const resultB64 = await dispatchOp(op_id, 'consumeNoteId', [dto], WRITE_DEADLINE_MS, /* critical */ true);
+    if (resultB64 == null) {
+      // The offscreen consume always yields a TransactionResult; a null here
+      // means the offscreen op produced nothing, a hard error.
+      throw new Error('consumeNoteId: offscreen document returned no TransactionResult bytes');
+    }
+    // The SW needs its own WASM instance to re-hydrate the result for the
+    // completion handlers (`.executedTransaction()...`, `.serialize()`).
+    // Deserialize is fast + non-wedging — the expensive work ran offscreen.
+    await getWasmOrThrow();
+    return TransactionResult.deserialize(b64ToBytes(resultB64));
+  } catch (err) {
+    // If this op's failure was a LOCKED sign, re-tag the thrown error so
+    // `isLockedError(err)` in the tx loop DEFERS (not Fails) the consume — the
+    // issue #313 note-loss guard. Only 'locked' matters to `isLockedError`;
+    // other reasons are left untagged (a genuine failure should Fail).
+    const reason = opSignReasons.get(op_id);
+    if (reason === 'locked' && err && typeof err === 'object' && (err as { reason?: unknown }).reason === undefined) {
+      (err as { reason?: SignCallbackReason }).reason = reason;
+    }
+    throw err;
+  } finally {
+    decrementCriticalOp();
+    opSignCallbacks.delete(op_id);
+    opSignReasons.delete(op_id);
+  }
 }
 
 /**
@@ -339,12 +562,58 @@ export const midenClientProxy = {
     const resultB64 = await this.call('getConsumableNotes', [accountId], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) return [];
     return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as ConsumableNoteDto[];
+  },
+
+  /**
+   * Consume (claim) notes — the first WRITE moved offscreen (issue #260, slice 5a).
+   *
+   * `signCallback` is the RAW `(publicKeyHex, signingInputsHex) => signatureBytes`
+   * the tx loop supplies (the SW's `swSignCallback`). It is used two ways:
+   *
+   *   Flag OFF (default) / offscreen unavailable: BYTE-IDENTICAL to production
+   *   today. The consume runs inline on the SW client under the WASM lock, with
+   *   the exact wrapped `signCallback` options `generateTransaction` has always
+   *   built (`buildSignCallbackOptions`). This is the same `withWasmClientLock(
+   *   () => getMidenClient(options).consumeNoteId(tx))` the switch ran before this
+   *   slice pulled consume out — same lock, same options, same call.
+   *
+   *   Flag ON: the whole execute→prove→submit→apply chain runs in the offscreen
+   *   realm as ONE killable op; the SDK keystore reaches the vault mid-execute via
+   *   the reverse-IPC sign channel (which invokes THIS `signCallback` on the SW).
+   *   The SW WASM lock is NOT held (design §7.1) — the offscreen doc's own mutex
+   *   serializes the write.
+   */
+  async consumeNoteId(transaction: ConsumeTransaction, signCallback: RawSignCallback): Promise<TransactionResult> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return withWasmClientLock(async () =>
+        (await getMidenClient(buildSignCallbackOptions(signCallback))).consumeNoteId(transaction)
+      );
+    }
+    return dispatchOffscreenConsume(transaction, signCallback);
   }
 };
 
 // Test-only accessors for the in-flight bookkeeping. Not part of the public
-// contract; used to assert the kill path rejects every pending op.
+// contract; used to assert the kill path rejects every pending op and to drive
+// the reverse-IPC sign + deadline-pause machinery deterministically.
 export const __test = {
   inFlightSize: () => inFlight.size,
-  isOffscreenClientEnabled: () => USE_OFFSCREEN_CLIENT
+  inFlightOpIds: () => Array.from(inFlight.keys()),
+  isOpPaused: (op_id: string) => inFlight.get(op_id)?.paused ?? false,
+  hasOpTimer: (op_id: string) => inFlight.get(op_id)?.timer != null,
+  opSignCallbacksSize: () => opSignCallbacks.size,
+  isOffscreenClientEnabled: () => USE_OFFSCREEN_CLIENT,
+  writeDeadlineMs: () => WRITE_DEADLINE_MS,
+  /**
+   * Dispatch a CRITICAL op with a caller-chosen deadline — a test hook that
+   * exercises the real `dispatchOp` + `onDeadline` critical path (own-deadline
+   * kill, sign-pause) without waiting the production 90s `WRITE_DEADLINE_MS`.
+   * Mirrors the `criticalOp` bracketing `dispatchOffscreenConsume` performs.
+   */
+  dispatchCritical: (method: string, args: unknown[], deadlineMs: number | null) => {
+    incrementCriticalOp();
+    const op_id = newOpId();
+    const promise = dispatchOp(op_id, method, args, deadlineMs, true).finally(() => decrementCriticalOp());
+    return { op_id, promise };
+  }
 };

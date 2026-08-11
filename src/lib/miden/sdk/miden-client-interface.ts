@@ -125,6 +125,16 @@ export type MidenClientCreateOptions = {
   getKeyCallback?: (key: Uint8Array) => Promise<Uint8Array>;
   signCallback?: (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;
   onConnectivityIssue?: () => void;
+  /**
+   * Override the SDK's Web-Worker shim (issue #260, slice 5, design §5.2).
+   * Defaults to `!isMobile()` (the historical behavior). The offscreen document
+   * passes `false` so its client runs on the doc's own multi-threaded main-thread
+   * WASM instance (rayon pool) instead of a method-worker with an un-pooled
+   * single-threaded instance — required for MT proving in-realm AND for the
+   * keystore sign callback / `lastAuthError` to be reachable (both are
+   * "meaningful only with `useWorker:false`" per the SDK).
+   */
+  useWorker?: boolean;
 };
 
 // Re-export the slice-4 consumable-note DTO from the interface too, so callers
@@ -236,8 +246,10 @@ export class MidenClientInterface {
       //    bypassing the native bridge. Opt out so the callback survives.
       //
       // The `useWorker` option lands in `@miden-sdk/miden-sdk@0.14.9`
-      // (web-sdk PR #149).
-      useWorker: !isMobile()
+      // (web-sdk PR #149). Default `!isMobile()`; the offscreen document
+      // overrides to `false` (issue #260, slice 5, design §5.2 — see
+      // MidenClientCreateOptions.useWorker).
+      useWorker: options.useWorker ?? !isMobile()
     });
 
     return new MidenClientInterface(midenClient, network);

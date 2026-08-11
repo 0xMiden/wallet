@@ -4,8 +4,21 @@ import { liveQuery } from 'dexie';
 import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
 
+import { takeLastSignReason, type SignCallbackReason } from './sign-callback';
 import { ITransaction, ITransactionStage, ITransactionStatus, TransactionOutput } from '../db/types';
 import { getMidenClient } from '../sdk/miden-client';
+
+// Re-export the sign-callback classification from its leaf home (issue #260,
+// slice 5). It moved to `./sign-callback` to break a `helper ↔ proxy` import
+// cycle (the offscreen write proxy needs the classifier + `readLastAuthReason`
+// needs the SW-side reason slot). Re-exporting keeps every existing caller —
+// `import { buildSignCallbackError, ... } from './helper'` / `./index` —
+// unchanged.
+export { buildSignCallbackError, buildSignCallbackOptions, type SignCallbackError } from './sign-callback';
+// `SignCallbackReason` is imported locally (used in `readLastAuthReason`'s
+// return type) and re-exported from that local binding to avoid naming it in
+// two separate re-export statements.
+export type { SignCallbackReason };
 
 /**
  * Detect the eventually-consistent Guardian canonicalization error:
@@ -23,40 +36,6 @@ import { getMidenClient } from '../sdk/miden-client';
 export function isGuardianCanonicalizationError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
   return /Refusing to overwrite local state/i.test(message) || /is not greater than local nonce/i.test(message);
-}
-
-/**
- * Stable tags attached to errors the sign callback throws, so the catch
- * site for a failed executeTransaction can pattern-match on the raw
- * thrown value (recovered via `midenClient.lastAuthError()`) and treat
- * each failure mode differently — e.g. retry a `locked` failure after
- * the wallet unlocks instead of marking the tx permanently Failed.
- */
-export type SignCallbackReason = 'locked' | 'rejected' | 'not_found' | 'internal';
-
-export interface SignCallbackError extends Error {
-  reason: SignCallbackReason;
-}
-
-/**
- * Wrap an underlying sign failure in a typed Error that the SDK will
- * capture verbatim (see `WebClient.lastAuthError`). Classifies by
- * inspecting the underlying error's shape — current signals are the
- * Zustand-store locked state (string "Not initialized" from
- * `assertInited`) and generic TypeError for null-vault access.
- */
-export function buildSignCallbackError(err: unknown): SignCallbackError {
-  const underlying = err instanceof Error ? err : new Error(String(err));
-  let reason: SignCallbackReason = 'internal';
-  const msg = underlying.message || '';
-  if (/not initialized|locked|vault.*null|Cannot read propert/i.test(msg)) {
-    reason = 'locked';
-  }
-  const wrapped = Object.assign(new Error(`Sign callback failed (${reason}): ${msg}`), {
-    reason,
-    cause: underlying
-  }) as SignCallbackError;
-  return wrapped;
 }
 
 /**
@@ -126,11 +105,26 @@ export const setTransactionStage = async (id: string, stage: ITransactionStage) 
 };
 
 /**
- * Reads the SDK-captured last auth error and extracts a `reason` tag if
- * present. Returns undefined if there was no auth failure or the thrown
- * value didn't carry a reason.
+ * Reads the last sign-callback failure reason (`locked` / `rejected` / …), used
+ * by the transaction loop to DEFER a locked-mid-sign tx instead of Failing it
+ * (issue #313 note-loss guard).
+ *
+ * Two sources, checked in order:
+ *  1. The SW-side reason slot (issue #260, slice 5). When the flag-on offscreen
+ *     write signs via reverse-IPC, the sign runs on the SW but the SDK captures
+ *     the error on the OFFSCREEN client — so the SW-inline client's
+ *     `lastAuthError()` would miss it. The reverse-IPC handler records the
+ *     classified reason into `sign-callback.ts`'s slot; take-and-clear it here so
+ *     it is scoped to exactly the op that just failed and can never bleed into a
+ *     later op. On flag-off nothing ever records into the slot, so this is
+ *     `undefined` and we fall straight through — byte-identical to today.
+ *  2. The SW-inline client's `lastAuthError()` — the original path, still
+ *     authoritative for the write methods that remain SW-inline under flag-on
+ *     (send / swap / newTransaction in slice 5a) and for the whole flag-off world.
  */
 export async function readLastAuthReason(): Promise<SignCallbackReason | undefined> {
+  const offscreenSignReason = takeLastSignReason();
+  if (offscreenSignReason) return offscreenSignReason;
   try {
     const midenClient = await getMidenClient();
     const rawClient = (midenClient as any).client;

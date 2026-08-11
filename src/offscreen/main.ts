@@ -29,13 +29,17 @@ import * as sdk from '@miden-sdk/miden-sdk/lazy';
 
 import {
   OFFSCREEN_CALL,
+  OFFSCREEN_SIGN_REQUEST,
+  SW_TARGET,
   b64ToBytes,
   bytesToB64,
   decodeArg,
-  type OffscreenCallRequest
+  type OffscreenCallRequest,
+  type OffscreenSignResponse
 } from 'lib/miden/back/offscreen-codec';
-import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import type { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
+import type { ConsumeTransaction } from 'lib/miden/db/types';
+import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
 
 const TAG = '[offscreen-prover]';
 
@@ -110,6 +114,52 @@ function getProver() {
   return prover;
 }
 
+// --- Reverse-IPC sign stub (issue #260, slice 5, design §2.4) ---------------
+//
+// The offscreen client is created with `keystore.sign = offscreenSignViaSW`, so
+// when a write op's execute step needs a signature the SDK invokes THIS stub. It
+// can't reach the SW's decrypted vault directly, so the sign REVERSES across the
+// bus: post the raw `(pubkey, signingInputs)` bytes to the SW tagged for its
+// reverse-IPC handler, await the raw signature bytes. Only bytes cross — no SDK
+// handle is ever involved in signing.
+
+// The op_id of the OFFSCREEN_CALL currently executing in this realm. Stashed by
+// `handleCall` right before it invokes the DISPATCH fn (under the WASM mutex, so
+// only one op runs at a time — no concurrent overwrite) so the sign stub can tag
+// its request with the write op the signature belongs to (design §2.4, §2.5).
+let currentOpId: string | null = null;
+
+function newSignId(): string {
+  // The offscreen document is a window context, so `crypto.randomUUID` is always
+  // present (unlike the SW's defensive `newOpId` fallback).
+  return crypto.randomUUID();
+}
+
+async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Array): Promise<Uint8Array> {
+  const op_id = currentOpId;
+  if (!op_id) {
+    // A sign fired outside an OFFSCREEN_CALL — should be impossible (signing only
+    // happens inside a dispatched write op). Fail loud rather than sign untagged.
+    throw new Error('offscreen sign: no ambient op_id (sign fired outside an OFFSCREEN_CALL)');
+  }
+  const sign_id = newSignId();
+  const resp = (await chrome.runtime.sendMessage({
+    target: SW_TARGET,
+    type: OFFSCREEN_SIGN_REQUEST,
+    op_id,
+    sign_id,
+    publicKeyB64: bytesToB64(publicKey),
+    signingInputsB64: bytesToB64(signingInputs)
+  })) as OffscreenSignResponse | undefined;
+  if (!resp || !resp.ok) {
+    // Throw so the SDK's WebKeyStore captures it (offscreen `lastAuthError`) and
+    // the execute fails; the SW-side handler already recorded the classified
+    // reason authoritatively for the locked-defer path (design §2.6).
+    throw new Error(`offscreen sign failed: ${resp && !resp.ok ? resp.error : 'no response from SW'}`);
+  }
+  return b64ToBytes(resp.signatureB64);
+}
+
 // --- Generalized OFFSCREEN_CALL surface (issue #260, slice 1) ---------------
 //
 // Alongside the prover-only raw WebClient above, the offscreen doc now owns the
@@ -117,7 +167,8 @@ function getProver() {
 // used to run inline. `OFFSCREEN_CALL` messages dispatch a method against it
 // and stream the (serialized) result back. Slice 1 wired `getAccount`; slice 3
 // extends the DISPATCH table with the remaining serialization-clean reads
-// (`syncState`, `exportNote`, `getInputNoteDetails`); later slices add writes.
+// (`syncState`, `exportNote`, `getInputNoteDetails`); slice 4 added
+// `getConsumableNotes`; slice 5 adds the first WRITE, `consumeNoteId`.
 //
 // State-across-reopen correctness rests on IndexedDB: `closeDocument()` discards
 // the WASM heap by design, and a reopened client re-attaches to the same store.
@@ -175,6 +226,24 @@ const DISPATCH: Record<string, DispatchFn> = {
   getConsumableNotes: async (client, accountId: string) => {
     const dtos = await client.getConsumableNoteDtos(accountId);
     return new TextEncoder().encode(JSON.stringify(dtos));
+  },
+
+  // The first WRITE moved offscreen (issue #260, slice 5a). The WHOLE
+  // execute→prove→submit→apply chain runs here in-realm as one op, so a wedge
+  // anywhere in it is killable via `closeDocument()`. `client.consumeNoteId`
+  // takes the SDK BUNDLED prove path (NOT OFFSCREEN_PROVE) because inside this
+  // doc `isOffscreenAvailable()` is false — a doc can't spawn a sub-doc — so
+  // `shouldUseOffscreenProver()` returns false and the prove runs on THIS doc's
+  // pooled main-thread WASM instance (the client was created `useWorker:false`,
+  // design §5.1/§5.2). The mid-execute signature is fetched from the SW via the
+  // reverse-IPC stub. Only the final serialized `TransactionResult` crosses back;
+  // the intermediate handles stay opaque in-realm (design §6.2).
+  consumeNoteId: async (
+    client,
+    dto: { accountId: string; noteId: string; noteIds: string[]; delegateTransaction?: boolean }
+  ) => {
+    const result = await client.consumeNoteId(dto as unknown as ConsumeTransaction);
+    return result.serialize() as Uint8Array;
   }
 };
 
@@ -182,10 +251,25 @@ const DISPATCH: Record<string, DispatchFn> = {
 let clientPromise: Promise<MidenClientInterface> | null = null;
 function getOrCreateClient(): Promise<MidenClientInterface> {
   if (!clientPromise) {
+    // Created with two Slice-5 overrides vs. the SW's plain singleton:
+    //   - `signCallback: offscreenSignViaSW` — the reverse-IPC keystore stub, so
+    //     a write op's mid-execute signing reaches the SW-resident vault (§2).
+    //   - `useWorker: false` — REQUIRED (design §5.2). With the SDK worker shim
+    //     (`useWorker:true`, the browser default) the client would run every
+    //     method — including the write's local prove — in a method-worker with
+    //     its own UN-pooled WASM instance, so proving would be single-threaded
+    //     and the keystore callback would live in the worker (SDK: `lastAuthError`
+    //     "meaningful only with useWorker:false"). `false` pins the client to
+    //     THIS doc's main-thread WASM instance, whose rayon pool `init()` brought
+    //     up — so reads AND the write's prove run multi-threaded and the sign
+    //     callback is reachable.
     // S1: null the cached promise if the create rejects (e.g. a transient RPC
     // genesis fetch failure) so the NEXT OFFSCREEN_CALL retries within this same
     // doc — otherwise a one-off failure would stick until the next kill/reopen.
-    clientPromise = getMidenClient().catch((err: unknown) => {
+    clientPromise = MidenClientInterface.create({
+      signCallback: offscreenSignViaSW,
+      useWorker: false
+    }).catch((err: unknown) => {
       clientPromise = null;
       throw err;
     });
@@ -216,7 +300,18 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // RefCell ("recursive use of an object" crash). The IPC layer already
     // supports >1 in-flight op; this is where they queue. Slice 4's concurrent
     // routes inherit this serialization for free.
-    const resultBytes = await withWasmClientLock(() => dispatch(client, ...args));
+    const resultBytes = await withWasmClientLock(async () => {
+      // Stash the ambient op_id for the duration of the WASM op so the reverse-IPC
+      // sign stub (invoked mid-execute) can tag its request with this op (design
+      // §2.4). Scoped tightly to the locked section: the mutex serializes ops, so
+      // exactly one op's id is live at a time.
+      currentOpId = msg.op_id;
+      try {
+        return await dispatch(client, ...args);
+      } finally {
+        currentOpId = null;
+      }
+    });
     sendResponse({
       ok: true,
       op_id: msg.op_id,

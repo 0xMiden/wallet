@@ -21,6 +21,7 @@ import {
   buildSignCallbackError,
   readLastAuthReason
 } from './index'; // eslint-disable-line import/order
+import { recordLastSignReason } from './sign-callback'; // eslint-disable-line import/order
 
 const _g = globalThis as any;
 _g.__txBrTest = {
@@ -810,6 +811,19 @@ describe('readLastAuthReason', () => {
     });
     expect(await readLastAuthReason()).toBeUndefined();
   });
+
+  // Issue #260, slice 5: the flag-on offscreen write records its sign reason in
+  // the SW-side slot (the SW-inline client's lastAuthError would miss it).
+  it('take-and-clears the SW-side offscreen sign-reason slot BEFORE the SW client', async () => {
+    recordLastSignReason('locked');
+    // Slot value wins over whatever the SW client would report...
+    mockLastAuthError.mockReturnValue({ reason: 'rejected' });
+    expect(await readLastAuthReason()).toBe('locked');
+    // ...and is cleared after one read (op-scoped), so the NEXT read falls back
+    // to the SW client — the flag-off / still-inline-write path is unchanged.
+    expect(await readLastAuthReason()).toBe('rejected');
+    mockLastAuthError.mockReturnValue(null);
+  });
 });
 
 describe('buildSignCallbackError', () => {
@@ -835,5 +849,10 @@ describe('buildSignCallbackError', () => {
     expect(wrapped).toBeInstanceOf(Error);
     expect(wrapped.reason).toBe('internal');
     expect(wrapped.message).toContain('plain string failure');
+  });
+
+  it('tolerates an empty-message Error (falls back to internal)', () => {
+    const wrapped = buildSignCallbackError(new Error(''));
+    expect(wrapped.reason).toBe('internal');
   });
 });

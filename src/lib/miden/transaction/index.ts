@@ -1,4 +1,4 @@
-import { NoteType, TransactionProver, WasmWebClient } from '@miden-sdk/miden-sdk/lazy';
+import { NoteType, TransactionProver, type TransactionResult, WasmWebClient } from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 
 import {
@@ -32,7 +32,7 @@ import {
 } from './complete';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
-  buildSignCallbackError,
+  buildSignCallbackOptions,
   isGuardianCanonicalizationError,
   isLockedError,
   readLastAuthReason,
@@ -297,56 +297,60 @@ export const generateTransaction = async (
     return;
   }
 
-  const options: MidenClientCreateOptions = {
-    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-      const keyString = Buffer.from(publicKey).toString('hex');
-      const signingInputsString = Buffer.from(signingInputs).toString('hex');
-      try {
-        return await signCallback(keyString, signingInputsString);
-      } catch (err) {
-        // The SDK (WebKeyStore) captures the raw thrown value and exposes
-        // it via `midenClient.lastAuthError()`. Attach a stable `reason`
-        // tag so callers that catch the eventual executeTransaction
-        // failure can distinguish "wallet got locked mid-sign" from other
-        // failure modes (user rejection, keystore IO error, etc.).
-        throw buildSignCallbackError(err);
-      }
-    }
-  };
+  // The exact wrapped keystore options `generateTransaction` has always built:
+  // hex-converts the SDK's byte args, calls the raw `signCallback`, and tags a
+  // thrown value via `buildSignCallbackError` so the loop can distinguish
+  // "wallet locked mid-sign" from other failures. `buildSignCallbackOptions` is
+  // the extracted-verbatim form (issue #260, slice 5) shared with the offscreen
+  // consume proxy's flag-off path, so both build IDENTICAL options.
+  const options: MidenClientCreateOptions = buildSignCallbackOptions(signCallback);
 
-  // MidenClient handles the full pipeline (execute → prove → submit → apply)
-  const result = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient(options);
-    switch (transaction.type) {
-      case 'send':
-        return await midenClient.sendTransaction(transaction as SendTransaction);
-      case 'consume':
-        return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
-      case 'swap':
-        return await midenClient.swapTransaction(transaction as SwapTransaction);
-      case 'bridged-send':
-        // Epoch bridges by sending a recallable P2IDE note (send-style, no
-        // `requestBytes`); Agglayer carries a pre-built request.
-        if (!transaction.requestBytes) {
+  // MidenClient handles the full pipeline (execute → prove → submit → apply).
+  //
+  // `consume` is routed through `midenClientProxy.consumeNoteId` so it can run
+  // WHOLE-OP inside the offscreen realm when MIDEN_USE_OFFSCREEN_CLIENT is on
+  // (issue #260, slice 5a) — a wedge anywhere in its execute→prove→submit→apply
+  // then becomes killable. Its flag-OFF path is byte-identical to the inline
+  // switch below (same `withWasmClientLock`, same `getMidenClient(options)`, same
+  // `consumeNoteId(tx)`), so production is unchanged. The proxy owns its own
+  // per-flag locking, so consume is NOT wrapped in the caller lock here (flag-on
+  // must not hold the SW WASM lock across the whole offscreen op — that would
+  // stall SW sync and block the reverse-IPC sign handler).
+  let result: TransactionResult;
+  if (transaction.type === 'consume') {
+    result = await midenClientProxy.consumeNoteId(transaction as ConsumeTransaction, signCallback);
+  } else {
+    result = await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient(options);
+      switch (transaction.type) {
+        case 'send':
+          return await midenClient.sendTransaction(transaction as SendTransaction);
+        case 'swap':
+          return await midenClient.swapTransaction(transaction as SwapTransaction);
+        case 'bridged-send':
+          // Epoch bridges by sending a recallable P2IDE note (send-style, no
+          // `requestBytes`); Agglayer carries a pre-built request.
+          if (!transaction.requestBytes) {
+            return midenClient.sendTransaction(transaction as SendTransaction);
+          }
+          return midenClient.newTransaction(
+            transaction.accountId,
+            transaction.requestBytes,
+            transaction.delegateTransaction
+          );
+        case 'earn-deposit':
+          // Always send-style (recallable P2IDE note to the Epoch allocator).
           return midenClient.sendTransaction(transaction as SendTransaction);
-        }
-        return midenClient.newTransaction(
-          transaction.accountId,
-          transaction.requestBytes,
-          transaction.delegateTransaction
-        );
-      case 'earn-deposit':
-        // Always send-style (recallable P2IDE note to the Epoch allocator).
-        return midenClient.sendTransaction(transaction as SendTransaction);
-      case 'execute':
-      default:
-        return await midenClient.newTransaction(
-          transaction.accountId,
-          transaction.requestBytes!,
-          transaction.delegateTransaction
-        );
-    }
-  });
+        case 'execute':
+        default:
+          return await midenClient.newTransaction(
+            transaction.accountId,
+            transaction.requestBytes!,
+            transaction.delegateTransaction
+          );
+      }
+    });
+  }
 
   switch (transaction.type) {
     case 'send':

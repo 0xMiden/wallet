@@ -2,11 +2,12 @@ import { Runtime } from 'webextension-polyfill';
 
 import * as Actions from 'lib/miden/back/actions';
 import { intercom } from 'lib/miden/back/defaults';
-import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
+import { handleOffscreenSignRequest, midenClientProxy } from 'lib/miden/back/miden-client-proxy';
+import { OFFSCREEN_SIGN_REQUEST, SW_TARGET, type OffscreenSignRequest } from 'lib/miden/back/offscreen-codec';
 import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/speculation-manager';
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync } from 'lib/miden/back/sync-manager';
-import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
+import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { SerializedInputNoteDetail, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
@@ -23,6 +24,7 @@ let frontStore: ReturnType<typeof store.map> | null = null;
 export async function start() {
   console.log('Miden background script started');
   intercom.onRequest(processRequest);
+  registerOffscreenSignHandler();
 
   // NOTE: The Vite sw-patches plugin injects await init_*() calls here
   // (between intercom registration and Actions.init)
@@ -66,6 +68,49 @@ export async function start() {
   });
   // Force frontend to re-fetch state now that everything is initialized
   intercom.broadcast({ type: WalletMessageType.StateUpdated });
+}
+
+// Guard so a repeated start() (defensive) doesn't stack duplicate listeners.
+let offscreenSignHandlerRegistered = false;
+
+/**
+ * Register the SW-side reverse-IPC sign listener (issue #260, slice 5, design §2.4).
+ *
+ * When the flag-on offscreen write reaches its execute step, the offscreen
+ * client's `keystore.sign` stub posts an `OFFSCREEN_SIGN_REQUEST` (targeted at
+ * the SW). The SW signs via `swSignCallback` — the SAME vault signer the inline
+ * path uses — and responds with raw signature bytes; the reverse-IPC handler
+ * also pauses/re-arms the op's deadline and records a locked-mid-sign reason so
+ * the consume DEFERS (issue #313). Only bytes cross; no SDK handle.
+ *
+ * This rides a raw `chrome.runtime.onMessage` listener (like the offscreen
+ * prover's `OFFSCREEN_READY`), distinct from the intercom hub. The tight
+ * `target === 'sw' && type === OFFSCREEN_SIGN_REQUEST` guard means every other
+ * message (intercom traffic, `OFFSCREEN_READY`, `OFFSCREEN_CALL` responses)
+ * falls straight through. No-op when `chrome.runtime.onMessage` is unavailable
+ * (non-extension bundles), where the offscreen flag is hardcoded off anyway.
+ */
+function registerOffscreenSignHandler(): void {
+  if (offscreenSignHandlerRegistered) return;
+  if (typeof chrome === 'undefined' || !chrome.runtime?.onMessage?.addListener) return;
+  offscreenSignHandlerRegistered = true;
+  chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse: (r?: unknown) => void) => {
+    const m = msg as Partial<OffscreenSignRequest> | undefined;
+    if (m?.target !== SW_TARGET || m?.type !== OFFSCREEN_SIGN_REQUEST) return false;
+    handleOffscreenSignRequest(m as OffscreenSignRequest, swSignCallback).then(sendResponse, (err: unknown) => {
+      // The handler already classifies vault errors; a throw here is an
+      // unexpected internal fault. Respond ok:false so the offscreen sign stub
+      // rejects (failing the write) rather than hanging on a dropped response.
+      sendResponse({
+        ok: false,
+        sign_id: m.sign_id ?? '',
+        error: err instanceof Error ? err.message : String(err),
+        reason: 'internal'
+      });
+    });
+    // Returning true tells Chrome we'll call sendResponse asynchronously.
+    return true;
+  });
 }
 
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {

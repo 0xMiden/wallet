@@ -16,6 +16,7 @@ _g.__mainTest = {
   storeWatch: jest.fn(),
   doSync: jest.fn(),
   startTransactionProcessing: jest.fn(),
+  swSignCallback: jest.fn(async () => new Uint8Array([0xab, 0xcd])),
   client: {
     importNoteBytes: jest.fn(),
     syncState: jest.fn(),
@@ -43,7 +44,9 @@ jest.mock('./sync-manager', () => ({
 }));
 
 jest.mock('./transaction-processor', () => ({
-  startTransactionProcessing: () => (globalThis as any).__mainTest.startTransactionProcessing()
+  startTransactionProcessing: () => (globalThis as any).__mainTest.startTransactionProcessing(),
+  // The reverse-IPC sign handler's fallback signer (issue #260, slice 5).
+  swSignCallback: (...a: any[]) => (globalThis as any).__mainTest.swSignCallback(...a)
 }));
 
 // The #260 offscreen client proxy reads (getAccount/syncState/exportNote/
@@ -511,5 +514,91 @@ describe('processRequest', () => {
       assets: [{ amount: '0', faucetId: '' }],
       nullifier: ''
     });
+  });
+});
+
+// Capture the reverse-IPC listener `start()` registers on the global
+// webextension `chrome` mock. `registerOffscreenSignHandler` self-guards, so it
+// wires the listener exactly ONCE (during the first beforeEach's start()). Wrap
+// `addListener` at file scope — before that first start() — and stash listeners
+// in a plain array `jest.clearAllMocks()` won't wipe. `start()` only ever calls
+// `chrome.runtime.onMessage.addListener` from the sign handler (intercom.onRequest
+// is a separate, mocked channel), so index 0 is the sign listener.
+const capturedRuntimeListeners: Array<(m: any, s: any, r: (x?: any) => void) => any> = [];
+beforeAll(() => {
+  const chromeAny = (globalThis as any).chrome;
+  if (chromeAny?.runtime?.onMessage) {
+    chromeAny.runtime.onMessage.addListener = (l: any) => capturedRuntimeListeners.push(l);
+  }
+});
+
+describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 slice 5)', () => {
+  const flushMicro = () => new Promise(resolve => setTimeout(resolve, 0));
+  const signListener = () => capturedRuntimeListeners[0]!;
+
+  it('registers exactly one runtime.onMessage listener that ignores non-sign messages (returns false)', () => {
+    expect(capturedRuntimeListeners.length).toBe(1);
+    const listener = signListener();
+    expect(typeof listener).toBe('function');
+    // Wrong target / wrong type → not ours, let other listeners handle it.
+    expect(listener({ target: 'offscreen', type: 'OFFSCREEN_CALL' }, {}, jest.fn())).toBe(false);
+    expect(listener({ type: 'OFFSCREEN_READY' }, {}, jest.fn())).toBe(false);
+    expect(listener(undefined, {}, jest.fn())).toBe(false);
+  });
+
+  it('answers an OFFSCREEN_SIGN_REQUEST via handleOffscreenSignRequest → swSignCallback (bytes only)', async () => {
+    _g.__mainTest.swSignCallback.mockResolvedValue(new Uint8Array([0xab, 0xcd]));
+    const sendResponse = jest.fn();
+    const ret = signListener()(
+      {
+        target: 'sw',
+        type: 'OFFSCREEN_SIGN_REQUEST',
+        op_id: 'op-x',
+        sign_id: 'sign-x',
+        publicKeyB64: Buffer.from([0x01, 0x02]).toString('base64'),
+        signingInputsB64: Buffer.from([0x03, 0x04]).toString('base64')
+      },
+      {},
+      sendResponse
+    );
+    // Returning true keeps the message port open for the async sendResponse.
+    expect(ret).toBe(true);
+    await flushMicro();
+    // The fallback signer was called with HEX-converted pubkey / signing inputs.
+    expect(_g.__mainTest.swSignCallback).toHaveBeenCalledWith('0102', '0304');
+    // And the signature bytes flowed back base64-encoded.
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ok: true,
+        sign_id: 'sign-x',
+        signatureB64: Buffer.from([0xab, 0xcd]).toString('base64')
+      })
+    );
+  });
+
+  it('responds ok:false when the sign handler itself throws (never drops the response)', async () => {
+    // Force an internal fault inside handleOffscreenSignRequest by feeding a
+    // malformed base64 that b64ToBytes/Buffer will still process but the signer
+    // rejects — simplest: make the fallback signer throw a non-classified error.
+    _g.__mainTest.swSignCallback.mockRejectedValueOnce(new Error('keystore exploded'));
+    const sendResponse = jest.fn();
+    signListener()(
+      {
+        target: 'sw',
+        type: 'OFFSCREEN_SIGN_REQUEST',
+        op_id: 'op-y',
+        sign_id: 'sign-y',
+        publicKeyB64: Buffer.from([0x01]).toString('base64'),
+        signingInputsB64: Buffer.from([0x02]).toString('base64')
+      },
+      {},
+      sendResponse
+    );
+    await flushMicro();
+    // A thrown signer is classified (internal) and returned as ok:false — the
+    // offscreen stub then rejects, failing the write rather than hanging.
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.sign_id).toBe('sign-y');
   });
 });

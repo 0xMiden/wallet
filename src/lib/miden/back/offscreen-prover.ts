@@ -33,11 +33,45 @@ function withLifecycleLock<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 // Counter of in-flight non-speculative proves (real send / consume / new
-// transaction). abortSpeculativeProve() bails when this is > 0 — we MUST
-// NOT terminate the offscreen doc while a real send's prove is running,
-// since killing it would error the user's actual transaction. Speculative
-// proves don't increment this counter, so abort can safely kill them.
+// transaction) dispatched via OFFSCREEN_PROVE. abortSpeculativeProve() bails
+// when this is > 0 — we MUST NOT terminate the offscreen doc while a real
+// send's prove is running, since killing it would error the user's actual
+// transaction. Speculative proves don't increment this counter, so abort can
+// safely kill them.
 let nonSpeculativeProveCount = 0;
+
+// Counter of in-flight CRITICAL offscreen ops (issue #260, slice 5, design §3).
+// Generalizes `nonSpeculativeProveCount`: a whole-op offscreen WRITE
+// (`consumeNoteId`, and later send/swap/newTransaction) runs its own
+// execute→prove→submit→apply IN-REALM — it never uses OFFSCREEN_PROVE, so it
+// does NOT bump `nonSpeculativeProveCount`. The SW write proxy brackets each
+// such op with `incrementCriticalOp()`/`decrementCriticalOp()` so the same
+// "don't tear down a live value-moving op for someone else's deadline"
+// protection a real prove gets also covers the whole write pipeline.
+let criticalOpCount = 0;
+
+/** Bracket the start of a critical offscreen op (a whole-op write). Paired with
+ * {@link decrementCriticalOp} in the caller's `finally`. */
+export function incrementCriticalOp(): void {
+  criticalOpCount++;
+}
+
+/** Bracket the end of a critical offscreen op. Clamped at 0 defensively. */
+export function decrementCriticalOp(): void {
+  if (criticalOpCount > 0) criticalOpCount--;
+}
+
+/**
+ * True while ANY critical op owns the offscreen doc — a whole-op offscreen write
+ * (`criticalOpCount > 0`) OR a real non-speculative prove
+ * (`nonSpeculativeProveCount > 0`, folded in so the pre-slice-5 protection is
+ * preserved). The write proxy consults this so a coincident cheap READ deadline
+ * DOWNGRADES to a reject-without-kill instead of tearing down a realm that is
+ * mid-value-movement (design §3.3); `abortSpeculativeProve` bails on it too.
+ */
+export function isCriticalOpInFlight(): boolean {
+  return criticalOpCount > 0 || nonSpeculativeProveCount > 0;
+}
 
 /**
  * True iff the runtime exposes the `chrome.offscreen` API. Chrome MV3 only
@@ -123,26 +157,15 @@ export async function ensureOffscreenDocument(): Promise<void> {
  * Returns true if the doc was actually closed; false if we bailed.
  */
 export async function abortSpeculativeProve(): Promise<boolean> {
-  if (nonSpeculativeProveCount > 0) return false;
+  // Bail if ANY critical op is in flight — a real prove (nonSpeculativeProveCount)
+  // OR a whole-op offscreen write (criticalOpCount). A stale-speculation abort
+  // must never tear down a live value-moving op (issue #260, slice 5, design §3.2).
+  if (isCriticalOpInFlight()) return false;
   return await withLifecycleLock(async () => {
     if (!(await hasOffscreenDocument())) return false;
     await chrome.offscreen.closeDocument();
     return true;
   });
-}
-
-/**
- * True while a non-speculative prove (a real send / consume / newTransaction)
- * is in flight in the offscreen doc.
- *
- * The generalized offscreen client (issue #260) shares the SINGLE offscreen doc
- * with the prover, so a per-op deadline kill on a cheap proxied read must NOT
- * collateral-kill the realm while a user's real prove is mid-flight (design
- * §4). The `MidenClientProxy` consults this and, when true, downgrades a read
- * deadline to a plain reject-without-kill instead of tearing down the doc.
- */
-export function isNonSpeculativeProveInFlight(): boolean {
-  return nonSpeculativeProveCount > 0;
 }
 
 /**
@@ -152,8 +175,8 @@ export function isNonSpeculativeProveInFlight(): boolean {
  * §3.2), whose whole purpose is to kill a wedged realm. Serialized through
  * `withLifecycleLock` so the close can't race a concurrent create.
  *
- * Callers that must not kill a healthy real prove should gate on
- * {@link isNonSpeculativeProveInFlight} first; this function itself does not.
+ * Callers that must not kill a healthy critical op should gate on
+ * {@link isCriticalOpInFlight} first; this function itself does not.
  *
  * Returns true if a document was actually closed; false if none existed.
  */
