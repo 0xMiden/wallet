@@ -17,6 +17,7 @@
 import { Account, getWasmOrThrow, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
 
 import type { NoteExportType } from 'lib/miden/sdk/constants';
+import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { getMidenClient } from 'lib/miden/sdk/miden-client';
 import type { InputNoteDetails } from 'lib/miden/sdk/miden-client-interface';
 
@@ -309,6 +310,35 @@ export const midenClientProxy = {
     const resultB64 = await this.call('getInputNoteDetails', [query], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) return [];
     return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as InputNoteDetails[];
+  },
+
+  /**
+   * Read consumable notes as plain {@link ConsumableNoteDto}s (issue #260, slice 4).
+   *
+   * This is the behavior-AFFECTING move: the return shape changes from live
+   * `InputNoteRecord[]` (which callers reached through via `.id()/.metadata()/…`)
+   * to a plain DTO that carries every field those callers read. It is
+   * behavior-PRESERVING because both flag paths reduce through the SAME
+   * `getConsumableNoteDtos` reducer:
+   *   - flag off (default): the SW-inline client reduces — the reclaim gate uses
+   *     the SW client's own sync height, exactly as before this slice (the
+   *     reduction just relocated out of each caller into one place).
+   *   - flag on: the OFFSCREEN client reduces — the reclaim gate uses the
+   *     offscreen (sync-running) realm's height, which is the whole fix: a single
+   *     client owns the sync state, so the gate can't go stale (was: SW-inline
+   *     gate reading a stale height after an offscreen sync → wrongly filtered
+   *     funds-bearing notes). The DTO array JSON-round-trips across the boundary.
+   *
+   * Callers are flag-agnostic: they consume the DTO and apply their own per-note
+   * skip rule (some skip on `!noteId`, the dApp handler on `!noteId || !nullifier`).
+   */
+  async getConsumableNotes(accountId: string): Promise<ConsumableNoteDto[]> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return (await getMidenClient()).getConsumableNoteDtos(accountId);
+    }
+    const resultB64 = await this.call('getConsumableNotes', [accountId], { deadlineMs: READ_DEADLINE_MS });
+    if (resultB64 == null) return [];
+    return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as ConsumableNoteDto[];
   }
 };
 

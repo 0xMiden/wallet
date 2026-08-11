@@ -37,6 +37,7 @@ import type { AuthScheme } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { NoteExportType } from './constants';
+import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
 import { getBech32AddressFromAccountId } from './helpers';
 import { yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
@@ -125,6 +126,10 @@ export type MidenClientCreateOptions = {
   signCallback?: (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;
   onConnectivityIssue?: () => void;
 };
+
+// Re-export the slice-4 consumable-note DTO from the interface too, so callers
+// that already import note types from here get it in one place.
+export type { ConsumableNoteAsset, ConsumableNoteDto } from './consumable-notes';
 
 export type InputNoteDetails = {
   noteId: string;
@@ -473,6 +478,23 @@ export class MidenClientInterface {
 
   async sendPrivateNote(note: Note, to: string): Promise<void> {
     await this.client.notes.sendPrivate({ note, to });
+  }
+
+  /**
+   * Consumable notes reduced to plain, JSON-safe {@link ConsumableNoteDto}s
+   * (issue #260, slice 4).
+   *
+   * This is the DTO-returning form the offscreen proxy routes through. Its whole
+   * point is that the reclaim gate inside {@link getConsumableNotes}
+   * (`consumableAfterBlock() <= getSyncHeight()`) AND the per-note reduction run
+   * in the SAME realm — so when the flag is on and `syncState` ran offscreen, the
+   * gate uses the offscreen (sync-running) realm's height rather than a stale
+   * SW-inline height. The reduction is behavior-preserving: it relocates the exact
+   * reach-through the callers used into one shared reducer.
+   */
+  async getConsumableNoteDtos(accountId: string): Promise<ConsumableNoteDto[]> {
+    const records = await this.getConsumableNotes(accountId);
+    return reduceConsumableNoteRecords(records);
   }
 
   async getConsumableNotes(accountId: string): Promise<InputNoteRecord[]> {

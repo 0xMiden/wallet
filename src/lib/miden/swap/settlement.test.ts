@@ -33,16 +33,16 @@ const tx = (overrides: Record<string, unknown> = {}) => ({
   ...overrides
 });
 
-const note = (id: string, attachment?: [bigint, bigint, bigint, bigint]) => ({
-  id: () => ({ toString: () => id }),
-  attachments: () =>
-    attachment
-      ? [
-          {
-            toWords: () => [{ toU64s: () => BigUint64Array.from(attachment) }]
-          }
-        ]
-      : []
+// Since slice 4 (issue #260) classifySwapOrderNotes consumes ConsumableNoteDtos:
+// the per-note swap {orderId, depth} is precomputed into `swapAttachment` by the
+// reducer, so the fixture mirrors that reduction of a PSWAP payback word
+// ([_, orderId, depth, 0]). The classifier only reads noteId + swapAttachment.
+const note = (id: string, attachment?: [bigint, bigint, bigint, bigint]): any => ({
+  noteId: id,
+  swapAttachment:
+    attachment && attachment[3] === 0n && attachment[1] != null && attachment[2] != null
+      ? { orderId: attachment[1].toString(), depth: Number(attachment[2]) }
+      : null
 });
 
 const consumable = (

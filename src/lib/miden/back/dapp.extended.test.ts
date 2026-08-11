@@ -633,7 +633,8 @@ describe('requestConsumableNotes — Auto permission', () => {
       getAccount: _g.__dappTestMockGetAccount,
       getOutputNotes: _g.__dappTestMockGetOutputNotes,
       syncState: jest.fn(async () => {}),
-      getConsumableNotes: jest.fn(async () => [])
+      // Slice-4: dapp reads consumable notes as DTOs via getConsumableNoteDtos.
+      getConsumableNoteDtos: jest.fn(async () => [])
     });
     try {
       const res = await dapp.requestConsumableNotes('https://miden.xyz', {

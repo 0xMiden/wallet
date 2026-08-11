@@ -107,11 +107,13 @@ function resetControl() {
     inlineSyncState: jest.fn(async () => ({ __syncSummary: true })),
     inlineExportNote: jest.fn(async () => new Uint8Array([1, 2, 3])),
     inlineGetInputNoteDetails: jest.fn(async () => [{ __inlineDetail: true }]),
+    inlineGetConsumableNoteDtos: jest.fn(async () => [{ __inlineConsumable: true }]),
     getMidenClient: jest.fn(async () => ({
       getAccount: (...a: any[]) => G.__px.inlineGetAccount(...a),
       syncState: (...a: any[]) => G.__px.inlineSyncState(...a),
       exportNote: (...a: any[]) => G.__px.inlineExportNote(...a),
-      getInputNoteDetails: (...a: any[]) => G.__px.inlineGetInputNoteDetails(...a)
+      getInputNoteDetails: (...a: any[]) => G.__px.inlineGetInputNoteDetails(...a),
+      getConsumableNoteDtos: (...a: any[]) => G.__px.inlineGetConsumableNoteDtos(...a)
     })),
     proveInFlight: false
   };
@@ -387,6 +389,73 @@ describe('MidenClientProxy — slice-3 reads: getInputNoteDetails (plain-DTO rou
     // `undefined` arg is JSON-null on the wire (decodeArg → null → `?? undefined`).
     expect(env.argsB64).toEqual(['s:null']);
     expect(details).toEqual([]);
+  });
+});
+
+describe('MidenClientProxy — slice-4 consumable notes (DTO round-trip)', () => {
+  it('flag OFF → getConsumableNotes goes inline via getConsumableNoteDtos (the reducing form)', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const notes = await midenClientProxy.getConsumableNotes('acc-1');
+
+    // Flag-off routes to the DTO-reducing interface method, NOT the raw
+    // getConsumableNotes — so the reclaim gate + reduction run inline, exactly
+    // as before this slice (just relocated into one place).
+    expect(G.__px.inlineGetConsumableNoteDtos).toHaveBeenCalledWith('acc-1');
+    expect(notes).toEqual([{ __inlineConsumable: true }]);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → getConsumableNotes routes offscreen and JSON-parses the DTO array back', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    // The offscreen side runs the reclaim gate against ITS OWN (sync-running)
+    // realm's height and ships a reduced DTO array as UTF-8 JSON.
+    const dto = [
+      {
+        noteId: '0xnote',
+        nullifier: '0xnull',
+        noteType: 1,
+        senderAccountId: 'mtst1qsender',
+        state: 2,
+        assets: [{ amount: '100', faucetId: 'mtst1qfaucet' }],
+        swapAttachment: { orderId: '77', depth: 2 }
+      }
+    ];
+    const bytes = new TextEncoder().encode(JSON.stringify(dto));
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(bytes).toString('base64'),
+      durationMs: 7
+    }));
+
+    const p = midenClientProxy.getConsumableNotes('acc-2');
+    await flush();
+    fireReady();
+    const notes = await p;
+
+    // Inline reducing form untouched.
+    expect(G.__px.inlineGetConsumableNoteDtos).not.toHaveBeenCalled();
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('getConsumableNotes');
+    expect(env.deadline_ms).toBe(15_000);
+    expect(env.argsB64).toEqual(['s:"acc-2"']);
+    // Full DTO survived JSON→bytes→base64→JSON, swapAttachment + numeric enums intact.
+    expect(notes).toEqual(dto);
+  });
+
+  it('flag ON → a null offscreen result yields an empty DTO array', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const p = midenClientProxy.getConsumableNotes('acc-3');
+    await flush();
+    fireReady();
+    expect(await p).toEqual([]);
   });
 });
 

@@ -162,6 +162,19 @@ const DISPATCH: Record<string, DispatchFn> = {
     // through encodeArg) back to the SDK's optional-query shape.
     const details = await client.getInputNoteDetails(query ?? undefined);
     return new TextEncoder().encode(JSON.stringify(details));
+  },
+
+  // Consumable notes (issue #260, slice 4). The RECLAIM GATE
+  // (`consumableAfterBlock() <= getSyncHeight()`) lives inside
+  // `getConsumableNoteDtos` → so running it HERE, in the offscreen realm that
+  // also ran `syncState`, is the whole point: the gate uses this realm's sync
+  // height, not the stale SW-inline one. Result is a plain JSON-safe DTO array
+  // carrying every field each caller reads (the live `InputNoteRecord` — with no
+  // serializer and callers reaching through to `.id()/.metadata()/…` — cannot
+  // itself cross the boundary; the reduced DTO can).
+  getConsumableNotes: async (client, accountId: string) => {
+    const dtos = await client.getConsumableNoteDtos(accountId);
+    return new TextEncoder().encode(JSON.stringify(dtos));
   }
 };
 

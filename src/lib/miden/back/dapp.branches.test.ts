@@ -119,6 +119,7 @@ jest.mock('../sdk/miden-client', () => ({
     getAccount: (id: string) => (globalThis as any).__dappBranchMockGetAccount(id),
     getInputNoteDetails: jest.fn(async () => []),
     getConsumableNotes: jest.fn(async () => []),
+    getConsumableNoteDtos: jest.fn(async () => []),
     syncState: jest.fn(async () => {}),
     importNoteBytes: jest.fn(async () => ({ toString: () => 'note-123' })),
     on: jest.fn()

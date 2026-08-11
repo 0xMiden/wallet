@@ -119,11 +119,24 @@ function resetControl() {
     clientGetInputNoteDetails: jest.fn(async (_q: unknown) => [
       { noteId: '0xabc', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
     ]),
+    // Slice-4 consumable-note DTOs on the offscreen-owned client.
+    clientGetConsumableNoteDtos: jest.fn(async (_id: string) => [
+      {
+        noteId: '0xnote',
+        nullifier: '0xnull',
+        noteType: 1,
+        senderAccountId: 'mtst1qsender',
+        state: 2,
+        assets: [{ amount: '100', faucetId: 'mtst1qfaucet' }],
+        swapAttachment: null
+      }
+    ]),
     getMidenClient: jest.fn(async () => ({
       getAccount: (...a: any[]) => (globalThis as any).__off.clientGetAccount(...a),
       syncState: (...a: any[]) => (globalThis as any).__off.clientSyncState(...a),
       exportNote: (...a: any[]) => (globalThis as any).__off.clientExportNote(...a),
-      getInputNoteDetails: (...a: any[]) => (globalThis as any).__off.clientGetInputNoteDetails(...a)
+      getInputNoteDetails: (...a: any[]) => (globalThis as any).__off.clientGetInputNoteDetails(...a),
+      getConsumableNoteDtos: (...a: any[]) => (globalThis as any).__off.clientGetConsumableNoteDtos(...a)
     }))
   };
 }
@@ -584,6 +597,38 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const decoded = JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'));
     expect(decoded).toEqual([
       { noteId: '0xabc', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
+    ]);
+  });
+
+  it('dispatches getConsumableNotes and JSON-encodes the reduced DTO array (issue #260 slice 4)', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const ret = capturedListener!(
+      callReq({ method: 'getConsumableNotes', argsB64: [encodeArg('mtst1qqaccount')] }),
+      {},
+      sendResponse
+    );
+    expect(ret).toBe(true);
+    await flush();
+
+    // accountId arg decoded across the wire; reduction ran on the offscreen client.
+    expect(G.__off.clientGetConsumableNoteDtos).toHaveBeenCalledWith('mtst1qqaccount');
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(resp.op_id).toBe('op-abc');
+    // resultB64 is UTF-8 JSON of the DTO array — the numeric enums (noteType:1,
+    // state:2), nested asset strings and swapAttachment all survive the round-trip.
+    const decoded = JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'));
+    expect(decoded).toEqual([
+      {
+        noteId: '0xnote',
+        nullifier: '0xnull',
+        noteType: 1,
+        senderAccountId: 'mtst1qsender',
+        state: 2,
+        assets: [{ amount: '100', faucetId: 'mtst1qfaucet' }],
+        swapAttachment: null
+      }
     ]);
   });
 

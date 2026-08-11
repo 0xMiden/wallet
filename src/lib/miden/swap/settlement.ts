@@ -7,6 +7,7 @@ import {
   orderIdString,
   type SwapOrder
 } from './classification';
+import { midenClientProxy } from '../back/miden-client-proxy';
 import { ITransactionStatus } from '../db/types';
 import { toNoteTypeString } from '../helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
@@ -150,15 +151,16 @@ export async function settleSwapOrders(
   }
 
   const managedNotes = await withWasmClientLock(async () => {
+    // `client` still drives per-order PSWAP lineage inside classifySwapOrderNotes;
+    // the notes themselves come back as DTOs from the proxy (issue #260, slice 4).
     const client = await getMidenClient();
-    const rawNotes = await client.getConsumableNotes(accountId);
+    const rawNotes = await midenClientProxy.getConsumableNotes(accountId);
     const classified = await classifySwapOrderNotes(rawNotes, accountId, client, orders);
-    return rawNotes.flatMap(note => {
-      const id = note.id()?.toString();
+    return rawNotes.flatMap<ConsumableNote>(note => {
+      const id = note.noteId;
       const swapOrder = id ? classified.get(id) : undefined;
       if (!id || !swapOrder) return [];
-      const metadata = note.metadata();
-      const type: ConsumableNote['type'] = metadata ? toNoteTypeString(metadata.noteType()) : 'unknown';
+      const type: ConsumableNote['type'] = note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown';
       return [
         {
           id,

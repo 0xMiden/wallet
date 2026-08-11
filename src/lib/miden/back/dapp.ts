@@ -7,7 +7,7 @@ import {
   PrivateDataPermission,
   SendTransaction
 } from '@demox-labs/miden-wallet-adapter-base';
-import { AccountInterface, NoteFilterTypes, NoteType, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
+import { NoteFilterTypes, NoteType, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
 import { nanoid } from 'nanoid';
 import type { Runtime } from 'webextension-polyfill';
 
@@ -58,7 +58,6 @@ import {
   MidenMessageType,
   MidenRequest
 } from 'lib/miden/types';
-import { getNetworkId } from 'lib/miden-chain/constants';
 import { isDesktop, isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
@@ -683,39 +682,30 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
     consumableNotes = await withUnlocked(async () => {
       // Wrap WASM client operations in a lock to prevent concurrent access
       return await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
         await midenClientProxy.syncState();
-        const notes = await midenClient.getConsumableNotes(accountId);
-        const consumableNotesDetails = notes.flatMap(note => {
+        // Consumable notes as DTOs (issue #260, slice 4). The reclaim gate + the
+        // reduction ran in the client's realm (offscreen when the flag is on, so
+        // it uses the same realm that just ran syncState above — no stale height).
+        // The DTO is a strict superset of InputNoteDetails; map it 1:1.
+        const notes = await midenClientProxy.getConsumableNotes(accountId);
+        return notes.flatMap<InputNoteDetails>(note => {
           // Partial (metadata-less) notes have no ID — and, since 0.15
           // nullifiers fold in metadata, no nullifier either. They cannot
           // be consumed, so skip until sync completes them.
-          const noteId = note.id();
-          const nullifier = note.nullifier();
-          if (!noteId || !nullifier) {
+          if (!note.noteId || !note.nullifier) {
             return [];
           }
-          const assets = note
-            .details()
-            .assets()
-            .fungibleAssets()
-            .map(asset => ({
-              amount: asset.amount().toString(),
-              faucetId: asset.faucetId().toBech32(getNetworkId(), AccountInterface.BasicWallet)
-            }));
           return [
             {
-              noteId: noteId.toString(),
-              noteType: note.metadata()?.noteType(),
-              senderAccountId:
-                note.metadata()?.sender()?.toBech32(getNetworkId(), AccountInterface.BasicWallet) || undefined,
-              nullifier,
-              state: note.state(),
-              assets: assets
+              noteId: note.noteId,
+              noteType: note.noteType,
+              senderAccountId: note.senderAccountId,
+              nullifier: note.nullifier,
+              state: note.state,
+              assets: note.assets
             }
           ];
         });
-        return consumableNotesDetails;
       });
     });
     return consumableNotes;

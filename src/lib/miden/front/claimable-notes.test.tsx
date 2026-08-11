@@ -66,6 +66,16 @@ jest.mock('../sdk/miden-client', () => ({
   runWhenClientIdle: (fn: () => Promise<any>) => mockRunWhenClientIdle(fn)
 }));
 
+// Since slice 4 (issue #260) claimable-notes reads consumable notes through the
+// proxy (which returns reduced DTOs) rather than getMidenClient().getConsumableNotes.
+// Mock the proxy so the fixtures below are plain DTOs; getMidenClient is still
+// used for the swap-classification lineage arg.
+jest.mock('../back/miden-client-proxy', () => ({
+  midenClientProxy: {
+    getConsumableNotes: (...a: any[]) => (globalThis as any).__cnTest.proxyGetConsumableNotes(...a)
+  }
+}));
+
 jest.mock('lib/miden/activity', () => ({
   getUncompletedTransactions: async () => (globalThis as any).__cnTest.uncompletedTxs
 }));
@@ -117,9 +127,9 @@ beforeEach(() => {
   _g.__cnTest.lastFetchPromise = Promise.resolve();
   _g.__cnTest.lastFetchData = undefined;
   mockRunWhenClientIdle.mockReset();
-  mockGetMidenClient.mockReset().mockResolvedValue({
-    getConsumableNotes: jest.fn(async () => (globalThis as any).__cnTest.consumableNotes)
-  });
+  mockGetMidenClient.mockReset().mockResolvedValue({});
+  // Default proxy read: return the fixture DTO list; individual tests override.
+  _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => _g.__cnTest.consumableNotes);
 });
 
 describe('useClaimableNotes (extension mode)', () => {
@@ -309,6 +319,8 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     _g.__cnTest.isExtension = false;
   });
 
+  // DTO fixtures (issue #260, slice 4): the proxy returns reduced ConsumableNoteDtos,
+  // so bech32 encoding is already applied — faucetId/senderAccountId are final values.
   function makeMockNote({
     id = 'note-1',
     faucetId = 'miden-faucet',
@@ -321,81 +333,38 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     amount?: string;
     senderId?: string;
     noteType?: number;
-  } = {}) {
+  } = {}): any {
     return {
-      id: () => ({ toString: () => id }),
-      metadata: () => ({
-        sender: () => senderId,
-        noteType: () => noteType
-      }),
-      details: () => ({
-        assets: () => ({
-          fungibleAssets: () => [
-            {
-              faucetId: () => faucetId,
-              amount: () => ({ toString: () => amount })
-            }
-          ]
-        })
-      })
+      noteId: id,
+      nullifier: `null-${id}`,
+      noteType,
+      senderAccountId: senderId,
+      state: 2,
+      assets: [{ faucetId, amount }],
+      swapAttachment: null
     };
   }
 
   it('fetches notes from the WASM client and parses them', async () => {
     _g.__cnTest.consumableNotes = [makeMockNote({ id: 'local-1' })];
-    mockGetMidenClient.mockResolvedValue({
-      getConsumableNotes: jest.fn(async () => _g.__cnTest.consumableNotes)
-    });
     renderHook(() => useClaimableNotes('pk-1'));
     await waitFor(() => {
-      expect(mockGetMidenClient).toHaveBeenCalled();
+      expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalled();
     });
   });
 
   it('handles a note with no fungible assets by skipping it', async () => {
-    const badNote = {
-      id: () => ({ toString: () => 'empty' }),
-      metadata: () => ({ sender: () => 's', noteType: () => 0 }),
-      details: () => ({
-        assets: () => ({
-          fungibleAssets: () => []
-        })
-      })
-    };
+    const badNote = { ...makeMockNote({ id: 'empty', senderId: 's' }), assets: [] };
     _g.__cnTest.consumableNotes = [badNote, makeMockNote({ id: 'good' })];
-    mockGetMidenClient.mockResolvedValue({
-      getConsumableNotes: jest.fn(async () => _g.__cnTest.consumableNotes)
-    });
     renderHook(() => useClaimableNotes('pk-1'));
     await waitFor(() => {
       expect(mockGetMidenClient).toHaveBeenCalled();
     });
   });
 
-  it('skips a partial note whose id() is undefined', async () => {
-    const partialNote = {
-      id: () => undefined
-    };
+  it('skips a partial note whose noteId is null', async () => {
+    const partialNote = { ...makeMockNote({ id: 'partial' }), noteId: null };
     _g.__cnTest.consumableNotes = [partialNote, makeMockNote({ id: 'full-note' })];
-    mockGetMidenClient.mockResolvedValue({
-      getConsumableNotes: jest.fn(async () => _g.__cnTest.consumableNotes)
-    });
-    renderHook(() => useClaimableNotes('pk-1'));
-    await waitFor(() => {
-      expect(mockGetMidenClient).toHaveBeenCalled();
-    });
-  });
-
-  it('handles a note that throws inside id()', async () => {
-    const badNote = {
-      id: () => {
-        throw new Error('boom');
-      }
-    };
-    _g.__cnTest.consumableNotes = [badNote];
-    mockGetMidenClient.mockResolvedValue({
-      getConsumableNotes: jest.fn(async () => _g.__cnTest.consumableNotes)
-    });
     renderHook(() => useClaimableNotes('pk-1'));
     await waitFor(() => {
       expect(mockGetMidenClient).toHaveBeenCalled();
@@ -405,9 +374,6 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
   it('excludes quarantined notes (simulation dry-run imports) from the result', async () => {
     _g.__cnTest.consumableNotes = [makeMockNote({ id: 'quarantined-note' }), makeMockNote({ id: 'visible-note' })];
     _g.__cnTest.quarantined = new Set(['quarantined-note']);
-    mockGetMidenClient.mockResolvedValue({
-      getConsumableNotes: jest.fn(async () => _g.__cnTest.consumableNotes)
-    });
     renderHook(() => useClaimableNotes('pk-1'));
     await _g.__cnTest.lastFetchPromise;
     expect(_g.__cnTest.lastFetchData.map((n: any) => n.id)).toEqual(['visible-note']);
@@ -416,9 +382,6 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
   it('uses the in-progress consume transactions to mark notes as being claimed', async () => {
     _g.__cnTest.consumableNotes = [makeMockNote({ id: 'note-being-claimed' })];
     _g.__cnTest.uncompletedTxs = [{ type: 'consume', noteId: 'note-being-claimed' }];
-    mockGetMidenClient.mockResolvedValue({
-      getConsumableNotes: jest.fn(async () => _g.__cnTest.consumableNotes)
-    });
     renderHook(() => useClaimableNotes('pk-1'));
     await waitFor(() => {
       expect(mockGetMidenClient).toHaveBeenCalled();
@@ -428,9 +391,6 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
   it('attaches cached metadata for a non-miden faucet present in the cache', async () => {
     _g.__cnTest.metadataCache = { 'other-faucet': { decimals: 8, symbol: 'OTH', name: 'Other' } };
     _g.__cnTest.consumableNotes = [makeMockNote({ id: 'cached-note', faucetId: 'other-faucet' })];
-    mockGetMidenClient.mockResolvedValue({
-      getConsumableNotes: jest.fn(async () => _g.__cnTest.consumableNotes)
-    });
     renderHook(() => useClaimableNotes('pk-1'));
     await _g.__cnTest.lastFetchPromise;
     expect(_g.__cnTest.lastFetchData).toEqual([
@@ -442,9 +402,6 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
 
   it('queues a background fetch for an unknown faucet and persists the fetched metadata', async () => {
     _g.__cnTest.consumableNotes = [makeMockNote({ id: 'unknown-note', faucetId: 'unknown-faucet' })];
-    mockGetMidenClient.mockResolvedValue({
-      getConsumableNotes: jest.fn(async () => _g.__cnTest.consumableNotes)
-    });
     renderHook(() => useClaimableNotes('pk-1'));
     await _g.__cnTest.lastFetchPromise;
     expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
@@ -462,9 +419,6 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       throw new Error('rpc down');
     });
     _g.__cnTest.consumableNotes = [makeMockNote({ id: 'unknown-note', faucetId: 'unknown-faucet' })];
-    mockGetMidenClient.mockResolvedValue({
-      getConsumableNotes: jest.fn(async () => _g.__cnTest.consumableNotes)
-    });
     renderHook(() => useClaimableNotes('pk-1'));
     await _g.__cnTest.lastFetchPromise;
     const idleCb = mockRunWhenClientIdle.mock.calls[0]![0];
@@ -475,15 +429,13 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
   });
 
   it('records a debug error and rethrows when getConsumableNotes throws', async () => {
-    mockGetMidenClient.mockResolvedValue({
-      getConsumableNotes: jest.fn(async () => {
-        throw new Error('client exploded');
-      })
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => {
+      throw new Error('client exploded');
     });
     renderHook(() => useClaimableNotes('pk-1'));
     // The fetch rejects → onError fires (covered by the SWR mock).
     await _g.__cnTest.lastFetchPromise;
-    expect(mockGetMidenClient).toHaveBeenCalled();
+    expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalled();
   });
 
   it('exposes debugInfo only on iOS', () => {
@@ -500,44 +452,26 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
   });
 
   it('skips a note whose first fungible asset is falsy', async () => {
-    const noteWithFalsyAsset = {
-      id: () => ({ toString: () => 'falsy-asset' }),
-      metadata: () => ({ sender: () => 's', noteType: () => 0 }),
-      details: () => ({
-        assets: () => ({
-          // length > 0 passes the guard, but [0] is falsy -> hits `if (!firstAsset)`
-          fungibleAssets: () => [null]
-        })
-      })
-    };
+    // A DTO whose assets[0] is falsy -> hits `if (!firstAsset)` in parseNotes.
+    const noteWithFalsyAsset = { ...makeMockNote({ id: 'falsy-asset', senderId: 's' }), assets: [null] };
     _g.__cnTest.consumableNotes = [noteWithFalsyAsset];
-    mockGetMidenClient.mockResolvedValue({
-      getConsumableNotes: jest.fn(async () => _g.__cnTest.consumableNotes)
-    });
     renderHook(() => useClaimableNotes('pk-1'));
     await _g.__cnTest.lastFetchPromise;
     expect(_g.__cnTest.lastFetchData).toEqual([]);
   });
 
   it('parses a note with no metadata using empty sender and unknown type', async () => {
+    // Metadata-less DTO: noteType/senderAccountId undefined (reducer output).
     const noMetaNote = {
-      id: () => ({ toString: () => 'no-meta' }),
-      metadata: () => null,
-      details: () => ({
-        assets: () => ({
-          fungibleAssets: () => [
-            {
-              faucetId: () => 'miden-faucet',
-              amount: () => ({ toString: () => '42' })
-            }
-          ]
-        })
-      })
+      noteId: 'no-meta',
+      nullifier: null,
+      noteType: undefined,
+      senderAccountId: undefined,
+      state: 0,
+      assets: [{ faucetId: 'miden-faucet', amount: '42' }],
+      swapAttachment: null
     };
     _g.__cnTest.consumableNotes = [noMetaNote];
-    mockGetMidenClient.mockResolvedValue({
-      getConsumableNotes: jest.fn(async () => _g.__cnTest.consumableNotes)
-    });
     renderHook(() => useClaimableNotes('pk-1'));
     await _g.__cnTest.lastFetchPromise;
     expect(_g.__cnTest.lastFetchData).toEqual([
@@ -548,9 +482,6 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
   it('tolerates a null metadata cache ref', async () => {
     _g.__cnTest.metadataCache = null;
     _g.__cnTest.consumableNotes = [makeMockNote({ id: 'null-cache-note' })];
-    mockGetMidenClient.mockResolvedValue({
-      getConsumableNotes: jest.fn(async () => _g.__cnTest.consumableNotes)
-    });
     renderHook(() => useClaimableNotes('pk-1'));
     await _g.__cnTest.lastFetchPromise;
     expect(_g.__cnTest.lastFetchData).toEqual([expect.objectContaining({ id: 'null-cache-note' })]);

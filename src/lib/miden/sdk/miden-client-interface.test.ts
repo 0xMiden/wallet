@@ -1750,4 +1750,76 @@ describe('MidenClientInterface', () => {
     expect(getConsumableNotes).toHaveBeenCalledWith({ accountId: 'mtst1account' });
     expect(terminate).toHaveBeenCalledTimes(1);
   });
+
+  // Keep this after the gate test above: it reuses the same jest.doMock surface.
+  it('getConsumableNoteDtos applies the SAME reclaim gate, then reduces the survivors to DTOs', async () => {
+    // Live-record-shaped survivors so the reducer can reach through them.
+    const liveRecord = (id: string) => ({
+      id: () => ({ toString: () => id }),
+      nullifier: () => `null-${id}`,
+      metadata: () => ({ sender: () => `sender-${id}`, noteType: () => 1 }),
+      state: () => 2,
+      details: () => ({
+        assets: () => ({
+          fungibleAssets: () => [{ faucetId: () => `faucet-${id}`, amount: () => ({ toString: () => '100' }) }]
+        })
+      }),
+      attachments: () => []
+    });
+    const consumableRecord = (note: object, consumableAfterBlock: number | undefined) => ({
+      inputNoteRecord: () => note,
+      noteConsumability: () => [{ consumptionStatus: () => ({ consumableAfterBlock: () => consumableAfterBlock }) }]
+    });
+    const kept = liveRecord('kept');
+    const gated = liveRecord('gated');
+    const getConsumableNotes = jest.fn(async () => [
+      consumableRecord(gated, 11), // gated beyond sync height 10 → filtered
+      consumableRecord(kept, 10) // 10 <= 10 → kept
+    ]);
+    const terminate = jest.fn();
+    const createClient = jest.fn(async () => ({ getConsumableNotes, terminate }));
+    const fromBech32 = jest.fn((accountId: string) => ({ accountId }));
+
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
+      getWasmOrThrow: jest.fn(async () => ({ AccountId: { fromBech32, fromHex: jest.fn() } })),
+      WasmWebClient: { createClient }
+    }));
+    jest.doMock('lib/miden-chain/effective-endpoints', () => ({
+      getEffectiveNetworkName: () => 'testnet',
+      getEffectiveRpcUrl: () => 'https://rpc.example',
+      getEffectiveProverUrl: () => undefined,
+      getEffectiveNoteTransportUrl: () => undefined
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+    // The reducer bech32-encodes account ids; stub to a recognizable transform.
+    jest.doMock('./helpers', () => ({
+      ...jest.requireActual('./helpers'),
+      getBech32AddressFromAccountId: (accountId: unknown) => `bech32(${String(accountId)})`
+    }));
+
+    const fakeMidenClient = buildFakeMidenClient({ getSyncHeight: jest.fn(async () => 10) });
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client: MidenClientInterfaceType = Reflect.apply(MidenClientInterface.fromClient, MidenClientInterface, [
+      fakeMidenClient,
+      'testnet'
+    ]);
+
+    // Only the kept (non-gated) note survives, reduced to a full DTO.
+    await expect(client.getConsumableNoteDtos('mtst1account')).resolves.toEqual([
+      {
+        noteId: 'kept',
+        nullifier: 'null-kept',
+        noteType: 1,
+        senderAccountId: 'bech32(sender-kept)',
+        state: 2,
+        assets: [{ amount: '100', faucetId: 'bech32(faucet-kept)' }],
+        swapAttachment: null
+      }
+    ]);
+    expect(terminate).toHaveBeenCalledTimes(1);
+  });
 });

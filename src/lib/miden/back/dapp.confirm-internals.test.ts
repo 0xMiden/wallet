@@ -22,6 +22,7 @@ _g.__dappConfInternals = {
     })),
     getInputNoteDetails: jest.fn(async () => []),
     getConsumableNotes: jest.fn(async () => []),
+    getConsumableNoteDtos: jest.fn(async () => []),
     syncState: jest.fn(async () => {}),
     importNoteBytes: jest.fn(async () => ({ toString: () => 'n1' })),
     on: jest.fn()

@@ -179,38 +179,36 @@ async function runSync(): Promise<void> {
         if (!client)
           return { parsedNotes: [] as SerializedConsumableNote[], vaultAssets: [] as SerializedVaultAsset[] };
 
-        // Read consumable notes
-        const rawNotes = await client.getConsumableNotes(accountPubKey);
+        // Read consumable notes as DTOs (issue #260, slice 4). The reclaim gate
+        // + per-note reduction ran inside the client's realm — OFFSCREEN when the
+        // flag is on, so the gate uses the sync-running realm's height instead of
+        // a stale SW-inline one. `client` is still used just below for swap-order
+        // lineage (a separate reach-through, deferred).
+        const rawNotes = await midenClientProxy.getConsumableNotes(accountPubKey);
         // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
         // custom transaction — hidden from the claimable UI until the user
         // confirms (or forever, if they cancel). See note-quarantine.ts.
         const quarantined = await getQuarantinedNoteIds();
-        const swapOrders = await classifySwapOrderNotes(rawNotes || [], accountPubKey, client, swapOrderRows);
-        const notes: SerializedConsumableNote[] = (rawNotes || [])
-          .map((note: any) => {
-            try {
-              // Partial (metadata-less) notes have no ID yet and cannot be
-              // consumed — skip until sync completes them.
-              const noteId = note.id()?.toString();
-              if (!noteId) return null;
-              if (quarantined.has(noteId)) return null;
-              const noteMeta = note.metadata();
-              const details = note.details();
-              const fungibleAssets = details.assets().fungibleAssets();
-              if (!fungibleAssets || fungibleAssets.length === 0) return null;
-              const firstAsset = fungibleAssets[0];
-              if (!firstAsset) return null;
-              return {
-                id: noteId,
-                faucetId: getBech32AddressFromAccountId(firstAsset.faucetId()),
-                amountBaseUnits: firstAsset.amount().toString(),
-                senderAddress: noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : '',
-                noteType: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown',
-                swapOrder: swapOrders.get(noteId)
-              };
-            } catch {
-              return null;
-            }
+        const swapOrders = await classifySwapOrderNotes(rawNotes, accountPubKey, client, swapOrderRows);
+        const notes: SerializedConsumableNote[] = rawNotes
+          .map((note): SerializedConsumableNote | null => {
+            // Partial (metadata-less) notes have no ID yet and cannot be
+            // consumed — skip until sync completes them.
+            const noteId = note.noteId;
+            if (!noteId) return null;
+            if (quarantined.has(noteId)) return null;
+            // Only the first fungible asset is surfaced (unchanged); an empty
+            // asset set means the note can't be displayed — skip it.
+            const firstAsset = note.assets[0];
+            if (!firstAsset) return null;
+            return {
+              id: noteId,
+              faucetId: firstAsset.faucetId,
+              amountBaseUnits: firstAsset.amount,
+              senderAddress: note.senderAccountId ?? '',
+              noteType: note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown',
+              swapOrder: swapOrders.get(noteId)
+            };
           })
           .filter(Boolean) as SerializedConsumableNote[];
 

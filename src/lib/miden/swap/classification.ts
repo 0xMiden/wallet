@@ -1,9 +1,8 @@
-import type { InputNoteRecord } from '@miden-sdk/miden-sdk/lazy';
-
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import { type ITransaction, ITransactionStatus, type SwapTransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
+import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import type { MidenClientInterface } from '../sdk/miden-client-interface';
 import type { SwapOrderNoteMetadata } from '../types';
 
@@ -46,27 +45,21 @@ export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
   return rows.filter((tx): tx is SwapOrder => isSwapTransaction(tx) && isSwapOrder(tx));
 }
 
-function attachmentOrderAndDepth(note: InputNoteRecord): { orderId: string; depth: number } | null {
-  try {
-    for (const attachment of note.attachments?.() ?? []) {
-      for (const word of attachment.toWords()) {
-        const values = word.toU64s();
-        if (values.length === 4 && values[3] === 0n && values[1] != null && values[2] != null) {
-          return { orderId: values[1].toString(), depth: Number(values[2]) };
-        }
-      }
-    }
-  } catch {}
-  return null;
-}
-
 /**
  * Classify only notes belonging to swap orders created by this wallet.
  * Pass `preloadedOrders` when the caller already ran `localSwapOrders` this
  * tick — it is an unindexed full scan of the transactions table.
+ *
+ * Since slice 4 (issue #260) the notes arrive as plain {@link ConsumableNoteDto}s
+ * rather than live `InputNoteRecord`s: the per-note swap-order id/depth is
+ * precomputed into `dto.swapAttachment` by the reducer (which holds the live
+ * record), so this classifier no longer reaches through to `note.attachments()`.
+ * The `client` arg is still the live client — it drives the per-order PSWAP
+ * lineage lookup (`client.client.pswap.lineage`), a separate reach-through that
+ * is NOT reduced to a DTO here and is deferred to a later slice.
  */
 export async function classifySwapOrderNotes(
-  notes: InputNoteRecord[],
+  notes: ConsumableNoteDto[],
   accountId: string,
   client: MidenClientInterface,
   preloadedOrders?: SwapOrder[]
@@ -97,13 +90,13 @@ export async function classifySwapOrderNotes(
       (order.completedAt ?? order.initiatedAt) + (order.extraInputs.expirySeconds ?? SWAP_ORDER_EXPIRY_SECONDS);
 
     for (const note of notes) {
-      const noteId = note.id()?.toString();
+      const noteId = note.noteId;
       if (!noteId) continue;
       let role: SwapOrderNoteMetadata['role'] | undefined;
       let depth = currentDepth;
       if (noteId === currentTipNoteId) role = 'tip';
       else {
-        const attached = attachmentOrderAndDepth(note);
+        const attached = note.swapAttachment;
         if (attached?.orderId === orderId && attached.depth <= currentDepth) {
           role = 'payback';
           depth = attached.depth;
