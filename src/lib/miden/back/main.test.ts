@@ -49,6 +49,15 @@ jest.mock('./transaction-processor', () => ({
   swSignCallback: (...a: any[]) => (globalThis as any).__mainTest.swSignCallback(...a)
 }));
 
+// Keep the REAL proxy (handleOffscreenSignRequest / midenClientProxy) but replace
+// `markOpStarted` with a spy so the reverse-IPC listener's routing of the
+// OFFSCREEN_OP_STARTED execution-start signal is observable (issue #260 flip-prep #3).
+jest.mock('lib/miden/back/miden-client-proxy', () => {
+  const actual = jest.requireActual('lib/miden/back/miden-client-proxy');
+  return { ...actual, markOpStarted: jest.fn() };
+});
+const proxyMock: any = jest.requireMock('lib/miden/back/miden-client-proxy');
+
 // The #260 offscreen client proxy reads (getAccount/syncState/exportNote/
 // getInputNoteDetails) through the `lib/...` alias of miden-client, which jest
 // mocks separately from the relative specifier below; delegate the alias to the
@@ -574,6 +583,27 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
         signatureB64: Buffer.from([0xab, 0xcd]).toString('base64')
       })
     );
+  });
+
+  it('routes an OFFSCREEN_OP_STARTED signal to markOpStarted (arms the deadline at execution start) and returns false', () => {
+    const sendResponse = jest.fn();
+    const ret = signListener()(
+      { target: 'sw', type: 'OFFSCREEN_OP_STARTED', op_id: 'op-started-42' },
+      {},
+      sendResponse
+    );
+    // Fire-and-forget: no async response, so the port is NOT held open.
+    expect(ret).toBe(false);
+    expect(sendResponse).not.toHaveBeenCalled();
+    // Routed to markOpStarted with the op id — NOT to the sign handler.
+    expect(proxyMock.markOpStarted).toHaveBeenCalledWith('op-started-42');
+    expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
+  });
+
+  it('ignores an OFFSCREEN_OP_STARTED with a non-string op_id (no markOpStarted, no crash)', () => {
+    const ret = signListener()({ target: 'sw', type: 'OFFSCREEN_OP_STARTED' }, {}, jest.fn());
+    expect(ret).toBe(false);
+    expect(proxyMock.markOpStarted).not.toHaveBeenCalled();
   });
 
   it('responds ok:false when the sign handler itself throws (never drops the response)', async () => {

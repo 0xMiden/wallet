@@ -2,8 +2,13 @@ import { Runtime } from 'webextension-polyfill';
 
 import * as Actions from 'lib/miden/back/actions';
 import { intercom } from 'lib/miden/back/defaults';
-import { handleOffscreenSignRequest, midenClientProxy } from 'lib/miden/back/miden-client-proxy';
-import { OFFSCREEN_SIGN_REQUEST, SW_TARGET, type OffscreenSignRequest } from 'lib/miden/back/offscreen-codec';
+import { handleOffscreenSignRequest, markOpStarted, midenClientProxy } from 'lib/miden/back/miden-client-proxy';
+import {
+  OFFSCREEN_OP_STARTED,
+  OFFSCREEN_SIGN_REQUEST,
+  SW_TARGET,
+  type OffscreenSignRequest
+} from 'lib/miden/back/offscreen-codec';
 import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/speculation-manager';
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync } from 'lib/miden/back/sync-manager';
@@ -94,9 +99,20 @@ function registerOffscreenSignHandler(): void {
   if (typeof chrome === 'undefined' || !chrome.runtime?.onMessage?.addListener) return;
   offscreenSignHandlerRegistered = true;
   chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse: (r?: unknown) => void) => {
-    const m = msg as Partial<OffscreenSignRequest> | undefined;
-    if (m?.target !== SW_TARGET || m?.type !== OFFSCREEN_SIGN_REQUEST) return false;
-    handleOffscreenSignRequest(m as OffscreenSignRequest, swSignCallback).then(sendResponse, (err: unknown) => {
+    // A SW-targeted message is either an OFFSCREEN_SIGN_REQUEST or an
+    // OFFSCREEN_OP_STARTED (distinct `type` literals), so type `m` loosely and
+    // discriminate on `type` below.
+    const m = msg as { target?: string; type?: string; op_id?: string; sign_id?: string } | undefined;
+    if (m?.target !== SW_TARGET) return false;
+    // Execution-start signal (issue #260 flip-prep #3): the op named by `op_id`
+    // has won the offscreen WASM mutex and is about to execute — arm its write
+    // deadline now. Fire-and-forget: no async response, so don't hold the port.
+    if (m.type === OFFSCREEN_OP_STARTED) {
+      if (typeof m.op_id === 'string') markOpStarted(m.op_id);
+      return false;
+    }
+    if (m.type !== OFFSCREEN_SIGN_REQUEST) return false;
+    handleOffscreenSignRequest(msg as OffscreenSignRequest, swSignCallback).then(sendResponse, (err: unknown) => {
       // The handler already classifies vault errors; a throw here is an
       // unexpected internal fault. Respond ok:false so the offscreen sign stub
       // rejects (failing the write) rather than hanging on a dropped response.

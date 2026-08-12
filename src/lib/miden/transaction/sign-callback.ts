@@ -1,15 +1,13 @@
-// Sign-callback classification + the SW-side sign-reason slot (issue #260,
-// slice 5).
+// Sign-callback classification (issue #260, slice 5).
 //
 // This is a LEAF module: it depends only on `Buffer` and a type-only import of
 // `MidenClientCreateOptions`. It exists to break an import cycle that Slice 5
 // would otherwise introduce. The reverse-IPC sign handler (SW-side, in
 // `back/miden-client-proxy.ts`) must classify a failed sign the SAME way the
-// inline path always has (`buildSignCallbackError`), and `readLastAuthReason`
-// (`helper.ts`) must be able to read the classified reason. If those lived in
-// `helper.ts` and the proxy imported `helper` while `helper` read the proxy's
-// slot, `helper ↔ proxy` would cycle. Hosting the classifier + the reason slot
-// in this leaf lets both the proxy and `helper` import it with no cycle.
+// inline path always has (`buildSignCallbackError`). If the classifier lived in
+// `helper.ts` and the proxy imported `helper` while `helper` imported the proxy,
+// `helper ↔ proxy` would cycle. Hosting the classifier in this leaf lets both the
+// proxy and `helper` import it with no cycle.
 //
 // `helper.ts` re-exports the classifier types/functions, so every existing
 // caller (`import { buildSignCallbackError } from './helper'` / `./index`)
@@ -84,39 +82,11 @@ export function buildSignCallbackOptions(
   };
 }
 
-// --- SW-side last-sign-reason slot (issue #260, slice 5, design §2.6) --------
-//
-// Under the flag-on offscreen write, a sign failure is captured on the OFFSCREEN
-// client's `lastAuthError()` — the SW-inline client's `lastAuthError()` returns
-// `undefined`, so `readLastAuthReason` (which reads the SW client) would miss a
-// locked-mid-sign and mark the consume Failed instead of deferring it,
-// re-opening issue #313 (note-loss). Because the sign ACTUALLY runs on the SW
-// (the reverse-IPC handler drives the vault signer), the SW is the authoritative
-// place to record the reason. The handler records it here; `readLastAuthReason`
-// take-and-clears it (so a stale reason can never bleed into a later op) BEFORE
-// falling back to the SW client's `lastAuthError()` for the still-inline write
-// methods (send/swap/newTransaction under flag-on).
-//
-// Flag-OFF safety: nothing ever records into this slot when the offscreen write
-// is disabled, so `readLastAuthReason` take-and-clears `undefined` and falls
-// straight through to the exact SW-client read it does today — byte-identical.
-
-let _lastSignReason: SignCallbackReason | undefined;
-
-/** Record the classified reason of a failed reverse-IPC sign (SW-side). */
-export function recordLastSignReason(reason: SignCallbackReason): void {
-  _lastSignReason = reason;
-}
-
-/** Take-and-clear the last recorded sign reason (or `undefined` if none). */
-export function takeLastSignReason(): SignCallbackReason | undefined {
-  const reason = _lastSignReason;
-  _lastSignReason = undefined;
-  return reason;
-}
-
-/** Clear the slot (called at the START of each offscreen write dispatch so a
- * prior op's reason can never be misread by this op's failure handling). */
-export function clearLastSignReason(): void {
-  _lastSignReason = undefined;
-}
+// NOTE (issue #260 flip-prep #1): there is NO global "last sign reason" slot. A
+// flag-on offscreen write's locked-mid-sign signal is carried entirely by the
+// OP-KEYED error tag — `dispatchOffscreenWrite` (back/miden-client-proxy.ts)
+// re-tags the thrown error with `.reason='locked'` for the exact failing op, and
+// `isLockedError(e)` (helper.ts) reads that tag. A single un-keyed global slot
+// (the old `_lastSignReason`) could bleed one concurrent op's reason into
+// another (the IPC layer permits >1 in-flight op), so it was removed in favour of
+// the op-keyed tag, which is inherently isolated per op.

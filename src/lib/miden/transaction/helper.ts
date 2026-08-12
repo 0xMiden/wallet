@@ -4,16 +4,22 @@ import { liveQuery } from 'dexie';
 import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
 
-import { takeLastSignReason, type SignCallbackReason } from './sign-callback';
+import { type SignCallbackReason } from './sign-callback';
 import { ITransaction, ITransactionStage, ITransactionStatus, TransactionOutput } from '../db/types';
 import { getMidenClient } from '../sdk/miden-client';
 
+/**
+ * Feature flag: is the offscreen WASM client active? Read as a module constant
+ * (mirroring `back/miden-client-proxy.ts`) so a flag-OFF build dead-code-
+ * eliminates the flag-on branch of {@link readLastAuthReason}. DEFAULT OFF.
+ */
+const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
+
 // Re-export the sign-callback classification from its leaf home (issue #260,
 // slice 5). It moved to `./sign-callback` to break a `helper ↔ proxy` import
-// cycle (the offscreen write proxy needs the classifier + `readLastAuthReason`
-// needs the SW-side reason slot). Re-exporting keeps every existing caller —
-// `import { buildSignCallbackError, ... } from './helper'` / `./index` —
-// unchanged.
+// cycle (the offscreen write proxy needs the classifier). Re-exporting keeps
+// every existing caller — `import { buildSignCallbackError, ... } from './helper'`
+// / `./index` — unchanged.
 export { buildSignCallbackError, buildSignCallbackOptions, type SignCallbackError } from './sign-callback';
 // `SignCallbackReason` is imported locally (used in `readLastAuthReason`'s
 // return type) and re-exported from that local binding to avoid naming it in
@@ -105,26 +111,29 @@ export const setTransactionStage = async (id: string, stage: ITransactionStage) 
 };
 
 /**
- * Reads the last sign-callback failure reason (`locked` / `rejected` / …), used
- * by the transaction loop to DEFER a locked-mid-sign tx instead of Failing it
- * (issue #313 note-loss guard).
+ * Reads the last sign-callback failure reason (`locked` / `rejected` / …) from
+ * the SW-inline WASM client, used by the transaction loop to DEFER a
+ * locked-mid-sign tx instead of Failing it (issue #313 note-loss guard).
  *
- * Two sources, checked in order:
- *  1. The SW-side reason slot (issue #260, slice 5). When the flag-on offscreen
- *     write signs via reverse-IPC, the sign runs on the SW but the SDK captures
- *     the error on the OFFSCREEN client — so the SW-inline client's
- *     `lastAuthError()` would miss it. The reverse-IPC handler records the
- *     classified reason into `sign-callback.ts`'s slot; take-and-clear it here so
- *     it is scoped to exactly the op that just failed and can never bleed into a
- *     later op. On flag-off nothing ever records into the slot, so this is
- *     `undefined` and we fall straight through — byte-identical to today.
- *  2. The SW-inline client's `lastAuthError()` — the original path, still
- *     authoritative for the write methods that remain SW-inline under flag-on
- *     (send / swap / newTransaction in slice 5a) and for the whole flag-off world.
+ * Invariant (issue #260 flip-prep #2): consult the SW client's `lastAuthError()`
+ * IFF the SW client actually did the sign — i.e. the FLAG-OFF (inline) write path.
+ * Under the flag-ON offscreen write the sign runs in the OFFSCREEN realm and the
+ * SDK captures the error on the OFFSCREEN client; the SW-inline client NEVER
+ * signed for that op, so its `lastAuthError()` is stale / another op's. Deferring
+ * a genuinely-failed offscreen write on that stale slot would leave it Queued
+ * FOREVER (never Failed). So under flag-on this returns `undefined` and the loop
+ * relies solely on the op-keyed error tag (`isLockedError(e)`, set by
+ * `dispatchOffscreenWrite` when the reverse-IPC sign reported 'locked').
+ *
+ * Flag-OFF is byte-identical to before: `USE_OFFSCREEN_CLIENT` is false, the
+ * guard below dead-code-eliminates, and this reads the SW client exactly as it
+ * always has.
  */
 export async function readLastAuthReason(): Promise<SignCallbackReason | undefined> {
-  const offscreenSignReason = takeLastSignReason();
-  if (offscreenSignReason) return offscreenSignReason;
+  // Flag-on: the offscreen realm signed, not this SW client — its lastAuthError()
+  // is not authoritative for the failing op. The locked signal (if any) rides the
+  // op-keyed error tag instead.
+  if (USE_OFFSCREEN_CLIENT) return undefined;
   try {
     const midenClient = await getMidenClient();
     const rawClient = (midenClient as any).client;

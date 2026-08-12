@@ -391,6 +391,16 @@ describe('offscreen/main — startup / init()', () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('init failed'), expect.any(Error));
     expect(G.chrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
+
+  // Issue #260 flip-prep #4: the doc marks its own realm at module top so the
+  // recursion guard (isInOffscreenDocument) can short-circuit isOffscreenAvailable
+  // → false in-realm, making a write prove locally instead of re-dispatching
+  // OFFSCREEN_PROVE to a non-existent in-doc handler.
+  it('marks the realm as the offscreen document (__MIDEN_IN_OFFSCREEN_DOC__ = true) at module load', async () => {
+    delete (G as any).__MIDEN_IN_OFFSCREEN_DOC__;
+    await loadModule();
+    expect((G as any).__MIDEN_IN_OFFSCREEN_DOC__).toBe(true);
+  });
 });
 
 describe('offscreen/main — onMessage listener guard clauses', () => {
@@ -555,6 +565,47 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(typeof resp.durationMs).toBe('number');
     // resultB64 round-trips the serialized [10,20,30] Account bytes.
     expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([10, 20, 30]);
+  });
+
+  // Issue #260 flip-prep #3: when an op wins the WASM mutex and begins executing,
+  // the doc posts OFFSCREEN_OP_STARTED (target sw, op_id) so the SW arms the write
+  // deadline at execution start, not dispatch. Fire-and-forget, from inside the lock.
+  it('posts OFFSCREEN_OP_STARTED (target sw + op_id) when the op begins executing', async () => {
+    await loadModule();
+    const posted: any[] = [];
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      posted.push(m);
+      return undefined;
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({ op_id: 'op-start', method: 'getAccount', argsB64: [encodeArg('a')] }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    const started = posted.find(m => m?.type === 'OFFSCREEN_OP_STARTED');
+    expect(started).toBeTruthy();
+    expect(started.target).toBe('sw');
+    expect(started.op_id).toBe('op-start');
+    // The dispatched op still completed normally.
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('does NOT post OFFSCREEN_OP_STARTED for an unknown method (never wins the mutex)', async () => {
+    await loadModule();
+    const posted: any[] = [];
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      posted.push(m);
+      return undefined;
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-x', method: 'frobnicate', argsB64: [] }), {}, sendResponse);
+    await flush();
+
+    expect(posted.find(m => m?.type === 'OFFSCREEN_OP_STARTED')).toBeUndefined();
+    expect(sendResponse.mock.calls[0][0].errorCode).toBe('UNKNOWN_METHOD');
   });
 
   it('returns resultB64:null when getAccount finds no account', async () => {

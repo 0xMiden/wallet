@@ -1405,10 +1405,9 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
     expect((resp as any).ok).toBe(true);
   });
 
-  it('locked vault mid-sign → DEFER: reason recorded (readLastAuthReason) + error tagged (isLockedError) — issue #313', async () => {
+  it('locked vault mid-sign → DEFER: op-keyed error tag (isLockedError) — issue #313', async () => {
     const { midenClientProxy, handleOffscreenSignRequest } = await loadProxy(true);
     const { bytesToB64 } = await import('./offscreen-codec');
-    const { takeLastSignReason } = await import('../transaction/sign-callback');
     // The op's signer throws a locked error (as the SW vault does when locked).
     const opSign = jest.fn(async () => {
       throw Object.assign(new Error('Wallet is locked: vault unavailable'), { reason: 'locked' });
@@ -1439,16 +1438,76 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
     // The sign handler classified the vault error as 'locked' and reported it.
     expect(signResp.ok).toBe(false);
     expect(signResp.reason).toBe('locked');
-    // The consume error is tagged reason:'locked' so isLockedError(err) → defer.
+    // The consume error is tagged reason:'locked' (OP-KEYED, no global slot) so
+    // isLockedError(err) → defer. This is the SOLE carrier of the locked signal
+    // for a flag-on offscreen write (issue #260 flip-prep #1).
     expect((err as any).reason).toBe('locked');
-    // And the SW-side reason slot readLastAuthReason consults holds 'locked'.
-    expect(takeLastSignReason()).toBe('locked');
+  });
+});
+
+// Issue #260 flip-prep #3: the whole-op WRITE deadline is armed at EXECUTION
+// START (when the op wins the offscreen WASM mutex and posts OFFSCREEN_OP_STARTED
+// → markOpStarted), NOT at dispatch. So queue-wait behind other ops on the single
+// offscreen mutex is off-budget: a write that sits in the queue for longer than
+// its 90s WRITE_DEADLINE is NOT falsely killed before it executes.
+describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', () => {
+  it('a critical write is NOT killed while it waits in the offscreen queue (no OFFSCREEN_OP_STARTED yet)', async () => {
+    const { __test } = await loadProxy(true);
+    // The offscreen op never responds — it is stuck behind the head-of-queue op.
+    fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+
+    const { op_id, promise } = __test.dispatchCritical('consumeNoteId', [{}], 20);
+    void promise.catch(() => {});
+    await flush();
+    fireReady(); // open resolves → OFFSCREEN_CALL sent, but the op has NOT started
+    await flush();
+    // No timer armed at dispatch — the deadline is off-budget until execution start.
+    expect(__test.hasOpTimer(op_id)).toBe(false);
+
+    // Advance FAR past the 20ms deadline while the op is still queued.
+    await wait(60);
+    // It was NOT killed: no closeDocument, still in flight (queue-wait is off-budget).
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+    expect(__test.inFlightSize()).toBe(1);
+  });
+
+  it('markOpStarted arms the deadline at execution start → a subsequent wedge IS killed', async () => {
+    const { __test, markOpStarted } = await loadProxy(true);
+    const { OperationAbortedError } = await import('./offscreen-codec');
+    fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+
+    const { op_id, promise } = __test.dispatchCritical('consumeNoteId', [{}], 20);
+    const p = promise.catch((e: Error) => e);
+    await flush();
+    fireReady();
+    await flush();
+    expect(__test.hasOpTimer(op_id)).toBe(false); // not armed yet
+
+    // The op wins the WASM mutex and begins executing → OFFSCREEN_OP_STARTED.
+    markOpStarted(op_id);
+    expect(__test.hasOpTimer(op_id)).toBe(true); // now armed
+
+    await wait(40); // it then wedges in-realm → its own deadline fires
+    fireReady(); // reopen ready gate
+    await flush();
+
+    const err = await p;
+    expect(err).toBeInstanceOf(OperationAbortedError);
+    expect((err as any).reason).toBe('deadline');
+    expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
+    expect(__test.inFlightSize()).toBe(0);
+  });
+
+  it('markOpStarted on an already-settled/unknown op is a no-op', async () => {
+    const { markOpStarted } = await loadProxy(true);
+    // Must not throw for an op id that is not in flight.
+    expect(() => markOpStarted('never-dispatched')).not.toThrow();
   });
 });
 
 describe('MidenClientProxy — slice-5a §5 write kill window', () => {
   it("the write's OWN deadline fires (unresolved op = wedged execute/prove/submit/apply) → closeDocument + reject + reopen", async () => {
-    const { __test } = await loadProxy(true);
+    const { __test, markOpStarted } = await loadProxy(true);
     const { OperationAbortedError } = await import('./offscreen-codec');
     // The offscreen op never responds → only the write's own deadline can end it.
     fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
@@ -1456,10 +1515,11 @@ describe('MidenClientProxy — slice-5a §5 write kill window', () => {
     const { op_id, promise } = __test.dispatchCritical('consumeNoteId', [{}], 20);
     const p = promise.catch((e: Error) => e);
     await flush();
-    fireReady(); // open resolves → message sent → deadline armed
+    fireReady(); // open resolves → message sent
     await flush();
     expect(__test.inFlightSize()).toBe(1);
     expect(op_id).toBeTruthy();
+    markOpStarted(op_id); // op wins the mutex + begins executing → deadline armed
 
     await wait(40); // trip the write's own deadline
     fireReady(); // reopen ready gate
@@ -1475,7 +1535,7 @@ describe('MidenClientProxy — slice-5a §5 write kill window', () => {
   });
 
   it('deadline PAUSED during a sign round-trip: a slow sign never triggers a kill; re-armed on the response', async () => {
-    const { handleOffscreenSignRequest, __test } = await loadProxy(true);
+    const { handleOffscreenSignRequest, __test, markOpStarted } = await loadProxy(true);
     const { bytesToB64 } = await import('./offscreen-codec');
     // The op stays open until we settle it (so the test controls its lifetime and
     // leaves no dangling re-armed timer for a later test).
@@ -1488,6 +1548,7 @@ describe('MidenClientProxy — slice-5a §5 write kill window', () => {
     await flush();
     fireReady();
     await flush();
+    markOpStarted(op_id); // op wins the mutex + begins executing → deadline armed
     expect(__test.inFlightSize()).toBe(1);
     expect(__test.hasOpTimer(op_id)).toBe(true);
     expect(__test.isOpPaused(op_id)).toBe(false);
@@ -1719,16 +1780,17 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing + byte-iden
   });
 
   it('§5 kill: a wedged send (own deadline fires) rejects with OperationAbortedError → the loop marks it Failed', async () => {
-    const { __test } = await loadProxy(true);
+    const { __test, markOpStarted } = await loadProxy(true);
     const { OperationAbortedError } = await import('./offscreen-codec');
     fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
 
-    const { promise } = __test.dispatchCritical('sendTransaction', [{}], 20);
+    const { op_id, promise } = __test.dispatchCritical('sendTransaction', [{}], 20);
     const p = promise.catch((e: Error) => e);
     await flush();
     fireReady();
     await flush();
     expect(__test.inFlightSize()).toBe(1);
+    markOpStarted(op_id); // op wins the mutex + begins executing → deadline armed
 
     await wait(40); // trip the write's own deadline
     fireReady();

@@ -29,12 +29,14 @@ import * as sdk from '@miden-sdk/miden-sdk/lazy';
 
 import {
   OFFSCREEN_CALL,
+  OFFSCREEN_OP_STARTED,
   OFFSCREEN_SIGN_REQUEST,
   SW_TARGET,
   b64ToBytes,
   bytesToB64,
   decodeArg,
   type OffscreenCallRequest,
+  type OffscreenOpStarted,
   type OffscreenSignResponse
 } from 'lib/miden/back/offscreen-codec';
 import type { ConsumeTransaction, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
@@ -46,6 +48,17 @@ import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 
 const TAG = '[offscreen-prover]';
+
+// Mark THIS realm as the offscreen document (issue #260 flip-prep #4). Set at
+// module top, before any client is created or any write executes, so the
+// version-independent `isInOffscreenDocument()` recursion guard
+// (offscreen-prover.ts) can short-circuit `isOffscreenAvailable()` to false here.
+// That makes a non-guardian offscreen write prove LOCALLY in-realm (on this doc's
+// `useWorker:false` WASM) instead of trying to re-dispatch OFFSCREEN_PROVE to a
+// non-existent handler inside the doc — which would fail EVERY such write. It does
+// NOT depend on `chrome.offscreen` being absent inside the doc (an unreliable
+// Chrome quirk); the guard reads this deterministic global.
+(globalThis as { __MIDEN_IN_OFFSCREEN_DOC__?: boolean }).__MIDEN_IN_OFFSCREEN_DOC__ = true;
 
 let initPromise: Promise<void> | null = null;
 
@@ -131,6 +144,10 @@ function getProver() {
 // `handleCall` right before it invokes the DISPATCH fn (under the WASM mutex, so
 // only one op runs at a time — no concurrent overwrite) so the sign stub can tag
 // its request with the write op the signature belongs to (design §2.4, §2.5).
+// DEFERRED (issue #260, post-flip hazard 2): this single global is safe ONLY
+// because the offscreen WASM mutex serializes ops to one at a time. If the
+// commit-wait mutex-yield (post-flip hazard 1) ever lands, this must be
+// op-scoped (threaded through the call chain) rather than a module global.
 let currentOpId: string | null = null;
 
 function newSignId(): string {
@@ -305,7 +322,9 @@ const DISPATCH: Record<string, DispatchFn> = {
   // execute→prove→submit→apply chain runs here in-realm as one op, so a wedge
   // anywhere in it is killable via `closeDocument()`. `client.consumeNoteId`
   // takes the SDK BUNDLED prove path (NOT OFFSCREEN_PROVE) because inside this
-  // doc `isOffscreenAvailable()` is false — a doc can't spawn a sub-doc — so
+  // doc `isOffscreenAvailable()` is false — the `isInOffscreenDocument()`
+  // recursion guard (offscreen-prover.ts, keyed off the `__MIDEN_IN_OFFSCREEN_DOC__`
+  // marker set at this module's top) short-circuits it — so
   // `shouldUseOffscreenProver()` returns false and the prove runs on THIS doc's
   // pooled main-thread WASM instance (the client was created `useWorker:false`,
   // design §5.1/§5.2). The mid-execute signature is fetched from the SW via the
@@ -322,7 +341,8 @@ const DISPATCH: Record<string, DispatchFn> = {
   // The remaining non-guardian WRITES moved offscreen (issue #260, slice 5b),
   // each mirroring `consumeNoteId` exactly: the whole execute→prove→submit→apply
   // chain runs here in-realm as one killable op, taking the SDK BUNDLED prove path
-  // (NOT OFFSCREEN_PROVE — `isOffscreenAvailable()` is false inside this doc), with
+  // (NOT OFFSCREEN_PROVE — `isOffscreenAvailable()` is false inside this doc via the
+  // `isInOffscreenDocument()` recursion guard), with
   // the mid-execute signature fetched from the SW via the reverse-IPC stub. Only
   // the final serialized `TransactionResult` crosses back. The BigInt amounts that
   // crossed as decimal strings are re-widened to BigInt so the reconstructed row
@@ -487,6 +507,15 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // §2.4). Scoped tightly to the locked section: the mutex serializes ops, so
       // exactly one op's id is live at a time.
       currentOpId = msg.op_id;
+      // Now that this op has WON the WASM mutex and is about to execute, tell the
+      // SW to arm its write deadline at EXECUTION START (issue #260 flip-prep #3).
+      // Fire-and-forget: queue-wait behind other ops was off-budget; the clock
+      // starts here. Sent from inside the lock so it fires exactly once per op,
+      // only for a real dispatch (unknown-method / init-failure paths never reach
+      // here). `Promise.resolve(...)` tolerates a mock sendMessage that returns a
+      // non-promise; the response is intentionally ignored.
+      const started: OffscreenOpStarted = { target: SW_TARGET, type: OFFSCREEN_OP_STARTED, op_id: msg.op_id };
+      void Promise.resolve(chrome.runtime.sendMessage(started)).catch(() => {});
       try {
         return await dispatch(client, ...args);
       } finally {

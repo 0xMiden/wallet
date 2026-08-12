@@ -36,6 +36,14 @@ export const OFFSCREEN_CALL = 'OFFSCREEN_CALL' as const;
  * never an un-serializable SDK handle (issue #260, slice 5, design §2). */
 export const OFFSCREEN_SIGN_REQUEST = 'OFFSCREEN_SIGN_REQUEST' as const;
 
+/** Fire-and-forget control message (offscreen → SW): the op named by `op_id` has
+ * just WON the offscreen WASM mutex and is about to execute. The SW arms that
+ * write's deadline HERE — at execution start — rather than at dispatch, so the
+ * time an op spends QUEUED behind other ops on the single offscreen mutex is
+ * off-budget and cannot false-kill a healthy write (issue #260 flip-prep #3). No
+ * response is expected. */
+export const OFFSCREEN_OP_STARTED = 'OFFSCREEN_OP_STARTED' as const;
+
 /**
  * SW → offscreen request envelope (§1.1 of the design doc).
  *
@@ -83,6 +91,19 @@ export interface OffscreenSignRequest {
   sign_id: string;
   publicKeyB64: string;
   signingInputsB64: string;
+}
+
+/**
+ * offscreen → SW execution-start signal (issue #260 flip-prep #3). Posted from
+ * inside the offscreen doc's WASM mutex, right before the op's dispatch fn runs,
+ * so the SW can arm this op's write deadline at EXECUTION START rather than at
+ * dispatch. Fire-and-forget — `op_id` names the op whose deadline to (re)arm; no
+ * bytes, no response.
+ */
+export interface OffscreenOpStarted {
+  target: typeof SW_TARGET;
+  type: typeof OFFSCREEN_OP_STARTED;
+  op_id: string;
 }
 
 /**

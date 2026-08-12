@@ -1186,10 +1186,14 @@ export const generateTransactionsLoop = async (
     // This prevents the note-loss scenario the 1000-op stress run
     // surfaced: lock during executeTransaction → tx cancelled → next
     // cycle starts fresh but some races can leave the note stuck.
-    // Two locked signals: the SDK-captured sign-callback auth error (non-guardian
-    // path), and an explicit locked error thrown by the guardian provider when the
-    // vault is null (guardian path — never reaches the SDK sign callback). Either
-    // one defers the tx for retry after unlock rather than marking it Failed.
+    // Two locked signals. (1) The SDK-captured sign-callback auth error on the
+    // SW-inline (FLAG-OFF) client — `readLastAuthReason()` returns `undefined`
+    // under flag-on, where the SW client never signed for the offscreen op (issue
+    // #260 flip-prep #2). (2) An explicit `reason:'locked'` error tag — thrown by
+    // the guardian provider when the vault is null (guardian path), OR re-tagged
+    // onto a flag-on offscreen write whose reverse-IPC sign reported 'locked'
+    // (`dispatchOffscreenWrite`). Either one defers the tx for retry after unlock
+    // rather than marking it Failed.
     const authReason = await readLastAuthReason();
     if (authReason === 'locked' || isLockedError(e)) {
       logger.warning('Wallet locked during tx generation; leaving tx queued for retry');

@@ -74,6 +74,20 @@ export function isCriticalOpInFlight(): boolean {
 }
 
 /**
+ * True iff THIS realm is the chrome.offscreen document (issue #260 flip-prep #4).
+ * Version-independent and deterministic: the offscreen doc sets
+ * `globalThis.__MIDEN_IN_OFFSCREEN_DOC__ = true` at the top of `src/offscreen/main.ts`,
+ * before any client is created; this reads that marker. It does NOT depend on
+ * whether `chrome.offscreen` happens to be exposed inside the doc (an unreliable
+ * Chrome quirk). Used to short-circuit {@link isOffscreenAvailable} so an
+ * offscreen-doc write proves LOCALLY in-realm instead of recursively trying to
+ * re-dispatch OFFSCREEN_PROVE to a handler that does not exist inside the doc.
+ */
+export function isInOffscreenDocument(): boolean {
+  return (globalThis as { __MIDEN_IN_OFFSCREEN_DOC__?: boolean }).__MIDEN_IN_OFFSCREEN_DOC__ === true;
+}
+
+/**
  * True iff the runtime exposes the `chrome.offscreen` API. Chrome MV3 only
  * — Firefox WebExtensions and Safari extensions don't have it. Callers
  * should branch on this and fall through to a single-threaded prove path
@@ -81,8 +95,15 @@ export function isCriticalOpInFlight(): boolean {
  * (MidenClientInterface.shouldUseOffscreenProver) does this; consumers of
  * proveViaOffscreen() directly should also gate on this if they want a
  * clean fallback rather than a thrown error.
+ *
+ * Inside the offscreen document itself this returns false FIRST (via
+ * {@link isInOffscreenDocument}): a doc cannot spawn a sub-doc, and re-dispatching
+ * OFFSCREEN_PROVE from inside would deadlock (no in-doc handler), so an
+ * offscreen-doc write must prove locally on its own `useWorker:false` WASM
+ * (issue #260 flip-prep #4).
  */
 export function isOffscreenAvailable(): boolean {
+  if (isInOffscreenDocument()) return false;
   return (
     typeof chrome !== 'undefined' &&
     typeof (chrome as { offscreen?: unknown }).offscreen !== 'undefined' &&

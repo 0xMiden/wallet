@@ -21,7 +21,6 @@ import {
   buildSignCallbackError,
   readLastAuthReason
 } from './index'; // eslint-disable-line import/order
-import { recordLastSignReason } from './sign-callback'; // eslint-disable-line import/order
 
 const _g = globalThis as any;
 _g.__txBrTest = {
@@ -818,17 +817,26 @@ describe('readLastAuthReason', () => {
     expect(await readLastAuthReason()).toBeUndefined();
   });
 
-  // Issue #260, slice 5: the flag-on offscreen write records its sign reason in
-  // the SW-side slot (the SW-inline client's lastAuthError would miss it).
-  it('take-and-clears the SW-side offscreen sign-reason slot BEFORE the SW client', async () => {
-    recordLastSignReason('locked');
-    // Slot value wins over whatever the SW client would report...
-    mockLastAuthError.mockReturnValue({ reason: 'rejected' });
-    expect(await readLastAuthReason()).toBe('locked');
-    // ...and is cleared after one read (op-scoped), so the NEXT read falls back
-    // to the SW client — the flag-off / still-inline-write path is unchanged.
-    expect(await readLastAuthReason()).toBe('rejected');
-    mockLastAuthError.mockReturnValue(null);
+  // Issue #260 flip-prep #1+#2: under the flag-on offscreen write the SW-inline
+  // client NEVER signed for the op (the sign ran in the offscreen realm), so its
+  // `lastAuthError()` is STALE / another op's — consulting it would DEFER a
+  // genuinely-failed offscreen write forever on a stale 'locked'. The op's locked
+  // signal is carried instead by the op-keyed error tag (`isLockedError(e)`), so
+  // `readLastAuthReason()` must NOT consult the SW client at all under flag-on.
+  it('flag-on: never consults the stale SW-client lastAuthError (returns undefined)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    jest.resetModules();
+    try {
+      const { readLastAuthReason: readFlagOn } = await import('./helper');
+      // Seed a STALE 'locked' on the SW client — a genuinely-failed offscreen
+      // write must not be deferred on it.
+      mockLastAuthError.mockReturnValue({ reason: 'locked' });
+      expect(await readFlagOn()).toBeUndefined();
+    } finally {
+      delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+      mockLastAuthError.mockReturnValue(null);
+      jest.resetModules();
+    }
   });
 });
 

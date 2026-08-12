@@ -52,8 +52,6 @@ import type { ConsumeTransaction, SendTransaction, SwapTransaction } from '../db
 import {
   buildSignCallbackError,
   buildSignCallbackOptions,
-  clearLastSignReason,
-  recordLastSignReason,
   type SignCallbackReason
 } from '../transaction/sign-callback';
 import type { NoteType } from '../types';
@@ -277,8 +275,14 @@ async function dispatchOp(
 ): Promise<string | null> {
   await ensureOffscreenDocument();
   return new Promise<string | null>((resolve, reject) => {
+    // A whole-op WRITE (critical) does NOT arm its deadline at dispatch: it arms
+    // at EXECUTION START via `markOpStarted` when the op wins the offscreen WASM
+    // mutex (issue #260 flip-prep #3), so queue-wait behind other ops on that
+    // single mutex is off-budget and can't false-kill a healthy write. A read
+    // (non-critical) keeps arming at dispatch — its deadline covers the whole
+    // round-trip — and `markOpStarted` merely re-arms it fresh at execution start.
     const timer =
-      deadlineMs != null
+      !critical && deadlineMs != null
         ? setTimeout(() => {
             void onDeadline(op_id);
           }, deadlineMs)
@@ -343,6 +347,30 @@ function resumeDeadline(op_id: string): void {
 }
 
 /**
+ * ARM (or re-arm) an op's deadline at EXECUTION START (issue #260 flip-prep #3).
+ * Called from the SW reverse-IPC listener when the offscreen doc posts
+ * `OFFSCREEN_OP_STARTED` — i.e. the op has won the single offscreen WASM mutex and
+ * is about to execute. This is where a WRITE's deadline is FIRST armed (writes are
+ * deliberately not armed at dispatch, so their queue-wait is off-budget); for a
+ * read it resets the dispatch-armed timer so the read's budget also measures only
+ * execution time, not queue-wait. Clears any existing timer and unpauses first
+ * (defensive — a sign round-trip can only begin after execution starts). No-op for
+ * an op that already settled or was never dispatched here.
+ */
+export function markOpStarted(op_id: string): void {
+  const op = inFlight.get(op_id);
+  if (!op) return;
+  if (op.timer) clearTimeout(op.timer);
+  op.paused = false;
+  op.timer =
+    op.deadlineMs != null
+      ? setTimeout(() => {
+          void onDeadline(op_id);
+        }, op.deadlineMs)
+      : null;
+}
+
+/**
  * SW-side reverse-IPC sign handler (design §2.4). The offscreen client's
  * `keystore.sign` stub posts an {@link OffscreenSignRequest}; this signs via the
  * op's registered callback (or `fallbackSignCallback`) — the EXISTING vault
@@ -353,8 +381,8 @@ function resumeDeadline(op_id: string): void {
  *
  * Locked-defer (§2.6, issue #313): on a sign failure the raw error is classified
  * exactly as the inline path does (`buildSignCallbackError`) and the reason is
- * recorded both per-op (so the write path can re-tag the thrown error for
- * `isLockedError`) and in the SW-side slot (so `readLastAuthReason` sees it).
+ * recorded PER-OP (so the write path can re-tag the thrown error for
+ * `isLockedError`; issue #260 flip-prep #1 removed the redundant global slot).
  */
 export async function handleOffscreenSignRequest(
   msg: OffscreenSignRequest,
@@ -373,7 +401,6 @@ export async function handleOffscreenSignRequest(
       // Classify identically to the inline path so a locked vault DEFERS.
       const classified = buildSignCallbackError(rawErr);
       opSignReasons.set(op_id, classified.reason);
-      recordLastSignReason(classified.reason);
       return { ok: false, sign_id, error: classified.message, reason: classified.reason };
     }
   } finally {
@@ -432,7 +459,7 @@ type OffscreenSwapDto = {
  * Shared by EVERY non-guardian write — `consumeNoteId` (slice 5a) and
  * `sendTransaction`/`swapTransaction`/`newTransaction` (slice 5b) — so each runs
  * on the SAME proven machinery: an op-scoped reverse-IPC sign callback (§2.7),
- * the clear-then-record locked-reason slot (§2.6, issue #313), `criticalOpCount`
+ * the op-keyed locked-reason tag (§2.6, issue #313), `criticalOpCount`
  * bracketing (§3), and the sign-paused 90s `WRITE_DEADLINE_MS` kill (§3.4). The
  * ONLY per-method variation is the `method` name and the DTO/bytes `args`.
  *
@@ -449,10 +476,10 @@ async function dispatchOffscreenWrite(
   const op_id = newOpId();
   // Register BEFORE dispatch so a sign request (which can only arrive AFTER the
   // OFFSCREEN_CALL is sent, from inside the offscreen execute) always finds it.
+  // The op's locked-mid-sign reason is recorded OP-KEYED in `opSignReasons`
+  // (keyed by this `op_id`), so no cross-op slate-clearing is needed — the tag is
+  // inherently isolated per op (issue #260 flip-prep #1).
   opSignCallbacks.set(op_id, signCallback);
-  // Fresh slate for the SW-side reason slot so `readLastAuthReason` reads only
-  // THIS op's sign outcome (design §2.6).
-  clearLastSignReason();
   incrementCriticalOp();
   try {
     const resultB64 = await dispatchOp(op_id, method, args, WRITE_DEADLINE_MS, /* critical */ true);
