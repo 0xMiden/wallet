@@ -3257,6 +3257,22 @@
     "message": "Сканирование отменено",
     "englishSource": "Scan cancelled"
   },
+  "scanQrTitle": {
+    "message": "Сканировать QR-код",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Наведите камеру на QR-код",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "Камера не найдена",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Запрос доступа к камере…",
+    "englishSource": "Requesting camera access…"
+  },
   "scan": {
     "message": "Сканировать",
     "englishSource": "Scan"

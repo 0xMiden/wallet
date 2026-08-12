@@ -3203,6 +3203,22 @@
     "message": "Escaneo cancelado",
     "englishSource": "Scan cancelled"
   },
+  "scanQrTitle": {
+    "message": "Escanear código QR",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Apunta tu cámara a un código QR",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "No se encontró ninguna cámara",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Solicitando acceso a la cámara...",
+    "englishSource": "Requesting camera access…"
+  },
   "scan": {
     "message": "Escanear",
     "englishSource": "Scan"

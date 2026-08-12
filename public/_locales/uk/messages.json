@@ -3269,6 +3269,22 @@
     "message": "Сканування скасовано",
     "englishSource": "Scan cancelled"
   },
+  "scanQrTitle": {
+    "message": "Відскануйте QR-код",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Наведіть камеру на QR-код",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "Камера не знайдена",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Запит на доступ до камери…",
+    "englishSource": "Requesting camera access…"
+  },
   "scan": {
     "message": "Сканувати",
     "englishSource": "Scan"

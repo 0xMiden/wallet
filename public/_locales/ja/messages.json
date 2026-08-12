@@ -3256,6 +3256,22 @@
     "message": "スキャンがキャンセルされました",
     "englishSource": "Scan cancelled"
   },
+  "scanQrTitle": {
+    "message": "QRコードをスキャンします",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "QRコードにカメラを向けます",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "カメラが見つかりません",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "カメラへのアクセスをリクエストしています…",
+    "englishSource": "Requesting camera access…"
+  },
   "scan": {
     "message": "スキャン",
     "englishSource": "Scan"

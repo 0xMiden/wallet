@@ -3256,6 +3256,22 @@
     "message": "Tarama iptal edildi",
     "englishSource": "Scan cancelled"
   },
+  "scanQrTitle": {
+    "message": "QR kodunu tarayın",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Kameranızı bir QR koduna doğrultun",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "Kamera bulunamadı",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Kamera erişimi isteniyor…",
+    "englishSource": "Requesting camera access…"
+  },
   "scan": {
     "message": "Tara",
     "englishSource": "Scan"
