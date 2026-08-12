@@ -6,6 +6,7 @@
  *
  * Follows BIP21/EIP-681 industry convention for URI schemes.
  */
+import { isValidMidenAddress as isValidMidenBech32Address } from 'utils/miden';
 
 const MIDEN_URI_PREFIX = 'miden:';
 
@@ -40,8 +41,15 @@ export function decodeAddress(payload: string): string {
 }
 
 /**
- * Validates if a string is a valid Miden address.
- * Miden addresses start with "mtst1" (testnet) or "m1" (mainnet).
+ * Validates if a string looks like a Miden address for QR-scan purposes: a
+ * recognized network bech32 prefix plus a reasonable length.
+ *
+ * The set of network prefixes (mm1 / mtst1 / mdev1 / mlcl1) is delegated to the
+ * canonical `utils/miden` validator so this QR copy can never drift from it
+ * again. The previous local copy hard-coded only `mtst1`/`m1`, so it rejected
+ * devnet (`mdev1`), localnet (`mlcl1`), and even real mainnet (`mm1`) — a
+ * localnet address scanned via QR came back "invalid". The SDK's
+ * `Address.fromBech32` remains the authoritative decoder downstream.
  *
  * @param address The address to validate
  * @returns true if the address appears to be a valid Miden address
@@ -53,15 +61,6 @@ export function isValidMidenAddress(address: string): boolean {
 
   const trimmed = address.trim();
 
-  // Basic validation: must start with known prefix and have reasonable length
-  const isTestnet = trimmed.startsWith('mtst1');
-  const isMainnet = trimmed.startsWith('m1');
-
-  if (!isTestnet && !isMainnet) {
-    return false;
-  }
-
-  // Miden addresses are bech32 encoded and should have a reasonable length
-  // Typical length is around 40-60 characters
-  return trimmed.length >= 30 && trimmed.length <= 100;
+  // Bech32 addresses have a reasonable length; the SDK does the real decode.
+  return isValidMidenBech32Address(trimmed) && trimmed.length >= 30 && trimmed.length <= 100;
 }
