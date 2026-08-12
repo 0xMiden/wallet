@@ -285,6 +285,22 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(id);
   },
 
+  // Relay a just-created PRIVATE note to the transport layer (issue #260, slice 7b).
+  // Under the flag the send ran here, so the note lives in THIS (offscreen) client's
+  // store and THIS realm owns the fresh sync height that `sendPrivateNote` attaches
+  // as the recipient's forward-scan hint — so the relay MUST run here, not on the
+  // dormant SW client (whose stale height would overshoot the note's commitment).
+  // The live `Note` can't cross postMessage, so it arrived as `Note.serialize()` raw
+  // bytes and is re-hydrated here; `notes.sendPrivate` uses the live Note DIRECTLY (no
+  // store lookup — that path is only for note-ID inputs), so nothing else is read off
+  // the store. A transport relay — no prove / sign — so a void result (nothing to
+  // re-hydrate); the SW-side caller only awaits it.
+  sendPrivateNote: async (client, noteBytes: Uint8Array, to: string) => {
+    const note = (sdk as any).Note.deserialize(noteBytes);
+    await client.sendPrivateNote(note, to);
+    return null;
+  },
+
   // The first WRITE moved offscreen (issue #260, slice 5a). The WHOLE
   // execute→prove→submit→apply chain runs here in-realm as one op, so a wedge
   // anywhere in it is killable via `closeDocument()`. `client.consumeNoteId`

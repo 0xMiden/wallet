@@ -38,7 +38,6 @@ import {
 } from './complete';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
-  buildSignCallbackOptions,
   isGuardianCanonicalizationError,
   isLockedError,
   readLastAuthReason,
@@ -359,31 +358,32 @@ export const generateTransaction = async (
     return;
   }
 
-  // The exact wrapped keystore options `generateTransaction` has always built:
-  // hex-converts the SDK's byte args, calls the raw `signCallback`, and tags a
-  // thrown value via `buildSignCallbackError` so the loop can distinguish
-  // "wallet locked mid-sign" from other failures. `buildSignCallbackOptions` is
-  // the extracted-verbatim form (issue #260, slice 5) shared with the offscreen
-  // consume proxy's flag-off path, so both build IDENTICAL options.
-  const options: MidenClientCreateOptions = buildSignCallbackOptions(signCallback);
-
   // MidenClient handles the full pipeline (execute → prove → submit → apply).
   //
-  // The non-guardian value-moving writes — `consume` (slice 5a) and
-  // `send`/`swap`/`execute` (slice 5b) — are routed through `midenClientProxy` so
-  // each can run WHOLE-OP inside the offscreen realm when MIDEN_USE_OFFSCREEN_CLIENT
-  // is on (issue #260) — a wedge anywhere in its execute→prove→submit→apply then
-  // becomes killable. Every proxy method's flag-OFF path is BYTE-IDENTICAL to the
-  // inline switch it replaced (same `withWasmClientLock`, same
-  // `getMidenClient(buildSignCallbackOptions(signCallback))` — which is exactly the
-  // `options` built above — same underlying call), so production is unchanged. The
-  // proxy owns its own per-flag locking, so these are NOT wrapped in the caller
-  // lock here (flag-on must not hold the SW WASM lock across the whole offscreen op
-  // — that would stall SW sync and block the reverse-IPC sign handler).
+  // EVERY non-guardian value-moving write routes through `midenClientProxy` so it
+  // can run WHOLE-OP inside the offscreen realm when MIDEN_USE_OFFSCREEN_CLIENT is on
+  // (issue #260) — a wedge anywhere in its execute→prove→submit→apply then becomes
+  // killable. `consume` (slice 5a), `send`/`swap`/`execute` (slice 5b), and now
+  // `bridged-send`/`earn-deposit` (slice 7b) all share this. Each proxy method's
+  // flag-OFF path is BYTE-IDENTICAL to the inline switch it replaced (same
+  // `withWasmClientLock`, same `getMidenClient(buildSignCallbackOptions(signCallback))`,
+  // same underlying `sendTransaction`/`newTransaction`), so production is unchanged.
+  // The proxy owns its own per-flag locking, so these are NOT wrapped in a caller
+  // lock here (flag-on must not hold the SW WASM lock across the whole offscreen op —
+  // that would stall SW sync and block the reverse-IPC sign handler).
   //
-  // `bridged-send` and `earn-deposit` stay INLINE for now (a later slice): they
-  // reuse `sendTransaction`/`newTransaction` but carry extra pre/post orchestration,
-  // so they keep the shared `withWasmClientLock` + `getMidenClient(options)` block.
+  // `bridged-send`/`earn-deposit` only wrap the SAME leaf writes (send-style for the
+  // Epoch bridge + earn collateral, `newTransaction` for a pre-built Agglayer
+  // request) with extra pre/post orchestration; the pre-build (guardian
+  // requestBytes freeze) and the completion handlers are untouched — only the LEAF
+  // write moves offscreen. Funds-safety mirrors the moved send/execute exactly: a
+  // wedge-kill → OperationAbortedError → the generateTransactionsLoop catch →
+  // cancelTransaction → Failed with NO auto-requeue (earn-deposit is excluded from
+  // REQUEUEABLE_TYPES; bridged-send is user-retry-only, like send/execute — never
+  // auto-requeued — so a killed-then-retried send-style write can't silently
+  // double-spend), and a round-tripped `ApplyTransactionAfterSubmitFailed` reaches
+  // that same classifier (→ earn-deposit Failed so its awaiting caller stops;
+  // bridged-send Completed, sync reconciles).
   let result: TransactionResult;
   switch (transaction.type) {
     case 'consume':
@@ -397,23 +397,20 @@ export const generateTransaction = async (
       break;
     case 'bridged-send':
     case 'earn-deposit':
-      result = await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient(options);
-        if (transaction.type === 'bridged-send') {
-          // Epoch bridges by sending a recallable P2IDE note (send-style, no
-          // `requestBytes`); Agglayer carries a pre-built request.
-          if (!transaction.requestBytes) {
-            return midenClient.sendTransaction(transaction as SendTransaction);
-          }
-          return midenClient.newTransaction(
-            transaction.accountId,
-            transaction.requestBytes,
-            transaction.delegateTransaction
-          );
-        }
-        // earn-deposit: always send-style (recallable P2IDE note to the Epoch allocator).
-        return midenClient.sendTransaction(transaction as SendTransaction);
-      });
+      // Epoch bridged-send + earn-deposit are send-style (recallable P2IDE note, no
+      // `requestBytes`); Agglayer bridged-send carries a pre-built request. Route the
+      // leaf through the proxy so it runs offscreen flag-on, inline flag-off — same
+      // args the former inline `getMidenClient(options)` block passed.
+      if (transaction.type === 'bridged-send' && transaction.requestBytes) {
+        result = await midenClientProxy.newTransaction(
+          transaction.accountId,
+          transaction.requestBytes,
+          transaction.delegateTransaction,
+          signCallback
+        );
+      } else {
+        result = await midenClientProxy.sendTransaction(transaction as SendTransaction, signCallback);
+      }
       break;
     case 'execute':
     default:

@@ -110,6 +110,8 @@ function resetControl() {
     inlineSyncState: jest.fn(async () => ({ __syncSummary: true })),
     // Slice 6b: the flag-off pass-through of the structural commit-wait.
     inlineWaitForTransactionCommit: jest.fn(async () => {}),
+    // Slice 7b: the flag-off pass-through of the private-note relay.
+    inlineSendPrivateNote: jest.fn(async () => {}),
     inlineExportNote: jest.fn(async () => new Uint8Array([1, 2, 3])),
     inlineGetInputNoteDetails: jest.fn(async () => [{ __inlineDetail: true }]),
     inlineGetConsumableNoteDtos: jest.fn(async () => [{ __inlineConsumable: true }]),
@@ -141,6 +143,7 @@ function resetControl() {
       getAccount: (...a: any[]) => G.__px.inlineGetAccount(...a),
       syncState: (...a: any[]) => G.__px.inlineSyncState(...a),
       waitForTransactionCommit: (...a: any[]) => G.__px.inlineWaitForTransactionCommit(...a),
+      sendPrivateNote: (...a: any[]) => G.__px.inlineSendPrivateNote(...a),
       exportNote: (...a: any[]) => G.__px.inlineExportNote(...a),
       getInputNoteDetails: (...a: any[]) => G.__px.inlineGetInputNoteDetails(...a),
       getConsumableNoteDtos: (...a: any[]) => G.__px.inlineGetConsumableNoteDtos(...a),
@@ -378,6 +381,101 @@ describe('MidenClientProxy — slice-6b waitForTransactionCommit (structural com
     fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
 
     const p = midenClientProxy.call('waitForTransactionCommit', ['0xtxid'], { deadlineMs: 20 }).catch((e: Error) => e);
+    await flush();
+    fireReady();
+    await flush();
+    await wait(40);
+    fireReady();
+    await flush();
+
+    const err = await p;
+    expect(err).toBeInstanceOf(OperationAbortedError);
+    expect((err as any).reason).toBe('deadline');
+  });
+});
+
+describe('MidenClientProxy — slice-7b sendPrivateNote (private-note relay)', () => {
+  // A live-Note stand-in: exposes serialize() (the flag-ON path crosses these bytes)
+  // and is passed straight through on the flag-OFF path (never serialized there).
+  const makeNote = (bytes: number[]) => ({ serialize: () => new Uint8Array(bytes) });
+
+  it('flag OFF → sendPrivateNote runs inline under withWasmClientLock on the SW client (byte-identical), never serializes, never touches offscreen', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const note = makeNote([9, 9]);
+    const serializeSpy = jest.spyOn(note, 'serialize');
+
+    const result = await midenClientProxy.sendPrivateNote(note as any, 'mtst1qrecipient');
+
+    // Caller lock wraps the relay — exactly the block the completion path ran before
+    // this slice pulled it into the proxy.
+    expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
+    // Relayed on the SW inline client — the one that created the note flag-off.
+    expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
+    // The LIVE note object crossed straight through — never serialized on this path.
+    expect(G.__px.inlineSendPrivateNote).toHaveBeenCalledWith(note, 'mtst1qrecipient');
+    expect(serializeSpy).not.toHaveBeenCalled();
+    expect(result).toBeUndefined();
+    // Offscreen never touched.
+    expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON but no chrome.offscreen API → sendPrivateNote falls back inline', async () => {
+    installChromeMock({ withOffscreen: false });
+    const { midenClientProxy } = await loadProxy(true);
+    const note = makeNote([1]);
+
+    await midenClientProxy.sendPrivateNote(note as any, 'mtst1qrecipient');
+
+    expect(G.__px.inlineSendPrivateNote).toHaveBeenCalledWith(note, 'mtst1qrecipient');
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → dispatches OFFSCREEN_CALL to the realm that created the note, crossing the note as SERIALIZED bytes; the SW client is NEVER used', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    // The offscreen side relays and returns null (void discarded).
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 4
+    }));
+
+    const note = makeNote([0xde, 0xad, 0xbe, 0xef]);
+    const p = midenClientProxy.sendPrivateNote(note as any, 'mtst1qrecipient');
+    await flush();
+    fireReady();
+    const result = await p;
+
+    expect(result).toBeUndefined();
+    // THE FIX: the relay crossed to the offscreen realm (which owns the note + the
+    // fresh sync height); the dormant SW client — whose stale height would overshoot
+    // the note's commitment — was NEVER used.
+    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
+    expect(G.__px.inlineSendPrivateNote).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.type).toBe('OFFSCREEN_CALL');
+    expect(env.method).toBe('sendPrivateNote');
+    // A transport relay — no prove/sign — so a short read deadline, NOT the write one.
+    expect(env.deadline_ms).toBe(15_000);
+    // The Note crossed as RAW serialized bytes (the 'b:' tag), never JSON/handle...
+    expect(env.argsB64[0].startsWith('b:')).toBe(true);
+    expect(Array.from(Buffer.from(env.argsB64[0].slice(2), 'base64'))).toEqual([0xde, 0xad, 0xbe, 0xef]);
+    // ...and the recipient id crossed as a JSON string.
+    expect(env.argsB64[1]).toBe('s:"mtst1qrecipient"');
+  });
+
+  it('flag ON → a deadline kill rejects with OperationAbortedError (caught by the completion relay → Completed, degraded)', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const { OperationAbortedError } = await import('./offscreen-codec');
+    // The offscreen relay never responds → only the deadline can end it. Use the
+    // generic `call` with a short deadline to exercise the same kill path.
+    fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+
+    const p = midenClientProxy
+      .call('sendPrivateNote', [new Uint8Array([1]), 'to'], { deadlineMs: 20 })
+      .catch((e: Error) => e);
     await flush();
     fireReady();
     await flush();

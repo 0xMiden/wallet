@@ -14,7 +14,7 @@
 // every method here is a strict pass-through to the existing inline
 // `getMidenClient()` singleton, so production behavior is unchanged.
 
-import { Account, getWasmOrThrow, TransactionResult, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
+import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
 
 import type { NoteExportType } from 'lib/miden/sdk/constants';
@@ -610,6 +610,47 @@ export const midenClientProxy = {
       return;
     }
     await this.call('waitForTransactionCommit', [transactionId], { deadlineMs: COMMIT_WAIT_DEADLINE_MS });
+  },
+
+  /**
+   * Relay a just-created PRIVATE note to the recipient via the transport layer
+   * (issue #260, slice 7b).
+   *
+   * This MUST run on the SAME client that created the note, mirroring the
+   * `waitForTransactionCommit` companion above — and for a funds-critical reason:
+   * `sendPrivateNote` attaches the CLIENT'S CURRENT SYNC HEIGHT as the recipient's
+   * forward-scan hint. Under the flag the send ran offscreen, so the note lives in
+   * the OFFSCREEN client's store and that realm owns the fresh sync height; the
+   * dormant SW client's height is stale, and a relay on it would attach a stale/
+   * overshooting hint (the recipient scans past the commitment and never receives).
+   *
+   *   Flag off (default): BYTE-IDENTICAL to the former inline relay — the exact
+   *   `getMidenClient().sendPrivateNote(note, to)` under the WASM lock (the caller's
+   *   relay block used to hold this lock; it is taken here now, exactly as
+   *   `waitForTransactionCommit` does, so the relay+wait stay a coherent unit — each
+   *   proxy call owns its own lock rather than the caller wrapping both). The live
+   *   `Note` is passed straight through (never serialized on this path).
+   *
+   *   Flag on: forward to the offscreen doc. The live `Note` cannot cross
+   *   postMessage, so it crosses as `note.serialize()` bytes (`encodeArg`'s raw-bytes
+   *   tag, never JSON) and is re-hydrated offscreen via `Note.deserialize`; the SDK's
+   *   `notes.sendPrivate` uses that live `Note` DIRECTLY (no store lookup — that path
+   *   is only for note-ID inputs), so the note is fully self-contained and only the
+   *   block hint is read off the (offscreen) client. It is a transport relay — no
+   *   prove / sign, NOT a `criticalOp` — carrying the short read deadline; a wedge is
+   *   reclaimed by that deadline, and the SDK persists the relay payload to its
+   *   durable outbox BEFORE transport, so a kill is safe (the outbox retries on the
+   *   next sync). The offscreen side discards the void result.
+   */
+  async sendPrivateNote(note: Note, recipientAccountId: string): Promise<void> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient();
+        await midenClient.sendPrivateNote(note, recipientAccountId);
+      });
+      return;
+    }
+    await this.call('sendPrivateNote', [note.serialize(), recipientAccountId], { deadlineMs: READ_DEADLINE_MS });
   },
 
   /**

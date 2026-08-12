@@ -59,6 +59,11 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     TransactionRequest: {
       deserialize: (...a: any[]) => g.__off.deserializeTxRequest(...a)
     },
+    // Slice 7b: the sendPrivateNote DISPATCH re-hydrates the relayed note from the
+    // raw bytes that crossed the boundary.
+    Note: {
+      deserialize: (...a: any[]) => g.__off.deserializeNote(...a)
+    },
     TransactionProver: {
       deserialize: (...a: any[]) => g.__off.deserializeProver(...a),
       newLocalProver: (...a: any[]) => g.__off.newLocalProver(...a)
@@ -134,6 +139,10 @@ function resetControl() {
     // guardianPipeline hands to executeRequest. Echo the bytes so the test can
     // assert the co-signed request crossed intact.
     deserializeTxRequest: jest.fn((b: Uint8Array) => ({ __trFromBytes: Array.from(b) })),
+    // Slice 7b: Note.deserialize(noteBytes) → a live-Note handle the sendPrivateNote
+    // DISPATCH hands to the client. Echo the bytes so the test can assert the note
+    // crossed intact.
+    deserializeNote: jest.fn((b: Uint8Array) => ({ __noteFromBytes: Array.from(b) })),
     deserializeProver: jest.fn(async (d: string) => ({ __fromDescriptor: d })),
     newLocalProver: jest.fn(() => ({ __local: true })),
     // OFFSCREEN_CALL dispatch: the offscreen-owned client's getAccount returns
@@ -186,6 +195,8 @@ function resetControl() {
     })),
     clientGetInputNote: jest.fn(async (_id: string) => ({ metadata: () => ({ noteType: () => 1 }) })),
     clientImportNoteBytes: jest.fn(async (_bytes: Uint8Array) => '0ximportedid'),
+    // Slice 7b: the private-note relay on the offscreen-owned client (void).
+    clientSendPrivateNote: jest.fn(async (_note: unknown, _to: string) => {}),
     // Slice 6a guardianPipeline: the RAW client transactions API the DISPATCH
     // drives directly (execute→prove→submit→apply on a pre-built request). The
     // default returns a TransactionExecution-like whose result serializes to
@@ -237,6 +248,7 @@ function resetControl() {
       // offscreen-owned client; the DISPATCH reduces getInputNote in-realm.
       getInputNote: (...a: any[]) => (globalThis as any).__off.clientGetInputNote(...a),
       importNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportNoteBytes(...a),
+      sendPrivateNote: (...a: any[]) => (globalThis as any).__off.clientSendPrivateNote(...a),
       // The raw client the guardian leaf pipeline + slice-7a sync-height/lineage
       // reads drive directly.
       client: {
@@ -948,6 +960,30 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
     expect(G.__off.clientGetInputNoteDetails).toHaveBeenCalledWith(undefined);
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('dispatches sendPrivateNote → re-hydrates the note from bytes and relays it on THIS client (void result)', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const noteBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
+    capturedListener!(
+      callReq({ method: 'sendPrivateNote', argsB64: [encodeArg(noteBytes), encodeArg('mtst1qrecipient')] }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    // The raw note bytes crossed intact and were re-hydrated via Note.deserialize...
+    expect(G.__off.deserializeNote).toHaveBeenCalledTimes(1);
+    expect(Array.from(G.__off.deserializeNote.mock.calls[0][0])).toEqual([0xde, 0xad, 0xbe, 0xef]);
+    // ...then relayed on THIS (offscreen) client with the re-hydrated note + recipient.
+    expect(G.__off.clientSendPrivateNote).toHaveBeenCalledTimes(1);
+    expect(G.__off.clientSendPrivateNote.mock.calls[0][0]).toEqual({ __noteFromBytes: [0xde, 0xad, 0xbe, 0xef] });
+    expect(G.__off.clientSendPrivateNote.mock.calls[0][1]).toBe('mtst1qrecipient');
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    // A relay — nothing to serialize back.
+    expect(resp.resultB64).toBeNull();
   });
 
   it('serializes concurrent slice-3 reads through the same offscreen WASM mutex', async () => {
