@@ -2883,6 +2883,14 @@
       }
     }
   },
+  "noteClaimFailedRetry": {
+    "message": "Reclamación fallida: toca Reintentar para volver a intentarlo",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "Este note ya no está disponible",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "Pendiente notes",
     "englishSource": "Pending notes"

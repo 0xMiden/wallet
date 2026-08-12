@@ -2936,6 +2936,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ çözülmedi",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Talep başarısız oldu; tekrar denemek için Yeniden Dene'ye dokunun",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "Bu note artık mevcut değil",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "Beklemede notes",
     "englishSource": "Pending notes"

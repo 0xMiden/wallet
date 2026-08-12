@@ -2949,6 +2949,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ невирішено",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Не вдалося подати претензію — торкніться «Повторити», щоб повторити спробу",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "Цей note більше не доступний",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "Очікує notes",
     "englishSource": "Pending notes"

@@ -2937,6 +2937,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ не решено",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Заявка не удалась. Нажмите «Повторить», чтобы повторить попытку.",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "Этот note больше недоступен.",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "Ожидание notes",
     "englishSource": "Pending notes"

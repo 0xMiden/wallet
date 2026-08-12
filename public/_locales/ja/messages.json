@@ -2936,6 +2936,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ 個が未解決",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "申請に失敗しました — [再試行] をタップして再試行します",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "この note は利用できなくなりました",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "保留中 notes",
     "englishSource": "Pending notes"
