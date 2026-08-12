@@ -19,7 +19,7 @@ crate-type = ["cdylib"]
 # Pin the EXACT published miden-client reviewed for the wallet's
 # @miden-sdk/miden-sdk version (see utility/checkNativeProverSdkPin.mjs).
 # The wallet is currently on web-sdk v0.15.9, whose Cargo.lock resolves
-# miden-client 0.15.5. This prover remains on 0.15.4 under the explicit reviewed
+# miden-client 0.15.5. This prover remains on 0.15.4 under the explicit
 # exception in that guard because the kernel-critical crate set is unchanged.
 #
 # When the versions diverge, compare miden-protocol, miden-tx, miden-core-lib,
@@ -27,7 +27,7 @@ crate-type = ["cdylib"]
 # SDK tag and the prover build. Any change there can move transaction-kernel /
 # library MAST procedure roots and requires bumping this pin and rebuilding the
 # committed Android/iOS native-prover binaries. Client-layer-only drift may be
-# recorded as an explicit reviewed exception in the guard.
+# recorded as an explicit exception in the guard after that comparison.
 #
 # Both the TransactionInputs / ProvenTransaction wire format AND the
 # transaction-kernel / library MAST procedure roots must match the SDK
