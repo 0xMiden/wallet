@@ -2287,6 +2287,10 @@
     "message": "마지막 동기화",
     "englishSource": "Last sync"
   },
+  "guardianRotationComplete": {
+    "message": "가디언이 업데이트되었습니다!",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "온라인",
     "englishSource": "Online"
@@ -2595,6 +2599,10 @@
   "viewInActivities": {
     "message": "활동에서 보기",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "활동 보기",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "세부정보 보기",

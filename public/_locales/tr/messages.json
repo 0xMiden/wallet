@@ -2287,6 +2287,10 @@
     "message": "Son senkronizasyon",
     "englishSource": "Last sync"
   },
+  "guardianRotationComplete": {
+    "message": "Muhafız Güncellendi!",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "Çevrimiçi",
     "englishSource": "Online"
@@ -2595,6 +2599,10 @@
   "viewInActivities": {
     "message": "Etkinliklerde Görüntüle",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "Etkinliği görüntüle",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Ayrıntıları Görüntüle",
