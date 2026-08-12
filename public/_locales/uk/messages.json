@@ -1338,6 +1338,10 @@
     "message": "Генерація доказів делегування",
     "englishSource": "Delegate Proof Generation"
   },
+  "delegateProofSettingsDescription": {
+    "message": "Коли ввімкнено, підтвердження транзакцій генеруються на віддалених серверах — швидше, без великого завантаження на ваш пристрій, і ваші ключі ніколи не залишають його. Коли вимкнено або послуга недоступна, гаманець перевіряє локально: більш приватний, але повільніший і потребує великого одноразового завантаження.",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+  },
   "transfer": {
     "message": "Переказ",
     "englishSource": "Transfer"
@@ -2473,8 +2477,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Автоматично споживати notes з Miden Faucet",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "Автоматично забирає вхідний MIDEN notes на ваш баланс — так само, як торкнутися \"Запитувати\". Це не витрачає ваші кошти та не додає жодної комісії.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "Зашифрований файл гаманця",

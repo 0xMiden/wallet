@@ -1338,6 +1338,10 @@
     "message": "Delege Kanıtı Oluşturma",
     "englishSource": "Delegate Proof Generation"
   },
+  "delegateProofSettingsDescription": {
+    "message": "Etkinleştirildiğinde, işlem kanıtları uzak sunucularda daha hızlı oluşturulur, cihazınıza büyük miktarda indirme yapılmaz ve anahtarlarınız asla cihazınızdan ayrılmaz. Kapalıyken veya hizmet kullanılamıyorsa, cüzdan yerel olarak kendini kanıtlar: Daha özeldir, ancak daha yavaştır ve tek seferlik büyük bir indirme gerektirir.",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+  },
   "transfer": {
     "message": "Aktarım",
     "englishSource": "Transfer"
@@ -2460,8 +2464,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "notes'yi Miden Faucet'den otomatik olarak tüket",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "Gelen MIDEN notes miktarını bakiyenize otomatik olarak talep edin; Al'a dokunmakla aynı şey. Paranızı harcamaz veya herhangi bir ücret eklemez.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "Şifreli Cüzdan Dosyası",

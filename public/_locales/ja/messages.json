@@ -1338,6 +1338,10 @@
     "message": "代理証明の生成",
     "englishSource": "Delegate Proof Generation"
   },
+  "delegateProofSettingsDescription": {
+    "message": "オンにすると、トランザクション証明がリモート サーバー上で生成されます。デバイスへの大規模なダウンロードを必要とせず、より高速に生成され、キーがデバイスから離れることはありません。オフの場合、またはサービスが利用できない場合、ウォレットはローカルで証明されます。プライベート性は高くなりますが、速度が遅くなり、一度に大量のダウンロードが必要になります。",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+  },
   "transfer": {
     "message": "送金",
     "englishSource": "Transfer"
@@ -2460,8 +2464,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "ミデン Faucet から notes を自​​動的に消費します",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "受信した MIDEN notes を残高に自動的に請求します。「請求」をタップするのと同じです。資金を費やしたり、手数料を追加したりすることはありません。",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "暗号化されたウォレットファイル",
