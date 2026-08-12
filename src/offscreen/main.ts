@@ -42,7 +42,7 @@ import {
 import type { ConsumeTransaction, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
-import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { withWasmClientLock, yieldWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
@@ -144,11 +144,24 @@ function getProver() {
 // `handleCall` right before it invokes the DISPATCH fn (under the WASM mutex, so
 // only one op runs at a time — no concurrent overwrite) so the sign stub can tag
 // its request with the write op the signature belongs to (design §2.4, §2.5).
-// DEFERRED (issue #260, post-flip hazard 2): this single global is safe ONLY
-// because the offscreen WASM mutex serializes ops to one at a time. If the
-// commit-wait mutex-yield (post-flip hazard 1) ever lands, this must be
-// op-scoped (threaded through the call chain) rather than a module global.
+//
+// Post-flip hazard 2 (issue #260 follow-up #2): now that the commit-wait dispatch
+// YIELDS the WASM mutex during its inter-poll sleeps (follow-up #1), an interloper
+// op runs during that sleep and overwrites/clears this global. The commit-wait
+// never signs, so this is harmless for the wait itself, but the invariant "the sign
+// stub reads THIS op's id" is restored as insurance (and to unblock a future
+// in-doc prove-yield): each dispatch that yields captures `reassertCurrentOpId`
+// LOCALLY (below) before its first yield and re-asserts after each one.
 let currentOpId: string | null = null;
+
+// Re-asserts `currentOpId` to the op that is currently executing. `handleCall` sets
+// this to a fresh closure BOUND to the op's id (alongside `currentOpId`), and a
+// dispatch that yields the WASM mutex captures it into a LOCAL variable before its
+// first yield. Local capture is what makes it interloper-proof: an op that runs
+// during the yield overwrites this module global with ITS own reassert, but the
+// yielding op already holds a reference to its own, so calling that restores the
+// correct id (issue #260 follow-up #2).
+let reassertCurrentOpId: () => void = () => {};
 
 function newSignId(): string {
   // The offscreen document is a window context, so `crypto.randomUUID` is always
@@ -439,12 +452,55 @@ const DISPATCH: Record<string, DispatchFn> = {
   // never see the committed record (it would time out at ~60s, fall through the
   // guardian catch to Failed, and SKIP the structural completion — leaving e.g.
   // replace-hot-key's on-chain rotation done but the local hot-key pointer stale).
-  // Running the wait HERE polls the realm that owns the applied state. Blocks up to
-  // the SDK's ~60s `waitFor` timeout — the proxy arms a deadline above that. A void
-  // result: the SW-side caller only awaits it, so nothing serializes back.
+  // Running the wait HERE polls the realm that owns the applied state.
+  //
+  // We DRIVE the poll loop in-realm (rather than calling the SDK's own
+  // `transactions.waitFor`, which `MidenClientInterface.waitForTransactionCommit`
+  // wraps) so we can YIELD the offscreen WASM mutex during the WASM-free inter-poll
+  // sleep (issue #260 follow-up #1). Under `handleCall`'s `withWasmClientLock`, the
+  // SDK's own waitFor would hold the single offscreen mutex for the ENTIRE ~60s poll
+  // even though ~55s of it is pure `setTimeout` sleeps touching no WASM — blocking
+  // balance polls, reads, and queued writes the whole time. This loop reproduces the
+  // SDK `waitFor` semantics EXACTLY (chain-only sync → filter by id → committed
+  // returns / discarded throws / timeout throws; SDK ref
+  // `dist/mt/index.js` `TransactionsResource.waitFor`) but releases the mutex ONLY
+  // around the sleep, where no WASM call is in flight (each `syncChain` /
+  // `transactions.list` fully returns before the sleep, so the RefCell borrow is
+  // clean at the yield boundary). A void result: the SW-side caller only awaits it,
+  // so nothing serializes back.
   waitForTransactionCommit: async (client, transactionId: string) => {
-    await client.waitForTransactionCommit(transactionId);
-    return null;
+    // Capture THIS op's reassert BEFORE the first yield (follow-up #2). While a
+    // sleep yields the mutex, an interloper op runs and clears/overwrites the module
+    // global `currentOpId`; re-asserting after each yield restores the invariant that
+    // the sign stub reads this op's id. Local capture makes it immune to the
+    // interloper also overwriting `reassertCurrentOpId`.
+    const reassertOpId = reassertCurrentOpId;
+    const timeout = 60_000;
+    const interval = 5_000;
+    const start = Date.now();
+    for (;;) {
+      if (Date.now() - start >= timeout) {
+        throw new Error(`Transaction confirmation timed out after ${timeout}ms`);
+      }
+      try {
+        // Chain-only sync (matches the SDK): confirmation needs on-chain state only,
+        // and skipping NTL keeps polling alive when note transport is unavailable.
+        await client.client.syncChain();
+      } catch {
+        /* transient sync failure — keep polling, exactly as the SDK waitFor does */
+      }
+      const txs = await client.client.transactions.list({ ids: [transactionId] });
+      const status = txs?.[0]?.transactionStatus?.();
+      if (status?.isCommitted()) return null;
+      if (status?.isDiscarded()) {
+        throw new Error(`Transaction rejected: ${transactionId}`);
+      }
+      // Release the offscreen WASM mutex for the WASM-free inter-poll sleep only, so
+      // other ops run during it; `yieldWasmClientLock` reacquires before we resume.
+      await yieldWasmClientLock(() => new Promise(resolve => setTimeout(resolve, interval)));
+      // An interloper op that ran during the sleep cleared `currentOpId`; restore it.
+      reassertOpId();
+    }
   }
 };
 
@@ -505,8 +561,14 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // Stash the ambient op_id for the duration of the WASM op so the reverse-IPC
       // sign stub (invoked mid-execute) can tag its request with this op (design
       // §2.4). Scoped tightly to the locked section: the mutex serializes ops, so
-      // exactly one op's id is live at a time.
+      // exactly one op's id is live at a time — EXCEPT while a mutex-yielding dispatch
+      // (the commit-wait, follow-up #1) sleeps, which is why it re-asserts via the
+      // per-op closure below (follow-up #2). No `await` separates these two
+      // assignments, so the closure is always bound to the same op as `currentOpId`.
       currentOpId = msg.op_id;
+      reassertCurrentOpId = () => {
+        currentOpId = msg.op_id;
+      };
       // Now that this op has WON the WASM mutex and is about to execute, tell the
       // SW to arm its write deadline at EXECUTION START (issue #260 flip-prep #3).
       // Fire-and-forget: queue-wait behind other ops was off-budget; the clock

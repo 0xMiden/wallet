@@ -341,7 +341,7 @@ describe('MidenClientProxy — slice-6b waitForTransactionCommit (structural com
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('flag ON → dispatches OFFSCREEN_CALL to the realm that applied the tx (70s deadline), never the dormant SW client', async () => {
+  it('flag ON → dispatches OFFSCREEN_CALL to the realm that applied the tx (150s deadline), never the dormant SW client', async () => {
     const { midenClientProxy } = await loadProxy(true);
     // The offscreen side runs the SDK waitFor and returns null (void discarded).
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
@@ -367,9 +367,10 @@ describe('MidenClientProxy — slice-6b waitForTransactionCommit (structural com
     expect(env.type).toBe('OFFSCREEN_CALL');
     expect(env.method).toBe('waitForTransactionCommit');
     expect(env.argsB64).toEqual(['s:"0xtxid"']); // encodeArg('0xtxid')
-    // A commit-wait blocks up to the SDK's ~60s waitFor, so its deadline sits ABOVE
-    // that (70s) — NOT a read's short 15s READ_DEADLINE_MS.
-    expect(env.deadline_ms).toBe(70_000);
+    // A commit-wait blocks up to the ~60s poll window AND now yields the offscreen
+    // mutex during its sleeps (follow-up #1), so its wall-clock can absorb other ops'
+    // mutex-holds — its deadline sits well ABOVE 60s (150s), NOT a read's short 15s.
+    expect(env.deadline_ms).toBe(150_000);
   });
 
   it('flag ON → a deadline kill rejects with OperationAbortedError (parity with flag-off waitFor timeout → Failed)', async () => {
@@ -377,7 +378,7 @@ describe('MidenClientProxy — slice-6b waitForTransactionCommit (structural com
     const { OperationAbortedError } = await import('./offscreen-codec');
     // The offscreen wait never responds → only the deadline can end it. Use the
     // generic `call` with a short deadline to exercise the same kill path without
-    // waiting the production 70s (the routing test above pins the real 70s value).
+    // waiting the production 150s (the routing test above pins the real 150s value).
     fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
 
     const p = midenClientProxy.call('waitForTransactionCommit', ['0xtxid'], { deadlineMs: 20 }).catch((e: Error) => e);
