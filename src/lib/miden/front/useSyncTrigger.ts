@@ -13,6 +13,13 @@ import { isTestSyncPaused } from './test-sync-pause';
 
 const SYNC_INTERVAL_MS = 3_000;
 
+// Parity with the service-worker sync path (sync-manager.ts, #273): only surface
+// the "cannot reach the Miden node" banner once sync failures are *sustained*. A
+// lone testnet sync that runs long / blips routinely fails while the node is
+// healthy and block height is still advancing, so banner-ing on the first
+// failure produces a flapping false "node unreachable" (#596).
+const MAX_CONSECUTIVE_SYNC_FAILURES = 3;
+
 const immediateSyncListeners = new Set<() => void>();
 
 export function requestImmediateSync(): void {
@@ -94,6 +101,8 @@ export function useSyncTrigger() {
     let isRunning = false;
     let retryAfterCurrentRun = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Consecutive sync-failure streak, gating the connectivity banner (#596).
+    let consecutiveSyncFailures = 0;
 
     const runAndSchedule = async () => {
       if (cancelled) return;
@@ -120,6 +129,8 @@ export function useSyncTrigger() {
               if (!client || cancelled) return;
               await client.syncState();
             });
+            // Sync went through: reset the failure streak and clear any banner.
+            consecutiveSyncFailures = 0;
             clearReachabilityIssues();
 
             const guardianAccountKeys = useWalletStore
@@ -130,8 +141,16 @@ export function useSyncTrigger() {
               await syncGuardianAccounts().catch(() => {});
             }
           } catch (error) {
-            console.warn('[useSyncTrigger] sync error:', error);
-            if (isLikelyNetworkError(error)) {
+            consecutiveSyncFailures++;
+            console.warn(
+              `[useSyncTrigger] sync error (${consecutiveSyncFailures}/${MAX_CONSECUTIVE_SYNC_FAILURES}):`,
+              error
+            );
+            // Gate the connectivity banner on a *sustained* failure streak,
+            // matching the service-worker path (#273). markConnectivityIssue is
+            // idempotent, so re-marking on each further failure while it's up is a
+            // no-op; a later successful sync resets the streak and clears it (#596).
+            if (isLikelyNetworkError(error) && consecutiveSyncFailures >= MAX_CONSECUTIVE_SYNC_FAILURES) {
               markConnectivityIssue(classifySyncError(error));
             }
           } finally {
