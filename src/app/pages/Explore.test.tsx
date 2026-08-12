@@ -42,7 +42,6 @@ const mockInitiateConsumeTransaction = jest.fn();
 const mockReconcileBridgedReceives = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
 const mockStartBackgroundTransactionProcessing = jest.fn();
-const mockSetFaucetIdSetting = jest.fn();
 const mockNavigate = jest.fn();
 const mockClearNoteReceivedNotification = jest.fn();
 
@@ -167,7 +166,6 @@ jest.mock('lib/epoch', () => ({
 }));
 
 jest.mock('lib/miden/front', () => ({
-  setFaucetIdSetting: (...args: any[]) => mockSetFaucetIdSetting(...args),
   useAccount: () => mockAccount,
   useAllBalances: () => ({ data: mockAllBalances, mutate: mockMutateBalances }),
   useAllTokensBaseMetadata: () => ({}),
@@ -180,11 +178,6 @@ jest.mock('lib/miden/front/claimable-notes', () => ({
 
 jest.mock('lib/miden/front/guardian-sync', () => ({
   zustandProvider: { name: 'zustand-provider' }
-}));
-
-jest.mock('lib/miden-chain/constants', () => ({
-  MIDEN_NETWORK_NAME: { MAINNET: 'mainnet', TESTNET: 'testnet', DEVNET: 'devnet', LOCALNET: 'localnet' },
-  MIDEN_FAUCET_ENDPOINTS: new Map([['devnet', 'https://faucet.devnet.example']])
 }));
 
 jest.mock('lib/platform', () => ({
