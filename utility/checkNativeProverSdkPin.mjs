@@ -7,7 +7,7 @@ const PROVER_CARGO_TOML = new URL(
 );
 
 // Explicitly documented safe drifts. A new SDK release will fail unless its
-// miden-client version matches the prover pin or a maintainer records a reviewed
+// miden-client version matches the prover pin or a maintainer records an
 // exception here after checking the transaction-kernel crate set.
 const PIN_EXCEPTIONS = {
   '0.15.9': {
@@ -73,12 +73,12 @@ if (
   exception?.proverClient === proverClient
 ) {
   console.log(
-    `[native-prover-pin] REVIEWED EXCEPTION: SDK ${sdkVersion} resolves miden-client ${sdkClient}, prover remains on ${proverClient}. ${exception.reason}.`,
+    `[native-prover-pin] DOCUMENTED EXCEPTION: SDK ${sdkVersion} resolves miden-client ${sdkClient}, prover remains on ${proverClient}. ${exception.reason}.`,
   );
   process.exit(0);
 }
 
 fail(
   `SDK ${sdkVersion} resolves miden-client ${sdkClient}, but the native prover pins ${proverClient}. ` +
-    'Update/rebuild the native prover, or record a reviewed exception after verifying the kernel-critical crate versions.',
+    'Update/rebuild the native prover, or record an exception after verifying the kernel-critical crate versions.',
 );
