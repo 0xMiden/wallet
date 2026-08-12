@@ -204,7 +204,7 @@ const RotateGuardianReview: FC = () => {
             }
           />
 
-          {error && <div className="mt-3 text-red-500 text-xs select-text">{error}</div>}
+          {error && <div className="mt-3 text-red-500 text-xs select-text break-words">{error}</div>}
 
           <div className="mt-auto pt-6">
             <Button

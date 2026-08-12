@@ -247,6 +247,24 @@ it('hardware cancellation never queues a switch', async () => {
   expect(mockNavigate).not.toHaveBeenCalled();
 });
 
+it('wraps a long error message so it is not clipped at extension width (#454)', async () => {
+  // Guardian failures carry long unbreakable strings (endpoint URLs, RPC/SDK
+  // errors, hashes). Without break-words they overflow the fixed-width popup
+  // and get clipped, hiding the failure reason. The error row must wrap so it
+  // stays fully readable (the page already scrolls, keeping the confirm CTA
+  // reachable).
+  const longError =
+    'GuardianHttpError: https://guardian.example.com/v1/operators/rotate?token=abcdef0123456789abcdef0123456789 failed';
+  mockHasHardwareProtector.mockResolvedValue(true);
+  mockUnlock.mockRejectedValue(new Error(longError));
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+  fireEvent.click(confirm);
+
+  expect(await screen.findByText(longError)).toHaveClass('break-words');
+});
+
 it('password authentication gates the extension flow and retries with fresh authentication', async () => {
   mockUnlock.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined);
   mockInitiateSwitch.mockRejectedValueOnce(new Error('queue failed')).mockResolvedValueOnce('retry-tx');
