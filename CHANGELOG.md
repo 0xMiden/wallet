@@ -2,6 +2,10 @@
 
 ## 1.15.20 (TBD)
 
+### Fixes
+
+- [FIX][extension] **Recurring stuck "Consuming" notes are fixed by moving the wallet's WASM engine off the extension service-worker thread.** Transaction execution, proving, syncing, and reads now run in a dedicated `chrome.offscreen` document, so a wedged operation can no longer freeze the service worker and strand notes mid-consume; each operation is bounded by its own deadline and a wedged one is torn down and safely retried. Behind `MIDEN_USE_OFFSCREEN_CLIENT` (extension only; mobile/desktop unaffected). (#260)
+
 ### Changes
 
 - [CHANGE][all] **Frontend implementation guidance is now shared across supported coding agents.** The repository now carries one vendor-neutral Miden Wallet frontend skill for component reuse, semantic styling, motion, accessibility, haptics, and cross-platform verification, with matching concise rules in the repository instructions.
