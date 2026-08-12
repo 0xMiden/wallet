@@ -33,6 +33,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Check native prover SDK pin
+        run: node utility/checkNativeProverSdkPin.mjs
+
       # - name: Create Dotenv File
       #   run: |
       #     echo "${{ secrets.ENV }}" > .env
