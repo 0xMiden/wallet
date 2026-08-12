@@ -42,9 +42,11 @@ describe('es locale parity with en (#469)', () => {
 
   it('does not leave the fixed common UI terms in English', () => {
     // A curated subset of the entries this PR translated — guards against a
-    // regression back to the English source. (The broader Spanish-quality audit
-    // is a native-speaker follow-up per the issue.)
-    for (const key of ['seedPhrase', 'notesSection', 'note', 'withdrawalFailed', 'totalPaid', 'transactionComplete']) {
+    // regression back to the English source. Excludes the repo's protected
+    // TECHNICAL_TERMS (Seed Phrase / Note(s) / Faucet), which generateLanguageFiles
+    // intentionally keeps in English across every locale. (The broader
+    // Spanish-quality audit is a native-speaker follow-up per the issue.)
+    for (const key of ['withdrawalFailed', 'totalPaid', 'transactionComplete', 'depositIntentLabel']) {
       expect(es[key].message).not.toBe(en[key].message);
     }
   });

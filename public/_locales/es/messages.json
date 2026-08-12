@@ -1208,7 +1208,7 @@
     "englishSource": "Current account key. Keep it in secret."
   },
   "seedPhrase": {
-    "message": "Frase semilla",
+    "message": "Seed Phrase",
     "englishSource": "Seed Phrase"
   },
   "keepSeedPhraseSecret": {
@@ -3244,7 +3244,7 @@
     "englishSource": "Click to view and claim it"
   },
   "noteReceivedMultiple": {
-    "message": "Tienes $count$ notas nuevas para reclamar",
+    "message": "You have $count$ new notes to claim",
     "englishSource": "You have $count$ new notes to claim",
     "placeholders": {
       "count": {
@@ -3369,7 +3369,7 @@
     "englishSource": "Tx ID"
   },
   "notesSection": {
-    "message": "Notas",
+    "message": "Notes",
     "englishSource": "Notes"
   },
   "orderTracking": {
@@ -3713,7 +3713,7 @@
     "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
   },
   "note": {
-    "message": "Nota",
+    "message": "Note",
     "englishSource": "Note"
   },
   "earnMarketLabel": {
