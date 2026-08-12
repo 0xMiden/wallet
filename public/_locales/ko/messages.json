@@ -1925,8 +1925,8 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "보안 정책에 따라 거래를 승인하거나 거부합니다. 장치를 분실한 경우 복구하는 데 도움이 됩니다.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "모든 거래에 공동 서명합니다. 귀하의 장치나 Guardian 모두 단독으로 자금을 이동할 수 없습니다. 기기를 분실한 경우 계정을 복구하는 데 도움이 됩니다.",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "할 수 없는 일",
@@ -1941,8 +1941,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "복구 문구를 사용하여 언제든지 다른 Guardian으로 교체하거나 완전히 제거할 수 있습니다.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "복구 문구를 사용하여 언제든지 다른 Guardian으로 전환할 수 있습니다. 변경 사항에 공동 서명한 사람만 해당됩니다. 귀하의 계좌와 자금은 동일하게 유지됩니다.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "알았어요",

@@ -1908,8 +1908,8 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Zatwierdza lub odrzuca transakcje w oparciu o Twoją politykę bezpieczeństwa. Pomaga odzyskać siły w przypadku utraty urządzenia.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "Podpisuje każdą transakcję — ani Twoje urządzenie, ani Guardian nie mogą samodzielnie przesyłać środków. Pomaga odzyskać konto w przypadku utraty urządzenia.",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "Czego nie może zrobić",
@@ -1924,8 +1924,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Możesz przejść do innego Strażnika — lub całkowicie go usunąć — w dowolnym momencie, używając frazy odzyskiwania.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "W dowolnym momencie możesz przełączyć się na innego Opiekuna, podając frazę odzyskiwania. Zmienia się tylko to, kto jest współsygnatariuszem; Twoje konto i środki pozostają takie same.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Rozumiem",
