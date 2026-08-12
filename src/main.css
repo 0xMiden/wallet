@@ -2,6 +2,25 @@
   font-variant-ligatures: none;
 }
 
+/* #503 — native-app feel: UI chrome (labels, buttons, badges, nav) is not
+   text-selectable. Content meant to be copyable opts back in — real inputs, and
+   anything tagged `.select-text` (addresses, seed reveal, error/tx detail
+   strings already use it). Only `user-select` is touched, so the paste/lookup
+   callout on inputs is unaffected. */
+* {
+  -webkit-user-select: none;
+  user-select: none;
+}
+input,
+textarea,
+[contenteditable='true'],
+[contenteditable='true'] *,
+.select-text,
+.select-text * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 button,
 [role='button'] {
   cursor: pointer;
