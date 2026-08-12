@@ -176,7 +176,12 @@ const Explore: FC = () => {
       .then(response => response.json())
       .then(data => {
         if (data.id !== midenFaucetId) {
-          setFaucetIdSetting(data.id);
+          // NOTE: this auto-sync is currently disabled (see the commented-out
+          // effect below). Now that setFaucetIdSetting actually persists (#590),
+          // if it is ever re-enabled it MUST be gated so it doesn't clobber a
+          // user's manual "Edit Miden Faucet ID" override with the devnet
+          // faucet's metadata id.
+          void setFaucetIdSetting(data.id);
         }
       })
       .catch(error => {
