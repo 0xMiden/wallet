@@ -143,7 +143,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         'overflow-hidden relative'
       )}
     >
-      <div className={classNames('flex flex-1 flex-col w-full')}>
+      {/* min-h-0 lets the fixed 600px popup height propagate down instead of this
+          flex child inflating to its content height — without it the completion
+          layout below can't scroll and its footer CTAs get clipped (#463). */}
+      <div className={classNames('flex min-h-0 flex-1 flex-col w-full')}>
         <GeneratingTransaction
           onDoneClick={onClose}
           transactionComplete={transactionComplete}
