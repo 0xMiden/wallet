@@ -14,9 +14,7 @@ jest.mock('lib/mobile/haptics', () => ({
 
 jest.mock('app/icons/v2', () => ({
   IconName: { Close: 'Close' },
-  Icon: ({ name, className }: { name: string; className?: string }) => (
-    <span data-name={name} className={className} />
-  )
+  Icon: ({ name, className }: { name: string; className?: string }) => <span data-name={name} className={className} />
 }));
 
 const getInput = () => screen.getByRole('textbox') as HTMLInputElement;
