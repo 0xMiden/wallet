@@ -96,7 +96,8 @@ const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<I
 // Guardian tx-types whose leaf pipeline is safe to run offscreen (issue #260).
 // Slice 6a routed the four value-moving types (send / consume / swap / execute);
 // slice 6b adds the three STRUCTURAL types (switch-guardian / replace-hot-key /
-// update-procedure-threshold). All seven cross the SAME serializable waist: by
+// update-procedure-threshold). All nine (6a/6b + the 7c bridged-send / earn-deposit
+// below) cross the SAME serializable waist: by
 // the time control reaches the leaf, `signAndCreateTransactionRequest` has folded
 // every co-signature (hot + cold + guardian) into the `tr` advice map, which
 // `TransactionRequest.serialize()` preserves (§4.0), so only `executeRequest →
@@ -107,9 +108,21 @@ const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<I
 // result) runs after. A killed structural leaf → Failed with NO auto-requeue (the
 // slice-6a behavior; structural types are excluded from REQUEUEABLE_TYPES, so the
 // only recovery is a user-initiated re-run that builds a fresh proposal against the
-// post-change chain state — never a double-apply). bridged-send / earn-deposit stay
-// INLINE unconditionally, exactly like their non-guardian counterparts. An unknown
-// type is not in the set, so it stays inline too.
+// post-change chain state — never a double-apply). Slice 7c adds the last two
+// value-moving guardian types (bridged-send / earn-deposit): both are hot-bound
+// custom-proposal sends whose `tr` reaches the leaf fully co-signed via the SAME
+// `signAndCreateTransactionRequest` (no cold co-sign — they are not structural), so
+// they cross the identical serializable waist as the recallable send / swap already
+// routed here. Their completion handlers already consume an offscreen-round-tripped
+// result flag-on (the non-guardian leaf moved offscreen in slice 7b feeds the same
+// completeBridgedSend / completeEarnDeposit), and a wedge-kill →
+// OperationAbortedError falls through the guardian catch to cancelTransaction →
+// Failed with NO silent auto-requeue (earn-deposit is excluded from REQUEUEABLE_TYPES;
+// bridged-send is user-tap-only — never auto-requeued — so a killed-then-retried
+// send-style write can't double-spend), and a round-tripped
+// `ApplyTransactionAfterSubmitFailed` reaches the guardian classifier keyed by the
+// preserved errorCode (→ both Fail, byte-identical to their flag-off inline apply
+// throw). An unknown type is not in the set, so it stays inline too.
 const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
   'send',
   'consume',
@@ -117,7 +130,9 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
   'execute',
   'switch-guardian',
   'replace-hot-key',
-  'update-procedure-threshold'
+  'update-procedure-threshold',
+  'bridged-send',
+  'earn-deposit'
 ]);
 
 // Cooldown (seconds) applied to a tx requeued after a transient guardian
@@ -554,7 +569,8 @@ const ensureGuardianRecallableSendRequestBytes = async (
  *
  * When the offscreen client is enabled, the routable guardian types (value-moving
  * in slice 6a; structural — switch-guardian / replace-hot-key /
- * update-procedure-threshold — in slice 6b) run the SAME leaf offscreen via
+ * update-procedure-threshold — in slice 6b; bridged-send / earn-deposit in slice 7c)
+ * run the SAME leaf offscreen via
  * `dispatchGuardianPipeline` instead; everything BEFORE this (proposal creation,
  * guardian HTTP co-sign, cold co-sign, mid-flight `persistNewHotKey`,
  * `signAndCreateTransactionRequest`) and AFTER it (abandonCandidate on failure,

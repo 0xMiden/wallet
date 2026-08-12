@@ -72,7 +72,7 @@ import { simulateCustomTransaction } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { withWasmClientLock } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 import {
   initiateSendTransaction,
@@ -913,12 +913,18 @@ export const generatePromisifyImportPrivateNote = async (
         if (confirmReq.confirmed) {
           try {
             let noteId = await withUnlocked(async () => {
-              // Wrap WASM client operations in a lock to prevent concurrent access
+              // Wrap WASM client operations in a lock to prevent concurrent access.
+              // Route through the offscreen proxy (issue #260, slice 7c): this is a
+              // STORE WRITE (a claimable private note imported by a dApp flow). Flag-ON
+              // the note MUST land in the OFFSCREEN client's store — the realm that
+              // syncs and consumes — else it would import into the dormant SW store and
+              // be unclaimable. Flag-OFF each proxy method is byte-identical to the
+              // former inline `getMidenClient().importNoteBytes()` / `.syncState()`
+              // (verbatim getMidenClient path under this caller's lock).
               return await withWasmClientLock(async () => {
-                const midenClient = await getMidenClient();
                 const noteAsUint8Array = b64ToU8(req.note);
-                const noteId = await midenClient.importNoteBytes(noteAsUint8Array);
-                await midenClient.syncState();
+                const noteId = await midenClientProxy.importNoteBytes(noteAsUint8Array);
+                await midenClientProxy.syncState();
                 return noteId;
               });
             });

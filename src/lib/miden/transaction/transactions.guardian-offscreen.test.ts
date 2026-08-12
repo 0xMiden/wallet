@@ -1,5 +1,5 @@
 /**
- * Guardian write LEAF PIPELINE → offscreen routing (issue #260, slices 6a + 6b).
+ * Guardian write LEAF PIPELINE → offscreen routing (issue #260, slices 6a + 6b + 7c).
  *
  * These tests exercise `generateTransaction` at the routing seam: with the
  * offscreen client flag OFF the routable guardian leaf runs inline
@@ -26,8 +26,10 @@
  *     EXACT `tr.serialize()` bytes (advice map — carrying the co-signatures —
  *     intact; the byte-level serialize→transport→deserialize→execute round-trip is
  *     proven in miden-client-proxy.test.ts + offscreen/main.test.ts).
- *   - flag routing OFF/ON per value-moving AND structural type; bridged stays inline
- *     even with the flag ON.
+ *   - flag routing OFF/ON per value-moving AND structural type; slice 7c adds the last
+ *     two value-moving types (bridged-send / earn-deposit), which now route offscreen
+ *     like send/swap — with the errorCode classifier marking them Failed (not Completed)
+ *     on a post-submit apply failure, byte-identical to their flag-OFF inline throw.
  *   - flag-off/flag-on byte-identity: the completion handler receives a result with
  *     identical `serialize()` bytes on both paths.
  *   - persistNewHotKey ordering parity: replace-hot-key persists the new hot key
@@ -283,6 +285,41 @@ const valueMovingCases = (): Case[] => [
   }
 ];
 
+// Slice 7c: the last two value-moving guardian types. Both are hot-bound
+// custom-proposal sends that cross the SAME leaf as send/swap — bridged-send
+// (agglayer) previews its pre-built request into a custom proposal; earn-deposit
+// carries a pre-seeded `requestBytes` so `ensureGuardianRecallableSendRequestBytes`
+// short-circuits (no WasmWebClient / getSyncHeight) and routes through the SAME
+// custom proposal. They match the value-moving cases on routing / byte-identity /
+// kill-window; they DIVERGE only on the errorCode classifier (→ Failed, not
+// Completed — see the dedicated block below), so they are their own case list.
+const bridgeEarnCases = (): Case[] => [
+  {
+    type: 'bridged-send',
+    row: {
+      type: 'bridged-send',
+      secondaryAccountId: 'r',
+      faucetId: 'f',
+      amount: '3',
+      requestBytes: new Uint8Array([3, 3]),
+      extraInputs: { provider: 'agglayer' }
+    },
+    complete: mockComplete.bridged
+  },
+  {
+    type: 'earn-deposit',
+    row: {
+      type: 'earn-deposit',
+      secondaryAccountId: 'r',
+      faucetId: 'f',
+      amount: '5',
+      requestBytes: new Uint8Array([4, 4]),
+      extraInputs: { recallBlocks: 10 }
+    },
+    complete: mockComplete.earn
+  }
+];
+
 const buildTx = (id: string, extra: Record<string, unknown>) => ({
   id,
   accountId: 'guardian-acc',
@@ -385,36 +422,129 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
   });
 });
 
-describe('guardian leaf routing — not-yet-sliced types stay inline even with the flag ON', () => {
-  it('bridged-send (agglayer) runs the inline leaf, never dispatchGuardianPipeline', async () => {
-    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-    const { inline } = arrange('on-bridged', {
-      type: 'bridged-send',
-      secondaryAccountId: 'r',
-      faucetId: 'f',
-      amount: '3',
-      requestBytes: new Uint8Array([3, 3]),
-      extraInputs: { provider: 'agglayer' }
-    });
+// ─── Slice 7c: bridged-send / earn-deposit guardian leaf → offscreen ──────────
+// The final two value-moving guardian types. Before 7c they ran the leaf INLINE
+// even flag-ON (excluded from OFFSCREEN_ROUTABLE_GUARDIAN_TYPES) → the dormant SW
+// client. 7c routes them offscreen exactly like send/swap, since their co-signed
+// `tr` crosses the same serializable waist.
 
-    await generateTransaction(
-      buildTx('on-bridged', {
-        type: 'bridged-send',
-        secondaryAccountId: 'r',
-        faucetId: 'f',
-        amount: '3',
-        requestBytes: new Uint8Array([3, 3]),
-        extraInputs: { provider: 'agglayer' }
-      }) as never,
-      signCallback,
-      false,
-      provider as never
-    );
+describe('guardian bridged-send / earn-deposit leaf routing — flag OFF (inline)', () => {
+  it.each(bridgeEarnCases())(
+    '$type: runs the inline pipeline, never dispatchGuardianPipeline',
+    async ({ row, complete }) => {
+      const { service, inline } = arrange(`be-off-${row.type}`, row);
 
-    expect(inline.__executeRequest).toHaveBeenCalledTimes(1);
-    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
-    expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
-  });
+      await generateTransaction(buildTx(`be-off-${row.type}`, row) as never, signCallback, false, provider as never);
+
+      expect(inline.__executeRequest).toHaveBeenCalledTimes(1);
+      expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+      expect(complete).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+    }
+  );
+});
+
+describe('guardian bridged-send / earn-deposit leaf routing — flag ON (offscreen)', () => {
+  it.each(bridgeEarnCases())(
+    '$type: crosses the co-signed request bytes to dispatchGuardianPipeline, never runs the inline leaf',
+    async ({ row, complete }) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      const dispatched = makeResult();
+      mockDispatchGuardianPipeline.mockResolvedValue(dispatched);
+      const { inline } = arrange(`be-on-${row.type}`, row);
+
+      await generateTransaction(buildTx(`be-on-${row.type}`, row) as never, signCallback, false, provider as never);
+
+      // The inline SW leaf never executed; the offscreen leaf did.
+      expect(inline.__executeRequest).not.toHaveBeenCalled();
+      expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+      const [acct, trBytes, delegate, cb] = mockDispatchGuardianPipeline.mock.calls[0];
+      expect(acct).toBe('guardian-acc');
+      // §4.0: the co-signed request crossed as the EXACT serialized bytes.
+      expect(Array.from(trBytes as Uint8Array)).toEqual(TR_BYTES);
+      expect(delegate).toBe(false);
+      expect(cb).toBe(signCallback);
+      // Same completion handler finalized with the round-tripped result.
+      expect(complete).toHaveBeenCalledTimes(1);
+      expect(complete.mock.calls[0]).toContain(dispatched);
+    }
+  );
+});
+
+describe('guardian bridged-send / earn-deposit byte-identity — flag ON result bytes == flag OFF result bytes', () => {
+  it.each(bridgeEarnCases())(
+    '$type: completion handler receives identical serialize() bytes on both paths',
+    async ({ row, complete }) => {
+      arrange(`be-bi-off-${row.type}`, row, makeResult([7, 7, 7]));
+      await generateTransaction(buildTx(`be-bi-off-${row.type}`, row) as never, signCallback, false, provider as never);
+      const offResult = complete.mock.calls[0][complete.mock.calls[0].length - 1] as ReturnType<typeof makeResult>;
+
+      jest.clearAllMocks();
+      txStore.length = 0;
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockDispatchGuardianPipeline.mockResolvedValue(makeResult([7, 7, 7]));
+      arrange(`be-bi-on-${row.type}`, row, makeResult([7, 7, 7]));
+      await generateTransaction(buildTx(`be-bi-on-${row.type}`, row) as never, signCallback, false, provider as never);
+      const onResult = complete.mock.calls[0][complete.mock.calls[0].length - 1] as ReturnType<typeof makeResult>;
+
+      expect(Array.from(offResult.serialize())).toEqual(Array.from(onResult.serialize()));
+      expect(Array.from(onResult.serialize())).toEqual([7, 7, 7]);
+    }
+  );
+});
+
+describe('guardian bridged-send / earn-deposit kill-window (funds-safety) — an offscreen kill FAILS the row, no auto-requeue', () => {
+  it.each(bridgeEarnCases())(
+    '$type: an OperationAbortedError marks the row Failed, does NOT requeue, and dispatches exactly ONCE (no double-send)',
+    async ({ row, complete }) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      // A wedge-kill fires AFTER the offscreen submit may have landed → retryable
+      // OperationAbortedError. bridged-send has no input-note nullifier (fresh
+      // proposal each retry) and is only USER-tap-requeueable (never auto); earn-deposit
+      // is excluded from REQUEUEABLE_TYPES entirely — so falling through to Failed with
+      // NO auto-requeue is the only funds-safe outcome, matching the non-guardian 7b
+      // path and guardian flag-OFF.
+      mockDispatchGuardianPipeline.mockRejectedValue(new OperationAbortedError('op-kill', 'deadline'));
+      const { service } = arrange(`be-kill-${row.type}`, row);
+
+      await generateTransaction(buildTx(`be-kill-${row.type}`, row) as never, signCallback, false, provider as never);
+
+      expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      const finalRow = txStore.find(r => r.id === `be-kill-${row.type}`)!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
+      expect(finalRow.nextEligibleAt).toBeUndefined();
+      expect(complete).not.toHaveBeenCalled();
+    }
+  );
+});
+
+describe('guardian bridged-send / earn-deposit errorCode preservation → classifier marks Failed (not Completed)', () => {
+  it.each(bridgeEarnCases())(
+    '$type: a round-tripped ApplyTransactionAfterSubmitFailed marks the row Failed — byte-identical to the flag-OFF inline apply throw',
+    async ({ row, complete }) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
+      applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+      mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
+      const { service } = arrange(`be-apply-${row.type}`, row);
+
+      await generateTransaction(buildTx(`be-apply-${row.type}`, row) as never, signCallback, false, provider as never);
+
+      // Unlike send/swap/execute/consume (marked Completed on a post-submit apply
+      // failure), bridged-send and earn-deposit are NOT in that Completed branch — the
+      // guardian classifier routes their preserved errorCode to cancelTransaction →
+      // Failed (earn-deposit so its awaiting caller resolves via the error branch;
+      // bridged-send as the generic terminal). This is the SAME outcome the flag-OFF
+      // inline `apply()` throw produces, proving the errorCode survived the round-trip.
+      const finalRow = txStore.find(r => r.id === `be-apply-${row.type}`)!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(complete).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe('guardian leaf byte-identity — flag ON result bytes == flag OFF result bytes', () => {
