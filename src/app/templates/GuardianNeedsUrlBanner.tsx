@@ -84,7 +84,7 @@ export const GuardianNeedsUrlBanner: FC<Props> = ({ className }) => {
         }}
         onChange={event => setUrlInput(event.target.value)}
       />
-      {error && <p className="text-red-500 text-xs">{error}</p>}
+      {error && <p className="text-red-500 text-xs break-words">{error}</p>}
       <Button
         title={submitting ? t('loading') : t('continue')}
         onClick={onSubmit}
