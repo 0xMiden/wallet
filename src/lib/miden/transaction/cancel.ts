@@ -5,7 +5,6 @@ import { isMobile } from 'lib/platform';
 
 import {
   formatRawTransactionError,
-  INVALID_NOTE_ERROR,
   resolveTransactionErrorMessage,
   TRANSACTION_EXPIRED_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
@@ -147,14 +146,75 @@ const CONSUMED_NOTE_STATES = [
 const MIN_PROCESSING_TIME_BEFORE_STUCK = 60; // 1 minute (in seconds)
 
 /**
+ * The verdict of a node-authoritative check of whether a consume's input note
+ * landed on chain as consumed:
+ *   - `'landed'`     the note is in a CONSUMED_* state — the consume DID land.
+ *   - `'not-landed'` the note still exists and is NOT consumed (Committed /
+ *                    Expected / Unverified / Invalid) — the consume did NOT land.
+ *   - `'unknown'`    no note row for the id, or the node query errored —
+ *                    indeterminate (never treated as landed).
+ */
+export type ConsumeLandedVerdict = 'landed' | 'not-landed' | 'unknown';
+
+/**
+ * Node-authoritative check of whether a consume's input note landed on chain.
+ *
+ * A consume's input `noteId` is known BEFORE the write executes (it is stamped on
+ * the tx row), and the note's on-chain consumed-state is the source of truth for
+ * whether the consume actually landed — so this stays authoritative even when a
+ * local `TransactionResult` was lost (e.g. an offscreen write deadline-killed with
+ * `OperationAbortedError`, issue #260 follow-up #3a).
+ *
+ * Syncs first (best-effort: a sync failure falls back to the last-synced state,
+ * which is still authoritative for a CONSUMED note — a consumed note never
+ * reverts), then reads the input-note state from the node-backed client. Only a
+ * CONSUMED_* state returns `'landed'`; any other existing state returns
+ * `'not-landed'`; a missing note or a thrown error returns `'unknown'`.
+ *
+ * FUNDS-SAFETY: an error or any uncertainty NEVER returns `'landed'`, so a caller
+ * can only ever mark a killed consume Completed when the node POSITIVELY confirms
+ * the note is consumed — a false Completed is impossible.
+ */
+export const verifyConsumeLanded = async (tx: ConsumeTransaction): Promise<ConsumeLandedVerdict> => {
+  try {
+    // Best-effort fresh sync so the note state reflects the latest chain head. A
+    // sync failure must not block the check: the last-synced state is still
+    // authoritative for a CONSUMED note (it cannot un-consume), and for a
+    // not-yet-consumed note it can only under-report "landed" → a safe Fail.
+    try {
+      await withWasmClientLock(async () => midenClientProxy.syncState());
+    } catch (syncError) {
+      console.warn('[verifyConsumeLanded] sync failed; reading last-synced note state for tx', tx.id, syncError);
+    }
+
+    const noteDetails = await withWasmClientLock(async () =>
+      midenClientProxy.getInputNoteDetails({ ids: [tx.noteId] })
+    );
+    const note = noteDetails[0];
+    if (!note) return 'unknown';
+    return CONSUMED_NOTE_STATES.includes(note.state) ? 'landed' : 'not-landed';
+  } catch (error) {
+    console.error('[verifyConsumeLanded] error checking note state for tx', tx.id, error);
+    return 'unknown';
+  }
+};
+
+/**
  * Verify stuck transactions by checking note state from the node.
  * For consume transactions:
  * - If the note has been consumed on-chain, mark the transaction as completed
- * - If the note is invalid, mark as failed
  * - If the note is still claimable AND the tx has been processing for > 1 minute, mark as failed
  *
  * IMPORTANT: Only checks GeneratingTransaction status, NOT Queued.
  * Queued transactions haven't started processing yet, so the note being claimable is expected.
+ *
+ * Delegates the per-tx node check to {@link verifyConsumeLanded} (the same
+ * authority the killed-consume requeue uses, issue #260 follow-up #3a):
+ *   - `'landed'`     → mark Completed.
+ *   - `'not-landed'` → the note exists but is not consumed; fail only after the
+ *                      processing grace window so an actively-processing consume
+ *                      isn't reaped mid-flight.
+ *   - `'unknown'`    → no note / query error → skip (leave for a later cycle).
  *
  * Returns the number of transactions that were resolved.
  */
@@ -173,45 +233,26 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
 
   let resolvedCount = 0;
 
-  // Check each stuck consume transaction (AutoSync handles syncState separately)
   for (const tx of consumeTransactions) {
-    try {
-      const noteDetails = await withWasmClientLock(async () =>
-        midenClientProxy.getInputNoteDetails({ ids: [tx.noteId] })
-      );
+    const verdict = await verifyConsumeLanded(tx);
 
-      const note = noteDetails[0];
-      if (!note) {
-        continue;
-      }
-
-      if (CONSUMED_NOTE_STATES.includes(note.state)) {
-        // Note has been consumed on-chain - mark transaction as completed
-        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-          displayMessage: 'Received',
-          completedAt: Math.floor(Date.now() / 1000)
-        });
+    if (verdict === 'landed') {
+      // Note has been consumed on-chain - mark transaction as completed
+      await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+        displayMessage: 'Received',
+        completedAt: Math.floor(Date.now() / 1000)
+      });
+      resolvedCount++;
+    } else if (verdict === 'not-landed') {
+      // Note still exists but is not consumed - only cancel if the tx has been
+      // processing for a while, so we don't reap one that is actively processing.
+      const processingTime = tx.processingStartedAt ? Math.floor(Date.now() / 1000) - tx.processingStartedAt : 0;
+      if (processingTime > MIN_PROCESSING_TIME_BEFORE_STUCK) {
+        await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR);
         resolvedCount++;
-      } else if (note.state === InputNoteState.Invalid) {
-        // Note is invalid - mark transaction as failed
-        await cancelTransaction(tx, INVALID_NOTE_ERROR);
-        resolvedCount++;
-      } else if (
-        note.state === InputNoteState.Committed ||
-        note.state === InputNoteState.Expected ||
-        note.state === InputNoteState.Unverified
-      ) {
-        // Note is still claimable - only cancel if tx has been processing for a while
-        // This prevents cancelling transactions that are actively being processed
-        const processingTime = tx.processingStartedAt ? Math.floor(Date.now() / 1000) - tx.processingStartedAt : 0;
-        if (processingTime > MIN_PROCESSING_TIME_BEFORE_STUCK) {
-          await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR);
-          resolvedCount++;
-        }
       }
-    } catch (err) {
-      console.error('[verifyStuckTransactionsFromNode] Error checking tx:', tx.id, err);
     }
+    // 'unknown' (no note row / node query error) → leave for a later cycle.
   }
 
   return resolvedCount;

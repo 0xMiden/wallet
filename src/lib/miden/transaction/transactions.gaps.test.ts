@@ -9,6 +9,7 @@
  *   - `generateTransactionsLoop` early-return when an in-progress tx exists
  */
 
+import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStatus } from '../db/types';
 import { NoteTypeEnum } from '../types';
 import {
@@ -539,14 +540,18 @@ describe('startBackgroundTransactionProcessing', () => {
 });
 
 describe('verifyStuckTransactionsFromNode invalid + missing branches', () => {
-  it('cancels a consume tx whose note state is Invalid', async () => {
+  it('cancels a consume tx whose note state is Invalid (not consumed → fails after the grace window)', async () => {
     txStore.push({
       id: 'tx-invalid',
       type: 'consume',
       noteId: 'note-bad',
       status: ITransactionStatus.GeneratingTransaction,
       initiatedAt: 1,
-      processingStartedAt: Math.floor(Date.now() / 1000)
+      // An Invalid note is not consumed, so verifyConsumeLanded reports 'not-landed'
+      // (#260 follow-up #3a unified it with the other not-consumed states). Like
+      // them it now honors the processing-time grace before failing, so age the row
+      // past MIN_PROCESSING_TIME_BEFORE_STUCK (60s) to keep the terminal-Failed outcome.
+      processingStartedAt: Math.floor(Date.now() / 1000) - 120
     });
     // getInputNoteDetails is on the gap-test mock client. Patch it on the fly.
     const sdk = require('../sdk/miden-client');
@@ -608,6 +613,88 @@ describe('verifyStuckTransactionsFromNode invalid + missing branches', () => {
       expect(txStore[0]!.status).toBe(ITransactionStatus.GeneratingTransaction);
     } finally {
       sdk.getMidenClient = origGetClient;
+    }
+  });
+});
+
+// ─── #260 follow-up #3a: non-guardian killed CONSUME → node-verified requeue ──
+// A deadline-killed non-guardian consume rejects with OperationAbortedError, which
+// propagates to the generateTransactionsLoop catch. Before failing it, the catch
+// asks the node (via verifyConsumeLanded) whether the input note landed as
+// consumed: 'landed' → Completed (the note WAS claimed); 'not-landed'/'unknown' →
+// the unchanged funds-safe Failed. A false Completed is impossible — only a
+// node-positive CONSUMED_* state completes the row.
+describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', () => {
+  const stubProvider: any = { getGuardianClient: async () => null };
+  const dummySign = jest.fn(async () => new Uint8Array([1]));
+
+  const pushConsume = (id: string) =>
+    txStore.push({
+      id,
+      type: 'consume',
+      noteId: 'note-kill',
+      noteIds: ['note-kill'],
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      delegateTransaction: false
+    });
+
+  // Patch getMidenClient so the consume LEAF is deadline-killed (OperationAbortedError)
+  // and the subsequent node read returns `noteState` (or throws when it is null).
+  const patchClient = (noteState: string | null) => {
+    const sdk = require('../sdk/miden-client');
+    const orig = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(async () => {}),
+      consumeNoteId: jest.fn(async () => {
+        throw new OperationAbortedError('op-kill', 'deadline');
+      }),
+      getInputNoteDetails: jest.fn(async () => {
+        if (noteState === null) throw new Error('node unreachable');
+        return [{ state: noteState }];
+      })
+    });
+    return () => {
+      sdk.getMidenClient = orig;
+    };
+  };
+
+  it('node reports the note CONSUMED → the killed consume ends Completed, not Failed', async () => {
+    pushConsume('nk-landed');
+    const restore = patchClient('ConsumedExternal');
+    try {
+      const result = await generateTransactionsLoop(dummySign, false, stubProvider);
+      expect(result).toBe(false);
+      const row = txStore.find(r => r.id === 'nk-landed')!;
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(row.displayMessage).toBe('Received');
+    } finally {
+      restore();
+    }
+  });
+
+  it('node still reports the note Committed → Failed, no false Completed, no requeue', async () => {
+    pushConsume('nk-committed');
+    const restore = patchClient('Committed');
+    try {
+      await generateTransactionsLoop(dummySign, false, stubProvider);
+      const row = txStore.find(r => r.id === 'nk-committed')!;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.status).not.toBe(ITransactionStatus.Queued);
+    } finally {
+      restore();
+    }
+  });
+
+  it('node query errors → Failed, never a false Completed', async () => {
+    pushConsume('nk-nodeerr');
+    const restore = patchClient(null);
+    try {
+      await generateTransactionsLoop(dummySign, false, stubProvider);
+      expect(txStore.find(r => r.id === 'nk-nodeerr')!.status).toBe(ITransactionStatus.Failed);
+    } finally {
+      restore();
     }
   });
 });

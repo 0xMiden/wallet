@@ -24,7 +24,12 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
 import { logger } from 'shared/logger';
 
-import { cancelStaleQueuedTransactions, cancelStuckTransactions, cancelTransaction } from './cancel';
+import {
+  cancelStaleQueuedTransactions,
+  cancelStuckTransactions,
+  cancelTransaction,
+  verifyConsumeLanded
+} from './cancel';
 import {
   completeBridgedSendTransaction,
   completeConsumeTransaction,
@@ -47,6 +52,7 @@ import {
 import { markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
 import { dispatchGuardianPipeline, midenClientProxy } from '../back/miden-client-proxy';
+import { isOperationAbortedError } from '../back/offscreen-codec';
 import { isOffscreenAvailable } from '../back/offscreen-prover';
 import {
   BridgedSendTransaction,
@@ -206,6 +212,50 @@ async function reconcileStructuralApplyFailure(
   }
   const service = await getOrCreateMultisigService(tx.accountId, guardianProvider);
   await completeSwitchGuardianTransaction(tx as SwitchGuardianTransaction, undefined, service, guardianProvider);
+}
+
+/**
+ * #260 follow-up #3a — node-verified requeue for a deadline-killed CONSUME write.
+ *
+ * A wedge-killed offscreen write surfaces as a retryable `OperationAbortedError`
+ * (issue #260). Today a killed consume falls through to `cancelTransaction` →
+ * Failed even when the consume actually LANDED on chain before the offscreen realm
+ * was torn down. That Failed-but-landed consume is SAFE from double-spend (a
+ * re-consume collides on the note nullifier), but the status is misleading: the
+ * note WAS claimed. A consume's input `noteId` is known BEFORE execute (it is on
+ * the tx row) and the note's on-chain consumed-state is authoritative, so before
+ * failing a killed consume we ask the node whether the note landed as consumed and
+ * mark it Completed if so.
+ *
+ * Returns `true` when it marked the row Completed (the caller must NOT then fail
+ * it); `false` to fall through to the existing `cancelTransaction` → Failed.
+ *
+ * FUNDS-SAFETY — a false Completed is impossible: `verifyConsumeLanded` returns
+ * `'landed'` ONLY when the node POSITIVELY reports the note in a CONSUMED_* state.
+ * A missing note, any non-consumed state, or a query error returns
+ * `'not-landed'`/`'unknown'` → this returns `false` → the unchanged funds-safe
+ * Failed path. SCOPE is CONSUME only: send / swap / execute / bridged-send /
+ * earn-deposit have no node-checkable post-kill identity (their tx-id/output-note
+ * are lost with the killed result) — a separate deferred follow-up (#3b) handles
+ * them, and this helper deliberately leaves that send-style path untouched.
+ */
+async function tryCompleteKilledConsume(transaction: Transaction, error: unknown): Promise<boolean> {
+  if (!isOperationAbortedError(error)) return false;
+  if (transaction.type !== 'consume') return false;
+  const consumeTx = transaction as ConsumeTransaction;
+  if (!consumeTx.noteId) return false;
+
+  const verdict = await verifyConsumeLanded(consumeTx);
+  if (verdict !== 'landed') return false;
+
+  // The node confirms the note is consumed on chain — the consume DID land. Mark
+  // Completed with the same label a normal consume completion uses ('Received';
+  // see completeConsumeTransaction / verifyStuckTransactionsFromNode), NO requeue.
+  await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
+    displayMessage: 'Received',
+    completedAt: Math.floor(Date.now() / 1000) // seconds
+  });
+  return true;
 }
 
 export const generateTransaction = async (
@@ -420,6 +470,13 @@ export const generateTransaction = async (
         );
         return;
       }
+      // #260 follow-up #3a: a deadline-killed CONSUME (OperationAbortedError) may
+      // have LANDED on chain before the offscreen realm was torn down. Its noteId
+      // is known pre-execute, so verify against the node: 'landed' → Completed
+      // (the note WAS claimed) instead of a misleading Failed; 'not-landed' /
+      // 'unknown' fall through to the funds-safe cancelTransaction below. CONSUME
+      // only — send/swap/execute have no post-kill node identity (deferred #3b).
+      if (await tryCompleteKilledConsume(transaction, error)) return;
       await cancelTransaction(transaction, error);
     }
     return;
@@ -1305,6 +1362,13 @@ export const generateTransactionsLoop = async (
     if (errorCode === 'InputNoteAlreadyConsumedOnChain') {
       logger.warning('Input note already consumed on chain; tx unnecessary');
     }
+
+    // #260 follow-up #3a: node-verify a deadline-killed CONSUME (mirrors the
+    // guardian catch in generateTransaction). An OperationAbortedError on a
+    // consume whose note the node reports CONSUMED_* → mark Completed (the note
+    // WAS claimed), no requeue; otherwise fall through to the funds-safe Failed
+    // path below. Send/swap/execute are untouched (deferred #3b).
+    if (await tryCompleteKilledConsume(nextTransaction, e)) return false;
 
     // Cancel the transaction if it hasn't already been cancelled
     const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();

@@ -13,6 +13,7 @@ import {
   bytesToB64,
   decodeArg,
   encodeArg,
+  isOperationAbortedError,
   type OffscreenCallRequest
 } from './offscreen-codec';
 
@@ -99,5 +100,18 @@ describe('offscreen-codec — envelope + error', () => {
     expect(err.reason).toBe('deadline');
     expect(err.message).toContain('op-9');
     expect(err.message).toContain('deadline');
+  });
+
+  it('isOperationAbortedError matches a real instance and a name-tagged shape, rejects everything else', () => {
+    // Prototype match.
+    expect(isOperationAbortedError(new OperationAbortedError('op-1', 'deadline'))).toBe(true);
+    // Prototype lost but the name tag survives (e.g. re-thrown across a boundary).
+    expect(isOperationAbortedError({ name: 'OperationAbortedError' })).toBe(true);
+    // Non-matches: a plain error, a differently-named object, and non-objects.
+    expect(isOperationAbortedError(new Error('nope'))).toBe(false);
+    expect(isOperationAbortedError({ name: 'SomethingElse' })).toBe(false);
+    expect(isOperationAbortedError(null)).toBe(false);
+    expect(isOperationAbortedError('OperationAbortedError')).toBe(false);
+    expect(isOperationAbortedError(undefined)).toBe(false);
   });
 });

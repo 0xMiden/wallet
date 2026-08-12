@@ -264,13 +264,18 @@ describe('verifyStuckTransactionsFromNode', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
   });
 
-  it('marks consume transaction as failed when note is invalid', async () => {
+  it('marks consume transaction as failed when note is invalid (not consumed → fails after the grace window)', async () => {
     txStore.push({
       id: 'tx-1',
       type: 'consume',
       noteId: 'note-1',
       status: ITransactionStatus.GeneratingTransaction,
-      initiatedAt: 100
+      initiatedAt: 100,
+      // An Invalid note is not consumed, so verifyConsumeLanded reports 'not-landed'
+      // (#260 follow-up #3a unified it with the other not-consumed states) and it
+      // now honors the processing-time grace before failing — age the row past
+      // MIN_PROCESSING_TIME_BEFORE_STUCK (60s) to keep the terminal-Failed outcome.
+      processingStartedAt: Math.floor(Date.now() / 1000) - 120
     });
     const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
     mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.Invalid }]);

@@ -130,12 +130,18 @@ const mockProxyGetAccount = jest.fn(async (..._a: unknown[]) => null as unknown)
 // flag-on / the SW client flag-off — proven in miden-client-proxy.test.ts) and NOT
 // the dormant SW `getMidenClient().waitForTransactionCommit` directly.
 const mockProxyWaitForCommit = jest.fn(async (..._a: unknown[]) => {});
+// The node-authoritative input-note read used by `verifyConsumeLanded` (#260
+// follow-up #3a) when a killed CONSUME must be checked for landing on chain.
+// Default: note not found → 'unknown' → the killed consume falls through to Failed
+// (the pre-#3a behavior for the non-consume kill tests that don't touch it).
+const mockProxyGetInputNoteDetails = jest.fn(async (..._a: unknown[]) => [] as unknown[]);
 jest.mock('../back/miden-client-proxy', () => ({
   dispatchGuardianPipeline: (...a: unknown[]) => mockDispatchGuardianPipeline(...a),
   midenClientProxy: {
     syncState: jest.fn(async () => {}),
     getAccount: (...a: unknown[]) => mockProxyGetAccount(...a),
-    waitForTransactionCommit: (...a: unknown[]) => mockProxyWaitForCommit(...a)
+    waitForTransactionCommit: (...a: unknown[]) => mockProxyWaitForCommit(...a),
+    getInputNoteDetails: (...a: unknown[]) => mockProxyGetInputNoteDetails(...a)
   }
 }));
 
@@ -572,7 +578,11 @@ describe('guardian leaf byte-identity — flag ON result bytes == flag OFF resul
 });
 
 describe('guardian leaf kill-window (funds-safety) — an offscreen kill FAILS the row, no auto-requeue', () => {
-  it.each(valueMovingCases())(
+  // CONSUME is excluded here: #260 follow-up #3a node-verifies a killed consume
+  // (its input noteId is known pre-execute) and marks it Completed when the note
+  // landed — covered in the dedicated consume block below. send/swap/execute keep
+  // the terminal-Failed behavior (no node-checkable post-kill identity).
+  it.each(valueMovingCases().filter(c => c.type !== 'consume'))(
     '$type: an OperationAbortedError marks the row Failed, does NOT requeue, and dispatches exactly ONCE (no double-send)',
     async ({ row, complete }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
@@ -604,6 +614,104 @@ describe('guardian leaf kill-window (funds-safety) — an offscreen kill FAILS t
       expect(complete).not.toHaveBeenCalled();
     }
   );
+});
+
+// ─── #260 follow-up #3a: killed CONSUME → node-verified requeue ───────────────
+// A deadline-killed guardian CONSUME reaches the guardian catch as an
+// OperationAbortedError. Unlike send/swap/execute, a consume's input `noteId` is
+// on the tx row, so before failing we ask the node whether the note landed as
+// consumed: 'landed' → Completed (the note WAS claimed); 'not-landed'/'unknown' →
+// the unchanged funds-safe Failed. A false Completed is impossible — only a
+// node-positive CONSUMED_* state completes the row.
+describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
+  const consumeRow = { type: 'consume', noteId: '0xn1', noteIds: ['0xn1'] };
+
+  it('node reports the note CONSUMED → the killed consume ends Completed, not Failed, no requeue', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(new OperationAbortedError('op-kill', 'deadline'));
+    // The node confirms the input note is consumed on chain (the consume DID land
+    // before the offscreen realm was torn down).
+    mockProxyGetInputNoteDetails.mockResolvedValue([{ state: 'ConsumedAuthenticatedLocal' }]);
+    const { service } = arrange('kill-consume-landed', consumeRow);
+
+    await generateTransaction(
+      buildTx('kill-consume-landed', consumeRow) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    // Dispatched once; the guardian candidate was still abandoned (idempotent).
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    // Node-verified landed → Completed with the normal consume label, no requeue.
+    const finalRow = txStore.find(r => r.id === 'kill-consume-landed')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Completed);
+    expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
+    expect(finalRow.nextEligibleAt).toBeUndefined();
+    expect(finalRow.displayMessage).toBe('Received');
+    // The completion handler is NOT re-run — the killed op left no TransactionResult;
+    // the row is marked Completed directly from the node verdict.
+    expect(mockComplete.consume).not.toHaveBeenCalled();
+  });
+
+  it('node still reports the note Committed → Failed, no requeue (consume did not land)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(new OperationAbortedError('op-kill', 'deadline'));
+    mockProxyGetInputNoteDetails.mockResolvedValue([{ state: 'Committed' }]);
+    const { service } = arrange('kill-consume-committed', consumeRow);
+
+    await generateTransaction(
+      buildTx('kill-consume-committed', consumeRow) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    const finalRow = txStore.find(r => r.id === 'kill-consume-committed')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
+    expect(finalRow.nextEligibleAt).toBeUndefined();
+    expect(mockComplete.consume).not.toHaveBeenCalled();
+  });
+
+  it('node query errors → Failed, never a false Completed', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(new OperationAbortedError('op-kill', 'deadline'));
+    mockProxyGetInputNoteDetails.mockRejectedValue(new Error('node unreachable'));
+    const { service } = arrange('kill-consume-nodeerr', consumeRow);
+
+    await generateTransaction(
+      buildTx('kill-consume-nodeerr', consumeRow) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    const finalRow = txStore.find(r => r.id === 'kill-consume-nodeerr')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(mockComplete.consume).not.toHaveBeenCalled();
+  });
+
+  it('a killed consume with no noteId cannot be node-verified → Failed, no node query', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(new OperationAbortedError('op-kill', 'deadline'));
+    // A consume identified only by `noteIds` (no singular `noteId`) has no id for
+    // the node check, so verification is skipped and the row falls straight through
+    // to the funds-safe Failed path.
+    const noteIdsOnly = { type: 'consume', noteIds: ['0xn1'] };
+    const { service } = arrange('kill-consume-noid', noteIdsOnly);
+
+    await generateTransaction(buildTx('kill-consume-noid', noteIdsOnly) as never, signCallback, false, provider as never);
+
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(mockProxyGetInputNoteDetails).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === 'kill-consume-noid')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(mockComplete.consume).not.toHaveBeenCalled();
+  });
 });
 
 describe('guardian leaf errorCode preservation → guardian classifier marks Completed', () => {
