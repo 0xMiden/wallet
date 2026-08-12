@@ -16,9 +16,33 @@
  * ignores anything whose `target` is not this. */
 export const OFFSCREEN_TARGET = 'offscreen' as const;
 
+/** Discriminator for the REVERSE direction (offscreen → SW). The offscreen
+ * keystore's `sign` stub cannot reach the SW-resident vault directly, so a
+ * mid-op sign reverses across the bus: the offscreen doc posts an
+ * {@link OffscreenSignRequest} tagged for the SW, and the SW's reverse-IPC
+ * handler (which gates on this target) signs and responds. Tagging it `'sw'`
+ * keeps the offscreen doc's own `target === 'offscreen'` listener from ever
+ * picking it up (issue #260, slice 5, design §2.3). */
+export const SW_TARGET = 'sw' as const;
+
 /** Message family for a generalized WASM-client method call. Distinct from the
  * existing `OFFSCREEN_PROVE` family, which keeps working unchanged. */
 export const OFFSCREEN_CALL = 'OFFSCREEN_CALL' as const;
+
+/** Message family for a mid-op sign round-trip (offscreen → SW → offscreen).
+ * The offscreen client is a singleton whose `keystore.sign` cannot be re-bound
+ * per call and has no access to the SW's decrypted vault, so signing reverses
+ * across the bus: only raw pubkey / signing-inputs / signature BYTES cross —
+ * never an un-serializable SDK handle (issue #260, slice 5, design §2). */
+export const OFFSCREEN_SIGN_REQUEST = 'OFFSCREEN_SIGN_REQUEST' as const;
+
+/** Fire-and-forget control message (offscreen → SW): the op named by `op_id` has
+ * just WON the offscreen WASM mutex and is about to execute. The SW arms that
+ * write's deadline HERE — at execution start — rather than at dispatch, so the
+ * time an op spends QUEUED behind other ops on the single offscreen mutex is
+ * off-budget and cannot false-kill a healthy write (issue #260 flip-prep #3). No
+ * response is expected. */
+export const OFFSCREEN_OP_STARTED = 'OFFSCREEN_OP_STARTED' as const;
 
 /**
  * SW → offscreen request envelope (§1.1 of the design doc).
@@ -48,6 +72,53 @@ export interface OffscreenCallRequest {
 export type OffscreenCallResponse =
   | { ok: true; op_id: string; resultB64: string | null; durationMs: number }
   | { ok: false; op_id: string; error: string; errorCode?: string };
+
+/**
+ * offscreen → SW reverse-IPC sign request (issue #260, slice 5, design §2.3).
+ *
+ * Posted from the offscreen client's `keystore.sign` stub while a write op is
+ * mid-execute. `op_id` names the write op this sign belongs to (so the SW can
+ * PAUSE that op's deadline for the round-trip, §2.5); `sign_id` correlates this
+ * one sign to its response. Only raw bytes cross — `publicKeyB64` /
+ * `signingInputsB64` are base64 of the exact `(pubkey, signingInputs)` bytes the
+ * SDK handed the stub, and the SW returns the raw signature bytes. No SDK handle
+ * is ever involved (contrast the `TransactionResult` result of a call).
+ */
+export interface OffscreenSignRequest {
+  target: typeof SW_TARGET;
+  type: typeof OFFSCREEN_SIGN_REQUEST;
+  op_id: string;
+  sign_id: string;
+  publicKeyB64: string;
+  signingInputsB64: string;
+}
+
+/**
+ * offscreen → SW execution-start signal (issue #260 flip-prep #3). Posted from
+ * inside the offscreen doc's WASM mutex, right before the op's dispatch fn runs,
+ * so the SW can arm this op's write deadline at EXECUTION START rather than at
+ * dispatch. Fire-and-forget — `op_id` names the op whose deadline to (re)arm; no
+ * bytes, no response.
+ */
+export interface OffscreenOpStarted {
+  target: typeof SW_TARGET;
+  type: typeof OFFSCREEN_OP_STARTED;
+  op_id: string;
+}
+
+/**
+ * SW → offscreen reverse-IPC sign response, delivered via `sendResponse`.
+ *
+ * On failure `reason` carries the SW-classified sign-callback reason (the same
+ * union as `transaction/sign-callback.ts`'s `SignCallbackReason`; kept as a
+ * string literal here to preserve this module's zero-runtime-dependency role).
+ * The offscreen stub throws on `ok:false` (so the SDK's execute fails); the
+ * classified reason is authoritative on the SW side, where it is recorded so a
+ * locked-mid-sign consume DEFERS rather than Fails (issue #313, design §2.6).
+ */
+export type OffscreenSignResponse =
+  | { ok: true; sign_id: string; signatureB64: string }
+  | { ok: false; sign_id: string; error: string; reason?: 'locked' | 'rejected' | 'not_found' | 'internal' };
 
 /**
  * Chunked base64 encoder for binary payloads. Chunked to stay under the

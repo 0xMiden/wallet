@@ -3,6 +3,11 @@
 ## 1.15.20 (TBD)
 
 ### Features
+### Fixes
+
+- [FIX][extension] **Recurring stuck "Consuming" notes are fixed by moving the wallet's WASM engine off the extension service-worker thread.** Transaction execution, proving, syncing, and reads now run in a dedicated `chrome.offscreen` document, so a wedged operation can no longer freeze the service worker and strand notes mid-consume; each operation is bounded by its own deadline and a wedged one is torn down and safely retried. Behind `MIDEN_USE_OFFSCREEN_CLIENT` (extension only; mobile/desktop unaffected). (#260)
+
+### Changes
 
 - Add hidden developer endpoint configuration (7-tap the Welcome logo during onboarding) to override RPC / prover / note-transport / faucet / explorer / guardian endpoints and network ID; read-only view with reset-to-defaults in Settings.
 

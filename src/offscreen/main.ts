@@ -29,15 +29,36 @@ import * as sdk from '@miden-sdk/miden-sdk/lazy';
 
 import {
   OFFSCREEN_CALL,
+  OFFSCREEN_OP_STARTED,
+  OFFSCREEN_SIGN_REQUEST,
+  SW_TARGET,
   b64ToBytes,
   bytesToB64,
   decodeArg,
-  type OffscreenCallRequest
+  type OffscreenCallRequest,
+  type OffscreenOpStarted,
+  type OffscreenSignResponse
 } from 'lib/miden/back/offscreen-codec';
-import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import type { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
+import type { ConsumeTransaction, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
+import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
+import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
+import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
+import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
+import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 
 const TAG = '[offscreen-prover]';
+
+// Mark THIS realm as the offscreen document (issue #260 flip-prep #4). Set at
+// module top, before any client is created or any write executes, so the
+// version-independent `isInOffscreenDocument()` recursion guard
+// (offscreen-prover.ts) can short-circuit `isOffscreenAvailable()` to false here.
+// That makes a non-guardian offscreen write prove LOCALLY in-realm (on this doc's
+// `useWorker:false` WASM) instead of trying to re-dispatch OFFSCREEN_PROVE to a
+// non-existent handler inside the doc — which would fail EVERY such write. It does
+// NOT depend on `chrome.offscreen` being absent inside the doc (an unreliable
+// Chrome quirk); the guard reads this deterministic global.
+(globalThis as { __MIDEN_IN_OFFSCREEN_DOC__?: boolean }).__MIDEN_IN_OFFSCREEN_DOC__ = true;
 
 let initPromise: Promise<void> | null = null;
 
@@ -110,13 +131,65 @@ function getProver() {
   return prover;
 }
 
+// --- Reverse-IPC sign stub (issue #260, slice 5, design §2.4) ---------------
+//
+// The offscreen client is created with `keystore.sign = offscreenSignViaSW`, so
+// when a write op's execute step needs a signature the SDK invokes THIS stub. It
+// can't reach the SW's decrypted vault directly, so the sign REVERSES across the
+// bus: post the raw `(pubkey, signingInputs)` bytes to the SW tagged for its
+// reverse-IPC handler, await the raw signature bytes. Only bytes cross — no SDK
+// handle is ever involved in signing.
+
+// The op_id of the OFFSCREEN_CALL currently executing in this realm. Stashed by
+// `handleCall` right before it invokes the DISPATCH fn (under the WASM mutex, so
+// only one op runs at a time — no concurrent overwrite) so the sign stub can tag
+// its request with the write op the signature belongs to (design §2.4, §2.5).
+// DEFERRED (issue #260, post-flip hazard 2): this single global is safe ONLY
+// because the offscreen WASM mutex serializes ops to one at a time. If the
+// commit-wait mutex-yield (post-flip hazard 1) ever lands, this must be
+// op-scoped (threaded through the call chain) rather than a module global.
+let currentOpId: string | null = null;
+
+function newSignId(): string {
+  // The offscreen document is a window context, so `crypto.randomUUID` is always
+  // present (unlike the SW's defensive `newOpId` fallback).
+  return crypto.randomUUID();
+}
+
+async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Array): Promise<Uint8Array> {
+  const op_id = currentOpId;
+  if (!op_id) {
+    // A sign fired outside an OFFSCREEN_CALL — should be impossible (signing only
+    // happens inside a dispatched write op). Fail loud rather than sign untagged.
+    throw new Error('offscreen sign: no ambient op_id (sign fired outside an OFFSCREEN_CALL)');
+  }
+  const sign_id = newSignId();
+  const resp = (await chrome.runtime.sendMessage({
+    target: SW_TARGET,
+    type: OFFSCREEN_SIGN_REQUEST,
+    op_id,
+    sign_id,
+    publicKeyB64: bytesToB64(publicKey),
+    signingInputsB64: bytesToB64(signingInputs)
+  })) as OffscreenSignResponse | undefined;
+  if (!resp || !resp.ok) {
+    // Throw so the SDK's WebKeyStore captures it (offscreen `lastAuthError`) and
+    // the execute fails; the SW-side handler already recorded the classified
+    // reason authoritatively for the locked-defer path (design §2.6).
+    throw new Error(`offscreen sign failed: ${resp && !resp.ok ? resp.error : 'no response from SW'}`);
+  }
+  return b64ToBytes(resp.signatureB64);
+}
+
 // --- Generalized OFFSCREEN_CALL surface (issue #260, slice 1) ---------------
 //
 // Alongside the prover-only raw WebClient above, the offscreen doc now owns the
 // FULL MidenClientInterface singleton (design §3.4) — the same client the SW
 // used to run inline. `OFFSCREEN_CALL` messages dispatch a method against it
-// and stream the (serialized) result back. Slice 1 wires exactly one method,
-// `getAccount`; later slices extend the DISPATCH table.
+// and stream the (serialized) result back. Slice 1 wired `getAccount`; slice 3
+// extends the DISPATCH table with the remaining serialization-clean reads
+// (`syncState`, `exportNote`, `getInputNoteDetails`); slice 4 added
+// `getConsumableNotes`; slice 5 adds the first WRITE, `consumeNoteId`.
 //
 // State-across-reopen correctness rests on IndexedDB: `closeDocument()` discards
 // the WASM heap by design, and a reopened client re-attaches to the same store.
@@ -132,6 +205,246 @@ const DISPATCH: Record<string, DispatchFn> = {
     // `Account` exposes serialize()/deserialize() (verified in the SDK types),
     // so we ship the full object as bytes and the SW re-hydrates it.
     return account ? (account.serialize() as Uint8Array) : null;
+  },
+
+  // Read-method surface (issue #260, slices 3+). Each stays serialization-clean:
+  // its result crosses the message boundary either as SDK-serialized bytes, a
+  // plain-JSON DTO, or nothing at all. The raw `InputNoteRecord` / consumable-note
+  // records still have no serialize() and can't themselves cross — but the reads
+  // that reach through them (`getConsumableNotes`, slice 4; `getInputNoteSummary`
+  // and `getSerializedInputNoteDetails`, slice 7-reads) now run their reduction
+  // HERE, in-realm, so only the reduced plain DTO crosses. That in-realm reduction
+  // is the whole point once the flag is on: the offscreen client owns the canonical
+  // synced state, so these reads no longer go stale against the dormant SW client.
+
+  syncState: async client => {
+    // Run the sync; every SW-side caller discards the returned `SyncSummary`,
+    // so return null. Nothing to serialize here means nothing to re-hydrate on
+    // the SW — serializing a result no one reads would be pure waste.
+    await client.syncState();
+    return null;
+  },
+
+  exportNote: async (client, noteId: string, exportType) => {
+    // `exportNote` already returns serialized note bytes — ship them verbatim;
+    // the SW hands them straight to the intercom without re-hydrating.
+    return await client.exportNote(noteId, exportType);
+  },
+
+  getInputNoteDetails: async (client, query) => {
+    // Plain-DTO result (§1.4 rule "a"): the interface method already reduces
+    // each `InputNoteRecord` to a JSON-safe DTO, so JSON-encode it to bytes.
+    // `?? undefined` maps a JSON-`null` arg (an `undefined` query round-tripped
+    // through encodeArg) back to the SDK's optional-query shape.
+    const details = await client.getInputNoteDetails(query ?? undefined);
+    return new TextEncoder().encode(JSON.stringify(details));
+  },
+
+  // Consumable notes (issue #260, slice 4). The RECLAIM GATE
+  // (`consumableAfterBlock() <= getSyncHeight()`) lives inside
+  // `getConsumableNoteDtos` → so running it HERE, in the offscreen realm that
+  // also ran `syncState`, is the whole point: the gate uses this realm's sync
+  // height, not the stale SW-inline one. Result is a plain JSON-safe DTO array
+  // carrying every field each caller reads (the live `InputNoteRecord` — with no
+  // serializer and callers reaching through to `.id()/.metadata()/…` — cannot
+  // itself cross the boundary; the reduced DTO can).
+  getConsumableNotes: async (client, accountId: string) => {
+    const dtos = await client.getConsumableNoteDtos(accountId);
+    return new TextEncoder().encode(JSON.stringify(dtos));
+  },
+
+  // Deferred reach-through READS moved offscreen (issue #260, slice 7a). Each reads
+  // the OFFSCREEN client's canonical synced state — the whole point, since flag-on
+  // the SW client is dormant and these formerly read stale data off it. The results
+  // are all trivially / cleanly serializable (a number, a plain-JSON DTO, a plain
+  // DTO, a string), so nothing reaches through a live wasm-bindgen object across the
+  // boundary; the reduction (for the two live-record reads) runs HERE, in-realm.
+
+  // The reclaim-baseline sync height (guardian recallable-send). `fresh` forces a
+  // network sync first and returns the just-synced block; otherwise the last-synced
+  // height. The number crosses as JSON.
+  getSyncHeight: async (client, fresh: boolean) => {
+    const height = fresh ? (await client.client.sync()).blockNum() : await client.client.getSyncHeight();
+    return new TextEncoder().encode(JSON.stringify(height));
+  },
+
+  // A PSWAP order's lineage, reduced in-realm to a plain JSON DTO (the live
+  // `PswapLineageRecord` has no serializer and callers reach through its methods).
+  // Returns null (→ resultB64 null) when the client isn't tracking the order.
+  getPswapLineage: async (client, orderId: string) => {
+    const dto = reducePswapLineage(await client.client.pswap.lineage(orderId));
+    return dto ? new TextEncoder().encode(JSON.stringify(dto)) : null;
+  },
+
+  // A to-be-consumed note's summary, reduced in-realm to a minimal JSON DTO carrying
+  // just the note's `noteType`. Returns null (→ resultB64 null) for a not-found note,
+  // distinct from a found record whose `noteType` is undefined (the JSON `{}`).
+  getInputNoteSummary: async (client, noteId: string) => {
+    const dto = reduceInputNoteSummary(await client.getInputNote(noteId));
+    return dto ? new TextEncoder().encode(JSON.stringify(dto)) : null;
+  },
+
+  // Invalid-note detail for a batch of claimable notes (popup invalid-note detection).
+  // Each live `InputNoteRecord` is reduced in-realm to the wire-shaped
+  // `SerializedInputNoteDetail` (assets / processing-state string / nullifier string)
+  // via the SAME shared loop the SW-inline (flag-off) path runs, so only the plain JSON
+  // DTO array crosses. A not-found / un-reducible note is skipped inside the loop.
+  getSerializedInputNoteDetails: async (client, noteIds: string[]) => {
+    const details = await collectInputNoteDetails(noteId => client.getInputNote(noteId), noteIds);
+    return new TextEncoder().encode(JSON.stringify(details));
+  },
+
+  // Import serialized note bytes into THIS (offscreen) client's store — a store
+  // WRITE so the offscreen realm (which syncs + consumes) can see the note. Ships the
+  // imported note id / details-commitment string back as UTF-8 bytes.
+  importNoteBytes: async (client, noteBytes: Uint8Array) => {
+    const id = await client.importNoteBytes(noteBytes);
+    return new TextEncoder().encode(id);
+  },
+
+  // Relay a just-created PRIVATE note to the transport layer (issue #260, slice 7b).
+  // Under the flag the send ran here, so the note lives in THIS (offscreen) client's
+  // store and THIS realm owns the fresh sync height that `sendPrivateNote` attaches
+  // as the recipient's forward-scan hint — so the relay MUST run here, not on the
+  // dormant SW client (whose stale height would overshoot the note's commitment).
+  // The live `Note` can't cross postMessage, so it arrived as `Note.serialize()` raw
+  // bytes and is re-hydrated here; `notes.sendPrivate` uses the live Note DIRECTLY (no
+  // store lookup — that path is only for note-ID inputs), so nothing else is read off
+  // the store. A transport relay — no prove / sign — so a void result (nothing to
+  // re-hydrate); the SW-side caller only awaits it.
+  sendPrivateNote: async (client, noteBytes: Uint8Array, to: string) => {
+    const note = (sdk as any).Note.deserialize(noteBytes);
+    await client.sendPrivateNote(note, to);
+    return null;
+  },
+
+  // The first WRITE moved offscreen (issue #260, slice 5a). The WHOLE
+  // execute→prove→submit→apply chain runs here in-realm as one op, so a wedge
+  // anywhere in it is killable via `closeDocument()`. `client.consumeNoteId`
+  // takes the SDK BUNDLED prove path (NOT OFFSCREEN_PROVE) because inside this
+  // doc `isOffscreenAvailable()` is false — the `isInOffscreenDocument()`
+  // recursion guard (offscreen-prover.ts, keyed off the `__MIDEN_IN_OFFSCREEN_DOC__`
+  // marker set at this module's top) short-circuits it — so
+  // `shouldUseOffscreenProver()` returns false and the prove runs on THIS doc's
+  // pooled main-thread WASM instance (the client was created `useWorker:false`,
+  // design §5.1/§5.2). The mid-execute signature is fetched from the SW via the
+  // reverse-IPC stub. Only the final serialized `TransactionResult` crosses back;
+  // the intermediate handles stay opaque in-realm (design §6.2).
+  consumeNoteId: async (
+    client,
+    dto: { accountId: string; noteId: string; noteIds: string[]; delegateTransaction?: boolean }
+  ) => {
+    const result = await client.consumeNoteId(dto as unknown as ConsumeTransaction);
+    return result.serialize() as Uint8Array;
+  },
+
+  // The remaining non-guardian WRITES moved offscreen (issue #260, slice 5b),
+  // each mirroring `consumeNoteId` exactly: the whole execute→prove→submit→apply
+  // chain runs here in-realm as one killable op, taking the SDK BUNDLED prove path
+  // (NOT OFFSCREEN_PROVE — `isOffscreenAvailable()` is false inside this doc via the
+  // `isInOffscreenDocument()` recursion guard), with
+  // the mid-execute signature fetched from the SW via the reverse-IPC stub. Only
+  // the final serialized `TransactionResult` crosses back. The BigInt amounts that
+  // crossed as decimal strings are re-widened to BigInt so the reconstructed row
+  // matches exactly what `MidenClientInterface` reads on the SW-inline (flag-off)
+  // path.
+  sendTransaction: async (
+    client,
+    dto: {
+      accountId: string;
+      secondaryAccountId: string;
+      faucetId: string;
+      noteType: unknown;
+      amount: string;
+      delegateTransaction?: boolean;
+      extraInputs: { recallBlocks?: number };
+    }
+  ) => {
+    const tx = { ...dto, amount: BigInt(dto.amount) } as unknown as SendTransaction;
+    const result = await client.sendTransaction(tx);
+    return result.serialize() as Uint8Array;
+  },
+
+  swapTransaction: async (
+    client,
+    dto: {
+      accountId: string;
+      faucetId: string;
+      amount: string;
+      delegateTransaction?: boolean;
+      extraInputs: { requestedFaucetId: string; requestedAmount: string };
+    }
+  ) => {
+    const tx = {
+      ...dto,
+      amount: BigInt(dto.amount),
+      extraInputs: {
+        requestedFaucetId: dto.extraInputs.requestedFaucetId,
+        requestedAmount: BigInt(dto.extraInputs.requestedAmount)
+      }
+    } as unknown as SwapTransaction;
+    const result = await client.swapTransaction(tx);
+    return result.serialize() as Uint8Array;
+  },
+
+  // Positional args (accountId, requestBytes, delegateTransaction) mirroring the
+  // SDK signature — `requestBytes` crossed as raw bytes, not JSON. `?? undefined`
+  // maps a JSON-`null` delegate arg (an `undefined` round-tripped through
+  // encodeArg) back to the SDK's optional-boolean shape.
+  newTransaction: async (client, accountId: string, requestBytes: Uint8Array, delegateTransaction?: boolean) => {
+    const result = await client.newTransaction(accountId, requestBytes, delegateTransaction ?? undefined);
+    return result.serialize() as Uint8Array;
+  },
+
+  // The GUARDIAN write LEAF PIPELINE moved offscreen (issue #260, slice 6a). A
+  // guardian tx's co-signature is contributed BEFORE execute, so `trBytes` is the
+  // serialized, fully-signed, guardian-co-signed `TransactionRequest` (its
+  // extended advice map — carrying the co-signatures — survives
+  // `TransactionRequest.serialize()`; §4.0). We deserialize it and run the SAME
+  // leaf as the SW-inline path — execute→prove→submit→apply — driving the RAW
+  // client transactions API directly (`client.client.transactions.executeRequest`),
+  // not a bundled `MidenClientInterface` write method, because the request is
+  // pre-built. The mid-execute keystore signature is fetched from the SW via the
+  // reverse-IPC stub. Only the final serialized `TransactionResult` crosses back.
+  //
+  // Prover selection replicates the inline block EXACTLY, minus one branch: the
+  // mobile `newCallbackProver` case is OMITTED because the offscreen document is
+  // extension-only (no chrome.offscreen in mobile WebViews; mobile stays flag-off
+  // inline), so that branch is unreachable here — non-delegated proves with the
+  // pooled main-thread WASM `newLocalProver`, delegated proves remote (`prove({})`)
+  // with a local fallback on remote failure, identical to the SW path on extension.
+  guardianPipeline: async (client, accountId: string, trBytes: Uint8Array, delegateTransaction?: boolean) => {
+    const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
+    const executedTx = await client.client.transactions.executeRequest(accountId, tr);
+    let provenTx;
+    if (!delegateTransaction) {
+      provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
+    } else {
+      try {
+        provenTx = await executedTx.prove({});
+      } catch (proveError) {
+        console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
+        provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
+      }
+    }
+    const submittedTx = await provenTx.submit();
+    await submittedTx.apply();
+    return executedTx.result.serialize() as Uint8Array;
+  },
+
+  // Post-pipeline commit-wait for the STRUCTURAL guardian completions (issue #260,
+  // slice 6b — switch-guardian / replace-hot-key / update-procedure-threshold). It
+  // MUST poll the SAME client that applied the tx: under the flag the whole leaf
+  // ran here in the offscreen realm, so the SW client is dormant/unsynced and would
+  // never see the committed record (it would time out at ~60s, fall through the
+  // guardian catch to Failed, and SKIP the structural completion — leaving e.g.
+  // replace-hot-key's on-chain rotation done but the local hot-key pointer stale).
+  // Running the wait HERE polls the realm that owns the applied state. Blocks up to
+  // the SDK's ~60s `waitFor` timeout — the proxy arms a deadline above that. A void
+  // result: the SW-side caller only awaits it, so nothing serializes back.
+  waitForTransactionCommit: async (client, transactionId: string) => {
+    await client.waitForTransactionCommit(transactionId);
+    return null;
   }
 };
 
@@ -139,10 +452,25 @@ const DISPATCH: Record<string, DispatchFn> = {
 let clientPromise: Promise<MidenClientInterface> | null = null;
 function getOrCreateClient(): Promise<MidenClientInterface> {
   if (!clientPromise) {
+    // Created with two Slice-5 overrides vs. the SW's plain singleton:
+    //   - `signCallback: offscreenSignViaSW` — the reverse-IPC keystore stub, so
+    //     a write op's mid-execute signing reaches the SW-resident vault (§2).
+    //   - `useWorker: false` — REQUIRED (design §5.2). With the SDK worker shim
+    //     (`useWorker:true`, the browser default) the client would run every
+    //     method — including the write's local prove — in a method-worker with
+    //     its own UN-pooled WASM instance, so proving would be single-threaded
+    //     and the keystore callback would live in the worker (SDK: `lastAuthError`
+    //     "meaningful only with useWorker:false"). `false` pins the client to
+    //     THIS doc's main-thread WASM instance, whose rayon pool `init()` brought
+    //     up — so reads AND the write's prove run multi-threaded and the sign
+    //     callback is reachable.
     // S1: null the cached promise if the create rejects (e.g. a transient RPC
     // genesis fetch failure) so the NEXT OFFSCREEN_CALL retries within this same
     // doc — otherwise a one-off failure would stick until the next kill/reopen.
-    clientPromise = getMidenClient().catch((err: unknown) => {
+    clientPromise = MidenClientInterface.create({
+      signCallback: offscreenSignViaSW,
+      useWorker: false
+    }).catch((err: unknown) => {
       clientPromise = null;
       throw err;
     });
@@ -173,7 +501,27 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // RefCell ("recursive use of an object" crash). The IPC layer already
     // supports >1 in-flight op; this is where they queue. Slice 4's concurrent
     // routes inherit this serialization for free.
-    const resultBytes = await withWasmClientLock(() => dispatch(client, ...args));
+    const resultBytes = await withWasmClientLock(async () => {
+      // Stash the ambient op_id for the duration of the WASM op so the reverse-IPC
+      // sign stub (invoked mid-execute) can tag its request with this op (design
+      // §2.4). Scoped tightly to the locked section: the mutex serializes ops, so
+      // exactly one op's id is live at a time.
+      currentOpId = msg.op_id;
+      // Now that this op has WON the WASM mutex and is about to execute, tell the
+      // SW to arm its write deadline at EXECUTION START (issue #260 flip-prep #3).
+      // Fire-and-forget: queue-wait behind other ops was off-budget; the clock
+      // starts here. Sent from inside the lock so it fires exactly once per op,
+      // only for a real dispatch (unknown-method / init-failure paths never reach
+      // here). `Promise.resolve(...)` tolerates a mock sendMessage that returns a
+      // non-promise; the response is intentionally ignored.
+      const started: OffscreenOpStarted = { target: SW_TARGET, type: OFFSCREEN_OP_STARTED, op_id: msg.op_id };
+      void Promise.resolve(chrome.runtime.sendMessage(started)).catch(() => {});
+      try {
+        return await dispatch(client, ...args);
+      } finally {
+        currentOpId = null;
+      }
+    });
     sendResponse({
       ok: true,
       op_id: msg.op_id,
@@ -182,7 +530,19 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     });
   } catch (err) {
     console.error(`${TAG} call '${msg?.method}' failed:`, err);
-    sendResponse({ ok: false, op_id: msg?.op_id, error: String((err as { message?: string })?.message ?? err) });
+    // Preserve the SDK's stable `errorCode` (issue #260, funds-critical). The
+    // offscreen client runs `useWorker:false`, so a failed write throws the RAW
+    // main-thread JsError still carrying `errorCode` — extract it with the SAME
+    // helper the SW-inline classifier uses so a round-tripped
+    // `ApplyTransactionAfterSubmitFailed` is classified identically to flag-off
+    // (marked Completed, NOT Failed → requeue → double-spend). `undefined` for a
+    // code-less error keeps the reply shape unchanged (mirrors the flag-off path).
+    sendResponse({
+      ok: false,
+      op_id: msg?.op_id,
+      error: String((err as { message?: string })?.message ?? err),
+      errorCode: extractSdkErrorCode(err)
+    });
   }
 }
 

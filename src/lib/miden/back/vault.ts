@@ -32,6 +32,7 @@ import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { AuthScheme, GuardianSyncStatus, SignEvmOperation, WalletAccount, WalletSettings } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
+import { midenClientProxy } from './miden-client-proxy';
 import { compareAccountIds } from '../activity/utils';
 import { fetchFromStorage } from '../front/storage';
 import type { CreatedGuardianKeys } from '../guardian/account';
@@ -1151,7 +1152,7 @@ export class Vault {
           // account can't be loaded/read, migrate unverified (no regression).
           const coldCommitment = normalizeCommitmentHex(coldSk.publicKey().toCommitment().toHex());
           try {
-            const sdkAccount = await withWasmClientLock(async () => (await getMidenClient()).getAccount(acc.publicKey));
+            const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(acc.publicKey));
             if (sdkAccount) {
               const { commitment: onChainSigner } = await getSignerDetailsFromAccount(sdkAccount, false);
               if (normalizeCommitmentHex(onChainSigner) !== coldCommitment) {

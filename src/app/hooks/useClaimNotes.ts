@@ -9,9 +9,10 @@ import {
   requestSWTransactionProcessing,
   verifyStuckTransactionsFromNode
 } from 'lib/miden/activity';
+import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { useAccount } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
-import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount, WalletMessageType } from 'lib/shared/types';
@@ -138,10 +139,9 @@ export function useClaimNotes(): ClaimNotesState {
             }
           } else {
             const noteIds = safeClaimableNotes.map(n => n.id);
-            const noteDetails = await withWasmClientLock(async () => {
-              const midenClient = await getMidenClient();
-              return await midenClient.getInputNoteDetails({ ids: noteIds });
-            });
+            const noteDetails = await withWasmClientLock(async () =>
+              midenClientProxy.getInputNoteDetails({ ids: noteIds })
+            );
 
             for (const note of noteDetails) {
               if (note.state === InputNoteState.Invalid) {

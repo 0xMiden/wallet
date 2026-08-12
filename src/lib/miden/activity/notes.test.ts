@@ -32,6 +32,12 @@ jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
 }));
 
+// importAllNotes now routes import + sync through `midenClientProxy` (issue #260,
+// slice 7a). The proxy reads `getMidenClient`/`withWasmClientLock` via the `lib/...`
+// alias, which jest registers separately from the relative specifier above; delegate
+// it to the same mock so the proxy's flag-off passthrough hits `__notesTest.midenClient`.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
+
 jest.mock('shared/logger', () => ({
   logger: { error: jest.fn(), warning: jest.fn(), info: jest.fn() }
 }));

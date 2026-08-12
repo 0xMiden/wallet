@@ -83,6 +83,10 @@ const mockWithWasmClientLock = jest.fn(async (fn: () => Promise<unknown>) => fn(
 const mockGetMidenClient = jest.fn();
 const mockCreateWasmWebClient = jest.fn();
 // Match the relative path used by transactions.ts so the mock intercepts.
+// The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
+// of miden-client, which jest mocks separately from the relative specifier below;
+// delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
   getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a)
