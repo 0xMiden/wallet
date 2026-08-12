@@ -111,7 +111,7 @@ export const PasscodeEntry: React.FC<PasscodeEntryProps> = ({
       <p
         role="status"
         aria-live="polite"
-        className={cn('min-h-5 text-sm text-center mt-3 break-words', error ? 'text-red-500' : 'text-text-muted')}
+        className={cn('min-h-5 text-sm text-center mt-3 wrap-break-word', error ? 'text-red-500' : 'text-text-muted')}
       >
         {hint}
       </p>

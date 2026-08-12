@@ -186,13 +186,13 @@ describe('FormField', () => {
     it('wraps a long unbreakable error caption so it is not clipped (#454)', () => {
       // Dynamic errors (guardian endpoint URLs, RPC/SDK messages, hashes) can be
       // long unbreakable strings. On the extension the guardian rotation error
-      // surfaces through this caption; without break-words it overflows the
+      // surfaces through this caption; without wrap-break-word it overflows the
       // fixed-width popup and clips the failure reason.
       const longError =
         'GuardianHttpError: https://guardian.example.com/v1/operators/rotate?token=abcdef0123456789abcdef0123456789 failed';
       render(<FormField errorCaption={longError} />);
 
-      expect(screen.getByText(longError)).toHaveClass('break-words');
+      expect(screen.getByText(longError)).toHaveClass('wrap-break-word');
     });
 
     it('does not render the caption for the password-strength sentinel', () => {

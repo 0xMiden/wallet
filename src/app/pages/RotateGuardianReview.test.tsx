@@ -248,7 +248,7 @@ it('hardware cancellation never queues a switch', async () => {
 });
 
 // Guardian failures carry long unbreakable strings (endpoint URLs, RPC/SDK
-// errors, hashes). Without break-words they overflow the fixed-width extension
+// errors, hashes). Without wrap-break-word they overflow the fixed-width extension
 // popup and get clipped, hiding the failure reason. Both error sinks must wrap.
 const LONG_GUARDIAN_ERROR =
   'GuardianHttpError: https://guardian.example.com/v1/operators/rotate?token=abcdef0123456789abcdef0123456789 failed';
@@ -266,7 +266,7 @@ it('wraps the long guardian error on the mobile hardware-auth path so it is not 
   await waitFor(() => expect(confirm).toBeEnabled());
   fireEvent.click(confirm);
 
-  expect(await screen.findByText(LONG_GUARDIAN_ERROR)).toHaveClass('break-words');
+  expect(await screen.findByText(LONG_GUARDIAN_ERROR)).toHaveClass('wrap-break-word');
 });
 
 it('password authentication gates the extension flow and retries with fresh authentication', async () => {
