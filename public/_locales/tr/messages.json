@@ -1068,6 +1068,10 @@
     "message": "Hizmet Şartları",
     "englishSource": "Terms of Service"
   },
+  "sendFeedback": {
+    "message": "Geri bildirim gönder",
+    "englishSource": "Send feedback"
+  },
   "termsOfUse": {
     "message": "Kullanım Koşulları",
     "englishSource": "Terms of Use"
