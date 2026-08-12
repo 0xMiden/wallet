@@ -128,9 +128,11 @@ export function useSyncTrigger() {
               const client = await getMidenClient();
               if (!client || cancelled) return;
               await client.syncState();
+              // Sync genuinely went through — break the failure streak. Kept
+              // inside the lock callback so an unmount that flips `cancelled`
+              // before the sync (early return above) can't falsely reset it.
+              consecutiveSyncFailures = 0;
             });
-            // Sync went through: reset the failure streak and clear any banner.
-            consecutiveSyncFailures = 0;
             clearReachabilityIssues();
 
             const guardianAccountKeys = useWalletStore
