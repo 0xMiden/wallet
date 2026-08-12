@@ -1908,8 +1908,8 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device.",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "What it cannot do",
@@ -1924,8 +1924,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Got it",
