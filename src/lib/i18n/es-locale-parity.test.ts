@@ -17,6 +17,15 @@ const load = (locale: string): Record<string, Entry> =>
 const en = load('en');
 const es = load('es');
 
+// Read a required entry's message; throws (failing the test with a clear reason)
+// if the key is absent. Keeps indexed access type-safe under
+// `noUncheckedIndexedAccess`, which treats `Record` lookups as possibly-undefined.
+const msg = (bundle: Record<string, Entry>, key: string): string => {
+  const entry = bundle[key];
+  if (!entry) throw new Error(`locale is missing key: ${key}`);
+  return entry.message;
+};
+
 describe('es locale parity with en (#469)', () => {
   it('has a Spanish entry for every shipped English key (no English fallback)', () => {
     const missing = Object.keys(en).filter(key => !(key in es));
@@ -25,10 +34,11 @@ describe('es locale parity with en (#469)', () => {
 
   it("preserves each key's placeholder set so $x$ substitutions still resolve", () => {
     const mismatches: string[] = [];
-    for (const key of Object.keys(en)) {
-      if (!es[key]) continue;
-      const enPlaceholders = Object.keys(en[key].placeholders ?? {}).sort();
-      const esPlaceholders = Object.keys(es[key].placeholders ?? {}).sort();
+    for (const [key, enEntry] of Object.entries(en)) {
+      const esEntry = es[key];
+      if (!esEntry) continue;
+      const enPlaceholders = Object.keys(enEntry.placeholders ?? {}).sort();
+      const esPlaceholders = Object.keys(esEntry.placeholders ?? {}).sort();
       if (JSON.stringify(enPlaceholders) !== JSON.stringify(esPlaceholders)) {
         mismatches.push(`${key}: en[${enPlaceholders}] vs es[${esPlaceholders}]`);
       }
@@ -37,7 +47,7 @@ describe('es locale parity with en (#469)', () => {
   });
 
   it('translates "Close" as the action Cerrar, not the wrong "Cerca"/"Acerca" (#469)', () => {
-    expect(es.close.message).toBe('Cerrar');
+    expect(msg(es, 'close')).toBe('Cerrar');
   });
 
   it('does not leave the fixed common UI terms in English', () => {
@@ -47,7 +57,7 @@ describe('es locale parity with en (#469)', () => {
     // intentionally keeps in English across every locale. (The broader
     // Spanish-quality audit is a native-speaker follow-up per the issue.)
     for (const key of ['withdrawalFailed', 'totalPaid', 'transactionComplete', 'depositIntentLabel']) {
-      expect(es[key].message).not.toBe(en[key].message);
+      expect(msg(es, key)).not.toBe(msg(en, key));
     }
   });
 });
