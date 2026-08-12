@@ -53,6 +53,9 @@ const makeEntry = (overrides: Partial<IHistoryEntry> = {}): IHistoryEntry =>
 const root = (container: HTMLElement) => container.firstChild as HTMLElement;
 
 beforeEach(() => {
+  // Call history must start empty: several tests assert a branch short-circuits
+  // *before* reaching `isFaucetRequest` / `bridgeStatusOf`.
+  jest.clearAllMocks();
   mockIsFaucetRequest.mockReturnValue(false);
   mockBridgeStatusOf.mockReturnValue('confirmed');
 });
@@ -108,6 +111,97 @@ describe('TransactionIcon', () => {
 
     expect(root(container)).toHaveClass('bg-status-negative');
     expect(getByTestId('v2-icon')).toHaveAttribute('data-name', 'close');
+  });
+
+  describe('bridge branch', () => {
+    // Every bridge shape — outbound, inbound by txType, and inbound recognised
+    // only by its provider stamp — resolves to the same slate swap square.
+    it.each([
+      ['bridged-send', { txType: 'bridged-send' as const }],
+      ['bridged-receive', { txType: 'bridged-receive' as const }],
+      ['a provider-stamped row', { bridgeInProvider: 'epoch' as const }]
+    ])('renders the slate swap square for %s', (_label, overrides) => {
+      const { container } = render(<TransactionIcon entry={makeEntry(overrides)} />);
+
+      const wrapper = root(container);
+      expect(wrapper).toHaveClass('rounded-10');
+      expect(wrapper).toHaveStyle({ backgroundColor: '#777487' });
+      expect(wrapper.querySelector('svg')).toHaveClass('w-4.5', 'h-4.5');
+    });
+
+    it('sizes the failure cross with the lg Icon', () => {
+      mockBridgeStatusOf.mockReturnValue('failed');
+      const { getByTestId } = render(<TransactionIcon entry={makeEntry({ txType: 'bridged-send' })} size="lg" />);
+
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-size', 'lg');
+    });
+  });
+
+  describe('cancelled branch', () => {
+    it('renders the grey cross and takes precedence over every other branch', () => {
+      const { container } = render(
+        <TransactionIcon entry={makeEntry({ isCancelled: true, txType: 'bridged-send', transactionIcon: 'FAILED' })} />
+      );
+
+      expect(root(container)).toHaveClass('bg-gray-400', 'rounded-10');
+      expect(mockBridgeStatusOf).not.toHaveBeenCalled();
+    });
+
+    it('renders the FAILED square for a hard transaction failure', () => {
+      const { container } = render(<TransactionIcon entry={makeEntry({ transactionIcon: 'FAILED' })} />);
+
+      expect(root(container)).toHaveClass('bg-[#CC5D5D]', 'rounded-10');
+    });
+
+    it('keeps the earn failure cross when the Miden side itself failed', () => {
+      const { container } = render(
+        <TransactionIcon entry={makeEntry({ txType: 'earn-withdraw', transactionIcon: 'FAILED' })} />
+      );
+
+      expect(root(container)).toHaveClass('bg-status-negative');
+    });
+  });
+
+  // The accent feeds both the glyph and the detail-page section dividers, so it
+  // has to agree with the glyph branch above for every row shape.
+  describe('getTransactionIconBackgroundColor', () => {
+    it('greys out a cancelled row ahead of anything else', () => {
+      expect(getTransactionIconBackgroundColor(makeEntry({ isCancelled: true, transactionIcon: 'FAILED' }))).toBe(
+        '#9E9E9E'
+      );
+    });
+
+    it('reddens a hard failure', () => {
+      expect(getTransactionIconBackgroundColor(makeEntry({ transactionIcon: 'FAILED' }))).toBe('#CC5D5D');
+    });
+
+    it.each([
+      ['bridged-send', { txType: 'bridged-send' as const }],
+      ['a provider-stamped row', { bridgeInProvider: 'epoch' as const }]
+    ])('uses the slate bridge accent for %s', (_label, overrides) => {
+      expect(getTransactionIconBackgroundColor(makeEntry(overrides))).toBe('#777487');
+    });
+
+    it('reddens a failed bridge', () => {
+      mockBridgeStatusOf.mockReturnValue('failed');
+      expect(getTransactionIconBackgroundColor(makeEntry({ txType: 'bridged-send' }))).toBe('#CC5D5D');
+    });
+
+    it('uses the faucet accent for a faucet request', () => {
+      mockIsFaucetRequest.mockReturnValue(true);
+      expect(getTransactionIconBackgroundColor(makeEntry({ transactionIcon: 'SEND' }))).toBe(TRANSACTION_COLORS.faucet);
+    });
+
+    it.each([
+      ['SEND', TRANSACTION_COLORS.send],
+      ['SWAP', 'var(--tx-swap)'],
+      ['RECEIVE', TRANSACTION_COLORS.receive],
+      [undefined, TRANSACTION_COLORS.receive]
+    ])('maps transactionIcon %s onto its accent', (transactionIcon, expected) => {
+      expect(getTransactionIconBackgroundColor(makeEntry({ transactionIcon: transactionIcon as never }))).toBe(
+        expected
+      );
+    });
   });
 
   describe('pending / processing spinner branch', () => {

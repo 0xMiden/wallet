@@ -297,6 +297,27 @@ describe('formatBridgeOutputAmount', () => {
 });
 
 describe('bridgeStatusOf', () => {
+  // ITransactionStatus.Failed === 3. A failed Miden tx never created a deposit,
+  // so its terminal status must beat the route's own (initially pending) metadata.
+  it('reports a failed Miden transaction as failed regardless of route metadata', () => {
+    expect(bridgeStatusOf(bridgeEntry({ status: 3, bridgeProvider: 'agglayer', bridgeClaimStatus: 'pending' }))).toBe(
+      'failed'
+    );
+  });
+
+  it.each([
+    ['ready', 'confirmed'],
+    ['received', 'confirmed'],
+    ['failed', 'failed'],
+    [undefined, 'pending']
+  ])('maps the inbound bridge phase %s', (bridgeInPhase, expected) => {
+    expect(
+      bridgeStatusOf(
+        bridgeEntry({ txType: 'bridged-receive', bridgeInPhase: bridgeInPhase as IHistoryEntry['bridgeInPhase'] })
+      )
+    ).toBe(expected);
+  });
+
   it('maps the agglayer claim lifecycle', () => {
     expect(bridgeStatusOf(bridgeEntry({ bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' }))).toBe('confirmed');
     expect(bridgeStatusOf(bridgeEntry({ bridgeProvider: 'agglayer', bridgeClaimStatus: 'failed' }))).toBe('failed');
@@ -401,6 +422,22 @@ describe('bridgeInRowDisplay', () => {
       network: 'Miden',
       status: 'confirmed'
     });
+  });
+
+  // Once the note is consumed the row's own amount is the truth, so a `received`
+  // phase wins over the quoted output amount even on a bridged-receive row.
+  it('prefers the row amount over the quoted output once the phase is received', () => {
+    expect(
+      bridgeInRowDisplay(
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'received',
+          amount: 7n,
+          bridgeInOutputAmount: '99',
+          bridgeInProvider: 'epoch'
+        })
+      ).outAmount
+    ).toBe('7');
   });
 
   it('defaults the source symbol to USDC and labels a non-agglayer provider Epoch', () => {

@@ -111,8 +111,13 @@ describe('adaptive amount formatting', () => {
   });
 
   it('honours a larger normal precision before adapting', () => {
-    expect(getAdaptiveDecimalPlaces('0.0001234', 4)).toBe(6);
+    // The first non-zero digit already fits inside the requested 4dp, so the
+    // larger normal precision is kept as-is.
+    expect(getAdaptiveDecimalPlaces('0.0001234', 4)).toBe(4);
     expect(toAdaptiveFixed('1.23456', 4)).toBe('1.2346');
+    // Only once the value is small enough to vanish at 4dp does it adapt.
+    expect(getAdaptiveDecimalPlaces('0.00001234', 4)).toBe(6);
+    expect(toAdaptiveFixed('0.00001234', 4)).toBe('0.000012');
   });
 
   it('preserves non-finite BigNumber output', () => {
