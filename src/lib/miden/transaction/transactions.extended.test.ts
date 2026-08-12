@@ -264,24 +264,26 @@ describe('verifyStuckTransactionsFromNode', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
   });
 
-  it('marks consume transaction as failed when note is invalid (not consumed → fails after the grace window)', async () => {
+  it('marks consume transaction as failed IMMEDIATELY when note is invalid (fast-fail, ignores grace window)', async () => {
+    const { INVALID_NOTE_ERROR } = require('./constants');
     txStore.push({
       id: 'tx-1',
       type: 'consume',
       noteId: 'note-1',
       status: ITransactionStatus.GeneratingTransaction,
       initiatedAt: 100,
-      // An Invalid note is not consumed, so verifyConsumeLanded reports 'not-landed'
-      // (#260 follow-up #3a unified it with the other not-consumed states) and it
-      // now honors the processing-time grace before failing — age the row past
-      // MIN_PROCESSING_TIME_BEFORE_STUCK (60s) to keep the terminal-Failed outcome.
-      processingStartedAt: Math.floor(Date.now() / 1000) - 120
+      // FRESH — inside MIN_PROCESSING_TIME_BEFORE_STUCK (60s). An Invalid note can
+      // never be consumed, so verifyConsumeLanded reports 'invalid' and the reaper
+      // fails it immediately with the specific reason, NOT after the grace window
+      // like a 'not-landed' note (W1: restores the fast-fail the #3a refactor lost).
+      processingStartedAt: Math.floor(Date.now() / 1000)
     });
     const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
     mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.Invalid }]);
     const resolved = await verifyStuckTransactionsFromNode();
     expect(resolved).toBe(1);
     expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+    expect(txStore[0]!.error).toBe(INVALID_NOTE_ERROR);
   });
 
   it('marks consume transaction as failed when note is still claimable AND processing is over the threshold', async () => {
@@ -328,6 +330,43 @@ describe('verifyStuckTransactionsFromNode', () => {
     mockGetInputNoteDetails.mockRejectedValueOnce(new Error('rpc down'));
     const resolved = await verifyStuckTransactionsFromNode();
     expect(resolved).toBe(0);
+  });
+
+  it('treats a ConsumedExternal note as landed too — the reaper keeps its pre-#3a behavior', async () => {
+    // Unlike the strict killed-consume path, the background reaper (lower-exposure,
+    // rides AutoSync) still counts an external-consumed note as landed → Completed.
+    txStore.push({
+      id: 'tx-ext',
+      type: 'consume',
+      noteId: 'note-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
+    mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.ConsumedExternal }]);
+    const resolved = await verifyStuckTransactionsFromNode();
+    expect(resolved).toBe(1);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('does NOT sync once per stuck consume — at most one sync per cycle (rides AutoSync)', async () => {
+    // W2: verifyConsumeLanded syncs only when its caller asks (sync=true). The reaper
+    // passes sync=false, so N stuck consumes must NOT trigger N syncs/cycle.
+    const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
+    for (const id of ['s-1', 's-2', 's-3']) {
+      txStore.push({
+        id,
+        type: 'consume',
+        noteId: `note-${id}`,
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100,
+        processingStartedAt: Math.floor(Date.now() / 1000)
+      });
+    }
+    // Committed-and-fresh → nothing resolves; the only thing under test is sync count.
+    mockGetInputNoteDetails.mockResolvedValue([{ state: InputNoteState.Committed }]);
+    await verifyStuckTransactionsFromNode();
+    expect(mockSyncState.mock.calls.length).toBeLessThanOrEqual(1);
   });
 });
 

@@ -620,17 +620,19 @@ describe('guardian leaf kill-window (funds-safety) — an offscreen kill FAILS t
 // A deadline-killed guardian CONSUME reaches the guardian catch as an
 // OperationAbortedError. Unlike send/swap/execute, a consume's input `noteId` is
 // on the tx row, so before failing we ask the node whether the note landed as
-// consumed: 'landed' → Completed (the note WAS claimed); 'not-landed'/'unknown' →
-// the unchanged funds-safe Failed. A false Completed is impossible — only a
-// node-positive CONSUMED_* state completes the row.
+// consumed: only 'landed-local' (a note consumed by THIS client's own tracked tx,
+// provably mine) → Completed (the note WAS claimed). 'landed-external'
+// (ConsumedExternal — consumed but NOT provably mine), 'not-landed', 'invalid', and
+// 'unknown' → the unchanged funds-safe Failed. A false 'Received' is impossible —
+// only a LOCAL consumed state completes the row.
 describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
   const consumeRow = { type: 'consume', noteId: '0xn1', noteIds: ['0xn1'] };
 
-  it('node reports the note CONSUMED → the killed consume ends Completed, not Failed, no requeue', async () => {
+  it('node reports the note LOCAL-consumed (provably mine) → the killed consume ends Completed, not Failed, no requeue', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValue(new OperationAbortedError('op-kill', 'deadline'));
-    // The node confirms the input note is consumed on chain (the consume DID land
-    // before the offscreen realm was torn down).
+    // The node confirms the input note is consumed on chain by this client's own tx
+    // (the consume DID land before the offscreen realm was torn down).
     mockProxyGetInputNoteDetails.mockResolvedValue([{ state: 'ConsumedAuthenticatedLocal' }]);
     const { service } = arrange('kill-consume-landed', consumeRow);
 
@@ -652,6 +654,30 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
     expect(finalRow.displayMessage).toBe('Received');
     // The completion handler is NOT re-run — the killed op left no TransactionResult;
     // the row is marked Completed directly from the node verdict.
+    expect(mockComplete.consume).not.toHaveBeenCalled();
+  });
+
+  it('node reports the note ConsumedExternal (NOT provably mine) → funds-safe Failed, never a false Received', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(new OperationAbortedError('op-kill', 'deadline'));
+    // ConsumedExternal = nullifier on chain but the consuming tx was not this
+    // client's — e.g. a reclaimable P2IDE the sender reclaimed. Marking it Received
+    // would misreport funds a third party took, so this path must fail it (funds-safe).
+    mockProxyGetInputNoteDetails.mockResolvedValue([{ state: 'ConsumedExternal' }]);
+    const { service } = arrange('kill-consume-external', consumeRow);
+
+    await generateTransaction(
+      buildTx('kill-consume-external', consumeRow) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    const finalRow = txStore.find(r => r.id === 'kill-consume-external')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
+    expect(finalRow.displayMessage).not.toBe('Received');
     expect(mockComplete.consume).not.toHaveBeenCalled();
   });
 
@@ -704,7 +730,12 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
     const noteIdsOnly = { type: 'consume', noteIds: ['0xn1'] };
     const { service } = arrange('kill-consume-noid', noteIdsOnly);
 
-    await generateTransaction(buildTx('kill-consume-noid', noteIdsOnly) as never, signCallback, false, provider as never);
+    await generateTransaction(
+      buildTx('kill-consume-noid', noteIdsOnly) as never,
+      signCallback,
+      false,
+      provider as never
+    );
 
     expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
     expect(mockProxyGetInputNoteDetails).not.toHaveBeenCalled();

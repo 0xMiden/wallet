@@ -540,18 +540,19 @@ describe('startBackgroundTransactionProcessing', () => {
 });
 
 describe('verifyStuckTransactionsFromNode invalid + missing branches', () => {
-  it('cancels a consume tx whose note state is Invalid (not consumed → fails after the grace window)', async () => {
+  it('fails a consume tx whose note state is Invalid IMMEDIATELY, ignoring the grace window (INVALID_NOTE_ERROR)', async () => {
+    const { INVALID_NOTE_ERROR } = require('./constants');
     txStore.push({
       id: 'tx-invalid',
       type: 'consume',
       noteId: 'note-bad',
       status: ITransactionStatus.GeneratingTransaction,
       initiatedAt: 1,
-      // An Invalid note is not consumed, so verifyConsumeLanded reports 'not-landed'
-      // (#260 follow-up #3a unified it with the other not-consumed states). Like
-      // them it now honors the processing-time grace before failing, so age the row
-      // past MIN_PROCESSING_TIME_BEFORE_STUCK (60s) to keep the terminal-Failed outcome.
-      processingStartedAt: Math.floor(Date.now() / 1000) - 120
+      // FRESH — still well inside MIN_PROCESSING_TIME_BEFORE_STUCK (60s). An Invalid
+      // note can NEVER be consumed, so the reaper must fail it immediately with the
+      // specific reason rather than wait out the grace window like a 'not-landed'
+      // note (W1: restores the fast-fail the #3a refactor collapsed into 'not-landed').
+      processingStartedAt: Math.floor(Date.now() / 1000)
     });
     // getInputNoteDetails is on the gap-test mock client. Patch it on the fly.
     const sdk = require('../sdk/miden-client');
@@ -564,6 +565,7 @@ describe('verifyStuckTransactionsFromNode invalid + missing branches', () => {
       const resolved = await verifyStuckTransactionsFromNode();
       expect(resolved).toBe(1);
       expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+      expect(txStore[0]!.error).toBe(INVALID_NOTE_ERROR);
     } finally {
       sdk.getMidenClient = origGetClient;
     }
@@ -621,14 +623,16 @@ describe('verifyStuckTransactionsFromNode invalid + missing branches', () => {
 // A deadline-killed non-guardian consume rejects with OperationAbortedError, which
 // propagates to the generateTransactionsLoop catch. Before failing it, the catch
 // asks the node (via verifyConsumeLanded) whether the input note landed as
-// consumed: 'landed' → Completed (the note WAS claimed); 'not-landed'/'unknown' →
-// the unchanged funds-safe Failed. A false Completed is impossible — only a
-// node-positive CONSUMED_* state completes the row.
+// consumed: only 'landed-local' (a note consumed by THIS client's own tracked tx,
+// provably mine) → Completed (the note WAS claimed). 'landed-external'
+// (ConsumedExternal — consumed but NOT provably mine, e.g. a reclaimable P2IDE the
+// sender reclaimed), 'not-landed', 'invalid', and 'unknown' → the funds-safe Failed.
+// A false 'Received' is impossible — only a LOCAL consumed state completes the row.
 describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', () => {
   const stubProvider: any = { getGuardianClient: async () => null };
   const dummySign = jest.fn(async () => new Uint8Array([1]));
 
-  const pushConsume = (id: string) =>
+  const pushConsume = (id: string, extra: Record<string, unknown> = {}) =>
     txStore.push({
       id,
       type: 'consume',
@@ -637,7 +641,8 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
       accountId: 'acc-1',
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
-      delegateTransaction: false
+      delegateTransaction: false,
+      ...extra
     });
 
   // Patch getMidenClient so the consume LEAF is deadline-killed (OperationAbortedError)
@@ -660,9 +665,9 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
     };
   };
 
-  it('node reports the note CONSUMED → the killed consume ends Completed, not Failed', async () => {
+  it('node reports the note LOCAL-consumed (provably mine) → the killed consume ends Completed Received', async () => {
     pushConsume('nk-landed');
-    const restore = patchClient('ConsumedExternal');
+    const restore = patchClient('ConsumedAuthenticatedLocal');
     try {
       const result = await generateTransactionsLoop(dummySign, false, stubProvider);
       expect(result).toBe(false);
@@ -671,6 +676,60 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
       expect(row.displayMessage).toBe('Received');
     } finally {
       restore();
+    }
+  });
+
+  it('node reports the note LOCAL-consumed for a self-reclaim (sender === my account) → Completed Reclaimed', async () => {
+    // secondaryAccountId (the note sender) === accountId → self-reclaim label (S1).
+    pushConsume('nk-reclaim', { secondaryAccountId: 'acc-1' });
+    const restore = patchClient('ConsumedUnauthenticatedLocal');
+    try {
+      await generateTransactionsLoop(dummySign, false, stubProvider);
+      const row = txStore.find(r => r.id === 'nk-reclaim')!;
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(row.displayMessage).toBe('Reclaimed');
+    } finally {
+      restore();
+    }
+  });
+
+  it('node reports the note ConsumedExternal (NOT provably mine) → funds-safe Failed, never a false Received', async () => {
+    // ConsumedExternal = nullifier on chain but the consuming tx was not this
+    // client's — for a reclaimable P2IDE the SENDER may have reclaimed it. Marking
+    // this Received would tell the user they got funds a third party actually took,
+    // so the killed-consume path must fail it (funds-safe: a re-consume harmlessly
+    // collides on the nullifier and the next sync reconciles).
+    pushConsume('nk-external');
+    const restore = patchClient('ConsumedExternal');
+    try {
+      await generateTransactionsLoop(dummySign, false, stubProvider);
+      const row = txStore.find(r => r.id === 'nk-external')!;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.displayMessage).not.toBe('Received');
+    } finally {
+      restore();
+    }
+  });
+
+  it('verifyConsumeLanded(sync=true): a failed sync falls back to last-synced state (LOCAL-consumed → landed-local)', async () => {
+    // sync=true best-effort syncs before reading, but a sync failure must NOT block
+    // the check: a consumed note never un-consumes, so the last-synced state stays
+    // authoritative. The fresh sync throws yet the note already reads LOCAL-consumed
+    // → still 'landed-local' (funds-safe fallback, cancel.ts sync-failure catch).
+    const { verifyConsumeLanded } = require('./cancel');
+    const sdk = require('../sdk/miden-client');
+    const orig = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(async () => {
+        throw new Error('sync unreachable');
+      }),
+      getInputNoteDetails: jest.fn(async () => [{ state: 'ConsumedAuthenticatedLocal' }])
+    });
+    try {
+      const verdict = await verifyConsumeLanded({ id: 'v-syncfail', noteId: 'note-kill' }, true);
+      expect(verdict).toBe('landed-local');
+    } finally {
+      sdk.getMidenClient = orig;
     }
   });
 
