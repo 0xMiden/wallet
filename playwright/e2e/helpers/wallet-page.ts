@@ -1593,7 +1593,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
     const STABLE_ZERO_THRESHOLD = 2;
 
     // Fresh reload + metadata injection + land on /receive. The reload (NOT a
@@ -1601,6 +1600,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // wallet's in-memory store — clearing the `extensionClaimingNoteIds` gate.
     // See reloadAndPreparePending.
     await this.reloadAndPreparePending();
+
+    // Start the clock AFTER reload/prepare. That step costs ~8-12s of fixed
+    // sleeps, and billing it against the caller's budget silently turned a 120s
+    // budget into ~110s of actual draining (#615).
+    const deadline = Date.now() + timeoutMs;
 
     const readPendingCount = (): Promise<number> =>
       this.page.evaluate(async () => {
@@ -1704,7 +1708,23 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       await this.page.waitForTimeout(3_000);
     }
 
-    if (Date.now() >= deadline) {
+    if (Date.now() >= deadline && stableZero < STABLE_ZERO_THRESHOLD) {
+      // The loop needs two consecutive zero reads to call it drained. If the
+      // deadline cut the sample short mid-confirmation (stableZero === 1), the
+      // wallet may well have drained and we'd be failing a correct run — the
+      // exact false negative in #615, where the dump showed a Completed,
+      // guardian-synced consume and `0 pending note(s)`. Finish the sample
+      // rather than dropping the anti-flap guarantee: one more read, and only
+      // a second zero passes.
+      if (stableZero >= 1) {
+        await this.page.waitForTimeout(2_000);
+        if ((await readPendingCount().catch(() => -1)) === 0) {
+          console.log(`[WalletPage.claimAllNotes] drained at deadline (confirmed) after ${iteration} iteration(s)`);
+          await this.navigateHome();
+          return;
+        }
+      }
+
       const remaining = await readPendingCount().catch(() => -1);
       // Diagnostic: a pending note that never drains means the consume tx
       // stalled or failed. Dump the transactions table so the failure reason
@@ -1714,7 +1734,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       console.log(`[WalletPage.claimAllNotes] transactions at timeout: ${txDump}`);
       throw new Error(
         `[WalletPage.claimAllNotes] timed out after ${timeoutMs}ms with ${remaining} pending note(s) ` +
-          `after ${iteration} iteration(s). Transactions: ${txDump}`
+          `after ${iteration} iteration(s) (lastPending=${lastPending}, ` +
+          `stableZero=${stableZero}/${STABLE_ZERO_THRESHOLD}). Transactions: ${txDump}`
       );
     } else {
       console.log(`[WalletPage.claimAllNotes] drained in ${iteration} iteration(s)`);
@@ -1746,14 +1767,25 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           r.onerror = () => rej(r.error);
         });
         return JSON.stringify(
-          rows.map(row => ({
-            id: String(row.id ?? '').slice(0, 8),
-            type: row.type,
-            status: row.status,
-            stage: row.stage,
-            error: typeof row.error === 'string' ? row.error.slice(0, 300) : row.error,
-            errorMessage: typeof row.errorMessage === 'string' ? row.errorMessage.slice(0, 300) : undefined
-          }))
+          rows
+            .slice()
+            .sort((a, b) => Number(a.initiatedAt ?? 0) - Number(b.initiatedAt ?? 0))
+            .map(row => ({
+              id: String(row.id ?? '').slice(0, 8),
+              type: row.type,
+              // Name, not the raw enum. A numeric `status: 2` reads as "in
+              // flight" but means Completed, which sent several #615
+              // investigations chasing a rotation race that never existed.
+              status: (['Queued', 'Generating', 'Completed', 'Failed'] as const)[Number(row.status)] ?? row.status,
+              initiatedAt: row.initiatedAt,
+              completedAt: row.completedAt,
+              // NOTE: `stage` is informational and goes STALE once status is
+              // terminal — a successful replace-hot-key freezes at 'confirming'.
+              // Read it only together with `status`.
+              stage: row.stage,
+              error: typeof row.error === 'string' ? row.error.slice(0, 300) : row.error,
+              errorMessage: typeof row.errorMessage === 'string' ? row.errorMessage.slice(0, 300) : undefined
+            }))
         );
       } finally {
         db.close();
@@ -1769,9 +1801,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * reaches. Chrome desktop only.
    */
   async claimNotesByGroup(timeoutMs: number = 180_000): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
     const STABLE_ZERO_THRESHOLD = 2;
     await this.reloadAndPreparePending();
+
+    // Clock starts after reload/prepare — same reasoning as claimAllNotes (#615).
+    const deadline = Date.now() + timeoutMs;
 
     const readPendingCount = (): Promise<number> =>
       this.page.evaluate(async () => {

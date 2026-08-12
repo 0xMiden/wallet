@@ -20,6 +20,11 @@ jobs:
   # automatically once they land, via playwright.guardian.config.ts's
   # `**/guardian-*.spec.ts` testMatch. guardian-lifecycle-e2e-gate is the
   # stable required-check name.
+  # KNOWN FLAKE (#615): guardian-recovery.spec.ts:65 fails ~10% of executions
+  # (~11 failures / ~110 real runs, 2026-08-04 -> 2026-08-12) with a
+  # claimAllNotes timeout and guardian 401/429 in the transaction dump. It has
+  # been present since the spec landed — there is NO regression commit, do not
+  # bisect main. This is NOT #522 (that is the SDK-0.16 protocol gate).
   guardian-lifecycle-e2e:
     name: guardian-lifecycle-e2e (chrome)
     runs-on: ubuntu-latest
