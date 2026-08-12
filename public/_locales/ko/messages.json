@@ -1792,6 +1792,10 @@
     "message": "주장하다",
     "englishSource": "Claim"
   },
+  "clear": {
+    "message": "분명한",
+    "englishSource": "Clear"
+  },
   "midenWallet": {
     "message": "빵!",
     "englishSource": "Bread!"

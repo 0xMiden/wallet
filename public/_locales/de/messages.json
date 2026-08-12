@@ -1792,6 +1792,10 @@
     "message": "Beanspruchen",
     "englishSource": "Claim"
   },
+  "clear": {
+    "message": "Klar",
+    "englishSource": "Clear"
+  },
   "midenWallet": {
     "message": "Brot!",
     "englishSource": "Bread!"

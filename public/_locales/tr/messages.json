@@ -1792,6 +1792,10 @@
     "message": "İddia",
     "englishSource": "Claim"
   },
+  "clear": {
+    "message": "Temizlemek",
+    "englishSource": "Clear"
+  },
   "midenWallet": {
     "message": "Ekmek!",
     "englishSource": "Bread!"
