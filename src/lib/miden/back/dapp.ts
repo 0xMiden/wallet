@@ -7,7 +7,7 @@ import {
   PrivateDataPermission,
   SendTransaction
 } from '@demox-labs/miden-wallet-adapter-base';
-import { AccountInterface, NoteFilterTypes, NoteType, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
+import { NoteFilterTypes, NoteType, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
 import { nanoid } from 'nanoid';
 import type { Runtime } from 'webextension-polyfill';
 
@@ -58,7 +58,6 @@ import {
   MidenMessageType,
   MidenRequest
 } from 'lib/miden/types';
-import { getNetworkId } from 'lib/miden-chain/constants';
 import { isDesktop, isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
@@ -67,12 +66,13 @@ import { WalletType } from 'screens/onboarding/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
 import { queueNoteImport } from '../activity';
+import { midenClientProxy } from './miden-client-proxy';
 import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { withWasmClientLock } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 import {
   initiateSendTransaction,
@@ -128,8 +128,7 @@ async function dappLog(message: string): Promise<void> {
 }
 
 async function getAccountPublicKeyB64(accountId: string): Promise<string> {
-  const midenClient = await getMidenClient();
-  const account = await midenClient.getAccount(accountId);
+  const account = await midenClientProxy.getAccount(accountId);
   if (!account) {
     throw new Error('Account not found');
   }
@@ -580,9 +579,8 @@ async function getPrivateNoteDetails(notefilterType: NoteFilterTypes, noteIds?: 
   try {
     privateNotes = await withUnlocked(async () => {
       return await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
         const query = noteFilterTypeToQuery(notefilterType, noteIds);
-        let allNotes = await midenClient.getInputNoteDetails(query);
+        let allNotes = await midenClientProxy.getInputNoteDetails(query);
         let privateNotes = allNotes.filter(note => note.noteType === NoteType.Private);
         return privateNotes;
       });
@@ -684,39 +682,30 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
     consumableNotes = await withUnlocked(async () => {
       // Wrap WASM client operations in a lock to prevent concurrent access
       return await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        await midenClient.syncState();
-        const notes = await midenClient.getConsumableNotes(accountId);
-        const consumableNotesDetails = notes.flatMap(note => {
+        await midenClientProxy.syncState();
+        // Consumable notes as DTOs (issue #260, slice 4). The reclaim gate + the
+        // reduction ran in the client's realm (offscreen when the flag is on, so
+        // it uses the same realm that just ran syncState above — no stale height).
+        // The DTO is a strict superset of InputNoteDetails; map it 1:1.
+        const notes = await midenClientProxy.getConsumableNotes(accountId);
+        return notes.flatMap<InputNoteDetails>(note => {
           // Partial (metadata-less) notes have no ID — and, since 0.15
           // nullifiers fold in metadata, no nullifier either. They cannot
           // be consumed, so skip until sync completes them.
-          const noteId = note.id();
-          const nullifier = note.nullifier();
-          if (!noteId || !nullifier) {
+          if (!note.noteId || !note.nullifier) {
             return [];
           }
-          const assets = note
-            .details()
-            .assets()
-            .fungibleAssets()
-            .map(asset => ({
-              amount: asset.amount().toString(),
-              faucetId: asset.faucetId().toBech32(getNetworkId(), AccountInterface.BasicWallet)
-            }));
           return [
             {
-              noteId: noteId.toString(),
-              noteType: note.metadata()?.noteType(),
-              senderAccountId:
-                note.metadata()?.sender()?.toBech32(getNetworkId(), AccountInterface.BasicWallet) || undefined,
-              nullifier,
-              state: note.state(),
-              assets: assets
+              noteId: note.noteId,
+              noteType: note.noteType,
+              senderAccountId: note.senderAccountId,
+              nullifier: note.nullifier,
+              state: note.state,
+              assets: note.assets
             }
           ];
         });
-        return consumableNotesDetails;
       });
     });
     return consumableNotes;
@@ -814,8 +803,7 @@ async function getAssets(accountId: string): Promise<Asset[]> {
     assets = await withUnlocked(async () => {
       // Wrap WASM client operations in a lock to prevent concurrent access
       return await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        const account = await midenClient.getAccount(accountId);
+        const account = await midenClientProxy.getAccount(accountId);
         const fungibleAssets = account?.vault().fungibleAssets() || [];
         const balances = fungibleAssets.map(asset => ({
           faucetId: getBech32AddressFromAccountId(asset.faucetId()),
@@ -925,12 +913,18 @@ export const generatePromisifyImportPrivateNote = async (
         if (confirmReq.confirmed) {
           try {
             let noteId = await withUnlocked(async () => {
-              // Wrap WASM client operations in a lock to prevent concurrent access
+              // Wrap WASM client operations in a lock to prevent concurrent access.
+              // Route through the offscreen proxy (issue #260, slice 7c): this is a
+              // STORE WRITE (a claimable private note imported by a dApp flow). Flag-ON
+              // the note MUST land in the OFFSCREEN client's store — the realm that
+              // syncs and consumes — else it would import into the dormant SW store and
+              // be unclaimable. Flag-OFF each proxy method is byte-identical to the
+              // former inline `getMidenClient().importNoteBytes()` / `.syncState()`
+              // (verbatim getMidenClient path under this caller's lock).
               return await withWasmClientLock(async () => {
-                const midenClient = await getMidenClient();
                 const noteAsUint8Array = b64ToU8(req.note);
-                const noteId = await midenClient.importNoteBytes(noteAsUint8Array);
-                await midenClient.syncState();
+                const noteId = await midenClientProxy.importNoteBytes(noteAsUint8Array);
+                await midenClientProxy.syncState();
                 return noteId;
               });
             });

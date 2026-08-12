@@ -1,4 +1,10 @@
-import { NoteType, TransactionProver, WasmWebClient } from '@miden-sdk/miden-sdk/lazy';
+import {
+  NoteType,
+  type TransactionRequest,
+  TransactionProver,
+  type TransactionResult,
+  WasmWebClient
+} from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 
 import {
@@ -32,7 +38,6 @@ import {
 } from './complete';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
-  buildSignCallbackError,
   isGuardianCanonicalizationError,
   isLockedError,
   readLastAuthReason,
@@ -41,6 +46,8 @@ import {
 } from './helper';
 import { markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
+import { dispatchGuardianPipeline, midenClientProxy } from '../back/miden-client-proxy';
+import { isOffscreenAvailable } from '../back/offscreen-prover';
 import {
   BridgedSendTransaction,
   ConsumeTransaction,
@@ -60,6 +67,7 @@ import { accountIdStringToSdk, canonicalWalletAccountId, sameWalletAccountId } f
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
+import { extractSdkErrorCode } from '../sdk/sdk-error-code';
 import { NoteTypeEnum } from '../types';
 
 export * from './cancel';
@@ -84,6 +92,48 @@ const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<I
   'swap',
   'earn-deposit',
   'execute'
+]);
+
+// Guardian tx-types whose leaf pipeline is safe to run offscreen (issue #260).
+// Slice 6a routed the four value-moving types (send / consume / swap / execute);
+// slice 6b adds the three STRUCTURAL types (switch-guardian / replace-hot-key /
+// update-procedure-threshold). All nine (6a/6b + the 7c bridged-send / earn-deposit
+// below) cross the SAME serializable waist: by
+// the time control reaches the leaf, `signAndCreateTransactionRequest` has folded
+// every co-signature (hot + cold + guardian) into the `tr` advice map, which
+// `TransactionRequest.serialize()` preserves (§4.0), so only `executeRequest →
+// prove → submit → apply` moves. Everything the structural types add is SW-side
+// and BEFORE/AFTER this leaf, unchanged flag-on vs flag-off: the switch-guardian
+// cold co-sign and the replace-hot-key `persistNewHotKey` run before dispatch, and
+// the post-pipeline `waitForTransactionCommit` (id re-derived from the round-tripped
+// result) runs after. A killed structural leaf → Failed with NO auto-requeue (the
+// slice-6a behavior; structural types are excluded from REQUEUEABLE_TYPES, so the
+// only recovery is a user-initiated re-run that builds a fresh proposal against the
+// post-change chain state — never a double-apply). Slice 7c adds the last two
+// value-moving guardian types (bridged-send / earn-deposit): both are hot-bound
+// custom-proposal sends whose `tr` reaches the leaf fully co-signed via the SAME
+// `signAndCreateTransactionRequest` (no cold co-sign — they are not structural), so
+// they cross the identical serializable waist as the recallable send / swap already
+// routed here. Their completion handlers already consume an offscreen-round-tripped
+// result flag-on (the non-guardian leaf moved offscreen in slice 7b feeds the same
+// completeBridgedSend / completeEarnDeposit), and a wedge-kill →
+// OperationAbortedError falls through the guardian catch to cancelTransaction →
+// Failed with NO silent auto-requeue (earn-deposit is excluded from REQUEUEABLE_TYPES;
+// bridged-send is user-tap-only — never auto-requeued — so a killed-then-retried
+// send-style write can't double-spend), and a round-tripped
+// `ApplyTransactionAfterSubmitFailed` reaches the guardian classifier keyed by the
+// preserved errorCode (→ both Fail, byte-identical to their flag-off inline apply
+// throw). An unknown type is not in the set, so it stays inline too.
+const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
+  'send',
+  'consume',
+  'swap',
+  'execute',
+  'switch-guardian',
+  'replace-hot-key',
+  'update-procedure-threshold',
+  'bridged-send',
+  'earn-deposit'
 ]);
 
 // Cooldown (seconds) applied to a tx requeued after a transient guardian
@@ -170,10 +220,7 @@ export const generateTransaction = async (
   // catch block which cancels the transaction — this is intentional fail-fast behavior,
   // since the transaction can't be submitted without network anyway
   await setTransactionStage(transaction.id, 'syncing');
-  await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
-    await midenClient.syncState();
-  });
+  await withWasmClientLock(async () => midenClientProxy.syncState());
 
   // Mark transaction as in progress
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
@@ -294,6 +341,32 @@ export const generateTransaction = async (
         }
         return;
       }
+      // An offscreen wedge-kill (deadline / `closeDocument`) surfaces as a
+      // retryable OperationAbortedError (issue #260). It is NOT special-cased here:
+      // it falls through to `cancelTransaction` → Failed, exactly like the proven
+      // non-guardian loop (an abort there also falls through to cancel → Failed at
+      // `generateTransactionsLoop`) and exactly like the guardian flag-OFF path.
+      //
+      // We do NOT auto-requeue it. A guardian send/swap/execute has no input-note
+      // nullifier: each retry builds a FRESH proposal (new random output-note serial)
+      // gated only by the account nonce, so a kill that fired AFTER the offscreen
+      // submit landed on chain, then a requeue, would let the retry build and co-sign
+      // a SECOND valid send — the recipient receives a second note and the account is
+      // debited twice, with no nullifier to reject it (the offscreen path also cannot
+      // distinguish a pre-submit from a post-submit abort, so any requeue is
+      // unconditional). Only `consume` re-consumes the same note (nullifier collision
+      // rejects the retry), but for consistency it too Fails here, matching
+      // non-guardian consume. A safe "verify submit landed on chain via node, then
+      // requeue only if provably not-landed" recovery is a prerequisite for the
+      // flag-flip slice (guardian AND non-guardian alike) — not this PR.
+      //
+      // Flag-OFF is byte-unchanged: OperationAbortedError only arises from the
+      // offscreen dispatch (`dispatchGuardianPipeline`), reached only when
+      // `shouldRouteGuardianLeafOffscreen` is true (MIDEN_USE_OFFSCREEN_CLIENT on).
+      // The inline flag-OFF leaf (`runGuardianPipeline`) never throws it, so the
+      // (former) abort branch was unreachable with the flag off — its removal
+      // cannot change flag-OFF behavior.
+      //
       // A transient guardian 409 (a prior delta still canonicalizing) that
       // outlasted withGuardianConflictRetry's budget is NOT a terminal failure
       // for a VALUE-MOVING op: the single-delta lock clears on its own, and its
@@ -352,56 +425,70 @@ export const generateTransaction = async (
     return;
   }
 
-  const options: MidenClientCreateOptions = {
-    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-      const keyString = Buffer.from(publicKey).toString('hex');
-      const signingInputsString = Buffer.from(signingInputs).toString('hex');
-      try {
-        return await signCallback(keyString, signingInputsString);
-      } catch (err) {
-        // The SDK (WebKeyStore) captures the raw thrown value and exposes
-        // it via `midenClient.lastAuthError()`. Attach a stable `reason`
-        // tag so callers that catch the eventual executeTransaction
-        // failure can distinguish "wallet got locked mid-sign" from other
-        // failure modes (user rejection, keystore IO error, etc.).
-        throw buildSignCallbackError(err);
-      }
-    }
-  };
-
-  // MidenClient handles the full pipeline (execute → prove → submit → apply)
-  const result = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient(options);
-    switch (transaction.type) {
-      case 'send':
-        return await midenClient.sendTransaction(transaction as SendTransaction);
-      case 'consume':
-        return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
-      case 'swap':
-        return await midenClient.swapTransaction(transaction as SwapTransaction);
-      case 'bridged-send':
-        // Epoch bridges by sending a recallable P2IDE note (send-style, no
-        // `requestBytes`); Agglayer carries a pre-built request.
-        if (!transaction.requestBytes) {
-          return midenClient.sendTransaction(transaction as SendTransaction);
-        }
-        return midenClient.newTransaction(
+  // MidenClient handles the full pipeline (execute → prove → submit → apply).
+  //
+  // EVERY non-guardian value-moving write routes through `midenClientProxy` so it
+  // can run WHOLE-OP inside the offscreen realm when MIDEN_USE_OFFSCREEN_CLIENT is on
+  // (issue #260) — a wedge anywhere in its execute→prove→submit→apply then becomes
+  // killable. `consume` (slice 5a), `send`/`swap`/`execute` (slice 5b), and now
+  // `bridged-send`/`earn-deposit` (slice 7b) all share this. Each proxy method's
+  // flag-OFF path is BYTE-IDENTICAL to the inline switch it replaced (same
+  // `withWasmClientLock`, same `getMidenClient(buildSignCallbackOptions(signCallback))`,
+  // same underlying `sendTransaction`/`newTransaction`), so production is unchanged.
+  // The proxy owns its own per-flag locking, so these are NOT wrapped in a caller
+  // lock here (flag-on must not hold the SW WASM lock across the whole offscreen op —
+  // that would stall SW sync and block the reverse-IPC sign handler).
+  //
+  // `bridged-send`/`earn-deposit` only wrap the SAME leaf writes (send-style for the
+  // Epoch bridge + earn collateral, `newTransaction` for a pre-built Agglayer
+  // request) with extra pre/post orchestration; the pre-build (guardian
+  // requestBytes freeze) and the completion handlers are untouched — only the LEAF
+  // write moves offscreen. Funds-safety mirrors the moved send/execute exactly: a
+  // wedge-kill → OperationAbortedError → the generateTransactionsLoop catch →
+  // cancelTransaction → Failed with NO auto-requeue (earn-deposit is excluded from
+  // REQUEUEABLE_TYPES; bridged-send is user-retry-only, like send/execute — never
+  // auto-requeued — so a killed-then-retried send-style write can't silently
+  // double-spend), and a round-tripped `ApplyTransactionAfterSubmitFailed` reaches
+  // that same classifier (→ earn-deposit Failed so its awaiting caller stops;
+  // bridged-send Completed, sync reconciles).
+  let result: TransactionResult;
+  switch (transaction.type) {
+    case 'consume':
+      result = await midenClientProxy.consumeNoteId(transaction as ConsumeTransaction, signCallback);
+      break;
+    case 'send':
+      result = await midenClientProxy.sendTransaction(transaction as SendTransaction, signCallback);
+      break;
+    case 'swap':
+      result = await midenClientProxy.swapTransaction(transaction as SwapTransaction, signCallback);
+      break;
+    case 'bridged-send':
+    case 'earn-deposit':
+      // Epoch bridged-send + earn-deposit are send-style (recallable P2IDE note, no
+      // `requestBytes`); Agglayer bridged-send carries a pre-built request. Route the
+      // leaf through the proxy so it runs offscreen flag-on, inline flag-off — same
+      // args the former inline `getMidenClient(options)` block passed.
+      if (transaction.type === 'bridged-send' && transaction.requestBytes) {
+        result = await midenClientProxy.newTransaction(
           transaction.accountId,
           transaction.requestBytes,
-          transaction.delegateTransaction
+          transaction.delegateTransaction,
+          signCallback
         );
-      case 'earn-deposit':
-        // Always send-style (recallable P2IDE note to the Epoch allocator).
-        return midenClient.sendTransaction(transaction as SendTransaction);
-      case 'execute':
-      default:
-        return await midenClient.newTransaction(
-          transaction.accountId,
-          transaction.requestBytes!,
-          transaction.delegateTransaction
-        );
-    }
-  });
+      } else {
+        result = await midenClientProxy.sendTransaction(transaction as SendTransaction, signCallback);
+      }
+      break;
+    case 'execute':
+    default:
+      result = await midenClientProxy.newTransaction(
+        transaction.accountId,
+        transaction.requestBytes!,
+        transaction.delegateTransaction,
+        signCallback
+      );
+      break;
+  }
 
   switch (transaction.type) {
     case 'send':
@@ -439,10 +526,7 @@ const buildColdServiceForAccount = async (
   if (!walletAccount) {
     throw new Error(`Guardian account ${accountId} not found in provider`);
   }
-  const sdkAccount = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
-    return midenClient.getAccount(accountId);
-  });
+  const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(accountId));
   if (!sdkAccount) {
     throw new Error(`Guardian account ${accountId} not found in local client`);
   }
@@ -475,7 +559,6 @@ const ensureGuardianRecallableSendRequestBytes = async (
 ): Promise<Uint8Array> => {
   if (transaction.requestBytes) return transaction.requestBytes;
   const requestBytes = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
     // `freshSync` (Epoch bridge + earn collateral): the solver's allocator
     // validates the note's REMAINING reclaim window against its own (later) chain
     // head, so the absolute reclaim height must be measured against a CURRENT head
@@ -484,16 +567,21 @@ const ensureGuardianRecallableSendRequestBytes = async (
     // that must NOT fail an otherwise-submittable request, so fall back to the
     // last-synced height (the recall buffer absorbs mild lag). A plain recallable
     // user send has no such validator, so it reads the cached height directly.
+    //
+    // Routed through `midenClientProxy` (issue #260, slice 7a) so flag-ON the height
+    // is read from the OFFSCREEN client that owns the canonical sync state; flag-OFF
+    // is byte-identical to the inline `getMidenClient().client.sync().blockNum()` /
+    // `.getSyncHeight()` this used to run (the proxy reads run under this caller lock).
     let syncHeight: number;
     if (opts.freshSync) {
       try {
-        syncHeight = (await midenClient.client.sync()).blockNum();
+        syncHeight = await midenClientProxy.getSyncHeight({ fresh: true });
       } catch (syncError) {
         console.warn('[Guardian] fresh sync before P2IDE note build failed; using last-synced height', syncError);
-        syncHeight = await midenClient.client.getSyncHeight();
+        syncHeight = await midenClientProxy.getSyncHeight();
       }
     } else {
-      syncHeight = await midenClient.client.getSyncHeight();
+      syncHeight = await midenClientProxy.getSyncHeight();
     }
     const client = await WasmWebClient.createClient(getEffectiveRpcUrl());
     try {
@@ -517,6 +605,109 @@ const ensureGuardianRecallableSendRequestBytes = async (
   });
   return requestBytes;
 };
+
+/**
+ * The guardian write LEAF PIPELINE — `executeRequest → prove → submit → apply`
+ * for an already-signed, guardian-co-signed `TransactionRequest` (issue #260,
+ * slice 6a).
+ *
+ * This is the VERBATIM extraction of the former inline block (the
+ * `withWasmClientLock(...)` at the guardian submit site): same wrapped keystore
+ * options, same prover selection (non-delegated `newLocalProver` / mobile
+ * `newCallbackProver`; delegated remote `prove({})` with local fallback), same
+ * `executing`/`proving`/`submitting` stage progression. It runs entirely SW-side
+ * and is byte-identical to the old inline path — the flag-OFF branch of the
+ * per-type route calls exactly this.
+ *
+ * When the offscreen client is enabled, the routable guardian types (value-moving
+ * in slice 6a; structural — switch-guardian / replace-hot-key /
+ * update-procedure-threshold — in slice 6b; bridged-send / earn-deposit in slice 7c)
+ * run the SAME leaf offscreen via
+ * `dispatchGuardianPipeline` instead; everything BEFORE this (proposal creation,
+ * guardian HTTP co-sign, cold co-sign, mid-flight `persistNewHotKey`,
+ * `signAndCreateTransactionRequest`) and AFTER it (abandonCandidate on failure,
+ * waitForTransactionCommit, completion handlers) stays SW-side, unchanged.
+ *
+ * Returns the pipeline's `TransactionResult` (was: the executed-transaction
+ * handle; the caller now re-derives the tx id from
+ * `result.executedTransaction().id()`), so its shape matches what
+ * `dispatchGuardianPipeline` re-hydrates from the offscreen round-trip.
+ */
+const runGuardianPipeline = async (
+  accountId: string,
+  tr: TransactionRequest,
+  delegateTransaction: boolean | undefined,
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  setStage: (stage: ITransactionStage) => Promise<void>
+): Promise<TransactionResult> => {
+  const options: MidenClientCreateOptions = {
+    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
+      const keyString = Buffer.from(publicKey).toString('hex');
+      const signingInputsString = Buffer.from(signingInputs).toString('hex');
+      return await signCallback(keyString, signingInputsString);
+    }
+  };
+
+  // MidenClient handles the full pipeline (execute → prove → submit → apply).
+  return withWasmClientLock(async () => {
+    const midenClient = await getMidenClient(options);
+    await setStage('executing');
+    const executedTx = await midenClient.client.transactions.executeRequest(accountId, tr);
+    await setStage('proving');
+    let provenTx;
+    if (!delegateTransaction) {
+      // Local (non-delegated) proving. The guardian pipeline drives the raw
+      // client directly, whose default local prover is the single-threaded
+      // WASM one — which on iOS WKWebView runs on the main thread and freezes
+      // the UI for the whole multi-second prove. Route to the native Rust
+      // prover on mobile (off the main thread via @miden/native-prover),
+      // exactly like `proveWithFallback`'s localProverFactory and the
+      // delegated fallback below; WASM local prover elsewhere.
+      const localProver = isMobile()
+        ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+        : TransactionProver.newLocalProver();
+      provenTx = await executedTx.prove({ prover: localProver });
+    } else {
+      // Delegated (remote) proving. The client's default prover is the remote
+      // gRPC prover on every platform, and its ~10s deadline is too tight for a
+      // heavyweight guardian multisig proof when the machine is under load — a
+      // single "Deadline expired" used to kill the whole co-signed transaction
+      // (surfacing as the guardian 409 canonicalize-conflict retry loop and a
+      // claim timeout), because the guardian pipeline drives the raw client
+      // directly and had none of the local fallback the non-guardian path gets
+      // for free from `proveWithFallback`. Give it that resilience: on remote
+      // failure, re-prove the SAME executed tx locally. Re-proving is safe
+      // because `proveTransaction` borrows the executed result (only the prover
+      // is consumed, and each attempt passes a fresh one). The local prover
+      // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
+      // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
+      try {
+        provenTx = await executedTx.prove({});
+      } catch (proveError) {
+        console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
+        const fallbackProver = isMobile()
+          ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+          : TransactionProver.newLocalProver();
+        provenTx = await executedTx.prove({ prover: fallbackProver });
+      }
+    }
+    await setStage('submitting');
+    const submittedTx = await provenTx.submit();
+    await submittedTx.apply();
+    return executedTx.result;
+  });
+};
+
+// Route a value-moving guardian leaf offscreen only when the offscreen client is
+// enabled AND the offscreen document API is present (mobile hardcodes the flag
+// off — no chrome.offscreen). Read per-call (not a module const) so the route is
+// deterministically togglable in tests; the heavy offscreen machinery it reaches
+// lives in miden-client-proxy — already imported for syncState/getAccount — so
+// there is no dead-code-elimination benefit to a module const here.
+const shouldRouteGuardianLeafOffscreen = (type: ITransactionType): boolean =>
+  process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true' &&
+  isOffscreenAvailable() &&
+  OFFSCREEN_ROUTABLE_GUARDIAN_TYPES.has(type);
 
 /**
  * Generate a transaction for a Guardian account using the MultisigService.
@@ -625,10 +816,7 @@ const generateGuardianTransaction = async (
       if (!walletAccount) {
         throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
       }
-      const sdkAccount = await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        return midenClient.getAccount(transaction.accountId);
-      });
+      const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(transaction.accountId));
       if (!sdkAccount) {
         throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
       }
@@ -830,10 +1018,7 @@ const generateGuardianTransaction = async (
     if (!walletAccount) {
       throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
     }
-    const sdkAccount = await withWasmClientLock(async () => {
-      const midenClient = await getMidenClient();
-      return midenClient.getAccount(transaction.accountId);
-    });
+    const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(transaction.accountId));
     if (!sdkAccount) {
       throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
     }
@@ -848,65 +1033,34 @@ const generateGuardianTransaction = async (
     await withGuardianConflictRetry(() => coldService.signProposal(proposalResult.id));
   }
 
-  let submittedTransaction;
+  let result: TransactionResult;
   try {
     const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
-    const options: MidenClientCreateOptions = {
-      signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-        const keyString = Buffer.from(publicKey).toString('hex');
-        const signingInputsString = Buffer.from(signingInputs).toString('hex');
-        return await signCallback(keyString, signingInputsString);
-      }
-    };
 
     await setTransactionStage(transaction.id, 'sending');
-    submittedTransaction = await withWasmClientLock(async () => {
-      const midenClient = await getMidenClient(options);
-      await setTransactionStage(transaction.id, 'executing');
-      const executedTx = await midenClient.client.transactions.executeRequest(transaction.accountId, tr);
-      await setTransactionStage(transaction.id, 'proving');
-      let provenTx;
-      if (!transaction.delegateTransaction) {
-        // Local (non-delegated) proving. The guardian pipeline drives the raw
-        // client directly, whose default local prover is the single-threaded
-        // WASM one — which on iOS WKWebView runs on the main thread and freezes
-        // the UI for the whole multi-second prove. Route to the native Rust
-        // prover on mobile (off the main thread via @miden/native-prover),
-        // exactly like `proveWithFallback`'s localProverFactory and the
-        // delegated fallback below; WASM local prover elsewhere.
-        const localProver = isMobile()
-          ? TransactionProver.newCallbackProver(buildNativeProverCallback())
-          : TransactionProver.newLocalProver();
-        provenTx = await executedTx.prove({ prover: localProver });
-      } else {
-        // Delegated (remote) proving. The client's default prover is the remote
-        // gRPC prover on every platform, and its ~10s deadline is too tight for a
-        // heavyweight guardian multisig proof when the machine is under load — a
-        // single "Deadline expired" used to kill the whole co-signed transaction
-        // (surfacing as the guardian 409 canonicalize-conflict retry loop and a
-        // claim timeout), because the guardian pipeline drives the raw client
-        // directly and had none of the local fallback the non-guardian path gets
-        // for free from `proveWithFallback`. Give it that resilience: on remote
-        // failure, re-prove the SAME executed tx locally. Re-proving is safe
-        // because `proveTransaction` borrows the executed result (only the prover
-        // is consumed, and each attempt passes a fresh one). The local prover
-        // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
-        // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
-        try {
-          provenTx = await executedTx.prove({});
-        } catch (proveError) {
-          console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
-          const fallbackProver = isMobile()
-            ? TransactionProver.newCallbackProver(buildNativeProverCallback())
-            : TransactionProver.newLocalProver();
-          provenTx = await executedTx.prove({ prover: fallbackProver });
-        }
-      }
-      await setTransactionStage(transaction.id, 'submitting');
-      const submittedTx = await provenTx.submit();
-      await submittedTx.apply();
-      return executedTx;
-    });
+    if (shouldRouteGuardianLeafOffscreen(transaction.type)) {
+      // Offscreen leaf (issue #260, slice 6a). The fully-signed, guardian-co-
+      // signed request crosses as bytes: its extended advice map — where the hot
+      // / cold / guardian co-signatures live — is preserved by
+      // `TransactionRequest.serialize()` (Rust `Serializable for TransactionRequest`
+      // writes `advice_map.write_into(target)`; §4.0), so the offscreen realm
+      // executes the identical request. execute→prove→submit→apply runs whole-op
+      // in the offscreen doc as ONE killable op; the executeRequest keystore sign
+      // reaches the SW-resident vault via the EXISTING OFFSCREEN_SIGN_REQUEST
+      // reverse channel (no new IPC). On a deadline/close kill the offscreen op
+      // rejects with a retryable OperationAbortedError and the SW catch below
+      // still runs `abandonCandidate`, byte-identical to the inline path.
+      result = await dispatchGuardianPipeline(
+        transaction.accountId,
+        tr.serialize(),
+        transaction.delegateTransaction,
+        signCallback
+      );
+    } else {
+      result = await runGuardianPipeline(transaction.accountId, tr, transaction.delegateTransaction, signCallback, s =>
+        setTransactionStage(transaction.id, s)
+      );
+    }
   } catch (error) {
     console.error('Error during Guardian transaction submission or execution', { error });
     try {
@@ -922,7 +1076,12 @@ const generateGuardianTransaction = async (
     throw error;
   }
 
-  const { id, result } = submittedTransaction;
+  // The tx id, re-derived from the (possibly offscreen-round-tripped) result
+  // rather than a separate handle: the offscreen pipeline returns only the
+  // serialized TransactionResult, and `executedTransaction()` survives that
+  // round-trip (slice 5b). Byte-identical to the former
+  // `submittedTransaction.id.toHex()`.
+  const id = result.executedTransaction().id().toHex();
 
   // For switch-guardian, the new guardian must be seeded with the POST-switch
   // account state. submit() returns after submission, not after inclusion, so
@@ -941,10 +1100,15 @@ const generateGuardianTransaction = async (
     transaction.type === 'update-procedure-threshold'
   ) {
     await setTransactionStage(transaction.id, 'confirming');
-    await withWasmClientLock(async () => {
-      const midenClient = await getMidenClient();
-      await midenClient.waitForTransactionCommit(id.toHex());
-    });
+    // Route the commit-wait through the proxy so it polls the SAME client that
+    // applied the tx: the offscreen realm flag-on (which ran the whole leaf), the
+    // SW client flag-off. A raw `getMidenClient().waitForTransactionCommit(id)` here
+    // would, flag-on, poll the dormant/unsynced SW client, time out at ~60s, fall
+    // through the guardian catch to cancelTransaction → Failed, and SKIP the
+    // structural completion below (e.g. leaving replace-hot-key's chain rotation done
+    // but the local hot-key pointer stale). Flag-off, the proxy runs the exact same
+    // `withWasmClientLock(getMidenClient().waitForTransactionCommit)` block as before.
+    await midenClientProxy.waitForTransactionCommit(id);
   }
 
   // Sync the cached hot service so the next consumer sees post-tx state.
@@ -1074,10 +1238,14 @@ export const generateTransactionsLoop = async (
     // This prevents the note-loss scenario the 1000-op stress run
     // surfaced: lock during executeTransaction → tx cancelled → next
     // cycle starts fresh but some races can leave the note stuck.
-    // Two locked signals: the SDK-captured sign-callback auth error (non-guardian
-    // path), and an explicit locked error thrown by the guardian provider when the
-    // vault is null (guardian path — never reaches the SDK sign callback). Either
-    // one defers the tx for retry after unlock rather than marking it Failed.
+    // Two locked signals. (1) The SDK-captured sign-callback auth error on the
+    // SW-inline (FLAG-OFF) client — `readLastAuthReason()` returns `undefined`
+    // under flag-on, where the SW client never signed for the offscreen op (issue
+    // #260 flip-prep #2). (2) An explicit `reason:'locked'` error tag — thrown by
+    // the guardian provider when the vault is null (guardian path), OR re-tagged
+    // onto a flag-on offscreen write whose reverse-IPC sign reported 'locked'
+    // (`dispatchOffscreenWrite`). Either one defers the tx for retry after unlock
+    // rather than marking it Failed.
     const authReason = await readLastAuthReason();
     if (authReason === 'locked' || isLockedError(e)) {
       logger.warning('Wallet locked during tx generation; leaving tx queued for retry');
@@ -1144,17 +1312,6 @@ export const generateTransactionsLoop = async (
     return false;
   }
 };
-
-/**
- * Pulls the stable SDK error code off a thrown value, if present. The
- * SDK attaches `errorCode` via `Reflect::set` on JsError — see
- * `js_error_with_context` in miden-client.
- */
-function extractSdkErrorCode(err: unknown): string | undefined {
-  if (!err || typeof err !== 'object') return undefined;
-  const code = (err as { errorCode?: unknown }).errorCode;
-  return typeof code === 'string' ? code : undefined;
-}
 
 export const safeGenerateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,

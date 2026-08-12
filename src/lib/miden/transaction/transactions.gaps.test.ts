@@ -94,6 +94,12 @@ jest.mock('dexie', () => ({
 const mockSyncState = jest.fn(async () => {});
 const mockWaitForCommit = jest.fn(async () => {});
 const mockSendPrivateNote = jest.fn(async () => {});
+// The #260 offscreen client proxy reads (syncState/getInputNoteDetails) through
+// the `lib/...` alias of miden-client, which jest mocks separately from the
+// relative specifier below; delegate the alias to the same mock so the proxy's
+// flag-off passthrough hits it (incl. the on-the-fly getMidenClient patches in
+// the verifyStuckTransactionsFromNode branch tests below).
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     syncState: mockSyncState,

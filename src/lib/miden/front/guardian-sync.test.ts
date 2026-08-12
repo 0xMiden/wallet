@@ -60,6 +60,10 @@ jest.mock('lib/miden/guardian', () => ({
 }));
 
 const mockGetAccount = jest.fn();
+// The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
+// of miden-client, which jest mocks separately from the relative specifier below;
+// delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({ getAccount: (...a: unknown[]) => mockGetAccount(...a) }),
   withWasmClientLock: async (fn: () => Promise<unknown>) => fn()

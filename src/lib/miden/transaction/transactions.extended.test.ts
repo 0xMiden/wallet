@@ -119,6 +119,11 @@ jest.mock('dexie', () => ({
 
 const mockGetInputNoteDetails = jest.fn();
 const mockSyncState = jest.fn().mockResolvedValue(undefined);
+// The #260 offscreen client proxy reads (syncState/getInputNoteDetails) through
+// the `lib/...` alias of miden-client, which jest mocks separately from the
+// relative specifier below; delegate the alias to the same mock so the proxy's
+// flag-off passthrough hits it.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     syncState: mockSyncState,

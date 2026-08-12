@@ -14,6 +14,7 @@ import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessage
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
 import { getIntercom } from './defaults';
+import { midenClientProxy } from './miden-client-proxy';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
 import { getFaucetIdSetting } from '../assets';
@@ -122,9 +123,7 @@ async function runSync(): Promise<void> {
     // that clears any active issue, so the steady state is correct.
     try {
       await withWasmClientLock(async () => {
-        const client = await getMidenClient();
-        if (!client) return;
-        await withTimeout(client.syncState(), SYNC_TIMEOUT_MS);
+        await withTimeout(midenClientProxy.syncState(), SYNC_TIMEOUT_MS);
       });
       consecutiveSyncFailures = 0;
       syncBackoffUntilMs = 0;
@@ -180,56 +179,41 @@ async function runSync(): Promise<void> {
         if (!client)
           return { parsedNotes: [] as SerializedConsumableNote[], vaultAssets: [] as SerializedVaultAsset[] };
 
-        // Read consumable notes
-        const rawNotes = await client.getConsumableNotes(accountPubKey);
+        // Read consumable notes as DTOs (issue #260, slice 4). The reclaim gate
+        // + per-note reduction ran inside the client's realm — OFFSCREEN when the
+        // flag is on, so the gate uses the sync-running realm's height instead of
+        // a stale SW-inline one. Swap-order lineage inside classifySwapOrderNotes
+        // now routes through the proxy too (slice 7a), so it no longer needs `client`.
+        const rawNotes = await midenClientProxy.getConsumableNotes(accountPubKey);
         // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
         // custom transaction — hidden from the claimable UI until the user
         // confirms (or forever, if they cancel). See note-quarantine.ts.
         const quarantined = await getQuarantinedNoteIds();
-        const swapOrders = await classifySwapOrderNotes(rawNotes || [], accountPubKey, client, swapOrderRows);
-        const notes: SerializedConsumableNote[] = (rawNotes || [])
-          .map((note: any) => {
-            // Hoisted so the catch can name the note that failed to parse.
-            let noteId: string | undefined;
-            try {
-              // Partial (metadata-less) notes have no ID yet and cannot be
-              // consumed — skip until sync completes them.
-              noteId = note.id()?.toString();
-              if (!noteId) return null;
-              if (quarantined.has(noteId)) return null;
-              const noteMeta = note.metadata();
-              const details = note.details();
-              const fungibleAssets = details.assets().fungibleAssets();
-              if (!fungibleAssets || fungibleAssets.length === 0) return null;
-              const firstAsset = fungibleAssets[0];
-              if (!firstAsset) return null;
-              return {
-                id: noteId,
-                faucetId: getBech32AddressFromAccountId(firstAsset.faucetId()),
-                amountBaseUnits: firstAsset.amount().toString(),
-                senderAddress: noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : '',
-                noteType: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown',
-                swapOrder: swapOrders.get(noteId)
-              };
-            } catch (err) {
-              // A note that throws mid-parse (corrupted metadata, unexpected
-              // structure, WASM boundary issue) would otherwise be dropped
-              // silently and its funds never surfaced — the user can't see or
-              // report a note they still own on-chain (#331). Log it (naming the
-              // note when we got that far) so a missing note is diagnosable.
-              // Still return null: an unparseable note can't be rendered or
-              // consumed this pass; a later sync may complete it.
-              console.warn(
-                `[SyncManager] failed to parse consumable note${noteId ? ` ${noteId}` : ''}; dropping from this sync:`,
-                err
-              );
-              return null;
-            }
+        const swapOrders = await classifySwapOrderNotes(rawNotes, accountPubKey, swapOrderRows);
+        const notes: SerializedConsumableNote[] = rawNotes
+          .map((note): SerializedConsumableNote | null => {
+            // Partial (metadata-less) notes have no ID yet and cannot be
+            // consumed — skip until sync completes them.
+            const noteId = note.noteId;
+            if (!noteId) return null;
+            if (quarantined.has(noteId)) return null;
+            // Only the first fungible asset is surfaced (unchanged); an empty
+            // asset set means the note can't be displayed — skip it.
+            const firstAsset = note.assets[0];
+            if (!firstAsset) return null;
+            return {
+              id: noteId,
+              faucetId: firstAsset.faucetId,
+              amountBaseUnits: firstAsset.amount,
+              senderAddress: note.senderAccountId ?? '',
+              noteType: note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown',
+              swapOrder: swapOrders.get(noteId)
+            };
           })
           .filter(Boolean) as SerializedConsumableNote[];
 
         // Read vault assets
-        const account = await client.getAccount(accountPubKey);
+        const account = await midenClientProxy.getAccount(accountPubKey);
         const assets: SerializedVaultAsset[] = [];
         if (account) {
           const fungibleAssets = account.vault().fungibleAssets();
