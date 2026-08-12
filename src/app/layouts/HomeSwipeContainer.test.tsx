@@ -24,6 +24,8 @@ const mockMotionValue = { set: mockMotionSet, get: () => 0 };
 // directly (framer-motion's real drag needs a pointer pipeline jsdom lacks).
 let mockLastDragEnd: ((e: unknown, info: unknown) => void) | null = null;
 let mockLastDragConstraints: unknown = null;
+// #481 — the `drag` prop toggles between 'x' (swipe enabled) and false (locked).
+let mockLastDrag: unknown = null;
 
 // framer-motion: `motion.div` -> passthrough div (drag props stripped so React
 // doesn't warn/attempt to render them). `animate`/`useMotionValue` are stubbed.
@@ -44,6 +46,7 @@ jest.mock('framer-motion', () => {
     } = props;
     if (onDragEnd) mockLastDragEnd = onDragEnd;
     if (dragConstraints !== undefined) mockLastDragConstraints = dragConstraints;
+    mockLastDrag = drag;
     return ReactActual.createElement('div', { ref, ...rest }, children);
   });
   return {
@@ -127,8 +130,14 @@ beforeEach(() => {
   mockPathname = '/';
   mockLastDragEnd = null;
   mockLastDragConstraints = null;
+  mockLastDrag = null;
   mockRoCallback = null;
   mockSwapEnabled.value = true;
+  document.body.removeAttribute('data-hide-navbar');
+});
+
+afterEach(() => {
+  document.body.removeAttribute('data-hide-navbar');
 });
 
 // Drive the captured ResizeObserver callback to set a positive width.
@@ -331,6 +340,38 @@ describe('HomeSwipeContainer', () => {
       measure(300);
       // 5 pages -> left edge at -(5 - 1) * 300 = -1200
       expect(mockLastDragConstraints).toEqual({ left: -1200, right: 0 });
+    });
+  });
+
+  describe('swipe lock (#481)', () => {
+    const flush = () => new Promise(res => setTimeout(res, 0));
+
+    it('enables drag by default and locks it while data-hide-navbar is set', async () => {
+      render(<HomeSwipeContainer />);
+      // Draggable by default (no focused sub-surface up).
+      expect(mockLastDrag).toBe('x');
+
+      // A focused sub-surface (keyboard up, or the send flow past the recipient
+      // step) raises the flag -> the carousel swipe must lock so it can't drag
+      // an adjacent pane over the active step.
+      await act(async () => {
+        document.body.setAttribute('data-hide-navbar', '');
+        await flush();
+      });
+      expect(mockLastDrag).toBe(false);
+
+      // ...and the swipe returns once that surface closes.
+      await act(async () => {
+        document.body.removeAttribute('data-hide-navbar');
+        await flush();
+      });
+      expect(mockLastDrag).toBe('x');
+    });
+
+    it('starts locked when the flag is already set at mount', () => {
+      document.body.setAttribute('data-hide-navbar', '');
+      render(<HomeSwipeContainer />);
+      expect(mockLastDrag).toBe(false);
     });
   });
 

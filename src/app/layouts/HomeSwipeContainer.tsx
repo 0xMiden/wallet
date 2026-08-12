@@ -7,6 +7,7 @@ import Explore from 'app/pages/Explore';
 import { Receive } from 'app/pages/Receive';
 import { springs } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
+import { useNavbarHidden } from 'lib/mobile/useNavbarHidden';
 import { navigate, useLocation } from 'lib/woozie';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
@@ -48,6 +49,13 @@ const HomeSwipeContainer: FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const x = useMotionValue(0);
   const [width, setWidth] = useState(0);
+  // #481 — lock the horizontal carousel swipe whenever a focused sub-surface is
+  // up (keyboard visible, or the send flow past its recipient step — both flip
+  // `data-hide-navbar`). The nested send steps keep `pathname === '/send'`, so
+  // the carousel otherwise stays draggable and a horizontal swipe on Select
+  // Amount drags an adjacent pane over the amount field. Programmatic slides
+  // (tapping Send/Receive) animate `x` directly and are unaffected.
+  const navbarHidden = useNavbarHidden();
 
   // Only the Swap pane is feature-gated (isSwapEnabled); every downstream
   // calculation reads `pages`, so dropping a pane can't desync the track
@@ -138,7 +146,7 @@ const HomeSwipeContainer: FC = () => {
         // descendants, so any future home-page child needing viewport-fixed
         // placement must portal out of the track (today's drawers/modals do).
         style={{ x, width: `${pages.length * 100}%`, willChange: 'transform' }}
-        drag="x"
+        drag={navbarHidden ? false : 'x'}
         dragDirectionLock
         dragConstraints={{ left: dragMaxLeft, right: 0 }}
         dragElastic={0.15}
