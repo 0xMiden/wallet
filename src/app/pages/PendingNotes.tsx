@@ -36,7 +36,9 @@ const PendingNotes: FC = () => {
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg')}>
-      <ScreenHeader title={t('pendingNotes')} backLabel={t('back')} onBack={handleBack} />
+      <div className="shrink-0 px-4">
+        <ScreenHeader title={t('pendingNotes')} backLabel={t('back')} onBack={handleBack} />
+      </div>
       <PendingTab
         safeClaimableNotes={claim.safeClaimableNotes}
         unclaimedNotesCount={claim.unclaimedNotes.length}

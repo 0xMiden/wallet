@@ -79,4 +79,15 @@ describe('PendingNotes back affordance', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
     expect(mockGoBack).not.toHaveBeenCalled();
   });
+
+  it('horizontally insets the header (px-4) so it lines up with the px-4 body (#460)', () => {
+    // The PendingTab body is `px-4`; the ScreenHeader carries no horizontal
+    // inset of its own, so — like every other ScreenHeader consumer — it must be
+    // wrapped in a `px-4` container. Without it the back arrow + title sit 16px
+    // left of every row below, reading as misaligned.
+    render(<PendingNotes />);
+
+    const header = screen.getByLabelText('back').closest('.px-4');
+    expect(header).not.toBeNull();
+  });
 });
