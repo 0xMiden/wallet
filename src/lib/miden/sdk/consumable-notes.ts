@@ -105,9 +105,15 @@ export function attachmentOrderAndDepth(record: InputNoteRecord): { orderId: str
  * which is strictly safer for funds visibility (a real note never throws here).
  */
 export function reduceConsumableNoteRecord(record: InputNoteRecord): ConsumableNoteDto | null {
+  // Captured as soon as the id is read so the catch can name the offending note
+  // WITHOUT re-calling `record.id()` (the first call, and itself a throw candidate —
+  // re-calling it in the catch could throw again and mask the original error). Stays
+  // null if `record.id()` throws before it is assigned, logging '<unknown id>'.
+  let noteIdForLog: string | null = null;
   try {
     const idObj = record.id();
     const noteId = idObj ? idObj.toString() : null;
+    noteIdForLog = noteId;
     const nullifier = record.nullifier() ?? null;
     const meta = record.metadata();
     const noteType = meta ? meta.noteType() : undefined;
@@ -124,7 +130,7 @@ export function reduceConsumableNoteRecord(record: InputNoteRecord): ConsumableN
     const swapAttachment = attachmentOrderAndDepth(record);
     return { noteId, nullifier, noteType, senderAccountId, state, assets, swapAttachment };
   } catch (err) {
-    console.warn('[consumable-notes] skipping un-reducible note', err);
+    console.warn(`[consumable-notes] skipping un-reducible note ${noteIdForLog ?? '<unknown id>'}`, err);
     return null;
   }
 }

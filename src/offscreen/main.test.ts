@@ -80,28 +80,54 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
 // The offscreen doc now owns the full client singleton (issue #260 §3.4); mock
 // the SW-side accessor so OFFSCREEN_CALL dispatch is fully controllable and the
 // real client graph never loads. Harmless to the OFFSCREEN_PROVE tests, which
-// never touch getMidenClient. `withWasmClientLock` is a real (tiny) mutex so
-// W1's serialization of concurrent OFFSCREEN_CALLs is testable; its closure
-// state resets per test because loadModule() re-runs this factory after
-// jest.resetModules().
+// never touch getMidenClient. `withWasmClientLock` / `yieldWasmClientLock` are a
+// real (tiny) mutex sharing one lock so W1's serialization of concurrent
+// OFFSCREEN_CALLs — and follow-up #1's mutex-yield during the commit-wait sleep —
+// are BOTH testable against the same lock; its closure state resets per test
+// because loadModule() re-runs this factory after jest.resetModules().
 jest.mock('lib/miden/sdk/miden-client', () => {
   const g = globalThis as any;
   let locked = false;
   const waiters: Array<() => void> = [];
+  const acquire = async (): Promise<void> => {
+    if (!locked) {
+      locked = true;
+      return;
+    }
+    await new Promise<void>(resolve => waiters.push(resolve));
+  };
+  const release = (): void => {
+    const next = waiters.shift();
+    if (next) next();
+    else locked = false;
+  };
   const withWasmClientLock = async <T>(op: () => Promise<T>): Promise<T> => {
-    if (locked) await new Promise<void>(resolve => waiters.push(resolve));
-    else locked = true;
+    await acquire();
     try {
       return await op();
     } finally {
-      const next = waiters.shift();
-      if (next) next();
-      else locked = false;
+      release();
     }
   };
+  // Mirrors the real yieldWasmClientLock: release the lock, run the (WASM-free)
+  // op, then reacquire before resolving — so a second op can win the lock while a
+  // commit-wait sleeps, proving the yield actually releases it.
+  const yieldWasmClientLock = async <T>(op: () => Promise<T>): Promise<T> => {
+    release();
+    try {
+      return await op();
+    } finally {
+      await acquire();
+    }
+  };
+  // Test hook: true while the shared lock is held (used to assert the commit-wait
+  // yielded it during the sleep).
+  const isWasmClientBusy = (): boolean => locked;
   return {
     getMidenClient: (...a: any[]) => g.__off.getMidenClient(...a),
-    withWasmClientLock
+    withWasmClientLock,
+    yieldWasmClientLock,
+    isWasmClientBusy
   };
 });
 
@@ -151,7 +177,19 @@ function resetControl() {
     // Slice-3 read methods on the offscreen-owned client.
     clientSyncState: jest.fn(async () => ({ __syncSummary: true })),
     // Slice-6b structural commit-wait on the offscreen-owned client (void).
+    // Retained for back-compat; the follow-up #1 dispatch no longer calls it —
+    // it drives the poll loop via client.client.syncChain + transactions.list below.
     clientWaitForTransactionCommit: jest.fn(async (_id: string) => {}),
+    // Follow-up #1: the in-realm commit-wait poll loop drives these directly on the
+    // raw client. `syncChain` is the chain-only sync each iteration; `transactionsList`
+    // returns the id-filtered TransactionRecord[]. Default: a single committed record so
+    // a plain commit-wait resolves on the first poll. Per-test overrides model pending →
+    // committed, discarded, and never-committed (timeout).
+    committedStatus: { transactionStatus: () => ({ isCommitted: () => true, isDiscarded: () => false }) },
+    pendingStatus: { transactionStatus: () => ({ isCommitted: () => false, isDiscarded: () => false }) },
+    discardedStatus: { transactionStatus: () => ({ isCommitted: () => false, isDiscarded: () => true }) },
+    clientSyncChain: jest.fn(async () => ({ __syncSummary: true })),
+    clientTransactionsList: jest.fn(async (_q: { ids: string[] }) => [(globalThis as any).__off.committedStatus]),
     clientExportNote: jest.fn(async (_id: string, _t: string) => new Uint8Array([44, 55, 66])),
     clientGetInputNoteDetails: jest.fn(async (_q: unknown) => [
       { noteId: '0xabc', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
@@ -253,8 +291,12 @@ function resetControl() {
       // reads drive directly.
       client: {
         transactions: {
-          executeRequest: (...a: any[]) => (globalThis as any).__off.guardianExecuteRequest(...a)
+          executeRequest: (...a: any[]) => (globalThis as any).__off.guardianExecuteRequest(...a),
+          // Follow-up #1: id-filtered transaction list the commit-wait poll loop reads.
+          list: (...a: any[]) => (globalThis as any).__off.clientTransactionsList(...a)
         },
+        // Follow-up #1: chain-only sync the commit-wait poll loop runs each iteration.
+        syncChain: (...a: any[]) => (globalThis as any).__off.clientSyncChain(...a),
         getSyncHeight: (...a: any[]) => (globalThis as any).__off.clientGetSyncHeight(...a),
         sync: (...a: any[]) => (globalThis as any).__off.clientSync(...a),
         pswap: { lineage: (...a: any[]) => (globalThis as any).__off.clientLineage(...a) }
@@ -772,7 +814,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.resultB64).toBeNull();
   });
 
-  it('dispatches waitForTransactionCommit against the offscreen-owned client and returns resultB64:null (void)', async () => {
+  it('drives the commit-wait poll loop in-realm (syncChain + id-filtered list) and resolves resultB64:null when committed', async () => {
     await loadModule();
     const sendResponse = jest.fn();
     const ret = capturedListener!(
@@ -783,15 +825,230 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(ret).toBe(true);
     await flush();
 
-    // The commit-wait polled the OFFSCREEN-owned client — the realm that applied the
-    // tx under the flag — with the id decoded across the wire. This is the fix: the SW
-    // client is dormant flag-on and would time out; polling here uses the live state.
-    expect(G.__off.clientWaitForTransactionCommit).toHaveBeenCalledWith('0xtxid');
+    // Follow-up #1: the wait no longer delegates to the SDK's waitFor — it drives the
+    // poll loop against the OFFSCREEN-owned raw client (the realm that applied the tx),
+    // reproducing waitFor's chain-sync + id-filter. The default status is committed, so
+    // it resolves on the first poll WITHOUT ever sleeping (no yield needed).
+    expect(G.__off.clientSyncChain).toHaveBeenCalledTimes(1);
+    expect(G.__off.clientTransactionsList).toHaveBeenCalledWith({ ids: ['0xtxid'] });
+    // The old delegate is never called anymore.
+    expect(G.__off.clientWaitForTransactionCommit).not.toHaveBeenCalled();
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(resp.op_id).toBe('op-abc');
     // The wait resolves void — nothing to serialize back to the SW.
     expect(resp.resultB64).toBeNull();
+  });
+
+  it('commit-wait tolerates a transient syncChain failure and still resolves when committed (matches SDK waitFor)', async () => {
+    await loadModule();
+    // syncChain throws (transient) but the id-filtered list still reports committed —
+    // the loop must swallow the sync error and proceed, exactly as the SDK waitFor does.
+    G.__off.clientSyncChain = jest.fn(async () => {
+      throw new Error('node unreachable (transient)');
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({ method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.clientSyncChain).toHaveBeenCalled();
+    expect(G.__off.clientTransactionsList).toHaveBeenCalledWith({ ids: ['0xtxid'] });
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(resp.resultB64).toBeNull();
+  });
+
+  it('commit-wait keeps polling while pending, then resolves once the tx commits (follow-up #1)', async () => {
+    await loadModule();
+    jest.useFakeTimers();
+    try {
+      // Pending for the first two polls, committed on the third.
+      G.__off.clientTransactionsList = jest
+        .fn()
+        .mockResolvedValueOnce([G.__off.pendingStatus])
+        .mockResolvedValueOnce([G.__off.pendingStatus])
+        .mockResolvedValue([G.__off.committedStatus]);
+
+      const sendResponse = jest.fn();
+      capturedListener!(
+        callReq({ method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+        {},
+        sendResponse
+      );
+
+      // Advance through the 5s inter-poll sleeps until the commit is observed.
+      for (let i = 0; i < 6 && sendResponse.mock.calls.length === 0; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await jest.advanceTimersByTimeAsync(5_000);
+      }
+
+      expect(G.__off.clientTransactionsList).toHaveBeenCalledTimes(3);
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp.ok).toBe(true);
+      expect(resp.resultB64).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('commit-wait throws (ok:false) when the tx is DISCARDED (rejected)', async () => {
+    await loadModule();
+    G.__off.clientTransactionsList = jest.fn(async () => [G.__off.discardedStatus]);
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({ method: 'waitForTransactionCommit', argsB64: [encodeArg('0xbadtx')] }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.error).toContain('Transaction rejected');
+    expect(resp.error).toContain('0xbadtx');
+  });
+
+  it('commit-wait throws (ok:false) with a timeout error when the tx never commits', async () => {
+    await loadModule();
+    jest.useFakeTimers();
+    try {
+      // Never commits → the loop must give up at the 60s timeout ceiling.
+      G.__off.clientTransactionsList = jest.fn(async () => [G.__off.pendingStatus]);
+      const sendResponse = jest.fn();
+      capturedListener!(
+        callReq({ method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+        {},
+        sendResponse
+      );
+
+      // 60s / 5s = 12 sleeps before the timeout check throws.
+      for (let i = 0; i < 15 && sendResponse.mock.calls.length === 0; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await jest.advanceTimersByTimeAsync(5_000);
+      }
+
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp.ok).toBe(false);
+      expect(resp.error).toContain('Transaction confirmation timed out after 60000ms');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('follow-up #1: commit-wait RELEASES the offscreen WASM mutex during its inter-poll sleep so a second op runs', async () => {
+    const miden = await import('lib/miden/sdk/miden-client');
+    await loadModule();
+    jest.useFakeTimers();
+    try {
+      // Keep the commit-wait pending so it stays in the sleep loop.
+      G.__off.clientTransactionsList = jest.fn(async () => [G.__off.pendingStatus]);
+
+      // op1: the commit-wait. It acquires the WASM mutex (via handleCall's
+      // withWasmClientLock), polls once (pending), then sleeps — yielding the mutex.
+      const r1 = jest.fn();
+      capturedListener!(
+        callReq({ op_id: 'op1-wait', method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+        {},
+        r1
+      );
+      await jest.advanceTimersByTimeAsync(0); // settle op1 into its first sleep
+
+      // op1 has not resolved and is sleeping; the mutex must be FREE (yielded).
+      expect(r1).not.toHaveBeenCalled();
+      expect((miden as any).isWasmClientBusy()).toBe(false);
+
+      // op2: a plain read fired WHILE op1 sleeps. If the yield didn't release the
+      // mutex, op2 would queue behind op1 forever; with the yield it runs now.
+      const r2 = jest.fn();
+      capturedListener!(callReq({ op_id: 'op2-read', method: 'getAccount', argsB64: [encodeArg('acct')] }), {}, r2);
+      await jest.advanceTimersByTimeAsync(0);
+
+      // op2 completed DURING op1's sleep — proof the mutex was released.
+      expect(r2).toHaveBeenCalledTimes(1);
+      expect(r2.mock.calls[0][0].ok).toBe(true);
+      expect(G.__off.clientGetAccount).toHaveBeenCalledWith('acct');
+      // op1 is still waiting.
+      expect(r1).not.toHaveBeenCalled();
+
+      // Let op1 commit and finish so nothing is left dangling.
+      G.__off.clientTransactionsList = jest.fn(async () => [G.__off.committedStatus]);
+      await jest.advanceTimersByTimeAsync(5_000);
+      expect(r1).toHaveBeenCalledTimes(1);
+      expect(r1.mock.calls[0][0].ok).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('follow-up #2: an interloper op that signs during the commit-wait sleep sees ITS op_id, and the commit-wait re-asserts its own after the yield', async () => {
+    await loadModule();
+    jest.useFakeTimers();
+    try {
+      // Keep the commit-wait pending so it stays in the sleep loop.
+      G.__off.clientTransactionsList = jest.fn(async () => [G.__off.pendingStatus]);
+      // The interloper write triggers a mid-execute sign via the reverse-IPC stub.
+      G.__off.clientConsumeNoteId = jest.fn(async () => {
+        const signCb = G.__off.createOptions[0].signCallback;
+        await signCb(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6]));
+        return { serialize: () => new Uint8Array([9]) };
+      });
+      // Record the op_id tagged on each reverse-IPC sign request.
+      const signOpIds: string[] = [];
+      G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+        if (m?.type === OFFSCREEN_SIGN_REQUEST) {
+          signOpIds.push(m.op_id);
+          return { ok: true, sign_id: m.sign_id, signatureB64: Buffer.from([7]).toString('base64') };
+        }
+        return undefined; // OFFSCREEN_READY / OFFSCREEN_OP_STARTED etc.
+      });
+
+      // op1: the commit-wait. Settle it into its first sleep (mutex yielded).
+      const r1 = jest.fn();
+      capturedListener!(
+        callReq({ op_id: 'op1-wait', method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+        {},
+        r1
+      );
+      await jest.advanceTimersByTimeAsync(0);
+
+      // op2: an interloper WRITE fired during op1's sleep. Its mid-execute sign must be
+      // tagged with op2's id — the ambient op_id is op2 while op2 owns the mutex.
+      const r2 = jest.fn();
+      capturedListener!(
+        callReq({
+          op_id: 'op2-sign',
+          method: 'consumeNoteId',
+          argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'] })]
+        }),
+        {},
+        r2
+      );
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(r2).toHaveBeenCalledTimes(1);
+      expect(r2.mock.calls[0][0].ok).toBe(true);
+      expect(signOpIds).toEqual(['op2-sign']); // the interloper's sign saw ITS id
+
+      // op1 resumes from the sleep and RE-ASSERTS its own op_id (op2 had cleared the
+      // global on completion). Advance into op1's next sleep, then drive a sign
+      // directly: it must carry op1's id — proof the invariant was restored. Without
+      // the re-assert the ambient id would be null here and this sign would throw.
+      await jest.advanceTimersByTimeAsync(5_000);
+      await jest.advanceTimersByTimeAsync(0);
+      const signCb = G.__off.createOptions[0].signCallback;
+      await signCb(new Uint8Array([8]), new Uint8Array([8]));
+
+      expect(signOpIds).toEqual(['op2-sign', 'op1-wait']);
+      // op1 is still pending (never committed); no dangling assertion needed — the
+      // realm-reset in afterEach tears it down.
+      expect(r1).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('dispatches exportNote and ships the serialized note bytes verbatim', async () => {

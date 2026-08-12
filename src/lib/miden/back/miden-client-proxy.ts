@@ -108,10 +108,14 @@ const WRITE_DEADLINE_MS = 90_000;
  * the write would run — or wait — with NO timer and could hang until SW eviction
  * (a funds-path write stuck forever). To bound that, `dispatchOp` arms THIS
  * generous backstop at dispatch, which `markOpStarted` REPLACES with the real
- * `WRITE_DEADLINE_MS` on start. It is set far ABOVE any legitimate queue-wait
- * (worst case ≈ the 70s commit-wait + 45s sync, ~2min) so it CANNOT false-kill a
- * write merely queued behind slow ops — the exact bug arm-on-start fixed — yet is
- * bounded so a dropped-start op is eventually reclaimed instead of hanging forever.
+ * `WRITE_DEADLINE_MS` on start. It is set far ABOVE any legitimate queue-wait so it
+ * CANNOT false-kill a write merely queued behind slow ops — the exact bug arm-on-start
+ * fixed — yet is bounded so a dropped-start op is eventually reclaimed instead of
+ * hanging forever. The worst-case contiguous mutex-hold by other ops is a full
+ * `syncState` (~45s) plus a write (~90s) ≈ 135s; the commit-wait, though its own
+ * ceiling is now 150s, YIELDS the mutex during its inter-poll sleeps (follow-up #1),
+ * so a queued write runs DURING those sleeps rather than waiting the whole poll — it
+ * does not dominate queue-wait. 5min keeps ample headroom above 135s.
  * Normal path: dispatch → backstop(5min) → start → real(~90s). Dropped start:
  * dispatch → backstop(5min) fires → op killed (bounded, not hung).
  */
@@ -119,18 +123,28 @@ const CRITICAL_DISPATCH_BACKSTOP_MS = 300_000;
 
 /**
  * Per-op deadline (ms) for `waitForTransactionCommit`. This op BLOCKS inside the
- * offscreen realm on the SDK's `client.transactions.waitFor(id)` poll loop, which
- * itself throws "Transaction confirmation timed out" after its own ~60s
- * (`MidenClientInterface.waitForTransactionCommit` default `maxWaitMs`). This
- * backstop must therefore sit ABOVE that 60s: a normal ≤60s commit resolves (or
- * the SDK's own timeout fires and returns) well within it, and this deadline kill
- * only reclaims a genuinely-wedged realm. NOT a read's short `READ_DEADLINE_MS`
- * (15s) — a wait that legitimately runs the full 60s must not be mistaken for a
- * wedge. On a deadline kill the op rejects with `OperationAbortedError`, which the
- * structural guardian path treats exactly like flag-off's waitFor timeout (→
- * cancelTransaction → Failed → completion not run, recoverable by re-run).
+ * offscreen realm on an in-realm poll loop that reproduces the SDK's
+ * `transactions.waitFor(id)` semantics (chain sync → id filter →
+ * committed/discarded/timeout), throwing "Transaction confirmation timed out"
+ * after its own ~60s poll window.
+ *
+ * WHY 150s and not the SDK's ~60s + a little: the offscreen commit-wait now YIELDS
+ * the offscreen WASM mutex during each WASM-free inter-poll sleep (issue #260
+ * post-flip follow-up #1), so other ops (balance polls, reads, queued writes) run
+ * during those ~55s of sleep instead of being blocked for the whole poll. The
+ * flip side is that THIS op's wall-clock — which this deadline measures from
+ * execution start — now also includes the time OTHER ops hold the mutex during its
+ * sleeps. On a busy realm that inflates a legitimate 60s poll's wall-clock well
+ * beyond 70s, which the old value would false-kill. 150s gives clear headroom above
+ * the 60s poll window plus realistic contention, while still bounding a genuinely
+ * wedged realm. A killed commit-wait is recoverable, not funds-critical: the op
+ * rejects with `OperationAbortedError`, which the structural guardian path treats
+ * exactly like flag-off's waitFor timeout (→ cancelTransaction → Failed → completion
+ * not run, recoverable by re-run) — so raising the ceiling trades a slightly later
+ * reclaim of a truly-wedged wait for not false-killing a healthy contended one.
+ * NOT a read's short `READ_DEADLINE_MS` (15s).
  */
-const COMMIT_WAIT_DEADLINE_MS = 70_000;
+const COMMIT_WAIT_DEADLINE_MS = 150_000;
 
 interface InFlightOp {
   /** Resolve the caller's promise with the raw `resultB64` (or `null`). */
@@ -655,11 +669,14 @@ export const midenClientProxy = {
    *
    *   Flag on: the whole leaf pipeline ran in the OFFSCREEN realm, so the SW client
    *   is dormant/unsynced and would time out. Forward the wait to the offscreen doc,
-   *   which polls the realm that owns the applied state. It is a READ-style wait — no
-   *   sign callback, NOT a `criticalOp`/write — but it legitimately BLOCKS up to the
-   *   SDK's ~60s `waitFor`, so it carries its own `COMMIT_WAIT_DEADLINE_MS` (70s),
-   *   comfortably above that 60s, rather than a read's short `READ_DEADLINE_MS`. The
-   *   offscreen side discards the void result (nothing to re-hydrate).
+   *   which polls the realm that owns the applied state (driving the poll loop in-realm
+   *   so it can yield the offscreen mutex during its sleeps — follow-up #1). It is a
+   *   READ-style wait — no sign callback, NOT a `criticalOp`/write — but it legitimately
+   *   BLOCKS up to the ~60s poll window AND its wall-clock now absorbs other ops'
+   *   mutex-holds during those yielded sleeps, so it carries its own
+   *   `COMMIT_WAIT_DEADLINE_MS` (150s), well above 60s, rather than a read's short
+   *   `READ_DEADLINE_MS`. The offscreen side discards the void result (nothing to
+   *   re-hydrate).
    */
   async waitForTransactionCommit(transactionId: string): Promise<void> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {

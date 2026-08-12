@@ -204,6 +204,42 @@ describe('reduceConsumableNoteRecord — full field parity', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('skipping un-reducible note'), expect.any(Error));
     warn.mockRestore();
   });
+
+  it('names the offending note id in the skip log when the id was read before the throw (follow-up #4)', () => {
+    // id() succeeds ('0xdead'), so it is captured; details() throws afterward.
+    const throwing: any = {
+      id: () => ({ toString: () => '0xdead' }),
+      nullifier: () => '0xn',
+      metadata: () => ({ sender: () => 's', noteType: () => 1 }),
+      state: () => 2,
+      details: () => {
+        throw new Error('details() exploded');
+      },
+      attachments: () => []
+    };
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(reduceConsumableNoteRecord(throwing)).toBeNull();
+    // The id is in the message; err is still the 2nd arg (existing assertions stay green).
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('skipping un-reducible note 0xdead'), expect.any(Error));
+    warn.mockRestore();
+  });
+
+  it("logs '<unknown id>' when id() itself throws (never re-called in the catch) (follow-up #4)", () => {
+    // id() is the first call AND the thrower, so no id is ever captured.
+    const idThrows: any = {
+      id: () => {
+        throw new Error('id() exploded');
+      }
+    };
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(reduceConsumableNoteRecord(idThrows)).toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('skipping un-reducible note <unknown id>'),
+      expect.any(Error)
+    );
+    // id() is called exactly once — the catch must NOT re-invoke it.
+    warn.mockRestore();
+  });
 });
 
 describe('reduceConsumableNoteRecords — batch', () => {
