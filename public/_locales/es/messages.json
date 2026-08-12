@@ -1645,6 +1645,30 @@
     "message": "Financiar ahora",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "Financiando su billetera",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "Solicitando tokens del faucet…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "Financiado con billetera",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "Tus tokens están en camino y aparecerán en breve.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "Financiamiento fallido",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "No pudimos financiar su billetera. Por favor inténtalo de nuevo.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "Tienes Pendiente Notes",
     "englishSource": "You have Pending Notes"

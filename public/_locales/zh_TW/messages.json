@@ -1662,6 +1662,30 @@
     "message": "立即基金",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "为你的钱包提供资金",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "正在从 faucet 请求令牌...",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "钱包资助",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "您的代币正在路上，很快就会出现。",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "资金失败",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "我们无法为您的钱包提供资金。请再试一次。",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "您有待处理的 Notes",
     "englishSource": "You have Pending Notes"
