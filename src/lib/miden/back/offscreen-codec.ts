@@ -188,3 +188,17 @@ export class OperationAbortedError extends Error {
     this.reason = reason;
   }
 }
+
+/**
+ * Narrow an unknown thrown value to an {@link OperationAbortedError} (a
+ * deadline/close offscreen kill). Matches by prototype first and falls back to
+ * the `name` tag so a value that lost its prototype (e.g. re-thrown across a
+ * boundary) is still recognized. Used by the transaction-kill classifier to tell
+ * a wedge-kill apart from other failures.
+ */
+export function isOperationAbortedError(error: unknown): error is OperationAbortedError {
+  return (
+    error instanceof OperationAbortedError ||
+    (typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'OperationAbortedError')
+  );
+}
