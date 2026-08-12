@@ -6,7 +6,12 @@
    text-selectable. Content meant to be copyable opts back in — real inputs, and
    anything tagged `.select-text` (addresses, seed reveal, error/tx detail
    strings already use it). Only `user-select` is touched, so the paste/lookup
-   callout on inputs is unaffected. */
+   callout on inputs is unaffected.
+   NOTE: these rules are intentionally UNLAYERED (declared before
+   `@import 'tailwindcss'` below), so they win over Tailwind's layered
+   utilities. A bare Tailwind `select-all`/`select-text` class would LOSE to
+   `* { user-select: none }` — re-enable selection via THIS opt-in list (or wrap
+   the element in `.select-text`), not a lone Tailwind utility. */
 * {
   -webkit-user-select: none;
   user-select: none;

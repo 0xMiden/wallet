@@ -227,6 +227,22 @@ describe('SearchInput — clear button & placeholder hint (#503)', () => {
     expect(onChange).toHaveBeenCalledWith('');
   });
 
+  it('refocuses the input after clearing so the user can keep typing', () => {
+    render(<SearchInput value="usdc" onChange={jest.fn()} placeholder="Search" />);
+    fireEvent.click(screen.getByLabelText('clear'));
+    expect(document.activeElement).toBe(getInput());
+  });
+
+  it('reserves right padding for the clear button only when there is a value', () => {
+    const { rerender } = render(<SearchInput value="" onChange={jest.fn()} />);
+    expect(getInput().className).toContain('px-4');
+    expect(getInput().className).not.toContain('pr-11');
+
+    rerender(<SearchInput value="x" onChange={jest.fn()} />);
+    expect(getInput().className).toContain('pr-11');
+    expect(getInput().className).not.toContain('px-4');
+  });
+
   it('styles the placeholder as a hint — lighter than the input text and hidden on focus', () => {
     render(<SearchInput value="" onChange={jest.fn()} placeholder="Search for tokens" />);
     const input = getInput();
