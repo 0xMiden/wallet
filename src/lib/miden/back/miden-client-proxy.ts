@@ -98,6 +98,26 @@ const SYNC_DEADLINE_MS = 45_000;
 const WRITE_DEADLINE_MS = 90_000;
 
 /**
+ * Dispatch-time BACKSTOP deadline (ms) for a whole-op offscreen WRITE (issue #260
+ * flip-prep, defense-in-depth).
+ *
+ * A critical write's REAL {@link WRITE_DEADLINE_MS} is armed only at EXECUTION
+ * START (`markOpStarted`, on the offscreen doc's `OFFSCREEN_OP_STARTED` signal),
+ * so queue-wait behind other ops is off-budget and can't false-kill a healthy
+ * queued write. But if that start signal is ever DROPPED while the SW stays alive,
+ * the write would run — or wait — with NO timer and could hang until SW eviction
+ * (a funds-path write stuck forever). To bound that, `dispatchOp` arms THIS
+ * generous backstop at dispatch, which `markOpStarted` REPLACES with the real
+ * `WRITE_DEADLINE_MS` on start. It is set far ABOVE any legitimate queue-wait
+ * (worst case ≈ the 70s commit-wait + 45s sync, ~2min) so it CANNOT false-kill a
+ * write merely queued behind slow ops — the exact bug arm-on-start fixed — yet is
+ * bounded so a dropped-start op is eventually reclaimed instead of hanging forever.
+ * Normal path: dispatch → backstop(5min) → start → real(~90s). Dropped start:
+ * dispatch → backstop(5min) fires → op killed (bounded, not hung).
+ */
+const CRITICAL_DISPATCH_BACKSTOP_MS = 300_000;
+
+/**
  * Per-op deadline (ms) for `waitForTransactionCommit`. This op BLOCKS inside the
  * offscreen realm on the SDK's `client.transactions.waitFor(id)` poll loop, which
  * itself throws "Transaction confirmation timed out" after its own ~60s
@@ -275,17 +295,27 @@ async function dispatchOp(
 ): Promise<string | null> {
   await ensureOffscreenDocument();
   return new Promise<string | null>((resolve, reject) => {
-    // A whole-op WRITE (critical) does NOT arm its deadline at dispatch: it arms
-    // at EXECUTION START via `markOpStarted` when the op wins the offscreen WASM
-    // mutex (issue #260 flip-prep #3), so queue-wait behind other ops on that
-    // single mutex is off-budget and can't false-kill a healthy write. A read
-    // (non-critical) keeps arming at dispatch — its deadline covers the whole
-    // round-trip — and `markOpStarted` merely re-arms it fresh at execution start.
+    // A whole-op WRITE (critical) does NOT arm its REAL deadline at dispatch: that
+    // is armed at EXECUTION START via `markOpStarted` when the op wins the offscreen
+    // WASM mutex (issue #260 flip-prep #3), so queue-wait behind other ops on that
+    // single mutex is off-budget and can't false-kill a healthy write. Instead it
+    // arms a GENEROUS `CRITICAL_DISPATCH_BACKSTOP_MS` backstop here (defense-in-depth):
+    // if the `OFFSCREEN_OP_STARTED` signal is ever dropped, the write can't hang
+    // timer-less until SW eviction — the backstop eventually reclaims it — yet the
+    // backstop sits far above any legitimate queue-wait, so it can't false-kill a
+    // merely-queued write. `markOpStarted` REPLACES it with the real `deadlineMs`.
+    // A read (non-critical) keeps arming its real deadline at dispatch — it covers
+    // the whole round-trip — and `markOpStarted` merely re-arms it fresh at start.
+    // Either way `op.deadlineMs` retains the REAL deadline, so the on-start re-arm
+    // uses it, not the backstop.
     const timer =
-      !critical && deadlineMs != null
-        ? setTimeout(() => {
-            void onDeadline(op_id);
-          }, deadlineMs)
+      deadlineMs != null
+        ? setTimeout(
+            () => {
+              void onDeadline(op_id);
+            },
+            critical ? CRITICAL_DISPATCH_BACKSTOP_MS : deadlineMs
+          )
         : null;
     inFlight.set(op_id, { resolveResult: resolve, reject, timer, method, deadlineMs, critical, paused: false });
 
@@ -350,12 +380,15 @@ function resumeDeadline(op_id: string): void {
  * ARM (or re-arm) an op's deadline at EXECUTION START (issue #260 flip-prep #3).
  * Called from the SW reverse-IPC listener when the offscreen doc posts
  * `OFFSCREEN_OP_STARTED` — i.e. the op has won the single offscreen WASM mutex and
- * is about to execute. This is where a WRITE's deadline is FIRST armed (writes are
- * deliberately not armed at dispatch, so their queue-wait is off-budget); for a
- * read it resets the dispatch-armed timer so the read's budget also measures only
- * execution time, not queue-wait. Clears any existing timer and unpauses first
- * (defensive — a sign round-trip can only begin after execution starts). No-op for
- * an op that already settled or was never dispatched here.
+ * is about to execute. This is where a WRITE's REAL deadline is armed: writes are
+ * not armed with their real deadline at dispatch (only the generous
+ * `CRITICAL_DISPATCH_BACKSTOP_MS` backstop is), so their queue-wait is off-budget;
+ * this REPLACES that backstop with the real `op.deadlineMs`. For a read it resets
+ * the dispatch-armed timer so the read's budget also measures only execution time,
+ * not queue-wait. Clears any existing timer (backstop or real) and unpauses first
+ * (defensive — a sign round-trip can only begin after execution starts), then arms
+ * the REAL `op.deadlineMs` afresh. No-op for an op that already settled or was
+ * never dispatched here.
  */
 export function markOpStarted(op_id: string): void {
   const op = inFlight.get(op_id);
@@ -1026,6 +1059,7 @@ export const __test = {
   opSignCallbacksSize: () => opSignCallbacks.size,
   isOffscreenClientEnabled: () => USE_OFFSCREEN_CLIENT,
   writeDeadlineMs: () => WRITE_DEADLINE_MS,
+  criticalDispatchBackstopMs: () => CRITICAL_DISPATCH_BACKSTOP_MS,
   /**
    * Dispatch a CRITICAL op with a caller-chosen deadline — a test hook that
    * exercises the real `dispatchOp` + `onDeadline` critical path (own-deadline

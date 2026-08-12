@@ -1445,33 +1445,134 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
   });
 });
 
-// Issue #260 flip-prep #3: the whole-op WRITE deadline is armed at EXECUTION
+// Issue #260 flip-prep #3: the whole-op WRITE's REAL deadline is armed at EXECUTION
 // START (when the op wins the offscreen WASM mutex and posts OFFSCREEN_OP_STARTED
 // → markOpStarted), NOT at dispatch. So queue-wait behind other ops on the single
 // offscreen mutex is off-budget: a write that sits in the queue for longer than
-// its 90s WRITE_DEADLINE is NOT falsely killed before it executes.
+// its 90s WRITE_DEADLINE is NOT falsely killed before it executes. At dispatch a
+// GENEROUS `CRITICAL_DISPATCH_BACKSTOP_MS` backstop is armed instead (defense-in-
+// depth): if the start signal is dropped, the write is eventually reclaimed rather
+// than hanging timer-less until SW eviction. `markOpStarted` REPLACES the backstop
+// with the real deadline.
 describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', () => {
-  it('a critical write is NOT killed while it waits in the offscreen queue (no OFFSCREEN_OP_STARTED yet)', async () => {
-    const { __test } = await loadProxy(true);
-    // The offscreen op never responds — it is stuck behind the head-of-queue op.
-    fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+  it('a queued critical write (no OFFSCREEN_OP_STARTED yet) is NOT killed while it waits below the backstop', async () => {
+    // Case (c): a write legitimately queued behind slow ops for less than the
+    // backstop must NOT be false-killed — the exact bug arm-on-start fixed.
+    jest.useFakeTimers();
+    try {
+      const { __test } = await loadProxy(true);
+      // The offscreen op never responds — it is stuck behind the head-of-queue op,
+      // and never posts OFFSCREEN_OP_STARTED (it has not begun executing).
+      fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
 
-    const { op_id, promise } = __test.dispatchCritical('consumeNoteId', [{}], 20);
-    void promise.catch(() => {});
-    await flush();
-    fireReady(); // open resolves → OFFSCREEN_CALL sent, but the op has NOT started
-    await flush();
-    // No timer armed at dispatch — the deadline is off-budget until execution start.
-    expect(__test.hasOpTimer(op_id)).toBe(false);
+      const { op_id, promise } = __test.dispatchCritical('consumeNoteId', [{}], __test.writeDeadlineMs());
+      void promise.catch(() => {});
+      await jest.advanceTimersByTimeAsync(0);
+      fireReady(); // open resolves → OFFSCREEN_CALL sent, but the op has NOT started
+      await jest.advanceTimersByTimeAsync(0);
+      // A timer IS armed at dispatch — but it is the GENEROUS backstop, not the real
+      // WRITE_DEADLINE (which is off-budget until execution start, flip-prep #3).
+      expect(__test.hasOpTimer(op_id)).toBe(true);
 
-    // Advance FAR past the 20ms deadline while the op is still queued.
-    await wait(60);
-    // It was NOT killed: no closeDocument, still in flight (queue-wait is off-budget).
-    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
-    expect(__test.inFlightSize()).toBe(1);
+      // Advance FAR past the real 90s deadline AND past the ~2min worst-case
+      // commit-wait (70s) + sync (45s) queue-wait, but still below the 5min backstop.
+      await jest.advanceTimersByTimeAsync(__test.writeDeadlineMs() + 120_000);
+      // It was NOT killed: no closeDocument, still in flight — the backstop cannot
+      // false-kill a merely-queued write (no false-kill regression).
+      expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+      expect(__test.inFlightSize()).toBe(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
-  it('markOpStarted arms the deadline at execution start → a subsequent wedge IS killed', async () => {
+  it('a critical write that NEVER receives OFFSCREEN_OP_STARTED is killed by the dispatch backstop (bounded, not hung forever)', async () => {
+    // Case (a): the defense-in-depth guarantee. If the start signal is dropped while
+    // the SW stays alive, the backstop reclaims the op instead of letting it hang.
+    jest.useFakeTimers();
+    try {
+      const { __test } = await loadProxy(true);
+      const { OperationAbortedError } = await import('./offscreen-codec');
+      // The op never responds AND never posts OFFSCREEN_OP_STARTED (dropped signal).
+      fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+
+      const { op_id, promise } = __test.dispatchCritical('consumeNoteId', [{}], __test.writeDeadlineMs());
+      const p = promise.catch((e: Error) => e);
+      await jest.advanceTimersByTimeAsync(0);
+      fireReady();
+      await jest.advanceTimersByTimeAsync(0);
+      // A backstop timer IS armed at dispatch — pre-fix this armed NOTHING for a
+      // critical write, so a dropped start signal hung the op forever.
+      expect(__test.hasOpTimer(op_id)).toBe(true);
+
+      // Past the real 90s deadline but below the 5min backstop, with NO start signal:
+      // still alive — the real deadline is never armed without markOpStarted.
+      await jest.advanceTimersByTimeAsync(__test.writeDeadlineMs() + 30_000);
+      expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+      expect(__test.inFlightSize()).toBe(1);
+
+      // Crossing the backstop reclaims the dropped-start op — a BOUNDED kill.
+      await jest.advanceTimersByTimeAsync(__test.criticalDispatchBackstopMs());
+      fireReady(); // reopen ready gate after the kill
+      await jest.advanceTimersByTimeAsync(0);
+
+      const err = await p;
+      expect(err).toBeInstanceOf(OperationAbortedError);
+      expect((err as any).reason).toBe('deadline');
+      expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
+      expect(__test.inFlightSize()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('markOpStarted before the backstop REPLACES it with the real WRITE_DEADLINE (kill ~90s from start, not the 5min backstop)', async () => {
+    // Case (b): the normal path. The op starts before the backstop fires; the real
+    // deadline governs, so the effective kill time is ~90s from start — NOT 5min.
+    jest.useFakeTimers();
+    try {
+      const { __test, markOpStarted } = await loadProxy(true);
+      const { OperationAbortedError } = await import('./offscreen-codec');
+      fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+
+      // Dispatch with the REAL WRITE_DEADLINE so the kill time is measured against
+      // production values (not a scaled-down stand-in).
+      const { op_id, promise } = __test.dispatchCritical('consumeNoteId', [{}], __test.writeDeadlineMs());
+      const p = promise.catch((e: Error) => e);
+      await jest.advanceTimersByTimeAsync(0);
+      fireReady();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(__test.hasOpTimer(op_id)).toBe(true); // backstop armed at dispatch
+
+      // The op wins the mutex and begins executing BEFORE the backstop would fire →
+      // markOpStarted clears the backstop and arms the real deadline afresh.
+      markOpStarted(op_id);
+      expect(__test.hasOpTimer(op_id)).toBe(true);
+
+      // Just under the real 90s deadline from start: NOT killed yet ...
+      await jest.advanceTimersByTimeAsync(__test.writeDeadlineMs() - 1_000);
+      expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+      expect(__test.inFlightSize()).toBe(1);
+
+      // ... crossing the real 90s deadline kills it — the effective budget is ~90s
+      // from start, NOT the 5min backstop (which markOpStarted replaced).
+      await jest.advanceTimersByTimeAsync(2_000);
+      fireReady(); // reopen ready gate after the kill
+      await jest.advanceTimersByTimeAsync(0);
+
+      const err = await p;
+      expect(err).toBeInstanceOf(OperationAbortedError);
+      expect((err as any).reason).toBe('deadline');
+      expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
+      // The kill happened at the ~90s real deadline — WELL below the 5min backstop.
+      expect(__test.writeDeadlineMs()).toBeLessThan(__test.criticalDispatchBackstopMs());
+      expect(__test.inFlightSize()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('markOpStarted arms the (short) deadline at execution start → a subsequent wedge IS killed', async () => {
     const { __test, markOpStarted } = await loadProxy(true);
     const { OperationAbortedError } = await import('./offscreen-codec');
     fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
@@ -1481,11 +1582,14 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
     await flush();
     fireReady();
     await flush();
-    expect(__test.hasOpTimer(op_id)).toBe(false); // not armed yet
+    // The generous backstop is armed at dispatch (defense-in-depth vs a dropped start
+    // signal); the SHORT real deadline is NOT — it is off-budget until execution start.
+    expect(__test.hasOpTimer(op_id)).toBe(true);
 
-    // The op wins the WASM mutex and begins executing → OFFSCREEN_OP_STARTED.
+    // The op wins the WASM mutex and begins executing → OFFSCREEN_OP_STARTED. This
+    // REPLACES the backstop with the op's real (here short 20ms) deadline.
     markOpStarted(op_id);
-    expect(__test.hasOpTimer(op_id)).toBe(true); // now armed
+    expect(__test.hasOpTimer(op_id)).toBe(true); // now the real deadline
 
     await wait(40); // it then wedges in-realm → its own deadline fires
     fireReady(); // reopen ready gate
