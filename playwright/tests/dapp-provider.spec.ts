@@ -1,3 +1,5 @@
+import { errors } from '@playwright/test';
+
 import {
   CONFIRM_TESTID,
   FIXTURE_DAPP_ORIGIN,
@@ -36,6 +38,16 @@ import { expect, test } from '../fixtures/extension';
  * ceremony can only be driven up to the approval screen here. The sign screen
  * and its decline path ARE covered below; the cryptographic check needs the
  * real client, i.e. a chain-backed job.
+ *
+ * NOT COVERED HERE either, and covered in jest instead by
+ * `src/lib/miden/back/dapp.send-preview.test.ts`:
+ *  - The mobile/desktop approval sheet. This file is Chromium/MV3-only
+ *    (`test.skip` below), so the whole `!isExtension()` confirmation-store
+ *    branch of `dapp.ts` — a different renderer with its own origin field — is
+ *    unreachable from here.
+ *  - The send amount's DECIMALS. Chainless, every faucet resolves to the
+ *    6-decimal default, which is the same number the removed hardcoded
+ *    `10 ** 6` used. See {@link EXPECTED_AMOUNT_ROW}.
  */
 
 /** A syntactically valid Word: four small field elements, little-endian u64s. */
@@ -60,10 +72,16 @@ const REQUESTED = {
  *
  * LIMIT OF THIS CHECK: the wallet resolves the faucet's decimals through
  * `getTokenMetadata`, and no faucet in a chainless run resolves to anything but
- * the 6-decimal default. So this pins the 6-decimal case only — it proves the
- * amount is scaled and signed (a send is an outflow), NOT that a 9-decimal
- * faucet would render correctly. It DOES fail if the amount is shown raw in
- * base units, which is what mobile and desktop used to show.
+ * the 6-decimal default — the same number the removed hardcoded `10 ** 6` used.
+ * So this assertion pins the WIRING (the preview string reaches the screen and
+ * is rendered verbatim, signed as an outflow) and it fails if the amount is
+ * shown raw in base units, which is what mobile and desktop used to show. It
+ * canNOT fail on the decimals logic itself: reverting
+ * `formatSendTransactionPreview` to a hardcoded 6 leaves this green.
+ *
+ * The falsifying coverage for the decimals fix therefore lives in a unit test,
+ * `src/lib/miden/back/dapp.send-preview.test.ts`, which drives the same
+ * formatter with a 9-decimal and an 18-decimal faucet.
  */
 const EXPECTED_AMOUNT_ROW = '-1.5';
 /** `truncateAddress` on a bech32 with no underscore is `truncateHash(addr, 6, 4)`. */
@@ -77,11 +95,15 @@ type ConnectOutcome = {
   publicKey: number[];
 };
 
+/**
+ * No `signature` field: only the DECLINE path is driven here (approving a
+ * `signBytes` needs the real client — see the file docstring), so a captured
+ * signature would be permanently unasserted.
+ */
 type SignOutcome = {
   ok: boolean;
   name: string;
   message: string;
-  signature: number[];
 };
 
 type SendOutcome = {
@@ -134,11 +156,11 @@ const pageConnect = async (): Promise<ConnectOutcome> => {
 const pageSignBytes = async (bytes: number[]): Promise<SignOutcome> => {
   const provider = (window as unknown as { midenWallet: InjectedProvider }).midenWallet;
   try {
-    const { signature } = await provider.signBytes(new Uint8Array(bytes), 'word');
-    return { ok: true, name: '', message: '', signature: Array.from(signature) };
+    await provider.signBytes(new Uint8Array(bytes), 'word');
+    return { ok: true, name: '', message: '' };
   } catch (e) {
     const err = e as { name?: string; message?: string };
-    return { ok: false, name: err?.name ?? '', message: err?.message ?? '', signature: [] };
+    return { ok: false, name: err?.name ?? '', message: err?.message ?? '' };
   }
 };
 
@@ -175,15 +197,34 @@ test.describe('dApp provider', () => {
   test.skip(({ browserName }) => browserName !== 'chromium', 'MV3 extension only runs in Chromium');
 
   /**
-   * Budget: the waits below sum to roughly 330s worst case (onboarding 5x30s,
-   * provider page 30+30s, address 20s, two approvals at 20+15+15s each, four
-   * screen assertions at 10s, IDB poll 20s). The test budget must exceed that
-   * sum, otherwise a stuck step reports a bare "Test timeout" instead of the
-   * wait's own diagnostic. Every individual popup interaction stays well under
-   * `AUTODECLINE_AFTER` (120s in `dapp.ts`).
+   * Budget, itemised — the test timeout must exceed the SUM of every bounded
+   * wait below, otherwise a stuck step reports a bare "Test timeout" instead of
+   * the wait's own diagnostic, which is the whole point of bounding them:
+   *
+   *   onboarding                380s  (see `completeSeedImportOnboarding`:
+   *                                    goto 30 + 5 screen waits at 30
+   *                                    + 14 fills and 6 clicks at 10)
+   *   readWalletAddress          40s  (goto 20 + attached 20)
+   *   openFixtureDapp            60s  (goto 30 + provider injection 30)
+   *   connect popup + form       35s  (20 + 15)
+   *   connect-origin assertion   10s  (config `expect.timeout`)
+   *   approve click              15s
+   *   send popup + form          35s  (20 + 15)
+   *   5 screen assertions        50s  (5 x 10)
+   *   approve click              15s
+   *   queued-row poll            20s
+   *                            -----
+   *                             660s
+   *
+   * Playwright's `actionTimeout`/`navigationTimeout` both default to 0 (no
+   * limit) and this config sets neither, so the helper bounds each of its own
+   * clicks, fills and navigations explicitly — see `ACTION_TIMEOUT`.
+   *
+   * Every individual popup interaction stays well under `AUTODECLINE_AFTER`
+   * (120s in `dapp.ts`).
    */
   test('connect and requestSend: the screen matches what gets queued', async ({ extensionContext, extensionId }) => {
-    test.setTimeout(420_000);
+    test.setTimeout(780_000);
 
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const walletPage = await extensionContext.newPage();
@@ -209,10 +250,14 @@ test.describe('dApp provider', () => {
 
     expect(connected.message).toBe('');
     expect(connected.ok).toBe(true);
-    // The account handed to the dApp must be the one the user is looking at.
-    // Fails if the permission response returns the wrong field — the session
-    // carries BOTH an `accountId` and a `publicKey` commitment, and the request
-    // types name them inconsistently — or simply the wrong account.
+    // The account identifier handed to the dApp must be the one the wallet
+    // shows the user. Fails if the permission response drops the field (the
+    // page-side `provider.address ?? ''` turns that into `''`) or returns the
+    // wrong one of the session's two identifiers — it carries BOTH an
+    // `accountId` and a `publicKey` commitment and the request types name them
+    // inconsistently. It does NOT prove account SELECTION: this wallet has one
+    // account, and both the Receive screen and the confirm page read the same
+    // `account.publicKey`, so there is no second account to pick by mistake.
     expect(connected.address).toBe(walletAddress);
     // A public-key commitment is one Word: exactly 32 bytes. A short/empty
     // value means the connect resolved without ever resolving a signer.
@@ -241,8 +286,10 @@ test.describe('dApp provider', () => {
     // truncates addresses); the untruncated value is checked against the queued
     // row below.
     await expect(sendPopup.getByTestId('confirm-tx-value-recipient')).toHaveText(EXPECTED_RECIPIENT_ROW);
-    // Note visibility is a security-relevant field the dApp chooses and the
-    // user approves — a private note silently sent as public is a real leak.
+    // What the user is asked to approve for note visibility. On its own this
+    // only proves the preview renders `capitalizeFirstLetter(noteType)`; the
+    // half that proves the wallet then BROADCASTS that visibility is the queued
+    // -row check at the end of this test.
     await expect(sendPopup.getByTestId('confirm-tx-value-note-type')).toHaveText('Private');
 
     await clickConfirmAction(sendPopup, CONFIRM_TESTID.transactionApprove, 15_000);
@@ -271,20 +318,57 @@ test.describe('dApp provider', () => {
     expect(sendRow.recipient).toBe(REQUESTED.recipient);
     expect(sendRow.faucetId).toBe(REQUESTED.faucetId);
     expect(sendRow.amount).toBe(String(REQUESTED.amountBaseUnits));
+    // The security-relevant half of the note-visibility check: the preview and
+    // the queued row are built from two different reads of `noteType`, so they
+    // can disagree. Fails if the approval path hands `initiateSendTransaction`
+    // anything other than what the screen said — a note approved as private and
+    // broadcast as public leaks its contents to everyone.
+    expect(sendRow.noteType).toBe(REQUESTED.noteType);
+    // Closes the last link in the screen -> queued -> returned chain. Fails if
+    // the response resolves without a transaction id, which leaves every dApp
+    // that tracks the send by the value it awaits holding `undefined`.
+    expect(sent.transactionId).toBe(sendRow.id);
   });
 
   /**
-   * Budget: roughly 340s of waits worst case (onboarding 150s, provider page
-   * 60s, connect 50s, sign screen 50s + 2x10s assertions, quiet watch 8s,
-   * re-prompt 50s).
+   * Budget, itemised (same rule as above — the timeout must exceed the sum):
+   *
+   *   onboarding                380s
+   *   readWalletAddress          40s
+   *   openFixtureDapp            60s
+   *   connect popup + form       35s
+   *   approve click              15s
+   *   sign popup + form          35s
+   *   sign-origin assertion      10s
+   *   disclosure click           15s
+   *   digest assertion           10s
+   *   decline click              15s
+   *   quiet watch                20s
+   *   re-prompt popup + form     35s
+   *   re-prompt origin           10s
+   *   approve click              15s
+   *                            -----
+   *                             695s
+   *
+   * Plus one product timeout that this test can legitimately hit: if a repeat
+   * connect DOES prompt but opens after the 20s quiet watch, the connect call
+   * then sits until `AUTODECLINE_AFTER` (120s in `dapp.ts`) before rejecting.
+   * The budget covers that tail so the failure surfaces as the postcondition
+   * assertion below rather than as a bare "Test timeout" — 695 + 120 = 815s.
    */
   test('sign preview, typed decline, and revocation re-prompt', async ({ extensionContext, extensionId }) => {
-    test.setTimeout(420_000);
+    test.setTimeout(960_000);
 
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const walletPage = await extensionContext.newPage();
     await completeSeedImportOnboarding(walletPage, fullpageUrl);
 
+    // Ground truth for every address this test compares. Without it the three
+    // address comparisons below would each be `provider.address` against
+    // `provider.address` — and `pageConnect` coerces a missing address to `''`,
+    // so dropping `accountId` from the permission response would leave every
+    // one of them comparing `''` to `''` and passing.
+    const walletAddress = await readWalletAddress(walletPage, fullpageUrl, 20_000);
     const dapp = await openFixtureDapp(extensionContext);
 
     const connectPopupPromise = waitForConfirmPopup(extensionContext, 20_000);
@@ -294,6 +378,7 @@ test.describe('dApp provider', () => {
     const connected = await connectCall;
     expect(connected.message).toBe('');
     expect(connected.ok).toBe(true);
+    expect(connected.address).toBe(walletAddress);
 
     // ── the signing prompt, and declining it ───────────────────────────────
     const signPopupPromise = waitForConfirmPopup(extensionContext, 20_000);
@@ -318,25 +403,45 @@ test.describe('dApp provider', () => {
     expect(declined.ok).toBe(false);
     // `MidenWalletError` IMPLEMENTS Error rather than extending it, so
     // `instanceof Error` is false in the page and dApps must branch on the
-    // name. That contract is what is pinned here: losing it (an opaque
-    // "An unknown error occured", or the raw intercom error leaking through)
-    // silently breaks every dApp's "user cancelled" path.
+    // NAME. That contract is the load-bearing one here: losing it (an opaque
+    // "An unknown error occured", or a differently-named error class) silently
+    // breaks every dApp's "user cancelled" path.
     expect(declined.name).toBe('NotGrantedMidenWalletError');
+    // WHAT THIS SECOND ASSERTION PINS, exactly: the raw WIRE code, not a
+    // user-facing string. `createError` in `lib/adapter/client.ts` overwrites
+    // the class's friendly default ("Permission Not Granted") with the payload
+    // string whenever one is present, so today the page sees the wire code
+    // verbatim. This is pinned because dApps in the wild branch on it — NOT
+    // because surfacing a raw code is the desirable end state. Making the
+    // message human-readable is a deliberate contract change: update this line
+    // with it, do not read a red test here as proof the change was wrong.
     expect(declined.message).toBe('NOT_GRANTED');
 
     // ── revocation ─────────────────────────────────────────────────────────
     // Baseline first: while the session EXISTS, a repeat connect is answered
     // from storage with no prompt at all. Without this half, "a popup opened
     // after disconnect" would prove nothing — the wallet might always prompt.
-    const quietWatch = waitForConfirmPopup(extensionContext, 8_000)
-      .then(() => 'popup')
-      .catch(() => 'none');
+    //
+    // ONLY a genuine timeout counts as "no popup". Any other rejection (context
+    // teardown, a throw from the predicate) is rethrown rather than folded into
+    // the passing value, so a broken watcher cannot pass for a quiet wallet.
+    // The window is well above a service-worker cold start; the postconditions
+    // immediately after are what catch a prompt that opens later still.
+    const quietWatch = waitForConfirmPopup(extensionContext, 20_000).then(
+      () => 'popup',
+      (e: unknown) => {
+        if (e instanceof errors.TimeoutError) return 'no-popup';
+        throw e;
+      }
+    );
     const silentReconnect = dapp.evaluate(pageConnect);
-    expect(await quietWatch).toBe('none');
+    expect(await quietWatch).toBe('no-popup');
+    // Positive postcondition: the silent path did not merely stay quiet, it
+    // resolved, and it resolved to the same account the wallet displays.
     const silent = await silentReconnect;
     expect(silent.message).toBe('');
     expect(silent.ok).toBe(true);
-    expect(silent.address).toBe(connected.address);
+    expect(silent.address).toBe(walletAddress);
 
     const disconnected = await dapp.evaluate(pageDisconnect);
     expect(disconnected.message).toBe('');
@@ -354,6 +459,6 @@ test.describe('dApp provider', () => {
     const reconnected = await reconnectCall;
     expect(reconnected.message).toBe('');
     expect(reconnected.ok).toBe(true);
-    expect(reconnected.address).toBe(connected.address);
+    expect(reconnected.address).toBe(walletAddress);
   });
 });

@@ -42,7 +42,23 @@ export type QueuedTransactionRow = {
   amount: string;
   faucetId: string;
   recipient: string;
+  /**
+   * `SendTransaction.noteType` — the visibility the wallet is about to broadcast
+   * with. Read back so the approval screen's "Note Type" row can be checked
+   * against what was actually queued, not just against itself.
+   */
+  noteType: string;
 };
+
+/**
+ * Ceiling for a single interaction (a fill, a click, a navigation) inside these
+ * helpers. @playwright/test defaults `actionTimeout` and `navigationTimeout` to
+ * 0 — unbounded — so without this a step that never settles silently eats the
+ * whole test budget and the run reports a bare "Test timeout" naming no step.
+ * Every one of these actions runs against an element the caller has already
+ * waited for, so seconds is generous.
+ */
+const ACTION_TIMEOUT = 10_000;
 
 /**
  * Serves a minimal dApp page at {@link FIXTURE_DAPP_ORIGIN} and waits until the
@@ -119,32 +135,39 @@ export async function clickConfirmAction(popup: Page, testId: string, timeoutMs 
  * and unlocked in the service worker. That unlocked vault is the precondition
  * for every dApp approval (`withUnlocked` in `dapp.ts`), so specs must not skip
  * it. Mirrors `playwright/tests/popup-smoke.spec.ts`.
+ *
+ * Every navigation, fill and click carries an explicit timeout — see
+ * {@link ACTION_TIMEOUT}. A wedged step must name itself, not silently consume
+ * the caller's whole budget.
  */
 export async function completeSeedImportOnboarding(page: Page, fullpageUrl: string, timeoutMs = 30_000): Promise<void> {
-  await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded' });
+  await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
 
   await page.getByTestId('onboarding-welcome').waitFor({ timeout: timeoutMs });
-  await page.locator('#import-link').click();
+  await page.locator('#import-link').click({ timeout: ACTION_TIMEOUT });
   await page.getByTestId('import-seed-phrase').waitFor({ timeout: timeoutMs });
 
   const words = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(
     ' '
   );
   for (let i = 0; i < words.length; i++) {
-    await page.locator(`#seed-phrase-input-${i}`).fill(words[i]!);
+    await page.locator(`#seed-phrase-input-${i}`).fill(words[i]!, { timeout: ACTION_TIMEOUT });
   }
-  await page.getByRole('button', { name: /continue/i }).click();
+  await page.getByRole('button', { name: /continue/i }).click({ timeout: ACTION_TIMEOUT });
 
-  await page.locator('input[placeholder="Enter password"]').first().fill('Password123!');
-  await page.locator('input[placeholder="Enter password again"]').first().fill('Password123!');
-  await page.getByRole('button', { name: /continue/i }).click();
+  await page.locator('input[placeholder="Enter password"]').first().fill('Password123!', { timeout: ACTION_TIMEOUT });
+  await page
+    .locator('input[placeholder="Enter password again"]')
+    .first()
+    .fill('Password123!', { timeout: ACTION_TIMEOUT });
+  await page.getByRole('button', { name: /continue/i }).click({ timeout: ACTION_TIMEOUT });
 
   await page.getByTestId('import-recovery-method').waitFor({ timeout: timeoutMs });
-  await page.getByText(/import public account/i).click();
-  await page.getByRole('button', { name: /continue/i }).click();
+  await page.getByText(/import public account/i).click({ timeout: ACTION_TIMEOUT });
+  await page.getByRole('button', { name: /continue/i }).click({ timeout: ACTION_TIMEOUT });
 
   await page.getByTestId('onboarding-confirmation').waitFor({ timeout: timeoutMs });
-  await page.getByTestId('onboarding-confirmation-submit').click();
+  await page.getByTestId('onboarding-confirmation-submit').click({ timeout: ACTION_TIMEOUT });
 
   // "Open wallet" only renders once the store is Ready — deliberately NOT
   // clicked: it hands off to the Chrome side panel and closes this tab.
@@ -153,16 +176,25 @@ export async function completeSeedImportOnboarding(page: Page, fullpageUrl: stri
 
 /**
  * The untruncated address the wallet UI itself shows the user, read from the
- * Receive screen's `receive-address-full` node. Independent of anything the
- * dApp bridge returns, so it can serve as ground truth for "the dApp was handed
- * the account the user is actually looking at".
+ * Receive screen's `receive-address-full` node.
+ *
+ * WHAT THIS ESTABLISHES, precisely. It is read through the wallet's own UI and
+ * not from anything the dApp bridge returned, so comparing a bridge-returned
+ * address against it proves the bridge resolved AN address and that it is the
+ * identifier the wallet displays. It does NOT prove account selection: Receive
+ * renders `useAccount().publicKey` and ConfirmPage hands the service worker
+ * that same `account.publicKey`, so in a single-account wallet there is no
+ * second account for the bridge to pick by mistake. The failure modes it does
+ * catch are a bridge response missing the field entirely (the page-side
+ * `provider.address ?? ''` coerces that to `''`) and a response carrying the
+ * wrong one of the session's two identifiers (`accountId` vs `publicKey`).
  *
  * The node is `sr-only`, so it is awaited ATTACHED rather than visible. An
  * attached-but-unpopulated node would silently yield `''` and make every later
  * comparison against it meaningless, so an empty read throws here instead.
  */
 export async function readWalletAddress(page: Page, fullpageUrl: string, timeoutMs = 30_000): Promise<string> {
-  await page.goto(`${fullpageUrl}#/receive`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${fullpageUrl}#/receive`, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
   const node = page.getByTestId('receive-address-full');
   await node.waitFor({ state: 'attached', timeout: timeoutMs });
   const address = (await node.innerText()).trim();
@@ -187,6 +219,11 @@ export async function readWalletAddress(page: Page, fullpageUrl: string, timeout
  *    `fetch` and Node's fetch refuses `file:` URLs. Same shim as
  *    `playwright/fixtures/mockWebClient.ts`, where it is already proven.
  *
+ * The shim is installed on the Node test process's `globalThis` and is RESTORED
+ * in a `finally` as soon as the WASM is up. `workers: 1` + `fullyParallel:
+ * false` means every later spec file in this worker shares that global, and a
+ * helper has no business leaving a patched `fetch` behind it.
+ *
  * Memoized — WASM init is expensive and a second one is wasted work.
  */
 let sdkPromise: Promise<typeof import('@miden-sdk/miden-sdk/lazy')> | null = null;
@@ -204,9 +241,13 @@ export function loadMidenSdk(): Promise<typeof import('@miden-sdk/miden-sdk/lazy
       return originalFetch(input, init);
     };
 
-    const sdk = await import('@miden-sdk/miden-sdk/lazy');
-    await sdk.MidenClient.ready();
-    return sdk;
+    try {
+      const sdk = await import('@miden-sdk/miden-sdk/lazy');
+      await sdk.MidenClient.ready();
+      return sdk;
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   })();
   return sdkPromise;
 }
@@ -245,7 +286,8 @@ export async function readQueuedTransactions(page: Page): Promise<QueuedTransact
                 type: String(row.type ?? ''),
                 amount: String(row.amount ?? ''),
                 faucetId: String(row.faucetId ?? ''),
-                recipient: String(row.secondaryAccountId ?? '')
+                recipient: String(row.secondaryAccountId ?? ''),
+                noteType: String(row.noteType ?? '')
               });
             }
             resolve(rows);
