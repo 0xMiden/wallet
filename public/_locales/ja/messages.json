@@ -2287,6 +2287,10 @@
     "message": "最終同期",
     "englishSource": "Last sync"
   },
+  "guardianRotationComplete": {
+    "message": "ガーディアンが更新されました！",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "オンライン",
     "englishSource": "Online"
@@ -2595,6 +2599,10 @@
   "viewInActivities": {
     "message": "アクティビティで見る",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "アクティビティの表示",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "詳細を見る",
