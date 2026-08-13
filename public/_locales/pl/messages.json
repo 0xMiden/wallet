@@ -2243,6 +2243,10 @@
     "message": "Ostatnia synchronizacja",
     "englishSource": "Last sync"
   },
+  "guardianRotationComplete": {
+    "message": "Strażnik zaktualizowany!",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "W Internecie",
     "englishSource": "Online"
@@ -2546,6 +2550,10 @@
   "viewInActivities": {
     "message": "Zobacz w Aktywności",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "Zobacz aktywność",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Zobacz szczegóły",

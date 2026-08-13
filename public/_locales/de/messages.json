@@ -2291,6 +2291,10 @@
     "message": "Letzte Synchronisierung",
     "englishSource": "Last sync"
   },
+  "guardianRotationComplete": {
+    "message": "Wächter aktualisiert!",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "Online",
     "englishSource": "Online"
@@ -2599,6 +2603,10 @@
   "viewInActivities": {
     "message": "In Aktivitäten anzeigen",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "Aktivität anzeigen",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Details anzeigen",

@@ -2255,6 +2255,10 @@
       }
     }
   },
+  "guardianRotationComplete": {
+    "message": "Guardian Updated!",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "Online",
     "englishSource": "Online"
@@ -2558,6 +2562,10 @@
   "viewInActivities": {
     "message": "View in Activities",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "View activity",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "View Details",

@@ -2304,6 +2304,10 @@
       }
     }
   },
+  "guardianRotationComplete": {
+    "message": "Опікун оновлено!",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "Онлайн",
     "englishSource": "Online"
@@ -2612,6 +2616,10 @@
   "viewInActivities": {
     "message": "Переглянути в Діяльності",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "Переглянути діяльність",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Переглянути деталі",

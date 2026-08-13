@@ -2291,6 +2291,10 @@
     "message": "上次同步",
     "englishSource": "Last sync"
   },
+  "guardianRotationComplete": {
+    "message": "守护者更新了！",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "在线的",
     "englishSource": "Online"
@@ -2599,6 +2603,10 @@
   "viewInActivities": {
     "message": "在活动中查看",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "查看活动",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "查看详情",

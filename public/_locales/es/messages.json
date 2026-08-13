@@ -2255,6 +2255,10 @@
       }
     }
   },
+  "guardianRotationComplete": {
+    "message": "¡Guardián actualizado!",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "En línea",
     "englishSource": "Online"
@@ -2558,6 +2562,10 @@
   "viewInActivities": {
     "message": "Ver en actividades",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "Ver actividad",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Ver detalles",
@@ -2893,6 +2901,15 @@
   "incomingTransfersCount": {
     "message": "$count$ transferencias entrantes",
     "englishSource": "$count$ incoming transfers",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "notesUnresolved": {
+    "message": "$count$ sin resolver",
+    "englishSource": "$count$ unresolved",
     "placeholders": {
       "count": {
         "content": "$1"
