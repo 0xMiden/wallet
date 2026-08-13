@@ -500,6 +500,47 @@ export class IosWalletPage implements WalletPage {
   // ── Claim ─────────────────────────────────────────────────────────────────
 
   /**
+   * Refresh the store's balances projection, then total it.
+   *
+   * The refresh is the whole point. `st.balances` is only ever written by the
+   * `useAllBalances` poll, which lives in `Balance.tsx` / `Explore.tsx` /
+   * `TokenDetail.tsx` — none of which are mounted while the wallet sits on
+   * `/generating-transaction-full/:txId` waiting for a claim. Reading the store
+   * from that screen therefore returns whatever it held when the user left home,
+   * forever: a claim can land on-chain and the number never moves.
+   *
+   * `getBalance()` dodges this by calling `navigateHome()` first, but navigating
+   * away mid-claim is not safe here — on mobile the transaction page itself
+   * drives the processing loop. So drive the store's own `fetchBalances` action
+   * instead, which is exactly what the mounted poll does, and read the result.
+   */
+  private async readRefreshedBalanceTotal(): Promise<number> {
+    return this.cdp.evalAsync<number>(
+      `var cb = arguments[arguments.length - 1]; ` +
+        `var s = window.__TEST_STORE__; ` +
+        `if (!s) { cb(0); return; } ` +
+        `var read = function () { ` +
+        `  var balances = s.getState().balances || {}; ` +
+        `  for (var k in balances) { ` +
+        `    var list = balances[k]; ` +
+        `    if (!Array.isArray(list)) continue; ` +
+        `    for (var i = 0; i < list.length; i++) { ` +
+        `      var t = list[i]; ` +
+        `      var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
+        `      if (amt > 0) { cb(amt); return; } ` +
+        `    } ` +
+        `  } ` +
+        `  cb(0); ` +
+        `}; ` +
+        `var st = s.getState(); ` +
+        `var addr = st.currentAccount && st.currentAccount.publicKey; ` +
+        `if (!addr || typeof st.fetchBalances !== 'function') { read(); return; } ` +
+        `try { Promise.resolve(st.fetchBalances(addr, st.assetsMetadata || {})).then(read, read); } ` +
+        `catch (e) { read(); }`
+    );
+  }
+
+  /**
    * Tap "Claim All" and wait until a consumed balance shows up in the store.
    * Throws if it never does within `timeoutMs` — see the comment at the end.
    */
@@ -581,22 +622,7 @@ export class IosWalletPage implements WalletPage {
       await this.triggerSync();
       await sleep(5_000);
       await pumpProveTimings();
-      const balance = await this.cdp.eval<number>(
-        `var s = window.__TEST_STORE__; ` +
-          `if (!s) return 0; ` +
-          `var st = s.getState(); ` +
-          `var balances = st.balances || {}; ` +
-          `for (var k in balances) { ` +
-          `  var list = balances[k]; ` +
-          `  if (!Array.isArray(list)) continue; ` +
-          `  for (var i = 0; i < list.length; i++) { ` +
-          `    var t = list[i]; ` +
-          `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
-          `    if (amt > 0) return amt; ` +
-          `  } ` +
-          `} ` +
-          `return 0;`
-      );
+      const balance = await this.readRefreshedBalanceTotal();
       if (balance > 0) {
         await pumpProveTimings();
         await this.navigateHome();
@@ -636,24 +662,7 @@ export class IosWalletPage implements WalletPage {
       while (Date.now() - graceStart < graceMs) {
         await sleep(5_000);
         await this.triggerSync();
-        const late = await this.cdp
-          .eval<number>(
-            `var s = window.__TEST_STORE__; ` +
-              `if (!s) return 0; ` +
-              `var st = s.getState(); ` +
-              `var balances = st.balances || {}; ` +
-              `for (var k in balances) { ` +
-              `  var list = balances[k]; ` +
-              `  if (!Array.isArray(list)) continue; ` +
-              `  for (var i = 0; i < list.length; i++) { ` +
-              `    var t = list[i]; ` +
-              `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
-              `    if (amt > 0) return amt; ` +
-              `  } ` +
-              `} ` +
-              `return 0;`
-          )
-          .catch(() => 0);
+        const late = await this.readRefreshedBalanceTotal().catch(() => 0);
         if (late > 0) {
           await pumpProveTimings();
           await this.navigateHome();
