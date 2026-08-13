@@ -1,6 +1,6 @@
 import BigNumber from 'bignumber.js';
 
-import { fetchFromStorage } from 'lib/miden/front';
+import { fetchFromStorage, putToStorage } from 'lib/miden/front';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 
 import { FAUCET_ID_STORAGE_KEY } from './constants';
@@ -18,6 +18,7 @@ import {
 
 jest.mock('lib/miden/front', () => ({
   fetchFromStorage: jest.fn(),
+  putToStorage: jest.fn(),
   searchAssets: jest.fn(),
   useAllTokensBaseMetadata: jest.fn()
 }));
@@ -27,6 +28,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 }));
 
 const mockFetchFromStorage = fetchFromStorage as jest.Mock;
+const mockPutToStorage = putToStorage as jest.Mock;
 const mockGetNativeAssetId = getNativeAssetId as jest.Mock;
 
 describe('assets/utils', () => {
@@ -149,10 +151,28 @@ describe('assets/utils', () => {
   });
 
   describe('setFaucetIdSetting', () => {
-    it('stores faucet id in localStorage', () => {
-      setFaucetIdSetting('new-faucet-id');
+    it('persists through putToStorage — the same adapter getFaucetIdSetting reads — not raw localStorage (#590)', async () => {
+      await setFaucetIdSetting('new-faucet-id');
 
-      expect(localStorage.getItem(FAUCET_ID_STORAGE_KEY)).toBe('new-faucet-id');
+      expect(mockPutToStorage).toHaveBeenCalledWith(FAUCET_ID_STORAGE_KEY, 'new-faucet-id');
+      // The bug: the old setter wrote raw localStorage, which the extension's
+      // fetchFromStorage adapter never reads — so the write reported success but
+      // never took effect. The setter must NOT touch raw localStorage anymore.
+      expect(localStorage.getItem(FAUCET_ID_STORAGE_KEY)).toBeNull();
+    });
+
+    it('round-trips: a value written by setFaucetIdSetting is read back by getFaucetIdSetting (#590)', async () => {
+      // Wire the mocked adapter as a shared store so the two halves cannot drift:
+      // putToStorage writes it, fetchFromStorage reads it.
+      let stored: string | null = null;
+      mockPutToStorage.mockImplementation(async (_key: string, value: string) => {
+        stored = value;
+      });
+      mockFetchFromStorage.mockImplementation(async () => stored);
+
+      await setFaucetIdSetting('0xround-trip-faucet');
+
+      expect(await getFaucetIdSetting()).toBe('0xround-trip-faucet');
     });
   });
 
