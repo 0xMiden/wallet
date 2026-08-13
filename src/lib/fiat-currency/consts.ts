@@ -1,8 +1,5 @@
 import { FiatCurrenciesEnum, FiatCurrencyOption } from './types';
 
-export const ALEO_MICROCREDITS_TO_CREDITS = 1_000_000;
-export const ALEO_DECIMALS = 6;
-
 export const FIAT_CURRENCIES: Array<FiatCurrencyOption> = [
   {
     name: FiatCurrenciesEnum.USD,

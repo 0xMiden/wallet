@@ -30,7 +30,9 @@ const RotateGuardian: FC = () => {
   return (
     <PageLayout pageTitle={<>{t('rotateGuardian')}</>}>
       <ChooseGuardianScreen onSubmit={handleSubmit} currentEndpoint={currentEndpoint} allowCustomEndpoint />
-      {error && <div className="px-6 pb-6 -mt-2 text-red-500 text-xs text-center select-text">{error}</div>}
+      {error && (
+        <div className="px-6 pb-6 -mt-2 text-red-500 text-xs text-center select-text wrap-break-word">{error}</div>
+      )}
     </PageLayout>
   );
 };

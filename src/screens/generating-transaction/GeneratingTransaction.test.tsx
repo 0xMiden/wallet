@@ -249,6 +249,29 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
+  // #602 — the processing screen nests a fixed-height full-screen page
+  // (overflow-hidden) > this flex-1 wrapper (default overflow:visible) > the
+  // `overflow-y-auto` scroll region. Flexbox gives a visible flex item an
+  // automatic minimum size equal to its content, so WITHOUT `min-h-0` this
+  // wrapper refuses to shrink to its viewport slot on a short (safe-area-inset)
+  // phone; the parent then clips it and the scroll region inherits a height ==
+  // its content (zero scroll range), leaving the pinned footer "Hide" CTA on a
+  // two-line-title flow (Earn, guardian, …) spilled below the viewport and
+  // unreachable. This pins the guard on the wrapper that actually needs it —
+  // NOT the scroll region (already auto-min 0 via overflow-y-auto).
+  it('keeps the processing scroll chain shrinkable (min-h-0) so the footer CTA can never be clipped (#602)', async () => {
+    mockRowState = { row: makeTx({ type: 'earn-deposit', stage: 'submitting' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    const scroller = container.querySelector('.overflow-y-auto'); // the single scroll region
+    expect(scroller).not.toBeNull();
+    const shrinkableWrapper = scroller!.parentElement as HTMLElement;
+    expect(shrinkableWrapper).toHaveClass('flex-1'); // it is the flex-1 wrapper feeding the scroll region
+    expect(shrinkableWrapper).toHaveClass('min-h-0'); // ...and it must be allowed to shrink to its slot
+    act(() => root.unmount());
+  });
+
   it('records the completed tx hash when the row reaches Completed with a hash', async () => {
     mockRowState = { row: makeTx({ status: 2, transactionId: '0xdeadbeef' }), loaded: true };
 

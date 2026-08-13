@@ -131,6 +131,12 @@ test.describe('Guardian recovery - real UI journey', () => {
     await steps.step(
       'recovered_wallet_is_usable',
       async () => {
+        // Baseline BEFORE the mint. walletB recovered the SAME account id that
+        // walletA already claimed 100 MIDEN into, and getBalance sums unconsumed
+        // notes regardless of symbol — so `> 0` was already true before this
+        // step's mint existed, leaving claimAllNotes throwing as the step's only
+        // real failure mode. Assert the balance actually GREW instead.
+        const balanceBefore = await walletB.getBalance('TST');
         await midenCli.mint(faucetId!, addressB!, 25_000_000_000, 'public');
         await midenCli.sync();
         await walletB.claimAllNotes(120_000);
@@ -138,7 +144,7 @@ test.describe('Guardian recovery - real UI journey', () => {
         expect(
           balance,
           'the rotated [new-hot, cold] signer set must be able to co-sign a real consume'
-        ).toBeGreaterThan(0);
+        ).toBeGreaterThan(balanceBefore);
       },
       { screenshotWallets: [{ target: walletB.page, label: 'B' }] }
     );
