@@ -171,7 +171,11 @@ test.describe('Onboarding — create', () => {
       address = await walletA.getAccountAddress();
       // bech32, network-prefixed (mtst…/mdev…/…). A wallet that reports "unknown"
       // or an empty string here has no usable identity, whatever the UI showed.
-      expect(address, 'the created wallet must report a bech32 account address').toMatch(/^m[a-z]{1,4}1[a-z0-9]+/i);
+      // Composite id (`<bech32 address>_<suffix>`); anchored so a truncated or
+      // empty address cannot slip through on a prefix match alone.
+      expect(address, 'the created wallet must report a bech32 account address').toMatch(
+        /^m[a-z]{1,4}1[a-z0-9]+(_[a-z0-9]+)?$/i
+      );
 
       // The guardian the user PICKED must be the guardian the account actually
       // bound to. `Vault.spawn` stamps `guardianEndpoint` on the account record

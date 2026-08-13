@@ -75,7 +75,9 @@ test.describe('Seed Phrase Backup and Verification', () => {
     await steps.step('create_wallet_a', async () => {
       const created = await walletA.createNewWallet(PASSWORD);
       addressA = created.address;
-      expect(addressA).toMatch(/^m[a-z]{1,4}1[a-z0-9]+$/i);
+      // The wallet reports a COMPOSITE id — `<bech32 address>_<suffix>` — so the
+      // optional trailing group is required for this to match a real address.
+      expect(addressA).toMatch(/^m[a-z]{1,4}1[a-z0-9]+(_[a-z0-9]+)?$/i);
     });
 
     await steps.step('home_offers_the_backup_prompt', async () => {
