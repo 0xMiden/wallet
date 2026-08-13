@@ -6,6 +6,7 @@ import * as path from 'path';
 import { getEnvironmentConfig } from '../config/environments';
 import { attachConsoleCapture } from '../harness/browser-capture';
 import { CLIRunner } from '../harness/cli-runner';
+import { assertExtensionNetworkMatches } from '../harness/extension-network';
 import { buildFailureReport, saveFailureReport } from '../harness/failure-report';
 import { installGuardianFaults, type GuardianFaultPolicy, type GuardianOrigins } from '../harness/guardian-fault';
 import {
@@ -81,12 +82,19 @@ const AGENTIC_TIMEOUT_MS = parseInt(process.env.E2E_AGENTIC_TIMEOUT ?? '600000',
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+// Resolve the unpacked extension to load, refusing anything that isn't a build
+// for THIS run's network. `MIDEN_NETWORK` is baked in at build time, so a
+// leftover dist/ from an earlier build happily drives, say, a testnet wallet
+// against the localhost harness -- the CLI mints on one chain, the wallet syncs
+// another, and the suite reports product-shaped failures (or worse, passes
+// while testing nothing). See harness/extension-network.ts for the signal.
 function getExtensionPath(): string {
   const extensionPath = process.env.EXTENSION_DIST ?? DEFAULT_EXTENSION_PATH;
   const manifestPath = path.join(extensionPath, 'manifest.json');
   if (!fs.existsSync(manifestPath)) {
     throw new Error(`Extension not found at ${extensionPath}. Run "yarn test:e2e:blockchain:build" first.`);
   }
+  assertExtensionNetworkMatches(extensionPath, getEnvironmentConfig().name);
   return extensionPath;
 }
 

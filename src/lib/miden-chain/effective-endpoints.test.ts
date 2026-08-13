@@ -54,6 +54,7 @@ beforeEach(() => {
   for (const k of Object.keys(mockKvStore)) delete mockKvStore[k];
   mockThrows = false;
   delete process.env.MIDEN_E2E_TEST;
+  delete process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES;
 });
 
 describe('effective-endpoints resolver', () => {
@@ -86,13 +87,37 @@ describe('effective-endpoints resolver', () => {
     expect(await m.isEndpointOverrideActive()).toBe(false);
   });
 
-  it('loadEndpointOverrides is a no-op under MIDEN_E2E_TEST', async () => {
+  it('loadEndpointOverrides is a no-op under MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES', async () => {
     mockKvStore['endpoint_overrides'] = { rpcUrl: 'https://should.ignore/rpc' };
-    process.env.MIDEN_E2E_TEST = 'true';
+    process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES = 'true';
     const m = loadModule();
     await m.loadEndpointOverrides();
     expect(m.getActiveOverride()).toBeNull();
     expect(m.getEffectiveRpcUrl()).toBe(MIDEN_NETWORK_ENDPOINTS.get(m.getEffectiveNetworkName()));
+  });
+
+  it('loadEndpointOverrides still applies the override under MIDEN_E2E_TEST alone', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    const m = loadModule();
+    const override = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
+    override.rpcUrl = 'https://custom.example/rpc';
+    await m.applyEndpointOverride(override);
+
+    const m2 = loadModule();
+    await m2.loadEndpointOverrides();
+    expect(m2.getEffectiveRpcUrl()).toBe('https://custom.example/rpc');
+  });
+
+  it('loadEndpointOverrides ignores a non-"true" value of the opt-out flag', async () => {
+    process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES = 'false';
+    const m = loadModule();
+    const override = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
+    override.rpcUrl = 'https://custom.example/rpc';
+    await m.applyEndpointOverride(override);
+
+    const m2 = loadModule();
+    await m2.loadEndpointOverrides();
+    expect(m2.getEffectiveRpcUrl()).toBe('https://custom.example/rpc');
   });
 
   it('note-transport env override wins over the per-network default but loses to an explicit override', () => {

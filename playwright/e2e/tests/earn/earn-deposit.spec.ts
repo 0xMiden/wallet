@@ -1,4 +1,5 @@
 import { expect, test } from '../../fixtures/two-wallets';
+import { waitForPendingNoteTotal, waitForVaultBalance } from '../../helpers/balance-truth';
 import { FakeEpochAllocator } from '../../helpers/fake-epoch-allocator';
 import { FakeEpochPositions } from '../../helpers/fake-epoch-positions';
 import { swOf } from '../../helpers/swap';
@@ -39,8 +40,10 @@ const POSITIONS_PORT = 8549;
 
 /** Collateral faucet: 6dp, mirrors MIDEN_USDC_DECIMALS. */
 const COLLATERAL_DECIMALS = 6;
+/** Symbol of the CLI-deployed collateral faucet (see `createFaucet` below). */
+const COLLATERAL_SYMBOL = 'EUSDC';
 /** Base units minted to walletA = 1000 USDC @ 6dp (>> the 10 USDC deposit). */
-const COLLATERAL_MINT = 1_000_000_000;
+const COLLATERAL_MINT = 1_000_000_000n;
 /** Human USDC amount typed into the deposit review route. */
 const DEPOSIT_AMOUNT = '10';
 
@@ -84,12 +87,33 @@ test.describe('earn: deposit happy path', () => {
     const addressA = await walletA.getAccountAddress();
 
     await midenCli.init();
-    const faucetHex = await midenCli.createFaucet('EUSDC', COLLATERAL_DECIMALS);
+    const faucetHex = await midenCli.createFaucet(COLLATERAL_SYMBOL, COLLATERAL_DECIMALS);
     await midenCli.mint(faucetHex, addressA, COLLATERAL_MINT, 'public');
     await midenCli.sync();
 
-    await walletA.waitForBalanceAbove(0, 150_000, timeline);
+    // Funding gate for the whole test: the deposit locks COLLATERAL as SPENDABLE
+    // vault money, so both halves have to be exact. The mint lands as an
+    // unconsumed NOTE (pending, not spendable) …
+    await waitForPendingNoteTotal(walletA.page, COLLATERAL_SYMBOL, COLLATERAL_MINT, {
+      timeoutMs: 150_000,
+      decimals: COLLATERAL_DECIMALS
+    });
     await walletA.claimAllNotes(150_000);
+    // … and only the claim turns it into vault balance. `waitForBalanceAbove(0)`
+    // summed vault + unconsumed notes across EVERY token, so it went true on the
+    // mint alone and stayed true even if the claim never consumed anything —
+    // leaving the deposit to run against collateral the wallet cannot spend.
+    await walletA.refreshBalances();
+    await waitForVaultBalance(walletA.page, COLLATERAL_SYMBOL, COLLATERAL_MINT, {
+      timeoutMs: 60_000,
+      decimals: COLLATERAL_DECIMALS
+    });
+    timeline.emit({
+      category: 'blockchain_state',
+      severity: 'info',
+      message: `Wallet A holds ${COLLATERAL_MINT} base units of ${COLLATERAL_SYMBOL} as spendable collateral`,
+      data: { symbol: COLLATERAL_SYMBOL, baseUnits: COLLATERAL_MINT.toString() }
+    });
 
     // The earn collateral-faucet override (`__TEST_SET_EARN_FAUCET__`, page realm —
     // see src/lib/store/index.ts) is applied just before confirming the deposit
