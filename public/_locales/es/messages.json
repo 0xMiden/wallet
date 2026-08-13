@@ -2907,6 +2907,15 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ sin resolver",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "noteClaimFailedRetry": {
     "message": "Reclamación fallida: toca Reintentar para volver a intentarlo",
     "englishSource": "Claim failed — tap Retry to try again"
