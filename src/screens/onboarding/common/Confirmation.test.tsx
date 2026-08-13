@@ -250,27 +250,27 @@ describe('ConfirmationScreen', () => {
         fireEvent.click(screen.getByTestId('btn-tryBiometricAgain'));
       }).not.toThrow();
     });
-  
-  describe('recovery error (#630)', () => {
-    it('renders the failure reason so a wiped wallet is explained, not silent', () => {
-      renderComponent({ recoveryError: 'guardian not found' });
 
-      // The reset that precedes registration is destructive; the reason must be
-      // on screen rather than console-only, and selectable so it can be reported.
-      expect(screen.getByText('guardian not found')).toBeInTheDocument();
-    });
+    describe('recovery error (#630)', () => {
+      it('renders the failure reason so a wiped wallet is explained, not silent', () => {
+        renderComponent({ recoveryError: 'guardian not found' });
 
-    it('offers Retry rather than Open Wallet while a recovery error is showing', () => {
-      renderComponent({ recoveryError: 'boom' });
+        // The reset that precedes registration is destructive; the reason must be
+        // on screen rather than console-only, and selectable so it can be reported.
+        expect(screen.getByText('guardian not found')).toBeInTheDocument();
+      });
 
-      expect(screen.queryByText('openWallet')).not.toBeInTheDocument();
-    });
+      it('offers Retry rather than Open Wallet while a recovery error is showing', () => {
+        renderComponent({ recoveryError: 'boom' });
 
-    it('renders nothing extra when there is no recovery error', () => {
-      renderComponent({});
+        expect(screen.queryByText('openWallet')).not.toBeInTheDocument();
+      });
 
-      expect(screen.queryByText('guardian not found')).not.toBeInTheDocument();
+      it('renders nothing extra when there is no recovery error', () => {
+        renderComponent({});
+
+        expect(screen.queryByText('guardian not found')).not.toBeInTheDocument();
+      });
     });
   });
-});
 });
