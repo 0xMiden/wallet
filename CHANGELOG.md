@@ -9,7 +9,7 @@
 
 ### Changes
 
-- [CHANGE][ci] **Stop the guardian-lifecycle E2E harness from failing runs that actually succeeded.** `claimAllNotes`/`claimNotesByGroup` billed their ~8-12s reload against the caller's drain budget and could time out mid-way through the two-sample "drained" confirmation, failing a wallet whose note had in fact been claimed; the clock now starts after the reload and a cut-short confirmation finishes its second sample. The failure dump also renders `status` by name and sorts by `initiatedAt`, so a Completed row no longer reads as in-flight. (#615)
+- [CHANGE][ci] **Stop the guardian-lifecycle E2E harness from failing runs that actually succeeded.** `claimAllNotes`/`claimNotesByGroup` billed their ~8-12s reload against the caller's drain budget, and the deadline is only checked between iterations, so a note that drained mid-iteration could expire the clock and fail a wallet that had in fact claimed it. Both now start the clock after the reload and share one tail that re-samples at the deadline, applying the same two-consecutive-zeros rule before failing. The failure dump also renders `status` by name and sorts by `initiatedAt`, so a Completed row no longer reads as in-flight. (#615)
 - Add hidden developer endpoint configuration (7-tap the Welcome logo during onboarding) to override RPC / prover / note-transport / faucet / explorer / guardian endpoints and network ID; read-only view with reset-to-defaults in Settings.
 
 ### Fixes

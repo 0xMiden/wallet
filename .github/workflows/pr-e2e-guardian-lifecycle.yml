@@ -15,16 +15,21 @@ jobs:
   # wired into pr-e2e-local.yml), switch/recovery scenarios need a SECOND,
   # distinct-keypair guardian ("B", :3001) to switch/recover TO — brought up
   # via the `guardian-switch` compose profile (docker-compose.local.yml).
-  # As of this writing the switch/recovery specs don't exist yet (later
-  # phases of the same project); this job is scaffolding that picks them up
-  # automatically once they land, via playwright.guardian.config.ts's
-  # `**/guardian-*.spec.ts` testMatch. guardian-lifecycle-e2e-gate is the
-  # stable required-check name.
-  # KNOWN FLAKE (#615): guardian-recovery.spec.ts:65 fails ~10% of executions
-  # (~11 failures / ~110 real runs, 2026-08-04 -> 2026-08-12) with a
-  # claimAllNotes timeout and guardian 401/429 in the transaction dump. It has
-  # been present since the spec landed — there is NO regression commit, do not
-  # bisect main. This is NOT #522 (that is the SDK-0.16 protocol gate).
+  # The specs are live (seven guardian-*.spec.ts files), picked up via
+  # playwright.guardian.config.ts's `**/guardian-*.spec.ts` testMatch.
+  # guardian-lifecycle-e2e-gate is the stable required-check name.
+  # #615: guardian-recovery.spec.ts:65 flaked ~10% of executions (~11 failures /
+  # ~110 real runs, 2026-08-04 -> 2026-08-12) since the spec landed — there was
+  # no regression commit. The cause was a harness false negative: claimAllNotes
+  # billed its reload against the drain budget and could time out mid-way through
+  # its two-sample "drained" confirmation, failing wallets that HAD drained. Fixed
+  # here; the dump now also renders `status` by name so a Completed row cannot be
+  # misread as in-flight.
+  #
+  # A red run on this job is therefore NOT pre-excused. Guardian 401/429 handling
+  # is tracked separately (#617 rate-limit requeue, #619 post-rotation
+  # re-register) — if a failure shows those, triage it, don't assume flake.
+  # This is NOT #522 (that is the SDK-0.16 protocol gate).
   guardian-lifecycle-e2e:
     name: guardian-lifecycle-e2e (chrome)
     runs-on: ubuntu-latest
