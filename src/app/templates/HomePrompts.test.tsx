@@ -75,6 +75,15 @@ jest.mock('lib/wallet-prompts', () => {
 
 jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 
+const mockInitiateReplaceHotKeyTransaction = jest.fn();
+const mockRequestSWTransactionProcessing = jest.fn();
+jest.mock('lib/miden/activity', () => ({
+  initiateReplaceHotKeyTransaction: (...args: unknown[]) => mockInitiateReplaceHotKeyTransaction(...args),
+  requestSWTransactionProcessing: () => mockRequestSWTransactionProcessing()
+}));
+jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: { tag: 'zustand-provider' } }));
+jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => true }));
+jest.mock('lib/platform', () => ({ isExtension: () => false }));
 // FundWalletDrawer — passthrough stub exposing the funding lifecycle props so
 // the wiring (open / state / errorMessage / onRetry / onDone / onOpenChange)
 // can be asserted without dragging the real vaul drawer into the DOM.
@@ -675,6 +684,76 @@ describe('HomePrompts', () => {
     await waitFor(() => {
       expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'success');
     });
+  });
+
+  it('initiates a hot-key rotation and routes to the generating-transaction page from the rotation prompt', async () => {
+    const completePrompt = jest.fn();
+    mockInitiateReplaceHotKeyTransaction.mockResolvedValue('tx-rotate-1');
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        completePrompt,
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.HotKeyRotationNeeded]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        },
+        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyRotationNeeded
+      })
+    );
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'hotKeyRotationPromptAction' }));
+
+    await waitFor(() =>
+      expect(mockInitiateReplaceHotKeyTransaction).toHaveBeenCalledWith('accountA', true, { tag: 'zustand-provider' })
+    );
+    expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.HotKeyRotationNeeded);
+    expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/generating-transaction/tx-rotate-1');
+  });
+
+  it('marks the rotation action failed when the initiate rejects, without completing the prompt', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const completePrompt = jest.fn();
+    mockInitiateReplaceHotKeyTransaction.mockRejectedValue(new Error('not a guardian account'));
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        completePrompt,
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.HotKeyRotationNeeded]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        },
+        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyRotationNeeded
+      })
+    );
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'hotKeyRotationPromptAction' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
+    });
+    expect(completePrompt).not.toHaveBeenCalled();
+    expect(jest.requireMock('lib/woozie').navigate).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 
   it('marks the copy action failed when the clipboard rejects', async () => {
