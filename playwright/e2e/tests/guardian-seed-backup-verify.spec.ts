@@ -1,4 +1,8 @@
+import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
+
+// The guardian this spec creates against — same source guardian-recovery uses.
+const GUARDIAN_URL = getEnvironmentConfig().guardianUrl;
 
 /**
  * "The seed phrase I am shown is the one that actually restores my wallet."
@@ -73,7 +77,7 @@ test.describe('Seed Phrase Backup and Verification', () => {
     let revealed: string[] = [];
 
     await steps.step('create_wallet_a', async () => {
-      const created = await walletA.createNewWallet(PASSWORD);
+      const created = await walletA.createGuardianWallet(GUARDIAN_URL, PASSWORD);
       addressA = created.address;
       // The wallet reports a COMPOSITE id — `<bech32 address>_<suffix>` — so the
       // optional trailing group is required for this to match a real address.
@@ -210,9 +214,16 @@ test.describe('Seed Phrase Backup and Verification', () => {
       'restore_from_those_words_in_wallet_b',
       async () => {
         // The assertion the whole spec exists for: a fresh instance, given only
-        // the words the first wallet displayed, lands on the same account.
-        const restored = await walletB.importWallet(revealed, PASSWORD);
-        expect(restored.address).toBe(addressA);
+        // the words the first wallet DISPLAYED, lands on the same account.
+        //
+        // Restores the way a locked-out user actually would — Welcome ->
+        // "Recover your account" -> the 12-word grid -> password ->
+        // guardian auto-detection -> the device-key rotation gate. That is
+        // also the restore path with real coverage (guardian-recovery.spec.ts),
+        // which the offchain `importWallet` bypass has none of.
+        await walletB.recoverGuardianFromSeed(revealed.join(' '), { viaUI: true });
+        const addressB = await walletB.getAccountAddress();
+        expect(addressB, 'the displayed phrase must restore the SAME account').toBe(addressA);
       },
       {
         captureStateFrom: [{ target: walletB.page, label: 'B', extensionId: walletB.extensionId }]
