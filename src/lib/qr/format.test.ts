@@ -53,6 +53,15 @@ describe('QR format utilities', () => {
       expect(isValidMidenAddress(mainnetAddress)).toBe(true);
     });
 
+    it('validates devnet and localnet addresses instead of rejecting them (#599)', () => {
+      // The QR validator passes any decodable Miden address (the send screen
+      // surfaces wrong-network afterward). Regression for #599, where a real
+      // localnet 'mlcl1…' address failed the scan with "invalid Miden address".
+      expect(isValidMidenAddress('mdev1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph')).toBe(true);
+      expect(isValidMidenAddress('mlcl1araq55u3a4tsqsfznep06x8t9q4cr0amqr7qqq9wr6w')).toBe(true);
+      expect(isValidMidenAddress('mlcl1araq55u3a4tsqsfznep06x8t9q4cr0am_qr7qqq9wr6w')).toBe(true);
+    });
+
     it('rejects empty string', () => {
       expect(isValidMidenAddress('')).toBe(false);
     });

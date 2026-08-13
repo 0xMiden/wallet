@@ -4,17 +4,12 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import SearchInputDefault, { SearchInput } from './SearchInput';
 
-jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
-}));
-
-jest.mock('lib/mobile/haptics', () => ({
-  hapticLight: jest.fn()
-}));
-
+// SearchInput now pulls in i18n (for the clear button's aria-label) and the icon
+// set (for the clear icon), so both are stubbed. `t` echoes the key back.
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('app/icons/v2', () => ({
-  IconName: { Close: 'Close' },
-  Icon: ({ name, className }: { name: string; className?: string }) => <span data-name={name} className={className} />
+  Icon: ({ name }: { name: string }) => <svg data-testid={`icon-${name}`} />,
+  IconName: { CloseCircleFill: 'close-circle-fill' }
 }));
 
 const getInput = () => screen.getByRole('textbox') as HTMLInputElement;
@@ -62,6 +57,8 @@ describe('SearchInput — container & input classes', () => {
     expect(wrapper.className).toContain('bg-gray-25');
     expect(wrapper.className).toContain('rounded-3xl');
     expect(wrapper.className).toContain('h-14');
+    // #503 — the container is now the positioning context for the clear button.
+    expect(wrapper.className).toContain('relative');
   });
 
   it('appends a caller-supplied className onto the base container classes', () => {
@@ -80,38 +77,8 @@ describe('SearchInput — container & input classes', () => {
     expect(input.className).toContain('bg-transparent');
     expect(input.className).toContain('outline-none');
     expect(input.className).toContain('text-center');
-    expect(input.className).toContain('placeholder:text-text-muted');
-    expect(input.className).toContain('placeholder:font-medium');
+    expect(input.className).toContain('placeholder:text-placeholder-gray');
     expect(input.className).toContain('font-bold');
-  });
-});
-
-describe('SearchInput — focus placeholder & clear', () => {
-  it('hides the placeholder while focused so it cannot look like typed text', () => {
-    render(<SearchInput value="" onChange={jest.fn()} placeholder="Find a token" />);
-
-    const input = getInput();
-    expect(input.getAttribute('placeholder')).toBe('Find a token');
-
-    fireEvent.focus(input);
-    expect(input.hasAttribute('placeholder')).toBe(false);
-
-    fireEvent.blur(input);
-    expect(input.getAttribute('placeholder')).toBe('Find a token');
-  });
-
-  it('shows a clear button only when there is a value and clears on press', () => {
-    const onChange = jest.fn();
-    const { rerender } = render(<SearchInput value="" onChange={onChange} data-testid="token-search" />);
-
-    expect(screen.queryByTestId('token-search-clear')).toBeNull();
-
-    rerender(<SearchInput value="mid" onChange={onChange} data-testid="token-search" />);
-    const clear = screen.getByTestId('token-search-clear');
-    expect(clear).toHaveAttribute('aria-label', 'clearSearch');
-
-    fireEvent.click(clear);
-    expect(onChange).toHaveBeenCalledWith('');
   });
 });
 
@@ -243,5 +210,45 @@ describe('SearchInput — mobile enter key (regression)', () => {
   it('labels the return key Go in url mode with an onSubmit', () => {
     render(<SearchInput value="" onChange={jest.fn()} onSubmit={jest.fn()} inputMode="url" />);
     expect(getInput().getAttribute('enterkeyhint')).toBe('go');
+  });
+});
+
+describe('SearchInput — clear button & placeholder hint (#503)', () => {
+  it('shows the clear (X) button only when there is a value, and clears the input on click', () => {
+    const onChange = jest.fn();
+    const { rerender } = render(<SearchInput value="" onChange={onChange} placeholder="Search" />);
+    expect(screen.queryByLabelText('clear')).toBeNull(); // nothing to clear yet
+
+    rerender(<SearchInput value="usdc" onChange={onChange} placeholder="Search" />);
+    const clearBtn = screen.getByLabelText('clear');
+    expect(clearBtn).toBeInTheDocument();
+
+    fireEvent.click(clearBtn);
+    expect(onChange).toHaveBeenCalledWith('');
+  });
+
+  it('refocuses the input after clearing so the user can keep typing', () => {
+    render(<SearchInput value="usdc" onChange={jest.fn()} placeholder="Search" />);
+    fireEvent.click(screen.getByLabelText('clear'));
+    expect(document.activeElement).toBe(getInput());
+  });
+
+  it('reserves right padding for the clear button only when there is a value', () => {
+    const { rerender } = render(<SearchInput value="" onChange={jest.fn()} />);
+    expect(getInput().className).toContain('px-4');
+    expect(getInput().className).not.toContain('pr-11');
+
+    rerender(<SearchInput value="x" onChange={jest.fn()} />);
+    expect(getInput().className).toContain('pr-11');
+    expect(getInput().className).not.toContain('px-4');
+  });
+
+  it('styles the placeholder as a hint — lighter than the input text and hidden on focus', () => {
+    render(<SearchInput value="" onChange={jest.fn()} placeholder="Search for tokens" />);
+    const input = getInput();
+    expect(input.className).toContain('placeholder:font-normal');
+    expect(input.className).toContain('focus:placeholder:text-transparent');
+    // must NOT match the bold weight of a real value
+    expect(input.className).not.toContain('placeholder:font-bold');
   });
 });

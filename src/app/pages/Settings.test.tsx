@@ -69,6 +69,14 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticMedium: jest.fn()
 }));
 
+// External-browser helper: window.open a new tab on desktop / native
+// InAppBrowser overlay on mobile. Mocked so the "Send feedback" row can be
+// asserted without touching the real platform bridge.
+const mockOpenExternalUrl = jest.fn();
+jest.mock('lib/mobile/external-browser', () => ({
+  openExternalUrl: (...args: unknown[]) => mockOpenExternalUrl(...args)
+}));
+
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
   goBack: jest.fn()
@@ -308,6 +316,30 @@ describe('Settings page — root menu (non-guardian)', () => {
 
     expect(tos).toHaveAttribute('data-external', 'true');
     expect(tos).toHaveAttribute('data-slug', TERMS_OF_USE_URL);
+  });
+
+  it('renders a discoverable "Send feedback" row in the about group as a button (no route, keyboard-accessible)', () => {
+    render(<Settings tabSlug={null} />);
+
+    const feedback = screen.getByTestId('menuitem-sendFeedback');
+    expect(feedback).toBeInTheDocument();
+    expect(feedback).toHaveAttribute('data-selector', 'Settings/SendFeedbackButton');
+    // Not an external anchor and no route slug → the real MenuItem takes the
+    // `onClick && !slug` branch and renders a focusable <button>.
+    expect(feedback).toHaveAttribute('data-external', 'false');
+    expect(feedback).toHaveAttribute('data-slug', 'undefined');
+  });
+
+  it('opens the feedback form via the external browser (native webview on mobile / new tab on desktop) when clicked', () => {
+    render(<Settings tabSlug={null} />);
+
+    fireEvent.click(screen.getByTestId('menuitem-sendFeedback'));
+
+    expect(mockOpenExternalUrl).toHaveBeenCalledTimes(1);
+    expect(mockOpenExternalUrl).toHaveBeenCalledWith({
+      url: 'https://miden-feedback-form.miden-feedback-relay.workers.dev/',
+      title: 'Send feedback'
+    });
   });
 
   it('shows the resolved language label on the language item (known locale)', () => {

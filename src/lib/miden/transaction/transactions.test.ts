@@ -61,6 +61,11 @@ const mockGetMidenClient = jest.fn((): any => ({
   syncState: mockSyncState,
   getInputNote: mockGetInputNote
 }));
+// The #260 offscreen client proxy reads (syncState/getAccount) through the
+// `lib/...` alias of miden-client, which jest mocks separately from the relative
+// specifier below; delegate the alias to the same mock so the proxy's flag-off
+// passthrough hits it.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
   withWasmClientLock: jest.fn((fn: () => Promise<any>) => fn())
@@ -255,6 +260,55 @@ describe('transactions utilities', () => {
       });
 
       expect(mockModify).toHaveBeenCalled();
+    });
+
+    it('stamps stage="complete" on success so a finished tx stops reading as in-flight (#618)', async () => {
+      // setTransactionStage refuses post-terminal writes, so without this a
+      // completed replace-hot-key froze at 'confirming' and a completed guardian
+      // consume at 'guardian-synced' — both of which read as still-running.
+      const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'confirming' };
+      const row: Record<string, unknown> = { ...tx };
+      mockTransactionsWhere
+        .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
+        .mockReturnValueOnce({ modify: jest.fn(async (cb: (t: Record<string, unknown>) => void) => cb(row)) });
+
+      await updateTransactionStatus('tx-1', ITransactionStatus.Completed, {});
+
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(row.stage).toBe('complete');
+    });
+
+    it('stamps complete even when the payload is a whole row carrying a stale stage (#618)', async () => {
+      // completeCustomTransaction forwards interpretTransactionResult(...), which is
+      // the pick-time row object itself — so the payload DOES carry a `stage` key.
+      // A presence check on otherValues.stage would skip the stamp here and let
+      // Object.assign write the stale pick-time stage back over the DB's current one.
+      const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'guardian-synced' };
+      const row: Record<string, unknown> = { ...tx };
+      mockTransactionsWhere
+        .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
+        .mockReturnValueOnce({ modify: jest.fn(async (cb: (t: Record<string, unknown>) => void) => cb(row)) });
+
+      await updateTransactionStatus('tx-1', ITransactionStatus.Completed, {
+        stage: 'creating-proposal',
+        transactionId: 'hash-1'
+      } as never);
+
+      expect(row.stage).toBe('complete');
+      expect(row.transactionId).toBe('hash-1');
+    });
+
+    it('preserves the stage on FAILURE — it records where the failure happened (#618)', async () => {
+      const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'creating-proposal' };
+      const row: Record<string, unknown> = { ...tx };
+      mockTransactionsWhere
+        .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
+        .mockReturnValueOnce({ modify: jest.fn(async (cb: (t: Record<string, unknown>) => void) => cb(row)) });
+
+      await updateTransactionStatus('tx-1', ITransactionStatus.Failed, {});
+
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.stage).toBe('creating-proposal');
     });
 
     it('throws when transaction not found', async () => {
@@ -471,6 +525,36 @@ describe('transactions utilities', () => {
 
       expect(result).toBe('existing-tx');
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
+    });
+
+    it('clears a requeue cooldown on the blocking Queued row so an explicit retry is not silently ignored (#617)', async () => {
+      // A guardian 429 requeues the consume as Queued with nextEligibleAt up to
+      // 5 min out, and the FIFO loop skips it until then. Dedup means a fresh tap
+      // does NOT queue a second row — so without clearing the cooldown, tapping
+      // Claim would appear to do nothing for minutes. Regression guard: this is
+      // the interaction that made the guardian e2e drain time out.
+      const modify = jest.fn(async (cb: (t: Record<string, unknown>) => void) => {
+        cb(rowRef);
+      });
+      const rowRef: Record<string, unknown> = { nextEligibleAt: Math.floor(Date.now() / 1000) + 300 };
+      const backedOff = {
+        id: 'backed-off-tx',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Queued,
+        nextEligibleAt: Math.floor(Date.now() / 1000) + 300,
+        initiatedAt: 100
+      };
+      mockDedupQuery([backedOff]);
+      mockTransactionsWhere.mockReturnValue({ modify, first: jest.fn().mockResolvedValue(backedOff) });
+
+      const result = await initiateConsumeTransaction('account-1', note, undefined, true);
+
+      expect(result).toBe('backed-off-tx');
+      expect(mockTransactionsAdd).not.toHaveBeenCalled();
+      expect(modify).toHaveBeenCalled();
+      expect(rowRef.nextEligibleAt).toBeUndefined();
     });
 
     it('grows the backoff with each failure: a gap that clears one failure still blocks after several', async () => {
@@ -1199,6 +1283,10 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       })),
       withWasmClientLock: jest.fn((cb: () => any) => cb())
     }));
+    // The #260 proxy (routed by index.ts's syncState preflight) imports
+    // getMidenClient via the `lib/...` alias — inside this isolate block the
+    // relative doMock above doesn't cover it, so delegate the alias to it.
+    jest.doMock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       InputNoteState: {

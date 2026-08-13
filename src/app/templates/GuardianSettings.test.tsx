@@ -31,6 +31,14 @@ jest.mock('lib/mobile/haptics', () => ({ hapticLight: () => mockHapticLight() })
 const mockNavigate = jest.fn();
 jest.mock('lib/woozie', () => ({ navigate: (path: string) => mockNavigate(path) }));
 
+// GuardianInfoDrawer — the real component renders through vaul portals; a
+// passthrough stub exposes its `open` prop so the "Learn more" wiring is testable.
+jest.mock('screens/onboarding/common/GuardianInfoDrawer', () => ({
+  GuardianInfoDrawer: ({ open }: { open: boolean }) => (
+    <div data-testid="guardian-info-drawer" data-open={String(open)} />
+  )
+}));
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockUseCurrentGuardianEndpoint.mockReturnValue({ endpoint: 'https://guardian.one', refresh: jest.fn() });
@@ -70,6 +78,16 @@ it('shows loading while the guardian endpoint is unresolved', () => {
   render(<GuardianSettings />);
 
   expect(screen.getByRole('heading', { name: 'loading' })).toBeInTheDocument();
+});
+
+it('opens the Guardian explainer drawer from the About section', () => {
+  render(<GuardianSettings />);
+
+  expect(screen.getByTestId('guardian-info-drawer')).toHaveAttribute('data-open', 'false');
+  fireEvent.click(screen.getByRole('button', { name: 'learnMoreAboutGuardian' }));
+
+  expect(mockHapticLight).toHaveBeenCalledTimes(1);
+  expect(screen.getByTestId('guardian-info-drawer')).toHaveAttribute('data-open', 'true');
 });
 
 it('fires haptics and navigates to guardian rotation', () => {

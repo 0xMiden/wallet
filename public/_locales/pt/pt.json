@@ -270,7 +270,6 @@
   "fastTransactionDescription": "A transação será automaticamente transmitida e finalizada.",
   "fastTransaction": "Velocidade de transação",
   "delegateProofSettings": "Geração de prova de delegado",
-  "delegateProofSettingsDescription": "Aqui você pode configurar a delegação de geração de provas para um servidor remoto. Isso acelerará a geração de provas, mas divulgará os detalhes da transação para um servidor confiável.",
   "mainAssetBalanceIsZero": "Seu saldo de créditos Aleo (ativo principal) é zero. Créditos Aleo são necessários para a taxa.",
   "claim": "Alegar",
   "availableToClaim": "Disponível para reivindicar",

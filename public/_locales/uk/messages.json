@@ -1068,6 +1068,10 @@
     "message": "Умови обслуговування",
     "englishSource": "Terms of Service"
   },
+  "sendFeedback": {
+    "message": "Надіслати відгук",
+    "englishSource": "Send feedback"
+  },
   "termsOfUse": {
     "message": "Умови використання",
     "englishSource": "Terms of Use"
@@ -1337,6 +1341,10 @@
   "delegateProofSettings": {
     "message": "Генерація доказів делегування",
     "englishSource": "Delegate Proof Generation"
+  },
+  "delegateProofSettingsDescription": {
+    "message": "Коли ввімкнено, підтвердження транзакцій генеруються на віддалених серверах — швидше, без великого завантаження на ваш пристрій, і ваші ключі ніколи не залишають його. Коли вимкнено або послуга недоступна, гаманець перевіряє локально: більш приватний, але повільніший і потребує великого одноразового завантаження.",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
   },
   "transfer": {
     "message": "Переказ",
@@ -1662,6 +1670,30 @@
     "message": "Профінансуйте зараз",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "Поповнення вашого гаманця",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "Запит маркерів від faucet…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "Гаманець фінансується",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "Ваші жетони вже в дорозі та незабаром з’являться.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "Фінансування не вдалося",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "Ми не змогли поповнити ваш гаманець. Спробуйте ще раз.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "У вас є Notes",
     "englishSource": "You have Pending Notes"
@@ -1791,6 +1823,10 @@
   "claim": {
     "message": "Претензія",
     "englishSource": "Claim"
+  },
+  "clear": {
+    "message": "ясно",
+    "englishSource": "Clear"
   },
   "midenWallet": {
     "message": "Хліб!",
@@ -1925,8 +1961,8 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Схвалює або відхиляє транзакції на основі вашої політики безпеки. Допомагає відновити роботу, якщо ви втратите пристрій.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device.",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "Що воно не може зробити",
@@ -1941,8 +1977,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Ви можете будь-коли перейти до іншого Опікуна — або повністю видалити одного — за допомогою фрази відновлення.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "Ви можете будь-коли перейти до іншого Опікуна за допомогою фрази відновлення. Змінюється лише той, хто є співпідписником; ваш рахунок і кошти залишаються незмінними.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "зрозумів",
@@ -2300,6 +2336,10 @@
       }
     }
   },
+  "guardianRotationComplete": {
+    "message": "Опікун оновлено!",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "Онлайн",
     "englishSource": "Online"
@@ -2473,8 +2513,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Автоматично споживати notes з Miden Faucet",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "Автоматично забирає вхідний MIDEN notes на ваш баланс — так само, як торкнутися \"Запитувати\". Це не витрачає ваші кошти та не додає жодної комісії.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "Зашифрований файл гаманця",
@@ -2608,6 +2648,10 @@
   "viewInActivities": {
     "message": "Переглянути в Діяльності",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "Переглянути діяльність",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Переглянути деталі",
@@ -2949,6 +2993,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ невирішено",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Не вдалося подати претензію — торкніться «Повторити», щоб повторити спробу",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "Цей note більше не доступний",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "Очікує notes",
     "englishSource": "Pending notes"
@@ -3268,6 +3329,22 @@
   "scanCancelled": {
     "message": "Сканування скасовано",
     "englishSource": "Scan cancelled"
+  },
+  "scanQrTitle": {
+    "message": "Відскануйте QR-код",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Наведіть камеру на QR-код",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "Камера не знайдена",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Запит на доступ до камери…",
+    "englishSource": "Requesting camera access…"
   },
   "scan": {
     "message": "Сканувати",

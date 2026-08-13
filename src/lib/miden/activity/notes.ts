@@ -1,7 +1,8 @@
 import { logger } from 'shared/logger';
 
+import { midenClientProxy } from '../back/miden-client-proxy';
 import { fetchFromStorage, putToStorage } from '../front';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { withWasmClientLock } from '../sdk/miden-client';
 
 const IMPORT_NOTES_KEY = 'miden-notes-pending-import';
 
@@ -52,14 +53,18 @@ export const importAllNotes = async () => {
   }
   const snapshot = rawQueue.map(normalizeEntry);
 
-  // Wrap all WASM client operations in a lock to prevent concurrent access
+  // Wrap all WASM client operations in a lock to prevent concurrent access.
+  // Both the import and the trailing sync route through `midenClientProxy` (issue
+  // #260, slice 7a) so flag-ON they hit the OFFSCREEN client's store — the realm
+  // that syncs + consumes, so an imported (possibly private) note isn't stranded in
+  // the dormant SW store. Flag-OFF is byte-identical to the inline calls under this
+  // lock.
   await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
     const retry: QueuedNoteImport[] = [];
     for (const note of snapshot) {
       try {
         const byteArray = new Uint8Array(Buffer.from(note.bytes, 'base64'));
-        await midenClient.importNoteBytes(byteArray);
+        await midenClientProxy.importNoteBytes(byteArray);
       } catch (e) {
         const attempts = note.attempts + 1;
         if (attempts >= MAX_IMPORT_ATTEMPTS) {
@@ -92,6 +97,6 @@ export const importAllNotes = async () => {
     });
 
     await new Promise(resolve => setTimeout(resolve, 2000));
-    await midenClient.syncState();
+    await midenClientProxy.syncState();
   });
 };

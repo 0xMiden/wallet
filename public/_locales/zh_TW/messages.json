@@ -1068,6 +1068,10 @@
     "message": "服务条款",
     "englishSource": "Terms of Service"
   },
+  "sendFeedback": {
+    "message": "发送反馈",
+    "englishSource": "Send feedback"
+  },
   "termsOfUse": {
     "message": "使用條款",
     "englishSource": "Terms of Use"
@@ -1337,6 +1341,10 @@
   "delegateProofSettings": {
     "message": "委托证明生成",
     "englishSource": "Delegate Proof Generation"
+  },
+  "delegateProofSettingsDescription": {
+    "message": "启用后，交易证明将在远程服务器上生成 - 速度更快，无需大量下载到您的设备，并且您的密钥永远不会离开它。当关闭时，或者如果服务不可用，钱包会在本地证明：更私密，但速度较慢，并且需要大量的一次性下载。",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
   },
   "transfer": {
     "message": "轉帳",
@@ -1662,6 +1670,30 @@
     "message": "立即基金",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "为你的钱包提供资金",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "正在从 faucet 请求令牌...",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "钱包资助",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "您的代币正在路上，很快就会出现。",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "资金失败",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "我们无法为您的钱包提供资金。请再试一次。",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "您有待处理的 Notes",
     "englishSource": "You have Pending Notes"
@@ -1791,6 +1823,10 @@
   "claim": {
     "message": "宣称",
     "englishSource": "Claim"
+  },
+  "clear": {
+    "message": "清除",
+    "englishSource": "Clear"
   },
   "midenWallet": {
     "message": "面包！",
@@ -1925,8 +1961,8 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "根据您的安全策略批准或拒绝交易。如果您丢失设备，可帮助您恢复。",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "共同签署每笔交易——您的设备和监护人都无法单独转移资金。如果您丢失设备，可帮助您恢复帐户。",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "它不能做什么",
@@ -1941,8 +1977,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "您可以随时使用恢复短语轮换至其他监护人，或完全删除监护人。",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "您可以随时使用恢复短语切换到不同的监护人。只有谁共同签署才会发生变化；您的帐户和资金保持不变。",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "知道了",
@@ -2287,6 +2323,10 @@
     "message": "上次同步",
     "englishSource": "Last sync"
   },
+  "guardianRotationComplete": {
+    "message": "守护者更新了！",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "在线的",
     "englishSource": "Online"
@@ -2460,8 +2500,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "自动消耗来自 Miden Faucet 的 notes",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "自动将传入的 MIDEN notes 认领到您的余额中 — 与点击认领相同。它不会花费您的资金或增加任何费用。",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "加密钱包文件",
@@ -2595,6 +2635,10 @@
   "viewInActivities": {
     "message": "在活动中查看",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "查看活动",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "查看详情",
@@ -2936,6 +2980,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ 未解决",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "申领失败 — 点击“重试”重试",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "此 note 不再可用",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "待处理 notes",
     "englishSource": "Pending notes"
@@ -3255,6 +3316,22 @@
   "scanCancelled": {
     "message": "扫描已取消",
     "englishSource": "Scan cancelled"
+  },
+  "scanQrTitle": {
+    "message": "扫描二维码",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "将相机对准二维码",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "No camera found",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "请求相机访问权限...",
+    "englishSource": "Requesting camera access…"
   },
   "scan": {
     "message": "扫描",

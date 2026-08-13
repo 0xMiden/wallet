@@ -1,10 +1,9 @@
-import React, { FC, ChangeEvent, KeyboardEvent, useState } from 'react';
+import React, { FC, ChangeEvent, KeyboardEvent, useRef } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { hapticLight } from 'lib/mobile/haptics';
 
 export interface SearchInputProps {
   value: string;
@@ -30,8 +29,7 @@ export const SearchInput: FC<SearchInputProps> = ({
   'data-testid': dataTestId
 }) => {
   const { t } = useTranslation();
-  const [focused, setFocused] = useState(false);
-  const showClear = value.length > 0;
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && onSubmit) {
@@ -41,22 +39,20 @@ export const SearchInput: FC<SearchInputProps> = ({
   };
 
   const handleClear = () => {
-    hapticLight();
     onChange('');
+    inputRef.current?.focus();
   };
 
   return (
     <div className={classNames('relative w-full bg-gray-25 rounded-3xl h-14', className)}>
       <input
+        ref={inputRef}
         type="text"
         data-testid={dataTestId}
         value={value}
         onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
         onKeyDown={onSubmit ? handleKeyDown : undefined}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        // Hide the placeholder while focused so it can't be mistaken for typed text (#503).
-        placeholder={focused ? undefined : placeholder}
+        placeholder={placeholder}
         aria-label={placeholder}
         autoFocus={autoFocus}
         inputMode={inputMode}
@@ -65,23 +61,25 @@ export const SearchInput: FC<SearchInputProps> = ({
         autoCorrect={inputMode === 'url' ? 'off' : undefined}
         spellCheck={inputMode === 'url' ? false : undefined}
         className={classNames(
-          'w-full h-full bg-transparent outline-none text-base font-heading text-center',
-          // Placeholder stays lighter/regular so it never matches the typed-value weight (#503).
-          'placeholder:text-text-muted placeholder:font-medium placeholder:text-center',
-          'text-black font-bold',
-          showClear ? 'pl-4 pr-12' : 'px-4'
+          // pad right only while the clear button is shown so centered text doesn't sit under it
+          'w-full bg-transparent outline-none py-4 text-base font-heading text-center',
+          value ? 'pl-11 pr-11' : 'px-4',
+          // #503 — placeholder must read as a hint, not a real value: lighter weight
+          // than the bold input text, and hidden once the field is focused.
+          'placeholder:text-placeholder-gray placeholder:font-normal placeholder:text-center',
+          'focus:placeholder:text-transparent',
+          'text-black font-bold'
         )}
       />
-      {showClear && (
+      {/* #503 — clear (X) affordance to erase the input, shown only when non-empty. */}
+      {value && (
         <button
           type="button"
-          onMouseDown={e => e.preventDefault()}
+          aria-label={t('clear')}
           onClick={handleClear}
-          aria-label={t('clearSearch')}
-          data-testid={dataTestId ? `${dataTestId}-clear` : 'search-input-clear'}
-          className="absolute right-3 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-heading-gray"
+          className="absolute right-3 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center"
         >
-          <Icon name={IconName.Close} size="xs" fill="currentColor" className="text-heading-gray" />
+          <Icon name={IconName.CloseCircleFill} size="sm" className="text-placeholder-gray" fill="currentColor" />
         </button>
       )}
     </div>

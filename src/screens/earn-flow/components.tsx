@@ -74,14 +74,14 @@ export const EarnSummaryPanel: FC<{
         {t('earnEarningBlendedApy', { apy: summary.blendedApy })}
       </div>
 
+      {/* #503 — gap-3 so TOTAL DEPOSITED / ESTIMATED REWARDS don't abut. */}
       {showMetrics && (
-        <div className="mt-4 flex items-stretch justify-center gap-3">
-          <MetricCard label={t('earnTotalDeposited')} value={summary.totalDeposited} className="min-w-0 flex-1" />
+        <div className="mt-4 flex items-center justify-evenly gap-3">
+          <MetricCard label={t('earnTotalDeposited')} value={summary.totalDeposited} />
           <MetricCard
             label={t('earnEstimatedRewards')}
             value={summary.estimatedRewards}
             valueClassName="text-status-positive"
-            className="min-w-0 flex-1"
           />
         </div>
       )}

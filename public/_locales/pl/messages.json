@@ -1052,6 +1052,10 @@
     "message": "Warunki świadczenia usług",
     "englishSource": "Terms of Service"
   },
+  "sendFeedback": {
+    "message": "Wyślij opinię",
+    "englishSource": "Send feedback"
+  },
   "termsOfUse": {
     "message": "Warunki użytkowania",
     "englishSource": "Terms of Use"
@@ -1321,6 +1325,10 @@
   "delegateProofSettings": {
     "message": "Deleguj generowanie dowodu",
     "englishSource": "Delegate Proof Generation"
+  },
+  "delegateProofSettingsDescription": {
+    "message": "Gdy ta opcja jest włączona, dowody transakcji są generowane na zdalnych serwerach — szybciej, bez konieczności pobierania dużych ilości danych na urządzenie, a Twoje klucze nigdy go nie opuszczają. Gdy jest wyłączony lub gdy usługa jest niedostępna, portfel okazuje się lokalnie: bardziej prywatny, ale wolniejszy i wymaga jednorazowego pobrania dużej ilości danych.",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
   },
   "transfer": {
     "message": "Przenosić",
@@ -1645,6 +1653,30 @@
     "message": "Fundusz teraz",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "Zasilenie Twojego portfela",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "Żądanie tokenów od faucet…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "Zasilony portfelem",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "Twoje tokeny są w drodze i wkrótce się pojawią.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "Finansowanie nie powiodło się",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "Nie mogliśmy zasilić Twojego portfela. Spróbuj ponownie.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "Masz oczekujące Notes",
     "englishSource": "You have Pending Notes"
@@ -1774,6 +1806,10 @@
   "claim": {
     "message": "Prawo",
     "englishSource": "Claim"
+  },
+  "clear": {
+    "message": "Jasne",
+    "englishSource": "Clear"
   },
   "midenWallet": {
     "message": "Chleb!",
@@ -1908,8 +1944,8 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Zatwierdza lub odrzuca transakcje w oparciu o Twoją politykę bezpieczeństwa. Pomaga odzyskać siły w przypadku utraty urządzenia.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "Podpisuje każdą transakcję — ani Twoje urządzenie, ani Guardian nie mogą samodzielnie przesyłać środków. Pomaga odzyskać konto w przypadku utraty urządzenia.",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "Czego nie może zrobić",
@@ -1924,8 +1960,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Możesz przejść do innego Strażnika — lub całkowicie go usunąć — w dowolnym momencie, używając frazy odzyskiwania.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "W dowolnym momencie możesz przełączyć się na innego Opiekuna, podając frazę odzyskiwania. Zmienia się tylko to, kto jest współsygnatariuszem; Twoje konto i środki pozostają takie same.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Rozumiem",
@@ -2239,6 +2275,10 @@
     "message": "Ostatnia synchronizacja",
     "englishSource": "Last sync"
   },
+  "guardianRotationComplete": {
+    "message": "Strażnik zaktualizowany!",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "W Internecie",
     "englishSource": "Online"
@@ -2412,8 +2452,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Automatycznie pobierz notes z Miden Faucet",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "Automatycznie przejmuje przychodzące MIDEN notes na Twoje saldo — tak samo, jak naciśnięcie przycisku Odbierz. Nie wydaje Twoich środków ani nie dodaje żadnych opłat.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "Zaszyfrowany plik portfela",
@@ -2542,6 +2582,10 @@
   "viewInActivities": {
     "message": "Zobacz w Aktywności",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "Zobacz aktywność",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Zobacz szczegóły",
@@ -2883,6 +2927,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ nierozwiązany",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Roszczenie nie powiodło się — kliknij Spróbuj ponownie, aby spróbować ponownie",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "To note nie jest już dostępne",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "Oczekuje notes",
     "englishSource": "Pending notes"
@@ -3202,6 +3263,22 @@
   "scanCancelled": {
     "message": "Skanowanie anulowane",
     "englishSource": "Scan cancelled"
+  },
+  "scanQrTitle": {
+    "message": "Zeskanuj kod QR",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Skieruj aparat na kod QR",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "Nie znaleziono aparatu",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Prośba o dostęp do kamery…",
+    "englishSource": "Requesting camera access…"
   },
   "scan": {
     "message": "Skandować",

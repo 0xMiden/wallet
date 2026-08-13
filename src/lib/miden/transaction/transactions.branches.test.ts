@@ -87,6 +87,12 @@ const mockSendPrivateNote = jest.fn().mockResolvedValue(undefined);
 // Raw WASM client's lastAuthError(), read by readLastAuthReason in the
 // generate-loop catch. Default null = no auth failure recorded.
 const mockLastAuthError = jest.fn((): unknown => null);
+// The #260 offscreen client proxy (through which non-guardian send/swap/execute
+// now route their flag-off write) imports getMidenClient / withWasmClientLock via
+// the `lib/...` alias, which jest mocks separately from the relative specifier
+// below; bridge the alias to the same mock so the proxy's flag-off passthrough
+// invokes the wrapped sign callback exactly as the old inline switch did.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async (options?: { signCallback?: (pk: Uint8Array, si: Uint8Array) => Promise<Uint8Array> }) => {
     // Mirror the SDK invoking the wrapped per-tx sign callback so its wrapper
@@ -810,6 +816,28 @@ describe('readLastAuthReason', () => {
     });
     expect(await readLastAuthReason()).toBeUndefined();
   });
+
+  // Issue #260 flip-prep #1+#2: under the flag-on offscreen write the SW-inline
+  // client NEVER signed for the op (the sign ran in the offscreen realm), so its
+  // `lastAuthError()` is STALE / another op's — consulting it would DEFER a
+  // genuinely-failed offscreen write forever on a stale 'locked'. The op's locked
+  // signal is carried instead by the op-keyed error tag (`isLockedError(e)`), so
+  // `readLastAuthReason()` must NOT consult the SW client at all under flag-on.
+  it('flag-on: never consults the stale SW-client lastAuthError (returns undefined)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    jest.resetModules();
+    try {
+      const { readLastAuthReason: readFlagOn } = await import('./helper');
+      // Seed a STALE 'locked' on the SW client — a genuinely-failed offscreen
+      // write must not be deferred on it.
+      mockLastAuthError.mockReturnValue({ reason: 'locked' });
+      expect(await readFlagOn()).toBeUndefined();
+    } finally {
+      delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+      mockLastAuthError.mockReturnValue(null);
+      jest.resetModules();
+    }
+  });
 });
 
 describe('buildSignCallbackError', () => {
@@ -835,5 +863,10 @@ describe('buildSignCallbackError', () => {
     expect(wrapped).toBeInstanceOf(Error);
     expect(wrapped.reason).toBe('internal');
     expect(wrapped.message).toContain('plain string failure');
+  });
+
+  it('tolerates an empty-message Error (falls back to internal)', () => {
+    const wrapped = buildSignCallbackError(new Error(''));
+    expect(wrapped.reason).toBe('internal');
   });
 });

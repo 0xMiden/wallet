@@ -2,20 +2,26 @@
   font-variant-ligatures: none;
 }
 
-/*
- * iOS long-press selects menu/button/badge chrome by default. Disable selection
- * globally and re-enable it only where users need to copy text (#503).
- */
-html,
-body {
+/* #503 — native-app feel: UI chrome (labels, buttons, badges, nav) is not
+   text-selectable. Content meant to be copyable opts back in — real inputs, and
+   anything tagged `.select-text` (addresses, seed reveal, error/tx detail
+   strings already use it). Only `user-select` is touched, so the paste/lookup
+   callout on inputs is unaffected.
+   NOTE: these rules are intentionally UNLAYERED (declared before
+   `@import 'tailwindcss'` below), so they win over Tailwind's layered
+   utilities. A bare Tailwind `select-all`/`select-text` class would LOSE to
+   `* { user-select: none }` — re-enable selection via THIS opt-in list (or wrap
+   the element in `.select-text`), not a lone Tailwind utility. */
+* {
   -webkit-user-select: none;
   user-select: none;
 }
-
 input,
 textarea,
 [contenteditable='true'],
-.select-text {
+[contenteditable='true'] *,
+.select-text,
+.select-text * {
   -webkit-user-select: text;
   user-select: text;
 }
@@ -513,7 +519,7 @@ body[data-hide-navbar]::after {
     --surface-button-secondary-hover: #3f3f3f;
     --text-gray: #e1d8d8;
     --text-gray-secondary: #8e8e93;
-    --text-placeholder: #ffffff78;
+    --text-placeholder: #ffffff;
     --status-positive: #90ba89;
     --status-pending: #e85d2f;
     --status-negative: #c51a0a;

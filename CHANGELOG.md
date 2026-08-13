@@ -3,7 +3,17 @@
 ## 1.15.20 (TBD)
 
 ### Features
+### Fixes
 
+- [FIX][all] **A rate-limited Guardian no longer kills your transaction.** When the Guardian answers `429 Too Many Requests` before a transaction is submitted, the send/swap/claim now returns to the queue and retries automatically — honouring the delay the Guardian asks for, within sane bounds — instead of failing outright and making you start over. Rate limits hit after submission still fail loudly, since the transaction may already be on chain, and the 30-minute queue cap remains the terminal limit. (#617)
+- [FIX][extension] **Recurring stuck "Consuming" notes are fixed by moving the wallet's WASM engine off the extension service-worker thread.** Transaction execution, proving, syncing, and reads now run in a dedicated `chrome.offscreen` document, so a wedged operation can no longer freeze the service worker and strand notes mid-consume; each operation is bounded by its own deadline and a wedged one is torn down and safely retried. Behind `MIDEN_USE_OFFSCREEN_CLIENT` (extension only; mobile/desktop unaffected). (#260)
+
+### Changes
+
+- [CHANGE][ci] **Paused the live bridge-out E2E while the Epoch solver declines to quote it.** Since 2026-08-12 the solver answers `200 OK` with `NO_QUOTE_AVAILABLE` for the throwaway faucet token this spec mints, and re-running the last green commit unchanged reproduces it — so it is an external change, not a wallet regression. The same bridge-out flow still runs on every PR against the hermetic fake allocator, and the AggLayer route still runs on main. Tracked in #627. (#627)
+- [CHANGE][ci] **A failing bridge quote now says why.** The bridge E2E gated the Fast route on a `$` appearing in the fee, which is the same `—` placeholder whether the route wasn't a bridge, the token never loaded, or the quote service returned nothing — and would have passed on a `$0.00` from a missing price. It now waits for the quote to actually resolve and, on failure, reports the quote hook's own error string (which the app records and never surfaced) alongside the real Epoch HTTP status and body. Test-only. (#615 follow-up)
+- [CHANGE][ci] **Stop the guardian-lifecycle E2E harness from failing runs that actually succeeded.** `claimAllNotes`/`claimNotesByGroup` billed their ~8-12s reload against the caller's drain budget, and the deadline is only checked between iterations, so a note that drained mid-iteration could expire the clock and fail a wallet that had in fact claimed it. Both now start the clock after the reload and share one tail that re-samples at the deadline, applying the same two-consecutive-zeros rule before failing. The failure dump also renders `status` by name and sorts by `initiatedAt`, so a Completed row no longer reads as in-flight. (#615)
+- [CHANGE][all] **A completed transaction now records that it finished.** Successful rows kept whatever stage they were in when they completed — a finished key rotation stayed at "confirming", a finished Guardian claim at "guardian-synced" — so a finished transaction read as still running in diagnostics. Completion now stamps the terminal stage; failed rows still keep the stage they failed at. (#618)
 - Add hidden developer endpoint configuration (7-tap the Welcome logo during onboarding) to override RPC / prover / note-transport / faucet / explorer / guardian endpoints and network ID; read-only view with reset-to-defaults in Settings.
 
 ### Fixes

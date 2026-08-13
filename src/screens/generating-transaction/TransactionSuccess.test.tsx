@@ -94,6 +94,34 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
+  it('pins the completion CTAs outside the scroll region so they are never clipped (#463)', async () => {
+    // A send transaction with a hash renders BOTH the primary (Done) and the
+    // secondary (View in Activities) CTA — the latter is the one the report says
+    // gets clipped in the ~360x600 popup. They must live OUTSIDE the scrollable
+    // receipt body, in a non-shrinking footer, so a short viewport scrolls the
+    // body instead of pushing the buttons off-screen.
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        onDoneClick={() => {}}
+        transaction={baseTransaction({ type: 'send', status: 2, transactionId: '0xabcdef', amount: 1000000n })}
+      />
+    );
+
+    const scrollRegion = container.querySelector('.overflow-y-auto');
+    expect(scrollRegion).not.toBeNull();
+
+    const ctas = container.querySelectorAll('[data-testid="done-button"]');
+    expect(ctas.length).toBeGreaterThan(0);
+    ctas.forEach(cta => {
+      // The CTA must NOT be inside the scroll body (or a short popup clips it)...
+      expect(scrollRegion!.contains(cta)).toBe(false);
+      // ...and must sit in a shrink-0 footer that can't be compressed away.
+      expect(cta.closest('.shrink-0')).not.toBeNull();
+    });
+
+    act(() => root.unmount());
+  });
+
   it('renders amount, destination and source-tx rows for a fully-populated transaction', async () => {
     mockState.assetsMetadata = { 'faucet-1': { symbol: 'TST', decimals: 6 } };
     const onViewExplorer = jest.fn();
@@ -201,6 +229,30 @@ describe('TransactionSuccess', () => {
     );
     expect(container.textContent).toContain('Slow');
     expect(container.textContent).toContain('Via Agglayer');
+    act(() => root.unmount());
+  });
+
+  it('renders the Guardian rotation view (not the generic fallback) for a switch-guardian tx', async () => {
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          type: 'switch-guardian',
+          extraInputs: {
+            previousGuardianEndpoint: 'https://guardian.openzeppelin.com',
+            newGuardianEndpoint: 'https://guardian-testnet.kodax.com'
+          }
+        })}
+        onDoneClick={() => {}}
+      />
+    );
+
+    // The provider transition hero is present and names both operators.
+    expect(container.querySelector('[data-testid="guardian-transition-hero"]')).not.toBeNull();
+    expect(container.textContent).toContain('OpenZeppelin');
+    expect(container.textContent).toContain('Koda');
+    // NOT the generic SendSuccess fallback.
+    expect(container.textContent).not.toContain('Transaction Complete!');
+
     act(() => root.unmount());
   });
 

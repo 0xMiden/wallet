@@ -2,7 +2,8 @@ import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
 import { identifyGuardianOperator, verifyEndpointMatchesCommitment } from 'lib/miden/guardian/operator-map';
 import type { GuardianSyncStatus } from 'lib/shared/types';
 
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { midenClientProxy } from './miden-client-proxy';
+import { withWasmClientLock } from '../sdk/miden-client';
 
 interface GuardianDriftVault {
   getAccount(
@@ -50,7 +51,7 @@ export async function resolveGuardianDrift(
   if (!account) return { status: 'in-sync', changed: false };
 
   const onChain = await withWasmClientLock(async () => {
-    const sdkAccount = await (await getMidenClient()).getAccount(accountPublicKey);
+    const sdkAccount = await midenClientProxy.getAccount(accountPublicKey);
     return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
   });
   if (!onChain) return { status: 'in-sync', changed: false };
@@ -101,7 +102,7 @@ export async function applyUserGuardianEndpoint(
   endpoint: string
 ): Promise<boolean> {
   const onChain = await withWasmClientLock(async () => {
-    const sdkAccount = await (await getMidenClient()).getAccount(accountPublicKey);
+    const sdkAccount = await midenClientProxy.getAccount(accountPublicKey);
     return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
   });
   if (!onChain) return false;
