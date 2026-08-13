@@ -135,6 +135,37 @@ export const ReviewTransaction: React.FC = () => {
   // default-seeding effect below never clobbers an explicit choice (race guard).
   const recallTouchedRef = useRef(false);
 
+  // E2E-only hook: the shortest window RecallCalendarDrawer offers is 30 minutes,
+  // so no click path produces a recall a test can wait out — and without one, the
+  // whole reclaim half of a send (the only path where a user's funds come BACK)
+  // is unreachable from any E2E run. The harness assigns
+  // `globalThis.__TEST_RECALL_BLOCKS__` (a RELATIVE blocks offset, or null for
+  // "Never") before entering the send flow and this page adopts it exactly as if
+  // the user had picked it in the drawer. Same MIDEN_E2E_TEST gate as
+  // __TEST_SET_SHARE_PRIVATELY__ above; zero production impact.
+  //
+  // Declared BEFORE the seeding effect below so `recallTouchedRef` is already set
+  // when that effect runs on the same commit — the 7-day default cannot clobber
+  // an armed value.
+  useEffect(() => {
+    if (process.env.MIDEN_E2E_TEST !== 'true') return;
+    if (isBridge) return;
+    const armed = (globalThis as unknown as { __TEST_RECALL_BLOCKS__?: number | null }).__TEST_RECALL_BLOCKS__;
+    if (armed === undefined) return;
+    recallTouchedRef.current = true;
+    if (armed === null) {
+      setRecallNever(true);
+      setRecallDate(undefined);
+      setRecallBlocks(undefined);
+      return;
+    }
+    const date = addSeconds(new Date(), armed * SECONDS_PER_BLOCK);
+    setRecallNever(false);
+    setRecallDate(date);
+    setRecallTime(format(date, 'HH:mm'));
+    setRecallBlocks(String(armed));
+  }, [isBridge]);
+
   // Default every same-chain send to a 7-day reclaim (expiration) offset. The
   // user can override via the "Edit" link, which opens RecallCalendarDrawer.
   // recallBlocks is a RELATIVE blocks-until-recall offset — the SDK-interface
@@ -270,7 +301,6 @@ export const ReviewTransaction: React.FC = () => {
         requestSWTransactionProcessing();
       }
 
-      goToGeneratingTransaction(txId);
       goToGeneratingTransaction(txId);
     } catch (e) {
       console.error(e);
