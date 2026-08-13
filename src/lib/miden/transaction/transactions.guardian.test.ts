@@ -2417,6 +2417,73 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row.stage).toBe('complete');
   });
 
+  // #619 gap (1): a failed best-effort re-register is recorded (observable-only)
+  // but never fails the on-chain-successful rotation.
+  const runReplaceHotKeyReRegister = async (txId: string, reRegister: () => Promise<void>) => {
+    const coldService = {
+      createReplaceHotKeyProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-replace' },
+        newHot: { ciphertext: 'new-cx', publicKeyHex: 'new-hot-pub', commitmentHex: '0xnewcommit' }
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      reRegisterCurrentStateOnGuardian: jest.fn(reRegister)
+    };
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+    mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 2 });
+    mockIsGuardianAccount.mockResolvedValue(true);
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'old-hot' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      persistNewHotKey: jest.fn(async () => {}),
+      swapHotKey: jest.fn(async () => {})
+    };
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+    txStore.push({
+      id: txId,
+      type: 'replace-hot-key',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: {}
+    });
+    await generateTransaction(
+      { id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', delegateTransaction: false } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+    return { coldService, row: txStore.find(r => r.id === txId) as Record<string, any> };
+  };
+
+  it('Guardian replace-hot-key: records reRegisterFailed=true when the re-register fails but the rotation is on chain (#619 gap 1)', async () => {
+    const { coldService, row } = await runReplaceHotKeyReRegister('replace-reregister-fail', async () => {
+      throw new Error('guardian 500');
+    });
+
+    expect(coldService.reRegisterCurrentStateOnGuardian).toHaveBeenCalled();
+    // On-chain rotation still succeeds; the miss is recorded, not failed.
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.reRegisterFailed).toBe(true);
+    // newHotPublicKey is preserved through the completion write.
+    expect(row.extraInputs.newHotPublicKey).toBe('new-hot-pub');
+  });
+
+  it('Guardian replace-hot-key: records reRegisterFailed=false on a clean re-register (#619 gap 1)', async () => {
+    const { row } = await runReplaceHotKeyReRegister('replace-reregister-ok', async () => {});
+
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.reRegisterFailed).toBe(false);
+    expect(row.extraInputs.newHotPublicKey).toBe('new-hot-pub');
+  });
+
   it('switch-guardian apply-after-submit-failure re-registers + persists the endpoint instead of cancelling', async () => {
     const txId = 'switch-apply-fail';
     const finalizeGuardianSwitch = jest.fn(async () => {});
