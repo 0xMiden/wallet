@@ -300,6 +300,29 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     enabled: isBridge
   });
 
+  // E2E-only hook: mirror the forward-quote's state so the harness can assert on
+  // WHY a quote is missing instead of on the "$" the fee happens to render.
+  // `fastFeeUsd` below is undefined for three unrelated reasons — no token, no
+  // amount, or no quote — and all three paint the same "—", so a test gated on
+  // the rendered text cannot tell a quote-service outage from a token that never
+  // loaded. `useEpochQuote` already captures the failure reason and nothing reads
+  // it. Mirrors the __TEST_STORE__ / __TEST_SET_SHARE_PRIVATELY__ gate; zero
+  // production impact.
+  useEffect(() => {
+    if (process.env.MIDEN_E2E_TEST !== 'true') return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).__TEST_EPOCH_QUOTE__ = {
+      enabled: isBridge,
+      loading: epochQuote.loading,
+      amount: epochQuote.amount ?? null,
+      symbol: epochQuote.symbol ?? null,
+      error: epochQuote.error ?? null,
+      hasToken: !!token,
+      hasAmount: amountBaseUnits != null,
+      fiatPrice: token?.fiatPrice ?? null
+    };
+  }, [isBridge, epochQuote.loading, epochQuote.amount, epochQuote.symbol, epochQuote.error, token, amountBaseUnits]);
+
   // Fast-route fee = what the user sends (USD) minus the USDC they'd receive.
   const fastFeeUsd = useMemo(() => {
     if (!token || !amount || epochQuote.amount == null) return undefined;
