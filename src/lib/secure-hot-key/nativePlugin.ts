@@ -28,7 +28,18 @@ function assertMobile(): void {
 export async function generateHotKey(): Promise<GeneratedHotKey> {
   assertMobile();
 
-  const { ciphertext, publicKeyHex } = await HotKey.generateHotKey();
+  const { ciphertext, publicKeyHex, strongBoxError } = await HotKey.generateHotKey();
+  if (strongBoxError) {
+    // The key works (TEE-backed), but a present StrongBox failed to produce
+    // one — surface the report prompt with the raw error without failing the
+    // generation. Lazy import mirrors the facade's withHardwareFailureReport.
+    try {
+      const { reportHotKeyHardwareFailure } = await import('lib/wallet-prompts');
+      await reportHotKeyHardwareFailure(`StrongBox failed, key degraded to TEE: ${strongBoxError}`);
+    } catch (reportError) {
+      console.warn('[secure-hot-key] failed to surface StrongBox degradation prompt:', reportError);
+    }
+  }
   const commitmentHex = await commitmentFromPublicKeyHex(publicKeyHex);
   return { ciphertext, publicKeyHex, commitmentHex };
 }

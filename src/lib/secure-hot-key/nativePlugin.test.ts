@@ -33,6 +33,11 @@ jest.mock('lib/platform', () => ({
   isAndroid: () => mockIsAndroid()
 }));
 
+const mockReportHotKeyHardwareFailure = jest.fn();
+jest.mock('lib/wallet-prompts', () => ({
+  reportHotKeyHardwareFailure: (message: string) => mockReportHotKeyHardwareFailure(message)
+}));
+
 const publicKeyDeserialize = jest.fn((bytes: Uint8Array) => ({
   toCommitment: () => ({ toHex: () => `0xcommit:${Array.from(bytes).join(',')}` })
 }));
@@ -74,6 +79,52 @@ const sharedForwardingSpec = (label: 'iOS' | 'Android', setPlatform: () => void)
       expect(framed![0]).toBe(1); // type prefix
       expect(framed![1]).toBe(0x02); // first byte of compressed pubkey
       expect(out.commitmentHex).toMatch(/^0xcommit:1,2(,171){32}$/);
+    });
+
+    it('generateHotKey reports (without failing) when native carries a strongBoxError', async () => {
+      const compressedHex = '02' + 'ab'.repeat(32);
+      mockGenerateHotKey.mockResolvedValue({
+        ciphertext: 'tag:payload',
+        publicKeyHex: compressedHex,
+        strongBoxError: 'KeyStoreException: -1000'
+      });
+      mockReportHotKeyHardwareFailure.mockResolvedValue(undefined);
+
+      const out = await nativePlugin.generateHotKey();
+
+      // The key works (degraded to TEE) — generation must still resolve with
+      // the full GeneratedHotKey shape, with the degradation reported.
+      expect(out.ciphertext).toBe('tag:payload');
+      expect(out.publicKeyHex).toBe(compressedHex);
+      expect(mockReportHotKeyHardwareFailure).toHaveBeenCalledWith(
+        'StrongBox failed, key degraded to TEE: KeyStoreException: -1000'
+      );
+    });
+
+    it('generateHotKey does not report when native returns no strongBoxError', async () => {
+      mockGenerateHotKey.mockResolvedValue({
+        ciphertext: 'tag:payload',
+        publicKeyHex: '02' + 'ab'.repeat(32)
+      });
+
+      await nativePlugin.generateHotKey();
+
+      expect(mockReportHotKeyHardwareFailure).not.toHaveBeenCalled();
+    });
+
+    it('generateHotKey still resolves when the strongBoxError report itself rejects', async () => {
+      const compressedHex = '02' + 'ab'.repeat(32);
+      mockGenerateHotKey.mockResolvedValue({
+        ciphertext: 'tag:payload',
+        publicKeyHex: compressedHex,
+        strongBoxError: 'KeyStoreException: -1000'
+      });
+      mockReportHotKeyHardwareFailure.mockRejectedValue(new Error('storage down'));
+
+      const out = await nativePlugin.generateHotKey();
+
+      expect(out.ciphertext).toBe('tag:payload');
+      expect(out.publicKeyHex).toBe(compressedHex);
     });
 
     it('generateHotKey rejects when native returns a non-33-byte public key', async () => {

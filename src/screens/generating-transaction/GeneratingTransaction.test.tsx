@@ -79,8 +79,14 @@ jest.mock('lib/mobile/external-browser', () => ({
 // The container drives the FIFO loop via safeGenerateTransactionsLoop (unchanged
 // behaviour). That's the only thing it still pulls from lib/miden/activity.
 const safeGenerateTransactionsLoopMock = jest.fn();
+const requeueFailedTransactionMock = jest.fn();
+const requestSWTransactionProcessingMock = jest.fn();
+const isRequeueableTransactionMock = jest.fn((..._a: unknown[]) => true);
 jest.mock('lib/miden/activity', () => ({
-  safeGenerateTransactionsLoop: (...args: any[]) => safeGenerateTransactionsLoopMock(...args)
+  safeGenerateTransactionsLoop: (...args: any[]) => safeGenerateTransactionsLoopMock(...args),
+  requeueFailedTransaction: (...a: any[]) => requeueFailedTransactionMock(...a),
+  requestSWTransactionProcessing: (...a: any[]) => requestSWTransactionProcessingMock(...a),
+  isRequeueableTransaction: (...a: any[]) => isRequeueableTransactionMock(...a)
 }));
 
 // The container observes the tracked row through this hook. Tests drive the row
@@ -219,6 +225,11 @@ describe('GeneratingTransactionPage container effects', () => {
     getExplorerTxUrlMock.mockReset();
     getExplorerTxUrlMock.mockReturnValue(undefined);
     openExternalUrlMock.mockClear();
+    navigateMock.mockClear();
+    requeueFailedTransactionMock.mockClear();
+    requestSWTransactionProcessingMock.mockClear();
+    isRequeueableTransactionMock.mockReset();
+    isRequeueableTransactionMock.mockReturnValue(true);
     window.location.hash = '';
   });
 
@@ -303,6 +314,38 @@ describe('GeneratingTransactionPage container effects', () => {
     const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
     expect(container.textContent).toContain('transactionFailed');
+    act(() => root.unmount());
+  });
+
+  it('shows Retry on a failed requeueable tx and requeues + kicks processing on click (#483)', async () => {
+    isRequeueableTransactionMock.mockReturnValue(true);
+    mockRowState = { row: makeTx({ status: 3, type: 'swap' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    const retryBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retry'));
+    expect(retryBtn).toBeTruthy();
+
+    await act(async () => {
+      retryBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(requeueFailedTransactionMock).toHaveBeenCalledWith('tx-1');
+    expect(requestSWTransactionProcessingMock).toHaveBeenCalled();
+    // Requeue flips the watched row back in place — the screen must NOT navigate
+    // (the key difference from HistoryDetails.handleRetry).
+    expect(navigateMock).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it('does NOT show Retry when the failed tx is not requeueable (#483)', async () => {
+    isRequeueableTransactionMock.mockReturnValue(false);
+    mockRowState = { row: makeTx({ status: 3, type: 'replace-hot-key' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    const retryBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retry'));
+    expect(retryBtn).toBeFalsy();
     act(() => root.unmount());
   });
 

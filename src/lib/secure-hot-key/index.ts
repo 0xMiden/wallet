@@ -43,12 +43,62 @@ function describeError(error: unknown): string {
 }
 
 /**
- * Run a native hot-key op and, if it fails on mobile, record the raw error and
- * surface the report prompt before re-throwing (the caller still sees the
- * failure — this only adds the user-facing signal). We report on ANY native
- * rejection, not just a specific error code: a stuck transaction can come from
- * any plugin failure, and the native codes are only best-effort — so the
- * isMobile() gate is the whole condition. Recovered failures (a
+ * Native reject codes that are ordinary, expected outcomes of an interactive
+ * or transient state — the user tapped Cancel on the biometric sheet, no OS
+ * authenticator is enrolled, another prompt is already up, the device is
+ * locked, or biometric auth simply failed. None of these indicate defective
+ * secure hardware, so they must never seed the "secure hardware failure"
+ * report prompt (a normal Cancel reading as a hardware failure is worse than
+ * no signal at all). AUTH_UNAVAILABLE in particular is the reveal gate
+ * working as designed on a device with no OS lock enrolled — the native
+ * plugins intentionally refuse to reveal without OS-level authentication
+ * (see confirmPresenceThenReveal in HotKeyPlugin.kt / revealHotKey in
+ * HotKeyPlugin.swift); do not route it to a fallback that skips the gate.
+ */
+const BENIGN_NATIVE_CODES = new Set([
+  'USER_CANCELLED',
+  'AUTH_UNAVAILABLE',
+  'AUTH_FAILED',
+  'BIOMETRIC_BUSY',
+  'DEVICE_LOCKED',
+  // Caller/input fault (a malformed digest handed to the native sign path), not
+  // a hardware condition — surfacing it as a "secure hardware failure" would be
+  // wrong. Nothing the user can act on, so it stays silent (the throw still
+  // propagates to the caller).
+  'INVALID_INPUT'
+]);
+
+/**
+ * Native reject codes whose remedy is a hot-key ROTATION, not a hardware
+ * report — the secure element is fine, but this particular key/blob can no
+ * longer be used:
+ *  - UNWRAP_FAILED   — wrapper key exists but can't decrypt this blob (e.g. an
+ *                      OS upgrade dropped an OAEP authorization).
+ *  - KEY_INVALIDATED — OS invalidated the key outright (e.g. biometric
+ *                      re-enrollment on a legacy auth-bound key).
+ *  - KEY_NOT_FOUND   — the wrapper key is simply gone: cleared/corrupted
+ *                      Keystore, or a device migration (Quick Start / iCloud
+ *                      restore) where the vault blob restores but the
+ *                      device-only, non-extractable SE/Keystore key does not.
+ *                      Without this, every autosync sign (~3s) after a device
+ *                      migration falsely reports "defective hardware".
+ *  - BAD_CIPHERTEXT  — the stored wrapped-scalar blob is malformed/corrupted
+ *                      and can't be recovered; re-minting via rotation is the
+ *                      only remedy.
+ * Routed to the rotation prompt so the user gets an actionable "rotate your
+ * device key" instead of a "defective hardware" report.
+ */
+const ROTATION_NATIVE_CODES = new Set(['UNWRAP_FAILED', 'KEY_INVALIDATED', 'KEY_NOT_FOUND', 'BAD_CIPHERTEXT']);
+
+/**
+ * Run a native hot-key op and, if it fails on mobile, surface the matching
+ * user-facing signal before re-throwing (the caller still sees the failure —
+ * this only adds the prompt). Failures are triaged by the native plugins'
+ * stable codes: benign interactive/transient outcomes surface nothing,
+ * blob/key mismatches seed the rotation prompt, and everything else — a
+ * genuine HARDWARE_UNAVAILABLE or an unclassified native error (a stuck
+ * transaction can come from any plugin failure) — records the raw error and
+ * seeds the hardware-failure report prompt. Recovered failures (a
  * HARDWARE_UNAVAILABLE that falls back to JS at generate time) never reach
  * here, because the wrapped op resolves instead of throwing. The report
  * module is imported lazily so the wallet-prompts / faucet / React dependencies
@@ -58,10 +108,16 @@ async function withHardwareFailureReport<T>(op: () => Promise<T>): Promise<T> {
   try {
     return await op();
   } catch (error) {
-    if (isMobile()) {
+    const code = readErrorField(error, 'code');
+    if (isMobile() && !(code !== undefined && BENIGN_NATIVE_CODES.has(code))) {
       try {
-        const { reportHotKeyHardwareFailure } = await import('lib/wallet-prompts');
-        await reportHotKeyHardwareFailure(describeError(error));
+        if (code !== undefined && ROTATION_NATIVE_CODES.has(code)) {
+          const { reportHotKeyRotationNeeded } = await import('lib/wallet-prompts');
+          await reportHotKeyRotationNeeded();
+        } else {
+          const { reportHotKeyHardwareFailure } = await import('lib/wallet-prompts');
+          await reportHotKeyHardwareFailure(describeError(error));
+        }
       } catch (reportError) {
         console.warn('[secure-hot-key] failed to surface hot-key failure prompt:', reportError);
       }

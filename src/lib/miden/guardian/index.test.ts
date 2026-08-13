@@ -35,6 +35,7 @@ jest.mock('../sdk/helpers', () => ({
 }));
 
 const mockGetAccount = jest.fn();
+const mockAccountInspectorFromAccount = jest.fn();
 const mockSyncState = jest.fn(async () => {});
 const mockRawWebClient = { kind: 'raw-web-client' };
 const mockMidenClient = {
@@ -92,7 +93,8 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
     load: (...a: unknown[]) => multisigClientConfig.load(...a)
   })),
   buildUpdateSignersTransactionRequest: (...a: unknown[]) => mockBuildUpdateSignersTransactionRequest(...a),
-  executeForSummary: (...a: unknown[]) => mockExecuteForSummary(...a)
+  executeForSummary: (...a: unknown[]) => mockExecuteForSummary(...a),
+  AccountInspector: { fromAccount: (...a: unknown[]) => mockAccountInspectorFromAccount(...a) }
 }));
 
 const mockGenerateHotKey = jest.fn();
@@ -173,6 +175,8 @@ describe('MultisigService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFetchFromStorage.mockResolvedValue('https://stored.guardian.test');
+    // Default: AccountInspector reads an empty signer set unless a test overrides it.
+    mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: [] });
   });
 
   describe('constructor + getters', () => {
@@ -459,6 +463,53 @@ describe('MultisigService', () => {
       mockGetAccount.mockResolvedValue(null);
 
       await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toThrow('missing from local client');
+    });
+
+    it('re-derives the guardian allowlist from the fresh on-chain account before registering (#619 gap 3)', async () => {
+      // The multisig was loaded from a possibly-stale guardian blob, so its
+      // cached signerCommitments still hold the PRE-rotation [old-hot, cold].
+      let commitmentsAtRegisterTime: string[] | undefined;
+      const registerOnGuardian = jest.fn(async () => {
+        commitmentsAtRegisterTime = [...(multisig as unknown as { signerCommitments: string[] }).signerCommitments];
+      });
+      const multisig = makeMultisig({
+        registerOnGuardian,
+        signerCommitments: ['0xoldhot', '0xcold']
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const freshAccount = { serialize: () => new Uint8Array([1, 2, 3]) };
+      mockGetAccount.mockResolvedValue(freshAccount);
+      // The freshly-synced on-chain account resolves to the POST-rotation set.
+      mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: ['0xnewhot', '0xcold'] });
+
+      await service.reRegisterCurrentStateOnGuardian();
+
+      // The allowlist is refreshed from the fresh account (byte-identical to the
+      // vendored client.load derivation) AND is in place BEFORE registering, so
+      // the guardian gets [new-hot, cold], not the stale [old-hot, cold] that
+      // would re-trigger the permanent-401.
+      expect(mockAccountInspectorFromAccount).toHaveBeenCalledWith(freshAccount);
+      expect((multisig as unknown as { signerCommitments: string[] }).signerCommitments).toEqual([
+        '0xnewhot',
+        '0xcold'
+      ]);
+      expect(commitmentsAtRegisterTime).toEqual(['0xnewhot', '0xcold']);
+    });
+
+    it('keeps the cached allowlist (does NOT overwrite with empty) when the fresh account reads back no signers', async () => {
+      // A truncated storage read yields an empty set from AccountInspector;
+      // overwriting a good allowlist with [] would re-arm the 401 this prevents.
+      const registerOnGuardian = jest.fn(async () => {});
+      const multisig = makeMultisig({ registerOnGuardian, signerCommitments: ['0xhot', '0xcold'] });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1]) });
+      mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: [] });
+
+      await service.reRegisterCurrentStateOnGuardian();
+
+      // cached set preserved, and the state blob is still pushed (best-effort).
+      expect((multisig as unknown as { signerCommitments: string[] }).signerCommitments).toEqual(['0xhot', '0xcold']);
+      expect(registerOnGuardian).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -12,7 +12,12 @@
 import { registerPlugin } from '@capacitor/core';
 
 export interface HotKeyPlugin {
-  generateHotKey(): Promise<{ ciphertext: string; publicKeyHex: string }>;
+  // `strongBoxError` (Android only) is set when the device HAS a StrongBox
+  // but it failed to produce a working key (generation, hardware check, or
+  // the wrap round-trip probe), so the plugin degraded to an ordinary
+  // TEE-backed key. The returned key works; the error is surfaced so the
+  // user can report the misbehaving secure element.
+  generateHotKey(): Promise<{ ciphertext: string; publicKeyHex: string; strongBoxError?: string }>;
 
   signWithHotKey(options: { ciphertext: string; digestHex: string }): Promise<{ signatureHex: string }>;
 
