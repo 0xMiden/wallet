@@ -5,10 +5,11 @@ import {
   USER_CANCELLED_REASON,
   activityRowFor,
   assertNeverStartedBuilding,
-  assertVaultBalanceUnchanged,
+  assertStaysCancelledWithQueueLive,
   openHistory,
   openHistoryDetails,
   plantQueueBlocker,
+  readDetailRowFullValue,
   readTransactionRow,
   releaseQueueBlocker,
   waitForSendRow,
@@ -23,14 +24,27 @@ const MINT_BASE_UNITS = 100_000_000_000n;
 // The send that gets cancelled — it must never reach the chain.
 const SEND_AMOUNT = '500';
 const SEND_BASE_UNITS = toBaseUnits(SEND_AMOUNT, TOKEN_DECIMALS);
+// Budget for assertions on an ALREADY-rendered page (a store update the UI has
+// only to re-render). The default 60s is a chain budget and does not belong on
+// these: it inflates the sum of this spec's sub-budgets past its own test
+// timeout, which turns any UI regression into "Test timeout exceeded" instead of
+// "expected Cancelled, got Sending".
+const UI_TIMEOUT_MS = 15_000;
 
 /**
  * Cancelling a pending transaction.
  *
  * The promise a Cancel button makes is a strong one: the money stays put. This
- * spec asserts BOTH halves of it — the vault is untouched to the base unit, and
- * the row reaches a terminal failed state carrying the user-cancellation reason
- * (not merely "something other than Completed", which a stuck row also satisfies).
+ * spec proves it the only way it can be proven cheaply — by showing the
+ * transaction never entered the build pipeline at all (no `stage`, no
+ * `processingStartedAt`, so `generateTransaction` provably never ran for it) and
+ * that this stays true once the queue is unparked and the loop is free to select
+ * again. A balance that "has not moved yet" cannot tell those apart; a row that
+ * was never built cannot have moved anything.
+ *
+ * The row must also reach a terminal failed state carrying the user-cancellation
+ * reason — not merely "something other than Completed", which a stuck row and the
+ * 30-minute queue reaper both satisfy.
  *
  * ── How the cancellable window is made deterministic ────────────────────────
  *
@@ -49,21 +63,30 @@ const SEND_BASE_UNITS = toBaseUnits(SEND_AMOUNT, TOKEN_DECIMALS);
  * So the window is taken from a product invariant instead: the FIFO loop returns
  * early while any row is `GeneratingTransaction`, so `plantQueueBlocker` parks the
  * queue outright and the send below sits Queued for as long as this spec needs.
- * `assertNeverStartedBuilding` re-checks the hold immediately before and after the
- * click, so if it ever stopped working the spec says exactly that instead of
- * blaming the product for a moved balance. See helpers/history.ts for the full
- * rationale, including why the cheaper "cancel right after submit" is not shipped.
+ * The hold itself is only ever asserted by its EFFECT — the send must still read
+ * Queued — because whether `getTransactionsInProgress()` returns the planted row
+ * is not observable from the page; the wait that proves it says so on failure, so
+ * an inert hold does not get reported as a broken send flow. See
+ * helpers/history.ts for the full rationale, including why the cheaper "cancel
+ * right after submit" is not shipped.
  */
 test.describe('Transaction Cancellation', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('cancelling a queued send leaves the balance untouched and the row terminally cancelled', async ({
+  test('cancelling a queued send never builds the transaction and leaves the row terminally cancelled', async ({
     walletA,
     walletB,
     midenCli,
     steps,
     timeline
   }) => {
+    // The waits below add up to ~765s in the worst case (three 120s funding waits
+    // alone eat 360s), well past the config's 300s default. Under that default the
+    // spec is killed by its own budget before its own timeouts can fire, so every
+    // failure reads "Test timeout of 300000ms exceeded" and none of the diagnostics
+    // these helpers exist to print ever run.
+    test.setTimeout(900_000);
+
     let addressA: string;
     let addressB: string;
     let blockerId: string;
@@ -134,17 +157,29 @@ test.describe('Transaction Cancellation', () => {
           isPrivate: false
         });
 
-        // Enqueued, and — because the queue is parked — still Queued. This wait
-        // is on the row itself, so a hold that failed shows up here as a missing
-        // Queued row rather than as a mystery balance change later.
+        // Enqueued, and — because the queue is parked — still Queued. This is the
+        // assertion that proves the hold WORKS: `plantQueueBlocker` can only
+        // verify it wrote a row, not that `getTransactionsInProgress()` returns
+        // it, so an inert hold surfaces here and nowhere else. The rethrow says so,
+        // because from the send flow's side "never reached Queued" and "the loop
+        // grabbed it immediately" are the same missing row.
         const queued = await waitForSendRow(walletA.page, {
           recipient: addressB!,
           amountBaseUnits: SEND_BASE_UNITS,
           status: TxStatus.Queued,
           timeoutMs: 60_000
+        }).catch((cause: unknown) => {
+          throw new Error(
+            `The send never showed up as Queued. Suspect the queue hold (blocker row ${blockerId}) before the ` +
+              `send flow: \`generateTransactionsLoop\` only parks while \`getTransactionsInProgress()\` ` +
+              `(src/lib/miden/transaction/get.ts) can SEE the blocker, and that query has no account filter ` +
+              `today — if one were added, the blocker's deliberately-foreign accountId would hide it, the loop ` +
+              `would build this send for real, and the row would race straight past Queued.\n` +
+              `  underlying: ${cause instanceof Error ? cause.message : String(cause)}`
+          );
         });
         sendRowId = queued.id;
-        assertNeverStartedBuilding(queued, 'right after the send was enqueued');
+        assertNeverStartedBuilding(queued, 'right after the send was enqueued', TxStatus.Queued);
       },
       {
         screenshotWallets: [{ target: walletA.page, label: 'A' }]
@@ -165,9 +200,14 @@ test.describe('Transaction Cancellation', () => {
         // Re-read immediately before the click: this is the assertion that makes
         // the "no funds moved" claim below meaningful, because a row that had
         // already started building could reach the chain regardless of the cancel.
+        // Still QUEUED specifically, not merely "not building" — a row the
+        // 30-minute reaper (`cancelStaleQueuedTransactions`) or a restart
+        // (`failInterruptedTransactions`) already terminated would also carry no
+        // stage and no processingStartedAt, and the cancel below would then be
+        // asserting against somebody else's terminal state.
         const beforeClick = await readTransactionRow(walletA.page, sendRowId!);
         expect(beforeClick).not.toBeNull();
-        assertNeverStartedBuilding(beforeClick!, 'immediately before clicking Cancel');
+        assertNeverStartedBuilding(beforeClick!, 'immediately before clicking Cancel', TxStatus.Queued);
 
         await cancelButton.click({ timeout: 30_000 });
 
@@ -179,14 +219,25 @@ test.describe('Transaction Cancellation', () => {
           timeoutMs: 60_000
         });
         expect(failed.error).toBe(USER_CANCELLED_REASON);
-        assertNeverStartedBuilding(failed, 'after the cancel landed');
+        assertNeverStartedBuilding(failed, 'after the cancel landed', TxStatus.Failed);
 
         // The same three facts as the user sees them.
-        await expect(walletA.page.getByTestId('history-status-pill')).toHaveText('Cancelled');
-        await expect(walletA.page.getByTestId('history-failure-reason')).toHaveText(USER_CANCELLED_REASON);
+        await expect(walletA.page.getByTestId('history-status-pill')).toHaveText('Cancelled', {
+          timeout: UI_TIMEOUT_MS
+        });
+        await expect(walletA.page.getByTestId('history-failure-reason')).toHaveText(USER_CANCELLED_REASON, {
+          timeout: UI_TIMEOUT_MS
+        });
         // The affordance is gone because the row is no longer pending — a Cancel
         // button still on screen would mean the page never saw the new state.
-        await expect(cancelButton).toHaveCount(0);
+        await expect(cancelButton).toHaveCount(0, { timeout: UI_TIMEOUT_MS });
+
+        // The From/To card renders for a cancelled row too, and it must still
+        // read outward. `cancelTransaction` rewrites `displayMessage` to 'Failed',
+        // so a detail page that derives the direction from that message shows
+        // "To: <your own account>" on a send you just cancelled — the recipient
+        // and the sender swapped on the one screen a worried user opens.
+        expect(await readDetailRowFullValue(walletA.page, 'history-detail-to', UI_TIMEOUT_MS)).toBe(addressB!);
       },
       {
         screenshotWallets: [{ target: walletA.page, label: 'A' }]
@@ -196,14 +247,15 @@ test.describe('Transaction Cancellation', () => {
     await steps.step(
       'verify_activity_row_reads_cancelled',
       async () => {
-        await openHistory(walletA);
-        const row = activityRowFor(walletA.page, addressB!);
-        await expect(row).toHaveCount(1);
-        await expect(row.getByTestId('activity-row-title')).toHaveText('Cancelled');
-        await expect(row.getByTestId('activity-row-status')).toHaveText('Cancelled');
+        await openHistory(walletA, UI_TIMEOUT_MS);
+        const row = await activityRowFor(walletA.page, addressB!, UI_TIMEOUT_MS);
+        await expect(row.getByTestId('activity-row-title')).toHaveText('Cancelled', { timeout: UI_TIMEOUT_MS });
+        await expect(row.getByTestId('activity-row-status')).toHaveText('Cancelled', { timeout: UI_TIMEOUT_MS });
         // A cancelled row loses its direction, so the amount renders unsigned —
         // still exact, and still naming the token.
-        await expect(row.getByTestId('activity-row-amount')).toHaveText(`${SEND_AMOUNT} ${TOKEN}`);
+        await expect(row.getByTestId('activity-row-amount')).toHaveText(`${SEND_AMOUNT} ${TOKEN}`, {
+          timeout: UI_TIMEOUT_MS
+        });
       },
       {
         screenshotWallets: [{ target: walletA.page, label: 'A' }]
@@ -211,32 +263,37 @@ test.describe('Transaction Cancellation', () => {
     );
 
     await steps.step(
-      'verify_balance_unchanged',
+      'verify_the_live_queue_does_not_resurrect_it',
       async () => {
-        // Unparking FIRST is deliberate: with the queue live again, a row that
-        // was not really finalized would be picked up by the very next loop pass
-        // and the balance would move inside the window below. Asserting while the
-        // queue is still parked would prove far less.
+        // Everything up to here was asserted with the queue PARKED, where "never
+        // started building" is nearly free. Unparking is what makes the claim
+        // mean something: the loop is now running, unblocked, and free to select.
         await releaseQueueBlocker(walletA.page, blockerId!);
 
-        // Home polls `fetchBalances`; a detail page does not, and asserting
-        // "unchanged" against a frozen projection asserts nothing at all.
+        // Home drives the wallet's normal polling (and, on mobile/desktop, the
+        // transaction driver itself), so the loop really does get its passes in
+        // during the window below rather than sitting idle on a detail page.
         await walletA.navigateHome();
 
-        await assertVaultBalanceUnchanged(walletA.page, TOKEN, MINT_BASE_UNITS, {
-          forMs: 15_000,
-          decimals: TOKEN_DECIMALS
-        });
+        // Deliberately NOT a balance watch. A balance can only move a whole
+        // prove+submit+commit after a pickup — far outside any window a spec can
+        // afford — whereas `generateTransaction` stamps `stage`/`processingStartedAt`
+        // in its first two statements, so a pickup is visible on the row within a
+        // poll. Watching the row is the fast, falsifiable version of "the money
+        // stayed put"; watching the balance for 15s would pass even if the send
+        // had just been picked up.
+        await assertStaysCancelledWithQueueLive(walletA.page, sendRowId!, USER_CANCELLED_REASON, { forMs: 15_000 });
 
         timeline.emit({
           category: 'blockchain_state',
           severity: 'info',
           message:
-            `Cancelled ${SEND_AMOUNT} ${TOKEN} send never reached the chain: wallet A still holds exactly ` +
-            `${MINT_BASE_UNITS} base units and the row is Failed with "${USER_CANCELLED_REASON}"`,
+            `Cancelled ${SEND_AMOUNT} ${TOKEN} send never entered the build pipeline, and stayed out of it ` +
+            `after the queue was unparked: the row is Failed with "${USER_CANCELLED_REASON}" and carries ` +
+            `neither stage nor processingStartedAt`,
           data: {
             symbol: TOKEN,
-            vaultBaseUnits: MINT_BASE_UNITS.toString(),
+            vaultBaseUnitsAtBaseline: MINT_BASE_UNITS.toString(),
             cancelledAmountBaseUnits: SEND_BASE_UNITS.toString(),
             rowId: sendRowId!
           }

@@ -24,8 +24,6 @@
  */
 import type { Locator, Page } from '@playwright/test';
 
-import { fromBaseUnits, vaultBalance } from './balance-truth';
-
 /** `ITransactionStatus` (src/lib/miden/db/types.ts) — the numbers persisted in Dexie. */
 export const TxStatus = {
   Queued: 0,
@@ -247,11 +245,22 @@ export async function waitForTransactionRow(
  * This is a harness fixture writing product DB state, which is a real cost — it is
  * taken deliberately, in exchange for a spec with no race in it at all. Always pair
  * with `releaseQueueBlocker` so the wallet is left in a normal state.
+ *
+ * WHAT THIS FUNCTION DOES **NOT** VERIFY
+ *
+ * That the hold is EFFECTIVE. Reading the row back and checking it says
+ * `status === 1` only proves IndexedDB round-tripped a literal this function just
+ * wrote; the invariant the spec rests on is that `getTransactionsInProgress()`
+ * (src/lib/miden/transaction/get.ts) returns it, which is not observable from the
+ * page. That is asserted by the caller instead, and asserted for real: the send
+ * queued afterwards must still read Queued. Callers should say so when that wait
+ * fails, because "the send never reached Queued" and "the hold went inert" look
+ * identical from the send flow's side.
  */
 export async function plantQueueBlocker(page: Page): Promise<string> {
   const blockerId = `e2e-queue-blocker-${Date.now()}`;
 
-  const landed = await page.evaluate(
+  const storePresent = await page.evaluate(
     async ({ dbName, storeName, id }) => {
       const idb = (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB;
       const db: IDBDatabase = await new Promise((res, rej) => {
@@ -260,7 +269,7 @@ export async function plantQueueBlocker(page: Page): Promise<string> {
         r.onerror = () => rej(r.error);
       });
       try {
-        if (!db.objectStoreNames.contains(storeName)) return null;
+        if (!db.objectStoreNames.contains(storeName)) return false;
         const nowSeconds = Math.floor(Date.now() / 1000);
         const row = {
           id,
@@ -281,12 +290,7 @@ export async function plantQueueBlocker(page: Page): Promise<string> {
           r.onsuccess = () => res();
           r.onerror = () => rej(r.error);
         });
-        const readBack: { status?: number } | undefined = await new Promise((res, rej) => {
-          const r = db.transaction(storeName, 'readonly').objectStore(storeName).get(id);
-          r.onsuccess = () => res(r.result);
-          r.onerror = () => rej(r.error);
-        });
-        return readBack?.status ?? null;
+        return true;
       } finally {
         db.close();
       }
@@ -294,11 +298,11 @@ export async function plantQueueBlocker(page: Page): Promise<string> {
     { dbName: TX_DB, storeName: TX_STORE, id: blockerId }
   );
 
-  if (landed !== TxStatus.GeneratingTransaction) {
+  if (!storePresent) {
     throw new Error(
-      `plantQueueBlocker: the blocker row did not land as GeneratingTransaction ` +
-        `(read back status=${landed ?? 'row missing'}). Without it the queue is not held and a cancel ` +
-        `would be racing the transaction loop, so refusing to continue.`
+      `plantQueueBlocker: "${TX_DB}" has no "${TX_STORE}" object store on this origin, so the blocker row ` +
+        `was never written. The wallet creates it on first use — this usually means the extension page was ` +
+        `addressed before the vault finished initialising.`
     );
   }
   return blockerId;
@@ -340,17 +344,31 @@ export async function releaseQueueBlocker(page: Page, blockerId: string): Promis
 }
 
 /**
- * Assert a row has not been touched by the transaction loop: still Queued, no
- * `processingStartedAt`, no `stage`.
+ * Assert a row has not been touched by the transaction loop: exactly the status
+ * the caller expects, no `processingStartedAt`, no `stage`.
  *
  * `stage` is the earliest tripwire there is — `generateTransaction` writes
  * `setTransactionStage(id, 'syncing')` BEFORE it flips the status — so a row with
  * neither field is one the loop has provably never picked up.
+ *
+ * `expectStatus` is required rather than defaulted, because callers before and
+ * after a cancel want DIFFERENT statuses and accepting either would let a row
+ * terminated by some other path pass: `cancelStaleQueuedTransactions`
+ * (MAX_QUEUED_AGE) and `failInterruptedTransactions` (browser restart) both
+ * produce a Failed row with no `stage` and no `processingStartedAt`, which is
+ * indistinguishable from a user-cancelled one on those two fields alone — so a
+ * pre-cancel check that accepted Failed would be satisfied by the reaper.
  */
-export function assertNeverStartedBuilding(row: TransactionRowSnapshot, when: string): void {
+export function assertNeverStartedBuilding(
+  row: TransactionRowSnapshot,
+  when: string,
+  expectStatus: TxStatusValue
+): void {
   const problems: string[] = [];
-  if (row.status !== TxStatus.Queued && row.status !== TxStatus.Failed) {
-    problems.push(`status is ${TX_STATUS_NAME[row.status ?? -1] ?? row.status} (wanted Queued or Failed)`);
+  if (row.status !== expectStatus) {
+    problems.push(
+      `status is ${TX_STATUS_NAME[row.status ?? -1] ?? row.status} (wanted ${TX_STATUS_NAME[expectStatus]})`
+    );
   }
   if (row.processingStartedAt !== undefined) problems.push(`processingStartedAt=${row.processingStartedAt} is set`);
   if (row.stage !== undefined) problems.push(`stage=${row.stage} is set`);
@@ -358,17 +376,74 @@ export function assertNeverStartedBuilding(row: TransactionRowSnapshot, when: st
 
   throw new Error(
     `The queue hold failed ${when}: transaction ${row.id} entered the build pipeline, so this run ` +
-      `may have put a real transaction on chain and "balance unchanged" is no longer a valid assertion.\n` +
+      `may have put a real transaction on chain and "no funds moved" is no longer a valid assertion.\n` +
       `  ${problems.join('; ')}\n` +
       `  row: ${describeTransactionRow(row)}`
   );
+}
+
+/**
+ * With the transaction queue LIVE again, watch a cancelled row long enough to
+ * prove the FIFO loop does not pick it back up.
+ *
+ * This is the one funds-safety fact the pre-release assertions cannot establish.
+ * While the blocker is planted `generateTransactionsLoop` returns early, so
+ * "the row never started building" is trivially true; the question that actually
+ * matters is whether it stays true once the loop is running and free to select.
+ * The named breakage: the loop's selection widening beyond
+ * `status === Queued` (src/lib/miden/transaction/index.ts) — or any retry path
+ * re-queueing a user-cancelled row — would build the send for real and move the
+ * user's money AFTER they were told it was cancelled.
+ *
+ * Watches the ROW, not the balance, deliberately: `generateTransaction` stamps
+ * `stage`/`processingStartedAt` in its first two statements, so a pickup shows up
+ * here within a poll, whereas the resulting debit only lands a whole
+ * prove+submit+commit cycle later — long after any window a spec can afford.
+ */
+export async function assertStaysCancelledWithQueueLive(
+  page: Page,
+  rowId: string,
+  expectedError: string,
+  opts: { forMs?: number } = {}
+): Promise<void> {
+  const forMs = opts.forMs ?? 15_000;
+  const intervalMs = 1_000;
+  const deadline = Date.now() + forMs;
+
+  for (;;) {
+    const row = await readTransactionRow(page, rowId);
+    if (!row) {
+      throw new Error(
+        `assertStaysCancelledWithQueueLive: transaction row ${rowId} disappeared while the queue was live.`
+      );
+    }
+    if (row.status !== TxStatus.Failed || row.error !== expectedError) {
+      throw new Error(
+        `assertStaysCancelledWithQueueLive: the cancelled row was re-opened once the queue was unparked.\n` +
+          `  expected: Failed with error ${JSON.stringify(expectedError)}\n` +
+          `  actual:   ${describeTransactionRow(row)}\n` +
+          `  A cancelled transaction the loop can still select puts the user's money on chain ` +
+          `after they were told it would not be.`
+      );
+    }
+    assertNeverStartedBuilding(row, 'while the transaction queue was live again', TxStatus.Failed);
+    if (Date.now() >= deadline) return;
+    await page.waitForTimeout(intervalMs);
+  }
 }
 
 // ── Rendered activity list / detail page ───────────────────────────────────
 
 /**
  * The recipient string as the ACTIVITY ROW renders it — mirror of `shortAddr`
- * in src/app/templates/history/HistoryView.tsx.
+ * in src/app/templates/history/HistoryView.tsx (the harness never imports from
+ * `src/`; every product constant it needs is mirrored with its source named).
+ *
+ * The mirror is pinned on the product side by `HistoryView.test.tsx`, which
+ * asserts the rendered subtitle verbatim for both branches
+ * ('to: mtst1_…address', 'from: mtst1a…mnop'), so a truncation change fails jest
+ * before it can reach a live-chain run. `activityRowFor` names this file anyway
+ * if the strings ever do diverge.
  *
  * Deliberately not shared with the detail page's truncation: `AddressShortView`
  * there uses `truncateAddress(addr, false, 8)` (8 leading chars), so one helper
@@ -397,15 +472,40 @@ export async function openHistory(wallet: HistoryWallet, timeoutMs: number = 60_
 }
 
 /**
- * The single activity row addressed to `address`.
+ * The single activity row addressed to `address`, or a throw naming why not.
  *
  * Filtering on the truncated recipient is what makes the row identifiable: it is
- * the only text on the row unique to one counterparty. Callers must assert the
- * count is 1 before reading its parts, so a filter that matched two rows fails
- * loudly instead of silently asserting on the first.
+ * the only text on the row unique to one counterparty. That also makes the filter
+ * the one place a truncation change would show up as a MIS-ATTRIBUTED failure —
+ * "the row is missing" when the row is right there reading `mtst1qab…cdef`. So the
+ * count is enforced here rather than by the caller, and a zero-match dumps every
+ * row's text next to the string that was searched for, which distinguishes
+ * "the wallet never rendered this transfer" from "`shortAddr` changed shape".
  */
-export function activityRowFor(page: Page, address: string): Locator {
-  return page.getByTestId('activity-row').filter({ hasText: activityRowAddress(address) });
+export async function activityRowFor(page: Page, address: string, timeoutMs: number = 60_000): Promise<Locator> {
+  const wanted = activityRowAddress(address);
+  const row = page.getByTestId('activity-row').filter({ hasText: wanted });
+  const deadline = Date.now() + timeoutMs;
+
+  for (;;) {
+    const matches = await row.count();
+    if (matches === 1) return row;
+    if (Date.now() >= deadline) {
+      const allRows = await page.getByTestId('activity-row').allTextContents();
+      throw new Error(
+        `activityRowFor: wanted exactly 1 activity row containing ${JSON.stringify(wanted)}, found ${matches} ` +
+          `after ${timeoutMs}ms.\n` +
+          `  activity rows on screen (${allRows.length}):\n` +
+          (allRows.length === 0 ? '    (none)\n' : allRows.map(text => `    ${JSON.stringify(text)}\n`).join('')) +
+          (matches === 0 && allRows.length > 0
+            ? `  Rows ARE rendering, so check the truncation first: the searched string mirrors \`shortAddr\` ` +
+              `(src/app/templates/history/HistoryView.tsx) — if that changed, this helper's ` +
+              `\`activityRowAddress\` is stale and the transfer itself may be fine.\n`
+            : '')
+      );
+    }
+    await page.waitForTimeout(1_000);
+  }
 }
 
 /** Open `#/history-details/:rowId` for a Dexie transaction row uuid (NOT the on-chain hash). */
@@ -450,62 +550,4 @@ export async function readDetailRowFullValue(
     throw new Error(`readDetailRowFullValue: detail row "${rowTestId}" carries an empty value.`);
   }
   return value;
-}
-
-/** How the trimmed chip renders a hash — mirror of `HashShortView` (first 7 + '...' + last 4). */
-export function trimmedHash(hash: string, trimAfter: number = 20): string {
-  if (hash.length <= trimAfter) return hash;
-  return `${hash.slice(0, 7)}...${hash.slice(-4)}`;
-}
-
-// ── Balance invariants ─────────────────────────────────────────────────────
-
-/**
- * Assert a symbol's spendable vault balance stays EXACTLY `expected` for a window.
- *
- * This is the "no funds moved" half of a cancellation test, and it is a repeated
- * assertion rather than a single read on purpose: a cancelled transaction that
- * had actually been submitted would settle a second or two later, and one read
- * taken immediately after the click would happily miss it.
- *
- * Only meaningful while something is refreshing the store's `balances`
- * projection — call it from a screen that polls (home), not from a detail page
- * that leaves the projection frozen, or it asserts on a stale number.
- */
-export async function assertVaultBalanceUnchanged(
-  page: Page,
-  symbol: string,
-  expected: bigint,
-  opts: { forMs?: number; decimals?: number } = {}
-): Promise<void> {
-  const forMs = opts.forMs ?? 12_000;
-  const intervalMs = 2_000;
-  const deadline = Date.now() + forMs;
-  const d = opts.decimals;
-  const fmt = (v: bigint) => (d == null ? `${v} base units` : `${fromBaseUnits(v, d)} (${v} base units)`);
-
-  let samples = 0;
-  for (;;) {
-    const seen = await vaultBalance(page, symbol);
-    samples += 1;
-    if (seen !== expected) {
-      throw new Error(
-        `assertVaultBalanceUnchanged(${symbol}) failed on sample ${samples} after ` +
-          `${forMs - Math.max(0, deadline - Date.now())}ms.\n` +
-          `  expected (unchanged): ${fmt(expected)}\n` +
-          `  actual:               ${fmt(seen)}\n` +
-          `  delta:                ${fmt(seen - expected)}\n` +
-          `  A moved balance here means the transaction was NOT prevented from building.`
-      );
-    }
-    if (Date.now() >= deadline) break;
-    await page.waitForTimeout(intervalMs);
-  }
-
-  if (samples < 2) {
-    throw new Error(
-      `assertVaultBalanceUnchanged(${symbol}) only took ${samples} sample(s) over ${forMs}ms — ` +
-        `a single read cannot tell "unchanged" from "has not settled yet". Raise forMs.`
-    );
-  }
 }
