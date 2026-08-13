@@ -1,3 +1,7 @@
+/* eslint-disable no-empty-pattern -- Playwright PARSES the fixture function's source to
+   resolve its fixture dependencies, and rejects anything but a destructuring pattern in the
+   first argument: `async (_, use)` fails at runtime with "First argument must use the object
+   destructuring pattern". `async ({}, use)` is the required idiom, not a style choice. */
 import 'fake-indexeddb/auto';
 
 import { test as base } from '@playwright/test';
@@ -30,7 +34,7 @@ type Fixtures = {
 };
 
 export const test = base.extend<Fixtures>({
-  sdk: async (_, use) => {
+  sdk: async ({}, use) => {
     ensureFileFetchSupport();
     const sdk = await import('@miden-sdk/miden-sdk');
     await use(sdk as any);

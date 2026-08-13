@@ -1,3 +1,7 @@
+/* eslint-disable no-empty-pattern -- Playwright PARSES the fixture function's source to
+   resolve its fixture dependencies, and rejects anything but a destructuring pattern in the
+   first argument: `async (_, use)` fails at runtime with "First argument must use the object
+   destructuring pattern". `async ({}, use)` is the required idiom, not a style choice. */
 import { test as base } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -303,11 +307,11 @@ async function devicePair(): Promise<{ udidA: string; udidB: string }> {
 }
 
 export const test = base.extend<TwoSimulatorFixtures>({
-  envConfig: async (_, use) => {
+  envConfig: async ({}, use) => {
     await use(getEnvironmentConfig());
   },
 
-  timeline: async (_, use, testInfo) => {
+  timeline: async ({}, use, testInfo) => {
     const outputDir = getRunOutputDir(testInfo.titlePath.join('-').replace(/\s+/g, '_'));
     const timeline = new TimelineRecorder(outputDir);
 

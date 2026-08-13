@@ -1,3 +1,7 @@
+/* eslint-disable no-empty-pattern -- Playwright PARSES the fixture function's source to
+   resolve its fixture dependencies, and rejects anything but a destructuring pattern in the
+   first argument: `async (_, use)` fails at runtime with "First argument must use the object
+   destructuring pattern". `async ({}, use)` is the required idiom, not a style choice. */
 import { chromium, test as base, type BrowserContext, type Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -565,12 +569,12 @@ function cleanupStaleSessions(): void {
 // ── Fixture ─────────────────────────────────────────────────────────────────
 
 export const test = base.extend<TwoWalletFixtures>({
-  envConfig: async (_, use) => {
+  envConfig: async ({}, use) => {
     const config = getEnvironmentConfig();
     await use(config);
   },
 
-  timeline: async (_, use, testInfo) => {
+  timeline: async ({}, use, testInfo) => {
     const outputDir = getRunOutputDir(testInfo.titlePath.join('-').replace(/\s+/g, '_'));
     const timeline = new TimelineRecorder(outputDir);
 
@@ -600,7 +604,7 @@ export const test = base.extend<TwoWalletFixtures>({
     runner.saveCheckpoints();
   },
 
-  failureSnapshots: async (_, use) => {
+  failureSnapshots: async ({}, use) => {
     await use({});
   },
 

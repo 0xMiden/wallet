@@ -1,3 +1,7 @@
+/* eslint-disable no-empty-pattern -- Playwright PARSES the fixture function's source to
+   resolve its fixture dependencies, and rejects anything but a destructuring pattern in the
+   first argument: `async (_, use)` fails at runtime with "First argument must use the object
+   destructuring pattern". `async ({}, use)` is the required idiom, not a style choice. */
 import { chromium, test as base } from '@playwright/test';
 import { execSync } from 'child_process';
 import fs from 'fs';
@@ -32,7 +36,7 @@ function ensureExtensionBuilt(extensionPath: string) {
 }
 
 export const test = base.extend<Fixtures>({
-  extensionPath: async (_, use) => {
+  extensionPath: async ({}, use) => {
     const extensionPath = process.env.EXTENSION_DIST ?? DEFAULT_EXTENSION_PATH;
     ensureExtensionBuilt(extensionPath);
     await use(extensionPath);
