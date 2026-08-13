@@ -17,6 +17,24 @@ permissions:
   pull-requests: write
 
 jobs:
+  # #594 — fail the build when the native prover's miden-client pin drifts from
+  # the version behind @miden-sdk/miden-sdk (unless recorded as a safe exemption).
+  # No install needed: the guard uses only Node built-ins.
+  native-prover-pin:
+    name: Native prover pin lockstep
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Out Code
+        uses: actions/checkout@v3
+      - name: Use Node 22
+        uses: actions/setup-node@v3
+        with:
+          node-version: 22
+      - name: Check native-prover miden-client pin
+        run: |
+          node scripts/check-native-prover-pin.mjs --self-test
+          node scripts/check-native-prover-pin.mjs
+
   translations:
     name: Update Translation Files
     runs-on: ubuntu-latest
