@@ -21,12 +21,13 @@ export interface PromptCardProps {
   onDismiss?: () => void;
   className?: string;
   /**
-   * Test handle for this specific prompt. The card is generic, so without one
-   * every prompt looks identical in the DOM and no test can assert that a
-   * PARTICULAR prompt surfaced. Applied to the card root, with `-action`
-   * appended for the CTA button.
+   * Optional E2E hook, forwarded to the card root. The card is generic, so
+   * without one every prompt looks identical in the DOM and no test can assert
+   * that a PARTICULAR prompt surfaced. Set by specific callers.
    */
-  testId?: string;
+  'data-testid'?: string;
+  /** Optional E2E hook for the CTA button, which the root's id cannot reach. */
+  actionTestId?: string;
 }
 
 export const PromptCard: FC<PromptCardProps> = ({
@@ -39,7 +40,8 @@ export const PromptCard: FC<PromptCardProps> = ({
   status = 'idle',
   onDismiss,
   className,
-  testId
+  'data-testid': testId,
+  actionTestId
 }) => {
   const { t } = useTranslation();
 
@@ -113,7 +115,7 @@ export const PromptCard: FC<PromptCardProps> = ({
       {StatusIndicator}
       {actionLabel && onAction && status !== 'loading' && status !== 'success' && (
         <button
-          data-testid={testId ? `${testId}-action` : undefined}
+          data-testid={actionTestId}
           type="button"
           onClick={handleAction}
           disabled={actionDisabled}
