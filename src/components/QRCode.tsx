@@ -86,7 +86,13 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size }, 
   );
 
   return (
-    <div className="bg-pure-white rounded-10 p-2">
+    // `data-qr-payload` mirrors the exact string handed to the encoder. The rendered
+    // SVG carries no trace of its own payload, and the repo has no QR *decoder*
+    // (qr-code-styling is an encoder; qrcode/qrcode-generator are transitive-only),
+    // so this attribute is what lets an E2E assert the QR encodes `miden:<address>`
+    // instead of asserting some pixels exist. It exposes nothing new — the same
+    // address already renders in `receive-address-full` and the copy button.
+    <div className="bg-pure-white rounded-10 p-2" data-testid="qr-code" data-qr-payload={qrValue}>
       <div ref={containerRef} style={{ width: size, height: size }} />
     </div>
   );
