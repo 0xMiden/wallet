@@ -821,7 +821,7 @@ export class Vault {
       await encryptAndSaveMany(
         [
           [accPubKeyStrgKey(walletId), walletId],
-          // private key and view key were here from aleo, but removed since we dont store pk and vk isnt a thing (yet)
+          // Miden stores no private key or view key here (we dont store a pk, and a vk isnt a thing yet)
           [accountsStrgKey, newAllAcounts]
         ],
         this.vaultKey

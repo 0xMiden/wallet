@@ -1,6 +1,6 @@
 import browser from 'webextension-polyfill';
 
-import { CHECK_ALEO_PAGES_EXIST, WALLET_AUTOLOCK_TIME } from 'lib/fixed-times';
+import { CHECK_PAGES_EXIST, WALLET_AUTOLOCK_TIME } from 'lib/fixed-times';
 import { assertResponse, request } from 'lib/miden/front';
 import { WalletMessageType } from 'lib/shared/types';
 
@@ -40,7 +40,7 @@ setInterval(async () => {
     await browser.runtime.sendMessage('wakeup');
     await updateClosureTimestamp();
   }
-}, CHECK_ALEO_PAGES_EXIST);
+}, CHECK_PAGES_EXIST);
 
 function getOpenedMidenPagesN() {
   return browser.extension.getViews().length;

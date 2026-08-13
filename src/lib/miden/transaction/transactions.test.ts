@@ -262,6 +262,55 @@ describe('transactions utilities', () => {
       expect(mockModify).toHaveBeenCalled();
     });
 
+    it('stamps stage="complete" on success so a finished tx stops reading as in-flight (#618)', async () => {
+      // setTransactionStage refuses post-terminal writes, so without this a
+      // completed replace-hot-key froze at 'confirming' and a completed guardian
+      // consume at 'guardian-synced' — both of which read as still-running.
+      const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'confirming' };
+      const row: Record<string, unknown> = { ...tx };
+      mockTransactionsWhere
+        .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
+        .mockReturnValueOnce({ modify: jest.fn(async (cb: (t: Record<string, unknown>) => void) => cb(row)) });
+
+      await updateTransactionStatus('tx-1', ITransactionStatus.Completed, {});
+
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(row.stage).toBe('complete');
+    });
+
+    it('stamps complete even when the payload is a whole row carrying a stale stage (#618)', async () => {
+      // completeCustomTransaction forwards interpretTransactionResult(...), which is
+      // the pick-time row object itself — so the payload DOES carry a `stage` key.
+      // A presence check on otherValues.stage would skip the stamp here and let
+      // Object.assign write the stale pick-time stage back over the DB's current one.
+      const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'guardian-synced' };
+      const row: Record<string, unknown> = { ...tx };
+      mockTransactionsWhere
+        .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
+        .mockReturnValueOnce({ modify: jest.fn(async (cb: (t: Record<string, unknown>) => void) => cb(row)) });
+
+      await updateTransactionStatus('tx-1', ITransactionStatus.Completed, {
+        stage: 'creating-proposal',
+        transactionId: 'hash-1'
+      } as never);
+
+      expect(row.stage).toBe('complete');
+      expect(row.transactionId).toBe('hash-1');
+    });
+
+    it('preserves the stage on FAILURE — it records where the failure happened (#618)', async () => {
+      const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'creating-proposal' };
+      const row: Record<string, unknown> = { ...tx };
+      mockTransactionsWhere
+        .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
+        .mockReturnValueOnce({ modify: jest.fn(async (cb: (t: Record<string, unknown>) => void) => cb(row)) });
+
+      await updateTransactionStatus('tx-1', ITransactionStatus.Failed, {});
+
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.stage).toBe('creating-proposal');
+    });
+
     it('throws when transaction not found', async () => {
       mockTransactionsWhere.mockReturnValueOnce({
         first: jest.fn().mockResolvedValueOnce(undefined)
