@@ -1,11 +1,11 @@
-import { expect, test } from '../fixtures/two-wallets';
+import { test } from '../fixtures/two-wallets';
 import { snapshotTransfer, type TransferSnapshot } from '../helpers/assertions';
 import {
   fromBaseUnits,
   toBaseUnits,
-  vaultBalance,
   waitForPendingNoteTotal,
-  waitForVaultBalance
+  waitForVaultBalance,
+  waitForVaultDebit
 } from '../helpers/balance-truth';
 
 // The faucet the harness deploys (miden-cli.ts createFaucet defaults).
@@ -110,14 +110,14 @@ test.describe('Public Note Send', () => {
 
         // The other half of a transfer: A must actually have been debited. At least
         // the sent amount, not exactly it — a fee may also leave the account.
-        const fromAfter = await vaultBalance(walletA.page, TOKEN);
-        const debited = beforeSend.fromVault - fromAfter;
-        expect(
-          debited >= SEND_BASE_UNITS,
-          `sender (A) must be debited by at least ${SEND_AMOUNT} ${TOKEN}; was ` +
-            `${fromBaseUnits(beforeSend.fromVault, TOKEN_DECIMALS)} → ${fromBaseUnits(fromAfter, TOKEN_DECIMALS)} ` +
-            `(debited ${fromBaseUnits(debited, TOKEN_DECIMALS)})`
-        ).toBe(true);
+        // Waited, not read once: B's pending total moving proves the note is on-chain,
+        // but A's own balances projection settles independently, so a bare read here
+        // samples a vault that has not moved yet and reports `debited 0`.
+        const debited = await waitForVaultDebit(walletA.page, TOKEN, beforeSend.fromVault, SEND_BASE_UNITS, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
+        const fromAfter = beforeSend.fromVault - debited;
 
         timeline.emit({
           category: 'blockchain_state',
