@@ -87,20 +87,26 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
     throw new Error('Transaction already in a finalized state');
   }
 
-  // Stamp the terminal stage on success. `setTransactionStage` refuses writes
-  // once a row is terminal, so the trailing setTransactionStage(id,'complete')
-  // in generateTransaction is a silent no-op and a SUCCESSFUL row keeps
-  // whatever stage it happened to be in — a completed replace-hot-key freezes
-  // at 'confirming', a completed guardian consume at 'guardian-synced'. That
-  // read as "still in flight" and cost several investigations (#618).
-  // Failed rows keep their stage: there it records WHERE the failure happened
-  // and is diagnostically load-bearing.
-  const stampCompleteStage = status === ITransactionStatus.Completed && !('stage' in (otherValues ?? {}));
-
   await Repo.transactions.where({ id: id }).modify(t => {
     Object.assign(t, otherValues);
     t.status = status;
-    if (stampCompleteStage) t.stage = 'complete';
+    // Stamp the terminal stage on success. `setTransactionStage` refuses writes
+    // once a row is terminal, so the trailing setTransactionStage(id,'complete')
+    // in generateTransaction is a silent no-op and a SUCCESSFUL row keeps
+    // whatever stage it happened to be in — a completed replace-hot-key freezes
+    // at 'confirming', a completed guardian consume at 'guardian-synced'. That
+    // read as "still in flight" and cost several investigations (#618).
+    //
+    // Unconditional, and AFTER the Object.assign so it wins: completeCustomTransaction
+    // forwards `interpretTransactionResult(...)`, i.e. the whole pick-time row, so any
+    // presence check on `otherValues.stage` misfires there and writes the stale
+    // pick-time stage straight back. No Completed caller passes `stage` deliberately —
+    // the only deliberate stage payload is requeueTransactionForRetry, which writes Queued.
+    //
+    // Failed rows keep their stage: there it records WHERE the failure happened
+    // and is diagnostically load-bearing (GeneratingTransaction reads it to pin
+    // the failed step).
+    if (status === ITransactionStatus.Completed) t.stage = 'complete';
   });
 };
 
@@ -109,13 +115,13 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
  * `generateTransaction` / `completeSendTransaction` so the progress modal
  * can show "Syncing" / "Sending" / "Confirming" / "Delivering" instead of
  * a single opaque "Generating transaction". Does not gate on status —
- * late writes after `Completed` are no-ops via the `.modify` callback
- * (the stage field is informational and only read while status is
- * pre-terminal).
+ * late writes after a terminal status are no-ops via the `.modify` callback.
  *
- * Note: completion itself stamps `stage = 'complete'` — see
- * `updateTransactionStatus` — so a successful row no longer keeps the stage it
- * finished in (#618). This function remains the pre-terminal writer.
+ * That terminal guard is load-bearing, NOT a formality: a Failed row's stage
+ * records WHERE it failed and `GeneratingTransaction` reads it to pin the failed
+ * step, so a late write would erase the failure location. Completed rows are
+ * stamped `'complete'` by `updateTransactionStatus` itself (#618), which is why
+ * this function stays the pre-terminal writer.
  */
 export const setTransactionStage = async (id: string, stage: ITransactionStage) => {
   await Repo.transactions.where({ id }).modify(tx => {

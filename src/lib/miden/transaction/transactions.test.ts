@@ -278,16 +278,24 @@ describe('transactions utilities', () => {
       expect(row.stage).toBe('complete');
     });
 
-    it('lets an explicit stage in the payload win over the completion stamp (#618)', async () => {
-      const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'confirming' };
+    it('stamps complete even when the payload is a whole row carrying a stale stage (#618)', async () => {
+      // completeCustomTransaction forwards interpretTransactionResult(...), which is
+      // the pick-time row object itself — so the payload DOES carry a `stage` key.
+      // A presence check on otherValues.stage would skip the stamp here and let
+      // Object.assign write the stale pick-time stage back over the DB's current one.
+      const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'guardian-synced' };
       const row: Record<string, unknown> = { ...tx };
       mockTransactionsWhere
         .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
         .mockReturnValueOnce({ modify: jest.fn(async (cb: (t: Record<string, unknown>) => void) => cb(row)) });
 
-      await updateTransactionStatus('tx-1', ITransactionStatus.Completed, { stage: 'delivering' });
+      await updateTransactionStatus('tx-1', ITransactionStatus.Completed, {
+        stage: 'creating-proposal',
+        transactionId: 'hash-1'
+      } as never);
 
-      expect(row.stage).toBe('delivering');
+      expect(row.stage).toBe('complete');
+      expect(row.transactionId).toBe('hash-1');
     });
 
     it('preserves the stage on FAILURE — it records where the failure happened (#618)', async () => {
