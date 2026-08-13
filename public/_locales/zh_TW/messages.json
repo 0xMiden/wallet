@@ -1957,8 +1957,8 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "根据您的安全策略批准或拒绝交易。如果您丢失设备，可帮助您恢复。",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "共同签署每笔交易——您的设备和监护人都无法单独转移资金。如果您丢失设备，可帮助您恢复帐户。",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "它不能做什么",
@@ -1973,8 +1973,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "您可以随时使用恢复短语轮换至其他监护人，或完全删除监护人。",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "您可以随时使用恢复短语切换到不同的监护人。只有谁共同签署才会发生变化；您的帐户和资金保持不变。",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "知道了",

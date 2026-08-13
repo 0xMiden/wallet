@@ -1957,8 +1957,8 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Genehmigt oder lehnt Transaktionen basierend auf Ihrer Sicherheitsrichtlinie ab. Hilft Ihnen bei der Wiederherstellung, wenn Sie Ihr Gerät verlieren.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "Unterzeichnet jede Transaktion mit – weder Ihr Gerät noch der Guardian können Gelder alleine bewegen. Hilft Ihnen, Ihr Konto wiederherzustellen, wenn Sie Ihr Gerät verlieren.",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "Was es nicht kann",
@@ -1973,8 +1973,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Mit Ihrer Wiederherstellungsphrase können Sie jederzeit zu einem anderen Wächter wechseln oder ihn ganz entfernen.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "Mit Ihrer Wiederherstellungsphrase können Sie jederzeit zu einem anderen Guardian wechseln. Nur wer Mitunterzeichner ist, ändert sich; Ihr Konto und Ihr Guthaben bleiben gleich.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Habe es",

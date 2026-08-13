@@ -1957,8 +1957,8 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Güvenlik politikanıza göre işlemleri onaylar veya reddeder. Cihazınızı kaybederseniz kurtarmanıza yardımcı olur.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "Her işlemi birlikte imzalar; ne cihazınız ne de Guardian fonları tek başına taşıyabilir. Cihazınızı kaybederseniz hesabınızı kurtarmanıza yardımcı olur.",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "Ne yapamaz",
@@ -1973,8 +1973,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Kurtarma ifadenizi kullanarak istediğiniz zaman farklı bir Gözetmen'e geçebilir veya birini tamamen kaldırabilirsiniz.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "Kurtarma ifadenizle istediğiniz zaman farklı bir Gözetmen'e geçiş yapabilirsiniz. Yalnızca ortak imzalayanlar değişir; hesabınız ve paranız aynı kalır.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Anladım",
