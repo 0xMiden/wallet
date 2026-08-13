@@ -21,6 +21,7 @@ import {
   EarnWithdrawTransaction,
   IBridgedSendNoteParams,
   IBridgeProvider,
+  ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
   SendTransaction,
@@ -161,6 +162,18 @@ export const initiateConsumeNotesTransaction = async (
       const liveOrCompleted = sameAccount.find(tx => tx.status !== ITransactionStatus.Failed);
       if (liveOrCompleted) {
         blockingId = blockingId ?? liveOrCompleted.id;
+        // An explicit user retry must take effect NOW, even when the blocking row
+        // is one the loop has backed off (guardian 429 requeue → nextEligibleAt up
+        // to 5 min, #617; likewise the 409 / prover-outage requeues). Dedup still
+        // wins — we never queue a second row for the same note — but clearing the
+        // cooldown lets the existing row be picked on the next cycle instead of
+        // making a deliberate tap look like it did nothing. Same reasoning as
+        // `requeueFailedTransaction`, which clears it for the Failed-row path.
+        if (manualRetry && liveOrCompleted.status === ITransactionStatus.Queued && liveOrCompleted.nextEligibleAt) {
+          await Repo.transactions.where({ id: liveOrCompleted.id }).modify((dbTx: ITransaction) => {
+            dbTx.nextEligibleAt = undefined;
+          });
+        }
         continue;
       }
 

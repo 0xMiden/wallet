@@ -14,7 +14,9 @@ import {
 } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import {
+  guardianRetryAfterSec,
   isGuardianPendingConflict,
+  isGuardianRateLimited,
   withGuardianAccountLock,
   withGuardianConflictRetry
 } from 'lib/miden/guardian/serialize';
@@ -160,6 +162,27 @@ const PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC = 15;
 // the prover recovers. Kept a bit longer than the pending-conflict cooldown to
 // avoid hammering a downed prover; MAX_QUEUED_AGE stays the terminal cap.
 const PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC = 30;
+
+// Fallback cooldown (seconds) for a tx requeued after a guardian 429 (#617),
+// used only when the guardian didn't send a `retry_after_secs`. The guardian
+// declares rate-limit rejections retryable, so terminal-failing a value-moving
+// transfer on one loses the user's transaction to a transient limit. Prefer the
+// server's own figure via `guardianRetryAfterSec`; MAX_QUEUED_AGE stays the
+// terminal cap.
+const RATE_LIMIT_REQUEUE_COOLDOWN_SEC = 30;
+// The guardian's `retry_after_secs` is advisory and must be CLAMPED before it
+// becomes `nextEligibleAt`, in both directions:
+//   - Too small (0, or anything under the ~5s SW / 10s UI poll cadence) and the
+//     requeued row — still the oldest by initiatedAt, which requeueing does not
+//     refresh — is re-picked every single cycle, re-running syncState under the
+//     global WASM lock and re-hitting the guardian that just said back off, while
+//     head-of-line blocking every other account's tx. That is exactly the
+//     starvation PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC exists to prevent.
+//   - Too large and the row never becomes eligible before MAX_QUEUED_AGE (30
+//     min from initiatedAt) reaps it, so the user waits out the whole cap for
+//     zero retries and gets a generic "expired" message.
+const MIN_RATE_LIMIT_REQUEUE_COOLDOWN_SEC = PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC;
+const MAX_RATE_LIMIT_REQUEUE_COOLDOWN_SEC = 300;
 
 /**
  * Return a value-moving tx to the Queued state for a later generateTransactionsLoop
@@ -482,6 +505,43 @@ export const generateTransaction = async (
           'creating-proposal',
           PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC
         );
+        return;
+      }
+      // A guardian 429 is the server explicitly telling us to come back later —
+      // it sets `meta.retryable` and usually `retry_after_secs` (#617). Failing a
+      // value-moving tx on one loses the user's transfer to a transient limit, so
+      // requeue it like the 409 and prover-outage cases above.
+      //
+      // The STAGE GATE is the safety property, not a nicety: 'creating-proposal'
+      // and 'signing-proposal' are both PRE-submit, so nothing reached the chain
+      // and a retry cannot double-spend. A 429 at or after 'sending' must NOT
+      // requeue. We gate on the RE-READ row because the in-memory `transaction`
+      // still carries the stage it was picked at, not the stage the failure
+      // actually happened in. Structural ops stay excluded via
+      // REQUEUEABLE_ON_PENDING_CONFLICT (a requeue would re-mint a hot key).
+      //
+      // Candidate cleanup differs per arm, and neither is a guarantee:
+      // 'creating-proposal' fails before any candidate exists; 'signing-proposal'
+      // fails after the inner catch has ATTEMPTED service.abandonCandidate —
+      // best-effort, since that abandon can itself throw (logged, swallowed), and
+      // even a successful abandon only records an intent (202) with the account
+      // staying locked until the guardian worker confirms. A leftover candidate
+      // surfaces as a 409 on the next cycle, which the pending-conflict requeue
+      // above already handles.
+      if (
+        isGuardianRateLimited(error) &&
+        REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) &&
+        (currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal')
+      ) {
+        const cooldown = Math.min(
+          Math.max(
+            guardianRetryAfterSec(error) ?? RATE_LIMIT_REQUEUE_COOLDOWN_SEC,
+            MIN_RATE_LIMIT_REQUEUE_COOLDOWN_SEC
+          ),
+          MAX_RATE_LIMIT_REQUEUE_COOLDOWN_SEC
+        );
+        console.warn(`[Guardian] rate limited (429) pre-submit — requeueing in ${cooldown}s`, error);
+        await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldown);
         return;
       }
       // #260 follow-up #3a: a deadline-killed CONSUME (OperationAbortedError) may
