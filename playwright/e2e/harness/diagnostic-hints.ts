@@ -10,8 +10,7 @@ export function computeDiagnosticHints(report: TestFailureReport): string[] {
   // Timeout detection
   if (report.timing.wasTimeout) {
     hints.push(
-      `TIMEOUT: Test hit timeout at step "${report.failedAtStep.name}" ` +
-        `after ${report.timing.totalDurationMs}ms.`
+      `TIMEOUT: Test hit timeout at step "${report.failedAtStep.name}" after ${report.timing.totalDurationMs}ms.`
     );
   }
 
@@ -21,9 +20,7 @@ export function computeDiagnosticHints(report: TestFailureReport): string[] {
     const transportFailures = report.failedNetworkRequests.filter(r => r.url.includes('transport'));
 
     if (rpcFailures.length > 0) {
-      hints.push(
-        `NETWORK: ${rpcFailures.length} RPC request(s) failed. The Miden node may be down or unreachable.`
-      );
+      hints.push(`NETWORK: ${rpcFailures.length} RPC request(s) failed. The Miden node may be down or unreachable.`);
     }
     if (transportFailures.length > 0) {
       hints.push(
@@ -93,10 +90,7 @@ export function computeDiagnosticHints(report: TestFailureReport): string[] {
   }
 
   // Balance mismatch
-  if (
-    report.failureCategory === 'assertion_value_mismatch' &&
-    report.error.message.includes('balance')
-  ) {
+  if (report.failureCategory === 'assertion_value_mismatch' && report.error.message.includes('balance')) {
     hints.push(
       'BALANCE: Balance assertion failed. This is likely a sync timing issue -- ' +
         'the wallet may not have synced the latest blockchain state. ' +

@@ -8,7 +8,7 @@ test.describe('Private Note Send', () => {
     walletB,
     midenCli,
     steps,
-    timeline,
+    timeline
   }) => {
     let addressA: string;
     let addressB: string;
@@ -39,18 +39,22 @@ test.describe('Private Note Send', () => {
       expect(balance).toBeGreaterThan(0);
     });
 
-    await steps.step('send_private_note_a_to_b', async () => {
-      await walletA.sendTokens({
-        recipientAddress: addressB!,
-        amount: '500',
-        // Target the CLI faucet token explicitly: the 0-balance native MIDEN row
-        // renders above it, so a "first row" pick would choose the wrong token.
-        tokenSymbol: 'TST',
-        isPrivate: true, // Private payment toggle ON
-      });
-    }, {
-      screenshotWallets: [{ target: walletA, label: 'A' }],
-    });
+    await steps.step(
+      'send_private_note_a_to_b',
+      async () => {
+        await walletA.sendTokens({
+          recipientAddress: addressB!,
+          amount: '500',
+          // Target the CLI faucet token explicitly: the 0-balance native MIDEN row
+          // renders above it, so a "first row" pick would choose the wrong token.
+          tokenSymbol: 'TST',
+          isPrivate: true // Private payment toggle ON
+        });
+      },
+      {
+        screenshotWallets: [{ target: walletA, label: 'A' }]
+      }
+    );
 
     // iOS divergence: claim the incoming private note on wallet B before
     // verifying its balance.
@@ -58,20 +62,24 @@ test.describe('Private Note Send', () => {
       await walletB.claimAllNotes(180_000, [faucetId!]);
     });
 
-    await steps.step('verify_receipt_wallet_b_via_transport', async () => {
-      // Private notes are delivered via the note transport layer.
-      // Wallet B syncs and discovers the private note automatically.
-      const balance = await walletB.waitForBalanceAbove(0, 180_000, timeline);
-      expect(balance).toBeGreaterThan(0);
-    }, {
-      captureStateFrom: [
-        { target: walletA, label: 'A' },
-        { target: walletB, label: 'B' },
-      ],
-      screenshotWallets: [
-        { target: walletA, label: 'A' },
-        { target: walletB, label: 'B' },
-      ],
-    });
+    await steps.step(
+      'verify_receipt_wallet_b_via_transport',
+      async () => {
+        // Private notes are delivered via the note transport layer.
+        // Wallet B syncs and discovers the private note automatically.
+        const balance = await walletB.waitForBalanceAbove(0, 180_000, timeline);
+        expect(balance).toBeGreaterThan(0);
+      },
+      {
+        captureStateFrom: [
+          { target: walletA, label: 'A' },
+          { target: walletB, label: 'B' }
+        ],
+        screenshotWallets: [
+          { target: walletA, label: 'A' },
+          { target: walletB, label: 'B' }
+        ]
+      }
+    );
   });
 });
