@@ -80,7 +80,9 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
 
           {hasRecoveryError && (
             <div className="mt-4">
-              <p className="text-red-500 text-sm mb-2 select-text">{recoveryError}</p>
+              <p className="text-red-500 text-sm mb-2 select-text" data-testid="onboarding-recovery-error">
+                {recoveryError}
+              </p>
             </div>
           )}
           {hasError && (
