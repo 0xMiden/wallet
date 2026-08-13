@@ -82,4 +82,26 @@ describe('useForegroundRefresh', () => {
     expect(mockRequestImmediateSync).not.toHaveBeenCalled();
     expect(mockRequestNotesRefresh).not.toHaveBeenCalled();
   });
+
+  it('coalesces the appStateChange + visibilitychange that both fire on one resume', async () => {
+    renderHook(() => useForegroundRefresh());
+    await Promise.resolve();
+
+    // A real iOS resume delivers both nearly together — only one refresh should run.
+    appStateCb!({ isActive: true });
+    setVisibility('visible');
+
+    expect(mockRequestImmediateSync).toHaveBeenCalledTimes(1);
+    expect(mockRequestNotesRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes the native listener even if the component unmounts before it registers', async () => {
+    const { unmount } = renderHook(() => useForegroundRefresh());
+    // Unmount BEFORE the App.addListener promise resolves.
+    unmount();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(removeHandle).toHaveBeenCalledTimes(1);
+  });
 });

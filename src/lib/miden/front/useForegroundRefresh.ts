@@ -22,14 +22,22 @@ import { requestImmediateSync } from './useSyncTrigger';
  * without waiting out the SWR interval.
  *
  * Listens to BOTH Capacitor `appStateChange` (the native resume signal) and DOM
- * `visibilitychange` (fires in the extension/desktop and as a belt-and-suspenders
- * on mobile). No-op off mobile — the extension has its own service-worker sync.
+ * `visibilitychange` — a real iOS resume fires both, so the two are coalesced
+ * (see the short guard below) to avoid a redundant double sync+refresh. No-op
+ * off mobile (both listeners are only attached when `isMobile()`) — the
+ * extension has its own service-worker sync and desktop isn't WKWebView-frozen.
  */
 export function useForegroundRefresh(): void {
   useEffect(() => {
     if (!isMobile()) return;
 
+    // A real iOS resume delivers appStateChange AND visibilitychange nearly
+    // together; coalesce them so we don't fire two back-to-back syncs/refreshes.
+    let lastForegroundAt = 0;
     const onForeground = () => {
+      const now = Date.now();
+      if (now - lastForegroundAt < 500) return;
+      lastForegroundAt = now;
       requestImmediateSync();
       requestNotesRefresh();
     };
@@ -38,13 +46,18 @@ export function useForegroundRefresh(): void {
     let cancelled = false;
     App.addListener('appStateChange', ({ isActive }) => {
       if (isActive) onForeground();
-    }).then(handle => {
-      if (cancelled) {
-        void handle.remove();
-      } else {
-        removeAppListener = () => void handle.remove();
-      }
-    });
+    })
+      .then(handle => {
+        if (cancelled) {
+          void handle.remove();
+        } else {
+          removeAppListener = () => void handle.remove();
+        }
+      })
+      .catch(() => {
+        // Registering the native listener failed (e.g. plugin unavailable in a
+        // web/test context); the DOM visibilitychange path still covers resume.
+      });
 
     const onVisibility = () => {
       if (document.visibilityState === 'visible') onForeground();
