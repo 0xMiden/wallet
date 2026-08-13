@@ -1943,6 +1943,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
   /**
    * Execute the full send flow: SelectToken -> SendDetails -> ReviewTransaction.
+   *
+   * Post-condition: the review screen accepted the submit (its button detached)
+   * and the wallet is not sitting on a rendered error surface. Both are thrown,
+   * not logged — see the comment on step 6.
    */
   async sendTokens(params: {
     recipientAddress: string;
@@ -2025,15 +2029,23 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     // 6. Treat the submit button detaching as the "submit accepted" signal — the
     // send flow navigates to home/completion once the request is dispatched.
-    await this.page
+    const submitAccepted = await this.page
       .getByTestId('send-review-submit')
       .waitFor({ state: 'detached', timeout: 120_000 })
-      .catch(() => {});
+      .then(() => true)
+      .catch(() => false);
     await this.page.waitForTimeout(2_000);
 
-    // Best-effort error detection: only log (don't hard-throw) — the spec
-    // verifies delivery via the recipient's balance. Avoid false positives from
-    // progress copy that legitimately contains words like "processing".
+    // Fail HERE, at the real failure point. Both of these used to be swallowed:
+    // the detach timeout by a bare `.catch(() => {})`, and a rendered error
+    // surface by a `console.log` — so a send that visibly failed on screen (or
+    // was never dispatched at all) returned as if it had succeeded, and the spec
+    // failed minutes later on the RECIPIENT's balance. That points the reader at
+    // delivery/claiming when the send never left the sender.
+    //
+    // The error heuristic itself is unchanged (the progress-copy guard exists
+    // because the in-flight screen legitimately contains words like
+    // "processing"); only the reaction to a detected error is.
     const bodyText =
       (await this.page
         .locator('body')
@@ -2043,7 +2055,17 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     const looksLikeError = lower.includes('failed') || lower.includes('error');
     const looksLikeProgress = /generating|processing|initiated|submitting|pending/.test(lower);
     if (looksLikeError && !looksLikeProgress) {
-      console.log(`[WalletPage.sendTokens] possible error screen after submit: ${bodyText.slice(0, 500)}`);
+      throw new Error(
+        `WalletPage.sendTokens: the wallet rendered an error surface after submit ` +
+          `(submit button ${submitAccepted ? 'detached' : 'never detached'}). ` +
+          `On-screen text (first 800): ${bodyText.slice(0, 800)}`
+      );
+    }
+    if (!submitAccepted) {
+      throw new Error(
+        `WalletPage.sendTokens: the review screen's submit button was still attached 120s after clicking it, ` +
+          `so the send was never dispatched. On-screen text (first 800): ${bodyText.slice(0, 800)}`
+      );
     }
   }
 
