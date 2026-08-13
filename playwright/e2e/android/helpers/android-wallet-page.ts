@@ -1,8 +1,7 @@
-import type { TimelineRecorder } from '../../harness/timeline-recorder';
-import type { GuardianAuthInfo, WalletPage } from '../../helpers/wallet-page';
-
 import type { CdpSession } from './cdp-bridge';
 import type { EmulatorControl } from './emulator-control';
+import type { TimelineRecorder } from '../../harness/timeline-recorder';
+import type { GuardianAuthInfo, WalletPage } from '../../helpers/wallet-page';
 
 const DEFAULT_PASSWORD = 'Password123!';
 const SYNC_WAIT_MS = 3_500;
@@ -139,8 +138,7 @@ export class AndroidWalletPage implements WalletPage {
     );
 
     const address = await this.cdp.eval<string>(
-      `var s = window.__TEST_STORE__.getState(); ` +
-        `return (s.currentAccount && s.currentAccount.publicKey) || '';`
+      `var s = window.__TEST_STORE__.getState(); return (s.currentAccount && s.currentAccount.publicKey) || '';`
     );
     if (!address) throw new Error('AndroidWalletPage.createNewWallet: no currentAccount.publicKey after Ready');
 
@@ -382,7 +380,7 @@ export class AndroidWalletPage implements WalletPage {
           category: 'blockchain_state',
           severity: lastBalance > minBalance ? 'info' : 'warn',
           message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}/${maxAttempts}`,
-          data: { balance: lastBalance, minBalance, attempt, maxAttempts },
+          data: { balance: lastBalance, minBalance, attempt, maxAttempts }
         });
       }
 
@@ -390,9 +388,7 @@ export class AndroidWalletPage implements WalletPage {
       if (attempt < maxAttempts) await sleep(intervalMs);
     }
 
-    throw new Error(
-      `Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`
-    );
+    throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
   }
 
   // ── Lock / Unlock ─────────────────────────────────────────────────────────

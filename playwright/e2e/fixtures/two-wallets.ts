@@ -1,3 +1,7 @@
+/* eslint-disable no-empty-pattern -- Playwright PARSES the fixture function's source to
+   resolve its fixture dependencies, and rejects anything but a destructuring pattern in the
+   first argument: `async (_, use)` fails at runtime with "First argument must use the object
+   destructuring pattern". `async ({}, use)` is the required idiom, not a style choice. */
 import { chromium, test as base, type BrowserContext, type Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -257,6 +261,7 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
   // Install unhandled error/rejection capture + check SW internals
   try {
     await serviceWorker.evaluate(() => {
+      /* eslint-disable no-restricted-globals -- service-worker scope: `self` is the global, `window` is undefined here */
       (self as any).__e2e_errors = [];
       self.addEventListener('error', (e: any) => {
         (self as any).__e2e_errors.push('error: ' + (e.message || String(e)));
@@ -266,6 +271,7 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
           'rejection: ' + String(e.reason?.stack || e.reason?.message || e.reason || 'unknown')
         );
       });
+      /* eslint-enable no-restricted-globals */
     });
   } catch {}
 
@@ -297,7 +303,9 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
   setTimeout(async () => {
     try {
       const probe = await serviceWorker.evaluate(() => ({
+        // eslint-disable-next-line no-restricted-globals -- service-worker scope, see above
         errors: (self as any).__e2e_errors?.slice(0, 10) || [],
+        // eslint-disable-next-line no-restricted-globals -- service-worker scope, see above
         hasBackground: typeof (self as any).__background_started !== 'undefined'
       }));
       if (probe.errors.length > 0) {
@@ -378,6 +386,7 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
       // Probe SW for unhandled errors before giving up or retrying
       try {
         const probe = await serviceWorker.evaluate(() => ({
+          // eslint-disable-next-line no-restricted-globals -- service-worker scope, see above
           errors: ((self as any).__e2e_errors || []).slice(0, 10)
         }));
         if (probe.errors.length > 0) {

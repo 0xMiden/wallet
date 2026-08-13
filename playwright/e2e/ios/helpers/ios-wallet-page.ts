@@ -27,6 +27,31 @@ const UNLOCKED_CONDITION_JS =
   `var st = s.getState(); ` +
   `return (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`;
 
+/**
+ * Totals the store's balances projection, in place, with no navigation.
+ *
+ * Only valid on a screen that mounts the balance poll (`useAllBalances`, in
+ * `Balance.tsx` / `Explore.tsx` / `TokenDetail.tsx`). Anywhere else — notably
+ * `/generating-transaction-full/:txId` — nothing writes `st.balances`, so this
+ * returns whatever it held when that screen was last up. `getBalance()` is the
+ * read that navigates home first and is therefore authoritative.
+ */
+const STORE_BALANCE_TOTAL_JS =
+  `var s = window.__TEST_STORE__; ` +
+  `if (!s) return 0; ` +
+  `var st = s.getState(); ` +
+  `var balances = st.balances || {}; ` +
+  `for (var k in balances) { ` +
+  `  var list = balances[k]; ` +
+  `  if (!Array.isArray(list)) continue; ` +
+  `  for (var i = 0; i < list.length; i++) { ` +
+  `    var t = list[i]; ` +
+  `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
+  `    if (amt > 0) return amt; ` +
+  `  } ` +
+  `} ` +
+  `return 0;`;
+
 interface IosWalletPageOpts {
   cdp: CdpSession;
   sim: SimulatorControl;
@@ -384,7 +409,7 @@ export class IosWalletPage implements WalletPage {
     );
 
     const address = await this.cdp.eval<string>(
-      `var s = window.__TEST_STORE__.getState(); ` + `return (s.currentAccount && s.currentAccount.publicKey) || '';`
+      `var s = window.__TEST_STORE__.getState(); return (s.currentAccount && s.currentAccount.publicKey) || '';`
     );
     if (!address) {
       throw new Error(`IosWalletPage.createWalletViaBypass(${recovery}): no currentAccount.publicKey after Ready`);
@@ -581,22 +606,7 @@ export class IosWalletPage implements WalletPage {
       await this.triggerSync();
       await sleep(5_000);
       await pumpProveTimings();
-      const balance = await this.cdp.eval<number>(
-        `var s = window.__TEST_STORE__; ` +
-          `if (!s) return 0; ` +
-          `var st = s.getState(); ` +
-          `var balances = st.balances || {}; ` +
-          `for (var k in balances) { ` +
-          `  var list = balances[k]; ` +
-          `  if (!Array.isArray(list)) continue; ` +
-          `  for (var i = 0; i < list.length; i++) { ` +
-          `    var t = list[i]; ` +
-          `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
-          `    if (amt > 0) return amt; ` +
-          `  } ` +
-          `} ` +
-          `return 0;`
-      );
+      const balance = await this.cdp.eval<number>(STORE_BALANCE_TOTAL_JS);
       if (balance > 0) {
         await pumpProveTimings();
         await this.navigateHome();
@@ -623,50 +633,39 @@ export class IosWalletPage implements WalletPage {
       )
       .catch(() => 'unreadable');
 
-    // A consume still sitting on the transaction-progress route is SLOW, not
-    // failed — the surface diagnostic above distinguishes exactly that, and on a
-    // live testnet a consume legitimately outruns the budget. Throwing here turned
-    // healthy-but-slow runs red on main. Give the in-flight transaction a bounded
-    // grace period and only fail if it still hasn't landed. A wallet sitting on
-    // pending-notes with the Claim All button back HAS gone nowhere and still
-    // fails immediately, which is the case worth failing on.
-    if (surface.includes('generating-transaction')) {
-      const graceMs = 120_000;
-      const graceStart = Date.now();
-      while (Date.now() - graceStart < graceMs) {
-        await sleep(5_000);
-        await this.triggerSync();
-        const late = await this.cdp
-          .eval<number>(
-            `var s = window.__TEST_STORE__; ` +
-              `if (!s) return 0; ` +
-              `var st = s.getState(); ` +
-              `var balances = st.balances || {}; ` +
-              `for (var k in balances) { ` +
-              `  var list = balances[k]; ` +
-              `  if (!Array.isArray(list)) continue; ` +
-              `  for (var i = 0; i < list.length; i++) { ` +
-              `    var t = list[i]; ` +
-              `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
-              `    if (amt > 0) return amt; ` +
-              `  } ` +
-              `} ` +
-              `return 0;`
-          )
-          .catch(() => 0);
-        if (late > 0) {
-          await pumpProveTimings();
-          await this.navigateHome();
-          return;
-        }
+    // Nothing authoritative has actually been read yet. The loop above polls the
+    // store IN PLACE, and for the whole of a claim the wallet sits on
+    // `/generating-transaction-full/:txId`, where no mounted screen refreshes
+    // `st.balances` — so that poll can report 0 for a consume that has already
+    // landed on-chain. Before failing, confirm with `getBalance()`, which
+    // navigates home and therefore reads a projection something is updating.
+    //
+    // This is not a new grace period bolted on: it is the read the spec used to
+    // perform immediately afterwards (`waitForBalanceAbove` → `getBalance`), which
+    // is why this step passed for as long as the wait silently returned instead of
+    // throwing. Doing it here keeps the throw meaningful rather than guaranteed.
+    //
+    // It also must not be conditional on `surface`: the in-place reading is
+    // unreliable regardless of which screen the wallet ended up on.
+    const confirmMs = 120_000;
+    const confirmStart = Date.now();
+    let confirmed = 0;
+    while (Date.now() - confirmStart < confirmMs) {
+      confirmed = await this.getBalance().catch(() => 0);
+      if (confirmed > 0) {
+        await pumpProveTimings();
+        await this.navigateHome();
+        return;
       }
+      await sleep(5_000);
+      await this.triggerSync();
     }
 
     await this.navigateHome();
     throw new Error(
       `IosWalletPage.claimAllNotes: no consumed balance after ${iterations} sync iteration(s) over ` +
-        `${timeoutMs}ms — "Claim All" was clicked but the consume never landed (store balances still ` +
-        `total 0). Surface at timeout: ${surface}`
+        `${timeoutMs}ms, and none after a further ${confirmMs}ms confirming via getBalance() from the ` +
+        `home screen — "Claim All" was clicked but the consume never landed. Surface at timeout: ${surface}`
     );
   }
 
@@ -719,7 +718,7 @@ export class IosWalletPage implements WalletPage {
     const result = await this.cdp
       .eval<
         { before: string[]; injected: string[]; after: string[] } | { error: string }
-      >(`var conv = window.__TEST_HEX_TO_BECH32_FAUCET__; ` + `var bech32 = ${hexJson}.map(hex => conv(hex, ${networkArg})); ` + `var injected = {}; ` + `for (var i = 0; i < bech32.length; i++) injected[bech32[i]] = { name: 'Test Token', symbol: 'TST', decimals: 8, thumbnailUri: '' }; ` + `var s = window.__TEST_STORE__; ` + `if (!s) return { error: 'no __TEST_STORE__' }; ` + `var st = s.getState(); ` + `var before = Object.keys(st.assetsMetadata || {}); ` + `if (typeof st.setAssetsMetadata === 'function') { st.setAssetsMetadata(injected); } ` + `else { s.setState({ assetsMetadata: Object.assign({}, st.assetsMetadata || {}, injected) }); } ` + `var after = Object.keys(s.getState().assetsMetadata || {}); ` + `return { before: before, injected: bech32, after: after };`)
+      >(`var conv = window.__TEST_HEX_TO_BECH32_FAUCET__; var bech32 = ${hexJson}.map(hex => conv(hex, ${networkArg})); var injected = {}; for (var i = 0; i < bech32.length; i++) injected[bech32[i]] = { name: 'Test Token', symbol: 'TST', decimals: 8, thumbnailUri: '' }; var s = window.__TEST_STORE__; if (!s) return { error: 'no __TEST_STORE__' }; var st = s.getState(); var before = Object.keys(st.assetsMetadata || {}); if (typeof st.setAssetsMetadata === 'function') { st.setAssetsMetadata(injected); } else { s.setState({ assetsMetadata: Object.assign({}, st.assetsMetadata || {}, injected) }); } var after = Object.keys(s.getState().assetsMetadata || {}); return { before: before, injected: bech32, after: after };`)
       .catch((e: Error) => ({ error: e.message }));
     // eslint-disable-next-line no-console
     console.log(`[injectTestMetadataForFaucets] hex=${hexJson} -> ${JSON.stringify(result)}`);

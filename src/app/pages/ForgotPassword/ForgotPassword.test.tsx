@@ -268,12 +268,11 @@ describe('ForgotPassword', () => {
     expect(mockNavigate).not.toHaveBeenCalledWith('/');
   });
 
-  it('confirmation still navigates (via the handoff) when registration fails — register() swallows the error', async () => {
-    // register() try/catches internally and never throws, so the confirmation
-    // handler always navigates. This matches the pre-fix navigate('/') behavior
-    // (a failed recovery ends on Unlock either way when the vault stays locked);
-    // the handoff route is chosen the same as on success. Documented so the
-    // deliberate swallow isn't mistaken for a missing failure branch.
+  it('confirmation does NOT navigate when registration fails — the reset already happened (#630)', async () => {
+    // clearClientStorage() runs BEFORE registerWallet, so a rejection here leaves
+    // the user with no local wallet. Navigating away would drop them on a wiped
+    // wallet with no explanation, which is indistinguishable from data loss. Stay
+    // on the confirmation step so the surfaced error and Retry are reachable.
     mockPostOnboardingRoute.mockReturnValue('/finish-side-panel');
     mockRegisterWallet.mockRejectedValue(new Error('guardian not found'));
     renderPage();
@@ -281,7 +280,21 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
     await dispatch({ id: 'confirmation' });
 
-    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('confirmation surfaces the registration failure reason to the user (#630)', async () => {
+    // The reason was previously console.error'd only. It must reach the screen —
+    // "something went wrong" with no detail is not actionable after a wipe.
+    mockRegisterWallet.mockRejectedValue(new Error('guardian not found'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    // OnboardingFlow is mocked here, so assert the reason is handed DOWN; that it
+    // is then rendered is covered by Confirmation.test.tsx.
+    expect(captured.props?.recoveryError).toContain('guardian not found');
   });
 
   it('confirmation (Import-from-seed flow): registers with ownMnemonic=true (Import ternary)', async () => {
@@ -353,7 +366,7 @@ describe('ForgotPassword', () => {
     );
   });
 
-  it('confirmation (Create flow) swallows a registerWallet rejection', async () => {
+  it('confirmation (Create flow) reports a registerWallet rejection instead of swallowing it (#630)', async () => {
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const boom = new Error('register failed');
     mockRegisterWallet.mockRejectedValueOnce(boom);
@@ -364,9 +377,12 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'confirmation' });
 
     expect(mockRegisterWallet).toHaveBeenCalled();
+    // Still logged for diagnostics...
     expect(errSpy).toHaveBeenCalledWith(boom);
-    // Still navigates home after the caught error.
-    expect(mockNavigate).toHaveBeenCalledWith('/');
+    // ...but no longer ONLY logged: the reason reaches the screen and the flow
+    // does not navigate away from a wallet it has already wiped.
+    expect(captured.props?.recoveryError).toContain('register failed');
+    expect(mockNavigate).not.toHaveBeenCalled();
     errSpy.mockRestore();
   });
 

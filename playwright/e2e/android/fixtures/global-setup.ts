@@ -13,10 +13,7 @@ const APK_PATH = path.join(ROOT_DIR, 'android', 'app', 'build', 'outputs', 'apk'
  */
 export default async function globalSetup(): Promise<void> {
   if (!fs.existsSync(APK_PATH)) {
-    throw new Error(
-      `Android APK not found at ${APK_PATH}\n` +
-        `Run \`yarn test:e2e:android:build\` first.`
-    );
+    throw new Error(`Android APK not found at ${APK_PATH}\nRun \`yarn test:e2e:android:build\` first.`);
   }
 
   const { serialA, serialB } = await EmulatorControl.reservePair();
