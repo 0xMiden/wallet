@@ -4,6 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
+import { deriveNoteClaimState, NoteClaimState } from 'app/hooks/noteClaimState';
 import { ReactComponent as EyeClosedIcon } from 'app/icons/eye-closed.svg';
 import { ReactComponent as EyeOpenIcon } from 'app/icons/eye-open.svg';
 import { Button, ButtonVariant } from 'components/Button';
@@ -37,7 +38,8 @@ interface PendingTabProps {
   account: WalletAccount;
   isDelegatedProvingEnabled: boolean;
   claimingNoteIds: Set<string>;
-  failedNoteIds: Set<string>;
+  retriableNoteIds: Set<string>;
+  invalidNoteIds: Set<string>;
   checkingNoteIds: Set<string>;
   onClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
   onClaimAll: () => void;
@@ -58,7 +60,8 @@ export const PendingTab: React.FC<PendingTabProps> = ({
   account,
   isDelegatedProvingEnabled,
   claimingNoteIds,
-  failedNoteIds,
+  retriableNoteIds,
+  invalidNoteIds,
   checkingNoteIds,
   onClaimingStateChange,
   onClaimAll,
@@ -121,7 +124,8 @@ export const PendingTab: React.FC<PendingTabProps> = ({
         account={account}
         isDelegatedProvingEnabled={isDelegatedProvingEnabled}
         claimingNoteIds={claimingNoteIds}
-        failedNoteIds={failedNoteIds}
+        retriableNoteIds={retriableNoteIds}
+        invalidNoteIds={invalidNoteIds}
         checkingNoteIds={checkingNoteIds}
         onClaimingStateChange={onClaimingStateChange}
         onClaimGroup={onClaimGroup}
@@ -134,6 +138,8 @@ export const PendingTab: React.FC<PendingTabProps> = ({
       groupedNotes={groupedNotes}
       tokenPrices={tokenPrices}
       unclaimedNotesCount={unclaimedNotesCount}
+      retriableNoteIds={retriableNoteIds}
+      invalidNoteIds={invalidNoteIds}
       onSelectGroup={handleSelectGroup}
       onClaimAll={onClaimAll}
     />
@@ -144,6 +150,8 @@ interface PendingSummaryProps {
   groupedNotes: AssetNoteGroup[];
   tokenPrices: TokenPrices;
   unclaimedNotesCount: number;
+  retriableNoteIds: Set<string>;
+  invalidNoteIds: Set<string>;
   onSelectGroup: (faucetId: string) => void;
   onClaimAll: () => void;
 }
@@ -152,6 +160,8 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
   groupedNotes,
   tokenPrices,
   unclaimedNotesCount,
+  retriableNoteIds,
+  invalidNoteIds,
   onSelectGroup,
   onClaimAll
 }) => {
@@ -210,6 +220,8 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
               key={group.faucetId}
               group={group}
               tokenPrices={tokenPrices}
+              retriableNoteIds={retriableNoteIds}
+              invalidNoteIds={invalidNoteIds}
               showDivider={index !== groupedNotes.length - 1}
               onClick={() => onSelectGroup(group.faucetId)}
             />
@@ -235,11 +247,20 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
 interface AssetSummaryRowProps {
   group: AssetNoteGroup;
   tokenPrices: TokenPrices;
+  retriableNoteIds: Set<string>;
+  invalidNoteIds: Set<string>;
   showDivider: boolean;
   onClick: () => void;
 }
 
-const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({ group, tokenPrices, showDivider, onClick }) => {
+const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
+  group,
+  tokenPrices,
+  retriableNoteIds,
+  invalidNoteIds,
+  showDivider,
+  onClick
+}) => {
   const { t } = useTranslation();
   const { metadata, notes, totalAmount } = group;
   const symbol = metadata?.symbol || 'UNKNOWN';
@@ -247,6 +268,11 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({ group, tokenPrices, s
   const formattedTotal = groupNumber(formatBigInt(totalAmount, decimals));
   const { price } = getTokenPrice(tokenPrices, symbol);
   const usdValue = Number(formatBigInt(totalAmount, decimals)) * price;
+
+  // Notes in this group that failed or went terminal (#456): surface them as a
+  // distinct red badge so a failure is discoverable from the summary, instead
+  // of the neutral incoming-count pill.
+  const needsAttentionCount = notes.filter(n => retriableNoteIds.has(n.id) || invalidNoteIds.has(n.id)).length;
 
   return (
     <button
@@ -271,9 +297,15 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({ group, tokenPrices, s
           </span>
         </div>
       </div>
-      <div className="mt-3 w-full rounded-full bg-surface-interactive py-2 text-center text-base font-heading font-semibold text-black opacity-60">
-        {t('incomingTransfersCount', { count: notes.length })}
-      </div>
+      {needsAttentionCount > 0 ? (
+        <div className="mt-3 w-full rounded-full bg-red-500/10 py-2 text-center text-base font-heading font-semibold text-red-500">
+          {t('notesUnresolved', { count: needsAttentionCount })}
+        </div>
+      ) : (
+        <div className="mt-3 w-full rounded-full bg-surface-interactive py-2 text-center text-base font-heading font-semibold text-black opacity-60">
+          {t('incomingTransfersCount', { count: notes.length })}
+        </div>
+      )}
     </button>
   );
 };
@@ -284,7 +316,8 @@ interface AssetPendingDetailProps {
   account: WalletAccount;
   isDelegatedProvingEnabled: boolean;
   claimingNoteIds: Set<string>;
-  failedNoteIds: Set<string>;
+  retriableNoteIds: Set<string>;
+  invalidNoteIds: Set<string>;
   checkingNoteIds: Set<string>;
   onClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
   onClaimGroup?: (faucetId: string) => void;
@@ -296,7 +329,8 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   account,
   isDelegatedProvingEnabled,
   claimingNoteIds,
-  failedNoteIds,
+  retriableNoteIds,
+  invalidNoteIds,
   checkingNoteIds,
   onClaimingStateChange,
   onClaimGroup
@@ -349,9 +383,12 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
                 note={note}
                 account={account}
                 isDelegatedProvingEnabled={isDelegatedProvingEnabled}
-                isClaimingFromParent={claimingNoteIds.has(note.id)}
-                hasFailedFromParent={failedNoteIds.has(note.id)}
-                isCheckingFromParent={checkingNoteIds.has(note.id)}
+                claimState={deriveNoteClaimState(note, {
+                  retriableNoteIds,
+                  invalidNoteIds,
+                  claimingNoteIds,
+                  checkingNoteIds
+                })}
                 onClaimingStateChange={onClaimingStateChange}
                 showDivider={index !== notes.length - 1}
               />
@@ -382,9 +419,8 @@ interface DetailNoteRowProps {
   note: NoteWithMetadata;
   account: WalletAccount;
   isDelegatedProvingEnabled: boolean;
-  isClaimingFromParent?: boolean;
-  hasFailedFromParent?: boolean;
-  isCheckingFromParent?: boolean;
+  /** Parent-derived state from the four claim id-sets (see deriveNoteClaimState). */
+  claimState?: NoteClaimState;
   onClaimingStateChange?: (noteId: string, isClaiming: boolean) => void;
   showDivider: boolean;
 }
@@ -393,18 +429,33 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
   note,
   account,
   isDelegatedProvingEnabled,
-  isClaimingFromParent = false,
-  hasFailedFromParent = false,
-  isCheckingFromParent = false,
+  claimState = 'pending',
   onClaimingStateChange,
   showDivider
 }) => {
   const { t } = useTranslation();
   const [isLoading, setIsLoading] = useState(note.isBeingClaimed || false);
-  const showSpinner = isLoading || isClaimingFromParent || isCheckingFromParent;
   const [error, setError] = useState<string | null>(null);
-  const hasError = error || hasFailedFromParent;
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Fold this row's local claim attempt into the parent-derived state: an
+  // in-flight local claim reads as consuming; a local claim error reads as
+  // retriable. Precedence: consuming > failed (terminal) > retriable > pending.
+  const rowState: NoteClaimState =
+    isLoading || claimState === 'consuming'
+      ? 'consuming'
+      : claimState === 'failed'
+        ? 'failed'
+        : error || claimState === 'retriable'
+          ? 'retriable'
+          : 'pending';
+
+  const showSpinner = rowState === 'consuming';
+  const isRetriable = rowState === 'retriable';
+  const isFailed = rowState === 'failed';
+  // Terminal-invalid notes get no Retry/Claim affordance; everything else that
+  // isn't spinning keeps a button.
+  const showButton = rowState === 'pending' || rowState === 'retriable';
 
   useEffect(() => {
     onClaimingStateChange?.(note.id, isLoading);
@@ -456,7 +507,14 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
   const isPublic = note.type === NoteTypeEnum.Public || note.type === 'unknown';
 
   return (
-    <div className={classNames('relative', showDivider && 'border-b border-rule-default w-full')}>
+    <div
+      data-testid="detail-note-row"
+      className={classNames(
+        'relative',
+        showDivider && 'border-b border-rule-default w-full',
+        (isRetriable || isFailed) && 'bg-red-500/10'
+      )}
+    >
       <SyncWaveBackground isSyncing={showSpinner} className="rounded-none" />
       <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-4 py-3 relative z-10">
         <span className="text-sm text-text-primary-token truncate">{senderDisplay}</span>
@@ -471,18 +529,23 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
           {formattedAmount}
           {symbol}
         </span>
-        {!showSpinner ? (
+        {showButton ? (
           <Button
             data-testid="claim-button"
             className="w-18 h-7.5 text-white font-semibold rounded-5 text-xs leading-none"
             variant={ButtonVariant.Primary}
             onClick={handleClaim}
-            title={hasError ? t('retry') : t('claim')}
+            title={isRetriable ? t('retry') : t('claim')}
           />
         ) : (
           <div className="w-18 h-7.5" />
         )}
       </div>
+      {(isRetriable || isFailed) && (
+        <div className="px-4 pb-3 -mt-1 relative z-10 text-xs text-red-500">
+          {isRetriable ? t('noteClaimFailedRetry') : t('noteUnavailable')}
+        </div>
+      )}
     </div>
   );
 };

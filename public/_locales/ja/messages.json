@@ -2291,6 +2291,10 @@
     "message": "最終同期",
     "englishSource": "Last sync"
   },
+  "guardianRotationComplete": {
+    "message": "ガーディアンが更新されました！",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "オンライン",
     "englishSource": "Online"
@@ -2599,6 +2603,10 @@
   "viewInActivities": {
     "message": "アクティビティで見る",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "アクティビティの表示",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "詳細を見る",
@@ -2940,6 +2948,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ 個が未解決",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "申請に失敗しました — [再試行] をタップして再試行します",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "この note は利用できなくなりました",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "保留中 notes",
     "englishSource": "Pending notes"
@@ -3259,6 +3284,22 @@
   "scanCancelled": {
     "message": "スキャンがキャンセルされました",
     "englishSource": "Scan cancelled"
+  },
+  "scanQrTitle": {
+    "message": "QRコードをスキャンします",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "QRコードにカメラを向けます",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "カメラが見つかりません",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "カメラへのアクセスをリクエストしています…",
+    "englishSource": "Requesting camera access…"
   },
   "scan": {
     "message": "スキャン",

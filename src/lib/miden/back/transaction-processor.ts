@@ -236,11 +236,8 @@ interface StuckTxHealDiagnostic {
  * Escalate a self-heal failure that survived the Dexie re-open + retry.
  *
  * A bare `console.error` is invisible without an open DevTools session, so a
- * silently-wedged heal is undiagnosable in the field. The obvious escalation
- * sink — Segment via `back/analytics.ts` — is DEAD in the shipped SW build:
- * that module throws at load unless `ALEO_WALLET_SEGMENT_WRITE_KEY` is set, and
- * the background Vite build (`vite.background.config.ts`) never defines it, so a
- * dynamic `import('./analytics')` here would only ever reject and emit nothing.
+ * silently-wedged heal is undiagnosable in the field. The transaction analytics
+ * sink was removed (it was dead Aleo-era code), so no analytics is emitted here.
  * Escalating to a Dexie table is just as self-defeating: the heal usually fails
  * BECAUSE IndexedDB is down. Persist a small diagnostic to `chrome.storage.local`
  * instead — it works in the MV3 service worker and survives a broken IndexedDB —
