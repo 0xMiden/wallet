@@ -85,6 +85,14 @@ const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition
   }
 };
 
+// E2E hooks, kebab-case like every other testid in the tree. Only prompts a
+// spec actually drives get one — deriving an id for the whole enum would leave
+// four that nothing reads. Pending notes is driven by
+// playwright/e2e/tests/group-claim.spec.ts.
+const WALLET_PROMPT_TEST_IDS: Partial<Record<WalletPromptType, string>> = {
+  [WalletPromptType.PendingNotes]: 'pending-notes-prompt'
+};
+
 const WALLET_PROMPT_ORDER = [
   WalletPromptType.PendingNotes,
   WalletPromptType.Bridge,
@@ -358,9 +366,12 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         {pendingWalletPrompts.map(([type, definition]) => {
           const overrides = promptOverrides(type);
           const route = definition.route;
+          const testId = WALLET_PROMPT_TEST_IDS[type];
           return (
             <PromptCard
               key={type}
+              data-testid={testId}
+              actionTestId={testId ? `${testId}-action` : undefined}
               title={t(definition.titleKey)}
               body={overrides.body ?? t(definition.bodyKey)}
               variant={definition.variant}
