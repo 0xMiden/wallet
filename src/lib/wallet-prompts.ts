@@ -19,10 +19,18 @@ export enum WalletPromptType {
   Faucet = 'faucet',
   PendingNotes = 'pendingNotes',
   VerifySeedPhrase = 'verifySeedPhrase',
-  // Mobile-only: the native hot-key plugin could not use the device's secure
-  // hardware (TEE / Secure Enclave), so transactions can't be signed. Surfaced
-  // so the user can copy the raw native error and report it to us.
-  HotKeyHardwareUnavailable = 'hotKeyHardwareUnavailable'
+  // Mobile-only: the native hot-key plugin hit a secure-hardware error —
+  // either it couldn't use the TEE / Secure Enclave at all (signing falls back
+  // to the software key), or a present StrongBox failed and the key degraded
+  // to TEE (Android, signing still hardware-backed). Surfaced so the user can
+  // copy the raw native error and report it to us.
+  HotKeyHardwareUnavailable = 'hotKeyHardwareUnavailable',
+  // Mobile-only: the native hot-key plugin rejected with UNWRAP_FAILED /
+  // KEY_INVALIDATED — the hardware-wrapped key blob can no longer be
+  // decrypted (e.g. an OS upgrade dropped an OAEP authorization, or the OS
+  // invalidated a legacy auth-bound key). The remedy is a hot-key rotation,
+  // so the prompt's action initiates a replace-hot-key transaction.
+  HotKeyRotationNeeded = 'hotKeyRotationNeeded'
 }
 
 export enum WalletPromptStatus {
@@ -225,6 +233,22 @@ export async function fetchHotKeyHardwareError(): Promise<HotKeyHardwareErrorRec
 export async function reportHotKeyHardwareFailure(message: string): Promise<void> {
   await putToStorage(HOT_KEY_HARDWARE_ERROR_STORAGE_KEY, { message });
   await seedWalletPrompt(WalletPromptType.HotKeyHardwareUnavailable);
+}
+
+/**
+ * Surface the "rotate your device key" prompt. Called (via a lazy import)
+ * from the secure-hot-key facade when a native op rejects with UNWRAP_FAILED
+ * or KEY_INVALIDATED. Unlike `seedWalletPrompt`, a COMPLETED status re-arms:
+ * a fresh unwrap failure after a successful rotation is a new incident, not
+ * the one the user already resolved. An explicit dismiss stays sticky, and an
+ * already-pending prompt skips the write — guardian autosync retries signing
+ * every few seconds, so this is called in a tight loop while the key is broken.
+ */
+export async function reportHotKeyRotationNeeded(): Promise<void> {
+  const storage = await fetchWalletPromptStorage();
+  const status = storage.prompts[WalletPromptType.HotKeyRotationNeeded];
+  if (status === WalletPromptStatus.Dismissed || status === WalletPromptStatus.Pending) return;
+  await setWalletPromptStatus(WalletPromptType.HotKeyRotationNeeded, WalletPromptStatus.Pending);
 }
 
 const FAUCET_API_URL = 'https://faucet-api.forkchoice.xyz/api/mint';

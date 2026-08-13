@@ -1724,12 +1724,24 @@
     "englishSource": "Secure signing unavailable"
   },
   "hotKeyHardwareErrorPromptBody": {
-    "message": "该设备无法使用其安全硬件来签署交易。复制错误并将其发送给 Miden 团队。",
-    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+    "message": "此设备的安全硬件在设置交易签名时报告错误。复制错误并将其发送给 Miden 团队。",
+    "englishSource": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team."
   },
   "hotKeyHardwareErrorPromptAction": {
     "message": "复制错误",
     "englishSource": "Copy error"
+  },
+  "hotKeyRotationPromptTitle": {
+    "message": "设备密钥需要轮换",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "该设备无法再使用您的设备（热）密钥。旋转它即可恢复签名——您的资金不受影响。",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "旋转钥匙",
+    "englishSource": "Rotate key"
   },
   "bridgePromptTitle": {
     "message": "桥梁建设中",

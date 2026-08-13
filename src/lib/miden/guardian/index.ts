@@ -1,5 +1,6 @@
 import { Account, MidenClient, NoteType, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 import {
+  AccountInspector,
   Multisig,
   MultisigClient,
   GuardianHttpClient,
@@ -568,14 +569,34 @@ export class MultisigService {
    * window (NOT on the first sign of lag — see `runSync`).
    */
   async reRegisterCurrentStateOnGuardian(): Promise<void> {
-    const updatedStateBase64 = await withWasmClientLock(async () => {
+    const { updatedStateBase64, freshSignerCommitments } = await withWasmClientLock(async () => {
       await midenClientProxy.syncState();
       const account = await midenClientProxy.getAccount(this.accountId);
       if (!account) {
         throw new Error(`Account ${this.accountId} is missing from local client`);
       }
-      return u8ToB64(account.serialize());
+      // #619 gap (3): derive the guardian allowlist (`auth.cosigner_commitments`,
+      // written by registerOnGuardian from `multisig.signerCommitments`) from the
+      // SAME freshly-synced on-chain account as the state blob — NOT the cached
+      // `multisig.signerCommitments`, which `client.load` set from the guardian's
+      // stored blob and can still be the PRE-rotation [old-hot, cold]. Deriving
+      // it here via `AccountInspector.fromAccount` is byte-identical to that
+      // load-time derivation (same by-key reader), so there is no allowlist-format
+      // drift; it just uses the fresh source. Without this, a re-register after a
+      // hot-key rotation could re-push the old hot key and re-arm the permanent
+      // 401 this method exists to prevent.
+      const freshSignerCommitments = AccountInspector.fromAccount(account).signerCommitments;
+      return { updatedStateBase64: u8ToB64(account.serialize()), freshSignerCommitments };
     });
+    // Guard against a truncated read: AccountInspector.fromAccount swallows
+    // per-slot storage-read failures (skips the slot, no throw), so a partial
+    // read could yield an empty set. NEVER overwrite a good cached allowlist with
+    // an empty one and push that to the guardian — that would re-arm the very
+    // 401 this method prevents. On an empty derive, keep the cached set (the
+    // guardian-sync 401 self-heal covers any residual staleness).
+    if (freshSignerCommitments.length > 0) {
+      this.multisig.signerCommitments = freshSignerCommitments;
+    }
     await this.registerOnGuardianWithRetry(updatedStateBase64);
   }
 }
