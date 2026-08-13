@@ -472,19 +472,25 @@ export async function openHistory(wallet: HistoryWallet, timeoutMs: number = 60_
 }
 
 /**
- * The single activity row addressed to `address`, or a throw naming why not.
+ * The single activity row for transaction `txId`, or a throw naming why not.
  *
- * Filtering on the truncated recipient is what makes the row identifiable: it is
- * the only text on the row unique to one counterparty. That also makes the filter
- * the one place a truncation change would show up as a MIS-ATTRIBUTED failure —
- * "the row is missing" when the row is right there reading `mtst1qab…cdef`. So the
- * count is enforced here rather than by the caller, and a zero-match dumps every
- * row's text next to the string that was searched for, which distinguishes
- * "the wallet never rendered this transfer" from "`shortAddr` changed shape".
+ * Addressed by the row's `data-entry-key` (`<state>-<txId>`), NOT by the rendered
+ * recipient. The rendered address is TRUNCATED, and on a composite account id
+ * `activityRowAddress` keeps only the first 6 and last 7 characters — both of
+ * which are shared network-wide (`mtst1a…qq9wr6w` is the same string for every
+ * account on testnet). Matching on it selected every row on screen, which is
+ * exactly how this was found: "wanted exactly 1 … found 2", with the funding
+ * mint's row and the send's row both matching.
+ *
+ * The count is still enforced here rather than by the caller, and a zero-match
+ * dumps every row's text, which distinguishes "the wallet never rendered this
+ * transfer" from "the entry key changed shape".
  */
-export async function activityRowFor(page: Page, address: string, timeoutMs: number = 60_000): Promise<Locator> {
-  const wanted = activityRowAddress(address);
-  const row = page.getByTestId('activity-row').filter({ hasText: wanted });
+export async function activityRowFor(page: Page, txId: string, timeoutMs: number = 60_000): Promise<Locator> {
+  const wanted = txId;
+  // `data-entry-key` is on the row element itself, so this is one selector, not a
+  // descendant filter. The key is `<state>-<txId>`, hence the suffix match.
+  const row = page.locator(`[data-testid="activity-row"][data-entry-key$="${txId}"]`);
   const deadline = Date.now() + timeoutMs;
 
   for (;;) {

@@ -248,7 +248,8 @@ test.describe('Transaction Cancellation', () => {
       'verify_activity_row_reads_cancelled',
       async () => {
         await openHistory(walletA, UI_TIMEOUT_MS);
-        const row = await activityRowFor(walletA.page, addressB!, UI_TIMEOUT_MS);
+        // By row id, not by the truncated recipient — see activityRowFor.
+        const row = await activityRowFor(walletA.page, sendRowId!, UI_TIMEOUT_MS);
         await expect(row.getByTestId('activity-row-title')).toHaveText('Cancelled', { timeout: UI_TIMEOUT_MS });
         await expect(row.getByTestId('activity-row-status')).toHaveText('Cancelled', { timeout: UI_TIMEOUT_MS });
         // A cancelled row loses its direction, so the amount renders unsigned —

@@ -40,6 +40,13 @@ export interface ActivityRowProps {
    * the row's amount and recipient exactly instead of substring-matching the row.
    */
   testId?: string;
+  /**
+   * Stable per-entry identifier, mirrored to `data-entry-key`. A spec cannot
+   * address a row by its rendered address: that string is truncated, and on a
+   * composite account id BOTH visible halves are shared network-wide
+   * (`mtst1a…qq9wr6w`), so it matches every row rather than one.
+   */
+  entryKey?: string;
 }
 
 const AMOUNT_COLOR: Record<ActivityAmountDirection, string> = {
@@ -85,7 +92,8 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   timestamp,
   onClick,
   className,
-  testId
+  testId,
+  entryKey
 }) => {
   const handleClick = () => {
     if (!onClick) return;
@@ -95,6 +103,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   return (
     <div
       data-testid={testId}
+      data-entry-key={entryKey}
       role={onClick ? 'button' : undefined}
       onClick={onClick ? handleClick : undefined}
       className={classNames(

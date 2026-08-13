@@ -186,10 +186,11 @@ test.describe('Public Note Send', () => {
 
         await openHistory(walletA);
 
-        // The truncated recipient is the only text on the row unique to one
-        // counterparty, so it identifies the row; `activityRowFor` enforces a
-        // single match so a two-row filter cannot silently assert on the first.
-        const row = await activityRowFor(walletA.page, addressB!);
+        // Addressed by the row's OWN id, not by the rendered recipient: the
+        // rendered address is truncated to `mtst1a…qq9wr6w`, and both halves are
+        // network-wide constants on a composite account id — that string matched
+        // the funding mint's row as well as this one.
+        const row = await activityRowFor(walletA.page, sendRow.id);
         await expect(row.getByTestId('activity-row-title')).toHaveText('Sent');
         await expect(row.getByTestId('activity-row-subtitle')).toHaveText(`To: ${activityRowAddress(addressB!)}`);
         // Exact, signed, with the symbol: `-500 TST`. A row that showed the

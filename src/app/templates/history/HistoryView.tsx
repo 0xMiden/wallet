@@ -347,6 +347,7 @@ const HistoryView = memo<HistoryViewProps>(
                 return (
                   <ActivityRow
                     key={entry.key}
+                    entryKey={entry.key}
                     testId="activity-row"
                     icon={props.icon}
                     iconBg={props.iconBg}
