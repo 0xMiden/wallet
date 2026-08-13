@@ -1707,12 +1707,24 @@
     "englishSource": "Secure signing unavailable"
   },
   "hotKeyHardwareErrorPromptBody": {
-    "message": "To urządzenie nie mogło używać bezpiecznego sprzętu do podpisywania transakcji. Skopiuj błąd i wyślij go do zespołu Miden.",
-    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+    "message": "Bezpieczny sprzęt tego urządzenia zgłosił błąd podczas konfigurowania podpisywania transakcji. Skopiuj błąd i wyślij go do zespołu Miden.",
+    "englishSource": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team."
   },
   "hotKeyHardwareErrorPromptAction": {
     "message": "Kopiuj błąd",
     "englishSource": "Copy error"
+  },
+  "hotKeyRotationPromptTitle": {
+    "message": "Klucz urządzenia wymaga rotacji",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "To urządzenie nie może już używać Twojego (gorącego) klawisza urządzenia. Obróć go, aby przywrócić podpisywanie – nie ma to wpływu na Twoje środki.",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "Obróć klucz",
+    "englishSource": "Rotate key"
   },
   "bridgePromptTitle": {
     "message": "Most w trakcie",

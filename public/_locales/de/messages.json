@@ -1724,12 +1724,24 @@
     "englishSource": "Secure signing unavailable"
   },
   "hotKeyHardwareErrorPromptBody": {
-    "message": "Dieses Gerät konnte seine sichere Hardware nicht zum Signieren von Transaktionen verwenden. Kopieren Sie den Fehler und senden Sie ihn an das Miden-Team.",
-    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+    "message": "Die sichere Hardware dieses Geräts hat beim Einrichten der Transaktionssignierung einen Fehler gemeldet. Kopieren Sie den Fehler und senden Sie ihn an das Miden-Team.",
+    "englishSource": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team."
   },
   "hotKeyHardwareErrorPromptAction": {
     "message": "Kopierfehler",
     "englishSource": "Copy error"
+  },
+  "hotKeyRotationPromptTitle": {
+    "message": "Der Geräteschlüssel muss gedreht werden",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "Dieses Gerät kann Ihren Geräte-(Hot-)Key nicht mehr verwenden. Drehen Sie es, um die Signatur wiederherzustellen – Ihre Gelder bleiben davon unberührt.",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "Schlüssel drehen",
+    "englishSource": "Rotate key"
   },
   "bridgePromptTitle": {
     "message": "Brücke in Bearbeitung",

@@ -261,12 +261,18 @@ export const completeReplaceHotKeyTransaction = async (
     // but never touches the allowlist, so without this push every request
     // signed by the NEW hot key 401s ("session expired") forever.
     // `registerOnGuardian` derives the allowlist from the service's in-memory
-    // `signerCommitments`, so the cold service is built FRESH here from the
-    // freshly-synced on-chain account (now [new-hot, cold]). Reusing the
-    // pre-rotation service that drove the tx pushed the OLD allowlist — the
-    // historical permanent-401 bug. Runs BEFORE `swapHotKey` arms the ~3s
-    // hot-sync. Best-effort: an on-chain-successful rotation must not be
-    // failed by a guardian blip (registerOnGuardian retries 5× internally).
+    // `signerCommitments`. `buildColdMultisigService` loads that field from the
+    // guardian's stored blob (which can still be pre-rotation), so
+    // `reRegisterCurrentStateOnGuardian` re-derives it from the freshly-synced
+    // on-chain account (now [new-hot, cold]) right before registering (#619 gap
+    // 3) — otherwise this could re-push the OLD allowlist, the historical
+    // permanent-401 bug. Runs BEFORE `swapHotKey` arms the ~3s hot-sync.
+    // Best-effort: an on-chain-successful rotation must not be failed by a
+    // guardian blip (`registerOnGuardianWithRetry` retries up to
+    // MAX_GUARDIAN_REGISTER_RETRIES times, honouring Retry-After); a miss is
+    // recorded as `reRegisterFailed` for observability and healed by the
+    // guardian-sync 401 self-heal.
+    let reRegisterFailed = false;
     try {
       const accounts = await guardianProvider.getAccounts();
       const walletAccount = accounts.find(a => sameWalletAccountId(a.publicKey, tx.accountId));
@@ -287,6 +293,7 @@ export const completeReplaceHotKeyTransaction = async (
       );
       await coldService.reRegisterCurrentStateOnGuardian();
     } catch (e) {
+      reRegisterFailed = true;
       console.error(
         'Failed to re-register post-rotation signer set on guardian — the new hot key stays unauthorized (401) until a re-register lands:',
         e
@@ -303,6 +310,9 @@ export const completeReplaceHotKeyTransaction = async (
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       displayMessage: 'Device key rotated',
       completedAt: Math.floor(Date.now() / 1000),
+      // Preserve newHotPublicKey (updateTransactionStatus Object.assigns the whole
+      // extraInputs) and record whether the guardian re-register landed (#619 gap 1).
+      extraInputs: { ...tx.extraInputs, reRegisterFailed },
       // `result` is absent on the apply-after-submit-failed reconcile path: the
       // rotation is already on chain, we just lack the local TransactionResult.
       ...(result && {

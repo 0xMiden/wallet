@@ -1724,12 +1724,24 @@
     "englishSource": "Secure signing unavailable"
   },
   "hotKeyHardwareErrorPromptBody": {
-    "message": "Цей пристрій не міг використовувати захищене обладнання для підписання транзакцій. Скопіюйте помилку та надішліть її команді Miden.",
-    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+    "message": "Захищене обладнання цього пристрою повідомило про помилку під час налаштування підпису транзакцій. Скопіюйте помилку та надішліть її команді Miden.",
+    "englishSource": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team."
   },
   "hotKeyHardwareErrorPromptAction": {
     "message": "Помилка копіювання",
     "englishSource": "Copy error"
+  },
+  "hotKeyRotationPromptTitle": {
+    "message": "Необхідно змінити ключ пристрою",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "Цей пристрій більше не може використовувати (гарячу) клавішу вашого пристрою. Поверніть його, щоб відновити підпис — ваші кошти не вплинуть.",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "Обернути ключ",
+    "englishSource": "Rotate key"
   },
   "bridgePromptTitle": {
     "message": "Міст у процесі",
