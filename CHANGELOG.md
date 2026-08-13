@@ -10,6 +10,8 @@
 
 ### Changes
 
+- [CHANGE][ci] **Stop the guardian-lifecycle E2E harness from failing runs that actually succeeded.** `claimAllNotes`/`claimNotesByGroup` billed their ~8-12s reload against the caller's drain budget, and the deadline is only checked between iterations, so a note that drained mid-iteration could expire the clock and fail a wallet that had in fact claimed it. Both now start the clock after the reload and share one tail that re-samples at the deadline, applying the same two-consecutive-zeros rule before failing. The failure dump also renders `status` by name and sorts by `initiatedAt`, so a Completed row no longer reads as in-flight. (#615)
+- [CHANGE][all] **A completed transaction now records that it finished.** Successful rows kept whatever stage they were in when they completed — a finished key rotation stayed at "confirming", a finished Guardian claim at "guardian-synced" — so a finished transaction read as still running in diagnostics. Completion now stamps the terminal stage; failed rows still keep the stage they failed at. (#618)
 - Add hidden developer endpoint configuration (7-tap the Welcome logo during onboarding) to override RPC / prover / note-transport / faucet / explorer / guardian endpoints and network ID; read-only view with reset-to-defaults in Settings.
 
 ### Fixes

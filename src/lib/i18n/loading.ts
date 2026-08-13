@@ -5,7 +5,7 @@ import { isExtension } from 'lib/platform';
 import { init } from './core';
 import { saveLocale } from './saving';
 
-export const REFRESH_MSGTYPE = 'ALEO_I18N_REFRESH';
+export const REFRESH_MSGTYPE = 'MIDEN_I18N_REFRESH';
 
 // Normalize locale codes: en_GB -> en-GB for i18next
 function normalizeLocale(locale: string): string {

@@ -1,4 +1,4 @@
-import { isMobile, isAndroid } from 'lib/platform';
+import { isMobile, isAndroid, isExtension } from 'lib/platform';
 
 /**
  * The iOS native plugin handle returned by `registerPlugin('BarcodeScanner')`.
@@ -22,7 +22,8 @@ jest.mock('capacitor-barcode-scanner', () => ({
 
 jest.mock('lib/platform', () => ({
   isMobile: jest.fn(),
-  isAndroid: jest.fn()
+  isAndroid: jest.fn(),
+  isExtension: jest.fn()
 }));
 
 // Uses the REAL ./format module (decodeAddress + isValidMidenAddress) so the
@@ -30,6 +31,7 @@ jest.mock('lib/platform', () => ({
 
 const mockIsMobile = isMobile as jest.MockedFunction<typeof isMobile>;
 const mockIsAndroid = isAndroid as jest.MockedFunction<typeof isAndroid>;
+const mockIsExtension = isExtension as jest.MockedFunction<typeof isExtension>;
 
 // A syntactically valid Miden testnet address (starts with mtst1, length in range).
 const VALID_ADDRESS = 'mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
@@ -45,8 +47,12 @@ describe('qr/scanner', () => {
     // intact since the plugin is registered exactly once (on first import).
     mockIsMobile.mockReset();
     mockIsAndroid.mockReset();
+    mockIsExtension.mockReset();
     mockBarcodeScanner.scan.mockReset();
     mockAndroidScanner.scan.mockReset();
+    // The webcam path is feature-detected off `window.BarcodeDetector`; clear it
+    // between tests so each case controls its own availability.
+    delete (window as unknown as { BarcodeDetector?: unknown }).BarcodeDetector;
   });
 
   describe('module registration', () => {
@@ -57,16 +63,49 @@ describe('qr/scanner', () => {
   });
 
   describe('isScanAvailable', () => {
-    it('returns true on mobile', async () => {
+    it('returns true on mobile (native barcode plugin)', async () => {
       mockIsMobile.mockReturnValue(true);
       const { isScanAvailable } = await loadScanner();
       expect(isScanAvailable()).toBe(true);
     });
 
-    it('returns false off mobile', async () => {
+    it('returns false off mobile when not an extension', async () => {
       mockIsMobile.mockReturnValue(false);
+      mockIsExtension.mockReturnValue(false);
       const { isScanAvailable } = await loadScanner();
       expect(isScanAvailable()).toBe(false);
+    });
+
+    it('returns true in the extension when window.BarcodeDetector is available', async () => {
+      mockIsMobile.mockReturnValue(false);
+      mockIsExtension.mockReturnValue(true);
+      (window as unknown as { BarcodeDetector?: unknown }).BarcodeDetector = function () {};
+      const { isScanAvailable } = await loadScanner();
+      expect(isScanAvailable()).toBe(true);
+    });
+
+    it('returns false in the extension when window.BarcodeDetector is missing', async () => {
+      mockIsMobile.mockReturnValue(false);
+      mockIsExtension.mockReturnValue(true);
+      // No window.BarcodeDetector (cleared in beforeEach) -> webcam scan unavailable.
+      const { isScanAvailable } = await loadScanner();
+      expect(isScanAvailable()).toBe(false);
+    });
+  });
+
+  describe('isExtensionWebcamScanAvailable', () => {
+    it('is false when not an extension even if BarcodeDetector exists', async () => {
+      mockIsExtension.mockReturnValue(false);
+      (window as unknown as { BarcodeDetector?: unknown }).BarcodeDetector = function () {};
+      const { isExtensionWebcamScanAvailable } = await loadScanner();
+      expect(isExtensionWebcamScanAvailable()).toBe(false);
+    });
+
+    it('is true in the extension with BarcodeDetector present', async () => {
+      mockIsExtension.mockReturnValue(true);
+      (window as unknown as { BarcodeDetector?: unknown }).BarcodeDetector = function () {};
+      const { isExtensionWebcamScanAvailable } = await loadScanner();
+      expect(isExtensionWebcamScanAvailable()).toBe(true);
     });
   });
 
