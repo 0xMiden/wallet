@@ -2949,6 +2949,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ unresolved",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Claim failed — tap Retry to try again",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "This note is no longer available",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "Pending notes",
     "englishSource": "Pending notes"
@@ -3268,6 +3285,22 @@
   "scanCancelled": {
     "message": "Scan cancelled",
     "englishSource": "Scan cancelled"
+  },
+  "scanQrTitle": {
+    "message": "Scan QR code",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Point your camera at a QR code",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "No camera found",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Requesting camera access…",
+    "englishSource": "Requesting camera access…"
   },
   "scan": {
     "message": "Scan",

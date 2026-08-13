@@ -14,6 +14,13 @@ import { useLayoutEffect } from 'react';
  * their `TabLayout` has already unmounted, the body flag repaints the iOS
  * bottom safe-area strip where an overflowing footer shadow can otherwise
  * survive the route change.
+ *
+ * NOTE (#481): `data-hide-navbar` is ALSO read by `useNavbarHidden()` to lock
+ * the home carousel's horizontal swipe while a focused sub-surface is up, so
+ * raising this flag has a functional side effect beyond hiding the navbar. A new
+ * home-carousel pane with an internal multi-step flow must raise this flag (or
+ * keep the keyboard up) on its nested steps, or a horizontal swipe there can
+ * drag an adjacent pane over the active step again.
  */
 let openCount = 0;
 

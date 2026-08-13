@@ -269,6 +269,8 @@ describe('completeSwitchGuardianTransaction', () => {
 
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
+    // #618: completion stamps the terminal stage through the real complete* layer.
+    expect(row.stage).toBe('complete');
     expect(row.displayMessage).toBe('Guardian switched');
   });
 
@@ -2060,6 +2062,8 @@ describe('generateTransaction — Guardian routing', () => {
     expect(swapHotKey).toHaveBeenCalledWith('guardian-acc', 'new-hot-pub');
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
+    // #618: completion stamps the terminal stage through the real complete* layer.
+    expect(row.stage).toBe('complete');
   });
 
   it('switch-guardian apply-after-submit-failure re-registers + persists the endpoint instead of cancelling', async () => {

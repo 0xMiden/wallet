@@ -2937,6 +2937,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ не решено",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Заявка не удалась. Нажмите «Повторить», чтобы повторить попытку.",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "Этот note больше недоступен.",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "Ожидание notes",
     "englishSource": "Pending notes"
@@ -3256,6 +3273,22 @@
   "scanCancelled": {
     "message": "Сканирование отменено",
     "englishSource": "Scan cancelled"
+  },
+  "scanQrTitle": {
+    "message": "Сканировать QR-код",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Наведите камеру на QR-код",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "Камера не найдена",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Запрос доступа к камере…",
+    "englishSource": "Requesting camera access…"
   },
   "scan": {
     "message": "Сканировать",

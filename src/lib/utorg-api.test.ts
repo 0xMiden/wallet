@@ -211,10 +211,10 @@ describe('utorg-api', () => {
 });
 
 // The auth headers are wired into the axios instance at module-import time from
-// `process.env.ALEO_WALLET_UTORG_SID`, so exercising both branches requires
+// `process.env.MIDEN_WALLET_UTORG_SID`, so exercising both branches requires
 // re-importing the module in isolation with the env var toggled.
 describe('utorg-api auth header configuration', () => {
-  const ENV_KEY = 'ALEO_WALLET_UTORG_SID';
+  const ENV_KEY = 'MIDEN_WALLET_UTORG_SID';
 
   const importWithSid = (sid: string | undefined) => {
     const previous = process.env[ENV_KEY];
