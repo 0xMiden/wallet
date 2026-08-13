@@ -140,12 +140,22 @@ for (const [file, perRule] of Object.entries(allowed)) {
   }
 }
 
+// A stale baseline is a HOLE, not a nit: every slot it over-budgets is a slot a
+// new unfalsifiable assertion can occupy while the gate reports success. When
+// #634 removed 33 violations, the un-refreshed baseline still budgeted for them,
+// leaving 32 files' worth of free headroom — a fresh `waitForBalanceAbove(0, 1)`
+// could be added to 11 of the 25 listed specs and this script still exited 0.
+// So a ratchet that only ever loosens is not a ratchet. Fail, and say how to fix it.
 if (improvements.length > 0) {
-  console.log('Baseline is stale — these are now cleaner than known-violations.json records:');
+  console.error('Baseline is STALE — these files are cleaner than known-violations.json records:\n');
   for (const { file, rule, count, budget } of improvements) {
-    console.log(`  ${file}  ${rule}: ${budget} -> ${count}`);
+    console.error(`  ${file}  ${rule}: budget ${budget} -> actual ${count}  (${budget - count} free slots)`);
   }
-  console.log('  Refresh it with: node scripts/lint-e2e-harness.mjs --update\n');
+  console.error(
+    '\nEvery free slot is room for a new unfalsifiable assertion to land green.\n' +
+      'Refresh the baseline so the ratchet holds:  node scripts/lint-e2e-harness.mjs --update\n'
+  );
+  process.exit(1);
 }
 
 if (regressions.length > 0) {

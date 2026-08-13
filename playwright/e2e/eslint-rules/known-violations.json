@@ -56,41 +56,8 @@
       "no-conditional-expect": 1,
       "no-unfalsifiable-balance-assertion": 3
     },
-    "playwright/e2e/tests/earn/earn-deposit.spec.ts": {
-      "no-unfalsifiable-balance-assertion": 1
-    },
-    "playwright/e2e/tests/group-claim.spec.ts": {
-      "no-unfalsifiable-balance-assertion": 3
-    },
-    "playwright/e2e/tests/guardian-recovery.spec.ts": {
-      "no-unfalsifiable-balance-assertion": 1
-    },
-    "playwright/e2e/tests/guardian-send-consume.spec.ts": {
-      "no-unfalsifiable-balance-assertion": 4
-    },
-    "playwright/e2e/tests/guardian-switch-stress.spec.ts": {
-      "no-unfalsifiable-balance-assertion": 2
-    },
-    "playwright/e2e/tests/guardian-switch.spec.ts": {
-      "no-unfalsifiable-balance-assertion": 4
-    },
-    "playwright/e2e/tests/mint-and-balance.spec.ts": {
-      "no-unfalsifiable-balance-assertion": 4
-    },
     "playwright/e2e/tests/multi-account.spec.ts": {
       "no-unfalsifiable-balance-assertion": 2
-    },
-    "playwright/e2e/tests/multi-claim.spec.ts": {
-      "no-unfalsifiable-balance-assertion": 2
-    },
-    "playwright/e2e/tests/send-private.spec.ts": {
-      "no-unfalsifiable-balance-assertion": 4
-    },
-    "playwright/e2e/tests/send-public-local-prove.spec.ts": {
-      "no-unfalsifiable-balance-assertion": 4
-    },
-    "playwright/e2e/tests/send-public.spec.ts": {
-      "no-unfalsifiable-balance-assertion": 4
     },
     "playwright/tests/popup-smoke.spec.ts": {
       "no-conditional-expect": 5
