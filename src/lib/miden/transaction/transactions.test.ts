@@ -527,6 +527,36 @@ describe('transactions utilities', () => {
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
     });
 
+    it('clears a requeue cooldown on the blocking Queued row so an explicit retry is not silently ignored (#617)', async () => {
+      // A guardian 429 requeues the consume as Queued with nextEligibleAt up to
+      // 5 min out, and the FIFO loop skips it until then. Dedup means a fresh tap
+      // does NOT queue a second row — so without clearing the cooldown, tapping
+      // Claim would appear to do nothing for minutes. Regression guard: this is
+      // the interaction that made the guardian e2e drain time out.
+      const modify = jest.fn(async (cb: (t: Record<string, unknown>) => void) => {
+        cb(rowRef);
+      });
+      const rowRef: Record<string, unknown> = { nextEligibleAt: Math.floor(Date.now() / 1000) + 300 };
+      const backedOff = {
+        id: 'backed-off-tx',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Queued,
+        nextEligibleAt: Math.floor(Date.now() / 1000) + 300,
+        initiatedAt: 100
+      };
+      mockDedupQuery([backedOff]);
+      mockTransactionsWhere.mockReturnValue({ modify, first: jest.fn().mockResolvedValue(backedOff) });
+
+      const result = await initiateConsumeTransaction('account-1', note, undefined, true);
+
+      expect(result).toBe('backed-off-tx');
+      expect(mockTransactionsAdd).not.toHaveBeenCalled();
+      expect(modify).toHaveBeenCalled();
+      expect(rowRef.nextEligibleAt).toBeUndefined();
+    });
+
     it('grows the backoff with each failure: a gap that clears one failure still blocks after several', async () => {
       // The backoff doubles with lifetime failures. Five failures require
       // RETRY_COOLDOWN_SEC · 2^4 = 80 min of idle. The most recent failure is
