@@ -2936,6 +2936,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ 未解决",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "申领失败 — 点击“重试”重试",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "此 note 不再可用",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "待处理 notes",
     "englishSource": "Pending notes"
@@ -3255,6 +3272,22 @@
   "scanCancelled": {
     "message": "扫描已取消",
     "englishSource": "Scan cancelled"
+  },
+  "scanQrTitle": {
+    "message": "扫描二维码",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "将相机对准二维码",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "No camera found",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "请求相机访问权限...",
+    "englishSource": "Requesting camera access…"
   },
   "scan": {
     "message": "扫描",

@@ -256,9 +256,9 @@ describe('send-flow/types', () => {
       expect(records.public + records.private).toBe(3);
     });
 
-    it('UIFees nests ALEO/OTHER by send→receive transaction type', () => {
+    it('UIFees nests MIDEN/OTHER by send→receive transaction type', () => {
       const fees: UIFees = {
-        ALEO: {
+        MIDEN: {
           [UITransactionType.Public]: {
             [UITransactionType.Public]: '1',
             [UITransactionType.Private]: '2'
@@ -280,7 +280,7 @@ describe('send-flow/types', () => {
         }
       };
 
-      expect(fees.ALEO[UITransactionType.Public][UITransactionType.Private]).toBe('2');
+      expect(fees.MIDEN[UITransactionType.Public][UITransactionType.Private]).toBe('2');
       expect(fees.OTHER[UITransactionType.Private][UITransactionType.Public]).toBe('7');
     });
   });

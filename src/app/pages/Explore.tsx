@@ -16,17 +16,10 @@ import {
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
-import {
-  setFaucetIdSetting,
-  useAccount,
-  useAllBalances,
-  useAllTokensBaseMetadata,
-  useMidenContext
-} from 'lib/miden/front';
+import { useAccount, useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { MIDEN_NETWORK_NAME, MIDEN_FAUCET_ENDPOINTS } from 'lib/miden-chain/constants';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
 import { getTokenPrice } from 'lib/prices';
@@ -170,23 +163,6 @@ const Explore: FC = () => {
     bridgeReceivesReconciled = true;
     reconcileBridgedReceives().catch(err => console.warn('[bridge-receive] reconcile on mount failed', err));
   }, []);
-
-  const fetchFaucetState = useCallback(async () => {
-    fetch(`${MIDEN_FAUCET_ENDPOINTS.get(MIDEN_NETWORK_NAME.DEVNET)}/get_metadata`)
-      .then(response => response.json())
-      .then(data => {
-        if (data.id !== midenFaucetId) {
-          setFaucetIdSetting(data.id);
-        }
-      })
-      .catch(error => {
-        console.error('Error fetching faucet metadata:', error);
-      });
-  }, [midenFaucetId]);
-
-  useEffect(() => {
-    //fetchFaucetState();
-  }, [fetchFaucetState]);
 
   const filteredTokens = useMemo(() => {
     const sorted = [...allTokenBalances].sort((a, b) => {
