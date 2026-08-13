@@ -289,7 +289,10 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
           </span>
         </div>
         <div className="flex flex-col items-end shrink-0">
-          <span className="font-heading text-base font-bold text-heading-gray leading-tight">
+          <span
+            data-testid="pending-asset-amount"
+            className="font-heading text-base font-bold text-heading-gray leading-tight"
+          >
             {formattedTotal} {symbol}
           </span>
           <span className="font-heading text-sm text-black opacity-50 leading-tight">
@@ -525,7 +528,10 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
             <EyeClosedIcon style={{ width: 16, height: 16 }} />
           )}
         </div>
-        <span className="font-heading text-sm font-medium text-text-primary-token text-right">
+        <span
+          data-testid="detail-note-amount"
+          className="font-heading text-sm font-medium text-text-primary-token text-right"
+        >
           {formattedAmount}
           {symbol}
         </span>

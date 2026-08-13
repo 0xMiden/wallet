@@ -32,6 +32,21 @@ export interface ActivityRowProps {
   timestamp?: string;
   onClick?: () => void;
   className?: string;
+  /**
+   * Optional E2E hook. The component destructures its props (no rest spread), so
+   * a `data-testid` cannot be threaded through from the call site — it has to be
+   * an explicit prop. When set, the root carries it and the text parts carry
+   * `${testId}-title` / `-subtitle` / `-amount` / `-status`, so a spec can assert
+   * the row's amount and recipient exactly instead of substring-matching the row.
+   */
+  testId?: string;
+  /**
+   * Stable per-entry identifier, mirrored to `data-entry-key`. A spec cannot
+   * address a row by its rendered address: that string is truncated, and on a
+   * composite account id BOTH visible halves are shared network-wide
+   * (`mtst1a…qq9wr6w`), so it matches every row rather than one.
+   */
+  entryKey?: string;
 }
 
 const AMOUNT_COLOR: Record<ActivityAmountDirection, string> = {
@@ -76,7 +91,9 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   status,
   timestamp,
   onClick,
-  className
+  className,
+  testId,
+  entryKey
 }) => {
   const handleClick = () => {
     if (!onClick) return;
@@ -85,6 +102,8 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   };
   return (
     <div
+      data-testid={testId}
+      data-entry-key={entryKey}
       role={onClick ? 'button' : undefined}
       onClick={onClick ? handleClick : undefined}
       className={classNames(
@@ -105,20 +124,30 @@ export const ActivityRow: FC<ActivityRowProps> = ({
         </div>
 
         <div className="flex flex-col text-heading-gray leading-tight dark:text-pure-white">
-          <span className="font-heading text-base font-bold">{title}</span>
-          {subtitle && <span className="font-heading text-xs opacity-50 font-medium leading-[100%]">{subtitle}</span>}
+          <span data-testid={testId && `${testId}-title`} className="font-heading text-base font-bold">
+            {title}
+          </span>
+          {subtitle && (
+            <span
+              data-testid={testId && `${testId}-subtitle`}
+              className="font-heading text-xs opacity-50 font-medium leading-[100%]"
+            >
+              {subtitle}
+            </span>
+          )}
         </div>
       </div>
 
       <div className="flex flex-col items-end gap-0.5">
         {amount && (
-          <span className="font-heading text-sm font-bold leading-tight">
+          <span data-testid={testId && `${testId}-amount`} className="font-heading text-sm font-bold leading-tight">
             <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(amount.value)}</span>
             {amount.symbol ? <span className="text-heading-gray">{` ${amount.symbol}`}</span> : null}
           </span>
         )}
         {status && (
           <span
+            data-testid={testId && `${testId}-status`}
             className={classNames(
               'flex items-center gap-1 text-[10px] font-normal leading-none',
               STATUS_TEXT[status.tone]
