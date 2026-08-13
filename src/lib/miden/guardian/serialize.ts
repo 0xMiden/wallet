@@ -95,7 +95,9 @@ export function guardianRetryAfterSec(err: unknown): number | undefined {
 // the guardian accepts a rotation delta it can reject `/configure` for a few
 // seconds while it canonicalizes the new state; the capped exponential sequence
 // (1+2+4+8+8+8+8s ≈ 39s over 8 attempts) clears that window while still bounding
-// a genuinely-down guardian.
+// a genuinely-down guardian. Getting the budget wrong is costly: a re-register
+// that silently exhausts leaves the new hot key unauthorized, so every later
+// request then 401s ("session expired") until a re-register finally lands.
 export const GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS = 1000;
 export const GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS = 8000;
 // Ceiling for a server-provided Retry-After on a 429: high enough to honour the

@@ -192,6 +192,8 @@ describe('guardianRegisterBackoffMs (#619)', () => {
   });
 
   it('clamps the Retry-After to [base, rate-limited-max]', () => {
+    // a 0s Retry-After is still honoured but floored to the base — never a busy-retry
+    expect(guardianRegisterBackoffMs(rateLimited(0), 1)).toBe(GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS);
     expect(guardianRegisterBackoffMs(rateLimited(0.2), 1)).toBe(GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS); // floor
     expect(guardianRegisterBackoffMs(rateLimited(120), 1)).toBe(GUARDIAN_REGISTER_RETRY_RATE_LIMITED_MAX_DELAY_MS); // ceiling
   });
