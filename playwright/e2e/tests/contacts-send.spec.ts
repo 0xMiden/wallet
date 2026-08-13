@@ -77,6 +77,12 @@ test.describe('Address Book send', () => {
     steps,
     timeline
   }) => {
+    // Above the sum of this test's own waits (240s of explicit timeoutMs,
+    // plus the UI waits). It previously ran under the config's 300s default and
+    // died mid-click with "Target page, context or browser has been closed" —
+    // the test timeout tearing the context down before any wait could report
+    // what it was waiting for.
+    test.setTimeout(600_000);
     let addressA: string;
     let addressB: string;
 

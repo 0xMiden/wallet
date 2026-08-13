@@ -38,6 +38,7 @@
  * prefixes the BIP21-style scheme. Asserting `payload === publicKey` would fail
  * on a perfectly working wallet.
  */
+import { ACCOUNT_ID_RE } from '../helpers/account-id';
 import { expect, test } from '../fixtures/two-wallets';
 import {
   MIDEN_URI_PREFIX,
@@ -55,7 +56,7 @@ test.describe('Receive address surface', () => {
     await steps.step('create_wallet', async () => {
       const { address } = await walletA.createNewWallet();
       publicKey = address;
-      expect(publicKey).toMatch(/^m[a-z]{1,4}1[a-z0-9]+$/);
+      expect(publicKey).toMatch(ACCOUNT_ID_RE);
     });
 
     await steps.step('open_receive', async () => {
