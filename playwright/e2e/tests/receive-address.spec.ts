@@ -23,11 +23,16 @@
  * Rather than take a decode dependency, `components/QRCode.tsx` mirrors the
  * payload onto `data-qr-payload` from INSIDE the effect that calls
  * `qrCode.update(options)` — the only thing that ever repaints the encoder,
- * which is created once and never re-created. So the attribute reports what was
- * painted, not merely what the component computed: a repaint that stops running
- * (the stale-QR bug this spec exists for) leaves the attribute stale or absent
- * rather than silently agreeing with a picture nobody refreshed. What it still
- * does NOT do is re-derive the bitmap; module-level corruption is out of scope.
+ * which is created once and never re-created. So the attribute reports that the
+ * repaint effect RAN TO COMPLETION with this payload, not merely what the
+ * component computed: drop the effect, or make `update()` throw, and the
+ * attribute goes stale or absent instead of silently agreeing with a picture
+ * nobody refreshed.
+ *
+ * Be precise about the limit, because the header above is easy to over-read:
+ * if `update()` itself no-ops while the effect still completes, the attribute is
+ * fresh and the picture is stale, and this spec is green. Decoding the bitmap is
+ * the only thing that would close that gap, and it needs a decoder dependency.
  *
  * The payload is `miden:<address>`, NOT the bare address — `lib/qr/format.ts`
  * prefixes the BIP21-style scheme. Asserting `payload === publicKey` would fail

@@ -47,7 +47,6 @@ import {
   addContact,
   advanceToSendReview,
   deleteContact,
-  listAddressBookContacts,
   listSendPickerContacts,
   openSendContactPicker,
   openSettingsDrawer,
@@ -130,8 +129,6 @@ test.describe('Address Book send', () => {
         // name and address; re-asserting it here would just re-read what it
         // already threw on.
         await addContact(walletA, { name: CONTACT_NAME, address: addressB! });
-
-        expect(await listAddressBookContacts(walletA.page)).toContain(addressB!);
       },
       { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
     );
@@ -203,8 +200,9 @@ test.describe('Address Book send', () => {
 
       await openSettingsDrawer(walletA, 'address-book');
       // Goes through the real ConfirmationModal — removeContact is gated on useConfirm().
+      // deleteContact's own postcondition is that exact row reaching state
+      // 'detached', so enumerating the same testid prefix here cannot disagree.
       await deleteContact(walletA, addressB!);
-      expect(await listAddressBookContacts(walletA.page)).not.toContain(addressB!);
     });
 
     await steps.step('deleted_contact_leaves_the_send_picker', async () => {

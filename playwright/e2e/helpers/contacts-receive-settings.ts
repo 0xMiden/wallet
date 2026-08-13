@@ -497,7 +497,8 @@ export interface ReceiveSurface {
  * hand-rolled decoder would need Reed-Solomon recovery to read it back. Rather
  * than add a decode dependency, `QRCode` mirrors the payload onto
  * `data-qr-payload` FROM INSIDE the effect that repaints the encoder, so the
- * attribute tracks what was painted rather than what was merely computed.
+ * attribute tracks that the repaint COMPLETED with this payload rather than what
+ * the component merely computed. It does not prove the bitmap encodes it.
  *
  * The attribute is therefore absent until that repaint runs — hence waiting on
  * `[data-qr-payload]` rather than reading the attribute once.
