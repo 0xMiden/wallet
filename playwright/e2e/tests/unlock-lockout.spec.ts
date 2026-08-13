@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/two-wallets';
-import { fromBaseUnits, vaultBalance, waitForPendingNoteTotal, waitForVaultBalance } from '../helpers/balance-truth';
+import { fromBaseUnits, waitForPendingNoteTotal, waitForVaultBalance } from '../helpers/balance-truth';
 import {
   LOCKOUT_MS,
   WRONG_PASSWORDS_TO_LOCKOUT,
@@ -142,7 +142,13 @@ test.describe('Unlock — wrong password, lockout escalation, and balance contin
         decimals: TOKEN_DECIMALS
       });
 
-      fundedBaseUnits = await vaultBalance(walletA.page, TOKEN);
+      // The baseline is MINT_BASE_UNITS itself, NOT a fresh read of it. The wait
+      // above already proved the vault equals that figure; re-reading introduces
+      // the one hole this spec cannot afford — if AutoSync moved the number
+      // between the two reads, the post-unlock comparison below would be made
+      // against a corrupted baseline and could agree with a wallet that came
+      // back wrong.
+      fundedBaseUnits = MINT_BASE_UNITS;
     });
 
     await steps.step(
