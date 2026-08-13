@@ -90,6 +90,40 @@ export function guardianRetryAfterSec(err: unknown): number | undefined {
   return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : undefined;
 }
 
+// Backoff for re-registering an account on its guardian after a key/guardian
+// rotation (consumed by `registerOnGuardianWithRetry` in ./index). Right after
+// the guardian accepts a rotation delta it can reject `/configure` for a few
+// seconds while it canonicalizes the new state; the capped exponential sequence
+// (1+2+4+8+8+8+8s ≈ 39s over 8 attempts) clears that window while still bounding
+// a genuinely-down guardian. Getting the budget wrong is costly: a re-register
+// that silently exhausts leaves the new hot key unauthorized, so every later
+// request then 401s ("session expired") until a re-register finally lands.
+export const GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS = 1000;
+export const GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS = 8000;
+// Ceiling for a server-provided Retry-After on a 429: high enough to honour the
+// guardian's own cooldown (seconds → ~a minute) instead of retrying under it and
+// earning another 429, bounded so a rate-limited re-register can't stall a
+// rotation for too long. (#619)
+export const GUARDIAN_REGISTER_RETRY_RATE_LIMITED_MAX_DELAY_MS = 60_000;
+
+/**
+ * Delay (ms) before the next `registerOnGuardian` retry. On a 429 that carries a
+ * server Retry-After, honour that cooldown (clamped to
+ * [base, rate-limited-max]) — the guardian just told us how long to wait, so a
+ * blind exponential retry only earns another 429. Otherwise fall back to the
+ * capped exponential backoff. (#619)
+ */
+export function guardianRegisterBackoffMs(error: unknown, attempt: number): number {
+  const retryAfterSec = isGuardianRateLimited(error) ? guardianRetryAfterSec(error) : undefined;
+  if (retryAfterSec !== undefined) {
+    return Math.min(
+      Math.max(retryAfterSec * 1000, GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS),
+      GUARDIAN_REGISTER_RETRY_RATE_LIMITED_MAX_DELAY_MS
+    );
+  }
+  return Math.min(GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS);
+}
+
 interface ConflictRetryOptions {
   maxAttempts?: number;
   delayMs?: number;

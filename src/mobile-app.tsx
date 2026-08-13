@@ -15,6 +15,7 @@ import { WindowType } from 'app/env';
 import { getMobileIntercomAdapter } from 'lib/intercom/mobile-adapter';
 import { installGuardianCorsBypass } from 'lib/miden/guardian/native-http';
 import { initMobileBackHandler } from 'lib/mobile/back-handler';
+import { initBackgroundTimeTracking } from 'lib/mobile/background-time';
 import { initKeyboardInset } from 'lib/mobile/keyboard-inset';
 import { initTheme } from 'lib/settings/theme';
 
@@ -57,6 +58,11 @@ async function initMobile() {
 
     console.log('Mobile app: Initializing back handler');
     await initMobileBackHandler();
+
+    // Record backgrounded (document.hidden) time so the stuck-transaction
+    // reaper doesn't count time Android froze the WebView against a delegated
+    // prove and reap it as a false REMOTE_PROVER_TIMEOUT on resume (#473).
+    initBackgroundTimeTracking();
 
     await initKeyboardInset();
 

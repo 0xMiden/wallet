@@ -67,6 +67,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
             <Chip
               className="w-26 h-8"
               key={`seed-word-${index}`}
+              data-testid={`seed-word-${index}`}
               label={
                 <label
                   className={classNames(
@@ -101,7 +102,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
       </div>
 
       <div className="flex flex-col gap-2 self-center w-full mt-auto">
-        <Button title={t('continue')} onClick={onSubmit} className="text-base" />
+        <Button data-testid="backup-seed-continue" title={t('continue')} onClick={onSubmit} className="text-base" />
       </div>
     </div>
   );
