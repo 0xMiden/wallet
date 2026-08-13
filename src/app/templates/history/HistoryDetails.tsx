@@ -660,13 +660,23 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
   const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
   const isGuardianSwitch = entry?.txType === 'switch-guardian';
+  // Which way the money moved is a property of the transaction TYPE, not of its
+  // display label. `displayMessage` only reads 'Sent' once `completeSendTransaction`
+  // stamps it: a send is 'Sending' while queued/building and `cancelTransaction`
+  // rewrites it to 'Failed' (or "Interrupted…"). Keying the direction off the
+  // message therefore reversed From/To on every send that had not completed — a
+  // cancelled 500 TST send read "From: <recipient> / To: <your own account>".
+  // `send` is the only outbound type that reaches this branch (bridged-send and
+  // switch-guardian are handled above), so type is the whole rule; the message
+  // check is kept as a fallback for rows persisted before `txType` existed.
+  const isOutboundTransfer = entry?.txType === 'send' || entry?.message === 'Sent';
   const fromAddress = isBridgeOut
     ? entry?.address
     : isGuardianSwitch
       ? undefined
       : isBridgeIn
         ? undefined
-        : entry?.message === 'Sent'
+        : isOutboundTransfer
           ? entry?.address
           : entry?.secondaryAddress;
   const toAddress = isBridgeOut
@@ -675,7 +685,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       ? undefined
       : isBridgeIn
         ? entry?.address
-        : entry?.message === 'Sent'
+        : isOutboundTransfer
           ? entry?.secondaryAddress
           : entry?.address;
   const settledNoteIds = settlementNotes?.settled ?? [];
@@ -772,7 +782,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   // lending leg instead of the (long-settled) Miden tx status.
                   <EarnDepositStatusPill status={earnDeposit.epochStatus ?? 'pending'} />
                 ) : (
-                  <StatusPill status={entry.status} isCancelled={entry.isCancelled} />
+                  <StatusPill status={entry.status} isCancelled={entry.isCancelled} testId="history-status-pill" />
                 )}
               </div>
             </div>
@@ -804,7 +814,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   )}
 
                   {entry.externalTxId && (
-                    <DetailRow label={t('txIdLabel')} isLast={isGuardianSwitch}>
+                    <DetailRow label={t('txIdLabel')} isLast={isGuardianSwitch} testId="history-detail-tx-id">
                       <ExternalLinkValue
                         displayValue={
                           <HashChip
@@ -838,7 +848,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   )}
 
                   {toAddress && (
-                    <DetailRow label={t('to')} isLast>
+                    <DetailRow label={t('to')} isLast testId="history-detail-to">
                       <ExternalLinkValue
                         displayValue={
                           <AccountDisplay address={toAddress} account={account} allAccounts={allAccounts} />
@@ -998,6 +1008,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   <div className="mt-5">
                     <DetailCard title={entry.isCancelled ? t('cancelled') : t('error')}>
                       <p
+                        data-testid="history-failure-reason"
                         className={clsx(
                           'px-4 py-3 text-sm font-medium wrap-break-word select-text',
                           entry.isCancelled ? 'text-gray-500' : 'text-status-negative'
@@ -1173,6 +1184,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           <div className="shrink-0 pt-3 pb-4">
             {cancelError && <p className="mb-2 text-center text-sm text-status-negative">{cancelError}</p>}
             <Button
+              data-testid="history-cancel-button"
               variant={ButtonVariant.Primary}
               title={t('cancel')}
               isLoading={isCancelling}

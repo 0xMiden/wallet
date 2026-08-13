@@ -28,6 +28,14 @@ export interface GeneratingTransactionProps {
    * open the source transaction in Midenscan.
    */
   onViewExplorer?: () => void;
+  /** Retry a FAILED tx from the failure footer (#483). Shown only when `canRetry`. */
+  onRetry?: () => void;
+  /** Whether the failed tx can be retried (requeueable / resubmittable). */
+  canRetry?: boolean;
+  /** True while a retry is in flight — drives the Retry button spinner. */
+  isRetrying?: boolean;
+  /** Error message from a failed retry attempt, shown under the buttons. */
+  retryError?: string | null;
 }
 
 export type TransactionStepState = 'complete' | 'active' | 'pending' | 'failed';
