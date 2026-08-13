@@ -5,6 +5,7 @@
 ### Features
 ### Fixes
 
+- [FIX][all] **A rate-limited Guardian no longer kills your transaction.** When the Guardian answers `429 Too Many Requests` before a transaction is submitted, the send/swap/claim now returns to the queue and retries automatically — honouring the delay the Guardian asks for — instead of failing outright and making you start over. Rate limits hit after submission still fail loudly, since the transaction may already be on chain. (#617)
 - [FIX][extension] **Recurring stuck "Consuming" notes are fixed by moving the wallet's WASM engine off the extension service-worker thread.** Transaction execution, proving, syncing, and reads now run in a dedicated `chrome.offscreen` document, so a wedged operation can no longer freeze the service worker and strand notes mid-consume; each operation is bounded by its own deadline and a wedged one is torn down and safely retried. Behind `MIDEN_USE_OFFSCREEN_CLIENT` (extension only; mobile/desktop unaffected). (#260)
 
 ### Changes

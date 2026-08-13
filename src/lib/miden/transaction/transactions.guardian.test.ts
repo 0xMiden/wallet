@@ -1483,6 +1483,186 @@ describe('generateTransaction — Guardian routing', () => {
     }
   });
 
+  it('Guardian consume: a 429 at creating-proposal requeues with the server-supplied retry_after (#617)', async () => {
+    // The guardian declares rate-limit rejections retryable and hands back a
+    // cooldown. Terminal-failing here would lose a value-moving consume to a
+    // transient limit; the row must go back to Queued, backed off by the
+    // server's own figure rather than our default.
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-rate-limited';
+      txStore.push({
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'note-429'
+      });
+
+      const rateLimited = {
+        status: 429,
+        code: 'rate_limit_exceeded',
+        meta: { retryable: true, retryAfterSecs: 45 }
+      };
+      const multisigService = {
+        createConsumeNotesProposal: jest.fn(async () => {
+          throw rateLimited;
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const before = Math.floor(Date.now() / 1000);
+      const pending = generateTransaction(
+        {
+          id: txId,
+          type: 'consume',
+          accountId: 'guardian-acc',
+          noteId: 'note-429',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(row.processingStartedAt).toBeUndefined();
+      // Backed off by the guardian's 45s, not our 30s default.
+      expect(Number(row.nextEligibleAt)).toBeGreaterThanOrEqual(before + 45);
+      expect(multisigService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian replace-hot-key: a 429 is NOT requeued — structural ops must not re-mint a hot key (#617)', async () => {
+    // Same exclusion as the 409 case: requeueing a structural op re-runs its
+    // proposal creator, which has already minted a hardware hot key.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const txId = 'replace-hot-rate-limited';
+    txStore.push({
+      id: txId,
+      type: 'replace-hot-key',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: {}
+    });
+
+    const rateLimited = { status: 429, code: 'rate_limit_exceeded', meta: { retryable: true, retryAfterSecs: 10 } };
+    const coldService = {
+      // Rejects AFTER the (elided) mint, modeling the real mint-before-POST order.
+      createReplaceHotKeyProposal: jest.fn(async () => {
+        throw rateLimited;
+      }),
+      signAndCreateTransactionRequest: jest.fn()
+    };
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'old-hot' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      persistNewHotKey: jest.fn(async () => {}),
+      swapHotKey: jest.fn(async () => {})
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      client: makeClientApi(makeResult())
+    });
+
+    const txArg = { id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', delegateTransaction: false };
+
+    // Three loop cycles: a correctly-failed structural op is terminal and runs
+    // once. Under a requeue-everything bug this would re-mint every cycle.
+    for (let cycle = 0; cycle < 3; cycle++) {
+      const current = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      if (current.status !== ITransactionStatus.Queued) break;
+      await generateTransaction(
+        txArg as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      );
+    }
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.nextEligibleAt).toBeUndefined();
+    expect(coldService.createReplaceHotKeyProposal).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it('Guardian send (delegated): a 429 at the SUBMIT stage is NOT requeued — double-submit risk (#617)', async () => {
+    // The stage gate is the safety property. Pre-submit 429s requeue; a 429 at or
+    // after 'sending' may correspond to a transaction already on chain, so it must
+    // terminal-fail exactly like the transport-error case above.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const txId = 'send-429-at-submit';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const client = makeClientApi(result);
+    client.transactions.submitProven.mockRejectedValue({
+      status: 429,
+      code: 'rate_limit_exceeded',
+      meta: { retryable: true, retryAfterSecs: 5 }
+    });
+    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: true
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.nextEligibleAt).toBeUndefined();
+    warnSpy.mockRestore();
+  });
+
   it('Guardian replace-hot-key: a still-pending 409 is NOT requeued — it fails and the hot-key mint is not repeated', async () => {
     // createReplaceHotKeyProposal MINTS a fresh hardware hot key BEFORE its
     // proposal POST (guardian/index.ts). If that POST returns a pending-delta 409,

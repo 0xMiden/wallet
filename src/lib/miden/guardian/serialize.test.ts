@@ -1,6 +1,8 @@
 import {
   clearGuardianAccountLocks,
+  guardianRetryAfterSec,
   isGuardianPendingConflict,
+  isGuardianRateLimited,
   withGuardianAccountLock,
   withGuardianConflictRetry
 } from './serialize';
@@ -121,5 +123,45 @@ describe('withGuardianConflictRetry', () => {
       status: 409
     });
     expect(fn).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('isGuardianRateLimited', () => {
+  it.each([
+    ['429 status', { status: 429 }, true],
+    ['rate_limit_exceeded code without status', { code: 'rate_limit_exceeded' }, true],
+    ['429 with code and meta', { status: 429, code: 'rate_limit_exceeded', meta: { retryable: true } }, true],
+    ['a pending-delta 409', { status: 409, body: 'ConflictPendingDelta' }, false],
+    ['an auth rejection', { status: 401, code: 'authentication_failed' }, false],
+    ['a plain Error', new Error('boom'), false],
+    ['null', null, false],
+    ['a string', '429', false]
+  ])('%s -> %s', (_label, err, expected) => {
+    expect(isGuardianRateLimited(err)).toBe(expected);
+  });
+});
+
+describe('guardianRetryAfterSec', () => {
+  it('reads the camelCase meta field the client surfaces', () => {
+    expect(guardianRetryAfterSec({ status: 429, meta: { retryAfterSecs: 45 } })).toBe(45);
+  });
+
+  it('reads the snake_case wire spelling', () => {
+    expect(guardianRetryAfterSec({ status: 429, meta: { retry_after_secs: 12 } })).toBe(12);
+  });
+
+  it('accepts zero (retry immediately) rather than treating it as absent', () => {
+    expect(guardianRetryAfterSec({ status: 429, meta: { retryAfterSecs: 0 } })).toBe(0);
+  });
+
+  it.each([
+    ['no meta', { status: 429 }],
+    ['meta without the field', { status: 429, meta: { retryable: true } }],
+    ['a non-numeric value', { status: 429, meta: { retryAfterSecs: '45' } }],
+    ['a negative value', { status: 429, meta: { retryAfterSecs: -1 } }],
+    ['NaN', { status: 429, meta: { retryAfterSecs: Number.NaN } }],
+    ['null', null]
+  ])('returns undefined for %s so the caller applies its own default', (_label, err) => {
+    expect(guardianRetryAfterSec(err)).toBeUndefined();
   });
 });

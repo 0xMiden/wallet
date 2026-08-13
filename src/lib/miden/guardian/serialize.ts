@@ -61,6 +61,35 @@ export function isGuardianPendingConflict(err: unknown): boolean {
   return !/paused/i.test(detail);
 }
 
+/**
+ * A guardian `429` rate-limit rejection. The guardian declares these retryable
+ * (`meta.retryable`, `code: 'rate_limit_exceeded'`), so a value-moving
+ * transaction that hits one must not be failed terminally — see #617.
+ *
+ * Duck-typed rather than `instanceof GuardianHttpError` for the same reason as
+ * `isGuardianPendingConflict` above: it survives test mocks of the multisig
+ * client and any duplicate-package instance of the error class.
+ */
+export function isGuardianRateLimited(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  if ((err as { status?: unknown }).status === 429) return true;
+  return (err as { code?: unknown }).code === 'rate_limit_exceeded';
+}
+
+/**
+ * The guardian's requested cooldown for a rate-limited request, in seconds.
+ * Reads `meta.retryAfterSecs` (and the snake_case wire spelling), returning
+ * `undefined` when absent so callers can apply their own default.
+ */
+export function guardianRetryAfterSec(err: unknown): number | undefined {
+  if (!err || typeof err !== 'object') return undefined;
+  const meta = (err as { meta?: unknown }).meta;
+  if (!meta || typeof meta !== 'object') return undefined;
+  const raw =
+    (meta as { retryAfterSecs?: unknown }).retryAfterSecs ?? (meta as { retry_after_secs?: unknown }).retry_after_secs;
+  return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : undefined;
+}
+
 interface ConflictRetryOptions {
   maxAttempts?: number;
   delayMs?: number;
