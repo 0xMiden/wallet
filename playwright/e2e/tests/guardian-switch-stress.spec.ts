@@ -104,6 +104,14 @@ test.describe('Guardian switch stress - kill mid-switch resumes', () => {
         await midenCli.init();
         const faucetId = await midenCli.createFaucet();
         await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+        // Discovery BEFORE claim: claimAllNotes stops on two empty pending reads,
+        // which is also true before the note has synced — claiming too early
+        // returns "drained" having consumed nothing, and the vault pin below then
+        // fails on a healthy run. Seen for real in guardian-switch.spec.ts.
+        await waitForPendingNoteTotal(walletA.page, TOKEN, FUND_BASE_UNITS, {
+          timeoutMs: 180_000,
+          decimals: TOKEN_DECIMALS
+        });
         await midenCli.sync();
 
         await walletA.claimAllNotes(180_000);
@@ -232,6 +240,14 @@ test.describe('Guardian switch stress - register fault retries', () => {
         await midenCli.init();
         const faucetId = await midenCli.createFaucet();
         await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+        // Discovery BEFORE claim: claimAllNotes stops on two empty pending reads,
+        // which is also true before the note has synced — claiming too early
+        // returns "drained" having consumed nothing, and the vault pin below then
+        // fails on a healthy run. Seen for real in guardian-switch.spec.ts.
+        await waitForPendingNoteTotal(walletA.page, TOKEN, FUND_BASE_UNITS, {
+          timeoutMs: 180_000,
+          decimals: TOKEN_DECIMALS
+        });
         await midenCli.sync();
 
         await walletA.claimAllNotes(180_000);
@@ -348,6 +364,11 @@ test.describe('Guardian switch stress - repeat round-trip', () => {
       await midenCli.init();
       faucetId = await midenCli.createFaucet();
       await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+      // Discovery BEFORE claim — see the note in the first test of this file.
+      await waitForPendingNoteTotal(walletA.page, TOKEN, FUND_BASE_UNITS, {
+        timeoutMs: 180_000,
+        decimals: TOKEN_DECIMALS
+      });
       await midenCli.sync();
 
       await walletA.claimAllNotes(180_000);
@@ -471,6 +492,11 @@ test.describe('Guardian switch stress - concurrent send + switch', () => {
       await midenCli.init();
       const faucetId = await midenCli.createFaucet();
       await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+      // Discovery BEFORE claim — see the note in the first test of this file.
+      await waitForPendingNoteTotal(walletA.page, TOKEN, FUND_BASE_UNITS, {
+        timeoutMs: 180_000,
+        decimals: TOKEN_DECIMALS
+      });
       await midenCli.sync();
 
       await walletA.claimAllNotes(180_000);

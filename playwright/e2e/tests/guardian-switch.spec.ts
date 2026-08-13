@@ -94,6 +94,11 @@ test.describe('Guardian switch - happy path + usability', () => {
       await midenCli.init();
       faucetId = await midenCli.createFaucet();
       await midenCli.mint(faucetId, addressA, INITIAL_MINT_BASE_UNITS, 'public');
+      // Discovery-before-claim, same reason as the post-switch mint below.
+      await waitForPendingNoteTotal(walletA.page, TOKEN, INITIAL_MINT_BASE_UNITS, {
+        timeoutMs: 180_000,
+        decimals: TOKEN_DECIMALS
+      });
       await midenCli.sync();
 
       await walletA.claimAllNotes(180_000);
@@ -136,6 +141,16 @@ test.describe('Guardian switch - happy path + usability', () => {
         // exercising createConsumeNotesProposal against the NEW guardian.
         await midenCli.mint(faucetId!, addressA!, POST_SWITCH_MINT_BASE_UNITS, 'public');
         await midenCli.sync();
+        // Wait for the note to be DISCOVERED before claiming. `claimAllNotes`
+        // stops when it reads an empty pending list twice — which is also true
+        // BEFORE the note has synced, so claiming too early returns "drained"
+        // having consumed nothing, and the note then arrives and sits unclaimed.
+        // The old `> 0` assertion could not see that (vault+pending summed the
+        // same either way); the exact vault assertion below can, and did.
+        await waitForPendingNoteTotal(walletA.page, TOKEN, POST_SWITCH_MINT_BASE_UNITS, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
         await walletA.claimAllNotes(120_000);
         // The consume-under-B half of "usable on B": A's spendable TST must now
         // be the pre-switch funding PLUS the whole post-switch mint. A consume
@@ -237,6 +252,11 @@ test.describe('Guardian switch - cross-guardian correctness', () => {
       await midenCli.init();
       faucetId = await midenCli.createFaucet();
       await midenCli.mint(faucetId, addressA, INITIAL_MINT_BASE_UNITS, 'public');
+      // Discovery-before-claim, same reason as the post-switch mint below.
+      await waitForPendingNoteTotal(walletA.page, TOKEN, INITIAL_MINT_BASE_UNITS, {
+        timeoutMs: 180_000,
+        decimals: TOKEN_DECIMALS
+      });
       await midenCli.sync();
 
       await walletA.claimAllNotes(180_000);
