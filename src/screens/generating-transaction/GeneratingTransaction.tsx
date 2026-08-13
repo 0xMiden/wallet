@@ -340,6 +340,22 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
           <Button type="button" variant={ButtonVariant.Primary} onClick={onDoneClick} className="w-full">
             <span className="text-lg font-semibold text-pure-white">{actionTitle}</span>
           </Button>
+          {/* #483 — a failed tx needs a direct route to its Activity detail, just
+              like the success views (SwapSuccess/SendSuccess/BridgeSuccess all
+              link there). Only shown on failure: success routes through
+              TransactionSuccess, which already renders this link. */}
+          {hasErrors && (
+            <Button
+              type="button"
+              variant={ButtonVariant.Secondary}
+              onClick={() =>
+                navigate(completedTransaction ? `/history-details/${completedTransaction.id}` : '/history')
+              }
+              className="w-full"
+            >
+              <span className="text-lg font-semibold">{t('viewInActivities')}</span>
+            </Button>
+          )}
         </div>
       </main>
     </div>
