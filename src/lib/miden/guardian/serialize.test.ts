@@ -150,7 +150,9 @@ describe('guardianRetryAfterSec', () => {
     expect(guardianRetryAfterSec({ status: 429, meta: { retry_after_secs: 12 } })).toBe(12);
   });
 
-  it('accepts zero (retry immediately) rather than treating it as absent', () => {
+  // The predicate reports the server's figure verbatim; the transaction-loop
+  // caller is what floors it (a 0 cooldown would starve the FIFO queue).
+  it('reports zero verbatim rather than treating it as absent', () => {
     expect(guardianRetryAfterSec({ status: 429, meta: { retryAfterSecs: 0 } })).toBe(0);
   });
 
