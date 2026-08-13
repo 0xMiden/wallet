@@ -23,6 +23,7 @@ import { ReactComponent as SeedPhraseIconOrange } from 'app/icons/settings/seed-
 import { ReactComponent as TosIconDevnet } from 'app/icons/settings/tos-devnet.svg';
 import { ReactComponent as TosIconOrange } from 'app/icons/settings/tos.svg';
 import { Icon, IconName } from 'app/icons/v2';
+import { ReactComponent as FeedbackIcon } from 'app/icons/v2/send.svg';
 import AddressBook from 'app/templates/AddressBook';
 import DAppDrawerSettings from 'app/templates/DAppDrawerSettings';
 import DAppSettings from 'app/templates/DAppSettings';
@@ -40,6 +41,7 @@ import { NavigationHeader } from 'components/NavigationHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
+import { openExternalUrl } from 'lib/mobile/external-browser';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
@@ -51,7 +53,7 @@ import AdvancedSettings from './AdvancedSettings';
 import NetworksSettings from './Networks';
 import { SettingsSelectors } from './Settings.selectors';
 import pkg from '../../../package.json';
-import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../constants';
+import { FEEDBACK_URL, PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../constants';
 
 const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
 const AddressBookIcon = isDevnet ? AddressBookIconDevnet : AddressBookIconOrange;
@@ -216,6 +218,19 @@ const TAB_GROUPS: TabGroup[] = [
         Icon: TosIcon,
         Component: () => null,
         linksOutsideOfWallet: true
+      },
+      {
+        // Opens the hosted feedback form. Not an external <a> because that would
+        // hit the system browser on mobile; the onClick routes through
+        // openExternalUrl (native in-app webview on mobile, new tab on desktop).
+        slug: 'send-feedback',
+        titleI18nKey: 'sendFeedback',
+        Icon: FeedbackIcon,
+        Component: () => null,
+        testID: SettingsSelectors.SendFeedbackButton,
+        onClick: () => {
+          openExternalUrl({ url: FEEDBACK_URL, title: 'Send feedback' });
+        }
       }
     ]
   }
@@ -418,7 +433,9 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
                     const isExternal = tab.linksOutsideOfWallet;
                     const isDrawerTab = tab.isDrawer;
                     const isSeedPhrase = tab.slug === 'reveal-seed-phrase';
-                    const hasCustomClick = isDrawerTab || isSeedPhrase;
+                    // A tab may carry its own onClick (e.g. Send feedback →
+                    // openExternalUrl); such rows never route to a /settings page.
+                    const hasCustomClick = isDrawerTab || isSeedPhrase || !!tab.onClick;
                     const linkTo = isExternal ? tab.slug : hasCustomClick ? undefined : `/settings/${tab.slug}`;
                     const handleClick = isDrawerTab
                       ? () => setOpenDrawer(tab.slug)
@@ -427,7 +444,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
                             hapticLight();
                             setShowSeedWarning(true);
                           }
-                        : undefined;
+                        : tab.onClick;
                     return (
                       <div key={tab.slug + tab.titleI18nKey} className="px-2">
                         <MenuItem

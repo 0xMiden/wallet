@@ -1052,6 +1052,10 @@
     "message": "Warunki świadczenia usług",
     "englishSource": "Terms of Service"
   },
+  "sendFeedback": {
+    "message": "Wyślij opinię",
+    "englishSource": "Send feedback"
+  },
   "termsOfUse": {
     "message": "Warunki użytkowania",
     "englishSource": "Terms of Use"

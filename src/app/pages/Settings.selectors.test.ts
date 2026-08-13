@@ -8,7 +8,7 @@ import { SettingsSelectors } from './Settings.selectors';
 // numeric reverse-mapping keys). This covers every line the enum emits.
 
 describe('SettingsSelectors', () => {
-  // Verbatim expected mapping — one entry per source member (all 18).
+  // Verbatim expected mapping — one entry per source member (all 19).
   const EXPECTED: Record<string, string> = {
     GeneralButton: 'Settings/GeneralButton',
     LanguageButton: 'Settings/LanguageButton',
@@ -27,7 +27,8 @@ describe('SettingsSelectors', () => {
     FileSettingsButton: 'Settings/FileSettingsButton',
     AdvancedSettingsButton: 'Settings/AdvancedSettingsButton',
     EditMidenFaucetButton: 'Settings/EditMidenFaucetButton',
-    EncryptedWalletFile: 'Settings/EncryptedWalletFile'
+    EncryptedWalletFile: 'Settings/EncryptedWalletFile',
+    SendFeedbackButton: 'Settings/SendFeedbackButton'
   };
 
   it('maps every member to its exact stable selector string', () => {
@@ -49,6 +50,7 @@ describe('SettingsSelectors', () => {
     expect(SettingsSelectors.AdvancedSettingsButton).toBe('Settings/AdvancedSettingsButton');
     expect(SettingsSelectors.EditMidenFaucetButton).toBe('Settings/EditMidenFaucetButton');
     expect(SettingsSelectors.EncryptedWalletFile).toBe('Settings/EncryptedWalletFile');
+    expect(SettingsSelectors.SendFeedbackButton).toBe('Settings/SendFeedbackButton');
   });
 
   it('exposes exactly the expected members in declaration order', () => {

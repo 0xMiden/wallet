@@ -1052,6 +1052,10 @@
     "message": "Terms of Service",
     "englishSource": "Terms of Service"
   },
+  "sendFeedback": {
+    "message": "Send feedback",
+    "englishSource": "Send feedback"
+  },
   "termsOfUse": {
     "message": "Terms of Use",
     "englishSource": "Terms of Use"
