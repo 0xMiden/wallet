@@ -2239,6 +2239,10 @@
     "message": "Ostatnia synchronizacja",
     "englishSource": "Last sync"
   },
+  "guardianRotationComplete": {
+    "message": "Strażnik zaktualizowany!",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "W Internecie",
     "englishSource": "Online"
@@ -2542,6 +2546,10 @@
   "viewInActivities": {
     "message": "Zobacz w Aktywności",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "Zobacz aktywność",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Zobacz szczegóły",
@@ -2883,6 +2891,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ nierozwiązany",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Roszczenie nie powiodło się — kliknij Spróbuj ponownie, aby spróbować ponownie",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "To note nie jest już dostępne",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "Oczekuje notes",
     "englishSource": "Pending notes"
@@ -3202,6 +3227,22 @@
   "scanCancelled": {
     "message": "Skanowanie anulowane",
     "englishSource": "Scan cancelled"
+  },
+  "scanQrTitle": {
+    "message": "Zeskanuj kod QR",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Skieruj aparat na kod QR",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "Nie znaleziono aparatu",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Prośba o dostęp do kamery…",
+    "englishSource": "Requesting camera access…"
   },
   "scan": {
     "message": "Skandować",

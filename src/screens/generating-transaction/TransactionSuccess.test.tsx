@@ -232,6 +232,30 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
+  it('renders the Guardian rotation view (not the generic fallback) for a switch-guardian tx', async () => {
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          type: 'switch-guardian',
+          extraInputs: {
+            previousGuardianEndpoint: 'https://guardian.openzeppelin.com',
+            newGuardianEndpoint: 'https://guardian-testnet.kodax.com'
+          }
+        })}
+        onDoneClick={() => {}}
+      />
+    );
+
+    // The provider transition hero is present and names both operators.
+    expect(container.querySelector('[data-testid="guardian-transition-hero"]')).not.toBeNull();
+    expect(container.textContent).toContain('OpenZeppelin');
+    expect(container.textContent).toContain('Koda');
+    // NOT the generic SendSuccess fallback.
+    expect(container.textContent).not.toContain('Transaction Complete!');
+
+    act(() => root.unmount());
+  });
+
   it.each([
     ['undefined extraInputs', undefined],
     ['string extraInputs', 'not-an-object'],

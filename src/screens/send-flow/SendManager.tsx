@@ -14,7 +14,7 @@ import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook'
 import { accountIdStringToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { isExtension } from 'lib/platform';
+import { isExtension, isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
@@ -30,6 +30,7 @@ import {
 import { AccountsListDrawer } from './AccountsList';
 import { SendNetworkId } from './bridge-networks';
 import { Route as RouteStep } from './Route';
+import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectAmount } from './SelectAmount';
 import { SelectNetworkDrawer } from './SelectNetwork';
 import { SelectRecipient } from './SelectRecipient';
@@ -95,6 +96,9 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   const [showContactsDrawer, setShowContactsDrawer] = useState(false);
   // EVM destination networks are selected in a bottom sheet from the recipient step.
   const [showNetworkDrawer, setShowNetworkDrawer] = useState(false);
+  // Extension-only: the webcam QR scanner is a bottom sheet over the recipient
+  // step (mobile scans through its native plugin instead — see onScan below).
+  const [showScanDrawer, setShowScanDrawer] = useState(false);
   // Retain a choice made before the address determines whether the send is Miden or EVM.
   const [recipientNetwork, setRecipientNetwork] = useState<SendNetworkId>();
 
@@ -546,21 +550,43 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     [onAction, applyRecipientValidation]
   );
 
-  const onScan = useCallback(async () => {
-    const result = await scanQRCode();
-    if (result.success && result.address) {
+  // Apply a scanned recipient address. Shared by the mobile native scanner and
+  // the extension webcam drawer so both go through the same validation — scanning
+  // your own receive QR is the easy way to self-send, and a QR from another
+  // network's wallet should surface the wrong-network message here.
+  const applyScannedAddress = useCallback(
+    (address: string) => {
       onAction({
         id: SendFlowActionId.SetFormValues,
-        payload: { recipientAddress: result.address }
+        payload: { recipientAddress: address }
       });
-      // Same validation as typed entry — scanning your own receive QR is the
-      // easy way to self-send, and a QR from another network's wallet should
-      // surface the wrong-network message here.
-      applyRecipientValidation(result.address);
+      applyRecipientValidation(address);
+    },
+    [onAction, applyRecipientValidation]
+  );
+
+  // Surface a scan error (from either scan path) on the recipient field.
+  const applyScanError = useCallback(
+    (errorKey: string) => {
+      setError('recipientAddress', { type: 'manual', message: errorKey });
+    },
+    [setError]
+  );
+
+  // Mobile: the native barcode plugin (iOS Swift / Android npm) returns a single
+  // scan result. The extension has no such plugin — it opens the webcam drawer.
+  const runNativeScan = useCallback(async () => {
+    const result = await scanQRCode();
+    if (result.success && result.address) {
+      applyScannedAddress(result.address);
     } else if (result.errorKey && result.errorKey !== 'scanCancelled') {
-      setError('recipientAddress', { type: 'manual', message: result.errorKey });
+      applyScanError(result.errorKey);
     }
-  }, [onAction, setError, applyRecipientValidation]);
+  }, [applyScannedAddress, applyScanError]);
+
+  const openScanDrawer = useCallback(() => setShowScanDrawer(true), []);
+
+  const onScan = isMobile() ? runNativeScan : openScanDrawer;
 
   const onSelectContact = useCallback(
     (contact: Contact) => {
@@ -716,6 +742,13 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
             payload: { bridgeNetwork: selectedNetwork === 'miden' ? undefined : selectedNetwork }
           });
         }}
+      />
+
+      <ScanQrDrawer
+        open={showScanDrawer}
+        onOpenChange={setShowScanDrawer}
+        onDetected={applyScannedAddress}
+        onError={applyScanError}
       />
     </div>
   );

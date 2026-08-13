@@ -277,7 +277,7 @@ export function revealGuardianKeys(accountPublicKey: string, password?: string) 
 
 export function revealPublicKey(_accPublicKey: string) {}
 
-// NOTE: account removal is not implemented (no-op since the aleo port). The
+// NOTE: account removal is not implemented (no-op). The
 // "Remove Account" UI therefore currently does nothing. When this is wired up,
 // it MUST, for Guardian accounts, release the hardware-backed hot key via
 // `secureHotKey.deleteHotKey(<hot ciphertext>)` and remove the cold-key blob

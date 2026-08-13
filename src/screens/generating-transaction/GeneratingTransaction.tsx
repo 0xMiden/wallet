@@ -143,9 +143,22 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         'overflow-hidden relative'
       )}
     >
-      {/* min-h-0 lets the fixed 600px popup height propagate down instead of this
-          flex child inflating to its content height — without it the completion
-          layout below can't scroll and its footer CTAs get clipped (#463). */}
+      {/*
+        #602 — `min-h-0` is load-bearing, not cosmetic. This wrapper is a
+        `flex-1` child with the default `overflow: visible`, so its flexbox
+        automatic minimum size is its content height. Without `min-h-0` it
+        refuses to shrink below that content and stays taller than its slot on a
+        short (safe-area-inset) phone; the parent's `overflow-hidden` then clips
+        the overflow and the inner `overflow-y-auto` region inherits a height ==
+        its content (zero scroll range), so the pinned footer "Hide" CTA on
+        two-line-title flows (Earn, guardian, …) spills below the viewport,
+        clipped and unreachable. `min-h-0` lets it shrink to its slot so the
+        overflow scrolls instead of being cut. (The sibling parent above already
+        clears this via `overflow-hidden` → auto-min 0; the scroll region below
+        via `overflow-y-auto` → auto-min 0; this visible wrapper is the gap.)
+        #463 hit the same clipping on the completion layout, whose footer CTAs
+        were unreachable for the same reason.
+      */}
       <div className={classNames('flex min-h-0 flex-1 flex-col w-full')}>
         <GeneratingTransaction
           onDoneClick={onClose}

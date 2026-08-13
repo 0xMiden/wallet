@@ -24,7 +24,7 @@ interface utorgCurrencyInfo {
   allowTag: boolean;
 }
 
-const SID = process.env.ALEO_WALLET_UTORG_SID;
+const SID = process.env.MIDEN_WALLET_UTORG_SID;
 
 const api = axios.create({
   baseURL: 'https://app.utorg.pro/api/merchant/v1',

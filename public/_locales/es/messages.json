@@ -70,7 +70,7 @@
     "englishSource": "Loading…"
   },
   "dappSwitcherCardActivate": {
-    "message": "$name$. Activate to switch to this dApp.",
+    "message": "$name$. Activa para cambiar a esta dApp.",
     "englishSource": "$name$. Activate to switch to this dApp.",
     "placeholders": {
       "name": {
@@ -2239,6 +2239,22 @@
     "message": "Última sincronización",
     "englishSource": "Last sync"
   },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianRotationComplete": {
+    "message": "¡Guardián actualizado!",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "En línea",
     "englishSource": "Online"
@@ -2543,6 +2559,10 @@
     "message": "Ver en actividades",
     "englishSource": "View in Activities"
   },
+  "viewActivity": {
+    "message": "Ver actividad",
+    "englishSource": "View activity"
+  },
   "viewDetails": {
     "message": "Ver detalles",
     "englishSource": "View Details"
@@ -2778,7 +2798,7 @@
     "englishSource": "Review"
   },
   "close": {
-    "message": "Cerca",
+    "message": "Cerrar",
     "englishSource": "Close"
   },
   "recallBlocks": {
@@ -2882,6 +2902,14 @@
         "content": "$1"
       }
     }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Reclamación fallida: toca Reintentar para volver a intentarlo",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "Este note ya no está disponible",
+    "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
     "message": "Pendiente notes",
@@ -3203,6 +3231,22 @@
     "message": "Escaneo cancelado",
     "englishSource": "Scan cancelled"
   },
+  "scanQrTitle": {
+    "message": "Escanear código QR",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Apunta tu cámara a un código QR",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "No se encontró ninguna cámara",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Solicitando acceso a la cámara...",
+    "englishSource": "Requesting camera access…"
+  },
   "scan": {
     "message": "Escanear",
     "englishSource": "Scan"
@@ -3240,7 +3284,7 @@
     "englishSource": "Tap here to claim it"
   },
   "noteReceivedClickToClaim": {
-    "message": "Click to view and claim it",
+    "message": "Toca para verla y reclamarla",
     "englishSource": "Click to view and claim it"
   },
   "noteReceivedMultiple": {
@@ -3717,71 +3761,71 @@
     "englishSource": "Note"
   },
   "earnMarketLabel": {
-    "message": "Market",
+    "message": "Mercado",
     "englishSource": "Market"
   },
   "positionOwnerLabel": {
-    "message": "Position owner",
+    "message": "Titular de la posición",
     "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
-    "message": "Deposit details",
+    "message": "Detalles del depósito",
     "englishSource": "Deposit details"
   },
   "earnWithdrawDetailsTitle": {
-    "message": "Withdrawal details",
+    "message": "Detalles del retiro",
     "englishSource": "Withdrawal details"
   },
   "depositIntentLabel": {
-    "message": "Deposit intent",
+    "message": "Intención de depósito",
     "englishSource": "Deposit intent"
   },
   "redeemIntentLabel": {
-    "message": "Redeem intent",
+    "message": "Intención de canje",
     "englishSource": "Redeem intent"
   },
   "earnWithdrawRowTitle": {
-    "message": "Withdraw from Earn",
+    "message": "Retirar de Earn",
     "englishSource": "Withdraw from Earn"
   },
   "earnWithdrawRowVia": {
-    "message": "Via Epoch → Miden",
+    "message": "Vía Epoch → Miden",
     "englishSource": "Via Epoch → Miden"
   },
   "earnWithdrawStatusRedeeming": {
-    "message": "Redeeming",
+    "message": "Canjeando",
     "englishSource": "Redeeming"
   },
   "earnWithdrawStatusDelivering": {
-    "message": "Delivering",
+    "message": "Entregando",
     "englishSource": "Delivering"
   },
   "withdrawalStarted": {
-    "message": "Withdrawal Started!",
+    "message": "¡Retiro iniciado!",
     "englishSource": "Withdrawal Started!"
   },
   "withdrawalStartedDescription": {
-    "message": "Your funds are being bridged back to Miden. Track delivery in Activity.",
+    "message": "Tus fondos se están transfiriendo de vuelta a Miden. Sigue la entrega en Actividad.",
     "englishSource": "Your funds are being bridged back to Miden. Track delivery in Activity."
   },
   "withdrawalProcessing": {
-    "message": "Processing Withdrawal",
+    "message": "Procesando retiro",
     "englishSource": "Processing Withdrawal"
   },
   "withdrawalProcessingDescription": {
-    "message": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds.",
+    "message": "Firmando y enviando la intención de retiro sin gas a Epoch. Esto suele tardar unos segundos.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
   },
   "withdrawalFailed": {
-    "message": "Withdrawal Failed",
+    "message": "Retiro fallido",
     "englishSource": "Withdrawal Failed"
   },
   "transactionComplete": {
-    "message": "Transaction Complete!",
+    "message": "¡Transacción completada!",
     "englishSource": "Transaction Complete!"
   },
   "totalPaid": {
-    "message": "Total Paid",
+    "message": "Total pagado",
     "englishSource": "Total Paid"
   },
   "totalConsumed": {
