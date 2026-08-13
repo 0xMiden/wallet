@@ -227,3 +227,10 @@ jobs:
 
       - name: Check i18n compliance
         run: yarn lint:i18n
+
+      # Ratchet over the E2E suites: blocks NEW assertion shapes that cannot fail
+      # (toBeGreaterThan(0), waitForBalanceAbove(0), long bare sleeps, expect()
+      # inside an if branch). The existing instances are recorded in
+      # playwright/e2e/eslint-rules/known-violations.json and do not fail the job.
+      - name: Check E2E harness conventions
+        run: yarn lint:e2e
