@@ -19,7 +19,14 @@ jest.mock('components/Alert', () => ({
   Alert: ({ title }: { title: string }) => <div data-testid="alert">{title}</div>,
   AlertVariant: { Warning: 'Warning' }
 }));
-jest.mock('components/Button', () => ({ Button: () => null, ButtonVariant: {} }));
+jest.mock('components/Button', () => ({
+  Button: ({ children, onClick, variant }: { children?: React.ReactNode; onClick?: () => void; variant?: string }) => (
+    <button type="button" data-variant={variant} onClick={onClick}>
+      {children}
+    </button>
+  ),
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' }
+}));
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
   IconName: { Success: 'Success', Failed: 'Failed', InProgress: 'InProgress' }
@@ -468,6 +475,39 @@ describe('GeneratingTransaction stage + state rendering', () => {
     );
     expect(container.textContent).toContain('transactionFailed');
     expect(container.textContent).toContain('transactionErrorDescription');
+    act(() => root.unmount());
+  });
+
+  // #483 — a failed tx must offer a direct route to its Activity detail, like
+  // the success views already do; success routes through TransactionSuccess.
+  it('links a failed transaction to its Activity detail', async () => {
+    const navigateMock = jest.requireMock('lib/woozie').navigate as jest.Mock;
+    navigateMock.mockClear();
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete
+        hasErrors
+        completedTransaction={{ id: 'tx-failed-1', type: 'swap' } as never}
+      />
+    );
+    const viewBtn = Array.from(container.querySelectorAll('button')).find(button =>
+      button.textContent?.includes('viewInActivities')
+    );
+    expect(viewBtn).toBeDefined();
+    act(() => viewBtn!.click());
+    expect(navigateMock).toHaveBeenCalledWith('/history-details/tx-failed-1');
+    act(() => root.unmount());
+  });
+
+  it('does not show the Activity link on a successful (non-failed) transaction', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors={false} />
+    );
+    const viewBtn = Array.from(container.querySelectorAll('button')).find(button =>
+      button.textContent?.includes('viewInActivities')
+    );
+    expect(viewBtn).toBeUndefined();
     act(() => root.unmount());
   });
 
