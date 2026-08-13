@@ -87,9 +87,20 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
     throw new Error('Transaction already in a finalized state');
   }
 
+  // Stamp the terminal stage on success. `setTransactionStage` refuses writes
+  // once a row is terminal, so the trailing setTransactionStage(id,'complete')
+  // in generateTransaction is a silent no-op and a SUCCESSFUL row keeps
+  // whatever stage it happened to be in — a completed replace-hot-key freezes
+  // at 'confirming', a completed guardian consume at 'guardian-synced'. That
+  // read as "still in flight" and cost several investigations (#618).
+  // Failed rows keep their stage: there it records WHERE the failure happened
+  // and is diagnostically load-bearing.
+  const stampCompleteStage = status === ITransactionStatus.Completed && !('stage' in (otherValues ?? {}));
+
   await Repo.transactions.where({ id: id }).modify(t => {
     Object.assign(t, otherValues);
     t.status = status;
+    if (stampCompleteStage) t.stage = 'complete';
   });
 };
 
@@ -101,6 +112,10 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
  * late writes after `Completed` are no-ops via the `.modify` callback
  * (the stage field is informational and only read while status is
  * pre-terminal).
+ *
+ * Note: completion itself stamps `stage = 'complete'` — see
+ * `updateTransactionStatus` — so a successful row no longer keeps the stage it
+ * finished in (#618). This function remains the pre-terminal writer.
  */
 export const setTransactionStage = async (id: string, stage: ITransactionStage) => {
   await Repo.transactions.where({ id }).modify(tx => {

@@ -262,6 +262,47 @@ describe('transactions utilities', () => {
       expect(mockModify).toHaveBeenCalled();
     });
 
+    it('stamps stage="complete" on success so a finished tx stops reading as in-flight (#618)', async () => {
+      // setTransactionStage refuses post-terminal writes, so without this a
+      // completed replace-hot-key froze at 'confirming' and a completed guardian
+      // consume at 'guardian-synced' — both of which read as still-running.
+      const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'confirming' };
+      const row: Record<string, unknown> = { ...tx };
+      mockTransactionsWhere
+        .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
+        .mockReturnValueOnce({ modify: jest.fn(async (cb: (t: Record<string, unknown>) => void) => cb(row)) });
+
+      await updateTransactionStatus('tx-1', ITransactionStatus.Completed, {});
+
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(row.stage).toBe('complete');
+    });
+
+    it('lets an explicit stage in the payload win over the completion stamp (#618)', async () => {
+      const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'confirming' };
+      const row: Record<string, unknown> = { ...tx };
+      mockTransactionsWhere
+        .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
+        .mockReturnValueOnce({ modify: jest.fn(async (cb: (t: Record<string, unknown>) => void) => cb(row)) });
+
+      await updateTransactionStatus('tx-1', ITransactionStatus.Completed, { stage: 'delivering' });
+
+      expect(row.stage).toBe('delivering');
+    });
+
+    it('preserves the stage on FAILURE — it records where the failure happened (#618)', async () => {
+      const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'creating-proposal' };
+      const row: Record<string, unknown> = { ...tx };
+      mockTransactionsWhere
+        .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
+        .mockReturnValueOnce({ modify: jest.fn(async (cb: (t: Record<string, unknown>) => void) => cb(row)) });
+
+      await updateTransactionStatus('tx-1', ITransactionStatus.Failed, {});
+
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.stage).toBe('creating-proposal');
+    });
+
     it('throws when transaction not found', async () => {
       mockTransactionsWhere.mockReturnValueOnce({
         first: jest.fn().mockResolvedValueOnce(undefined)
