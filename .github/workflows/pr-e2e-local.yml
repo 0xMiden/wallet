@@ -111,6 +111,13 @@ jobs:
         # matrix.specs is empty for the default-timing leg (full core suite) and
         # scoped to send-private for the fast-blocks leg.
         run: xvfb-run -a yarn test:e2e:blockchain:run --retries=1 ${{ matrix.specs }}
+      - name: Report flaky (retried-then-passed) specs
+        # A spec that failed once and passed on the retry above is reported as a
+        # plain green run, so the flake it represents is invisible. Print one
+        # FLAKY line per such spec from the JSON report so the flake rate can be
+        # read off the log / tracked over time. Diagnostic only -- never fails.
+        if: always()
+        run: node scripts/report-flaky-e2e.mjs test-results/results.json
       # Guardian (`guardian-*.spec.ts`) coverage lives in its own workflow,
       # pr-e2e-guardian-lifecycle.yml, which brings up BOTH guardians (A :3000 +
       # B :3001, `guardian-switch` compose profile) and runs the full suite via
