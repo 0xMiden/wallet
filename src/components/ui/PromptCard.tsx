@@ -20,6 +20,13 @@ export interface PromptCardProps {
   status?: PromptCardStatus;
   onDismiss?: () => void;
   className?: string;
+  /**
+   * Test handle for this specific prompt. The card is generic, so without one
+   * every prompt looks identical in the DOM and no test can assert that a
+   * PARTICULAR prompt surfaced. Applied to the card root, with `-action`
+   * appended for the CTA button.
+   */
+  testId?: string;
 }
 
 export const PromptCard: FC<PromptCardProps> = ({
@@ -31,7 +38,8 @@ export const PromptCard: FC<PromptCardProps> = ({
   actionDisabled = false,
   status = 'idle',
   onDismiss,
-  className
+  className,
+  testId
 }) => {
   const { t } = useTranslation();
 
@@ -93,6 +101,7 @@ export const PromptCard: FC<PromptCardProps> = ({
 
   return (
     <div
+      data-testid={testId}
       role={onClick ? 'button' : undefined}
       onClick={onClick ? handleClick : undefined}
       className={classNames('w-full h-[72px] bg-surface-input rounded-10', 'flex items-center gap-3 px-4', className)}
@@ -104,6 +113,7 @@ export const PromptCard: FC<PromptCardProps> = ({
       {StatusIndicator}
       {actionLabel && onAction && status !== 'loading' && status !== 'success' && (
         <button
+          data-testid={testId ? `${testId}-action` : undefined}
           type="button"
           onClick={handleAction}
           disabled={actionDisabled}

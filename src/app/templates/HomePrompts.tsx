@@ -316,6 +316,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
           return (
             <PromptCard
               key={type}
+              testId={`prompt-card-${type}`}
               title={t(definition.titleKey)}
               body={overrides.body ?? t(definition.bodyKey)}
               variant={definition.variant}
