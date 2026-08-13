@@ -9,7 +9,7 @@
 
 import { registerPlugin } from '@capacitor/core';
 
-import { isAndroid, isMobile } from 'lib/platform';
+import { isAndroid, isExtension, isMobile } from 'lib/platform';
 
 import { decodeAddress, isValidMidenAddress } from './format';
 
@@ -30,11 +30,22 @@ export interface ScanResult {
 }
 
 /**
+ * Whether the browser extension can scan a QR code via the webcam.
+ *
+ * The extension has no native barcode plugin (that's mobile-only), so it uses
+ * the browser's native `BarcodeDetector` off a `getUserMedia` webcam stream.
+ * Feature-detected so we only offer scanning where the API actually exists
+ * (Chromium ships it; Firefox does not) — no polyfill / npm dependency.
+ */
+export const isExtensionWebcamScanAvailable = (): boolean =>
+  isExtension() && typeof window !== 'undefined' && 'BarcodeDetector' in window;
+
+/**
  * Checks if QR scanning is available on the current platform.
- * @returns true if scanning is available (mobile only)
+ * @returns true on mobile (native plugin) or in a webcam-capable extension.
  */
 export function isScanAvailable(): boolean {
-  return isMobile();
+  return isMobile() || isExtensionWebcamScanAvailable();
 }
 
 /**

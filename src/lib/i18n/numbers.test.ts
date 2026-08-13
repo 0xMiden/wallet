@@ -6,8 +6,6 @@ import {
   getPluralKey,
   formatBigInt,
   stringToBigInt,
-  stringToAleoMicrocredits,
-  ALEO_MICROCREDITS_TO_CREDITS,
   toLocalFixed,
   toShortened,
   toFixedRoundedDown
@@ -150,17 +148,6 @@ describe('stringToBigInt', () => {
   it('rounds to avoid float precision drift', () => {
     expect(stringToBigInt('2.7', 2)).toBe(BigInt(270));
     expect(stringToBigInt('1.005', 2)).toBe(BigInt(100));
-  });
-});
-
-describe('stringToAleoMicrocredits', () => {
-  it('exposes the microcredits-per-credit constant', () => {
-    expect(ALEO_MICROCREDITS_TO_CREDITS).toBe(1_000_000);
-  });
-
-  it('floors credits into microcredits', () => {
-    expect(stringToAleoMicrocredits('2.5')).toBe(BigInt(2_500_000));
-    expect(stringToAleoMicrocredits('1.0000009')).toBe(BigInt(1_000_000));
   });
 });
 

@@ -110,7 +110,7 @@ export type UIRecords = {
 };
 
 export type UIFees = {
-  ALEO: {
+  MIDEN: {
     [UITransactionType.Public]: {
       [UITransactionType.Public]: string;
       [UITransactionType.Private]: string;
