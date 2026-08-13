@@ -1,4 +1,4 @@
-import { test } from '../fixtures/two-wallets';
+import { expect, test } from '../fixtures/two-wallets';
 import { snapshotTransfer, type TransferSnapshot } from '../helpers/assertions';
 import {
   fromBaseUnits,
@@ -7,6 +7,16 @@ import {
   waitForVaultBalance,
   waitForVaultDebit
 } from '../helpers/balance-truth';
+import {
+  TxStatus,
+  activityRowAddress,
+  activityRowFor,
+  openHistory,
+  openHistoryDetails,
+  readDetailRowFullValue,
+  trimmedHash,
+  waitForSendRow
+} from '../helpers/history';
 
 // The faucet the harness deploys (miden-cli.ts createFaucet defaults).
 const TOKEN = 'TST';
@@ -143,6 +153,68 @@ test.describe('Public Note Send', () => {
           { target: walletA.page, label: 'A' },
           { target: walletB.page, label: 'B' }
         ]
+      }
+    );
+
+    // Rides the send above at zero extra chain cost: the balances are already
+    // proven, so this asserts the wallet TELLS the user the same story its
+    // balances do. Nothing in the suite opened #/history or #/history-details
+    // before, so a row rendering the wrong amount, the wrong counterparty, or a
+    // hash that isn't this transaction's would have shipped unnoticed.
+    await steps.step(
+      'verify_activity_history_wallet_a',
+      async () => {
+        // A's own row completing is a DIFFERENT signal from B's delivery — the
+        // "Tx ID" row is conditional on `tx.transactionId`, which only exists
+        // once completion stamps the on-chain hash. Waiting on the row (not on a
+        // sleep) is what makes the detail-page assertions below deterministic.
+        const sendRow = await waitForSendRow(walletA.page, {
+          recipient: addressB!,
+          amountBaseUnits: SEND_BASE_UNITS,
+          status: TxStatus.Completed,
+          requireTransactionId: true,
+          timeoutMs: 180_000
+        });
+
+        await openHistory(walletA);
+
+        // The truncated recipient is the only text on the row unique to one
+        // counterparty, so it identifies the row; the count assertion is what
+        // stops a two-row match from silently asserting against the first.
+        const row = activityRowFor(walletA.page, addressB!);
+        await expect(row).toHaveCount(1);
+        await expect(row.getByTestId('activity-row-title')).toHaveText('Sent');
+        await expect(row.getByTestId('activity-row-subtitle')).toHaveText(`To: ${activityRowAddress(addressB!)}`);
+        // Exact, signed, with the symbol: `-500 TST`. A row that showed the
+        // right number of the WRONG token reads identically without the symbol.
+        await expect(row.getByTestId('activity-row-amount')).toHaveText(`-${SEND_AMOUNT} ${TOKEN}`);
+        await expect(row.getByTestId('activity-row-status')).toHaveText('Confirmed');
+
+        // The detail route takes the DEXIE ROW UUID; the "Tx ID" row it renders
+        // is the ON-CHAIN HASH. They are different values — comparing one to the
+        // other would fail on a healthy wallet — so the hash is asserted against
+        // `tx.transactionId` read from the same row the route param came from.
+        await openHistoryDetails(walletA, sendRow.id);
+        const shownHash = await readDetailRowFullValue(walletA.page, 'history-detail-tx-id');
+        expect(shownHash).toBe(sendRow.transactionId);
+        // …and that the trimmed chip the user actually sees is a rendering of
+        // that same hash rather than some other value.
+        await expect(walletA.page.getByTestId('history-detail-tx-id')).toContainText(trimmedHash(shownHash));
+
+        // The "To" row carries the untruncated recipient behind its copy field.
+        const shownTo = await readDetailRowFullValue(walletA.page, 'history-detail-to');
+        expect(shownTo).toBe(addressB!);
+        await expect(walletA.page.getByTestId('history-status-pill')).toHaveText('Confirmed');
+
+        timeline.emit({
+          category: 'blockchain_state',
+          severity: 'info',
+          message: `Activity row and transaction detail agree with the send: -${SEND_AMOUNT} ${TOKEN} to ${activityRowAddress(addressB!)}, hash ${shownHash}`,
+          data: { rowId: sendRow.id, transactionId: shownHash, recipient: addressB! }
+        });
+      },
+      {
+        screenshotWallets: [{ target: walletA.page, label: 'A' }]
       }
     );
   });

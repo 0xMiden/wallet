@@ -334,7 +334,7 @@ const HistoryView = memo<HistoryViewProps>(
     const dateGroups = Array.from(groupedEntries.entries());
 
     const list = (
-      <div className="flex flex-col">
+      <div data-testid="history-view" className="flex flex-col">
         {dateGroups.map(([dateMs, dateEntries], index) => (
           <div
             key={dateMs}
@@ -347,6 +347,7 @@ const HistoryView = memo<HistoryViewProps>(
                 return (
                   <ActivityRow
                     key={entry.key}
+                    testId="activity-row"
                     icon={props.icon}
                     iconBg={props.iconBg}
                     title={props.title}
