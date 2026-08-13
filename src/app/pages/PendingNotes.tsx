@@ -45,7 +45,8 @@ const PendingNotes: FC = () => {
         account={claim.account}
         isDelegatedProvingEnabled={claim.isDelegatedProvingEnabled}
         claimingNoteIds={claim.claimingNoteIds}
-        failedNoteIds={claim.failedNoteIds}
+        retriableNoteIds={claim.retriableNoteIds}
+        invalidNoteIds={claim.invalidNoteIds}
         checkingNoteIds={claim.checkingNoteIds}
         onClaimingStateChange={claim.handleClaimingStateChange}
         onClaimAll={claim.handleClaimAll}

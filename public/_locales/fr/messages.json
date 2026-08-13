@@ -2935,6 +2935,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ non résolu",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "La réclamation a échoué : appuyez sur Réessayer pour réessayer",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "Ce note n'est plus disponible",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "En attente notes",
     "englishSource": "Pending notes"

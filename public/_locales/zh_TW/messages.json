@@ -2936,6 +2936,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ 未解决",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "申领失败 — 点击“重试”重试",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "此 note 不再可用",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "待处理 notes",
     "englishSource": "Pending notes"

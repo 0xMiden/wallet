@@ -2883,6 +2883,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ nierozwiązany",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Roszczenie nie powiodło się — kliknij Spróbuj ponownie, aby spróbować ponownie",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "To note nie jest już dostępne",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "Oczekuje notes",
     "englishSource": "Pending notes"

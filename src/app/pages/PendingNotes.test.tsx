@@ -39,9 +39,10 @@ jest.mock('app/hooks/useClaimNotes', () => ({
     unclaimedNotes: [],
     account: { publicKey: 'mtst1account' },
     isDelegatedProvingEnabled: false,
-    claimingNoteIds: [],
-    failedNoteIds: [],
-    checkingNoteIds: [],
+    claimingNoteIds: new Set(),
+    retriableNoteIds: new Set(),
+    invalidNoteIds: new Set(),
+    checkingNoteIds: new Set(),
     handleClaimingStateChange: jest.fn(),
     handleClaimAll: jest.fn(),
     handleClaimGroup: jest.fn()
