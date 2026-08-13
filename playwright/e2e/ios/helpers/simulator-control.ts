@@ -126,7 +126,7 @@ export class SimulatorControl {
 
   private async bootstatus(udid: string): Promise<void> {
     await execFileAsync('xcrun', ['simctl', 'bootstatus', udid, '-b'], {
-      timeout: BOOTSTATUS_TIMEOUT_MS,
+      timeout: BOOTSTATUS_TIMEOUT_MS
     });
   }
 
@@ -180,8 +180,14 @@ export class SimulatorControl {
    */
   async triggerFaceIdMatch(udid: string): Promise<void> {
     // Note: requires the simulator to have FaceID enrolled (Features menu).
-    await execFileAsync('xcrun', ['simctl', 'spawn', udid, 'notifyutil', '-p',
-      'com.apple.BiometricKit_Sim.fingerTouch.match']);
+    await execFileAsync('xcrun', [
+      'simctl',
+      'spawn',
+      udid,
+      'notifyutil',
+      '-p',
+      'com.apple.BiometricKit_Sim.fingerTouch.match'
+    ]);
   }
 
   /**
@@ -230,7 +236,7 @@ export class SimulatorControl {
       // -9 because a wedged daemon won't honor a graceful signal; launchd
       // respawns it on the next simctl/CoreSimulator call.
       await execFileAsync('sudo', ['killall', '-9', 'com.apple.CoreSimulator.CoreSimulatorService'], {
-        timeout: 30_000,
+        timeout: 30_000
       });
     } catch {
       // Non-zero if the process was already gone (or sudo unavailable off CI) —
@@ -309,8 +315,9 @@ function sleep(ms: number): Promise<void> {
 }
 
 function isAlreadyBootedError(err: unknown): boolean {
-  const msg = String((err as { stderr?: string; message?: string }).stderr ??
-    (err as { message?: string }).message ?? '');
+  const msg = String(
+    (err as { stderr?: string; message?: string }).stderr ?? (err as { message?: string }).message ?? ''
+  );
   return /Unable to boot device in current state: Booted|already booted/i.test(msg);
 }
 

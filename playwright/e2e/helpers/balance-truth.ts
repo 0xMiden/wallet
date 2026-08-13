@@ -181,6 +181,48 @@ export async function waitForPendingNoteTotal(
   );
 }
 
+/**
+ * Poll until the sender's vault has dropped by at least `atLeast` from `before`,
+ * and return the observed debit.
+ *
+ * "At least", not "exactly", because a fee may leave the account alongside the
+ * transfer. The wait is the load-bearing part: the recipient seeing the note only
+ * proves it is on-chain, and the SENDER's balances projection updates on its own
+ * schedule. A bare read right after the recipient's wait therefore samples a
+ * balance that has not moved yet and reports `debited 0` — a green send scored as
+ * a failure, which is exactly how this helper came to exist.
+ */
+export async function waitForVaultDebit(
+  page: Page,
+  symbol: string,
+  before: bigint,
+  atLeast: bigint,
+  opts: { timeoutMs?: number; decimals?: number } = {}
+): Promise<bigint> {
+  const timeoutMs = opts.timeoutMs ?? 120_000;
+  const deadline = Date.now() + timeoutMs;
+  let last = -1n;
+  while (Date.now() < deadline) {
+    last = await vaultBalance(page, symbol);
+    const debited = before - last;
+    if (debited >= atLeast) return debited;
+    await page.waitForTimeout(2_000);
+  }
+  const d = opts.decimals;
+  const fmt = (v: bigint) => (d == null ? `${v} base units` : `${fromBaseUnits(v, d)} (${v} base units)`);
+  const pending = await pendingNoteTotal(page, symbol).catch(() => -1n);
+  throw new Error(
+    `waitForVaultDebit(${symbol}) timed out after ${timeoutMs}ms.\n` +
+      `  expected debit of at least: ${fmt(atLeast)}\n` +
+      `  vault before: ${fmt(before)}\n` +
+      `  vault now:    ${fmt(last)}\n` +
+      `  observed debit: ${fmt(before - last)}\n` +
+      `  unconsumed notes for ${symbol}: ${pending === -1n ? 'unreadable' : pending.toString()} base units\n` +
+      `  (an unchanged vault here means the send never debited the sender, not that it is slow —\n` +
+      `   this waited the full timeout for the projection to move)`
+  );
+}
+
 /** Poll until the vault balance for `symbol` equals `expected` exactly, or throw with both readings. */
 export async function waitForVaultBalance(
   page: Page,

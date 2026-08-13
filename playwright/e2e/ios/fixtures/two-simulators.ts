@@ -1,3 +1,7 @@
+/* eslint-disable no-empty-pattern -- Playwright PARSES the fixture function's source to
+   resolve its fixture dependencies, and rejects anything but a destructuring pattern in the
+   first argument: `async (_, use)` fails at runtime with "First argument must use the object
+   destructuring pattern". `async ({}, use)` is the required idiom, not a style choice. */
 import { test as base } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -9,11 +13,7 @@ import { buildFailureReport, saveFailureReport } from '../../harness/failure-rep
 import { captureWalletSnapshot } from '../../harness/state-snapshot';
 import { TestStepRunner } from '../../harness/test-step';
 import { TimelineRecorder } from '../../harness/timeline-recorder';
-import type {
-  EnvironmentConfig,
-  SerializedWalletState,
-  SnapshotCaps,
-} from '../../harness/types';
+import type { EnvironmentConfig, SerializedWalletState, SnapshotCaps } from '../../harness/types';
 import { MidenCli, resolveCliPath } from '../../helpers/miden-cli';
 import { CdpBridge, type CdpSession, isCdpNoPagesError } from '../helpers/cdp-bridge';
 import { IosWalletPage } from '../helpers/ios-wallet-page';
@@ -22,16 +22,7 @@ import { isSimctlTimeoutError, SimulatorControl } from '../helpers/simulator-con
 // ── Constants ───────────────────────────────────────────────────────────────
 
 const ROOT_DIR = path.resolve(__dirname, '../../../..');
-const APP_PATH = path.join(
-  ROOT_DIR,
-  'ios',
-  'App',
-  'build',
-  'Build',
-  'Products',
-  'Debug-iphonesimulator',
-  'App.app'
-);
+const APP_PATH = path.join(ROOT_DIR, 'ios', 'App', 'build', 'Build', 'Products', 'Debug-iphonesimulator', 'App.app');
 const BUNDLE_ID = 'com.miden.bread';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -110,7 +101,7 @@ async function launchSimWalletInstance(
   const tLaunch = phaseStart();
   await sim.launch(udid, BUNDLE_ID, {
     MIDEN_E2E_TEST: 'true',
-    MIDEN_NETWORK: envConfig.name,
+    MIDEN_NETWORK: envConfig.name
   });
   const launchMs = ms(tLaunch);
 
@@ -140,7 +131,7 @@ async function launchSimWalletInstance(
       severity: sev,
       wallet: label,
       message: `[${label}] ${entry.level}: ${entry.text}`,
-      data: { level: entry.level, text: entry.text, source: entry.source, ts: entry.ts },
+      data: { level: entry.level, text: entry.text, source: entry.source, ts: entry.ts }
     });
   });
 
@@ -163,9 +154,9 @@ async function launchSimWalletInstance(
         installMs,
         launchMs,
         sleepMs,
-        cdpConnectMs,
-      },
-    },
+        cdpConnectMs
+      }
+    }
   });
 
   return { walletPage, cdp, udid, bundleId: BUNDLE_ID };
@@ -216,7 +207,7 @@ async function setupBothWallets(
             `[sim-recovery] ${err.message} — sim subsystem looks wedged ` +
             `(simctl hang or no inspectable WebViews); restarting ` +
             `CoreSimulatorService + re-booting both devices, then retrying wallet ` +
-            `setup (attempt ${attempt + 1}/${MAX_ATTEMPTS})`,
+            `setup (attempt ${attempt + 1}/${MAX_ATTEMPTS})`
         });
         await SimulatorControl.recoverSimSubsystem([udidA, udidB]);
         continue;
@@ -239,8 +230,7 @@ function buildIosSnapshotCaps(walletPage: IosWalletPage, runtimeVersion: string)
     runtimeVersion,
     readStore: () =>
       walletPage.evaluate((): SerializedWalletState | null => {
-        const store = (window as { __TEST_STORE__?: { getState(): SerializedWalletState } })
-          .__TEST_STORE__;
+        const store = (window as { __TEST_STORE__?: { getState(): SerializedWalletState } }).__TEST_STORE__;
         if (!store) return null;
         const s = store.getState();
         return {
@@ -249,15 +239,13 @@ function buildIosSnapshotCaps(walletPage: IosWalletPage, runtimeVersion: string)
           currentAccount: s.currentAccount
             ? { publicKey: s.currentAccount.publicKey, name: s.currentAccount.name }
             : null,
-          balances: s.balances,
+          balances: s.balances
         };
       }),
     hasIntercom: () =>
-      walletPage.evaluate(() =>
-        Boolean((window as { __TEST_INTERCOM__?: unknown }).__TEST_INTERCOM__)
-      ),
+      walletPage.evaluate(() => Boolean((window as { __TEST_INTERCOM__?: unknown }).__TEST_INTERCOM__)),
     // No serviceWorkerStatus — mobile has no SW.
-    currentUrl: () => walletPage.evaluate(() => window.location.href),
+    currentUrl: () => walletPage.evaluate(() => window.location.href)
   };
 }
 
@@ -286,7 +274,11 @@ const SETUP_RECOVERY_BUDGET_MS = 90_000;
  * lands on a fresh daemon, then throw a named error instead of letting setup
  * silently eat the entire test timeout.
  */
-async function withSetupDeadline<T>(fn: () => Promise<T>, deadlineMs: number, onTimeout: () => Promise<void>): Promise<T> {
+async function withSetupDeadline<T>(
+  fn: () => Promise<T>,
+  deadlineMs: number,
+  onTimeout: () => Promise<void>
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
   const deadline = new Promise<never>((_, reject) => {
@@ -327,7 +319,7 @@ export const test = base.extend<TwoSimulatorFixtures>({
       category: 'test_lifecycle',
       severity: 'info',
       message: `Test started: ${testInfo.title}`,
-      data: { testFile: testInfo.file, testTitle: testInfo.title, platform: 'ios' },
+      data: { testFile: testInfo.file, testTitle: testInfo.title, platform: 'ios' }
     });
 
     await use(timeline);
@@ -336,7 +328,7 @@ export const test = base.extend<TwoSimulatorFixtures>({
       category: 'test_lifecycle',
       severity: testInfo.status === 'passed' ? 'info' : 'error',
       message: `Test ${testInfo.status}: ${testInfo.title}`,
-      data: { status: testInfo.status, duration: testInfo.duration },
+      data: { status: testInfo.status, duration: testInfo.duration }
     });
 
     await timeline.close();
@@ -359,7 +351,7 @@ export const test = base.extend<TwoSimulatorFixtures>({
       category: 'test_lifecycle',
       severity: 'info',
       message: `MidenCli initialized (workDir: ${workDir}, binary: ${binaryPath})`,
-      data: { workDir, binaryPath, network: envConfig.name },
+      data: { workDir, binaryPath, network: envConfig.name }
     });
 
     await use(cli);
@@ -392,7 +384,7 @@ export const test = base.extend<TwoSimulatorFixtures>({
           severity: 'warn',
           message:
             `[sim-setup] _simPair setup exceeded ${SETUP_DEADLINE_MS}ms (degraded CoreSimulator); ` +
-            `restarting the sim subsystem so the retry gets a fresh daemon`,
+            `restarting the sim subsystem so the retry gets a fresh daemon`
         });
         await SimulatorControl.recoverSimSubsystem([udidA, udidB]).catch(() => undefined);
       }
@@ -406,11 +398,11 @@ export const test = base.extend<TwoSimulatorFixtures>({
     // just `simctl terminate` which doesn't contend.
     await Promise.allSettled([
       instanceA.cdp.close().catch(() => undefined),
-      instanceB.cdp.close().catch(() => undefined),
+      instanceB.cdp.close().catch(() => undefined)
     ]);
     await Promise.allSettled([
       simA.terminate(udidA, BUNDLE_ID).catch(() => undefined),
-      simB.terminate(udidB, BUNDLE_ID).catch(() => undefined),
+      simB.terminate(udidB, BUNDLE_ID).catch(() => undefined)
     ]);
   },
 
@@ -430,7 +422,7 @@ export const test = base.extend<TwoSimulatorFixtures>({
         `evaluate=${stats.cdp.evaluateCount}×${Math.round(stats.cdp.evaluateMs)}ms ` +
         `polls=${stats.polls.pollCount} iters=${stats.polls.pollIterations} ` +
         `pollWall=${Math.round(stats.polls.pollMs)}ms pollSleep=${stats.polls.pollSleepMs}ms`,
-      data: stats,
+      data: stats
     });
   },
 
@@ -450,7 +442,7 @@ export const test = base.extend<TwoSimulatorFixtures>({
         `evaluate=${statsB.cdp.evaluateCount}×${Math.round(statsB.cdp.evaluateMs)}ms ` +
         `polls=${statsB.polls.pollCount} iters=${statsB.polls.pollIterations} ` +
         `pollWall=${Math.round(statsB.polls.pollMs)}ms pollSleep=${statsB.polls.pollSleepMs}ms`,
-      data: statsB,
+      data: statsB
     });
 
     if (testInfo.status !== 'passed' && testInfo.error) {
@@ -460,14 +452,10 @@ export const test = base.extend<TwoSimulatorFixtures>({
         const capsB = steps.walletCaps.B;
 
         const stateA = capsA
-          ? await captureWalletSnapshot(capsA, 'A', timeline.currentStep, 'failure').catch(
-              () => undefined
-            )
+          ? await captureWalletSnapshot(capsA, 'A', timeline.currentStep, 'failure').catch(() => undefined)
           : undefined;
         const stateB = capsB
-          ? await captureWalletSnapshot(capsB, 'B', timeline.currentStep, 'failure').catch(
-              () => undefined
-            )
+          ? await captureWalletSnapshot(capsB, 'B', timeline.currentStep, 'failure').catch(() => undefined)
           : undefined;
 
         const err = new Error(testInfo.error.message ?? 'Unknown error');
@@ -480,7 +468,7 @@ export const test = base.extend<TwoSimulatorFixtures>({
           timeline,
           steps,
           stateAtFailure: { walletA: stateA, walletB: stateB },
-          testTimeoutMs: testInfo.timeout,
+          testTimeoutMs: testInfo.timeout
         });
 
         saveFailureReport(report, reportDir);
@@ -488,7 +476,7 @@ export const test = base.extend<TwoSimulatorFixtures>({
         // Don't let report generation fail the test teardown
       }
     }
-  },
+  }
 });
 
 export const expect = test.expect;
