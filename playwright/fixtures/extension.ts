@@ -32,7 +32,7 @@ function ensureExtensionBuilt(extensionPath: string) {
 }
 
 export const test = base.extend<Fixtures>({
-  extensionPath: async ({}, use) => {
+  extensionPath: async (_, use) => {
     const extensionPath = process.env.EXTENSION_DIST ?? DEFAULT_EXTENSION_PATH;
     ensureExtensionBuilt(extensionPath);
     await use(extensionPath);

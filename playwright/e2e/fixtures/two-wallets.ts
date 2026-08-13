@@ -257,6 +257,7 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
   // Install unhandled error/rejection capture + check SW internals
   try {
     await serviceWorker.evaluate(() => {
+      /* eslint-disable no-restricted-globals -- service-worker scope: `self` is the global, `window` is undefined here */
       (self as any).__e2e_errors = [];
       self.addEventListener('error', (e: any) => {
         (self as any).__e2e_errors.push('error: ' + (e.message || String(e)));
@@ -266,6 +267,7 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
           'rejection: ' + String(e.reason?.stack || e.reason?.message || e.reason || 'unknown')
         );
       });
+      /* eslint-enable no-restricted-globals */
     });
   } catch {}
 
@@ -297,7 +299,9 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
   setTimeout(async () => {
     try {
       const probe = await serviceWorker.evaluate(() => ({
+        // eslint-disable-next-line no-restricted-globals -- service-worker scope, see above
         errors: (self as any).__e2e_errors?.slice(0, 10) || [],
+        // eslint-disable-next-line no-restricted-globals -- service-worker scope, see above
         hasBackground: typeof (self as any).__background_started !== 'undefined'
       }));
       if (probe.errors.length > 0) {
@@ -378,6 +382,7 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
       // Probe SW for unhandled errors before giving up or retrying
       try {
         const probe = await serviceWorker.evaluate(() => ({
+          // eslint-disable-next-line no-restricted-globals -- service-worker scope, see above
           errors: ((self as any).__e2e_errors || []).slice(0, 10)
         }));
         if (probe.errors.length > 0) {
@@ -560,12 +565,12 @@ function cleanupStaleSessions(): void {
 // ── Fixture ─────────────────────────────────────────────────────────────────
 
 export const test = base.extend<TwoWalletFixtures>({
-  envConfig: async ({}, use) => {
+  envConfig: async (_, use) => {
     const config = getEnvironmentConfig();
     await use(config);
   },
 
-  timeline: async ({}, use, testInfo) => {
+  timeline: async (_, use, testInfo) => {
     const outputDir = getRunOutputDir(testInfo.titlePath.join('-').replace(/\s+/g, '_'));
     const timeline = new TimelineRecorder(outputDir);
 
@@ -595,7 +600,7 @@ export const test = base.extend<TwoWalletFixtures>({
     runner.saveCheckpoints();
   },
 
-  failureSnapshots: async ({}, use) => {
+  failureSnapshots: async (_, use) => {
     await use({});
   },
 

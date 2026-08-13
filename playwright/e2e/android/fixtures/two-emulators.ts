@@ -9,11 +9,7 @@ import { buildFailureReport, saveFailureReport } from '../../harness/failure-rep
 import { captureWalletSnapshot } from '../../harness/state-snapshot';
 import { TestStepRunner } from '../../harness/test-step';
 import { TimelineRecorder } from '../../harness/timeline-recorder';
-import type {
-  EnvironmentConfig,
-  SerializedWalletState,
-  SnapshotCaps,
-} from '../../harness/types';
+import type { EnvironmentConfig, SerializedWalletState, SnapshotCaps } from '../../harness/types';
 import { MidenCli, resolveCliPath } from '../../helpers/miden-cli';
 import { AndroidWalletPage } from '../helpers/android-wallet-page';
 import { CdpBridge, type CdpSession } from '../helpers/cdp-bridge';
@@ -110,7 +106,7 @@ async function launchEmuWalletInstance(
     PACKAGE_NAME,
     {
       MIDEN_E2E_TEST: 'true',
-      MIDEN_NETWORK: envConfig.name,
+      MIDEN_NETWORK: envConfig.name
     },
     ACTIVITY_NAME
   );
@@ -126,7 +122,7 @@ async function launchEmuWalletInstance(
   const cdp = await CdpBridge.connect({
     serial,
     packageName: PACKAGE_NAME,
-    hostPort,
+    hostPort
   });
   const cdpConnectMs = ms(tCdp);
 
@@ -156,9 +152,9 @@ async function launchEmuWalletInstance(
         launchMs,
         sleepMs,
         cdpConnectMs,
-        firstInstall,
-      },
-    },
+        firstInstall
+      }
+    }
   });
 
   return { walletPage, cdp, serial, packageName: PACKAGE_NAME };
@@ -179,12 +175,12 @@ function buildAndroidSnapshotCaps(walletPage: AndroidWalletPage, runtimeVersion:
           currentAccount: s.currentAccount
             ? { publicKey: s.currentAccount.publicKey, name: s.currentAccount.name }
             : null,
-          balances: s.balances,
+          balances: s.balances
         };
       }),
     hasIntercom: () =>
       walletPage.evaluate(() => Boolean((window as { __TEST_INTERCOM__?: unknown }).__TEST_INTERCOM__)),
-    currentUrl: () => walletPage.evaluate(() => window.location.href),
+    currentUrl: () => walletPage.evaluate(() => window.location.href)
   };
 }
 
@@ -202,11 +198,11 @@ async function devicePair(): Promise<{ serialA: string; serialB: string }> {
 }
 
 export const test = base.extend<TwoEmulatorFixtures>({
-  envConfig: async ({}, use) => {
+  envConfig: async (_, use) => {
     await use(getEnvironmentConfig());
   },
 
-  timeline: async ({}, use, testInfo) => {
+  timeline: async (_, use, testInfo) => {
     const outputDir = getRunOutputDir(testInfo.titlePath.join('-').replace(/\s+/g, '_'));
     const timeline = new TimelineRecorder(outputDir);
 
@@ -214,7 +210,7 @@ export const test = base.extend<TwoEmulatorFixtures>({
       category: 'test_lifecycle',
       severity: 'info',
       message: `Test started: ${testInfo.title}`,
-      data: { testFile: testInfo.file, testTitle: testInfo.title, platform: 'android' },
+      data: { testFile: testInfo.file, testTitle: testInfo.title, platform: 'android' }
     });
 
     await use(timeline);
@@ -223,7 +219,7 @@ export const test = base.extend<TwoEmulatorFixtures>({
       category: 'test_lifecycle',
       severity: testInfo.status === 'passed' ? 'info' : 'error',
       message: `Test ${testInfo.status}: ${testInfo.title}`,
-      data: { status: testInfo.status, duration: testInfo.duration },
+      data: { status: testInfo.status, duration: testInfo.duration }
     });
 
     await timeline.close();
@@ -246,7 +242,7 @@ export const test = base.extend<TwoEmulatorFixtures>({
       category: 'test_lifecycle',
       severity: 'info',
       message: `MidenCli initialized (workDir: ${workDir}, binary: ${binaryPath})`,
-      data: { workDir, binaryPath, network: envConfig.name },
+      data: { workDir, binaryPath, network: envConfig.name }
     });
 
     await use(cli);
@@ -271,11 +267,11 @@ export const test = base.extend<TwoEmulatorFixtures>({
 
     await Promise.allSettled([
       instanceA.cdp.close().catch(() => undefined),
-      instanceB.cdp.close().catch(() => undefined),
+      instanceB.cdp.close().catch(() => undefined)
     ]);
     await Promise.allSettled([
       emuA.terminate(serialA, PACKAGE_NAME).catch(() => undefined),
-      emuB.terminate(serialB, PACKAGE_NAME).catch(() => undefined),
+      emuB.terminate(serialB, PACKAGE_NAME).catch(() => undefined)
     ]);
   },
 
@@ -295,7 +291,7 @@ export const test = base.extend<TwoEmulatorFixtures>({
         `evaluate=${stats.cdp.evaluateCount}×${Math.round(stats.cdp.evaluateMs)}ms ` +
         `polls=${stats.polls.pollCount} iters=${stats.polls.pollIterations} ` +
         `pollWall=${Math.round(stats.polls.pollMs)}ms pollSleep=${stats.polls.pollSleepMs}ms`,
-      data: stats,
+      data: stats
     });
   },
 
@@ -315,7 +311,7 @@ export const test = base.extend<TwoEmulatorFixtures>({
         `evaluate=${statsB.cdp.evaluateCount}×${Math.round(statsB.cdp.evaluateMs)}ms ` +
         `polls=${statsB.polls.pollCount} iters=${statsB.polls.pollIterations} ` +
         `pollWall=${Math.round(statsB.polls.pollMs)}ms pollSleep=${statsB.polls.pollSleepMs}ms`,
-      data: statsB,
+      data: statsB
     });
 
     if (testInfo.status !== 'passed' && testInfo.error) {
@@ -341,7 +337,7 @@ export const test = base.extend<TwoEmulatorFixtures>({
           timeline,
           steps,
           stateAtFailure: { walletA: stateA, walletB: stateB },
-          testTimeoutMs: testInfo.timeout,
+          testTimeoutMs: testInfo.timeout
         });
 
         saveFailureReport(report, reportDir);
@@ -349,7 +345,7 @@ export const test = base.extend<TwoEmulatorFixtures>({
         // don't let report generation fail teardown
       }
     }
-  },
+  }
 });
 
 export const expect = test.expect;

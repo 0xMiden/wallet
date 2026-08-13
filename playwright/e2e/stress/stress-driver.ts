@@ -133,7 +133,14 @@ export async function runStressDriver(
   const wallets: Record<'A' | 'B', ChromeWalletPageApi> = { A: walletA, B: walletB };
   const addrs: Record<'A' | 'B', string> = { A: addressA, B: addressB };
   const perOp: StressOpRecord[] = [];
-  const perturbations = { locks: 0, reloads: 0, concurrent: 0, concurrentSecondaryFailed: 0, idles: 0, transportFails: 0 };
+  const perturbations = {
+    locks: 0,
+    reloads: 0,
+    concurrent: 0,
+    concurrentSecondaryFailed: 0,
+    idles: 0,
+    transportFails: 0
+  };
   let completed = 0;
   let failed = 0;
   let idx = 0;
@@ -217,7 +224,7 @@ export async function runStressDriver(
       timeline.emit({
         category: 'stress_op',
         severity: 'info',
-        message: `[stress] perturbation: block SendNote on ${senderLabel} for op#${idx}`,
+        message: `[stress] perturbation: block SendNote on ${senderLabel} for op#${idx}`
       });
       const page = sender.page;
       let armed = true;

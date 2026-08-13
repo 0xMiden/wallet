@@ -30,7 +30,7 @@ type Fixtures = {
 };
 
 export const test = base.extend<Fixtures>({
-  sdk: async ({}, use) => {
+  sdk: async (_, use) => {
     ensureFileFetchSupport();
     const sdk = await import('@miden-sdk/miden-sdk');
     await use(sdk as any);

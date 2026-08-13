@@ -41,7 +41,7 @@ test.describe('Wallet Lifecycle', () => {
       // gone in the v0 UI — assert on the stable explore-page testid instead.
       await expect
         .poll(async () => (await walletA.locatorText('[data-testid="explore-page"]')) !== null, {
-          timeout: 30_000,
+          timeout: 30_000
         })
         .toBe(true);
     });

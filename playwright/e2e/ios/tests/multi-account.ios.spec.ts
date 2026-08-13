@@ -8,7 +8,7 @@ test.describe('Multi-Account Operations', () => {
     walletB,
     midenCli,
     steps,
-    timeline,
+    timeline
   }) => {
     let addressA: string;
     let faucetId: string;
@@ -53,11 +53,11 @@ test.describe('Multi-Account Operations', () => {
           severity: 'info',
           wallet: 'A',
           message: 'Navigated to create account page',
-          data: { pageTextSnippet: pageText?.slice(0, 200) },
+          data: { pageTextSnippet: pageText?.slice(0, 200) }
         });
       },
       {
-        screenshotWallets: [{ target: walletA, label: 'A' }],
+        screenshotWallets: [{ target: walletA, label: 'A' }]
       }
     );
 
@@ -73,12 +73,12 @@ test.describe('Multi-Account Operations', () => {
           severity: 'info',
           wallet: 'A',
           message: 'Navigated to account selector',
-          data: { pageTextSnippet: pageText?.slice(0, 200) },
+          data: { pageTextSnippet: pageText?.slice(0, 200) }
         });
       },
       {
         screenshotWallets: [{ target: walletA, label: 'A' }],
-        captureStateFrom: [{ target: walletA, label: 'A' }],
+        captureStateFrom: [{ target: walletA, label: 'A' }]
       }
     );
   });

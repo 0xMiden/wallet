@@ -1,6 +1,5 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-
 import WebSocket from 'ws';
 
 const execFileAsync = promisify(execFile);
@@ -64,7 +63,7 @@ export class CdpSession {
     evalAsyncCount: 0,
     evalAsyncMs: 0,
     evaluateCount: 0,
-    evaluateMs: 0,
+    evaluateMs: 0
   };
 
   constructor(
@@ -112,7 +111,7 @@ export class CdpSession {
       const res = await this.send('Runtime.evaluate', {
         expression,
         returnByValue: true,
-        awaitPromise: false,
+        awaitPromise: false
       });
       throwIfException(res);
       return (res.result as { result?: { value: T } }).result?.value as T;
@@ -139,14 +138,11 @@ export class CdpSession {
     const exec = this.send('Runtime.evaluate', {
       expression,
       returnByValue: true,
-      awaitPromise: true,
+      awaitPromise: true
     });
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(
-        () => reject(new Error(`evalAsync: callback not invoked within ${timeoutMs}ms`)),
-        timeoutMs
-      );
+      timer = setTimeout(() => reject(new Error(`evalAsync: callback not invoked within ${timeoutMs}ms`)), timeoutMs);
     });
     try {
       const res = (await Promise.race([exec, timeout])) as CdpResponse;
@@ -170,7 +166,7 @@ export class CdpSession {
       const res = await this.send('Runtime.evaluate', {
         expression,
         returnByValue: true,
-        awaitPromise: true,
+        awaitPromise: true
       });
       throwIfException(res);
       return (res.result as { result?: { value: T } }).result?.value as T;
@@ -255,7 +251,7 @@ export class CdpBridge {
       serial,
       'forward',
       `tcp:${hostPort}`,
-      `localabstract:webview_devtools_remote_${pid}`,
+      `localabstract:webview_devtools_remote_${pid}`
     ]);
 
     // Poll for the wallet's main WebView page to register. After cold app
