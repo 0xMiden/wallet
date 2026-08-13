@@ -7,6 +7,26 @@ const DEFAULT_PASSWORD = '123456';
 const SYNC_WAIT_MS = 3_500;
 const POLL_INTERVAL_MS = 500;
 
+/**
+ * `pollForCondition` body that is true only once the wallet is genuinely
+ * unlocked: no Unlock surface mounted (`Unlock.tsx` renders `unlock-passcode`
+ * for the mobile numpad and `unlock-password` for the text form) AND the store
+ * reports Ready — the same readiness signal `createWalletViaBypass` waits on
+ * (`WalletStatus.Ready === 2`; Locked is 1).
+ *
+ * The Unlock-surface clause is what makes this a real assertion: the store keeps
+ * `currentAccount` populated across a lock (it is non-sensitive front state), so
+ * a bare "publicKey looks like an address" check is true while the wallet is
+ * still sitting on the lock screen.
+ */
+const UNLOCKED_CONDITION_JS =
+  `if (document.querySelector('[data-testid="unlock-passcode"]')) return false; ` +
+  `if (document.querySelector('[data-testid="unlock-password"]')) return false; ` +
+  `var s = window.__TEST_STORE__; ` +
+  `if (!s) return !!document.querySelector('[data-testid="explore-page"]'); ` +
+  `var st = s.getState(); ` +
+  `return (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`;
+
 interface IosWalletPageOpts {
   cdp: CdpSession;
   sim: SimulatorControl;
@@ -479,6 +499,10 @@ export class IosWalletPage implements WalletPage {
 
   // ── Claim ─────────────────────────────────────────────────────────────────
 
+  /**
+   * Tap "Claim All" and wait until a consumed balance shows up in the store.
+   * Throws if it never does within `timeoutMs` — see the comment at the end.
+   */
   async claimAllNotes(timeoutMs: number = 120_000, knownFaucetIds: string[] = []): Promise<void> {
     // Chrome's claimAllNotes reloads the page to get a fresh Dexie handle
     // — that's safe on Chrome because the SW holds the vault unlock in a
@@ -551,7 +575,9 @@ export class IosWalletPage implements WalletPage {
     };
 
     const start = Date.now();
+    let iterations = 0;
     while (Date.now() - start < timeoutMs) {
+      iterations++;
       await this.triggerSync();
       await sleep(5_000);
       await pumpProveTimings();
@@ -578,7 +604,30 @@ export class IosWalletPage implements WalletPage {
       }
     }
     await pumpProveTimings();
+
+    // The claim did NOT land: "Claim All" was clicked but no consumed balance
+    // ever appeared. This used to return normally, so the run continued as if
+    // the notes were claimed and blew up later on a balance assertion (or, in
+    // the bridge specs, on a phase poll) — attributing a failed consume to
+    // delivery. Chrome's claimAllNotes already throws here
+    // (`confirmDrainedOrThrow`); this brings iOS in line.
+    //
+    // Report where the wallet actually ended up: still on the transaction
+    // progress route means the consume is merely slow, while a pending-notes
+    // page with the Claim All button back means it went nowhere.
+    const surface = await this.cdp
+      .eval<string>(
+        `var h = String(location.hash || ''); ` +
+          `var claimAll = document.querySelector('[data-testid="claim-all-button"]'); ` +
+          `return 'hash=' + h + ' claimAllButton=' + (claimAll ? 'present' : 'absent');`
+      )
+      .catch(() => 'unreadable');
     await this.navigateHome();
+    throw new Error(
+      `IosWalletPage.claimAllNotes: no consumed balance after ${iterations} sync iteration(s) over ` +
+        `${timeoutMs}ms — "Claim All" was clicked but the consume never landed (store balances still ` +
+        `total 0). Surface at timeout: ${surface}`
+    );
   }
 
   /**
@@ -723,15 +772,29 @@ export class IosWalletPage implements WalletPage {
     await this.click('[data-testid="send-review-submit"]');
 
     // 5. Treat the submit button detaching as the "submit accepted" signal — the
-    // send flow navigates away once the request is dispatched.
-    await this.pollForCondition(`return !document.querySelector('[data-testid="send-review-submit"]');`, 120_000).catch(
-      async () => {
-        const body = await this.locatorText('body');
-        if (body && /error|failed/i.test(body) && !/generating|processing|initiated|submitting|pending/i.test(body)) {
-          throw new Error(`Send transaction appears to have failed. Page text: ${body.slice(0, 500)}`);
-        }
-      }
-    );
+    // send flow navigates away once the request is dispatched. If it never
+    // detaches the send was never dispatched, so fail here rather than letting
+    // the spec blame the recipient's balance minutes later: the old code only
+    // rethrew when the page happened to render error copy, and returned
+    // normally (as if sent) on every other timeout.
+    const submitAccepted = await this.pollForCondition(
+      `return !document.querySelector('[data-testid="send-review-submit"]');`,
+      120_000
+    )
+      .then(() => true)
+      .catch(() => false);
+    if (!submitAccepted) {
+      const body = (await this.locatorText('body').catch(() => null)) ?? '';
+      const rendersError =
+        /error|failed/i.test(body) && !/generating|processing|initiated|submitting|pending/i.test(body);
+      throw new Error(
+        rendersError
+          ? `IosWalletPage.sendTokens: the wallet rendered an error surface after submit. ` +
+              `On-screen text (first 800): ${body.slice(0, 800)}`
+          : `IosWalletPage.sendTokens: the review screen's submit button was still attached 120s after ` +
+              `clicking it, so the send was never dispatched. On-screen text (first 800): ${body.slice(0, 800)}`
+      );
+    }
     await sleep(2_000);
   }
 
@@ -799,6 +862,12 @@ export class IosWalletPage implements WalletPage {
    * NOTE: the numpad-vs-biometric branching on iOS is unverified here — it will
    * be validated by a later simulator run. The fallback keeps the method robust
    * either way.
+   *
+   * Post-condition (both branches): `UNLOCKED_CONDITION_JS`. The fallback branch
+   * used to be two tolerant `.catch(() => {})`s and a fixed 3s sleep, so a run
+   * where neither the numpad nor the text form was ever found returned "unlocked"
+   * with the wallet still on the lock screen — and the spec failed later, on a
+   * missing home surface or an empty balance, pointing anywhere but here.
    */
   async unlockWallet(password: string = DEFAULT_PASSWORD): Promise<void> {
     await this.navigateHome();
@@ -814,23 +883,32 @@ export class IosWalletPage implements WalletPage {
         await this.click(`[data-testid="numpad-${ch}"]`);
         await sleep(150);
       }
-      // Entering the final digit auto-submits; wait for the home surface.
-      await this.pollForCondition(
-        `if (document.querySelector('[data-testid="explore-page"]')) return true; ` +
-          `var s = window.__TEST_STORE__; ` +
-          `if (!s) return false; ` +
-          `var pk = (s.getState().currentAccount && s.getState().currentAccount.publicKey) || ''; ` +
-          `return /^m[a-z]{1,4}1[a-z0-9]+/i.test(pk);`,
-        30_000
-      );
+      // Entering the final digit auto-submits; wait for the unlocked state.
+      await this.assertUnlocked('numpad', 30_000);
       return;
     }
 
     // Fallback: legacy text-input unlock (or biometric already unlocked us, in
-    // which case there's nothing to do and the fill/click no-op safely).
+    // which case there's nothing to do and the fill/click no-op safely). The
+    // tolerant catches stay — they cannot distinguish "already unlocked" from
+    // "no unlock form found", which is exactly why the assertion below is the
+    // thing that decides whether this method succeeded.
     await this.fillInputAny(['input[type="password"]', 'input'], password).catch(() => {});
     await this.clickByText('button', /unlock|continue|submit/i).catch(() => {});
-    await sleep(3_000);
+    await this.assertUnlocked('text-input fallback', 30_000);
+  }
+
+  /** Poll `UNLOCKED_CONDITION_JS`, reporting what is on screen if it never holds. */
+  private async assertUnlocked(via: string, timeoutMs: number): Promise<void> {
+    try {
+      await this.pollForCondition(UNLOCKED_CONDITION_JS, timeoutMs);
+    } catch {
+      const body = (await this.locatorText('body').catch(() => null)) ?? '';
+      throw new Error(
+        `IosWalletPage.unlockWallet: wallet never reached the unlocked state via the ${via} path ` +
+          `within ${timeoutMs}ms. On-screen text (first 500): ${body.slice(0, 500)}`
+      );
+    }
   }
 
   async setDelegateProofEnabled(enabled: boolean): Promise<void> {

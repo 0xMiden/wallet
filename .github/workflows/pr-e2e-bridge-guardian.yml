@@ -111,6 +111,13 @@ jobs:
         # --retries=1: a small margin for a loaded-runner sync hiccup, not a
         # flake-masker (a genuine P2ID regression fails all attempts on the assertion).
         run: xvfb-run -a yarn playwright test --config playwright.bridge-guardian.config.ts --retries=1
+      - name: Report flaky (retried-then-passed) specs
+        # A spec that failed once and passed on the retry above is reported as a
+        # plain green run, so the flake it represents is invisible. Print one
+        # FLAKY line per such spec from the JSON report so the flake rate can be
+        # read off the log / tracked over time. Diagnostic only -- never fails.
+        if: always()
+        run: node scripts/report-flaky-e2e.mjs test-results/results.json
       - name: Dump stack logs on failure
         if: failure()
         working-directory: playwright/e2e/local-stack
