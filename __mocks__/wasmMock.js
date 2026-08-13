@@ -6,7 +6,7 @@ module.exports = {
     // plausible length. Tests override per-case when they need specific
     // decode outcomes.
     fromBech32: jest.fn(address => {
-      const wellFormed = /^(mm|mtst|mdev)1[02-9ac-hj-np-z]+(_[02-9ac-hj-np-z]+)?$/.test(address);
+      const wellFormed = /^(mm|mtst|mdev|mlcl)1[02-9ac-hj-np-z]+(_[02-9ac-hj-np-z]+)?$/.test(address);
       if (!wellFormed || address.length < 30 || address.length > 100) {
         throw new Error(`invalid bech32 address: ${address}`);
       }

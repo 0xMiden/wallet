@@ -10,9 +10,20 @@ export const isHexAddress = (address: string) => {
 const MIDEN_MAINNET_PREFIX = 'mm1';
 const MIDEN_TESTNET_PREFIX = 'mtst1';
 const MIDEN_DEVNET_PREFIX = 'mdev1';
-const MIDEN_BECH32_PREFIXES = [MIDEN_MAINNET_PREFIX, MIDEN_TESTNET_PREFIX, MIDEN_DEVNET_PREFIX];
+// The SDK's NetworkId::Localnet uses the 'mlcl' HRP, so a real localnet node
+// produces 'mlcl1…' addresses. It must be a recognized prefix or a genuine
+// localnet address is wrongly rejected as "invalid" at the gate below, before
+// the bech32 decode even runs (#599).
+const MIDEN_LOCALNET_PREFIX = 'mlcl1';
+const MIDEN_BECH32_PREFIXES = [MIDEN_MAINNET_PREFIX, MIDEN_TESTNET_PREFIX, MIDEN_DEVNET_PREFIX, MIDEN_LOCALNET_PREFIX];
 
-// Localnet accounts are encoded with the testnet prefix — mirrors getNetworkId().
+// NOTE: this maps a network to its OWN-account "correct-network" prefix. This
+// wallet encodes its own localnet accounts with the testnet prefix because
+// getNetworkId() maps LOCALNET -> NetworkId.testnet() (the SDK's JS API exposes
+// no localnet constructor), so LOCALNET's correct-network prefix stays 'mtst1'.
+// A scanned 'mlcl1…' address therefore decodes fine (recognized above) but reads
+// as wrong-network here — which is the intended "still passes, surfaces a
+// network message" behavior, not the old hard rejection.
 const NETWORK_ADDRESS_PREFIXES: Record<MIDEN_NETWORK_NAME, string> = {
   [MIDEN_NETWORK_NAME.MAINNET]: MIDEN_MAINNET_PREFIX,
   [MIDEN_NETWORK_NAME.TESTNET]: MIDEN_TESTNET_PREFIX,
