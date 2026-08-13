@@ -1,6 +1,7 @@
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
 import * as Repo from 'lib/miden/repo';
+import { hiddenSecondsSince } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 
 import {
@@ -66,16 +67,51 @@ export const cancelTransactionById = async (id: string, error: any) => {
 };
 
 /**
+ * Seconds the app spent backgrounded since `processingStartedAt` that must NOT
+ * count as processing time. On mobile the WebView main thread is frozen while
+ * backgrounded, so frozen time is not real processing time (issue #473).
+ * Desktop keeps running in background tabs, so there is nothing to discount —
+ * the single `isMobile()` guard for the whole feature lives here.
+ */
+const hiddenSecondsForTx = (processingStartedAt: number): number =>
+  isMobile() ? hiddenSecondsSince(processingStartedAt) : 0;
+
+/**
+ * Whole seconds a transaction has spent ACTIVELY processing since
+ * `processingStartedAt`, i.e. wall-clock elapsed minus backgrounded time.
+ */
+const activeProcessingSeconds = (processingStartedAt: number, nowSeconds: number): number =>
+  nowSeconds - processingStartedAt - hiddenSecondsForTx(processingStartedAt);
+
+/**
+ * Pure stuck-decision: a tx is stuck if it never started processing (crashed
+ * mid-transition → `processingStartedAt` undefined) or its ACTIVE (foreground)
+ * processing time has exceeded `maxWaitSeconds`. `hiddenSeconds` is the
+ * backgrounded time to discount (0 on desktop).
+ */
+export function isTransactionStuck(
+  processingStartedAt: number | undefined,
+  nowSeconds: number,
+  hiddenSeconds: number,
+  maxWaitSeconds: number
+): boolean {
+  // Crashed before processing started — processingStartedAt is set atomically
+  // with the status change, so undefined means the app crashed mid-transition.
+  if (!processingStartedAt) return true;
+  const activeElapsed = nowSeconds - processingStartedAt - hiddenSeconds;
+  return activeElapsed > maxWaitSeconds;
+}
+
+/**
  * Cancel all of the transactions (& their transitions) that are taking too long to process
  */
 export const cancelStuckTransactions = async () => {
   const transactions = await getTransactionsInProgress();
+  const nowSeconds = Math.floor(Date.now() / 1000);
   const cancelTransactionUpdates = transactions
     .filter(tx => {
-      // Crashed before processing started — processingStartedAt is set atomically
-      // with the status change, so undefined means the app crashed mid-transition
-      if (!tx.processingStartedAt) return true;
-      return Math.floor(Date.now() / 1000) - tx.processingStartedAt > MAX_WAIT_BEFORE_CANCEL;
+      const hidden = tx.processingStartedAt ? hiddenSecondsForTx(tx.processingStartedAt) : 0;
+      return isTransactionStuck(tx.processingStartedAt, nowSeconds, hidden, MAX_WAIT_BEFORE_CANCEL);
     })
     .map(async tx => cancelTransaction(tx, TRANSACTION_STUCK_ERROR));
 
@@ -299,7 +335,11 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
     } else if (verdict === 'not-landed') {
       // Note still exists but is not consumed - only cancel if the tx has been
       // processing for a while, so we don't reap one that is actively processing.
-      const processingTime = tx.processingStartedAt ? Math.floor(Date.now() / 1000) - tx.processingStartedAt : 0;
+      // Use ACTIVE (foreground) processing time so a consume that merely sat
+      // backgrounded on mobile isn't reaped on resume (issue #473).
+      const processingTime = tx.processingStartedAt
+        ? activeProcessingSeconds(tx.processingStartedAt, Math.floor(Date.now() / 1000))
+        : 0;
       if (processingTime > MIN_PROCESSING_TIME_BEFORE_STUCK) {
         await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR);
         resolvedCount++;
