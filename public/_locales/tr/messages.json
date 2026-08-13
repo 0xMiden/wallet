@@ -1670,6 +1670,30 @@
     "message": "Şimdi fonla",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "Cüzdanınızı finanse etmek",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "faucet'den belirteçler isteniyor…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "Cüzdanla finanse edildi",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "Jetonlarınız yolda ve kısa süre içinde görünecek.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "Finansman başarısız oldu",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "Cüzdanınıza para yatıramadık. Lütfen tekrar deneyin.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "Bekleyen Notes kimliğiniz var",
     "englishSource": "You have Pending Notes"

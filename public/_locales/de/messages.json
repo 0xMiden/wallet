@@ -1670,6 +1670,30 @@
     "message": "Jetzt finanzieren",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "Finanzierung Ihres Geldbeutels",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "Anfordern von Tokens von faucet…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "Wallet finanziert",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "Ihre Token sind unterwegs und werden in Kürze angezeigt.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "Die Finanzierung ist gescheitert",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "Wir konnten Ihr Guthaben nicht aufladen. Bitte versuchen Sie es erneut.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "Sie haben Ausstehendes Notes",
     "englishSource": "You have Pending Notes"

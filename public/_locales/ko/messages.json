@@ -1670,6 +1670,30 @@
     "message": "지금 자금을 조달하세요",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "지갑 자금 조달",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "faucet에서 토큰을 요청하는 중…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "지갑 자금 조달",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "귀하의 토큰이 배송 중이며 곧 표시될 것입니다.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "펀딩 실패",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "귀하의 지갑에 자금을 조달할 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "보류 중인 Notes이 있습니다.",
     "englishSource": "You have Pending Notes"

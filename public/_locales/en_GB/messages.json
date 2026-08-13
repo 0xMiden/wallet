@@ -1670,6 +1670,30 @@
     "message": "Fund now",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "Funding your wallet",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "Requesting tokens from the faucet…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "Wallet funded",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "Your tokens are on the way and will appear shortly.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "Funding failed",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "We couldn't fund your wallet. Please try again.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "You have Pending Notes",
     "englishSource": "You have Pending Notes"

@@ -1670,6 +1670,30 @@
     "message": "今すぐ資金を投入",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "ウォレットに資金を供給する",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "faucet からトークンをリクエストしています…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "ウォレットに資金が投入されました",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "トークンは現在準備中であり、間もなく表示されます。",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "資金調達に失敗しました",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "あなたのウォレットに資金を投入できませんでした。もう一度試してください。",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "保留中Notesがあります",
     "englishSource": "You have Pending Notes"

@@ -1670,6 +1670,30 @@
     "message": "Фонд сейчас",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "Пополнение вашего кошелька",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "Запрос токенов у faucet…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "Кошелек финансируется",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "Ваши токены уже в пути и появятся в ближайшее время.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "Финансирование не удалось",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "Мы не смогли пополнить ваш кошелек. Пожалуйста, попробуйте еще раз.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "У вас есть ожидающие Notes",
     "englishSource": "You have Pending Notes"
