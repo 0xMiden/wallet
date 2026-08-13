@@ -382,7 +382,7 @@ class HotKeyPlugin : Plugin() {
             call.reject("Malformed hot-key ciphertext", "BAD_CIPHERTEXT")
         } catch (e: Exception) {
             Log.e(TAG, "deleteHotKey failed: ${e.message}", e)
-            call.reject("Failed to delete hot key: ${e.message}")
+            call.reject("Failed to delete hot key: ${describeThrowable(e)}")
         }
     }
 

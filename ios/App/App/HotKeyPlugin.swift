@@ -287,7 +287,7 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             } else if lookupStatus == errSecAuthFailed {
                 call.reject("Authentication failed", "AUTH_FAILED")
             } else {
-                call.reject("Hot-key SE key not found: \(lookupStatus)")
+                call.reject("Hot-key SE key not found: \(lookupStatus)", "KEY_NOT_FOUND")
             }
             return
         }
@@ -447,7 +447,7 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             } else if lookupStatus == errSecAuthFailed {
                 call.reject("Authentication failed", "AUTH_FAILED")
             } else {
-                call.reject("Hot-key SE key not found: \(lookupStatus)")
+                call.reject("Hot-key SE key not found: \(lookupStatus)", "KEY_NOT_FOUND")
             }
             return
         }

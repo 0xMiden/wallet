@@ -175,21 +175,26 @@ describe('secure-hot-key facade', () => {
     expect(mockReportHotKeyHardwareFailure).toHaveBeenCalledWith('Hot-key sign failed: something odd');
   });
 
-  it.each([['USER_CANCELLED'], ['AUTH_UNAVAILABLE'], ['AUTH_FAILED'], ['BIOMETRIC_BUSY'], ['DEVICE_LOCKED']])(
-    'does not surface any prompt for the benign native code %s (e.g. Cancel on the biometric sheet)',
-    async code => {
-      mockIsMobile.mockReturnValue(true);
-      const benignError = Object.assign(new Error('Authentication cancelled'), { code });
-      mockNativeRevealHotKey.mockRejectedValue(benignError);
+  it.each([
+    ['USER_CANCELLED'],
+    ['AUTH_UNAVAILABLE'],
+    ['AUTH_FAILED'],
+    ['BIOMETRIC_BUSY'],
+    ['DEVICE_LOCKED'],
+    // Caller/input fault — must not read as a hardware failure.
+    ['INVALID_INPUT']
+  ])('does not surface any prompt for the benign native code %s (e.g. Cancel on the biometric sheet)', async code => {
+    mockIsMobile.mockReturnValue(true);
+    const benignError = Object.assign(new Error('Authentication cancelled'), { code });
+    mockNativeRevealHotKey.mockRejectedValue(benignError);
 
-      await expect(secureHotKey.revealHotKey('nativetag:nativepayload')).rejects.toBe(benignError);
+    await expect(secureHotKey.revealHotKey('nativetag:nativepayload')).rejects.toBe(benignError);
 
-      expect(mockReportHotKeyHardwareFailure).not.toHaveBeenCalled();
-      expect(mockReportHotKeyRotationNeeded).not.toHaveBeenCalled();
-    }
-  );
+    expect(mockReportHotKeyHardwareFailure).not.toHaveBeenCalled();
+    expect(mockReportHotKeyRotationNeeded).not.toHaveBeenCalled();
+  });
 
-  it.each([['UNWRAP_FAILED'], ['KEY_INVALIDATED']])(
+  it.each([['UNWRAP_FAILED'], ['KEY_INVALIDATED'], ['KEY_NOT_FOUND'], ['BAD_CIPHERTEXT']])(
     'surfaces the rotation prompt (not the hardware report) for the native code %s',
     async code => {
       mockIsMobile.mockReturnValue(true);

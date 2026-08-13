@@ -60,19 +60,35 @@ const BENIGN_NATIVE_CODES = new Set([
   'AUTH_UNAVAILABLE',
   'AUTH_FAILED',
   'BIOMETRIC_BUSY',
-  'DEVICE_LOCKED'
+  'DEVICE_LOCKED',
+  // Caller/input fault (a malformed digest handed to the native sign path), not
+  // a hardware condition — surfacing it as a "secure hardware failure" would be
+  // wrong. Nothing the user can act on, so it stays silent (the throw still
+  // propagates to the caller).
+  'INVALID_INPUT'
 ]);
 
 /**
  * Native reject codes whose remedy is a hot-key ROTATION, not a hardware
- * report: the wrapper key exists but can no longer decrypt this blob
- * (UNWRAP_FAILED — e.g. an OS upgrade dropped an OAEP authorization) or the
- * OS invalidated the key outright (KEY_INVALIDATED — e.g. biometric
- * re-enrollment on a legacy auth-bound key). Routed to the rotation prompt so
- * the user gets an actionable "rotate your device key" instead of a
- * "defective hardware" report.
+ * report — the secure element is fine, but this particular key/blob can no
+ * longer be used:
+ *  - UNWRAP_FAILED   — wrapper key exists but can't decrypt this blob (e.g. an
+ *                      OS upgrade dropped an OAEP authorization).
+ *  - KEY_INVALIDATED — OS invalidated the key outright (e.g. biometric
+ *                      re-enrollment on a legacy auth-bound key).
+ *  - KEY_NOT_FOUND   — the wrapper key is simply gone: cleared/corrupted
+ *                      Keystore, or a device migration (Quick Start / iCloud
+ *                      restore) where the vault blob restores but the
+ *                      device-only, non-extractable SE/Keystore key does not.
+ *                      Without this, every autosync sign (~3s) after a device
+ *                      migration falsely reports "defective hardware".
+ *  - BAD_CIPHERTEXT  — the stored wrapped-scalar blob is malformed/corrupted
+ *                      and can't be recovered; re-minting via rotation is the
+ *                      only remedy.
+ * Routed to the rotation prompt so the user gets an actionable "rotate your
+ * device key" instead of a "defective hardware" report.
  */
-const ROTATION_NATIVE_CODES = new Set(['UNWRAP_FAILED', 'KEY_INVALIDATED']);
+const ROTATION_NATIVE_CODES = new Set(['UNWRAP_FAILED', 'KEY_INVALIDATED', 'KEY_NOT_FOUND', 'BAD_CIPHERTEXT']);
 
 /**
  * Run a native hot-key op and, if it fails on mobile, surface the matching
