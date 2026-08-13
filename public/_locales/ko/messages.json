@@ -3273,6 +3273,22 @@
     "message": "스캔이 취소되었습니다.",
     "englishSource": "Scan cancelled"
   },
+  "scanQrTitle": {
+    "message": "QR 코드 스캔",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "카메라로 QR 코드를 향하게 하세요.",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "카메라를 찾을 수 없습니다.",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "카메라 액세스 요청 중…",
+    "englishSource": "Requesting camera access…"
+  },
   "scan": {
     "message": "주사",
     "englishSource": "Scan"
