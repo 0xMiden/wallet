@@ -268,7 +268,6 @@
   "fastTransactionDescription": "交易将自动广播并最终确定。",
   "fastTransaction": "交易速度",
   "delegateProofSettings": "委托证明生成",
-  "delegateProofSettingsDescription": "您可以在此处配置将证明生成委托给远程服务器。这将加快证明生成速度，但会将交易详细信息披露给受信任的服务器。",
   "mainAssetBalanceIsZero": "您的 aleo 积分（主要资产）余额为零。费用需要 Aleo 积分。",
   "claim": "宣称",
   "availableToClaim": "可索赔",

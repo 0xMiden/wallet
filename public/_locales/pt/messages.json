@@ -1338,6 +1338,10 @@
     "message": "Geração de prova de delegado",
     "englishSource": "Delegate Proof Generation"
   },
+  "delegateProofSettingsDescription": {
+    "message": "Quando ativado, as provas de transação são geradas em servidores remotos — mais rapidamente, sem grandes downloads para o seu dispositivo e suas chaves nunca saem dele. Quando desligada, ou se o serviço não estiver disponível, a carteira se mostra localmente: mais privada, mas mais lenta e precisa de um grande download único.",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+  },
   "transfer": {
     "message": "Transferência",
     "englishSource": "Transfer"
@@ -2462,8 +2466,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Consumir automaticamente notes do Miden Faucet",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "Reivindica automaticamente MIDEN notes recebido em seu saldo - o mesmo que tocar em Reivindicar. Ele não gasta seus fundos nem adiciona nenhuma taxa.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "Arquivo de carteira criptografado",

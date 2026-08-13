@@ -1338,6 +1338,10 @@
     "message": "Beweisgenerierung delegieren",
     "englishSource": "Delegate Proof Generation"
   },
+  "delegateProofSettingsDescription": {
+    "message": "Wenn diese Option aktiviert ist, werden Transaktionsnachweise auf Remote-Servern generiert – schneller, ohne großen Download auf Ihr Gerät und Ihre Schlüssel verlassen es nie. Wenn es ausgeschaltet ist oder der Dienst nicht verfügbar ist, erweist sich das Wallet als lokal: privater, aber langsamer und erfordert einen großen einmaligen Download.",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+  },
   "transfer": {
     "message": "Überweisen",
     "englishSource": "Transfer"
@@ -2464,8 +2468,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Verbrauchen Sie automatisch notes von Miden Faucet",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "Eingehende MIDEN notes werden automatisch Ihrem Guthaben gutgeschrieben – genau wie das Tippen auf „Anfordern“. Ihr Geld wird nicht ausgegeben und es fallen keine Gebühren an.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "Verschlüsselte Wallet-Datei",

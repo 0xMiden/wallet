@@ -1338,6 +1338,10 @@
     "message": "委托证明生成",
     "englishSource": "Delegate Proof Generation"
   },
+  "delegateProofSettingsDescription": {
+    "message": "启用后，交易证明将在远程服务器上生成 - 速度更快，无需大量下载到您的设备，并且您的密钥永远不会离开它。当关闭时，或者如果服务不可用，钱包会在本地证明：更私密，但速度较慢，并且需要大量的一次性下载。",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+  },
   "transfer": {
     "message": "轉帳",
     "englishSource": "Transfer"
@@ -2464,8 +2468,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "自动消耗来自 Miden Faucet 的 notes",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "自动将传入的 MIDEN notes 认领到您的余额中 — 与点击认领相同。它不会花费您的资金或增加任何费用。",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "加密钱包文件",
