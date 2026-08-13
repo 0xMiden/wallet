@@ -309,7 +309,10 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
             <h1 className="text-3xl font-semibold font-heading text-heading-gray text-center leading-[100%] tracking-tight mt-8">
               {t('enterYourPassword')}
             </h1>
-            <p className={`h-6 text-base text-center mt-3 ${passwordSubtitle ? 'text-red-500' : ''}`}>
+            <p
+              data-testid="unlock-error"
+              className={`h-6 text-base text-center mt-3 ${passwordSubtitle ? 'text-red-500' : ''}`}
+            >
               {passwordSubtitle}
             </p>
           </div>

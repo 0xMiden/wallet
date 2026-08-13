@@ -409,9 +409,10 @@ describe('HistoryDetails', () => {
       expect(toChip.textContent).toBe('stranger');
     });
 
-    it('swaps from/to for a non-Sent message and hides optional rows when data is absent', async () => {
+    it('swaps from/to for an inbound transaction and hides optional rows when data is absent', async () => {
       mockGetTransactionById.mockResolvedValue({
         ...baseSendTx,
+        type: 'consume',
         displayMessage: 'Received',
         transactionId: undefined, // no external tx id row
         amount: 0n, // falsy → amount undefined → no amount span / no fiat
@@ -420,7 +421,7 @@ describe('HistoryDetails', () => {
       });
       await renderAndLoad();
 
-      // 'Received': from = secondaryAccountId (acct-B), to = accountId (acct-A).
+      // Inbound: from = secondaryAccountId (acct-B, the note sender), to = accountId (acct-A).
       expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute(
         'data-address',
         'acct-B'
@@ -431,6 +432,23 @@ describe('HistoryDetails', () => {
       expect(rowByLabel('txIdLabel')).toBeUndefined();
       // No amount span (amount undefined) → fiat also absent.
       expect(screen.queryByText('historyDetailsFiatApprox_$2000.00')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['queued', 'Sending'],
+      ['cancelled', 'Failed']
+    ])('keeps From/To pointing outward on a %s send', async (_label, displayMessage) => {
+      // `cancelTransaction` overwrites `displayMessage` with 'Failed', and a send
+      // reads 'Sending' until it completes. Direction must come from the type, or
+      // both of those render "From: <recipient> / To: <your own account>".
+      mockGetTransactionById.mockResolvedValue({ ...baseSendTx, displayMessage });
+      await renderAndLoad();
+
+      expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute(
+        'data-address',
+        'acct-A'
+      );
+      expect(rowByLabel('to')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-B');
     });
 
     it('hides the notes section entirely when there is no note data', async () => {
