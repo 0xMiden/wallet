@@ -2894,6 +2894,15 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ sin resolver",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "incomingTransfersCount": {
     "message": "$count$ transferencias entrantes",
     "englishSource": "$count$ incoming transfers",
