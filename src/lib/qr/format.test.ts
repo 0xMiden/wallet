@@ -2,7 +2,10 @@ import { encodeAddress, decodeAddress, isValidMidenAddress } from './format';
 
 describe('QR format utilities', () => {
   const testnetAddress = 'mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
-  const mainnetAddress = 'm1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
+  // Real Miden mainnet prefix is `mm1` (not `m1`).
+  const mainnetAddress = 'mm1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
+  const devnetAddress = 'mdev1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
+  const localnetAddress = 'mlcl1araq55u3a4tsqsfznep06x8t9q4cr0am_qr7qqq9wr6w';
 
   describe('encodeAddress', () => {
     it('adds miden: prefix to address', () => {
@@ -51,6 +54,17 @@ describe('QR format utilities', () => {
 
     it('validates mainnet address', () => {
       expect(isValidMidenAddress(mainnetAddress)).toBe(true);
+    });
+
+    it('validates devnet address', () => {
+      expect(isValidMidenAddress(devnetAddress)).toBe(true);
+    });
+
+    // Regression: a localnet (`mlcl1`) address scanned via QR under a
+    // dev-settings localhost override was previously rejected as invalid,
+    // because this validator hard-coded only `mtst1`/`m1`.
+    it('validates localnet address (dev-settings localhost override)', () => {
+      expect(isValidMidenAddress(localnetAddress)).toBe(true);
     });
 
     it('rejects empty string', () => {
