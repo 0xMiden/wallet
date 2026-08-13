@@ -314,7 +314,7 @@ export interface GetInputNoteDetailsResponse extends WalletMessageBase {
 
 export interface GetStateRequest extends WalletMessageBase {
   type: WalletMessageType.GetStateRequest;
-  // TODO: Add an enum param here for determining "which wallet" i.e. Aleo vs Miden
+  // TODO: Add an enum param here for determining which wallet type
 }
 
 export interface GetStateResponse extends WalletMessageBase {

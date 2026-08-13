@@ -260,11 +260,10 @@ describe('setupTransactionProcessor', () => {
   });
 
   it('persists a diagnostic to chrome.storage.local when the heal keeps failing after re-open (issue #254)', async () => {
-    // The Segment escalation the PR originally used is dead in the shipped SW
-    // build (`back/analytics.ts` throws without ALEO_WALLET_SEGMENT_WRITE_KEY,
-    // which the background Vite build never defines), so a persistently-wedged
-    // heal must be recorded to `chrome.storage.local` — a sink that actually
-    // works in the MV3 SW and survives a broken IndexedDB.
+    // The transaction analytics sink the PR originally escalated to was removed
+    // (it was dead Aleo-era code), so a persistently-wedged heal must be recorded
+    // to `chrome.storage.local` — a sink that actually works in the MV3 SW and
+    // survives a broken IndexedDB.
     const mod = await import('./transaction-processor');
     mod.setupTransactionProcessor();
     await flushAsync();
