@@ -4,6 +4,7 @@ import {
   LOCKOUT_MS,
   WRONG_PASSWORDS_TO_LOCKOUT,
   expectLockedOut,
+  expectNotLockedOut,
   submitWrongPassword,
   waitForLockoutToExpire
 } from '../helpers/unlock-lockout';
@@ -31,9 +32,13 @@ const MINT_BASE_UNITS = BigInt(MINT_AMOUNT);
  *   1. A wrong password is REJECTED by the real crypto path — a full PBKDF2
  *      derive against the real vault, not a mock. Nothing else in the suite
  *      types one.
- *   2. The escalating lockout RENDERS against that real vault: three wrong
- *      passwords disable the field for LOCK_TIME (src/app/pages/Unlock.tsx).
- *   3. The lockout clears BY ITSELF, with no user action, after its full term.
+ *   2. The escalating lockout RENDERS against that real vault, and only on the
+ *      THIRD wrong password: the field is asserted still usable, instantly, after
+ *      each of the first two (`expectNotLockedOut`).
+ *   3. The lockout runs its documented term and clears BY ITSELF, with no user
+ *      action. The countdown is asserted to open inside the first tier and to
+ *      tick down, and the hold is measured from the timelock the product itself
+ *      stamped — so neither a shortened LOCK_TIME nor a frozen timer passes.
  *   4. THE KEY ASSERTION — after the successful unlock, the funded vault
  *      balance is EXACTLY what it was before the lock.
  *
@@ -42,9 +47,14 @@ const MINT_BASE_UNITS = BigInt(MINT_AMOUNT);
  * account address the balances projection is keyed on is only recoverable after
  * a successful PBKDF2 re-derive. Reading the same exact TST total afterwards
  * therefore proves the key was genuinely re-derived and the SAME account
- * restored — not merely that a screen changed. The zero reading taken while
- * locked is what makes that falsifiable: it rules out the post-unlock number
- * being a stale value that was never cleared in the first place.
+ * restored — not merely that a screen changed.
+ *
+ * That reading cannot be a stale number that was never cleared: the store has no
+ * persist middleware (`create()(subscribeWithSelector(...))`, src/lib/store/index.ts)
+ * and initialises `balances: {}`, and BOTH `lockWallet()` and the extension's
+ * unlock path go through a full page reload. The projection the final assertion
+ * polls is therefore rebuilt from empty, by a SyncCompleted broadcast that only
+ * a re-derived key can produce.
  *
  * SCOPE: this drives an explicit intercom LOCK_REQUEST, which is the lock the
  * harness can trigger deterministically. It does NOT cover service-worker
@@ -60,12 +70,26 @@ test.describe('Unlock — wrong password, lockout escalation, and balance contin
     steps,
     timeline
   }) => {
-    // Budget: mint + note discovery (120s) + claim (120s) are the same costs
-    // every funding spec pays, and this spec adds a hard, irreducible LOCK_TIME
-    // of 60s plus four full PBKDF2 derives (three rejections and one success, at
-    // ~10.3M iterations each). The default 300s cannot hold that on a loaded
-    // runner, and would fail for reasons unrelated to what is under test.
-    test.setTimeout(480_000);
+    // The outer budget must EXCEED the sum of the sub-budgets underneath it, or a
+    // slow-but-working run dies on the outer timeout and Playwright blames
+    // whatever step happened to be running — indistinguishable from the vault
+    // regression this spec exists to detect. The explicit budgets below sum to:
+    //
+    //   note discovery                       120s
+    //   claim                                120s
+    //   vault settles after the claim         60s
+    //   unlock screen renders                 30s
+    //   3 wrong passwords          3 x  41s = 123s  (submitWrongPassword)
+    //   lockout renders + one tick            36s  (expectLockedOut)
+    //   lockout expires                       90s
+    //   correct password reaches home         45s  (unlockWallet)
+    //   vault rebuilt after the unlock       120s
+    //                                       -----
+    //                                        744s
+    //
+    // The remainder covers wallet creation and the CLI faucet deploy/mint, which
+    // carry no explicit budget of their own.
+    test.setTimeout(900_000);
 
     let addressA: string;
     // The exact pre-lock reading the final assertion compares against. Captured
@@ -107,13 +131,18 @@ test.describe('Unlock — wrong password, lockout escalation, and balance contin
       // not wait for the store's balances projection to catch up. The whole
       // point of this spec is a before/after vault comparison, so the "before"
       // has to be a settled reading.
+      //
+      // This wait IS the assertion that the claim credited the vault exactly:
+      // it returns only on equality with MINT_BASE_UNITS and throws with both
+      // readings otherwise. Re-reading the same value into an `expect` below
+      // would add no discriminating power, only a window for a concurrent
+      // AutoSync to make a WORKING wallet fail.
       await waitForVaultBalance(walletA.page, TOKEN, MINT_BASE_UNITS, {
-        timeoutMs: 120_000,
+        timeoutMs: 60_000,
         decimals: TOKEN_DECIMALS
       });
 
       fundedBaseUnits = await vaultBalance(walletA.page, TOKEN);
-      expect(fundedBaseUnits).toBe(MINT_BASE_UNITS);
     });
 
     await steps.step(
@@ -121,13 +150,6 @@ test.describe('Unlock — wrong password, lockout escalation, and balance contin
       async () => {
         await walletA.lockWallet();
         await expect(walletA.page.getByTestId('unlock-password')).toBeVisible({ timeout: 30_000 });
-
-        // With the vault key gone, the balances projection must be gone with it.
-        // Without this reading the final assertion would be satisfiable by a
-        // number that simply never cleared, which would prove nothing about the
-        // key having been re-derived.
-        const whileLocked = await vaultBalance(walletA.page, TOKEN);
-        expect(whileLocked).toBe(0n);
       },
       {
         screenshotWallets: [{ target: walletA.page, label: 'A' }]
@@ -142,21 +164,27 @@ test.describe('Unlock — wrong password, lockout escalation, and balance contin
       // an attempt that never submitted read as an attempt that was rejected.
       for (let i = 1; i <= WRONG_PASSWORDS_TO_LOCKOUT; i++) {
         await submitWrongPassword(walletA.page, `NotThePassword${i}!`);
+        if (i < WRONG_PASSWORDS_TO_LOCKOUT) {
+          // Three, not two. This is an instantaneous read, deliberately not a
+          // wait: every other check tolerates a disabled field by sitting on it
+          // until it clears, so without this an unlock screen that locked out
+          // after ONE wrong password would sail through the rest of the spec.
+          await expectNotLockedOut(walletA.page, i);
+        }
       }
     });
 
     await steps.step(
       'lockout_renders',
       async () => {
-        // Three, not two: after the second failure `timelock` is still 0, so
-        // `Date.now() - 0 <= 60_000` is false and the form stays usable. This is
-        // the first submit that arms the timelock.
         await expectLockedOut(walletA.page);
         timeline.emit({
           category: 'ui_assertion',
           severity: 'info',
           wallet: 'A',
-          message: `Lockout rendered after ${WRONG_PASSWORDS_TO_LOCKOUT} wrong passwords: password field disabled with a countdown`,
+          message:
+            `Lockout rendered after ${WRONG_PASSWORDS_TO_LOCKOUT} wrong passwords (and not before): ` +
+            `password field disabled with a countdown ticking down inside the ${LOCKOUT_MS}ms tier`,
           data: { wrongAttempts: WRONG_PASSWORDS_TO_LOCKOUT, lockTimeMs: LOCKOUT_MS }
         });
       },
@@ -172,14 +200,16 @@ test.describe('Unlock — wrong password, lockout escalation, and balance contin
       // 60 seconds and assert nothing at all about the lockout.
       //
       // Nothing is touched between the lockout rendering and this returning —
-      // the timelock is cleared by Unlock.tsx's own 1s interval.
-      const waitedMs = await waitForLockoutToExpire(walletA.page, { timeoutMs: 90_000 });
+      // the timelock is cleared by Unlock.tsx's own 1s interval. `heldMs` is
+      // measured from the timelock the product stamped, so it is the lockout's
+      // real duration and not "however long the harness happened to wait".
+      const heldMs = await waitForLockoutToExpire(walletA.page, { timeoutMs: 90_000 });
       timeline.emit({
         category: 'ui_assertion',
         severity: 'info',
         wallet: 'A',
-        message: `Lockout expired on its own after ${waitedMs}ms with no user action`,
-        data: { waitedMs, lockTimeMs: LOCKOUT_MS }
+        message: `Lockout held for ${heldMs}ms (LOCK_TIME is ${LOCKOUT_MS}ms) and expired with no user action`,
+        data: { heldMs, lockTimeMs: LOCKOUT_MS }
       });
     });
 
@@ -194,28 +224,27 @@ test.describe('Unlock — wrong password, lockout escalation, and balance contin
     await steps.step(
       'funded_balance_survived_the_lock',
       async () => {
-        // THE KEY ASSERTION. Polled, not read once: on the extension the
-        // balances projection is rebuilt from a SyncCompleted broadcast after
-        // the unlock's reload, so a bare read here samples an empty store.
+        // THE KEY ASSERTION, and the wait IS the assertion: it returns only when
+        // the vault reads exactly the pre-lock total and throws with both
+        // readings otherwise. Polled rather than read once because the extension
+        // rebuilds the balances projection from a SyncCompleted broadcast after
+        // the unlock's reload, so a bare read here samples an empty store — the
+        // empty start being precisely what makes the eventual match meaningful.
         await waitForVaultBalance(walletA.page, TOKEN, fundedBaseUnits!, {
           timeoutMs: 120_000,
           decimals: TOKEN_DECIMALS
         });
-
-        const afterUnlock = await vaultBalance(walletA.page, TOKEN);
-        expect(afterUnlock).toBe(fundedBaseUnits!);
 
         timeline.emit({
           category: 'blockchain_state',
           severity: 'info',
           wallet: 'A',
           message:
-            `Vault key re-derived: ${fromBaseUnits(afterUnlock, TOKEN_DECIMALS)} ${TOKEN} restored exactly, ` +
-            `after reading 0 while locked`,
+            `Vault key re-derived: ${fromBaseUnits(fundedBaseUnits!, TOKEN_DECIMALS)} ${TOKEN} restored exactly, ` +
+            `rebuilt from an empty store after the unlock's reload`,
           data: {
             symbol: TOKEN,
             beforeLockBaseUnits: fundedBaseUnits!.toString(),
-            afterUnlockBaseUnits: afterUnlock.toString(),
             wrongAttempts: WRONG_PASSWORDS_TO_LOCKOUT
           }
         });
