@@ -30,6 +30,12 @@ test.describe('Public Note Send', () => {
   test.describe.configure({ mode: 'serial' });
 
   test('wallet A sends tokens publicly to wallet B', async ({ walletA, walletB, midenCli, steps, timeline }) => {
+    // Above the sum of the waits this test grants itself (600s of explicit
+    // timeoutMs, plus the history tail's UI waits). Without this it runs under
+    // the config's 300s default and can die on the test timeout BEFORE any of
+    // its own waits expire — reporting a bare "Test timeout" instead of the
+    // diagnostic the wait would have printed, which is a fake failure reason.
+    test.setTimeout(900_000);
     let addressA: string;
     let addressB: string;
     let beforeSend: TransferSnapshot;
