@@ -19,6 +19,14 @@ const POLL_INTERVAL_MS = 500;
  * a bare "publicKey looks like an address" check is true while the wallet is
  * still sitting on the lock screen.
  */
+const UNLOCKED_CONDITION_JS =
+  `if (document.querySelector('[data-testid="unlock-passcode"]')) return false; ` +
+  `if (document.querySelector('[data-testid="unlock-password"]')) return false; ` +
+  `var s = window.__TEST_STORE__; ` +
+  `if (!s) return !!document.querySelector('[data-testid="explore-page"]'); ` +
+  `var st = s.getState(); ` +
+  `return (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`;
+
 /**
  * Totals the store's balances projection, in place, with no navigation.
  *
@@ -43,14 +51,6 @@ const STORE_BALANCE_TOTAL_JS =
   `  } ` +
   `} ` +
   `return 0;`;
-
-const UNLOCKED_CONDITION_JS =
-  `if (document.querySelector('[data-testid="unlock-passcode"]')) return false; ` +
-  `if (document.querySelector('[data-testid="unlock-password"]')) return false; ` +
-  `var s = window.__TEST_STORE__; ` +
-  `if (!s) return !!document.querySelector('[data-testid="explore-page"]'); ` +
-  `var st = s.getState(); ` +
-  `return (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`;
 
 interface IosWalletPageOpts {
   cdp: CdpSession;
