@@ -72,23 +72,41 @@ export async function armRecallBlocks(page: Page, blocks: number | null): Promis
   }, blocks);
 }
 
+/** True only on the hermetic local stack, whose block cadence this process configures. */
+export const IS_LOCALNET = process.env.E2E_NETWORK === 'localhost';
+
 /**
- * Convert a wall-clock recall window into a blocks offset for the chain this run
- * is actually pointed at.
+ * Convert a wall-clock recall window into a blocks offset — LOCALNET ONLY.
  *
- * The local stack's block cadence is configurable (`MIDEN_NODE_BLOCK_INTERVAL`,
- * defaulting to the compose file's `3s`), and the fast-blocks CI leg runs it at
- * `500ms`. A hard-coded block count would therefore mean a 6x shorter window on
- * that leg — short enough that prove + submit + commit can outrun it, turning a
- * healthy wallet into a red "the note was already reclaimable" failure. Deriving
- * the count from the same variable that configures the node keeps the window the
- * same LENGTH on every leg, which is what makes the expiry bounded — not the
- * cadence itself.
+ * The conversion needs the chain's block cadence, and the only cadence this
+ * process can KNOW is the one it configures: `MIDEN_NODE_BLOCK_INTERVAL`, which
+ * docker-compose.local.yml passes to the node as `--block.interval` (defaulting
+ * to `3s`; the fast CI leg runs `500ms`). A hard-coded block count would be six
+ * times shorter on that fast leg — short enough for prove + submit + commit to
+ * outrun it, which fails a perfectly healthy wallet.
  *
- * Throws on an unparseable non-empty value: silently falling back to 3s would
- * mis-size the window on exactly the run whose interval was mistyped.
+ * On devnet/testnet that variable is unset, configures nothing, and the real
+ * cadence is whatever the public network is running. An earlier version of this
+ * helper treated "unset" as "3s", which is the silent guess its own parse error
+ * refuses to make — and the failure it produces is a FALSE RED: a 5s-block
+ * network makes the note reclaimable at ~300s, past the spec's expiry wait, and
+ * the run reports "the note never became reclaimable" on a healthy wallet. Both
+ * blockchain legs run this config with no spec filter, and the testnet leg is
+ * hard-fail on main, so that guess reds main for a reason that does not exist.
+ *
+ * Hence: throw rather than guess, and let the spec skip itself off localnet
+ * (`IS_LOCALNET`). Call this INSIDE the test body, never at module scope — a
+ * module-scope call would break collection on the very legs that must skip.
  */
 export function recallBlocksForWindow(windowMs: number): number {
+  if (!IS_LOCALNET) {
+    throw new Error(
+      `recallBlocksForWindow: E2E_NETWORK=${JSON.stringify(process.env.E2E_NETWORK ?? '')} has no block cadence ` +
+        `this process configures, so a wall-clock recall window cannot be sized in blocks. Guard the caller with ` +
+        `IS_LOCALNET (recall.ts) — guessing 3s here mis-sizes the window and fails a healthy wallet on a network ` +
+        `whose cadence nobody measured.`
+    );
+  }
   const raw = (process.env.MIDEN_NODE_BLOCK_INTERVAL ?? '').trim();
   // Empty = the compose file's `${MIDEN_NODE_BLOCK_INTERVAL:-3s}` default.
   const intervalMs = raw === '' ? 3_000 : parseBlockIntervalMs(raw);
