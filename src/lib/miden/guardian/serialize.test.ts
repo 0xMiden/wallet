@@ -1,5 +1,8 @@
 import {
   clearGuardianAccountLocks,
+  GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS,
+  GUARDIAN_REGISTER_RETRY_RATE_LIMITED_MAX_DELAY_MS,
+  guardianRegisterBackoffMs,
   guardianRetryAfterSec,
   isGuardianPendingConflict,
   isGuardianRateLimited,
@@ -165,5 +168,37 @@ describe('guardianRetryAfterSec', () => {
     ['null', null]
   ])('returns undefined for %s so the caller applies its own default', (_label, err) => {
     expect(guardianRetryAfterSec(err)).toBeUndefined();
+  });
+});
+
+describe('guardianRegisterBackoffMs (#619)', () => {
+  const rateLimited = (retryAfterSecs?: number) => ({
+    status: 429,
+    ...(retryAfterSecs !== undefined ? { meta: { retryAfterSecs } } : {})
+  });
+
+  it('uses the capped exponential backoff for a non-rate-limit error', () => {
+    const err = new Error('boom');
+    expect(guardianRegisterBackoffMs(err, 1)).toBe(1000);
+    expect(guardianRegisterBackoffMs(err, 2)).toBe(2000);
+    expect(guardianRegisterBackoffMs(err, 3)).toBe(4000);
+    expect(guardianRegisterBackoffMs(err, 4)).toBe(8000);
+    expect(guardianRegisterBackoffMs(err, 7)).toBe(8000); // capped at the max
+  });
+
+  it('honours a 429 server Retry-After instead of the blind exponential backoff', () => {
+    // attempt 1's blind backoff would be 1000ms; the guardian asked for 30s.
+    expect(guardianRegisterBackoffMs(rateLimited(30), 1)).toBe(30_000);
+  });
+
+  it('clamps the Retry-After to [base, rate-limited-max]', () => {
+    // a 0s Retry-After is still honoured but floored to the base — never a busy-retry
+    expect(guardianRegisterBackoffMs(rateLimited(0), 1)).toBe(GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS);
+    expect(guardianRegisterBackoffMs(rateLimited(0.2), 1)).toBe(GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS); // floor
+    expect(guardianRegisterBackoffMs(rateLimited(120), 1)).toBe(GUARDIAN_REGISTER_RETRY_RATE_LIMITED_MAX_DELAY_MS); // ceiling
+  });
+
+  it('falls back to the exponential backoff for a 429 without a Retry-After', () => {
+    expect(guardianRegisterBackoffMs(rateLimited(), 3)).toBe(4000);
   });
 });
