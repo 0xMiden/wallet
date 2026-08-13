@@ -33,7 +33,15 @@ export default defineConfig({
   // Everything else (devnet/testnet, and the real-testnet bridge suite that
   // spreads this config) burns a shared faucet and live-network time on each
   // spec, so those keep failing fast.
-  maxFailures: isLocalnet ? 0 : 1,
+  //
+  // 3, not 0. With 0 the worst case is every spec burning its full 300s timeout:
+  // guardian-lifecycle is 39 specs = 195 min against a 60-min `timeout-minutes`,
+  // and a job killed by that budget skips its remaining steps — including the
+  // `if: failure()` artifact upload and the flaky report. A run that dies with
+  // NO artifacts is strictly worse than fail-fast, which is the outcome this
+  // change exists to prevent. 3 keeps the runtime bounded while still reporting
+  // several independent failures per cycle instead of one.
+  maxFailures: isLocalnet ? 3 : 1,
   workers: 1,
   reporter: [['list'], ['json', { outputFile: 'test-results/results.json' }]],
   use: {
