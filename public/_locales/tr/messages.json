@@ -2940,6 +2940,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ çözülmedi",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Talep başarısız oldu; tekrar denemek için Yeniden Dene'ye dokunun",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "Bu note artık mevcut değil",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "Beklemede notes",
     "englishSource": "Pending notes"
@@ -3259,6 +3276,22 @@
   "scanCancelled": {
     "message": "Tarama iptal edildi",
     "englishSource": "Scan cancelled"
+  },
+  "scanQrTitle": {
+    "message": "QR kodunu tarayın",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Kameranızı bir QR koduna doğrultun",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "Kamera bulunamadı",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Kamera erişimi isteniyor…",
+    "englishSource": "Requesting camera access…"
   },
   "scan": {
     "message": "Tara",

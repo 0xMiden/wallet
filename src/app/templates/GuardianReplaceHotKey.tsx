@@ -69,7 +69,7 @@ const GuardianReplaceHotKey: FC = () => {
         {confirming ? t('confirmReplaceHotKey') : t('replaceHotKey')}
       </FormSubmitButton>
 
-      {error && <div className="mt-3 text-red-600 text-sm font-medium select-text">{error}</div>}
+      {error && <div className="mt-3 text-red-600 text-sm font-medium select-text wrap-break-word">{error}</div>}
     </div>
   );
 };

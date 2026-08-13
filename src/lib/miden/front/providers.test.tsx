@@ -5,7 +5,7 @@ import React, { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
-import { FiatCurrenciesEnum } from 'lib/fiat-curency/types';
+import { FiatCurrenciesEnum } from 'lib/fiat-currency/types';
 import { useWalletStore } from 'lib/store';
 
 import { useNetwork } from './ready';
