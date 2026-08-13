@@ -2288,6 +2288,10 @@
     "message": "Последняя синхронизация",
     "englishSource": "Last sync"
   },
+  "guardianRotationComplete": {
+    "message": "Опекун обновлен!",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "Онлайн",
     "englishSource": "Online"
@@ -2596,6 +2600,10 @@
   "viewInActivities": {
     "message": "Посмотреть в разделе «Действия»",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "Посмотреть активность",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Посмотреть детали",
