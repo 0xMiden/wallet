@@ -15,18 +15,11 @@ import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension } from 'lib/platform';
-import { isAutoCloseEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { navigate, Redirect } from 'lib/woozie';
 
 import { TransactionHeroIcon, TransactionStepRow } from './components';
-import {
-  AUTO_CLOSE_DELAY_MS,
-  EXPLORER_TITLE,
-  SUCCESS_RECEIPT_DELAY_MS,
-  TRANSACTION_LOOP_INTERVAL_MS,
-  TRANSACTION_STEPS
-} from './constants';
+import { EXPLORER_TITLE, SUCCESS_RECEIPT_DELAY_MS, TRANSACTION_LOOP_INTERVAL_MS, TRANSACTION_STEPS } from './constants';
 import {
   getActiveTransactionStepIndex,
   getProcessingTitleKey,
@@ -34,24 +27,13 @@ import {
   getStageTitleKey,
   getTransactionStepState
 } from './helper';
+import { advanceStepTimings, type StepTimings } from './stepTimings';
 import { TransactionSuccess } from './TransactionSuccess';
 import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
-import type {
-  GeneratingTransactionPageProps,
-  GeneratingTransactionProps,
-  TransactionHeroState,
-  TransactionStep
-} from './types';
+import type { GeneratingTransactionPageProps, GeneratingTransactionProps, TransactionHeroState } from './types';
 import { useTransactionRow } from './useTransactionRow';
 
 export type { GeneratingTransactionPageProps, GeneratingTransactionProps } from './types';
-
-type TransactionStepId = TransactionStep['id'];
-type TransactionStepTiming = {
-  startedAt: number;
-  endedAt?: number;
-};
-type TransactionStepTimings = Partial<Record<TransactionStepId, TransactionStepTiming>>;
 
 const getTimedStepIndexForStage = (stage?: GeneratingTransactionProps['activeStage']): number | undefined => {
   switch (stage) {
@@ -75,7 +57,7 @@ const getTimedStepIndexForStage = (stage?: GeneratingTransactionProps['activeSta
 
 export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ txId, keepOpen = false }) => {
   const { signTransaction } = useMidenContext();
-  const { pageEvent, trackEvent } = useAnalytics();
+  const { pageEvent } = useAnalytics();
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Single source of truth: the tracked row, watched by id. It advances
@@ -136,21 +118,8 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     }
   }, [status, active?.transactionId]);
 
-  // Auto-close once the tx reaches a terminal state (mirrors the old
-  // "left flight" transition, now derived from status rather than the tx
-  // dropping out of the uncompleted list).
-  const prevTransactionComplete = useRef(false);
-  useEffect(() => {
-    if (transactionComplete && !prevTransactionComplete.current) {
-      new Promise(res => setTimeout(res, AUTO_CLOSE_DELAY_MS)).then(async () => {
-        await trackEvent('GeneratingTransaction Page Closed Automatically');
-        isAutoCloseEnabled() && onClose();
-      });
-    }
-
-    prevTransactionComplete.current = transactionComplete;
-  }, [transactionComplete, trackEvent, onClose]);
-
+  // No auto-close: once the tx reaches a terminal state the receipt stays up
+  // until the user dismisses it via Done/Hide.
   const lastCompletedTxHash = useWalletStore(state => state.lastCompletedTxHash);
   const receiptTxHash = lastCompletedTxHash ?? active?.transactionId ?? null;
   const explorerUrl = receiptTxHash ? getExplorerTxUrl(receiptTxHash) : undefined;
@@ -174,7 +143,23 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         'overflow-hidden relative'
       )}
     >
-      <div className={classNames('flex flex-1 flex-col w-full')}>
+      {/*
+        #602 — `min-h-0` is load-bearing, not cosmetic. This wrapper is a
+        `flex-1` child with the default `overflow: visible`, so its flexbox
+        automatic minimum size is its content height. Without `min-h-0` it
+        refuses to shrink below that content and stays taller than its slot on a
+        short (safe-area-inset) phone; the parent's `overflow-hidden` then clips
+        the overflow and the inner `overflow-y-auto` region inherits a height ==
+        its content (zero scroll range), so the pinned footer "Hide" CTA on
+        two-line-title flows (Earn, guardian, …) spills below the viewport,
+        clipped and unreachable. `min-h-0` lets it shrink to its slot so the
+        overflow scrolls instead of being cut. (The sibling parent above already
+        clears this via `overflow-hidden` → auto-min 0; the scroll region below
+        via `overflow-y-auto` → auto-min 0; this visible wrapper is the gap.)
+        #463 hit the same clipping on the completion layout, whose footer CTAs
+        were unreachable for the same reason.
+      */}
+      <div className={classNames('flex min-h-0 flex-1 flex-col w-full')}>
         <GeneratingTransaction
           onDoneClick={onClose}
           transactionComplete={transactionComplete}
@@ -204,7 +189,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   completedTxHash,
   onViewExplorer
 }) => {
-  const [stepTimings, setStepTimings] = useState<TransactionStepTimings>({});
+  const [stepTimings, setStepTimings] = useState<StepTimings>({});
   const [showSuccessReceipt, setShowSuccessReceipt] = useState(false);
   const { t } = useTranslation();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(activeTransaction);
@@ -230,49 +215,12 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   }, [hasErrors, transactionComplete]);
 
   useEffect(() => {
-    if (transactionComplete) {
-      const now = Date.now();
-      const lastStep = TRANSACTION_STEPS[TRANSACTION_STEPS.length - 1];
-      if (!lastStep) return;
-
-      setStepTimings(prev => ({
-        ...prev,
-        [lastStep.id]: {
-          startedAt: prev[lastStep.id]?.startedAt ?? now,
-          endedAt: now
-        }
-      }));
-      return;
-    }
-
+    // Idempotent: several stages collapse onto one step index (e.g. `sending`
+    // and `proving` -> 1), so this effect re-runs for an already-timed step;
+    // advanceStepTimings records each start/end once so the shown duration
+    // doesn't creep after a step turns green (#530).
     const stepIndex = getTimedStepIndexForStage(activeStage);
-    if (stepIndex === undefined) return;
-
-    const now = Date.now();
-    if (stepIndex === 0) {
-      setStepTimings({ 'guardian-approving': { startedAt: now } });
-      return;
-    }
-
-    const step = TRANSACTION_STEPS[stepIndex];
-    if (!step) return;
-    const prevStep = TRANSACTION_STEPS[stepIndex - 1];
-    // stepIndex === 0 is handled above, so a step past the first always has a
-    // predecessor; guard defensively rather than throwing from an effect if
-    // TRANSACTION_STEPS / getTimedStepIndexForStage ever drift out of sync.
-    if (!prevStep) return;
-    setStepTimings(prev => {
-      return {
-        ...prev,
-        [prevStep.id]: {
-          ...prev[prevStep.id],
-          endedAt: now
-        },
-        [step.id]: {
-          startedAt: now
-        }
-      };
-    });
+    setStepTimings(prev => advanceStepTimings(prev, { stepIndex, transactionComplete, now: Date.now() }));
   }, [activeStage, timingTransactionId, transactionComplete]);
 
   const stepDurationLabels = useMemo(
@@ -392,6 +340,23 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
           <Button type="button" variant={ButtonVariant.Primary} onClick={onDoneClick} className="w-full">
             <span className="text-lg font-semibold text-pure-white">{actionTitle}</span>
           </Button>
+          {/* #483 — a failed tx needs a direct route to its Activity detail, like
+              SwapSuccess / GuardianRotationSuccess (which link to the per-tx
+              detail; the other success views only open the history list). Only on
+              failure — success routes through TransactionSuccess, which renders
+              its own link. */}
+          {transactionComplete && hasErrors && (
+            <Button
+              type="button"
+              variant={ButtonVariant.Secondary}
+              onClick={() =>
+                navigate(completedTransaction ? `/history-details/${completedTransaction.id}` : '/history')
+              }
+              className="w-full"
+            >
+              <span className="text-lg font-semibold">{t('viewInActivities')}</span>
+            </Button>
+          )}
         </div>
       </main>
     </div>

@@ -1,4 +1,3 @@
-export const AUTO_CLOSE_DELAY_MS = 10_000;
 export const SUCCESS_RECEIPT_DELAY_MS = 1_500;
 export const TRANSACTION_LOOP_INTERVAL_MS = 10_000;
 export const EXPLORER_TITLE = 'Midenscan';

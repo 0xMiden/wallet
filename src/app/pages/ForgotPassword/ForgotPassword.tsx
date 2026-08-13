@@ -4,14 +4,13 @@ import { generateMnemonic } from 'bip39';
 import wordsList from 'bip39/src/wordlists/english.json';
 
 import { formatMnemonic } from 'app/defaults';
+import { postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
-import { putToStorage } from 'lib/miden/front/storage';
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
 import { GUARDIAN_PROBE_WAIT_DEADLINE_MS, useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { clearClientStorage } from 'lib/miden/reset';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { navigate } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import { OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
@@ -22,6 +21,7 @@ const ForgotPassword: FC = () => {
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
   const [password, setPassword] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
 
   const { registerWallet } = useMidenContext();
   // Guardian auto-detection (issue #418). This flow has no recovery-method
@@ -41,13 +41,15 @@ const ForgotPassword: FC = () => {
   }, [resetGuardianProbe]);
 
   /**
-   * Adopt the auto-detected guardian, waiting at most
+   * Resolve the auto-detected guardian endpoint, waiting at most
    * {@link GUARDIAN_PROBE_WAIT_DEADLINE_MS} for a probe that is still running.
-   * Silent no-op when nothing was detected — the stored endpoint stands.
+   * Returns undefined when nothing was detected (or the probe timed out); the
+   * caller then threads no endpoint and the backend falls back to the legacy
+   * stored endpoint / network default, exactly as before.
    */
-  const adoptDetectedGuardian = useCallback(async () => {
+  const detectGuardianEndpoint = useCallback(async (): Promise<string | undefined> => {
     const pending = probeResult.current;
-    if (!pending) return;
+    if (!pending) return undefined;
     let deadline: ReturnType<typeof setTimeout> | undefined;
     const result = await Promise.race([
       pending,
@@ -56,25 +58,21 @@ const ForgotPassword: FC = () => {
       })
     ]);
     if (deadline !== undefined) clearTimeout(deadline);
-    if (result?.best) {
-      try {
-        await putToStorage(GUARDIAN_URL_STORAGE_KEY, result.best.endpoint);
-      } catch (error) {
-        // Best-effort refinement: a failed write (quota, private mode, native
-        // disk error) must never abort recovery — fall back to the previously
-        // stored endpoint, exactly as when nothing is detected.
-        console.warn('[guardian/probe] Failed to persist detected guardian endpoint; using stored endpoint:', error);
-      }
-    }
+    return result?.best?.endpoint;
   }, []);
 
-  const register = useCallback(async () => {
+  // 'ok' registered | 'failed' registration threw AFTER the destructive reset |
+  // 'skipped' preconditions absent so nothing ran and nothing was destroyed.
+  const register = useCallback(async (): Promise<'ok' | 'failed' | 'skipped'> => {
     if (password && seedPhrase) {
       clearClientStorage();
-      // Adoption MUST follow clearClientStorage: on desktop the guardian-URL
-      // setting lives in the very localStorage that call just wiped, so
-      // adopting first would silently erase the detected endpoint.
-      if (onboardingType === OnboardingType.Import) await adoptDetectedGuardian();
+      // Resolve the probed guardian endpoint (import path only) and thread it
+      // explicitly into registerWallet (stage 1 of #408) rather than writing the
+      // global GUARDIAN_URL_STORAGE_KEY. The probe result is held in memory, so
+      // clearClientStorage above cannot clobber it. When nothing was detected the
+      // endpoint stays undefined and the backend falls back to the stored /
+      // default endpoint.
+      const guardianEndpoint = onboardingType === OnboardingType.Import ? await detectGuardianEndpoint() : undefined;
 
       const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
       try {
@@ -82,13 +80,23 @@ const ForgotPassword: FC = () => {
           WalletType.Guardian,
           password,
           seedPhraseFormatted,
-          onboardingType === OnboardingType.Import // might be able to leverage ownMnemonic to determine whther to attempt imports in general
+          onboardingType === OnboardingType.Import, // might be able to leverage ownMnemonic to determine whther to attempt imports in general
+          guardianEndpoint
         );
+        return 'ok';
       } catch (e) {
+        // clearClientStorage() above has ALREADY wiped the local wallet, so a
+        // failure here leaves the user with nothing. Swallowing it into
+        // console.error (and then navigating away regardless) showed them an
+        // empty wallet with no explanation — indistinguishable from data loss.
+        // Surface it and stay put so Retry is reachable (#630).
         console.error(e);
+        setRecoveryError(e instanceof Error ? e.message : String(e));
+        return 'failed';
       }
     }
-  }, [password, seedPhrase, registerWallet, onboardingType, adoptDetectedGuardian]);
+    return 'skipped';
+  }, [password, seedPhrase, registerWallet, onboardingType, detectGuardianEndpoint]);
 
   const onAction = useCallback(
     async (action: OnboardingAction) => {
@@ -135,12 +143,22 @@ const ForgotPassword: FC = () => {
           setPassword(action.payload);
           setStep(OnboardingStep.Confirmation);
           break;
-        case 'confirmation':
+        case 'confirmation': {
           setIsLoading(true);
-          await register();
+          setRecoveryError(null);
+          const outcome = await register();
           setIsLoading(false);
-          navigate('/');
+          // Block the exit ONLY on a real failure. 'skipped' means the guarded
+          // branch never ran, so nothing was destroyed and the previous
+          // navigate-home behaviour is still right; 'failed' means the reset
+          // already happened, so leaving would strand the user on a wiped
+          // wallet with no explanation (#630).
+          if (outcome === 'failed') break;
+          // Guardian recovery just completed — hand off to the side panel like
+          // first-run onboarding rather than always entering in-tab (#428).
+          navigate(postOnboardingRoute());
           break;
+        }
         case 'back':
           if (step === OnboardingStep.VerifySeedPhrase) {
             setStep(OnboardingStep.BackupSeedPhrase);
@@ -188,6 +206,7 @@ const ForgotPassword: FC = () => {
       onboardingType={onboardingType}
       step={step}
       isLoading={isLoading}
+      recoveryError={recoveryError}
       onAction={onAction}
     />
   );

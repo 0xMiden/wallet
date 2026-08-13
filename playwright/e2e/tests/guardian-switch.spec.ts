@@ -1,5 +1,19 @@
 import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
+import { snapshotTransfer } from '../helpers/assertions';
+import { toBaseUnits, waitForPendingNoteTotal, waitForVaultBalance } from '../helpers/balance-truth';
+
+// The faucet the harness deploys (miden-cli.ts createFaucet defaults: TST / 8dp).
+const TOKEN = 'TST';
+const TOKEN_DECIMALS = 8;
+
+// Every amount this spec moves, in base units, derived from what it actually
+// mints/sends below — the mint calls take these constants directly and the send
+// calls take the human strings, so an assertion can never drift from the action.
+const INITIAL_MINT_BASE_UNITS = 100_000_000_000n; // 1000 TST funded on A before the switch
+const POST_SWITCH_MINT_BASE_UNITS = 50_000_000_000n; // 500 TST minted again AFTER the switch
+const USABLE_SEND_AMOUNT = '10'; // TST, sent A -> B on guardian B
+const FAULTED_SEND_AMOUNT = '1'; // TST, sent A -> B with guardian A faulted
 
 // Guardian operators for the selected network (E2E_NETWORK): the two local
 // containers on localhost, real operators on testnet (OpenZeppelin A -> Koda B).
@@ -79,10 +93,25 @@ test.describe('Guardian switch - happy path + usability', () => {
 
       await midenCli.init();
       faucetId = await midenCli.createFaucet();
-      await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+      await midenCli.mint(faucetId, addressA, INITIAL_MINT_BASE_UNITS, 'public');
+      // Discovery-before-claim, same reason as the post-switch mint below.
+      await waitForPendingNoteTotal(walletA.page, TOKEN, INITIAL_MINT_BASE_UNITS, {
+        timeoutMs: 180_000,
+        decimals: TOKEN_DECIMALS
+      });
       await midenCli.sync();
 
       await walletA.claimAllNotes(180_000);
+      // Funding gate, not the assertion under test — but exact: the claim must
+      // have moved the WHOLE mint into A's spendable vault before the switch
+      // steps run. `claimAllNotes` returns on its own deadline whether or not
+      // the guardian-co-signed consume actually landed, so without this a
+      // silently-failed consume would only surface much later as a confusing
+      // send failure.
+      await waitForVaultBalance(walletA.page, TOKEN, INITIAL_MINT_BASE_UNITS, {
+        timeoutMs: 120_000,
+        decimals: TOKEN_DECIMALS
+      });
     });
 
     await steps.step('verify_on_a_before_switch', async () => {
@@ -110,15 +139,60 @@ test.describe('Guardian switch - happy path + usability', () => {
       async () => {
         // Consume-under-B: mint a fresh note AFTER the switch and drain it,
         // exercising createConsumeNotesProposal against the NEW guardian.
-        await midenCli.mint(faucetId!, addressA!, 50_000_000_000, 'public');
+        await midenCli.mint(faucetId!, addressA!, POST_SWITCH_MINT_BASE_UNITS, 'public');
         await midenCli.sync();
+        // Wait for the note to be DISCOVERED before claiming. `claimAllNotes`
+        // stops when it reads an empty pending list twice — which is also true
+        // BEFORE the note has synced, so claiming too early returns "drained"
+        // having consumed nothing, and the note then arrives and sits unclaimed.
+        // The old `> 0` assertion could not see that (vault+pending summed the
+        // same either way); the exact vault assertion below can, and did.
+        await waitForPendingNoteTotal(walletA.page, TOKEN, POST_SWITCH_MINT_BASE_UNITS, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
         await walletA.claimAllNotes(120_000);
+        // The consume-under-B half of "usable on B": A's spendable TST must now
+        // be the pre-switch funding PLUS the whole post-switch mint. A consume
+        // that the new guardian never co-signed leaves the note unconsumed and
+        // the vault short, which this catches and `> 0` on a vault+pending sum
+        // could not (the unconsumed note kept that number identical).
+        await waitForVaultBalance(walletA.page, TOKEN, INITIAL_MINT_BASE_UNITS + POST_SWITCH_MINT_BASE_UNITS, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
 
         // Send-under-B: exercises createSendProposal against the NEW
         // guardian, and lands a real value transfer on a third wallet.
-        await walletA.sendTokens({ recipientAddress: addressB!, amount: '10', isPrivate: false, tokenSymbol: 'TST' });
-        const balanceB = await walletB.waitForBalanceAbove(0, 120_000);
-        expect(balanceB).toBeGreaterThan(0);
+        const sent = toBaseUnits(USABLE_SEND_AMOUNT, TOKEN_DECIMALS);
+        const before = await snapshotTransfer(
+          { page: walletA.page, label: 'A' },
+          { page: walletB.page, label: 'B' },
+          TOKEN,
+          TOKEN_DECIMALS
+        );
+        await walletA.sendTokens({
+          recipientAddress: addressB!,
+          amount: USABLE_SEND_AMOUNT,
+          isPrivate: false,
+          tokenSymbol: TOKEN
+        });
+        // Recipient side: B is credited EXACTLY 10 TST. It lands as an
+        // UNCONSUMED note — the wallet only auto-consumes native-faucet notes
+        // (sync-manager.ts / Explore.tsx) and B never claims — so "the transfer
+        // arrived" is a pending-note credit here, asserted on its own rather
+        // than summed into a balance.
+        await waitForPendingNoteTotal(walletB.page, TOKEN, before.toPending + sent, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
+        // Sender side: A is debited by exactly the same amount (Miden fees are
+        // paid in the native asset, never in TST). This is the half that catches
+        // a "recipient credited without the sender being debited" bug.
+        await waitForVaultBalance(walletA.page, TOKEN, before.fromVault - sent, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
       },
       {
         screenshotWallets: [
@@ -177,10 +251,22 @@ test.describe('Guardian switch - cross-guardian correctness', () => {
 
       await midenCli.init();
       faucetId = await midenCli.createFaucet();
-      await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+      await midenCli.mint(faucetId, addressA, INITIAL_MINT_BASE_UNITS, 'public');
+      // Discovery-before-claim, same reason as the post-switch mint below.
+      await waitForPendingNoteTotal(walletA.page, TOKEN, INITIAL_MINT_BASE_UNITS, {
+        timeoutMs: 180_000,
+        decimals: TOKEN_DECIMALS
+      });
       await midenCli.sync();
 
       await walletA.claimAllNotes(180_000);
+      // Same exact funding gate as the happy-path test: the whole mint must be
+      // spendable on A before the fault-injection step, so a later send failure
+      // can only be attributed to routing, never to A being unfunded.
+      await waitForVaultBalance(walletA.page, TOKEN, INITIAL_MINT_BASE_UNITS, {
+        timeoutMs: 120_000,
+        decimals: TOKEN_DECIMALS
+      });
     });
 
     await steps.step(
@@ -212,9 +298,32 @@ test.describe('Guardian switch - cross-guardian correctness', () => {
         // succeed via B alone. If the wallet still contacted A for this
         // tx's co-sign, A's aborted /delta calls would surface as a send
         // failure or hang and the recipient balance would never arrive.
-        await walletA.sendTokens({ recipientAddress: addressB!, amount: '1', isPrivate: false, tokenSymbol: 'TST' });
-        const balanceB = await walletB.waitForBalanceAbove(0, 120_000);
-        expect(balanceB).toBeGreaterThan(0);
+        const sent = toBaseUnits(FAULTED_SEND_AMOUNT, TOKEN_DECIMALS);
+        const before = await snapshotTransfer(
+          { page: walletA.page, label: 'A' },
+          { page: walletB.page, label: 'B' },
+          TOKEN,
+          TOKEN_DECIMALS
+        );
+        await walletA.sendTokens({
+          recipientAddress: addressB!,
+          amount: FAULTED_SEND_AMOUNT,
+          isPrivate: false,
+          tokenSymbol: TOKEN
+        });
+        // Exactly 1 TST reaches B as an unconsumed note (B never claims, and
+        // only native-faucet notes auto-consume), and exactly 1 TST leaves A's
+        // vault. Both halves are what make "the send went through on B alone"
+        // falsifiable: a `> 0` recipient check stayed green for the wrong
+        // amount, the wrong token, or a note that was already there.
+        await waitForPendingNoteTotal(walletB.page, TOKEN, before.toPending + sent, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
+        await waitForVaultBalance(walletA.page, TOKEN, before.fromVault - sent, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
 
         walletA.clearFaults();
 

@@ -33,11 +33,59 @@ function withLifecycleLock<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 // Counter of in-flight non-speculative proves (real send / consume / new
-// transaction). abortSpeculativeProve() bails when this is > 0 — we MUST
-// NOT terminate the offscreen doc while a real send's prove is running,
-// since killing it would error the user's actual transaction. Speculative
-// proves don't increment this counter, so abort can safely kill them.
+// transaction) dispatched via OFFSCREEN_PROVE. abortSpeculativeProve() bails
+// when this is > 0 — we MUST NOT terminate the offscreen doc while a real
+// send's prove is running, since killing it would error the user's actual
+// transaction. Speculative proves don't increment this counter, so abort can
+// safely kill them.
 let nonSpeculativeProveCount = 0;
+
+// Counter of in-flight CRITICAL offscreen ops (issue #260, slice 5, design §3).
+// Generalizes `nonSpeculativeProveCount`: a whole-op offscreen WRITE
+// (`consumeNoteId`, and later send/swap/newTransaction) runs its own
+// execute→prove→submit→apply IN-REALM — it never uses OFFSCREEN_PROVE, so it
+// does NOT bump `nonSpeculativeProveCount`. The SW write proxy brackets each
+// such op with `incrementCriticalOp()`/`decrementCriticalOp()` so the same
+// "don't tear down a live value-moving op for someone else's deadline"
+// protection a real prove gets also covers the whole write pipeline.
+let criticalOpCount = 0;
+
+/** Bracket the start of a critical offscreen op (a whole-op write). Paired with
+ * {@link decrementCriticalOp} in the caller's `finally`. */
+export function incrementCriticalOp(): void {
+  criticalOpCount++;
+}
+
+/** Bracket the end of a critical offscreen op. Clamped at 0 defensively. */
+export function decrementCriticalOp(): void {
+  if (criticalOpCount > 0) criticalOpCount--;
+}
+
+/**
+ * True while ANY critical op owns the offscreen doc — a whole-op offscreen write
+ * (`criticalOpCount > 0`) OR a real non-speculative prove
+ * (`nonSpeculativeProveCount > 0`, folded in so the pre-slice-5 protection is
+ * preserved). The write proxy consults this so a coincident cheap READ deadline
+ * DOWNGRADES to a reject-without-kill instead of tearing down a realm that is
+ * mid-value-movement (design §3.3); `abortSpeculativeProve` bails on it too.
+ */
+export function isCriticalOpInFlight(): boolean {
+  return criticalOpCount > 0 || nonSpeculativeProveCount > 0;
+}
+
+/**
+ * True iff THIS realm is the chrome.offscreen document (issue #260 flip-prep #4).
+ * Version-independent and deterministic: the offscreen doc sets
+ * `globalThis.__MIDEN_IN_OFFSCREEN_DOC__ = true` at the top of `src/offscreen/main.ts`,
+ * before any client is created; this reads that marker. It does NOT depend on
+ * whether `chrome.offscreen` happens to be exposed inside the doc (an unreliable
+ * Chrome quirk). Used to short-circuit {@link isOffscreenAvailable} so an
+ * offscreen-doc write proves LOCALLY in-realm instead of recursively trying to
+ * re-dispatch OFFSCREEN_PROVE to a handler that does not exist inside the doc.
+ */
+export function isInOffscreenDocument(): boolean {
+  return (globalThis as { __MIDEN_IN_OFFSCREEN_DOC__?: boolean }).__MIDEN_IN_OFFSCREEN_DOC__ === true;
+}
 
 /**
  * True iff the runtime exposes the `chrome.offscreen` API. Chrome MV3 only
@@ -47,8 +95,15 @@ let nonSpeculativeProveCount = 0;
  * (MidenClientInterface.shouldUseOffscreenProver) does this; consumers of
  * proveViaOffscreen() directly should also gate on this if they want a
  * clean fallback rather than a thrown error.
+ *
+ * Inside the offscreen document itself this returns false FIRST (via
+ * {@link isInOffscreenDocument}): a doc cannot spawn a sub-doc, and re-dispatching
+ * OFFSCREEN_PROVE from inside would deadlock (no in-doc handler), so an
+ * offscreen-doc write must prove locally on its own `useWorker:false` WASM
+ * (issue #260 flip-prep #4).
  */
 export function isOffscreenAvailable(): boolean {
+  if (isInOffscreenDocument()) return false;
   return (
     typeof chrome !== 'undefined' &&
     typeof (chrome as { offscreen?: unknown }).offscreen !== 'undefined' &&
@@ -123,7 +178,30 @@ export async function ensureOffscreenDocument(): Promise<void> {
  * Returns true if the doc was actually closed; false if we bailed.
  */
 export async function abortSpeculativeProve(): Promise<boolean> {
-  if (nonSpeculativeProveCount > 0) return false;
+  // Bail if ANY critical op is in flight — a real prove (nonSpeculativeProveCount)
+  // OR a whole-op offscreen write (criticalOpCount). A stale-speculation abort
+  // must never tear down a live value-moving op (issue #260, slice 5, design §3.2).
+  if (isCriticalOpInFlight()) return false;
+  return await withLifecycleLock(async () => {
+    if (!(await hasOffscreenDocument())) return false;
+    await chrome.offscreen.closeDocument();
+    return true;
+  });
+}
+
+/**
+ * Unconditionally tear down the offscreen document (OS-level kill) via the same
+ * `closeDocument()` primitive as {@link abortSpeculativeProve}, but WITHOUT its
+ * speculative-only guard — this is the deadline / heal-alarm kill path (design
+ * §3.2), whose whole purpose is to kill a wedged realm. Serialized through
+ * `withLifecycleLock` so the close can't race a concurrent create.
+ *
+ * Callers that must not kill a healthy critical op should gate on
+ * {@link isCriticalOpInFlight} first; this function itself does not.
+ *
+ * Returns true if a document was actually closed; false if none existed.
+ */
+export async function forceCloseOffscreenDocument(): Promise<boolean> {
   return await withLifecycleLock(async () => {
     if (!(await hasOffscreenDocument())) return false;
     await chrome.offscreen.closeDocument();

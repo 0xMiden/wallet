@@ -31,7 +31,8 @@ export interface SwapAmountsProps {
   statusIsError?: boolean;
 }
 
-/** SwapToken → the UIToken shape SelectAmount expects (balance/fiat unused here). */
+/** SwapToken → the UIToken shape SelectAmount expects. `balance` feeds the
+ * "Available X" helper on the You Pay field (#461); fiat is unused (0). */
 const swapTokenToUIToken = (token: SwapToken, balance = 0): UIToken => ({
   id: token.faucetId,
   name: token.symbol,
@@ -108,6 +109,9 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
 
         <SelectAmount
           embedded
+          // "You Receive" is the swap output — the user's balance of that token
+          // isn't the spendable amount here, so no available-balance helper.
+          showBalanceHelper={false}
           label={t('youReceive')}
           token={swapTokenToUIToken(requestToken)}
           logoSymbol={requestToken.logoSymbol}

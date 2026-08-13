@@ -3,8 +3,9 @@ import { PswapLineageState } from '@miden-sdk/miden-sdk/lazy';
 import * as Repo from 'lib/miden/repo';
 
 import { compareAccountIds } from '../activity/utils';
+import { midenClientProxy } from '../back/miden-client-proxy';
 import { ITransaction, ITransactionStatus, Transaction } from '../db/types';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { withWasmClientLock } from '../sdk/miden-client';
 
 /**
  * Token-scoped history filter. A swap row belongs to BOTH sides' token views:
@@ -162,19 +163,24 @@ const pswapStateToOrderState = (state: PswapLineageState): SwapOrderState => {
  * can show how far the order has been filled. `orderId` is the value persisted
  * on the swap transaction's `extraInputs.orderId` by `completeSwapTransaction`.
  * Returns `null` when this client isn't tracking the order (e.g. not synced
- * yet). Reads IndexedDB via the wasm client, so it takes the client lock.
+ * yet).
+ *
+ * Routed through `midenClientProxy.getPswapLineage` (issue #260, slice 7a) so
+ * flag-ON it reads the OFFSCREEN client's canonical synced lineage (the SW client
+ * is dormant then and would report stale fill progress); flag-OFF is the
+ * byte-identical inline `client.client.pswap.lineage` reduction under the caller
+ * lock. The DTO's decimal-string amounts are re-widened to BigInt here.
  */
 export const trackOrderId = async (orderId: string | bigint): Promise<SwapOrderTracking | null> => {
   return withWasmClientLock(async () => {
-    const client = await getMidenClient();
-    const lineage = await client.client.pswap.lineage(orderId);
+    const lineage = await midenClientProxy.getPswapLineage(orderId);
     if (!lineage) return null;
     return {
-      orderId: lineage.orderId(),
-      state: pswapStateToOrderState(lineage.state()),
-      currentDepth: lineage.currentDepth(),
-      remainingOffered: lineage.remainingOffered(),
-      remainingRequested: lineage.remainingRequested()
+      orderId: lineage.orderId,
+      state: pswapStateToOrderState(lineage.state as PswapLineageState),
+      currentDepth: lineage.currentDepth,
+      remainingOffered: BigInt(lineage.remainingOffered),
+      remainingRequested: BigInt(lineage.remainingRequested)
     };
   });
 };

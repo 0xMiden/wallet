@@ -276,8 +276,36 @@ async function mintFromForkchoice(address: string): Promise<void> {
   }
 }
 
+/**
+ * Aggregated faucet failure. `faucet()` fans out to two independent sources
+ * (forkchoice IMIDEN + official MIDEN); ANY rejection surfaces here with a
+ * message that names which source(s) failed and their underlying error text,
+ * so the funding drawer can show the real reason rather than a generic string.
+ */
+export class FaucetError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FaucetError';
+  }
+}
+
+function reasonMessage(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}
+
 export async function faucet(address: string): Promise<void> {
-  await Promise.all([mintFromForkchoice(address), mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT)]);
+  const [forkchoice, miden] = await Promise.allSettled([
+    mintFromForkchoice(address),
+    mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT)
+  ]);
+
+  const failures: string[] = [];
+  if (forkchoice.status === 'rejected') failures.push(`IMIDEN: ${reasonMessage(forkchoice.reason)}`);
+  if (miden.status === 'rejected') failures.push(`MIDEN: ${reasonMessage(miden.reason)}`);
+
+  if (failures.length > 0) {
+    throw new FaucetError(failures.join('; '));
+  }
 }
 
 export function useWalletPromptStorage() {

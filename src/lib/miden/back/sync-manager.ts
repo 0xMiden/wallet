@@ -14,6 +14,7 @@ import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessage
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
 import { getIntercom } from './defaults';
+import { midenClientProxy } from './miden-client-proxy';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
 import { getFaucetIdSetting } from '../assets';
@@ -122,9 +123,7 @@ async function runSync(): Promise<void> {
     // that clears any active issue, so the steady state is correct.
     try {
       await withWasmClientLock(async () => {
-        const client = await getMidenClient();
-        if (!client) return;
-        await withTimeout(client.syncState(), SYNC_TIMEOUT_MS);
+        await withTimeout(midenClientProxy.syncState(), SYNC_TIMEOUT_MS);
       });
       consecutiveSyncFailures = 0;
       syncBackoffUntilMs = 0;
@@ -180,43 +179,41 @@ async function runSync(): Promise<void> {
         if (!client)
           return { parsedNotes: [] as SerializedConsumableNote[], vaultAssets: [] as SerializedVaultAsset[] };
 
-        // Read consumable notes
-        const rawNotes = await client.getConsumableNotes(accountPubKey);
+        // Read consumable notes as DTOs (issue #260, slice 4). The reclaim gate
+        // + per-note reduction ran inside the client's realm — OFFSCREEN when the
+        // flag is on, so the gate uses the sync-running realm's height instead of
+        // a stale SW-inline one. Swap-order lineage inside classifySwapOrderNotes
+        // now routes through the proxy too (slice 7a), so it no longer needs `client`.
+        const rawNotes = await midenClientProxy.getConsumableNotes(accountPubKey);
         // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
         // custom transaction — hidden from the claimable UI until the user
         // confirms (or forever, if they cancel). See note-quarantine.ts.
         const quarantined = await getQuarantinedNoteIds();
-        const swapOrders = await classifySwapOrderNotes(rawNotes || [], accountPubKey, client, swapOrderRows);
-        const notes: SerializedConsumableNote[] = (rawNotes || [])
-          .map((note: any) => {
-            try {
-              // Partial (metadata-less) notes have no ID yet and cannot be
-              // consumed — skip until sync completes them.
-              const noteId = note.id()?.toString();
-              if (!noteId) return null;
-              if (quarantined.has(noteId)) return null;
-              const noteMeta = note.metadata();
-              const details = note.details();
-              const fungibleAssets = details.assets().fungibleAssets();
-              if (!fungibleAssets || fungibleAssets.length === 0) return null;
-              const firstAsset = fungibleAssets[0];
-              if (!firstAsset) return null;
-              return {
-                id: noteId,
-                faucetId: getBech32AddressFromAccountId(firstAsset.faucetId()),
-                amountBaseUnits: firstAsset.amount().toString(),
-                senderAddress: noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : '',
-                noteType: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown',
-                swapOrder: swapOrders.get(noteId)
-              };
-            } catch {
-              return null;
-            }
+        const swapOrders = await classifySwapOrderNotes(rawNotes, accountPubKey, swapOrderRows);
+        const notes: SerializedConsumableNote[] = rawNotes
+          .map((note): SerializedConsumableNote | null => {
+            // Partial (metadata-less) notes have no ID yet and cannot be
+            // consumed — skip until sync completes them.
+            const noteId = note.noteId;
+            if (!noteId) return null;
+            if (quarantined.has(noteId)) return null;
+            // Only the first fungible asset is surfaced (unchanged); an empty
+            // asset set means the note can't be displayed — skip it.
+            const firstAsset = note.assets[0];
+            if (!firstAsset) return null;
+            return {
+              id: noteId,
+              faucetId: firstAsset.faucetId,
+              amountBaseUnits: firstAsset.amount,
+              senderAddress: note.senderAccountId ?? '',
+              noteType: note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown',
+              swapOrder: swapOrders.get(noteId)
+            };
           })
           .filter(Boolean) as SerializedConsumableNote[];
 
         // Read vault assets
-        const account = await client.getAccount(accountPubKey);
+        const account = await midenClientProxy.getAccount(accountPubKey);
         const assets: SerializedVaultAsset[] = [];
         if (account) {
           const fungibleAssets = account.vault().fungibleAssets();
@@ -320,10 +317,25 @@ async function runSync(): Promise<void> {
         vaultAssets,
         accountPublicKey: accountPubKey
       };
-      chrome.storage.local.set({
-        miden_cached_consumable_notes: parsedNotes,
-        miden_sync_data: syncData
-      });
+      try {
+        // Use the webextension-polyfill `browser` (already imported for alarms)
+        // rather than raw `chrome.*`: on the Firefox/MV2 build `chrome.storage`
+        // is callback-based and would resolve the await immediately without ever
+        // rejecting, so `await chrome.storage…set` there is effectively still
+        // fire-and-forget. `browser` gives promise + error semantics on both.
+        await browser.storage.local.set({
+          miden_cached_consumable_notes: parsedNotes,
+          miden_sync_data: syncData
+        });
+      } catch (err) {
+        // A failed write (quota exceeded, storage unavailable) must not be
+        // swallowed silently: frontends read this cache, so on failure they keep
+        // the previous data until the next sync retries the write. Log it. The
+        // SyncCompleted signal below still fires — it only clears the sync
+        // indicator (the data itself is read from storage), so gating it would
+        // just hang that indicator without making the data any fresher.
+        console.warn('[SyncManager] Failed to persist sync data to local storage:', err);
+      }
 
       // Broadcast bare SyncCompleted as a signal (data is in chrome.storage.local)
       try {

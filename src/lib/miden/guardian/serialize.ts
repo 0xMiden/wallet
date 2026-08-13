@@ -61,6 +61,69 @@ export function isGuardianPendingConflict(err: unknown): boolean {
   return !/paused/i.test(detail);
 }
 
+/**
+ * A guardian `429` rate-limit rejection. The guardian declares these retryable
+ * (`meta.retryable`, `code: 'rate_limit_exceeded'`), so a value-moving
+ * transaction that hits one must not be failed terminally — see #617.
+ *
+ * Duck-typed rather than `instanceof GuardianHttpError` for the same reason as
+ * `isGuardianPendingConflict` above: it survives test mocks of the multisig
+ * client and any duplicate-package instance of the error class.
+ */
+export function isGuardianRateLimited(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  if ((err as { status?: unknown }).status === 429) return true;
+  return (err as { code?: unknown }).code === 'rate_limit_exceeded';
+}
+
+/**
+ * The guardian's requested cooldown for a rate-limited request, in seconds.
+ * Reads `meta.retryAfterSecs` (and the snake_case wire spelling), returning
+ * `undefined` when absent so callers can apply their own default.
+ */
+export function guardianRetryAfterSec(err: unknown): number | undefined {
+  if (!err || typeof err !== 'object') return undefined;
+  const meta = (err as { meta?: unknown }).meta;
+  if (!meta || typeof meta !== 'object') return undefined;
+  const raw =
+    (meta as { retryAfterSecs?: unknown }).retryAfterSecs ?? (meta as { retry_after_secs?: unknown }).retry_after_secs;
+  return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : undefined;
+}
+
+// Backoff for re-registering an account on its guardian after a key/guardian
+// rotation (consumed by `registerOnGuardianWithRetry` in ./index). Right after
+// the guardian accepts a rotation delta it can reject `/configure` for a few
+// seconds while it canonicalizes the new state; the capped exponential sequence
+// (1+2+4+8+8+8+8s ≈ 39s over 8 attempts) clears that window while still bounding
+// a genuinely-down guardian. Getting the budget wrong is costly: a re-register
+// that silently exhausts leaves the new hot key unauthorized, so every later
+// request then 401s ("session expired") until a re-register finally lands.
+export const GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS = 1000;
+export const GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS = 8000;
+// Ceiling for a server-provided Retry-After on a 429: high enough to honour the
+// guardian's own cooldown (seconds → ~a minute) instead of retrying under it and
+// earning another 429, bounded so a rate-limited re-register can't stall a
+// rotation for too long. (#619)
+export const GUARDIAN_REGISTER_RETRY_RATE_LIMITED_MAX_DELAY_MS = 60_000;
+
+/**
+ * Delay (ms) before the next `registerOnGuardian` retry. On a 429 that carries a
+ * server Retry-After, honour that cooldown (clamped to
+ * [base, rate-limited-max]) — the guardian just told us how long to wait, so a
+ * blind exponential retry only earns another 429. Otherwise fall back to the
+ * capped exponential backoff. (#619)
+ */
+export function guardianRegisterBackoffMs(error: unknown, attempt: number): number {
+  const retryAfterSec = isGuardianRateLimited(error) ? guardianRetryAfterSec(error) : undefined;
+  if (retryAfterSec !== undefined) {
+    return Math.min(
+      Math.max(retryAfterSec * 1000, GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS),
+      GUARDIAN_REGISTER_RETRY_RATE_LIMITED_MAX_DELAY_MS
+    );
+  }
+  return Math.min(GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS);
+}
+
 interface ConflictRetryOptions {
   maxAttempts?: number;
   delayMs?: number;

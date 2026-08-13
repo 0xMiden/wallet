@@ -38,8 +38,8 @@ export function attachConsoleCapture(
           type: msg.type(),
           text: msg.text(),
           url: page.url(),
-          location: msg.location(),
-        },
+          location: msg.location()
+        }
       });
     });
 
@@ -53,8 +53,8 @@ export function attachConsoleCapture(
           name: error.name,
           message: error.message,
           stack: error.stack,
-          url: page.url(),
-        },
+          url: page.url()
+        }
       });
     });
   };

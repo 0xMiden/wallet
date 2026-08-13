@@ -1,5 +1,15 @@
 import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
+import { toBaseUnits, vaultBalance, waitForPendingNoteTotal, waitForVaultBalance } from '../helpers/balance-truth';
+
+// The faucet every test in this file deploys (miden-cli.ts createFaucet defaults).
+const TOKEN = 'TST';
+const TOKEN_DECIMALS = 8;
+// Minted to wallet A in each test's create_on_a_and_fund step, in base units --
+// the literal passed to `midenCli.mint(...)` below.
+const FUND_BASE_UNITS = 100_000_000_000n;
+// The `amount: '1'` handed to `sendTokens` in the round-trip test, in base units.
+const SEND_BASE_UNITS = toBaseUnits('1', TOKEN_DECIMALS);
 
 // Switch-stress needs TWO distinct guardian operators: A the wallet's own,
 // B the one it switches to. Local containers on localhost; the real operators
@@ -94,9 +104,27 @@ test.describe('Guardian switch stress - kill mid-switch resumes', () => {
         await midenCli.init();
         const faucetId = await midenCli.createFaucet();
         await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+        // Discovery BEFORE claim: claimAllNotes stops on two empty pending reads,
+        // which is also true before the note has synced — claiming too early
+        // returns "drained" having consumed nothing, and the vault pin below then
+        // fails on a healthy run. Seen for real in guardian-switch.spec.ts.
+        await waitForPendingNoteTotal(walletA.page, TOKEN, FUND_BASE_UNITS, {
+          timeoutMs: 180_000,
+          decimals: TOKEN_DECIMALS
+        });
         await midenCli.sync();
 
         await walletA.claimAllNotes(180_000);
+
+        // claimAllNotes only drains the pending-note list; it does not prove the
+        // money became SPENDABLE. Pin the exact funded vault balance so a claim
+        // that silently no-oped fails here, in setup, instead of surfacing later
+        // as an unrelated switch/send failure. Fees are paid in native MIDEN, not
+        // TST, so the claimed note lands in the vault in full.
+        await waitForVaultBalance(walletA.page, TOKEN, FUND_BASE_UNITS, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
       },
       {
         screenshotWallets: [{ target: walletA.page, label: 'A' }]
@@ -212,9 +240,27 @@ test.describe('Guardian switch stress - register fault retries', () => {
         await midenCli.init();
         const faucetId = await midenCli.createFaucet();
         await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+        // Discovery BEFORE claim: claimAllNotes stops on two empty pending reads,
+        // which is also true before the note has synced — claiming too early
+        // returns "drained" having consumed nothing, and the vault pin below then
+        // fails on a healthy run. Seen for real in guardian-switch.spec.ts.
+        await waitForPendingNoteTotal(walletA.page, TOKEN, FUND_BASE_UNITS, {
+          timeoutMs: 180_000,
+          decimals: TOKEN_DECIMALS
+        });
         await midenCli.sync();
 
         await walletA.claimAllNotes(180_000);
+
+        // claimAllNotes only drains the pending-note list; it does not prove the
+        // money became SPENDABLE. Pin the exact funded vault balance so a claim
+        // that silently no-oped fails here, in setup, instead of surfacing later
+        // as an unrelated switch/send failure. Fees are paid in native MIDEN, not
+        // TST, so the claimed note lands in the vault in full.
+        await waitForVaultBalance(walletA.page, TOKEN, FUND_BASE_UNITS, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
       },
       {
         screenshotWallets: [{ target: walletA.page, label: 'A' }]
@@ -318,9 +364,22 @@ test.describe('Guardian switch stress - repeat round-trip', () => {
       await midenCli.init();
       faucetId = await midenCli.createFaucet();
       await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+      // Discovery BEFORE claim — see the note in the first test of this file.
+      await waitForPendingNoteTotal(walletA.page, TOKEN, FUND_BASE_UNITS, {
+        timeoutMs: 180_000,
+        decimals: TOKEN_DECIMALS
+      });
       await midenCli.sync();
 
       await walletA.claimAllNotes(180_000);
+
+      // Same exact funding pin as the other tests in this file: claimAllNotes
+      // draining the pending list is not the same as the money being spendable,
+      // and both of these tests go on to spend it.
+      await waitForVaultBalance(walletA.page, TOKEN, FUND_BASE_UNITS, {
+        timeoutMs: 120_000,
+        decimals: TOKEN_DECIMALS
+      });
     });
 
     await steps.step(
@@ -340,9 +399,28 @@ test.describe('Guardian switch stress - repeat round-trip', () => {
     await steps.step(
       'usable_after_round_trip',
       async () => {
+        // Snapshot A's SPENDABLE balance before the send so the debit below is
+        // asserted against what A actually held, not against the funding constant.
+        const vaultABefore = await vaultBalance(walletA.page, TOKEN);
+
         await walletA.sendTokens({ recipientAddress: addressB!, amount: '1', isPrivate: false, tokenSymbol: 'TST' });
-        const balanceB = await walletB.waitForBalanceAbove(0, 120_000);
-        expect(balanceB).toBeGreaterThan(0);
+
+        // B never claims, so this public send lands in B as an UNCONSUMED note --
+        // exactly 1 TST of it, not "some non-zero number for some token". Only
+        // native-faucet notes auto-consume (back/sync-manager.ts), so a TST note
+        // stays pending, which is why this is the note total and not the vault.
+        await waitForPendingNoteTotal(walletB.page, TOKEN, SEND_BASE_UNITS, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
+
+        // The other half of "still usable": A must actually have PAID. A credit
+        // to B without a matching debit on A is the bug the old `> 0` on B alone
+        // could never see. Exact, because the fee asset is native MIDEN, not TST.
+        await waitForVaultBalance(walletA.page, TOKEN, vaultABefore - SEND_BASE_UNITS, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
       },
       {
         screenshotWallets: [
@@ -414,9 +492,22 @@ test.describe('Guardian switch stress - concurrent send + switch', () => {
       await midenCli.init();
       const faucetId = await midenCli.createFaucet();
       await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+      // Discovery BEFORE claim — see the note in the first test of this file.
+      await waitForPendingNoteTotal(walletA.page, TOKEN, FUND_BASE_UNITS, {
+        timeoutMs: 180_000,
+        decimals: TOKEN_DECIMALS
+      });
       await midenCli.sync();
 
       await walletA.claimAllNotes(180_000);
+
+      // Same exact funding pin as the other tests in this file: claimAllNotes
+      // draining the pending list is not the same as the money being spendable,
+      // and both of these tests go on to spend it.
+      await waitForVaultBalance(walletA.page, TOKEN, FUND_BASE_UNITS, {
+        timeoutMs: 120_000,
+        decimals: TOKEN_DECIMALS
+      });
     });
 
     await steps.step(

@@ -1,61 +1,20 @@
-import { expect, test } from '../fixtures/two-wallets';
+import { test } from '../fixtures/two-wallets';
+import { offChainAxis, runMultiNoteClaimJourney } from '../helpers/money-path';
+
+// Three mints, then ONE claim pass. Asserting the sum matters: a per-note
+// `> 0` check goes green as soon as any one of them lands, which is exactly
+// the multi-note bug this spec exists to catch.
+//
+// This spec previously stopped at the pending total and never claimed, despite
+// its name — so the batching path it advertised had no coverage at all. The
+// journey now lives in helpers/money-path.ts and is shared with the guardian
+// leg, so a fix lands once instead of once per copy.
+const MINTS = [50_000_000_000n, 30_000_000_000n, 20_000_000_000n] as const;
 
 test.describe('Multi-Note Claiming', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('mint multiple notes and claim all', async ({
-    walletA,
-    walletB,
-    midenCli,
-    steps,
-    timeline,
-  }) => {
-    let addressA: string;
-
-    await steps.step('create_wallet', async () => {
-      const a = await walletA.createNewWallet();
-      // Create wallet B too (fixture requires both)
-      await walletB.createNewWallet();
-      addressA = a.address;
-    });
-
-    let faucetId: string;
-
-    await steps.step('deploy_faucet', async () => {
-      await midenCli.init();
-      faucetId = await midenCli.createFaucet();
-    });
-
-    await steps.step('mint_note_1', async () => {
-      await midenCli.mint(faucetId, addressA!, 50_000_000_000, 'public');
-      await midenCli.sync();
-    });
-
-    await steps.step('mint_note_2', async () => {
-      await midenCli.mint(faucetId, addressA!, 30_000_000_000, 'public');
-      await midenCli.sync();
-    });
-
-    await steps.step('mint_note_3', async () => {
-      await midenCli.mint(faucetId, addressA!, 20_000_000_000, 'public');
-      await midenCli.sync();
-    });
-
-    await steps.step('sync_and_verify_total_balance', async () => {
-      // Total minted: 100_000_000_000 base units = 1000 tokens with 8 decimals
-      // Wait for balance to reflect all mints
-      const balance = await walletA.waitForBalanceAbove(0, 180_000, timeline);
-      expect(balance).toBeGreaterThan(0);
-
-      timeline.emit({
-        category: 'blockchain_state',
-        severity: 'info',
-        message: `Final balance after multi-claim: ${balance}`,
-        data: { balance },
-      });
-    }, {
-      captureStateFrom: [{ target: walletA.page, label: 'A', extensionId: walletA.extensionId }],
-      screenshotWallets: [{ target: walletA.page, label: 'A' }],
-    });
+  test('mint multiple notes and claim all', async ({ walletA, walletB, midenCli, steps, timeline }) => {
+    await runMultiNoteClaimJourney({ walletA, walletB, midenCli, steps, timeline, axis: offChainAxis }, MINTS);
   });
 });

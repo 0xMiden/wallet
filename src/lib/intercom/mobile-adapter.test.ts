@@ -94,16 +94,23 @@ describe('MobileIntercomAdapter', () => {
       });
     });
 
-    it('handles NewWalletRequest', async () => {
+    it('handles NewWalletRequest (forwarding the picked guardianEndpoint)', async () => {
       const response = await adapter.request({
         type: WalletMessageType.NewWalletRequest,
         walletType: 'on-chain',
         password: 'test123',
         mnemonic: 'word1 word2 word3',
-        ownMnemonic: false
+        ownMnemonic: false,
+        guardianEndpoint: 'https://guardian.example'
       } as any);
 
-      expect(Actions.registerNewWallet).toHaveBeenCalledWith('on-chain', 'test123', 'word1 word2 word3', false);
+      expect(Actions.registerNewWallet).toHaveBeenCalledWith(
+        'on-chain',
+        'test123',
+        'word1 word2 word3',
+        false,
+        'https://guardian.example'
+      );
       expect(response).toEqual({ type: WalletMessageType.NewWalletResponse });
     });
 

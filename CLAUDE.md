@@ -77,6 +77,10 @@ Wrap platform-specific fixes with `isIOS()`/`isAndroid()`/`isMobile()` from `lib
 ### Haptics on tappable components
 Add `hapticLight()` (taps), `hapticMedium()` (toggles), `hapticSelection()` (tabs) from `lib/mobile/haptics`. Auto-checks `isMobile()` and user setting.
 
+## Frontend UI, CSS, and Motion
+
+Read `skills/miden-wallet-frontend/SKILL.md` before implementing or reviewing wallet UI, CSS, motion, layout, or interaction changes. Reuse existing wallet components and semantic theme tokens before adding primitives or literal styles. Keep component-specific animation out of `src/main.css`; route nontrivial motion through Framer Motion and the reduced-motion-aware spring helpers. Interactive UI must use accessible semantics, appropriate haptics, localization, and platform isolation, then be verified on every affected surface.
+
 ### Mobile file downloads
 `<a download>` does nothing in WebView. Use `Filesystem.writeFile` + `Share.share` from `@capacitor/{filesystem,share}` when `isMobile()`.
 
@@ -98,7 +102,7 @@ The in-progress transaction view (`src/screens/generating-transaction/Generating
 
 **Why this shape (history).** The page began as a modal that watched the *whole queue* (`getAllUncompletedTransactions()`) and had to *guess* which tx it was showing (`pickActiveTx`), infer completion from the queue going empty, and infer failure by counting failed rows. Those heuristics existed only because the row **drops out of the uncompleted list the instant it completes** — so the page needed shadow state (`receiptTransaction`) to re-find it. Watching by id fixes the root cause: the row never disappears (`Queued → GeneratingTransaction → Completed | Failed`), so status alone is authoritative and all that scaffolding is gone. The FIFO processing loop (`safeGenerateTransactionsLoop` in `src/lib/miden/transaction/index.ts`) and the page's own `setInterval` driver are **unchanged** — the page still kicks the loop on mobile/desktop and is a pure observer on extension (SW owns the loop). Observing one row and draining the FIFO queue are orthogonal: the driver is not scoped to `txId`. Hiding the page mid-tx is safe because the in-flight `generateTransaction` promise isn't cancelled by unmount.
 
-**`send` and `swap` variants exist**: send renders `{amount} {symbol} → {recipient}`; swap renders `(logo) {amount} {symbol} → (logo) {amount} {symbol}`. The badge returns `null` for every other transaction type. Future agents should extend it per type.
+**`send`, `swap` and `consume` variants exist**: send renders `{amount} {symbol} → {recipient}`; swap renders `(logo) {amount} {symbol} → (logo) {amount} {symbol}`; consume renders `{amount} {symbol} → Consumed` (nothing when the consume has no amount). The badge returns `null` for every other transaction type. Future agents should extend it per type. On the success receipt (`success/receipt.ts`), consume rows relabel: address row = "From" (note sender), amount row = "Total Consumed", plus a "Notes Consumed" row listing `noteIds`; the hash row is labeled "Transaction ID" for all types.
 
 **Data source**: the tracked `ITransaction`, passed in as the `activeTransaction` prop (= the row from `useTransactionRow`). Fields populated per `ITransactionType` (see the `Transaction` subclasses in `src/lib/miden/db/types.ts`):
 - `send` → `amount`, `faucetId` (token), `secondaryAccountId` = **recipient address**.
@@ -109,7 +113,7 @@ The in-progress transaction view (`src/screens/generating-transaction/Generating
 
 **Token symbol/logo**: `useWalletStore(s => s.assetsMetadata)[faucetId]` → `AssetMetadata` (`symbol`, `decimals`, `thumbnailUri`); native fallback `MIDEN_METADATA` (`lib/miden/metadata`). Miden network logo: `IconName.MidenLogo`. To add a variant, add a branch in `TransactionSummaryBadge`; keep returning `null` when there's no meaningful summary so no empty pill renders.
 
-**Per-step timing ("2 sec" on each step row) is built, frontend-only.** `GeneratingTransaction` stamps `startTimeForStep`/`endTimeForStep` (arrays indexed by UI step) in a `useEffect` on `activeStage`: step 0 runs `creating-proposal`→`sending`, step 1 `sending`→`submitting`, step 2 `submitting`→first post-submit stage (`confirming`/`registering-guardian`/`delivering`, stamped once via `step3StartedRef`), and the last started step ends when `transactionComplete` flips (there is no `'complete'` stage — completion is status-driven). Durations render via the `meta` prop on `TransactionStepRow` (right-aligned muted text, `transactionStepDurationSec` key). Deliberately NOT persisted on `ITransaction` — timings are component-local and reset on remount / next tx (the `creating-proposal` case resets both arrays).
+**Per-step timing ("2 sec" on each step row) is built, frontend-only.** `GeneratingTransaction` stamps `startTimeForStep`/`endTimeForStep` (arrays indexed by UI step) in a `useEffect` on `activeStage`: step 0 runs `creating-proposal`→`sending`, step 1 `sending`→`submitting`, step 2 `submitting`→first post-submit stage (`confirming`/`registering-guardian`/`delivering`, stamped once via `step3StartedRef`), and the last started step ends when `transactionComplete` flips (step timings key off `transactionComplete`, not the stage; completion additionally stamps `stage = 'complete'` in `updateTransactionStatus` — #618 — so `activeStage` CAN be `'complete'` on a finished row). Durations render via the `meta` prop on `TransactionStepRow` (right-aligned muted text, `transactionStepDurationSec` key). Deliberately NOT persisted on `ITransaction` — timings are component-local and reset on remount / next tx (the `creating-proposal` case resets both arrays).
 
 **Deferred — NOT built yet (the mock shows these, intentionally skipped):**
 - **Bridge step labels** ("Submitting to Base", "via Epoch"). The in-protocol token→token swap badge is **now built** (see the `swap` bullet above), but the bridge-specific step labels are still deferred — there's no backend producer for bridged `extraInputs` and no chain-id→name map. `IBridgedSendExtraInputs`/`IBridgeProvider` are defined in `src/lib/miden/db/types.ts` but nothing populates them yet.
@@ -198,6 +202,10 @@ iOS-specific product notes:
 
 ### E2E test hooks
 `MIDEN_E2E_TEST=true` exposes `window.__TEST_STORE__` (Zustand) and `window.__TEST_INTERCOM__`. Zero production impact.
+
+**Keep it a hook flag, not a behaviour switch.** Suppressing real product behaviour under `MIDEN_E2E_TEST` makes that behaviour permanently untestable — it can't be reached from any E2E run. The two existing opt-outs have their own flags, set by the `test:e2e:*:build` scripts (and defined in each `vite.*.config.ts` — an env read that isn't `define`d throws at runtime, the extension bundle has no `process` global):
+- `MIDEN_E2E_DISABLE_SIDEPANEL` — keeps onboarding in-tab (`lib/extension/side-panel-handoff.ts`); a suite that wants to drive the real side panel builds without it.
+- `MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES` — makes `loadEndpointOverrides()` a no-op so the build-baked network wins (`lib/miden-chain/effective-endpoints.ts`).
 
 ## Testing
 

@@ -37,6 +37,7 @@ import type { AuthScheme } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { NoteExportType } from './constants';
+import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
 import { getBech32AddressFromAccountId } from './helpers';
 import { yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
@@ -124,7 +125,21 @@ export type MidenClientCreateOptions = {
   getKeyCallback?: (key: Uint8Array) => Promise<Uint8Array>;
   signCallback?: (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;
   onConnectivityIssue?: () => void;
+  /**
+   * Override the SDK's Web-Worker shim (issue #260, slice 5, design §5.2).
+   * Defaults to `!isMobile()` (the historical behavior). The offscreen document
+   * passes `false` so its client runs on the doc's own multi-threaded main-thread
+   * WASM instance (rayon pool) instead of a method-worker with an un-pooled
+   * single-threaded instance — required for MT proving in-realm AND for the
+   * keystore sign callback / `lastAuthError` to be reachable (both are
+   * "meaningful only with `useWorker:false`" per the SDK).
+   */
+  useWorker?: boolean;
 };
+
+// Re-export the slice-4 consumable-note DTO from the interface too, so callers
+// that already import note types from here get it in one place.
+export type { ConsumableNoteAsset, ConsumableNoteDto } from './consumable-notes';
 
 export type InputNoteDetails = {
   noteId: string;
@@ -231,8 +246,10 @@ export class MidenClientInterface {
       //    bypassing the native bridge. Opt out so the callback survives.
       //
       // The `useWorker` option lands in `@miden-sdk/miden-sdk@0.14.9`
-      // (web-sdk PR #149).
-      useWorker: !isMobile()
+      // (web-sdk PR #149). Default `!isMobile()`; the offscreen document
+      // overrides to `false` (issue #260, slice 5, design §5.2 — see
+      // MidenClientCreateOptions.useWorker).
+      useWorker: options.useWorker ?? !isMobile()
     });
 
     return new MidenClientInterface(midenClient, network);
@@ -248,6 +265,13 @@ export class MidenClientInterface {
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array, auth?: AuthScheme): Promise<string> {
     if (walletType === WalletType.Guardian) {
+      // NOTE: Guardian creation never reaches here — Vault.spawn and
+      // createHDAccount always route Guardian to createGuardianMidenWallet
+      // (which threads the picked endpoint). This branch passes no endpoint
+      // override, so createGuardianAccount binds to the network default (the
+      // frozen global key is no longer consulted for NEW accounts — #408
+      // stage 3). If anything ever routes Guardian through createMidenWallet for
+      // a non-default operator, thread the per-account endpoint here.
       const { createGuardianAccount } = await import('../guardian/account');
       const { account } = await createGuardianAccount(this.client, seed);
       return getBech32AddressFromAccountId(account.id());
@@ -270,10 +294,21 @@ export class MidenClientInterface {
    * ciphertext + cold secret-key bytes the wallet must persist (vault wraps
    * both before writing them to storage).
    */
-  async createGuardianMidenWallet(coldSeed?: Uint8Array): Promise<GuardianAccountCreationResult> {
+  async createGuardianMidenWallet(
+    coldSeed?: Uint8Array,
+    guardianEndpoint?: string
+  ): Promise<GuardianAccountCreationResult> {
     const { createGuardianAccount } = await import('../guardian/account');
-    const { account, keys, guardianEndpoint } = await createGuardianAccount(this.client, coldSeed);
-    return { accountId: getBech32AddressFromAccountId(account.id()), keys, guardianEndpoint };
+    // Forward the caller's picked endpoint as the override so the account binds
+    // to it (stage 1 of #408). When undefined, createGuardianAccount binds to
+    // the network default (the frozen global key is no longer consulted for NEW
+    // accounts — #408 stage 3).
+    const {
+      account,
+      keys,
+      guardianEndpoint: usedEndpoint
+    } = await createGuardianAccount(this.client, coldSeed, false, guardianEndpoint);
+    return { accountId: getBech32AddressFromAccountId(account.id()), keys, guardianEndpoint: usedEndpoint };
   }
 
   async importMidenWallet(accountBytes: Uint8Array): Promise<string> {
@@ -473,6 +508,23 @@ export class MidenClientInterface {
 
   async sendPrivateNote(note: Note, to: string): Promise<void> {
     await this.client.notes.sendPrivate({ note, to });
+  }
+
+  /**
+   * Consumable notes reduced to plain, JSON-safe {@link ConsumableNoteDto}s
+   * (issue #260, slice 4).
+   *
+   * This is the DTO-returning form the offscreen proxy routes through. Its whole
+   * point is that the reclaim gate inside {@link getConsumableNotes}
+   * (`consumableAfterBlock() <= getSyncHeight()`) AND the per-note reduction run
+   * in the SAME realm — so when the flag is on and `syncState` ran offscreen, the
+   * gate uses the offscreen (sync-running) realm's height rather than a stale
+   * SW-inline height. The reduction is behavior-preserving: it relocates the exact
+   * reach-through the callers used into one shared reducer.
+   */
+  async getConsumableNoteDtos(accountId: string): Promise<ConsumableNoteDto[]> {
+    const records = await this.getConsumableNotes(accountId);
+    return reduceConsumableNoteRecords(records);
   }
 
   async getConsumableNotes(accountId: string): Promise<InputNoteRecord[]> {

@@ -3,8 +3,6 @@ import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
   DEFAULT_DELEGATE_PROOF,
   DELEGATE_PROOF_STORAGE_KEY,
-  DEFAULT_AUTO_CLOSE,
-  AUTO_CLOSE_STORAGE_KEY,
   AUTO_CONSUME_STORAGE_KEY,
   DEFAULT_AUTO_CONSUME,
   BG_SETTINGS_MIRRORED_KEY,
@@ -68,14 +66,6 @@ export function isDelegateProofEnabled() {
  */
 export function isDelegateProofEnabledAsync(): Promise<boolean> {
   return readMirroredSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
-}
-
-export function setAutoCloseSetting(enabled: boolean) {
-  setSetting(AUTO_CLOSE_STORAGE_KEY, enabled);
-}
-
-export function isAutoCloseEnabled() {
-  return getSetting(AUTO_CLOSE_STORAGE_KEY, DEFAULT_AUTO_CLOSE);
 }
 
 export function setAutoConsumeSetting(enabled: boolean) {

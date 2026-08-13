@@ -1,5 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 
+import { captureEpochTraffic, waitForFastQuote } from './epoch-quote';
 import type { MidenCli } from './miden-cli';
 import { swOf } from './swap';
 import type { ChromeWalletPageApi } from './wallet-page';
@@ -89,6 +90,9 @@ export interface BridgeOutFastOptions {
 export async function bridgeOutFast(wallet: Wallet, opts: BridgeOutFastOptions): Promise<void> {
   const { page, extensionId } = wallet;
   const step = opts.stepTimeoutMs ?? 30_000;
+  // Record Epoch HTTP from the very start so a quote failure can name the status
+  // and body rather than just timing out.
+  const epochTraffic = captureEpochTraffic(page);
 
   await page.goto(`chrome-extension://${extensionId}/fullpage.html#/send`);
   await expect(page.getByTestId('send-flow')).toBeVisible({ timeout: step });
@@ -113,12 +117,22 @@ export async function bridgeOutFast(wallet: Wallet, opts: BridgeOutFastOptions):
 
   // Route: Fast (Epoch) is the default. Selecting it explicitly guards against a
   // default change. The confirm button is never disabled, so gate on the real
-  // signal instead: the Fast card renders a live Epoch forward-quote fee ("$X.XX")
-  // once the quote resolves (a "—"/skeleton until then), so wait for that dollar
-  // value — that genuinely exercises the forward-quote before we submit.
+  // signal: the forward quote actually resolving.
+  //
+  // We assert on the QUOTE STATE, not on the "$" the fee renders. `fastFeeUsd` is
+  // undefined for three unrelated reasons — not a bridge route, no token, no quote
+  // — and all three paint the same "—", so a text assertion cannot say which
+  // happened, and `$0.00` from a missing fiat price would pass it. On failure this
+  // reports the hook's own error plus the Epoch HTTP status/body.
   await expect(flow.getByTestId('bridge-route-fast')).toBeVisible({ timeout: step });
   await flow.getByTestId('bridge-route-fast').click();
-  await expect(flow.getByTestId('bridge-route-fast')).toContainText('$', { timeout: opts.quoteTimeoutMs ?? 60_000 });
+  const quote = await waitForFastQuote(page, epochTraffic, { timeoutMs: opts.quoteTimeoutMs ?? 60_000 });
+  // The fee the user sees must also render — the quote resolving in state while the
+  // card still shows "—" is a real (and otherwise invisible) UI regression.
+  await expect(
+    flow.getByTestId('bridge-route-fast'),
+    `quote resolved (${quote.amount} ${quote.symbol}) but the Fast card shows no fee`
+  ).toContainText('$', { timeout: 15_000 });
   await flow.getByTestId('bridge-route-confirm').click();
 
   // Review -> submit -> generating-transaction.

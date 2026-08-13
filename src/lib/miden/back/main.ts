@@ -2,16 +2,22 @@ import { Runtime } from 'webextension-polyfill';
 
 import * as Actions from 'lib/miden/back/actions';
 import { intercom } from 'lib/miden/back/defaults';
+import { handleOffscreenSignRequest, markOpStarted, midenClientProxy } from 'lib/miden/back/miden-client-proxy';
+import {
+  OFFSCREEN_OP_STARTED,
+  OFFSCREEN_SIGN_REQUEST,
+  SW_TARGET,
+  type OffscreenSignRequest
+} from 'lib/miden/back/offscreen-codec';
 import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/speculation-manager';
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync } from 'lib/miden/back/sync-manager';
-import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
+import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
-import { SerializedInputNoteDetail, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
+import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
 import { NoteExportType } from '../sdk/constants';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenMessageType } from '../types';
 
@@ -22,6 +28,7 @@ let frontStore: ReturnType<typeof store.map> | null = null;
 export async function start() {
   console.log('Miden background script started');
   intercom.onRequest(processRequest);
+  registerOffscreenSignHandler();
 
   // NOTE: The Vite sw-patches plugin injects await init_*() calls here
   // (between intercom registration and Actions.init)
@@ -67,6 +74,60 @@ export async function start() {
   intercom.broadcast({ type: WalletMessageType.StateUpdated });
 }
 
+// Guard so a repeated start() (defensive) doesn't stack duplicate listeners.
+let offscreenSignHandlerRegistered = false;
+
+/**
+ * Register the SW-side reverse-IPC sign listener (issue #260, slice 5, design §2.4).
+ *
+ * When the flag-on offscreen write reaches its execute step, the offscreen
+ * client's `keystore.sign` stub posts an `OFFSCREEN_SIGN_REQUEST` (targeted at
+ * the SW). The SW signs via `swSignCallback` — the SAME vault signer the inline
+ * path uses — and responds with raw signature bytes; the reverse-IPC handler
+ * also pauses/re-arms the op's deadline and records a locked-mid-sign reason so
+ * the consume DEFERS (issue #313). Only bytes cross; no SDK handle.
+ *
+ * This rides a raw `chrome.runtime.onMessage` listener (like the offscreen
+ * prover's `OFFSCREEN_READY`), distinct from the intercom hub. The tight
+ * `target === 'sw' && type === OFFSCREEN_SIGN_REQUEST` guard means every other
+ * message (intercom traffic, `OFFSCREEN_READY`, `OFFSCREEN_CALL` responses)
+ * falls straight through. No-op when `chrome.runtime.onMessage` is unavailable
+ * (non-extension bundles), where the offscreen flag is hardcoded off anyway.
+ */
+function registerOffscreenSignHandler(): void {
+  if (offscreenSignHandlerRegistered) return;
+  if (typeof chrome === 'undefined' || !chrome.runtime?.onMessage?.addListener) return;
+  offscreenSignHandlerRegistered = true;
+  chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse: (r?: unknown) => void) => {
+    // A SW-targeted message is either an OFFSCREEN_SIGN_REQUEST or an
+    // OFFSCREEN_OP_STARTED (distinct `type` literals), so type `m` loosely and
+    // discriminate on `type` below.
+    const m = msg as { target?: string; type?: string; op_id?: string; sign_id?: string } | undefined;
+    if (m?.target !== SW_TARGET) return false;
+    // Execution-start signal (issue #260 flip-prep #3): the op named by `op_id`
+    // has won the offscreen WASM mutex and is about to execute — arm its write
+    // deadline now. Fire-and-forget: no async response, so don't hold the port.
+    if (m.type === OFFSCREEN_OP_STARTED) {
+      if (typeof m.op_id === 'string') markOpStarted(m.op_id);
+      return false;
+    }
+    if (m.type !== OFFSCREEN_SIGN_REQUEST) return false;
+    handleOffscreenSignRequest(msg as OffscreenSignRequest, swSignCallback).then(sendResponse, (err: unknown) => {
+      // The handler already classifies vault errors; a throw here is an
+      // unexpected internal fault. Respond ok:false so the offscreen sign stub
+      // rejects (failing the write) rather than hanging on a dropped response.
+      sendResponse({
+        ok: false,
+        sign_id: m.sign_id ?? '',
+        error: err instanceof Error ? err.message : String(err),
+        reason: 'internal'
+      });
+    });
+    // Returning true tells Chrome we'll call sendResponse asynchronously.
+    return true;
+  });
+}
+
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
   switch (req?.type) {
     case WalletMessageType.SyncRequest:
@@ -81,19 +142,24 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return { type: WalletMessageType.ProcessTransactionsResponse };
     case WalletMessageType.ImportNoteBytesRequest: {
       const noteBytes = new Uint8Array(Buffer.from(req.noteBytes, 'base64'));
+      // Byte-identical twin of the `importAllNotes` site slice 7a already routed:
+      // under the flag the note MUST land in the OFFSCREEN store (the realm that
+      // syncs + consumes), or a private note whose bytes are its only copy is
+      // stranded in the dormant SW store. Both the import and the trailing sync
+      // route through the proxy (reusing its existing methods); flag-OFF each is a
+      // pass-through to the same inline client under this lock, so the behavior is
+      // byte-identical to before.
       const noteId = await withWasmClientLock(async () => {
-        const client = await getMidenClient();
-        const id = await client.importNoteBytes(noteBytes);
-        await client.syncState();
+        const id = await midenClientProxy.importNoteBytes(noteBytes);
+        await midenClientProxy.syncState();
         return id;
       });
       return { type: WalletMessageType.ImportNoteBytesResponse, noteId };
     }
     case WalletMessageType.ExportNoteRequest: {
-      const exportedBytes = await withWasmClientLock(async () => {
-        const client = await getMidenClient();
-        return client.exportNote(req.noteId, NoteExportType.DETAILS);
-      });
+      const exportedBytes = await withWasmClientLock(async () =>
+        midenClientProxy.exportNote(req.noteId, NoteExportType.DETAILS)
+      );
       const exportedB64 = Buffer.from(exportedBytes).toString('base64');
       return { type: WalletMessageType.ExportNoteResponse, noteBytes: exportedB64 };
     }
@@ -101,34 +167,14 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       if (!req.noteIds.length) {
         return { type: WalletMessageType.GetInputNoteDetailsResponse, notes: [] };
       }
-      const serialized: SerializedInputNoteDetail[] = await withWasmClientLock(async () => {
-        const client = await getMidenClient();
-        const results: SerializedInputNoteDetail[] = [];
-        for (const noteId of req.noteIds) {
-          try {
-            const record = await client.getInputNote(noteId);
-            if (!record) continue;
-            const assets = record
-              .details()
-              .assets()
-              .fungibleAssets()
-              .map((a: any) => ({
-                amount: a.amount()?.toString() ?? '0',
-                faucetId: a.faucetId() ? getBech32AddressFromAccountId(a.faucetId()) : ''
-              }));
-            results.push({
-              noteId,
-              state: record.state()?.toString() ?? 'Unknown',
-              assets,
-              nullifier: record.nullifier()?.toString() ?? ''
-            });
-          } catch {
-            // Skip notes that can't be found
-          }
-        }
-        return results;
-      });
-      return { type: WalletMessageType.GetInputNoteDetailsResponse, notes: serialized };
+      // Route through the proxy so flag-ON the invalid-note detection reads the
+      // OFFSCREEN client's canonical synced state, not the dormant SW store (issue
+      // #260, slice 7-reads). Flag-OFF the proxy runs the exact same per-id
+      // getInputNote loop + reach-through reduction inline under this lock, so the
+      // response is byte-identical to before. The caller owns the WASM lock (as with
+      // the other flag-off proxy reads), so keep the withWasmClientLock wrapper.
+      const notes = await withWasmClientLock(async () => midenClientProxy.getSerializedInputNoteDetails(req.noteIds));
+      return { type: WalletMessageType.GetInputNoteDetailsResponse, notes };
     }
     case WalletMessageType.SpeculateSendRequest: {
       // Fire-and-forget. SpeculationManager queues at most one pending; if
@@ -171,7 +217,13 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     case WalletMessageType.NewWalletRequest:
       console.log('[processRequest] NEW_WALLET_REQUEST received, calling registerNewWallet...');
       try {
-        await Actions.registerNewWallet(req.walletType, req.password, req.mnemonic, req.ownMnemonic);
+        await Actions.registerNewWallet(
+          req.walletType,
+          req.password,
+          req.mnemonic,
+          req.ownMnemonic,
+          req.guardianEndpoint
+        );
         console.log('[processRequest] registerNewWallet completed successfully');
       } catch (err: unknown) {
         console.error('[processRequest] registerNewWallet FAILED:', err);

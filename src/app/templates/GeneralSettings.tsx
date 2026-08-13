@@ -92,6 +92,7 @@ const GeneralSettings: FC = () => {
         name="delegateEnabled"
         testID={GeneralSettingsSelectors.DelegateToggle}
         title={t('delegateProofSettings')}
+        description={t('delegateProofSettingsDescription')}
       />
 
       <SettingToggle

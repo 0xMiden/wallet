@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "アカウント ＃： $number$ ",
-    "englishSource": "Account #: $number$",
+    "message": "住所： $number$ ",
+    "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -1068,6 +1068,10 @@
     "message": "利用規約",
     "englishSource": "Terms of Service"
   },
+  "sendFeedback": {
+    "message": "フィードバックを送信する",
+    "englishSource": "Send feedback"
+  },
   "termsOfUse": {
     "message": "利用規約",
     "englishSource": "Terms of Use"
@@ -1337,6 +1341,10 @@
   "delegateProofSettings": {
     "message": "代理証明の生成",
     "englishSource": "Delegate Proof Generation"
+  },
+  "delegateProofSettingsDescription": {
+    "message": "オンにすると、トランザクション証明がリモート サーバー上で生成されます。デバイスへの大規模なダウンロードを必要とせず、より高速に生成され、キーがデバイスから離れることはありません。オフの場合、またはサービスが利用できない場合、ウォレットはローカルで証明されます。プライベート性は高くなりますが、速度が遅くなり、一度に大量のダウンロードが必要になります。",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
   },
   "transfer": {
     "message": "送金",
@@ -1662,6 +1670,30 @@
     "message": "今すぐ資金を投入",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "ウォレットに資金を供給する",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "faucet からトークンをリクエストしています…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "ウォレットに資金が投入されました",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "トークンは現在準備中であり、間もなく表示されます。",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "資金調達に失敗しました",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "あなたのウォレットに資金を投入できませんでした。もう一度試してください。",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "保留中Notesがあります",
     "englishSource": "You have Pending Notes"
@@ -1804,6 +1836,10 @@
     "message": "請求",
     "englishSource": "Claim"
   },
+  "clear": {
+    "message": "クリア",
+    "englishSource": "Clear"
+  },
   "midenWallet": {
     "message": "パン！",
     "englishSource": "Bread!"
@@ -1937,8 +1973,8 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "セキュリティ ポリシーに基づいてトランザクションを承認または拒否します。デバイスを紛失した場合の回復に役立ちます。",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "すべての取引に連署します。デバイスもガーディアンも単独で資金を移動することはできません。デバイスを紛失した場合にアカウントを回復するのに役立ちます。",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "できないこと",
@@ -1953,8 +1989,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "回復フレーズを使用していつでも別のガーディアンにローテーションしたり、ガーディアンを完全に削除したりできます。",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "回復フレーズを使用していつでも別のガーディアンに切り替えることができます。変更には誰が共同署名するかのみです。アカウントと資金はそのまま残ります。",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "わかった",
@@ -2287,6 +2323,26 @@
     "message": "プロバイダー",
     "englishSource": "Provider"
   },
+  "guardianEndpointLabel": {
+    "message": "終点",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "地域",
+    "englishSource": "Region"
+  },
+  "guardianLastSync": {
+    "message": "最終同期",
+    "englishSource": "Last sync"
+  },
+  "guardianRotationComplete": {
+    "message": "ガーディアンが更新されました！",
+    "englishSource": "Guardian Updated!"
+  },
+  "online": {
+    "message": "オンライン",
+    "englishSource": "Online"
+  },
   "reviewRotation": {
     "message": "ローテーションの見直し",
     "englishSource": "Review rotation"
@@ -2294,6 +2350,14 @@
   "newLabel": {
     "message": "新しい",
     "englishSource": "New"
+  },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "この Guardian スイッチを承認するには認証を行ってください。",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "認証は利用できません。ガーディアンを切り替える前にもう一度お試しください。",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
     "message": "ウォレットキー（ホット）",
@@ -2431,6 +2495,10 @@
     "message": "無効なMidenアカウントIDです",
     "englishSource": "Invalid Miden account ID"
   },
+  "midenAddressWrongNetwork": {
+    "message": "このアドレスは別の Miden ネットワークに属しています",
+    "englishSource": "This address belongs to a different Miden network"
+  },
   "cannotSendToSelf": {
     "message": "自分の住所には送れない",
     "englishSource": "You can't send to your own address"
@@ -2444,8 +2512,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "ミデン Faucet から notes を自​​動的に消費します",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "受信した MIDEN notes を残高に自動的に請求します。「請求」をタップするのと同じです。資金を費やしたり、手数料を追加したりすることはありません。",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "暗号化されたウォレットファイル",
@@ -2529,12 +2597,12 @@
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
-    "message": "このウィンドウを閉じないでください。トランザクションが生成されると、ホームページに戻ります。",
-    "englishSource": "Do not close this window. You will be navigated back to the home page after the transaction is generated"
+    "message": "トランザクションが生成されるまでこのウィンドウを閉じないでください",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "doNotCloseWindowAutoClose": {
-    "message": "このウィンドウを閉じないでください。トランザクションが生成されるとウィンドウは自動的に閉じます",
-    "englishSource": "Do not close this window. Window will auto-close after the transaction is generated"
+    "message": "トランザクションが生成されるまでこのウィンドウを閉じないでください",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "transactionSuccessDescription": {
     "message": "あなたのトランザクションは正常に処理され、ネットワーク上で確認されました。",
@@ -2579,6 +2647,10 @@
   "viewInActivities": {
     "message": "アクティビティで見る",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "アクティビティの表示",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "詳細を見る",
@@ -2920,6 +2992,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ 個が未解決",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "申請に失敗しました — [再試行] をタップして再試行します",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "この note は利用できなくなりました",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "保留中 notes",
     "englishSource": "Pending notes"
@@ -3239,6 +3328,22 @@
   "scanCancelled": {
     "message": "スキャンがキャンセルされました",
     "englishSource": "Scan cancelled"
+  },
+  "scanQrTitle": {
+    "message": "QRコードをスキャンします",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "QRコードにカメラを向けます",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "カメラが見つかりません",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "カメラへのアクセスをリクエストしています…",
+    "englishSource": "Requesting camera access…"
   },
   "scan": {
     "message": "スキャン",
@@ -3821,9 +3926,21 @@
     "message": "Total Paid",
     "englishSource": "Total Paid"
   },
+  "totalConsumed": {
+    "message": "総消費量",
+    "englishSource": "Total Consumed"
+  },
+  "notesConsumed": {
+    "message": "Notes 消費",
+    "englishSource": "Notes Consumed"
+  },
+  "consumed": {
+    "message": "消費された",
+    "englishSource": "Consumed"
+  },
   "sourceTx": {
-    "message": "Source TX",
-    "englishSource": "Source TX"
+    "message": "トランザクションID",
+    "englishSource": "Transaction ID"
   },
   "developerSettingsTitle": {
     "message": "開発者設定",

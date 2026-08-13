@@ -2,6 +2,7 @@ import { FungibleAsset } from '@miden-sdk/miden-sdk/lazy';
 import BigNumber from 'bignumber.js';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
+import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { fetchFromStorage } from 'lib/miden/front';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
@@ -112,8 +113,7 @@ export async function fetchBalances(
   // the read closes that window; the non-blocking try means we skip (not queue)
   // when the lock is busy, so we never stall behind long writes.
   const read = await tryWithWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
-    const acc = await midenClient.getAccount(address);
+    const acc = await midenClientProxy.getAccount(address);
 
     // E2E-only: capture a Guardian account's on-chain auth structure while we
     // already hold the account, so `__TEST_GUARDIAN_AUTH__` can read it as a

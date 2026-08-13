@@ -69,6 +69,14 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticMedium: jest.fn()
 }));
 
+// External-browser helper: window.open a new tab on desktop / native
+// InAppBrowser overlay on mobile. Mocked so the "Send feedback" row can be
+// asserted without touching the real platform bridge.
+const mockOpenExternalUrl = jest.fn();
+jest.mock('lib/mobile/external-browser', () => ({
+  openExternalUrl: (...args: unknown[]) => mockOpenExternalUrl(...args)
+}));
+
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
   goBack: jest.fn()
@@ -107,7 +115,11 @@ jest.mock('lib/ui/drawer', () => ({
     </div>
   ),
   DrawerContent: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-content">{children}</div>,
-  DrawerHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DrawerHeader: ({ className, children }: { className?: string; children: React.ReactNode }) => (
+    <div data-testid="drawer-header" data-classname={className}>
+      {children}
+    </div>
+  ),
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-title">{children}</div>
 }));
 
@@ -306,6 +318,30 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(tos).toHaveAttribute('data-slug', TERMS_OF_USE_URL);
   });
 
+  it('renders a discoverable "Send feedback" row in the about group as a button (no route, keyboard-accessible)', () => {
+    render(<Settings tabSlug={null} />);
+
+    const feedback = screen.getByTestId('menuitem-sendFeedback');
+    expect(feedback).toBeInTheDocument();
+    expect(feedback).toHaveAttribute('data-selector', 'Settings/SendFeedbackButton');
+    // Not an external anchor and no route slug → the real MenuItem takes the
+    // `onClick && !slug` branch and renders a focusable <button>.
+    expect(feedback).toHaveAttribute('data-external', 'false');
+    expect(feedback).toHaveAttribute('data-slug', 'undefined');
+  });
+
+  it('opens the feedback form via the external browser (native webview on mobile / new tab on desktop) when clicked', () => {
+    render(<Settings tabSlug={null} />);
+
+    fireEvent.click(screen.getByTestId('menuitem-sendFeedback'));
+
+    expect(mockOpenExternalUrl).toHaveBeenCalledTimes(1);
+    expect(mockOpenExternalUrl).toHaveBeenCalledWith({
+      url: 'https://miden-feedback-form.miden-feedback-relay.workers.dev/',
+      title: 'Send feedback'
+    });
+  });
+
   it('shows the resolved language label on the language item (known locale)', () => {
     mockGetCurrentLocale.mockReturnValue('en-US');
     render(<Settings tabSlug={null} />);
@@ -357,6 +393,17 @@ describe('Settings page — guardian account', () => {
 
     expect(screen.getByTestId('guardian-settings-body')).toBeInTheDocument();
   });
+
+  it('titles the Guardian settings drawer as a rotation action', () => {
+    setAccount({ type: 'guardian' });
+    render(<Settings tabSlug={null} />);
+
+    fireEvent.click(screen.getByTestId('menuitem-guardianSettings'));
+
+    const openDrawer = openDrawers()[0]!;
+    expect(within(openDrawer).getByTestId('drawer-title')).toHaveTextContent('rotateGuardian');
+    expect(within(openDrawer).getByTestId('drawer-header')).toHaveAttribute('data-classname', 'mb-0');
+  });
 });
 
 describe('Settings page — drawer interactions', () => {
@@ -370,6 +417,7 @@ describe('Settings page — drawer interactions', () => {
     const open = openDrawers();
     expect(open).toHaveLength(1);
     expect(within(open[0]!).getByTestId('drawer-title')).toHaveTextContent('generalSettings');
+    expect(within(open[0]!).getByTestId('drawer-header')).not.toHaveAttribute('data-classname');
   });
 
   it('closes the drawer via onOpenChange(false)', () => {

@@ -83,15 +83,13 @@ export function resolveCliPath(): string {
   }
 
   if (gitPin) {
-    console.log(
-      `Installing miden-client-cli from ${gitPin.url}@${gitPin.rev.slice(0, 8)} (first run only)...`
-    );
+    console.log(`Installing miden-client-cli from ${gitPin.url}@${gitPin.rev.slice(0, 8)} (first run only)...`);
     try {
       // `--locked` consumes the repo's Cargo.lock at that rev — same
       // MAST-root-drift protection as the crates.io path below.
       execSync(`cargo install miden-client-cli --git ${gitPin.url} --rev ${gitPin.rev} --locked`, {
         stdio: 'inherit',
-        timeout: 600_000, // 10 min for compile
+        timeout: 600_000 // 10 min for compile
       });
     } catch (err: any) {
       throw new Error(
@@ -117,7 +115,7 @@ export function resolveCliPath(): string {
     // by token symbol.
     execSync(`cargo install miden-client-cli --version ${version} --locked`, {
       stdio: 'inherit',
-      timeout: 600_000, // 10 min for compile
+      timeout: 600_000 // 10 min for compile
     });
   } catch (err: any) {
     throw new Error(
@@ -141,12 +139,7 @@ export class MidenCli {
   private env: EnvironmentConfig;
   private cliRunner: CLIRunner;
 
-  constructor(opts: {
-    binaryPath: string;
-    workDir: string;
-    env: EnvironmentConfig;
-    cliRunner: CLIRunner;
-  }) {
+  constructor(opts: { binaryPath: string; workDir: string; env: EnvironmentConfig; cliRunner: CLIRunner }) {
     this.binaryPath = opts.binaryPath;
     this.workDir = opts.workDir;
     this.env = opts.env;
@@ -156,7 +149,7 @@ export class MidenCli {
   private async run(args: string, opts?: { timeoutMs?: number }): Promise<CLIInvocation> {
     return this.cliRunner.run(`${this.binaryPath} ${args}`, {
       cwd: this.workDir,
-      timeoutMs: opts?.timeoutMs,
+      timeoutMs: opts?.timeoutMs
     });
   }
 
@@ -191,7 +184,11 @@ export class MidenCli {
    * Deploy a new fungible faucet account.
    * Returns the faucet account ID.
    */
-  async createFaucet(symbol = 'TST', decimals = 8, maxSupply: number | bigint = DEFAULT_FAUCET_MAX_SUPPLY): Promise<string> {
+  async createFaucet(
+    symbol = 'TST',
+    decimals = 8,
+    maxSupply: number | bigint = DEFAULT_FAUCET_MAX_SUPPLY
+  ): Promise<string> {
     // Write the init storage data TOML
     const tomlPath = path.join(this.workDir, 'faucet-init.toml');
     fs.writeFileSync(tomlPath, faucetInitToml(symbol, decimals, maxSupply));
@@ -215,7 +212,9 @@ export class MidenCli {
       if (!transient || attempt === maxAttempts) break;
       const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
       // eslint-disable-next-line no-console
-      console.log(`[miden-cli] createFaucet attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`);
+      console.log(
+        `[miden-cli] createFaucet attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`
+      );
       await new Promise(r => setTimeout(r, backoffMs));
     }
 
@@ -230,9 +229,7 @@ export class MidenCli {
       // Fallback: try to parse from "account -s <ID>" pattern
       const match = createResult.stdout.match(/account\s+-s\s+(\S+)/);
       if (!match || !match[1]) {
-        throw new Error(
-          `Could not parse faucet account ID from output:\n${createResult.stdout}`
-        );
+        throw new Error(`Could not parse faucet account ID from output:\n${createResult.stdout}`);
       }
       id = match[1];
     } else {
@@ -261,11 +258,7 @@ export class MidenCli {
       throw new Error('mint: faucetId required');
     }
 
-    let mintArgs =
-      `mint --target ${targetAccountId} ` +
-      `--asset ${amount}::${faucetId} ` +
-      `--note-type ${noteType} ` +
-      `--force`;
+    let mintArgs = `mint --target ${targetAccountId} --asset ${amount}::${faucetId} --note-type ${noteType} --force`;
 
     if (this.env.delegateProving) {
       mintArgs += ' --delegate-proving';
@@ -288,7 +281,9 @@ export class MidenCli {
       if (!transient || attempt === maxAttempts) break;
       const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
       // eslint-disable-next-line no-console
-      console.log(`[miden-cli] mint attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`);
+      console.log(
+        `[miden-cli] mint attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`
+      );
       await new Promise(r => setTimeout(r, backoffMs));
     }
     throw new Error(`Mint failed after retries: ${lastErr}`);
@@ -308,7 +303,9 @@ export class MidenCli {
       if (!transient || attempt === maxAttempts) break;
       const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
       // eslint-disable-next-line no-console
-      console.log(`[miden-cli] sync attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`);
+      console.log(
+        `[miden-cli] sync attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`
+      );
       await new Promise(r => setTimeout(r, backoffMs));
     }
     throw new Error(`Sync failed: ${lastErr}`);

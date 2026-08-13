@@ -109,7 +109,14 @@ export class EmulatorControl {
     let gmsRunningSince: number | null = null;
     while (Date.now() - start < BOOT_TIMEOUT_MS) {
       try {
-        const { stdout } = await execFileAsync('adb', ['-s', serial, 'shell', 'pgrep', '-f', 'com.google.android.gms.persistent']);
+        const { stdout } = await execFileAsync('adb', [
+          '-s',
+          serial,
+          'shell',
+          'pgrep',
+          '-f',
+          'com.google.android.gms.persistent'
+        ]);
         if (stdout.trim().length > 0) {
           if (gmsRunningSince === null) gmsRunningSince = Date.now();
           if (Date.now() - gmsRunningSince >= GMS_STABLE_MS) return;
@@ -187,7 +194,7 @@ export class EmulatorControl {
     // binary without adb's CRLF mangling.
     const { stdout } = await execFileAsync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], {
       encoding: 'buffer',
-      maxBuffer: 50 * 1024 * 1024,
+      maxBuffer: 50 * 1024 * 1024
     });
     fs.writeFileSync(outPath, stdout);
   }
@@ -216,7 +223,7 @@ export class EmulatorControl {
       serial,
       'forward',
       `tcp:${hostPort}`,
-      `localabstract:webview_devtools_remote_${pid}`,
+      `localabstract:webview_devtools_remote_${pid}`
     ]);
   }
 
@@ -243,7 +250,12 @@ export class EmulatorControl {
 
 async function ensureAvdsExist(): Promise<void> {
   const { stdout } = await execFileAsync(getEmulatorBin(), ['-list-avds']);
-  const present = new Set(stdout.split('\n').map(s => s.trim()).filter(Boolean));
+  const present = new Set(
+    stdout
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean)
+  );
 
   for (const avd of [DEVICE_PAIR_AVD_A, DEVICE_PAIR_AVD_B]) {
     if (present.has(avd)) continue;
@@ -274,8 +286,7 @@ async function ensureAvdsExist(): Promise<void> {
       const cfg = fs.readFileSync(dstConfig, 'utf8').replace(/^AvdId=.*$/m, `AvdId=${avd}`);
       fs.writeFileSync(dstConfig, cfg);
     }
-    const iniText = fs.readFileSync(dstIni, 'utf8')
-      .replace(new RegExp(`${BASE_AVD}\\.avd`, 'g'), `${avd}.avd`);
+    const iniText = fs.readFileSync(dstIni, 'utf8').replace(new RegExp(`${BASE_AVD}\\.avd`, 'g'), `${avd}.avd`);
     fs.writeFileSync(dstIni, iniText);
   }
 }
@@ -329,7 +340,7 @@ async function bootAvd(avdName: string, port: number): Promise<string> {
       // host cores per emulator (we have headroom on a 10-core M-series
       // host) and rebuilding the JNI lib on the host is unaffected.
       '-cores',
-      '8',
+      '8'
     ],
     { detached: true, stdio: ['ignore', logFd, logFd] }
   );
@@ -354,7 +365,10 @@ async function bootAvd(avdName: string, port: number): Promise<string> {
 }
 
 function getEmulatorBin(): string {
-  const home = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? path.join(process.env.HOME ?? '', 'Library/Android/sdk');
+  const home =
+    process.env.ANDROID_HOME ??
+    process.env.ANDROID_SDK_ROOT ??
+    path.join(process.env.HOME ?? '', 'Library/Android/sdk');
   return path.join(home, 'emulator', 'emulator');
 }
 

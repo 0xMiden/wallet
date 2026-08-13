@@ -6,6 +6,7 @@
  *
  * Follows BIP21/EIP-681 industry convention for URI schemes.
  */
+import { isValidMidenAddress as strictMidenAddressCheck, MidenAddressError } from 'utils/miden';
 
 const MIDEN_URI_PREFIX = 'miden:';
 
@@ -40,28 +41,21 @@ export function decodeAddress(payload: string): string {
 }
 
 /**
- * Validates if a string is a valid Miden address.
- * Miden addresses start with "mtst1" (testnet) or "m1" (mainnet).
+ * Validates if a string is a decodable Miden address (strict bech32 decode).
+ * A wrong-network address still passes here — the send screen surfaces its
+ * specific wrong-network message once the scanned address lands in the field.
  *
  * @param address The address to validate
- * @returns true if the address appears to be a valid Miden address
+ * @returns true if the address decodes as a Miden address
  */
 export function isValidMidenAddress(address: string): boolean {
   if (!address || typeof address !== 'string') {
     return false;
   }
 
-  const trimmed = address.trim();
-
-  // Basic validation: must start with known prefix and have reasonable length
-  const isTestnet = trimmed.startsWith('mtst1');
-  const isMainnet = trimmed.startsWith('m1');
-
-  if (!isTestnet && !isMainnet) {
-    return false;
+  try {
+    return strictMidenAddressCheck(address);
+  } catch (error) {
+    return error instanceof MidenAddressError && error.reason === 'wrong-network';
   }
-
-  // Miden addresses are bech32 encoded and should have a reasonable length
-  // Typical length is around 40-60 characters
-  return trimmed.length >= 30 && trimmed.length <= 100;
 }

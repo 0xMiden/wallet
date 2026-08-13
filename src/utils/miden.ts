@@ -1,4 +1,7 @@
+import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { isAddress } from 'viem';
+
+import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 
 export const isHexAddress = (address: string) => {
   return address.startsWith('0x');
@@ -7,14 +10,64 @@ export const isHexAddress = (address: string) => {
 const MIDEN_MAINNET_PREFIX = 'mm1';
 const MIDEN_TESTNET_PREFIX = 'mtst1';
 const MIDEN_DEVNET_PREFIX = 'mdev1';
-const MIDEN_BECH32_PREFIXES = [MIDEN_MAINNET_PREFIX, MIDEN_TESTNET_PREFIX, MIDEN_DEVNET_PREFIX];
+// The SDK's NetworkId::Localnet uses the 'mlcl' HRP, so a real localnet node
+// produces 'mlcl1…' addresses. It must be a recognized prefix or a genuine
+// localnet address is wrongly rejected as "invalid" at the gate below, before
+// the bech32 decode even runs (#599).
+const MIDEN_LOCALNET_PREFIX = 'mlcl1';
+const MIDEN_BECH32_PREFIXES = [MIDEN_MAINNET_PREFIX, MIDEN_TESTNET_PREFIX, MIDEN_DEVNET_PREFIX, MIDEN_LOCALNET_PREFIX];
 
-const isValidBech32Address = (address: string) => {
-  return MIDEN_BECH32_PREFIXES.some(prefix => address.startsWith(prefix));
+// NOTE: this maps a network to its OWN-account "correct-network" prefix. This
+// wallet encodes its own localnet accounts with the testnet prefix because
+// getNetworkId() maps LOCALNET -> NetworkId.testnet() (the SDK's JS API exposes
+// no localnet constructor), so LOCALNET's correct-network prefix stays 'mtst1'.
+// A scanned 'mlcl1…' address therefore decodes fine (recognized above) but reads
+// as wrong-network here — which is the intended "still passes, surfaces a
+// network message" behavior, not the old hard rejection.
+const NETWORK_ADDRESS_PREFIXES: Record<MIDEN_NETWORK_NAME, string> = {
+  [MIDEN_NETWORK_NAME.MAINNET]: MIDEN_MAINNET_PREFIX,
+  [MIDEN_NETWORK_NAME.TESTNET]: MIDEN_TESTNET_PREFIX,
+  [MIDEN_NETWORK_NAME.DEVNET]: MIDEN_DEVNET_PREFIX,
+  [MIDEN_NETWORK_NAME.LOCALNET]: MIDEN_TESTNET_PREFIX
 };
 
-export const isValidMidenAddress = (address: string) => {
-  return isValidBech32Address(address);
+export class MidenAddressError extends Error {
+  readonly reason: 'invalid' | 'wrong-network';
+
+  constructor(reason: 'invalid' | 'wrong-network') {
+    super(reason === 'wrong-network' ? 'Miden address belongs to a different network' : 'Invalid Miden address');
+    this.name = 'MidenAddressError';
+    this.reason = reason;
+  }
+}
+
+/**
+ * Strict Miden address validation: returns `true` for a valid address of the
+ * current network, throws `MidenAddressError` otherwise. A prefix check alone
+ * lets a typo'd address through to the transaction pipeline, where it only
+ * fails after guardian approval — so run the SDK's full bech32 decode
+ * (charset + checksum + payload) up front. Decode success is sufficient: both
+ * address forms — with the `_…` routing-parameters suffix (BasicWallet
+ * interface) and the bare account-id form (unspecified interface) — decode to
+ * the same note tag, so no separate routing check is needed. A well-formed
+ * address for a different Miden network (e.g. an `mm1…` mainnet address while
+ * this build targets testnet) throws with reason `wrong-network` so the UI
+ * can show a specific message.
+ */
+export const isValidMidenAddress = (address: string): true => {
+  const trimmed = address.trim();
+  if (!MIDEN_BECH32_PREFIXES.some(prefix => trimmed.startsWith(prefix))) {
+    throw new MidenAddressError('invalid');
+  }
+  try {
+    Address.fromBech32(trimmed);
+  } catch {
+    throw new MidenAddressError('invalid');
+  }
+  if (!trimmed.startsWith(NETWORK_ADDRESS_PREFIXES[DEFAULT_NETWORK])) {
+    throw new MidenAddressError('wrong-network');
+  }
+  return true;
 };
 
 const ETH_ADDRESS_RGX = /^0x[a-fA-F0-9]{40}$/;
@@ -33,9 +86,15 @@ export const isValidEthereumAddress = (address: string) => {
   return isAddress(trimmed);
 };
 
-/** Chain-aware recipient validity: a Miden bech32 address OR an Ethereum hex address. */
-export const isValidRecipientAddress = (address: string) =>
-  isValidMidenAddress(address) || isValidEthereumAddress(address);
+/** Chain-aware recipient validity: `0x…` checks as Ethereum, anything else as Miden. */
+export const isValidRecipientAddress = (address: string) => {
+  if (isHexAddress(address.trim())) return isValidEthereumAddress(address);
+  try {
+    return isValidMidenAddress(address);
+  } catch {
+    return false;
+  }
+};
 
 export type AddressChain = 'miden' | 'ethereum';
 

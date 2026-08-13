@@ -56,6 +56,11 @@ const requestSpeculateSendMock = jest.fn();
 const requestSpeculateInvalidateMock = jest.fn();
 const isScanAvailableMock = jest.fn(() => false);
 const scanQRCodeMock = jest.fn();
+// `isMobile` now selects the scan path: mobile keeps the native plugin
+// (`scanQRCode`), the extension opens the webcam ScanQrDrawer. Defaults to true
+// so the existing native-scan tests below exercise `scanQRCode` unchanged; the
+// extension drawer tests flip it to false.
+const isMobileMock = jest.fn(() => true);
 
 const closeTransactionModalMock = jest.fn();
 const setLastCompletedTxHashMock = jest.fn();
@@ -89,6 +94,20 @@ jest.mock('./SelectRecipient', () => ({
       <button data-testid="sr-addressbook" onClick={props.onAddressBook} />
       {props.onScan && <button data-testid="sr-scan" onClick={props.onScan} />}
       <button data-testid="sr-confirm" onClick={props.onConfirm} />
+    </div>
+  )
+}));
+
+jest.mock('./ScanQrDrawer', () => ({
+  ScanQrDrawer: (props: any) => (
+    <div data-testid="scan-qr-drawer">
+      <span data-testid="scan-open">{String(props.open)}</span>
+      <button
+        data-testid="scan-detected"
+        onClick={() => props.onDetected('mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph')}
+      />
+      <button data-testid="scan-error" onClick={() => props.onError('cameraPermissionDenied')} />
+      <button data-testid="scan-close" onClick={() => props.onOpenChange(false)} />
     </div>
   )
 }));
@@ -159,7 +178,7 @@ jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
   useMobileBackHandler: (cb: any, deps: any) => useMobileBackHandlerMock(cb, deps)
 }));
-jest.mock('lib/platform', () => ({ isExtension: () => isExtensionMock(), isMobile: () => false }));
+jest.mock('lib/platform', () => ({ isExtension: () => isExtensionMock(), isMobile: () => isMobileMock() }));
 jest.mock('lib/qr', () => ({
   isScanAvailable: () => isScanAvailableMock(),
   scanQRCode: () => scanQRCodeMock()
@@ -170,12 +189,26 @@ jest.mock('lib/woozie', () => ({
   navigate: (...a: any[]) => navigateMock(...a),
   useLocation: () => ({ pathname: mockPathname, search: mockSearch })
 }));
-jest.mock('utils/miden', () => ({
-  isValidMidenAddress: (a: string) => isValidMidenAddressMock(a),
-  isValidEthereumAddress: (a: string) => a.startsWith('0x') && a.length > 2,
-  isValidRecipientAddress: (a: string) => isValidMidenAddressMock(a),
-  detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden')
-}));
+jest.mock('utils/miden', () => {
+  class MidenAddressError extends Error {
+    reason: 'invalid' | 'wrong-network';
+
+    constructor(reason: 'invalid' | 'wrong-network') {
+      super(reason);
+      this.reason = reason;
+    }
+  }
+  return {
+    MidenAddressError,
+    isValidMidenAddress: (a: string) => {
+      if (!isValidMidenAddressMock(a)) throw new MidenAddressError('invalid');
+      return true;
+    },
+    isValidEthereumAddress: (a: string) => a.startsWith('0x') && a.length > 2,
+    isValidRecipientAddress: (a: string) => isValidMidenAddressMock(a),
+    detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden')
+  };
+});
 jest.mock('lib/i18n/numbers', () => ({ stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a) }));
 jest.mock('lib/miden/activity', () => ({
   requestSpeculateSend: (...a: any[]) => requestSpeculateSendMock(...a),
@@ -208,6 +241,7 @@ beforeEach(() => {
   isExtensionMock.mockReturnValue(false);
   isDelegateProofEnabledMock.mockReturnValue(false);
   isScanAvailableMock.mockReturnValue(false);
+  isMobileMock.mockReturnValue(true);
   isValidMidenAddressMock.mockImplementation((addr: string) => !!addr && addr.startsWith('0x'));
   stringToBigIntMock.mockImplementation((s: string) => BigInt(Math.floor(parseFloat(s || '0'))));
 
@@ -528,6 +562,54 @@ describe('recipient address entry', () => {
       fireEvent.click(screen.getByTestId('ad-close'));
     });
     expect(screen.getByTestId('ad-open')).toHaveTextContent('false');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Extension webcam QR scan (non-mobile scan path -> ScanQrDrawer).
+// ---------------------------------------------------------------------------
+describe('extension webcam QR scan', () => {
+  beforeEach(() => {
+    // Extension context: not mobile, but scanning is available via the webcam.
+    isMobileMock.mockReturnValue(false);
+    isScanAvailableMock.mockReturnValue(true);
+  });
+
+  it('opens the webcam scan drawer instead of invoking the native plugin', () => {
+    renderFlow();
+    expect(screen.getByTestId('scan-open')).toHaveTextContent('false');
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('sr-scan'));
+    });
+
+    expect(screen.getByTestId('scan-open')).toHaveTextContent('true');
+    // The native mobile scanner must never run on the extension path.
+    expect(scanQRCodeMock).not.toHaveBeenCalled();
+  });
+
+  it('populates the recipient input and runs validation on a drawer-detected address', () => {
+    // Accept the scanned mtst1 address so a cleared error proves validation ran.
+    isValidMidenAddressMock.mockImplementation((addr: string) => addr.startsWith('mtst1') || addr.startsWith('0x'));
+    renderFlow();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('scan-detected'));
+    });
+
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+  });
+
+  it('surfaces a drawer scan error on the recipient field', () => {
+    renderFlow();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('scan-error'));
+    });
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cameraPermissionDenied');
   });
 });
 

@@ -2,6 +2,7 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 
 import { useTranslation } from 'react-i18next';
 
+import { FundWalletDrawer } from 'app/templates/FundWalletDrawer';
 import { GuardianNeedsUrlBanner } from 'app/templates/GuardianNeedsUrlBanner';
 import { PromptCard, PromptCardStatus, PromptCarousel, PromptCardVariant } from 'components/ui';
 import { formatUsd } from 'lib/i18n/numbers';
@@ -112,8 +113,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const { storage, isLoaded, setPromptStatus, dismissPrompt, completePrompt, isPromptPending } =
     useWalletPromptStorage();
   const [faucetStatusIndicator, setFaucetStatusIndicator] = useState<PromptCardStatus>('idle');
-  const fundingRef = useRef(false);
-  const successTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const [fundDrawerOpen, setFundDrawerOpen] = useState(false);
+  const [faucetErrorMessage, setFaucetErrorMessage] = useState<string>();
 
   const [hotKeyError, setHotKeyError] = useState<string | null>(null);
   const [copyStatusIndicator, setCopyStatusIndicator] = useState<PromptCardStatus>('idle');
@@ -143,12 +144,10 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const faucetStatus = storage.prompts[WalletPromptType.Faucet];
   const faucetIsTerminal =
     faucetStatus === WalletPromptStatus.Dismissed || faucetStatus === WalletPromptStatus.Completed;
-  const showFaucetPrompt =
-    faucetStatusIndicator === 'success' || (isLoaded && !balancesLoading && !hasBalance && !faucetIsTerminal);
+  const showFaucetPrompt = isLoaded && !balancesLoading && !hasBalance && !faucetIsTerminal;
 
   useEffect(
     () => () => {
-      if (successTimerRef.current) clearTimeout(successTimerRef.current);
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     },
     []
@@ -257,22 +256,32 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     }
   }, [balancesLoading, completePrompt, faucetStatus, hasBalance, isLoaded, setPromptStatus]);
 
+  // Drives the FundWalletDrawer; doubles as the drawer's onRetry. The drawer
+  // owns the success/failure surface now (no auto-idle timer) — it stays up
+  // showing the outcome until the user acts (Done / Retry / Close).
   const fundWallet = useCallback(async () => {
-    if (fundingRef.current) return;
-    fundingRef.current = true;
+    setFundDrawerOpen(true);
+    setFaucetErrorMessage(undefined);
     setFaucetStatusIndicator('loading');
     try {
       await faucet(account.publicKey);
       setFaucetStatusIndicator('success');
       completePrompt(WalletPromptType.Faucet);
-      successTimerRef.current = setTimeout(() => setFaucetStatusIndicator('idle'), 1200);
     } catch (error) {
       setFaucetStatusIndicator('failure');
+      setFaucetErrorMessage(error instanceof Error ? error.message : String(error));
       console.error('[wallet-prompts] faucet request failed:', error);
-    } finally {
-      fundingRef.current = false;
     }
   }, [account.publicKey, completePrompt]);
+
+  // Map the internal indicator onto the drawer's 3-state contract. 'idle' is only
+  // the initial pre-funding value; opening always goes through fundWallet (which
+  // clears any stale error and sets 'loading' first), and we intentionally keep
+  // the last outcome as the drawer animates closed — no synchronous reset — so a
+  // dismiss gesture doesn't flash the spinner, and a close mid-request leaves the
+  // indicator on 'loading' (keeping the Fund-now action disabled, no double-fund).
+  const fundDrawerState: 'loading' | 'success' | 'error' =
+    faucetStatusIndicator === 'success' ? 'success' : faucetStatusIndicator === 'failure' ? 'error' : 'loading';
 
   const pendingWalletPrompts = useMemo(() => {
     if (!isLoaded || balancesLoading) return [];
@@ -300,7 +309,6 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         case WalletPromptType.Faucet:
           return {
             onAction: fundWallet,
-            status: faucetStatusIndicator,
             actionDisabled: faucetStatusIndicator === 'loading'
           };
         case WalletPromptType.Bridge:
@@ -345,27 +353,37 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   );
 
   return (
-    <PromptCarousel>
-      {pendingWalletPrompts.map(([type, definition]) => {
-        const overrides = promptOverrides(type);
-        const route = definition.route;
-        return (
-          <PromptCard
-            key={type}
-            title={t(definition.titleKey)}
-            body={overrides.body ?? t(definition.bodyKey)}
-            variant={definition.variant}
-            onClick={overrides.onClick ?? (route && !overrides.onAction ? () => navigate(route) : undefined)}
-            actionLabel={definition.actionKey ? t(definition.actionKey) : undefined}
-            onAction={overrides.onAction}
-            actionDisabled={overrides.actionDisabled ?? false}
-            status={overrides.status}
-            onDismiss={overrides.onDismiss ?? (definition.dismissible ? () => dismissPrompt(type) : undefined)}
-          />
-        );
-      })}
-      {account.guardianSyncStatus === 'needs-user-input' && <GuardianNeedsUrlBanner />}
-    </PromptCarousel>
+    <>
+      <PromptCarousel>
+        {pendingWalletPrompts.map(([type, definition]) => {
+          const overrides = promptOverrides(type);
+          const route = definition.route;
+          return (
+            <PromptCard
+              key={type}
+              title={t(definition.titleKey)}
+              body={overrides.body ?? t(definition.bodyKey)}
+              variant={definition.variant}
+              onClick={overrides.onClick ?? (route && !overrides.onAction ? () => navigate(route) : undefined)}
+              actionLabel={definition.actionKey ? t(definition.actionKey) : undefined}
+              onAction={overrides.onAction}
+              actionDisabled={overrides.actionDisabled ?? false}
+              status={overrides.status}
+              onDismiss={overrides.onDismiss ?? (definition.dismissible ? () => dismissPrompt(type) : undefined)}
+            />
+          );
+        })}
+        {account.guardianSyncStatus === 'needs-user-input' && <GuardianNeedsUrlBanner />}
+      </PromptCarousel>
+      <FundWalletDrawer
+        open={fundDrawerOpen}
+        onOpenChange={setFundDrawerOpen}
+        state={fundDrawerState}
+        errorMessage={faucetErrorMessage}
+        onRetry={fundWallet}
+        onDone={() => setFundDrawerOpen(false)}
+      />
+    </>
   );
 };
 

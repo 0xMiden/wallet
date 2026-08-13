@@ -5,6 +5,7 @@ import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 
 import {
   EMPTY_WALLET_PROMPT_STORAGE,
+  FaucetError,
   WalletPromptStatus,
   WalletPromptType,
   completeWalletPrompt,
@@ -206,6 +207,24 @@ describe('wallet prompts', () => {
     mintFromMidenFaucetMock.mockRejectedValue(new Error('Faucet PoW request failed with status 429'));
 
     await expect(faucet('mtst1testaddress')).rejects.toThrow('Faucet PoW request failed with status 429');
+  });
+
+  it('aggregates both child messages when both faucets reject', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 500 } as Response);
+    mintFromMidenFaucetMock.mockRejectedValue(new Error('PoW rate limited'));
+
+    const error = await faucet('mtst1testaddress').catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(FaucetError);
+    expect((error as FaucetError).message).toContain('Faucet request failed with status 500');
+    expect((error as FaucetError).message).toContain('PoW rate limited');
+  });
+
+  it('stringifies a non-Error rejection reason in the aggregated message', async () => {
+    fetchMock.mockRejectedValue('network down');
+    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+
+    await expect(faucet('mtst1testaddress')).rejects.toThrow('IMIDEN: network down');
   });
 
   it('loads prompt storage in the hook and exposes pending checks', async () => {

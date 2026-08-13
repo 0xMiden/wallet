@@ -13,14 +13,14 @@ import {
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import * as secureHotKey from 'lib/secure-hot-key';
 import type { GeneratedHotKey } from 'lib/secure-hot-key';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from './account';
 import { registerGuardianOrigin } from './native-http';
+import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
-import { fetchFromStorage } from '../front/storage';
+import { midenClientProxy } from '../back/miden-client-proxy';
 import { accountIdStringToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
@@ -49,16 +49,8 @@ const SYNC_RETRY_DELAY_MS = 1000;
 // set this strictly below MAX_SYNC_RETRIES (guardian-owner call).
 const MAX_GUARDIAN_CANONICALIZE_RETRIES = 30;
 const MAX_GUARDIAN_REGISTER_RETRIES = 8;
-// Exponential backoff (capped) for the guardian re-register. Right after the
-// guardian accepts a rotation/switch delta it can reject `/configure` for a few
-// seconds while it canonicalizes the new state. The old fixed 5×2s (~10s) budget
-// occasionally exhausted inside that window, so the best-effort post-rotation
-// re-register (`completeReplaceHotKeyTransaction`) could silently leave the new
-// hot key unauthorized — every later request then 401s "session expired" forever.
-// The backoff sequence (1+2+4+8+8+8+8s ≈ 39s over 8 attempts) comfortably clears
-// the canonicalization window while still bounding a genuinely-down guardian.
-const GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS = 1000;
-const GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS = 8000;
+// The per-attempt backoff (capped exponential, and Retry-After-aware on 429s)
+// lives in `guardianRegisterBackoffMs` (./serialize, #619).
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -158,8 +150,12 @@ export class MultisigService {
     accountId: string,
     webClient: MidenClient
   ) {
-    const guardianEndpoint =
-      (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || getEffectiveDefaultGuardianEndpoint();
+    // No production callers today. If a future feature wires this into a
+    // non-default guardian import, thread the per-account `guardianEndpoint` in
+    // (as `MultisigService.init` does) rather than reintroducing a global-key
+    // read: the frozen global GUARDIAN_URL_STORAGE_KEY is intentionally not
+    // consulted here (#408 stage 3), so this binds to the network default.
+    const guardianEndpoint = getEffectiveDefaultGuardianEndpoint();
     const guardian = new GuardianHttpClient(guardianEndpoint);
     const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
     guardian.setSigner(signer);
@@ -511,9 +507,8 @@ export class MultisigService {
     try {
       console.log('Finalizing guardian switch to new endpoint:', newGuardianEndpoint);
       const updatedStateBase64 = await withWasmClientLock(async () => {
-        const client = await getMidenClient();
-        await client.syncState();
-        const account = await client.getAccount(this.accountId);
+        await midenClientProxy.syncState();
+        const account = await midenClientProxy.getAccount(this.accountId);
         if (!account) {
           throw new Error(`Updated account ${this.accountId} is missing from local client`);
         }
@@ -544,11 +539,9 @@ export class MultisigService {
         lastError = error;
         console.warn(`registerOnGuardian failed (attempt ${attempt}/${MAX_GUARDIAN_REGISTER_RETRIES})`, error);
         if (attempt < MAX_GUARDIAN_REGISTER_RETRIES) {
-          const backoffMs = Math.min(
-            GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1),
-            GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS
-          );
-          await delay(backoffMs);
+          // #619 — on a 429 this honours the guardian's own Retry-After instead
+          // of the blind exponential backoff (which just earns another 429).
+          await delay(guardianRegisterBackoffMs(error, attempt));
         }
       }
     }
@@ -576,9 +569,8 @@ export class MultisigService {
    */
   async reRegisterCurrentStateOnGuardian(): Promise<void> {
     const updatedStateBase64 = await withWasmClientLock(async () => {
-      const client = await getMidenClient();
-      await client.syncState();
-      const account = await client.getAccount(this.accountId);
+      await midenClientProxy.syncState();
+      const account = await midenClientProxy.getAccount(this.accountId);
       if (!account) {
         throw new Error(`Account ${this.accountId} is missing from local client`);
       }
