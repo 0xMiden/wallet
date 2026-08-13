@@ -946,6 +946,39 @@ describe('Vault.spawn', () => {
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
   });
 
+  it('ABORTS the restore instead of creating a fresh wallet when the node is unreachable', async () => {
+    // The fund-loss-shaped bug: a probe miss and an unreachable node are different
+    // answers. If the RPC is down mid-restore, every scheme "misses", spawn falls
+    // through, and a user who typed a CORRECT seed gets a brand-new EMPTY wallet —
+    // their real account simply doesn't appear. This is the exact error text a real
+    // CI run produced when Miden testnet DNS failed.
+    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValue(
+      new Error(
+        'client error: RPC error: grpc request failed for submit_proven_transaction: ' +
+          'Miden node is unavailable; check that the node is running and reachable'
+      )
+    );
+
+    await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toThrow(
+      /Could not reach the Miden network/i
+    );
+    // The whole point: NO wallet was created behind the user's back.
+    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
+    // It aborts on the FIRST unreachable probe rather than burning the second.
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+  });
+
+  it('still creates a fresh wallet when the probes definitively miss (seed is genuinely new)', async () => {
+    // The legitimate fall-through must survive: "no account on chain" is a real
+    // answer and a first-time seed must still produce a wallet.
+    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValue(new Error('account not found on chain'));
+    mockMidenClient.createMidenWallet.mockResolvedValueOnce('fresh-pk');
+    const vault = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
+    expect(vault).toBeInstanceOf(Vault);
+    expect(await Vault.getCurrentAccountPublicKey()).toBe('fresh-pk');
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
+  });
+
   it('picks the second probe scheme when the first scheme has no on-chain account', async () => {
     // Probe order is [falcon, ecdsa]. Falcon probe fails, ecdsa succeeds —
     // the resulting account is stamped with authScheme='ecdsa'.
