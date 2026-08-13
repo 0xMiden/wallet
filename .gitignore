@@ -8,7 +8,7 @@
 
 # testing
 /coverage
-/test-results
+/test-results*
 
 # dest
 /dist
@@ -68,7 +68,6 @@ android/app/*.jks
 # iOS build artifacts
 ios/App/build/
 sdk-debug/
-/test-results-ios
 
 # Linked web-sdk PR state marker — written by
 # scripts/dev-with-web-sdk-pr.sh / .github/actions/inject-linked-web-sdk-pr
