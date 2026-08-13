@@ -12,16 +12,16 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "8.4.0"),
-        .package(name: "CapacitorApp", path: "../../../node_modules/@capacitor/app"),
-        .package(name: "CapacitorFilesystem", path: "../../../node_modules/@capacitor/filesystem"),
-        .package(name: "CapacitorHaptics", path: "../../../node_modules/@capacitor/haptics"),
-        .package(name: "CapacitorKeyboard", path: "../../../node_modules/@capacitor/keyboard"),
-        .package(name: "CapacitorLocalNotifications", path: "../../../node_modules/@capacitor/local-notifications"),
-        .package(name: "CapacitorPreferences", path: "../../../node_modules/@capacitor/preferences"),
-        .package(name: "CapacitorShare", path: "../../../node_modules/@capacitor/share"),
-        .package(name: "CapacitorSplashScreen", path: "../../../node_modules/@capacitor/splash-screen"),
-        .package(name: "MidenDappBrowser", path: "../../../packages/dapp-browser"),
-        .package(name: "MidenNativeProver", path: "../../../packages/native-prover")
+        .package(name: "CapacitorApp", path: "../../../../miden-wallet/node_modules/@capacitor/app"),
+        .package(name: "CapacitorFilesystem", path: "../../../../miden-wallet/node_modules/@capacitor/filesystem"),
+        .package(name: "CapacitorHaptics", path: "../../../../miden-wallet/node_modules/@capacitor/haptics"),
+        .package(name: "CapacitorKeyboard", path: "../../../../miden-wallet/node_modules/@capacitor/keyboard"),
+        .package(name: "CapacitorLocalNotifications", path: "../../../../miden-wallet/node_modules/@capacitor/local-notifications"),
+        .package(name: "CapacitorPreferences", path: "../../../../miden-wallet/node_modules/@capacitor/preferences"),
+        .package(name: "CapacitorShare", path: "../../../../miden-wallet/node_modules/@capacitor/share"),
+        .package(name: "CapacitorSplashScreen", path: "../../../../miden-wallet/node_modules/@capacitor/splash-screen"),
+        .package(name: "MidenDappBrowser", path: "../../../../miden-wallet/packages/dapp-browser"),
+        .package(name: "MidenNativeProver", path: "../../../../miden-wallet/packages/native-prover")
     ],
     targets: [
         .target(
