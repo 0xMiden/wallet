@@ -1387,13 +1387,42 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   /**
+   * Wait until the page has booted far enough to have a hydrated wallet store —
+   * `__TEST_STORE__` present WITH a `currentAccount.publicKey`. That is the real
+   * precondition for every `page.evaluate` in this class that reads balances or
+   * injects faucet metadata, and it replaces the fixed "let React settle" sleeps
+   * that used to stand in for it after a goto/reload.
+   *
+   * Bounded by `timeoutMs` (always the duration of the sleep it replaced) and
+   * never throws: a page that has not hydrated inside that window falls through
+   * to exactly the behaviour it had before.
+   */
+  private async waitForStoreReady(timeoutMs: number): Promise<void> {
+    await this.page
+      .waitForFunction(
+        () => {
+          const store = (
+            window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { publicKey?: string } } } }
+          ).__TEST_STORE__;
+          return !!store?.getState?.().currentAccount?.publicKey;
+        },
+        undefined,
+        { timeout: timeoutMs }
+      )
+      .catch(() => {});
+  }
+
+  /**
    * Get the balance for a specific token from the Explore page.
    * If tokenSymbol is not given, returns the balance of the first token row.
    * Returns 0 if no matching token found.
    */
   async getBalance(_tokenSymbol?: string): Promise<number> {
     await this.navigateHome();
-    await this.page.waitForTimeout(1_000);
+    // The evaluate below needs `__TEST_STORE__` with an account on it; wait for
+    // that rather than for a second of wall clock (this runs on every poll of
+    // waitForBalanceAbove).
+    await this.waitForStoreReady(1_000);
 
     try {
       // Read balances from the Zustand store (consumed assets) AND from
@@ -1493,22 +1522,73 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   /**
    * Trigger a sync via the intercom SyncRequest.
    * Requires MIDEN_E2E_TEST=true build which exposes __TEST_INTERCOM__.
+   *
+   * Both requests are fire-and-forget in the service worker (`processRequest`
+   * in `src/lib/miden/back/main.ts` kicks `doSync` / `startTransactionProcessing`
+   * WITHOUT awaiting them), so their intercom responses say nothing about the
+   * sync having finished — which is why this used to sleep a flat
+   * `SYNC_WAIT_MS`. The real completion signal is the `SYNC_COMPLETED`
+   * broadcast, emitted by the sync manager AFTER it persists `miden_sync_data`
+   * to `chrome.storage.local` — i.e. after the exact write every caller of this
+   * helper (`readPendingCount`, `getBalance`) goes on to read. Count those
+   * broadcasts page-side and wait for the next one, still capped at
+   * `SYNC_WAIT_MS` so a sync that never signals (circuit breaker open, no
+   * vault, intercom port re-created) costs no more than it did before.
+   *
+   * Caveat: the transaction processor broadcasts the same bare `SYNC_COMPLETED`
+   * per loop pass (`transaction-processor.ts`), so while the tx queue is
+   * draining this can be satisfied by a processor tick rather than by the sync.
+   * That window is exactly when pending-note counts are non-zero anyway, and
+   * the cap means the worst case is the old fixed sleep.
    */
   async triggerSync(): Promise<void> {
+    let seenBefore: number | null = null;
     try {
-      await this.page.evaluate(async () => {
-        const intercom = (window as any).__TEST_INTERCOM__;
-        if (intercom) {
-          // Sync state with the blockchain node
-          await intercom.request({ type: 'SYNC_REQUEST' });
-          // Trigger transaction processing (auto-consume pending notes)
-          await intercom.request({ type: 'PROCESS_TRANSACTIONS_REQUEST' });
+      seenBefore = await this.page.evaluate(async () => {
+        const w = window as unknown as {
+          __TEST_INTERCOM__?: {
+            request(payload: { type: string }): Promise<unknown>;
+            subscribe(callback: (data: { type?: string }) => void): () => void;
+          };
+          __E2E_SYNC_COMPLETED_COUNT__?: number;
+        };
+        const intercom = w.__TEST_INTERCOM__;
+        if (!intercom) return null;
+        // Install the counter once per document (a reload clears it).
+        if (w.__E2E_SYNC_COMPLETED_COUNT__ === undefined) {
+          w.__E2E_SYNC_COMPLETED_COUNT__ = 0;
+          intercom.subscribe(data => {
+            if (data?.type === 'SYNC_COMPLETED') {
+              w.__E2E_SYNC_COMPLETED_COUNT__ = (w.__E2E_SYNC_COMPLETED_COUNT__ ?? 0) + 1;
+            }
+          });
         }
+        const seen = w.__E2E_SYNC_COMPLETED_COUNT__;
+        // Sync state with the blockchain node
+        await intercom.request({ type: 'SYNC_REQUEST' });
+        // Trigger transaction processing (auto-consume pending notes)
+        await intercom.request({ type: 'PROCESS_TRANSACTIONS_REQUEST' });
+        return seen;
       });
     } catch {
       // May fail during navigation, ignore
     }
-    await this.page.waitForTimeout(SYNC_WAIT_MS);
+
+    if (seenBefore === null) {
+      // No intercom (mid-navigation, or a non-E2E build): nothing was requested,
+      // so there is no signal to wait on — fall back to the original sleep.
+      await this.page.waitForTimeout(SYNC_WAIT_MS);
+      return;
+    }
+
+    await this.page
+      .waitForFunction(
+        seen =>
+          ((window as unknown as { __E2E_SYNC_COMPLETED_COUNT__?: number }).__E2E_SYNC_COMPLETED_COUNT__ ?? 0) > seen,
+        seenBefore,
+        { timeout: SYNC_WAIT_MS }
+      )
+      .catch(() => {});
   }
 
   // ── Claim Notes ───────────────────────────────────────────────────────────
@@ -1584,12 +1664,16 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   private async reloadAndPreparePending(): Promise<void> {
     await this.page.reload({ waitUntil: 'domcontentloaded' });
     await this.page.waitForSelector('#root > *', { timeout: 15_000 }).catch(() => {});
-    await this.page.waitForTimeout(3_000);
+    // injectClaimableMetadata writes into `__TEST_STORE__`, so wait for the store
+    // to hydrate rather than for a fixed 3s.
+    await this.waitForStoreReady(3_000);
     await this.injectClaimableMetadata();
     // Claimable notes live on their own /pending-notes page, which mounts the
-    // claim UI directly (no tab to switch to).
+    // claim UI directly (no tab to switch to). navigateTo() is a full goto, so
+    // the app re-boots — wait for the rehydrated store (the /pending-notes route
+    // is `onlyReady`-gated on it) instead of another fixed 3s.
     await this.navigateTo('/pending-notes');
-    await this.page.waitForTimeout(3_000);
+    await this.waitForStoreReady(3_000);
   }
 
   async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
@@ -1631,6 +1715,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         console.log(
           `[WalletPage.claimAllNotes] iter=${iteration} pending=0 stableZero=${stableZero}/${STABLE_ZERO_THRESHOLD}`
         );
+        // Spacing between the two consecutive zero samples — deliberately a sleep.
         if (stableZero < STABLE_ZERO_THRESHOLD) await this.page.waitForTimeout(2_000);
         continue;
       }
@@ -1640,13 +1725,25 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       lastPending = pending;
 
       // Let the React UI render buttons for newly-arrived notes before probing.
-      await this.page.waitForTimeout(2_000);
+      // `pending > 0` means the store already has notes, so exactly one of the
+      // two affordances below is on its way — wait for whichever arrives first
+      // instead of sleeping. Capped at the old 2s so the "neither rendered"
+      // path (handled further down) costs no more than it used to.
+      const claimAllBtn = this.page.getByTestId('claim-all-button');
+      const assetRows = this.page.getByTestId('pending-asset-row');
+      await claimAllBtn
+        .or(assetRows)
+        .first()
+        .waitFor({ state: 'visible', timeout: 2_000 })
+        .catch(() => {});
 
       // Desktop fast path: a single "Claim All" button drains every faucet.
-      const claimAllBtn = this.page.getByTestId('claim-all-button');
       if (await claimAllBtn.isVisible().catch(() => false)) {
         console.log(`[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} clicking Claim All`);
         await claimAllBtn.click();
+        // LEFT AS A SLEEP: head start for the consume the click enqueued. No
+        // usable signal — the pending count only moves on the NEXT sync, and the
+        // enqueued row's id isn't exposed to the harness by the Claim All path.
         await this.page.waitForTimeout(8_000);
         continue;
       }
@@ -1654,7 +1751,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       // Two-level fallback: open each per-faucet summary row, claim every note
       // in the detail view, then go back. The list re-renders as notes are
       // claimed, so re-read the row count and operate on .first() each pass.
-      const assetRows = this.page.getByTestId('pending-asset-row');
       const rowCount = await assetRows.count().catch(() => 0);
       if (rowCount > 0) {
         console.log(
@@ -1666,13 +1762,23 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
             const row = this.page.getByTestId('pending-asset-row').first();
             if (!(await row.isVisible().catch(() => false))) break;
             await row.click({ timeout: 5_000 });
-            await this.page.waitForTimeout(1_000);
 
+            // The detail view renders asynchronously (its balance read queues
+            // behind the WASM lock). Wait for the buttons this pass is about to
+            // count, capped at the 1s this replaced.
             const claimBtns = this.page.getByTestId('claim-button');
+            await claimBtns
+              .first()
+              .waitFor({ state: 'visible', timeout: 1_000 })
+              .catch(() => {});
+
             const claimCount = await claimBtns.count().catch(() => 0);
             for (let i = 0; i < claimCount; i++) {
               try {
                 await this.page.getByTestId('claim-button').first().click({ timeout: 5_000 });
+                // LEFT AS A SLEEP: spacing between per-note claims. The list
+                // re-render is the only observable and it is not addressable
+                // per note (every button carries the same testid).
                 await this.page.waitForTimeout(1_000);
               } catch {
                 // button may vanish mid-iteration as the list re-renders
@@ -1686,6 +1792,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
             // Row vanished as the list re-rendered — try the next pass.
           }
         }
+        // LEFT AS A SLEEP: settle window for the consumes this pass enqueued,
+        // same missing signal as the Claim All path above.
         await this.page.waitForTimeout(5_000);
         continue;
       }
@@ -1705,6 +1813,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         await this.reloadAndPreparePending();
         stuckSameCountIters = 0;
       }
+      // Poll spacing before the next sync round — deliberately a sleep.
       await this.page.waitForTimeout(3_000);
     }
 
@@ -1856,17 +1965,21 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
       if (pending === 0) {
         stableZero++;
+        // Spacing between the two consecutive zero samples — deliberately a sleep.
         if (stableZero < STABLE_ZERO_THRESHOLD) await this.page.waitForTimeout(2_000);
         continue;
       }
       stableZero = 0;
       stuckSameCountIters = pending === lastPending ? stuckSameCountIters + 1 : 0;
       lastPending = pending;
-      await this.page.waitForTimeout(2_000);
 
-      // Open the first per-faucet summary row → asset detail view.
+      // Open the first per-faucet summary row → asset detail view. `pending > 0`
+      // means the row is on its way, so wait for it rather than sleeping 2s
+      // (capped at that 2s, so the "never rendered" branch below is unchanged).
       const row = this.page.getByTestId('pending-asset-row').first();
+      await row.waitFor({ state: 'visible', timeout: 2_000 }).catch(() => {});
       if (!(await row.isVisible().catch(() => false))) {
+        // Poll spacing before re-syncing — deliberately a sleep.
         await this.page.waitForTimeout(3_000);
         continue;
       }
@@ -1899,6 +2012,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           try {
             await this.page.getByTestId('claim-button').first().click({ timeout: 5_000 });
             clicked = true;
+            // LEFT AS A SLEEP: same missing per-note signal as claimAllNotes.
             await this.page.waitForTimeout(1_000);
           } catch {
             // button vanished as the list re-rendered
@@ -1908,6 +2022,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       console.log(
         `[WalletPage.claimNotesByGroup] iter=${iteration} pending=${pending} claimed=${clicked} (stuck ${stuckSameCountIters})`
       );
+      // LEFT AS A SLEEP: head start for the enqueued consume (see claimAllNotes).
       await this.page.waitForTimeout(clicked ? 8_000 : 2_000);
 
       // A successful group claim navigates to the transaction progress screen.
@@ -1918,6 +2033,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       // If the count hasn't budged for a few passes, a prior claim may have left
       // notes gated by `isBeingClaimed`; a full reload clears the in-memory gate.
       if (stuckSameCountIters >= 3) stuckSameCountIters = 0;
+      // Poll spacing before the next sync round — deliberately a sleep.
       await this.page.waitForTimeout(2_000);
     }
 
@@ -2034,7 +2150,13 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       .waitFor({ state: 'detached', timeout: 120_000 })
       .then(() => true)
       .catch(() => false);
-    await this.page.waitForTimeout(2_000);
+
+    // A successful submit routes to /generating-transaction/:txId. Wait for that
+    // hash rather than sleeping, so the body-text scrape below reads the settled
+    // screen. Capped at the 2s it replaced.
+    await this.page
+      .waitForFunction(() => window.location.hash.includes('generating-transaction'), undefined, { timeout: 2_000 })
+      .catch(() => {});
 
     // Fail HERE, at the real failure point. Both of these used to be swallowed:
     // the detach timeout by a bare `.catch(() => {})`, and a rendered error
@@ -2145,10 +2267,18 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         await intercom.request({ type: 'LOCK_REQUEST' });
       }
     });
-    await this.page.waitForTimeout(2_000);
-    // Reload to show the locked state (unlock screen)
+    // No sleep after the request: the SW's LockRequest handler `await`s
+    // `Actions.lock()` before responding (src/lib/miden/back/main.ts), so the
+    // awaited intercom response above already IS the "wallet is locked" signal.
+
+    // Reload to show the locked state (unlock screen), then wait for that screen
+    // instead of a flat 2s. Capped at the 2s it replaced and non-throwing, so a
+    // build without the intercom hook behaves exactly as before.
     await this.page.reload({ waitUntil: 'domcontentloaded' });
-    await this.page.waitForTimeout(2_000);
+    await this.page
+      .getByTestId('unlock-password')
+      .waitFor({ timeout: 2_000 })
+      .catch(() => {});
   }
 
   /**

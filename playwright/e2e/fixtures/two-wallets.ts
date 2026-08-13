@@ -6,6 +6,7 @@ import * as path from 'path';
 import { getEnvironmentConfig } from '../config/environments';
 import { attachConsoleCapture } from '../harness/browser-capture';
 import { CLIRunner } from '../harness/cli-runner';
+import { assertExtensionNetworkMatches } from '../harness/extension-network';
 import { buildFailureReport, saveFailureReport } from '../harness/failure-report';
 import { installGuardianFaults, type GuardianFaultPolicy, type GuardianOrigins } from '../harness/guardian-fault';
 import {
@@ -17,7 +18,13 @@ import {
 import { captureWalletSnapshot } from '../harness/state-snapshot';
 import { TestStepRunner } from '../harness/test-step';
 import { TimelineRecorder } from '../harness/timeline-recorder';
-import type { DebugSession, EnvironmentConfig, SerializedWalletState, SnapshotCaps } from '../harness/types';
+import type {
+  DebugSession,
+  EnvironmentConfig,
+  SerializedWalletState,
+  SnapshotCaps,
+  WalletSnapshot
+} from '../harness/types';
 import { MidenCli, resolveCliPath } from '../helpers/miden-cli';
 import { ChromeWalletPage, type ChromeWalletPageApi } from '../helpers/wallet-page';
 
@@ -35,6 +42,18 @@ export interface GuardianFaultTestApi {
 
 export type GuardianAwareWalletPage = ChromeWalletPageApi & GuardianFaultTestApi;
 
+/**
+ * Per-test drop box for the wallet state captured on failure. Each wallet
+ * fixture fills its own slot during ITS teardown -- i.e. while its page is
+ * still alive -- and the `failureReport` fixture (which tears down last)
+ * reads whatever landed here. Wallets a spec never instantiated simply leave
+ * their slot undefined.
+ */
+type FailureSnapshots = {
+  walletA?: WalletSnapshot;
+  walletB?: WalletSnapshot;
+};
+
 type TwoWalletFixtures = {
   walletA: GuardianAwareWalletPage;
   walletB: GuardianAwareWalletPage;
@@ -42,6 +61,8 @@ type TwoWalletFixtures = {
   timeline: TimelineRecorder;
   steps: TestStepRunner;
   envConfig: EnvironmentConfig;
+  failureSnapshots: FailureSnapshots;
+  failureReport: void;
 };
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -61,12 +82,19 @@ const AGENTIC_TIMEOUT_MS = parseInt(process.env.E2E_AGENTIC_TIMEOUT ?? '600000',
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+// Resolve the unpacked extension to load, refusing anything that isn't a build
+// for THIS run's network. `MIDEN_NETWORK` is baked in at build time, so a
+// leftover dist/ from an earlier build happily drives, say, a testnet wallet
+// against the localhost harness -- the CLI mints on one chain, the wallet syncs
+// another, and the suite reports product-shaped failures (or worse, passes
+// while testing nothing). See harness/extension-network.ts for the signal.
 function getExtensionPath(): string {
   const extensionPath = process.env.EXTENSION_DIST ?? DEFAULT_EXTENSION_PATH;
   const manifestPath = path.join(extensionPath, 'manifest.json');
   if (!fs.existsSync(manifestPath)) {
     throw new Error(`Extension not found at ${extensionPath}. Run "yarn test:e2e:blockchain:build" first.`);
   }
+  assertExtensionNetworkMatches(extensionPath, getEnvironmentConfig().name);
   return extensionPath;
 }
 
@@ -444,6 +472,22 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
   };
 }
 
+/**
+ * Snapshot one wallet's live state for the failure report. Called from that
+ * wallet's own teardown, BEFORE its context is closed (page.evaluate is what
+ * reads the store). Purely diagnostic: any failure here yields `undefined`
+ * rather than breaking teardown.
+ */
+async function captureFailureSnapshot(
+  steps: TestStepRunner,
+  timeline: TimelineRecorder,
+  label: 'A' | 'B'
+): Promise<WalletSnapshot | undefined> {
+  const caps = steps.walletCaps[label];
+  if (!caps) return undefined;
+  return captureWalletSnapshot(caps, label, timeline.currentStep, 'failure').catch(() => undefined);
+}
+
 function writeDebugSession(
   testName: string,
   reportPath: string,
@@ -551,6 +595,44 @@ export const test = base.extend<TwoWalletFixtures>({
     runner.saveCheckpoints();
   },
 
+  failureSnapshots: async ({}, use) => {
+    await use({});
+  },
+
+  // `auto`, so EVERY spec gets a report.json -- including the ones that only
+  // ever touch walletA (or no wallet at all). Playwright sets automatic
+  // fixtures up before the test's own fixtures, so this one tears down AFTER
+  // walletA/walletB: by the time it runs, both have already deposited their
+  // state into `failureSnapshots` while their pages were still alive. It is
+  // also the only writer of report.json, so two-wallet specs can't double-emit.
+  failureReport: [
+    async ({ failureSnapshots, timeline, steps }, use, testInfo) => {
+      await use();
+
+      if (testInfo.status === 'passed' || testInfo.status === 'skipped' || !testInfo.error) return;
+
+      try {
+        const err = new Error(testInfo.error.message ?? 'Unknown error');
+        err.stack = testInfo.error.stack ?? '';
+
+        const report = buildFailureReport({
+          testName: testInfo.title,
+          testFile: testInfo.file ?? '',
+          error: err,
+          timeline,
+          steps,
+          stateAtFailure: { walletA: failureSnapshots.walletA, walletB: failureSnapshots.walletB },
+          testTimeoutMs: testInfo.timeout
+        });
+
+        saveFailureReport(report, timeline.getOutputDir());
+      } catch {
+        // Don't let report generation fail the test teardown
+      }
+    },
+    { auto: true }
+  ],
+
   midenCli: async ({ envConfig, timeline }, use) => {
     cleanupStaleSessions();
 
@@ -574,7 +656,7 @@ export const test = base.extend<TwoWalletFixtures>({
     }
   },
 
-  walletA: async ({ timeline, steps }, use, testInfo) => {
+  walletA: async ({ timeline, steps, failureSnapshots }, use, testInfo) => {
     const extensionPath = getExtensionPath();
     const instance = await launchWalletInstance('A', extensionPath, timeline);
     steps.registerSnapshotCaps('A', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
@@ -583,6 +665,13 @@ export const test = base.extend<TwoWalletFixtures>({
 
     const isAgentic = process.env.E2E_AGENTIC === 'true';
     const failed = testInfo.status !== 'passed';
+
+    // Snapshot for the failure report while the page is still open; the
+    // `failureReport` fixture writes it out after this teardown returns.
+    if (failed) {
+      failureSnapshots.walletA = await captureFailureSnapshot(steps, timeline, 'A');
+    }
+
     if (isAgentic && failed) {
       // Don't close -- browser stays open for agent inspection
       const timer = setTimeout(async () => {
@@ -609,50 +698,24 @@ export const test = base.extend<TwoWalletFixtures>({
     }
   },
 
-  walletB: async ({ timeline, steps, walletA, midenCli }, use, testInfo) => {
+  walletB: async ({ timeline, steps, walletA, midenCli, failureSnapshots }, use, testInfo) => {
     const extensionPath = getExtensionPath();
     const instance = await launchWalletInstance('B', extensionPath, timeline);
     steps.registerSnapshotCaps('B', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
 
     await use(instance.walletPage);
 
-    // Generate failure report BEFORE closing contexts (so page.evaluate works)
-    if (testInfo.status !== 'passed' && testInfo.error) {
-      try {
-        const reportDir = timeline.getOutputDir();
-        const capsA = steps.walletCaps.A;
-        const capsB = steps.walletCaps.B;
+    const isAgentic = process.env.E2E_AGENTIC === 'true';
+    const failed = testInfo.status !== 'passed';
 
-        const stateA = capsA
-          ? await captureWalletSnapshot(capsA, 'A', timeline.currentStep, 'failure').catch(() => undefined)
-          : undefined;
-
-        const stateB = capsB
-          ? await captureWalletSnapshot(capsB, 'B', timeline.currentStep, 'failure').catch(() => undefined)
-          : undefined;
-
-        const err = new Error(testInfo.error.message ?? 'Unknown error');
-        err.stack = testInfo.error.stack ?? '';
-
-        const report = buildFailureReport({
-          testName: testInfo.title,
-          testFile: testInfo.file ?? '',
-          error: err,
-          timeline,
-          steps,
-          stateAtFailure: { walletA: stateA, walletB: stateB },
-          testTimeoutMs: testInfo.timeout
-        });
-
-        saveFailureReport(report, reportDir);
-      } catch {
-        // Don't let report generation fail the test teardown
-      }
+    // Snapshot for the failure report BEFORE closing the context (so
+    // page.evaluate still works); the `failureReport` fixture assembles and
+    // writes report.json once both wallet teardowns have run.
+    if (failed) {
+      failureSnapshots.walletB = await captureFailureSnapshot(steps, timeline, 'B');
     }
 
     // Now handle context cleanup
-    const isAgentic = process.env.E2E_AGENTIC === 'true';
-    const failed = testInfo.status !== 'passed';
     if (isAgentic && failed) {
       // Write debug session with both wallet details
       writeDebugSession(

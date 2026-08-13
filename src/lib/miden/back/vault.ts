@@ -13,6 +13,7 @@ import type { Hex } from 'viem';
 import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
 
 import { getMessage } from 'lib/i18n';
+import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { PublicError } from 'lib/miden/back/defaults';
 import {
   encryptAndSaveMany,
@@ -479,7 +480,21 @@ export class Vault {
                   console.log(`[Vault.spawn] Step 8a: probing ${scheme} import...`);
                   const id = await midenClient.importPublicMidenWalletFromSeed(walletSeed, scheme);
                   return { accountId: id, accAuthScheme: scheme };
-                } catch {
+                } catch (probeError) {
+                  // A probe miss and an UNREACHABLE NODE are different answers, and
+                  // swallowing both is a fund-loss-shaped bug: if the RPC is down
+                  // mid-restore, every scheme "misses", we fall through, and the user
+                  // who typed a correct seed gets a brand-new EMPTY wallet — their real
+                  // account simply doesn't appear. Only a definitive "not on chain" may
+                  // fall through; anything that smells like connectivity aborts the
+                  // restore so it can be retried against a reachable node.
+                  if (isLikelyNetworkError(probeError)) {
+                    console.error(`[Vault.spawn] ${scheme} probe could not reach the node`, probeError);
+                    throw new PublicError(
+                      'Could not reach the Miden network to look up your account. Your seed phrase is fine — ' +
+                        'please check your connection and try restoring again.'
+                    );
+                  }
                   // probe miss; try next scheme
                 }
               }

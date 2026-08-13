@@ -1,5 +1,12 @@
 import { defineConfig } from '@playwright/test';
 
+// This config is the base for every Chrome E2E suite: it runs directly for the
+// blockchain runs (localhost per-PR + devnet/testnet on main) and is spread into
+// playwright.{earn,swap,guardian,bridge,bridge-guardian}.config.ts. Those suites
+// differ in what they cost to run, so `maxFailures` keys off the same
+// `E2E_NETWORK` the harness already uses to pick endpoints.
+const isLocalnet = process.env.E2E_NETWORK === 'localhost';
+
 export default defineConfig({
   testDir: './playwright/e2e/tests',
   // Guardian specs need a locally-spawned guardian backend that only the
@@ -20,7 +27,21 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0, // No retries -- fail fast, diagnose from report.json
-  maxFailures: 1, // Stop entire suite on first spec failure
+  // On the hermetic localnet stack the whole point of a ~25-minute run is to
+  // learn the state of EVERY spec: stopping at the first failure reports one
+  // fact and N-1 unknowns, so a PR that breaks two things costs two full runs.
+  // Everything else (devnet/testnet, and the real-testnet bridge suite that
+  // spreads this config) burns a shared faucet and live-network time on each
+  // spec, so those keep failing fast.
+  //
+  // 3, not 0. With 0 the worst case is every spec burning its full 300s timeout:
+  // guardian-lifecycle is 39 specs = 195 min against a 60-min `timeout-minutes`,
+  // and a job killed by that budget skips its remaining steps — including the
+  // `if: failure()` artifact upload and the flaky report. A run that dies with
+  // NO artifacts is strictly worse than fail-fast, which is the outcome this
+  // change exists to prevent. 3 keeps the runtime bounded while still reporting
+  // several independent failures per cycle instead of one.
+  maxFailures: isLocalnet ? 3 : 1,
   workers: 1,
   reporter: [['list'], ['json', { outputFile: 'test-results/results.json' }]],
   use: {

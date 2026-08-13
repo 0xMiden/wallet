@@ -1,0 +1,127 @@
+name: E2E Stress (conservation)
+
+# Runs the randomized send/claim stress suite against the HERMETIC localnet and
+# enforces the invariant the repo already wrote but never ran:
+#
+#   expect(delta, `balance conservation violated by ${delta}; notes lost`).toBe(0)
+#   -- playwright/e2e/stress/stress.spec.ts
+#
+# That is the strongest cheap correctness check available here. Every other spec
+# asserts one wallet's balance, which cannot see a note that was silently lost or
+# minted from nowhere; conservation is the only assertion that spans both wallets
+# and therefore catches it. `STRESS_CONSERVATION_STRICT` already defaults to true
+# (stress.spec.ts:78) -- nothing was gating this except the absence of a workflow.
+#
+# NIGHTLY, not per-PR, deliberately:
+#   - it is adversarial by design (randomized ordering, interleaved claims, idle
+#     gaps) so it is the one suite where a real failure is expected to be rare but
+#     meaningful -- exactly wrong for a merge gate, exactly right as a trust anchor;
+#   - a full run is ~15+ min on top of stack bring-up;
+#   - a first-run failure is more likely to be a real bug or a real harness gap
+#     than a flake, and wants a human, not an auto-retry (`retries: 0` in
+#     playwright.stress.config.ts is intentional and preserved here).
+#
+# Localnet (not testnet) so a failure means OUR bug rather than someone else's
+# outage -- the whole point of an invariant is that it is not allowed to be noisy.
+
+on:
+  schedule:
+    # 04:00 UTC daily, after the nightly testnet suites have settled.
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      num_notes:
+        description: 'Successful sends to drive (STRESS_NUM_NOTES)'
+        required: false
+        default: '20'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  stress-conservation:
+    name: Stress + balance conservation (localnet)
+    runs-on: ubuntu-latest
+    # Stack bring-up + CLI + extension build (~20 min cold) plus the run itself.
+    timeout-minutes: 90
+    env:
+      E2E_NETWORK: localhost
+      MIDEN_NTX_AUTH: e2e-ntx-secret
+      # The invariant under test. Explicit rather than relying on the default, so
+      # nobody can weaken it by changing a default somewhere else.
+      STRESS_CONSERVATION_STRICT: 'true'
+      STRESS_NUM_NOTES: ${{ github.event.inputs.num_notes || '20' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: yarn }
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - name: Cache cargo (cli + note-transport)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ${{ runner.temp }}/note-transport/target
+          key: stress-e2e-cargo-v1-rust1.96.1-${{ hashFiles('package.json', 'playwright/e2e/local-stack/versions.env') }}
+      - run: yarn install --frozen-lockfile
+      - name: Pre-install miden-client-cli (off the per-test clock)
+        run: |
+          if ! command -v miden-client >/dev/null 2>&1; then
+            url=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.url)")
+            rev=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.rev)")
+            cargo install miden-client-cli --git "$url" --rev "$rev" --locked
+          fi
+          miden-client --version
+      - name: Bring up node + prover
+        working-directory: playwright/e2e/local-stack
+        run: |
+          for attempt in 1 2 3; do
+            docker compose --env-file versions.env -f docker-compose.local.yml up --wait --wait-timeout 300 && exit 0
+            echo "bring-up attempt $attempt failed; tearing down and retrying" >&2
+            docker compose --env-file versions.env -f docker-compose.local.yml down -v || true
+            sleep 10
+          done
+          exit 1
+      - name: Wait for node RPC
+        working-directory: playwright/e2e/local-stack
+        run: |
+          probe() { timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null; }
+          for _ in $(seq 1 90); do
+            probe 57291 && probe 50052 && echo "node(57291)+prover(50052) ready" && exit 0
+            sleep 2
+          done
+          echo "node RPC (57291) / prover (50052) not ready in time" >&2
+          docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color | tail -120
+          exit 1
+      - name: Build extension
+        run: yarn test:e2e:blockchain:build
+      - run: npx playwright install --with-deps chromium
+      - name: Run stress suite (conservation enforced)
+        run: yarn test:e2e:stress:run-only
+      - name: Capture stack logs on failure
+        if: failure()
+        working-directory: playwright/e2e/local-stack
+        # Per-service rather than one merged tail: a merged `logs | tail -400` is
+        # dominated by the sequencer's debug chatter, which is how a real guardian
+        # failure went unexplained for hours (see #615).
+        run: |
+          for svc in sequencer prover ntx-builder; do
+            echo "===== $svc ====="
+            docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color "$svc" 2>/dev/null | tail -120 || true
+          done
+      - name: Upload stress artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-conservation-report
+          path: test-results/
+          if-no-files-found: warn
+      - name: Tear down
+        if: always()
+        working-directory: playwright/e2e/local-stack
+        run: docker compose --env-file versions.env -f docker-compose.local.yml down -v || true
