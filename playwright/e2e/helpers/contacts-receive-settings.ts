@@ -312,6 +312,19 @@ export async function pickContactByName(
   expectedAddress: string,
   timeoutMs = 30_000
 ): Promise<void> {
+  // `openSendContactPicker` only waits for the sheet CONTAINER, which mounts one
+  // commit before its rows. Enumerating straight away is a one-shot read that can
+  // sample an empty list on a perfectly healthy wallet, so wait for the row first.
+  const expectedRow = wallet.page.getByTestId(`${PICKER_ROW_PREFIX}${expectedAddress}`);
+  try {
+    await expectedRow.waitFor({ state: 'visible', timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `pickContactByName("${name}"): the picker never rendered a row for ${expectedAddress} within ${timeoutMs}ms. ` +
+        `Picker rows: ${JSON.stringify(await listSendPickerContacts(wallet.page))}`
+    );
+  }
+
   const rows = await listSendPickerContacts(wallet.page);
   const matches = rows.filter(row => row.name === name);
   const [match] = matches;
@@ -329,7 +342,7 @@ export async function pickContactByName(
     );
   }
 
-  await wallet.page.getByTestId(`${PICKER_ROW_PREFIX}${expectedAddress}`).click({ timeout: timeoutMs });
+  await expectedRow.click({ timeout: timeoutMs });
 
   const nameEl = wallet.page.getByTestId('send-recipient-name');
   try {
@@ -451,53 +464,6 @@ export async function advanceToSendReview(
   return { params: await readRouteParams(page), text: (await page.locator('body').textContent()) ?? '' };
 }
 
-/**
- * Submit the send from the review screen and confirm it was actually dispatched.
- *
- * "Dispatched" is the submit button DETACHING — the flow routes to
- * `/generating-transaction/:txId` once the request is on its way. Both failure
- * modes throw here, at the real failure point: a rendered error surface, and a
- * button that never detached. Swallowing either turns a send that visibly failed
- * into a recipient-balance timeout minutes later, which points the reader at
- * delivery instead of at the send.
- */
-export async function submitSendReview(wallet: ChromeWalletPageApi): Promise<void> {
-  const page = wallet.page;
-  const submit = page.getByTestId('send-review-submit');
-  await submit.click({ timeout: 30_000 });
-
-  const submitAccepted = await submit
-    .waitFor({ state: 'detached', timeout: 120_000 })
-    .then(() => true)
-    .catch(() => false);
-  await page
-    .waitForFunction(() => window.location.hash.includes('generating-transaction'), undefined, { timeout: 2_000 })
-    .catch(() => {});
-
-  const bodyText =
-    (await page
-      .locator('body')
-      .textContent()
-      .catch(() => '')) ?? '';
-  const lower = bodyText.toLowerCase();
-  // The in-flight screen legitimately contains progress words, hence the guard.
-  const looksLikeError = lower.includes('failed') || lower.includes('error');
-  const looksLikeProgress = /generating|processing|initiated|submitting|pending/.test(lower);
-  if (looksLikeError && !looksLikeProgress) {
-    throw new Error(
-      `submitSendReview: the wallet rendered an error surface after submit ` +
-        `(submit button ${submitAccepted ? 'detached' : 'never detached'}). ` +
-        `On-screen text (first 800): ${bodyText.slice(0, 800)}`
-    );
-  }
-  if (!submitAccepted) {
-    throw new Error(
-      `submitSendReview: the review screen's submit button was still attached 120s after clicking it, ` +
-        `so the send was never dispatched. On-screen text (first 800): ${bodyText.slice(0, 800)}`
-    );
-  }
-}
-
 /** Query params of the current hash route (`#/send/review?amount=…&to=…`). */
 export async function readRouteParams(page: Page): Promise<Record<string, string>> {
   const hash = await page.evaluate(() => window.location.hash);
@@ -513,30 +479,10 @@ export async function readRouteParams(page: Page): Promise<Record<string, string
 /** `miden:` — the URI scheme `lib/qr/format.ts` prefixes every encoded address with. */
 export const MIDEN_URI_PREFIX = 'miden:';
 
-/**
- * Recover the address from a Miden QR payload, independently of the app's own
- * `decodeAddress`.
- *
- * The QR does NOT encode the bare address — `QRCode` feeds it through
- * `encodeAddress`, which prefixes `miden:` (BIP21/EIP-681 style). Asserting
- * `payload === publicKey` would fail on a perfectly working wallet, so the
- * assertion has to strip the scheme first. Throws when the scheme is missing:
- * a bare address in the QR is itself a regression (external scanners key on it).
- */
-export function decodeMidenQrPayload(payload: string): string {
-  if (!payload.startsWith(MIDEN_URI_PREFIX)) {
-    throw new Error(
-      `decodeMidenQrPayload: payload ${JSON.stringify(payload)} does not start with "${MIDEN_URI_PREFIX}" — ` +
-        `the receive QR must encode the BIP21-style URI, not a bare address.`
-    );
-  }
-  return payload.slice(MIDEN_URI_PREFIX.length);
-}
-
 export interface ReceiveSurface {
   /** The untruncated address rendered in the sr-only span. */
   addressText: string;
-  /** The exact string handed to the QR encoder (`miden:<address>`). */
+  /** The payload the QR encoder was last repainted with (`miden:<address>`). */
   qrPayload: string;
   /** How many <svg> elements the QR container actually painted. */
   qrSvgCount: number;
@@ -549,9 +495,12 @@ export interface ReceiveSurface {
  * `qrcode`/`qrcode-generator` are transitive-only; `sharp` rasterizes), and the
  * rendered SVG's centre modules are deliberately punched out for the logo, so a
  * hand-rolled decoder would need Reed-Solomon recovery to read it back. Rather
- * than add a decode dependency, `QRCode` mirrors the payload it encodes onto
- * `data-qr-payload`, and this reads that — the exact input to the encoder —
- * alongside proof that the encoder actually painted an SVG.
+ * than add a decode dependency, `QRCode` mirrors the payload onto
+ * `data-qr-payload` FROM INSIDE the effect that repaints the encoder, so the
+ * attribute tracks what was painted rather than what was merely computed.
+ *
+ * The attribute is therefore absent until that repaint runs — hence waiting on
+ * `[data-qr-payload]` rather than reading the attribute once.
  */
 export async function readReceiveSurface(wallet: ChromeWalletPageApi, timeoutMs = 30_000): Promise<ReceiveSurface> {
   const page = wallet.page;
@@ -567,10 +516,16 @@ export async function readReceiveSurface(wallet: ChromeWalletPageApi, timeoutMs 
     );
   }
 
-  const qrPayload = await qr.getAttribute('data-qr-payload');
-  if (qrPayload === null) {
-    throw new Error('readReceiveSurface: the QR container carries no data-qr-payload attribute.');
+  try {
+    await page.locator('[data-testid="qr-code"][data-qr-payload]').waitFor({ state: 'attached', timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `readReceiveSurface: the QR container rendered but never mirrored a data-qr-payload within ${timeoutMs}ms. ` +
+        `That attribute is written by the same effect that calls qrCode.update(), so a missing one means the ` +
+        `encoder was never (re)painted — whatever picture is on screen is not this account's.`
+    );
   }
+  const qrPayload = (await qr.getAttribute('data-qr-payload')) ?? '';
 
   const addressText = (await page.getByTestId('receive-address-full').textContent())?.trim() ?? '';
   if (!addressText) {
@@ -659,6 +614,9 @@ export async function copyReceiveAddress(wallet: ChromeWalletPageApi, timeoutMs 
 }
 
 // ── General settings: toggles + persistence surfaces ────────────────────────
+
+/** `lib/settings/constants.ts` THEME_STORAGE_KEY — `setThemeSetting` writes the raw enum value. */
+export const THEME_SETTING_KEY = 'theme_setting';
 
 /** Raw `localStorage` value for a settings key — `null` when never written. */
 export async function readLocalStorageItem(page: Page, key: string): Promise<string | null> {
@@ -763,6 +721,12 @@ export async function isDarkThemeApplied(page: Page): Promise<boolean> {
  * `setTheme` both persists the choice and calls `applyTheme`, which adds/removes
  * `.dark` on the document element — the one settings control in the extension
  * with a real, immediately visible effect.
+ *
+ * `'system'` has no predictable class outcome (it resolves through
+ * `prefers-color-scheme`), so that branch waits on the PERSISTED value instead,
+ * which is deterministic. It never returns without a postcondition: a click that
+ * missed, a disabled tab, or an off-by-one in `handleThemeTabChange`'s
+ * index→theme map all have to surface here, not in whatever runs next.
  */
 export async function selectTheme(
   wallet: ChromeWalletPageApi,
@@ -782,10 +746,22 @@ export async function selectTheme(
   }
   await tab.click({ timeout: timeoutMs });
 
-  // 'system' resolves through prefers-color-scheme, so only the explicit
-  // choices have a predictable class outcome to wait on.
+  if (theme === 'system') {
+    try {
+      await wallet.page.waitForFunction(key => window.localStorage.getItem(key) === 'system', THEME_SETTING_KEY, {
+        timeout: timeoutMs
+      });
+    } catch {
+      throw new Error(
+        `selectTheme("system"): clicked the tab but localStorage["${THEME_SETTING_KEY}"] is ` +
+          `${JSON.stringify(await readLocalStorageItem(wallet.page, THEME_SETTING_KEY))} after ${timeoutMs}ms — ` +
+          `setTheme was never called, so the click never reached the tab.`
+      );
+    }
+    return;
+  }
+
   const wantDark = theme === 'dark';
-  if (theme === 'system') return;
   try {
     await wallet.page.waitForFunction(want => document.documentElement.classList.contains('dark') === want, wantDark, {
       timeout: timeoutMs

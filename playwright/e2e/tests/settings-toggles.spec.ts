@@ -30,6 +30,7 @@
  */
 import { expect, test } from '../fixtures/two-wallets';
 import {
+  THEME_SETTING_KEY,
   clickSettingToggle,
   isDarkThemeApplied,
   openSettingsDrawer,
@@ -44,7 +45,6 @@ import {
 const AUTO_CONSUME_TOGGLE = 'General Settings/AutoConsumeToggle';
 // lib/settings/constants.ts
 const AUTO_CONSUME_KEY = 'auto_consume_setting';
-const THEME_KEY = 'theme_setting';
 
 test.describe('General Settings toggles', () => {
   test.describe.configure({ mode: 'serial' });
@@ -113,7 +113,7 @@ test.describe('General Settings toggles', () => {
 
         expect(await isDarkThemeApplied(walletA.page)).toBe(true);
         // setThemeSetting writes the raw enum value, not JSON.
-        expect(await readLocalStorageItem(walletA.page, THEME_KEY)).toBe('dark');
+        expect(await readLocalStorageItem(walletA.page, THEME_SETTING_KEY)).toBe('dark');
       },
       { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
     );
@@ -124,7 +124,7 @@ test.describe('General Settings toggles', () => {
       // rather than merely painted onto the live DOM.
       await reloadWallet(walletA);
       expect(await isDarkThemeApplied(walletA.page)).toBe(true);
-      expect(await readLocalStorageItem(walletA.page, THEME_KEY)).toBe('dark');
+      expect(await readLocalStorageItem(walletA.page, THEME_SETTING_KEY)).toBe('dark');
     });
 
     await steps.step('choosing_light_removes_it_again', async () => {
@@ -132,11 +132,11 @@ test.describe('General Settings toggles', () => {
       await selectTheme(walletA, 'light');
 
       expect(await isDarkThemeApplied(walletA.page)).toBe(false);
-      expect(await readLocalStorageItem(walletA.page, THEME_KEY)).toBe('light');
+      expect(await readLocalStorageItem(walletA.page, THEME_SETTING_KEY)).toBe('light');
 
       await reloadWallet(walletA);
       expect(await isDarkThemeApplied(walletA.page)).toBe(false);
-      expect(await readLocalStorageItem(walletA.page, THEME_KEY)).toBe('light');
+      expect(await readLocalStorageItem(walletA.page, THEME_SETTING_KEY)).toBe('light');
     });
   });
 });

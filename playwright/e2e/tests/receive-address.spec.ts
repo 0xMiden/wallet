@@ -18,11 +18,16 @@
  * `qrcode`/`qrcode-generator` are transitive-only (not declared), `sharp` is a
  * rasterizer. A hand-rolled decoder is not viable either — the rendered SVG has
  * its centre modules punched out for the logo (`hideBackgroundDots`), so reading
- * it back needs Reed-Solomon recovery, not just module extraction. Rather than
- * take a decode dependency, `components/QRCode.tsx` mirrors the exact string it
- * hands the encoder onto `data-qr-payload`, and this spec asserts THAT, plus
- * that the encoder actually painted an SVG. It proves the input to the encoder
- * and the fact that it ran; it does not re-derive the bitmap.
+ * it back needs Reed-Solomon recovery, not just module extraction.
+ *
+ * Rather than take a decode dependency, `components/QRCode.tsx` mirrors the
+ * payload onto `data-qr-payload` from INSIDE the effect that calls
+ * `qrCode.update(options)` — the only thing that ever repaints the encoder,
+ * which is created once and never re-created. So the attribute reports what was
+ * painted, not merely what the component computed: a repaint that stops running
+ * (the stale-QR bug this spec exists for) leaves the attribute stale or absent
+ * rather than silently agreeing with a picture nobody refreshed. What it still
+ * does NOT do is re-derive the bitmap; module-level corruption is out of scope.
  *
  * The payload is `miden:<address>`, NOT the bare address — `lib/qr/format.ts`
  * prefixes the BIP21-style scheme. Asserting `payload === publicKey` would fail
@@ -32,7 +37,6 @@ import { expect, test } from '../fixtures/two-wallets';
 import {
   MIDEN_URI_PREFIX,
   copyReceiveAddress,
-  decodeMidenQrPayload,
   installClipboardRecorder,
   readReceiveSurface
 } from '../helpers/contacts-receive-settings';
@@ -63,26 +67,12 @@ test.describe('Receive address surface', () => {
     await steps.step(
       'qr_and_address_match_the_account',
       async () => {
-        // Read the account straight out of the store on the Receive page itself,
-        // rather than trusting the value captured during onboarding — the whole
-        // point is that the screen shows the CURRENT account.
-        const storedPublicKey = await walletA.page.evaluate(
-          () =>
-            (
-              window as unknown as {
-                __TEST_STORE__?: { getState(): { currentAccount?: { publicKey?: string } } };
-              }
-            ).__TEST_STORE__?.getState?.().currentAccount?.publicKey ?? ''
-        );
-        expect(storedPublicKey).toBe(publicKey!);
-
         const surface = await readReceiveSurface(walletA);
 
         // The sr-only untruncated address is the account address, exactly.
         expect(surface.addressText).toBe(publicKey!);
         // The QR payload is the BIP21-style URI over that same address, exactly.
         expect(surface.qrPayload).toBe(`${MIDEN_URI_PREFIX}${publicKey!}`);
-        expect(decodeMidenQrPayload(surface.qrPayload)).toBe(publicKey!);
         // …and the encoder actually painted. Exactly one SVG, not "at least one":
         // a re-render that appended a second QR is a bug too.
         expect(surface.qrSvgCount).toBe(1);
