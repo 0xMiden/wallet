@@ -622,6 +622,46 @@ export class IosWalletPage implements WalletPage {
           `return 'hash=' + h + ' claimAllButton=' + (claimAll ? 'present' : 'absent');`
       )
       .catch(() => 'unreadable');
+
+    // A consume still sitting on the transaction-progress route is SLOW, not
+    // failed — the surface diagnostic above distinguishes exactly that, and on a
+    // live testnet a consume legitimately outruns the budget. Throwing here turned
+    // healthy-but-slow runs red on main. Give the in-flight transaction a bounded
+    // grace period and only fail if it still hasn't landed. A wallet sitting on
+    // pending-notes with the Claim All button back HAS gone nowhere and still
+    // fails immediately, which is the case worth failing on.
+    if (surface.includes('generating-transaction')) {
+      const graceMs = 120_000;
+      const graceStart = Date.now();
+      while (Date.now() - graceStart < graceMs) {
+        await sleep(5_000);
+        await this.triggerSync();
+        const late = await this.cdp
+          .eval<number>(
+            `var s = window.__TEST_STORE__; ` +
+              `if (!s) return 0; ` +
+              `var st = s.getState(); ` +
+              `var balances = st.balances || {}; ` +
+              `for (var k in balances) { ` +
+              `  var list = balances[k]; ` +
+              `  if (!Array.isArray(list)) continue; ` +
+              `  for (var i = 0; i < list.length; i++) { ` +
+              `    var t = list[i]; ` +
+              `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
+              `    if (amt > 0) return amt; ` +
+              `  } ` +
+              `} ` +
+              `return 0;`
+          )
+          .catch(() => 0);
+        if (late > 0) {
+          await pumpProveTimings();
+          await this.navigateHome();
+          return;
+        }
+      }
+    }
+
     await this.navigateHome();
     throw new Error(
       `IosWalletPage.claimAllNotes: no consumed balance after ${iterations} sync iteration(s) over ` +
