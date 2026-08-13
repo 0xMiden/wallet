@@ -146,6 +146,41 @@ export async function pendingNoteTotal(page: Page, symbol: string): Promise<bigi
   );
 }
 
+/**
+ * Poll until the UNCONSUMED-note total for `symbol` equals `expected` exactly.
+ *
+ * This is the right assertion for "the mint arrived" — a minted note is discovered
+ * before it is consumed, so its value is pending, not spendable. Asserting the
+ * VAULT here would be wrong (it stays 0 until a claim) and asserting vault+pending
+ * summed together — what the old `getBalance` did — cannot tell the two apart at
+ * all, which is how a broken claim used to read as a successful one.
+ */
+export async function waitForPendingNoteTotal(
+  page: Page,
+  symbol: string,
+  expected: bigint,
+  opts: { timeoutMs?: number; decimals?: number } = {}
+): Promise<void> {
+  const timeoutMs = opts.timeoutMs ?? 120_000;
+  const deadline = Date.now() + timeoutMs;
+  let last = -1n;
+  while (Date.now() < deadline) {
+    last = await pendingNoteTotal(page, symbol);
+    if (last === expected) return;
+    await page.waitForTimeout(2_000);
+  }
+  const d = opts.decimals;
+  const fmt = (v: bigint) => (d == null ? `${v} base units` : `${fromBaseUnits(v, d)} (${v} base units)`);
+  const vault = await vaultBalance(page, symbol).catch(() => -1n);
+  throw new Error(
+    `waitForPendingNoteTotal(${symbol}) timed out after ${timeoutMs}ms.\n` +
+      `  expected unconsumed: ${fmt(expected)}\n` +
+      `  actual unconsumed:   ${fmt(last)}\n` +
+      `  vault balance for ${symbol}: ${vault === -1n ? 'unreadable' : vault.toString()} base units\n` +
+      `  (a vault total matching the expectation means the note was already consumed)`
+  );
+}
+
 /** Poll until the vault balance for `symbol` equals `expected` exactly, or throw with both readings. */
 export async function waitForVaultBalance(
   page: Page,
