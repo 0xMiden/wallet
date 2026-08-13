@@ -8,7 +8,12 @@ import { useTranslation } from 'react-i18next';
 import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { useAnalytics } from 'lib/analytics';
-import { safeGenerateTransactionsLoop as dbTransactionsLoop } from 'lib/miden/activity';
+import {
+  isRequeueableTransaction,
+  requestSWTransactionProcessing,
+  requeueFailedTransaction,
+  safeGenerateTransactionsLoop as dbTransactionsLoop
+} from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
@@ -56,9 +61,12 @@ const getTimedStepIndexForStage = (stage?: GeneratingTransactionProps['activeSta
 };
 
 export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ txId, keepOpen = false }) => {
+  const { t } = useTranslation();
   const { signTransaction } = useMidenContext();
   const { pageEvent } = useAnalytics();
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   // Single source of truth: the tracked row, watched by id. It advances
   // Queued → GeneratingTransaction → Completed | Failed and never disappears,
@@ -110,6 +118,31 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const hasErrors = status === ITransactionStatus.Failed;
   const activeStage = active?.stage;
   const activeType = active?.type;
+
+  // #483 — a failed tx can retry from the failure footer. Only FIFO-loop txs
+  // reach this screen (send/consume/swap/…); isRequeueableTransaction already
+  // requires status===Failed and excludes the non-requeueable cases (structural
+  // guardian ops, earn-deposit). earn-withdraw never routes here — it's born
+  // Completed with its failure in extraInputs.phase and has its own
+  // withdraw-status screen — so there is no earn branch to handle.
+  const canRetry = !!active && isRequeueableTransaction({ status: active.status, type: active.type });
+
+  const handleRetry = useCallback(async () => {
+    if (!active) return;
+    setIsRetrying(true);
+    setRetryError(null);
+    try {
+      // Requeue flips this row back to Queued; the page (subscribed via
+      // useTransactionRow) re-renders as processing — no navigation needed.
+      await requeueFailedTransaction(active.id);
+      requestSWTransactionProcessing();
+    } catch (error) {
+      console.error('[GeneratingTransaction] Failed to retry transaction:', error);
+      setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+    } finally {
+      setIsRetrying(false);
+    }
+  }, [active, t]);
 
   // Record the on-chain hash once the row reaches Completed with one set.
   useEffect(() => {
@@ -171,6 +204,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           completedTransaction={active}
           completedTxHash={receiptTxHash}
           onViewExplorer={explorerUrl ? onViewExplorer : undefined}
+          onRetry={handleRetry}
+          canRetry={canRetry}
+          isRetrying={isRetrying}
+          retryError={retryError}
         />
       </div>
     </div>
@@ -187,7 +224,11 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   activeTransaction,
   completedTransaction,
   completedTxHash,
-  onViewExplorer
+  onViewExplorer,
+  onRetry,
+  canRetry = false,
+  isRetrying = false,
+  retryError
 }) => {
   const [stepTimings, setStepTimings] = useState<StepTimings>({});
   const [showSuccessReceipt, setShowSuccessReceipt] = useState(false);
@@ -337,7 +378,27 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
         </section>
 
         <div className="w-full shrink-0 flex flex-col gap-5 items-center pt-16">
-          <Button type="button" variant={ButtonVariant.Primary} onClick={onDoneClick} className="w-full">
+          {/* #483 — a failed, retryable tx gets a one-tap Retry (requeue / earn
+              resubmit) as the primary action; Done demotes to secondary so the
+              recovery path is the obvious one. */}
+          {transactionComplete && hasErrors && canRetry && onRetry && (
+            <Button
+              type="button"
+              variant={ButtonVariant.Primary}
+              isLoading={isRetrying}
+              disabled={isRetrying}
+              onClick={onRetry}
+              className="w-full"
+            >
+              <span className="text-lg font-semibold text-pure-white">{t('retry')}</span>
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant={transactionComplete && hasErrors && canRetry ? ButtonVariant.Secondary : ButtonVariant.Primary}
+            onClick={onDoneClick}
+            className="w-full"
+          >
             <span className="text-lg font-semibold text-pure-white">{actionTitle}</span>
           </Button>
           {/* #483 — a failed tx needs a direct route to its Activity detail, like
@@ -356,6 +417,11 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             >
               <span className="text-lg font-semibold">{t('viewInActivities')}</span>
             </Button>
+          )}
+          {retryError && (
+            <p role="alert" className="text-center text-sm text-status-negative">
+              {retryError}
+            </p>
           )}
         </div>
       </main>
