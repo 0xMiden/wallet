@@ -156,6 +156,8 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         overflow scrolls instead of being cut. (The sibling parent above already
         clears this via `overflow-hidden` → auto-min 0; the scroll region below
         via `overflow-y-auto` → auto-min 0; this visible wrapper is the gap.)
+        #463 hit the same clipping on the completion layout, whose footer CTAs
+        were unreachable for the same reason.
       */}
       <div className={classNames('flex min-h-0 flex-1 flex-col w-full')}>
         <GeneratingTransaction
