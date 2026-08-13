@@ -42,11 +42,14 @@
  *     unlocks with the same one. The falsifiable pair is P2 reaching
  *     `explore-page` and P1 being refused — together they are the only proof the
  *     vault was genuinely re-encrypted rather than reused.
- *  4. The failure surface (#630). A recovery that fails has ALREADY wiped the
- *     wallet, so navigating away would drop the user on an empty wallet with no
- *     explanation — indistinguishable from data loss. The second test drives a
- *     deterministic failure and pins that the user is left on the confirmation
- *     screen, with a readable reason and a Retry button.
+ *  4. The failure surface (#630). A recovery that fails has already wiped the
+ *     wallet — the second test READS that, rather than asserting it in prose:
+ *     `hasVaultCheckEntry` is true before the reset and false after the failure,
+ *     which is the only thing in this file that would go red if `clearStorage()`
+ *     were dropped from `Vault.spawn`. Given the wipe, navigating away would
+ *     drop the user on an empty wallet with no explanation — indistinguishable
+ *     from data loss — so the same test pins that the failure reason is on
+ *     screen and says which failure it was.
  */
 import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
@@ -54,6 +57,7 @@ import { waitForVaultBalance } from '../helpers/balance-truth';
 import {
   RECOVERY_ERROR_TESTID,
   expectUnlockRejects,
+  hasVaultCheckEntry,
   openForgotPasswordFlow,
   recoverViaForgotPassword,
   submitRecoveryFromSeed
@@ -100,13 +104,33 @@ test.describe('Forgot password — destructive in-place reset', () => {
   }) => {
     // The budget must exceed the SUM of this test's own waits, or a wait that
     // blows its deadline reports a bare "Test timeout" instead of its own
-    // diagnostic — a fake failure reason. Summed at their maxima: guardian
-    // create 190s, CLI init/faucet/mint/sync ~120s, claim 120s, funded-balance
-    // pin 120s, entry route ~60s, seed/password/confirmation ~60s, recovery
-    // outcome 120s, rotation gate 150s, post-recovery balance pin 120s, and
-    // ~105s of lock → reject-old → unlock-new. ≈ 19.5 minutes, hence 20.
-    // Expected real runtime is ~8 minutes; this is the ceiling, not the cost.
-    test.setTimeout(1_200_000);
+    // diagnostic — a fake failure reason. The waits that get pre-empted are the
+    // LAST ones, which here are the re-key pair: the one genuinely novel thing
+    // this spec proves. Itemised, one attempt per call:
+    //
+    //   createGuardianWallet          180s (60s confirmation + 120s home)
+    //   midenCli.init                 120s (init run + its sync)
+    //   createFaucet                  180s   mint 60s   sync 60s
+    //   claimAllNotes                 132s (120s + ~12s of reload/prepare)
+    //   funded-balance pin            120s
+    //   lockWallet ×2                  64s (reload + unlock-screen wait)
+    //   openForgotPasswordFlow        165s (navigateHome 60s + 7×15s)
+    //   submitRecoveryFromSeed        135s (4 bounded clicks + 3 waits)
+    //   recovery outcome              120s   completeHotKeyRotation 150s
+    //   post-recovery reload + pin    180s
+    //   expectUnlockRejects           105s   unlockWallet 105s
+    //
+    // ≈ 1876s = 31.3 minutes, hence 35. Deliberately NOT included: the CLI
+    // helpers' transient-RPC retry ceilings (createFaucet alone is 5×180s +
+    // backoff — helpers/miden-cli.ts) and `navigateHome`'s unbounded `page.goto`
+    // (wallet-page.ts, shared). No wall-clock budget can cover a full retry
+    // storm, and a run in that state has already lost the chain rather than the
+    // assertion. Expected real runtime is ~8 minutes, so every individual wait
+    // above has room to blow its own ceiling and still print its own diagnostic
+    // — which is the entire point of the budget. It stays inside the guardian
+    // job's `timeout-minutes: 60` because `maxFailures` (playwright.e2e.config
+    // .ts) stops the run long before N specs each burn a full ceiling.
+    test.setTimeout(2_100_000);
 
     let addressBeforeReset: string;
     let seed = '';
@@ -164,6 +188,20 @@ test.describe('Forgot password — destructive in-place reset', () => {
         'the reset must recover the SAME account in place, not create a new one on top of the wiped profile'
       ).toBe(addressBeforeReset!);
 
+      // Reload BEFORE reading the balance, so the reading is provably derived
+      // from post-recovery state. `vaultBalance` reads the page's in-memory
+      // Zustand `balances` map; nothing in the reset clears it (`syncFromBackend`
+      // only merges, and `clearClientStorage()` touches localStorage/
+      // sessionStorage only), and this profile held exactly FUND_BASE_UNITS of
+      // TST before the wipe — the same number asserted here. Today the store is
+      // in fact discarded by the `page.reload()` that happens to live inside
+      // `lockWallet()`, but that reload is documented there as a display
+      // convenience ("Reload to show the locked state"), so relying on it would
+      // make this pin one refactor away from matching the PRE-wipe value on its
+      // first poll and passing a recovery that restored nothing.
+      await walletA.page.reload({ waitUntil: 'domcontentloaded' });
+      await walletA.page.getByTestId('explore-page').waitFor({ timeout: 60_000 });
+
       // And it must come back with the money. `> 0` would pass on a wallet that
       // recovered a fraction of its notes; the exact base-unit pin is what makes
       // a partial recovery a failure.
@@ -190,82 +228,93 @@ test.describe('Forgot password — destructive in-place reset', () => {
     });
   });
 
-  test('a recovery that fails leaves the user on the confirmation screen with a reason', async ({ walletB, steps }) => {
-    // No faucet, no mint, no claim: this leg only needs a wallet that exists and
-    // is locked, which keeps it cheap enough to add to an already 42-minute job.
-    // Waits at their maxima: guardian create 190s, entry route ~60s, seed/
-    // password/confirmation ~60s, the 120s failure-surface wait, and ~65s of
-    // tail assertions ≈ 8.3 minutes, hence 10.
-    test.setTimeout(600_000);
+  test('a recovery that fails wipes the wallet and says why, in place', async ({ walletA, steps }) => {
+    // `walletA`, not `walletB`: the `walletB` fixture depends on `walletA` AND
+    // `midenCli`, so destructuring it would stand up TWO persistent Chrome
+    // contexts (each paying a ~14MB WASM service-worker init) plus a CLI workdir
+    // to drive one wallet that never touches the chain. This leg only needs a
+    // wallet that exists and is locked.
+    //
+    // Itemised, one attempt per call: createGuardianWallet 180s, lockWallet 32s,
+    // openForgotPasswordFlow 165s, submitRecoveryFromSeed 135s, the 120s
+    // failure-surface wait, plus the storage reads and text read (sub-second).
+    // ≈ 632s = 10.5 minutes, hence 15 — comfortably above, so the
+    // failure-surface wait (the one that carries #630) can print its own
+    // diagnostic instead of dying on a bare test timeout.
+    test.setTimeout(900_000);
 
     await steps.step('create_and_lock_a_wallet_worth_destroying', async () => {
-      await walletB.createGuardianWallet(A, OLD_PASSWORD);
-      await walletB.lockWallet();
+      await walletA.createGuardianWallet(A, OLD_PASSWORD);
+      await walletA.lockWallet();
+
+      // The "before" half of the wipe proof. A live wallet has this entry; if it
+      // ever read false the wallet was never really created and the "after" read
+      // further down would pass for the wrong reason.
+      expect(await hasVaultCheckEntry(walletA.page), 'the wallet being reset must exist before the reset').toBe(true);
     });
 
     await steps.step(
       'recovery_fails_and_the_flow_stays_put',
       async () => {
-        await openForgotPasswordFlow(walletB);
-        await submitRecoveryFromSeed(walletB.page, {
+        await openForgotPasswordFlow(walletA);
+        await submitRecoveryFromSeed(walletA.page, {
           seed: MNEMONIC_WITH_NO_GUARDIAN_ACCOUNT,
           password: NEW_PASSWORD
         });
 
-        const failure = walletB.page.getByTestId(RECOVERY_ERROR_TESTID);
+        const failure = walletA.page.getByTestId(RECOVERY_ERROR_TESTID);
 
-        // By the time this resolves the wallet is ALREADY gone — `Vault.spawn`
-        // wipes storage before it attempts the guardian lookup that throws. The
-        // user's only remaining information is this screen.
-        //
         // This single check carries the whole #630 fix, because the failure text
         // only exists INSIDE `onboarding-confirmation` (Confirmation.tsx): seeing
         // it proves both that a reason was surfaced AND that the flow did not
         // navigate onward, which is what it used to do after console.error'ing
         // the rejection. A separate "confirmation screen is visible" assertion
-        // here would be the same fact stated twice.
+        // here would be the same fact stated twice (and could not fail, since
+        // this locator is a descendant of that container).
         await expect(failure, 'a recovery that failed after wiping the wallet must say so on screen').toBeVisible({
           timeout: 120_000
         });
 
+        // The "after" half. `Vault.spawn` wipes storage at its Step 3, before the
+        // guardian lookup at Step 7a that this seed makes throw — so by now the
+        // wallet really is gone and this screen is all the user has left. Nothing
+        // else in this file would notice if `clearStorage()` were removed:
+        // test 1 would still recover the same address and balance, and the
+        // reason below would still render.
+        expect(
+          await hasVaultCheckEntry(walletA.page),
+          'the reset is destructive: a recovery that failed must have already wiped the vault'
+        ).toBe(false);
+
         const reason = (await failure.innerText()).trim();
-        // The reason has to survive the service-worker → page hop to be worth
-        // rendering, and until this change it did not: the SW rejects with an
-        // `IntercomError`, which only `implemented` Error (a TS-only contract,
-        // erased at compile time) rather than extending it, so every
-        // `e instanceof Error ? e.message : String(e)` consumer —
-        // `ForgotPassword.tsx:94` among ~25 others — fell through to `String(e)`
-        // and printed the literal "[object Object]" to a user whose wallet had
-        // just been destroyed. `IntercomError` is a real `Error` subclass now.
+        // Two things had to be fixed for this string to exist.
         //
-        // Limit of this check: it pins that a real message crossed the intercom
-        // boundary and reached the screen. The wording itself is the backend's
-        // (`PublicError('Failed to create wallet')` from `Vault.spawn`'s
-        // `withError` wrapper), so it is deliberately not matched literally.
+        // 1. The SW rejects over the intercom port with an `IntercomError`, which
+        //    only `implemented` Error — a TS-only contract, erased at compile
+        //    time — so every `e instanceof Error ? e.message : String(e)` consumer
+        //    (`ForgotPassword.tsx:94` among ~25 others) fell through to
+        //    `String(e)` and printed the literal "[object Object]".
+        // 2. `Vault.spawn` wraps its body in `withError('Failed to create
+        //    wallet', …)`, which replaces any non-PublicError with that generic
+        //    string. So even once the object was readable, the one failure a user
+        //    can act on — wrong seed, or right seed at the wrong operator — was
+        //    console-only. The recovery lookup's own reason is now promoted to a
+        //    PublicError so it survives the wrapper.
+        //
+        // Matching the reason itself, not just "it isn't [object Object]": a
+        // negative substring check would also pass on '', 'undefined', and on
+        // `DEFAULT_ERROR_MESSAGE` ('Unexpected error occured'), i.e. on every
+        // degradation short of a literal stringified object. The text is
+        // `miden-client-interface.ts`'s own, thrown when the HD scan hits
+        // RECOVERY_GAP_LIMIT with nothing found — exactly what this mnemonic
+        // produces. A different message here means a different failure happened
+        // and the test is not testing what it claims.
         expect(
           reason,
-          'the failure reason must be a readable message, not a stringified object — this is all the user gets after an irreversible wipe'
-        ).not.toContain('[object');
-
-        // The primary button must offer another go rather than "Open wallet",
-        // which would send the user into the empty wallet the flow just refused
-        // to navigate to.
-        await expect(
-          walletB.page.getByTestId('onboarding-confirmation-submit'),
-          'the confirmation button must offer Retry after a failed recovery'
-        ).toHaveText('Retry');
-
-        // Re-checked LAST, and only for the "still": everything above ran within
-        // a second or two of the failure rendering, so this catches a flow that
-        // surfaces the reason and then navigates away a beat later — the exact
-        // regression shape #630 fixed, and the only reading of the confirmation
-        // screen that the assertions above do not already imply.
-        await expect(
-          walletB.page.getByTestId('onboarding-confirmation'),
-          'the flow must still be on the confirmation screen, not on the wallet it has already wiped'
-        ).toBeVisible({ timeout: 5_000 });
+          'after an irreversible wipe the screen must name the failure — this text is all the user gets'
+        ).toContain('No Guardian accounts found');
       },
-      { screenshotWallets: [{ target: walletB.page, label: 'B' }] }
+      { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
     );
   });
 });

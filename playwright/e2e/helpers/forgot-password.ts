@@ -60,10 +60,10 @@ type ForgotPasswordDriver = Pick<ChromeWalletPageApi, 'page' | 'navigateHome' | 
  * the ForgotPassword host at its Welcome step.
  *
  * Asserts on the way through that the destructive-reset warning is actually on
- * screen before the "Sign Out" click that leads to the wipe. Returns once
- * `onboarding-welcome` has rendered; that is the limit of what it establishes —
- * nothing has been destroyed at this point, the wipe happens later inside
- * `Vault.spawn`.
+ * screen before the "Sign Out" click that leads to the wipe. Returns once the
+ * app is on the `#/forgot-password` route AND `onboarding-welcome` has rendered;
+ * that is the limit of what it establishes — nothing has been destroyed at this
+ * point, the wipe happens later inside `Vault.spawn`.
  */
 export async function openForgotPasswordFlow(wallet: ForgotPasswordDriver): Promise<void> {
   const page = wallet.page;
@@ -74,7 +74,7 @@ export async function openForgotPasswordFlow(wallet: ForgotPasswordDriver): Prom
   // `#forgot-password` is the button's own id (Unlock.tsx) — it has no testid,
   // and driving by id is the existing harness precedent (`#import-link`,
   // `#seed-phrase-input-N`).
-  await page.locator('#forgot-password').click();
+  await page.locator('#forgot-password').click({ timeout: 15_000 });
 
   const signOut = page.getByRole('button', { name: SIGN_OUT_BUTTON });
   await signOut.waitFor({ timeout: 15_000 });
@@ -88,9 +88,59 @@ export async function openForgotPasswordFlow(wallet: ForgotPasswordDriver): Prom
     'the forgot-password interstitial must warn that signing out needs the seed phrase, BEFORE the wipe'
   ).toBeVisible({ timeout: 15_000 });
 
-  await signOut.click();
+  await signOut.click({ timeout: 15_000 });
 
+  // Checkpoint the ROUTE, not just the screen. `onboarding-welcome` is
+  // `WelcomeScreen`'s testid (screens/onboarding/common/Welcome.tsx) and it is
+  // rendered by the first-run onboarding host (`app/pages/Welcome.tsx`) as well
+  // as by `ForgotPassword.tsx` — and the fullpage URL still carries
+  // `?__test_skip_onboarding=1&password=<OLD>&walletType=guardian&…` from
+  // `createWalletViaBypass` for the whole test (neither `navigateHome()` nor
+  // `lockWallet()`'s reload strips the query). So if a routing change ever
+  // dropped this click on `/` instead, the bypass would fire and provision a
+  // brand-new wallet under the OLD password while every testid below still
+  // matched. `#/forgot-password-info` also contains this substring, hence the
+  // end-anchored regex.
+  await expect(page, 'Sign Out must land on the forgot-password route, not on first-run onboarding').toHaveURL(
+    /#\/forgot-password$/,
+    { timeout: 15_000 }
+  );
   await page.getByTestId('onboarding-welcome').waitFor({ timeout: 15_000 });
+}
+
+/**
+ * Is the wallet's encrypted-vault marker present in extension storage?
+ *
+ * The whole app gates on this one entry: `Vault.isExist()` is
+ * `isStored(checkStrgKey)` (src/lib/miden/back/vault.ts), and `Vault.spawn`
+ * writes it only at the END, once the accounts exist — well after the
+ * `clearStorage()` at its Step 3 and after the guardian lookup that a failed
+ * recovery dies on. So it reads true for a live wallet and false once a reset
+ * has wiped storage and then failed. That before/after pair is the ONLY direct
+ * evidence in this suite that the reset is genuinely destructive; without it,
+ * deleting `clearStorage()` from `Vault.spawn` would leave every other
+ * assertion here green.
+ *
+ * `safe-storage.ts` addresses vault entries by the hex SHA-256 of their logical
+ * key (`wrapStorageKey`), so this recomputes that digest in-page rather than
+ * guessing at a literal key name. Reading `chrome.storage.local` from the page
+ * is existing harness precedent (helpers/balance-truth.ts `pendingNoteTotal`);
+ * it is the same storage area the service worker writes.
+ */
+export async function hasVaultCheckEntry(page: Page): Promise<boolean> {
+  return page.evaluate(async () => {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('vault_check'));
+    const hashedKey = Array.from(new Uint8Array(digest))
+      .map(byte => byte.toString(16).padStart(2, '0'))
+      .join('');
+    // `Promise<any>` (as in helpers/balance-truth.ts) so `chrome.storage.local.get`
+    // infers its result type from the key array rather than from the resolver.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const items = await new Promise<any>(resolve => {
+      chrome.storage.local.get([hashedKey], resolve);
+    });
+    return items[hashedKey] !== undefined;
+  });
 }
 
 /**
@@ -103,7 +153,15 @@ export async function openForgotPasswordFlow(wallet: ForgotPasswordDriver): Prom
  * callers assert on differently.
  */
 export async function submitRecoveryFromSeed(page: Page, opts: { seed: string; password: string }): Promise<void> {
-  await page.locator('#import-link').click();
+  // Every `click` here carries an explicit ceiling. Playwright defaults
+  // `actionTimeout` to 0, and `click()` auto-waits for the target to become
+  // enabled — so a button that never enables (see the seed submit below) would
+  // silently burn the CALLER's whole `test.setTimeout` and report a bare "Test
+  // timeout" instead of naming the step that hung. The `fill` calls are left
+  // unbounded on purpose: they target inputs inside a container whose testid the
+  // line above has already waited for, so there is nothing left for them to wait
+  // on.
+  await page.locator('#import-link').click({ timeout: 15_000 });
   await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
 
   const words = opts.seed.trim().split(/\s+/);
@@ -111,20 +169,20 @@ export async function submitRecoveryFromSeed(page: Page, opts: { seed: string; p
     // `id="seed-phrase-input-N"` is ImportSeedPhrase.tsx's own stable per-word id.
     await page.locator(`#seed-phrase-input-${i}`).fill(words[i]!);
   }
-  // `.click()` auto-waits for the button to become enabled, which only happens
-  // once every word matches the BIP-39 list AND the checksum validates.
-  await page.getByTestId('import-seed-submit').click();
+  // This one only becomes enabled once every word matches the BIP-39 list AND the
+  // checksum validates, so its ceiling is the "the seed was rejected" diagnostic.
+  await page.getByTestId('import-seed-submit').click({ timeout: 15_000 });
 
   await page.getByTestId('create-password-input').waitFor({ timeout: 15_000 });
   await page.getByTestId('create-password-input').fill(opts.password);
   await page.getByTestId('create-password-verify-input').fill(opts.password);
-  await page.getByTestId('create-password-submit').click();
+  await page.getByTestId('create-password-submit').click({ timeout: 15_000 });
 
   await page.getByTestId('onboarding-confirmation').waitFor({ timeout: 30_000 });
   // This click is the destructive one: register() runs clearClientStorage() and
   // then registerWallet(), whose Vault.spawn wipes chrome.storage.local before
   // it attempts the guardian recovery scan.
-  await page.getByTestId('onboarding-confirmation-submit').click();
+  await page.getByTestId('onboarding-confirmation-submit').click({ timeout: 15_000 });
 }
 
 /**
@@ -166,9 +224,9 @@ export async function recoverViaForgotPassword(
 /**
  * Assert that `password` does NOT open the vault.
  *
- * What this establishes: the wallet reached `Unlock`'s rejected-password state
- * and, at that moment, the wallet home is not rendered. It does NOT prove the
- * password can never work later, and it deliberately makes exactly ONE attempt —
+ * What this establishes: the wallet reached `Unlock`'s rejected-password state,
+ * which on this screen is mutually exclusive with a successful unlock. It does
+ * NOT prove the password can never work later, and it makes exactly ONE attempt —
  * `Unlock.tsx` time-locks the form for 60s on the third consecutive failure, so
  * a retry loop here would poison any subsequent unlock in the same test.
  */
@@ -187,16 +245,15 @@ export async function expectUnlockRejects(
   // A rejected unlock is one service-worker round trip, so 30s is generous; the
   // ceiling exists to keep this helper's contribution to a caller's test budget
   // small and predictable.
+  // This is the whole assertion. A follow-up `explore-page` absence check used to
+  // live here and was deleted: `Unlock.tsx` makes the two states mutually
+  // exclusive — `isError` is set only in `submitPasscode`'s catch branch, while
+  // the success branch does `window.location.reload()` and never sets it — so
+  // once the subtitle above is on screen, `explore-page` is definitionally
+  // absent. It could not fail in any reachable state; it only spent 10s of the
+  // caller's budget.
   await expect(
     page.getByText(INCORRECT_PASSWORD_SUBTITLE, { exact: true }),
     'the unlock form must reject this password and say so'
   ).toBeVisible({ timeout: 30_000 });
-
-  // Checked only AFTER the rejection is on screen: a successful unlock reloads
-  // the page onto the wallet home (Unlock.tsx `window.location.reload()`), so
-  // asserting this first would pass simply by running before the vault answered.
-  // By this point the answer is in, so a short ceiling is the right one.
-  await expect(page.getByTestId('explore-page'), 'a rejected password must not have opened the wallet').toHaveCount(0, {
-    timeout: 10_000
-  });
 }
