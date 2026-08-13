@@ -1,12 +1,6 @@
-import { expect, test } from '../fixtures/two-wallets';
+import { test } from '../fixtures/two-wallets';
 import { snapshotTransfer, type TransferSnapshot } from '../helpers/assertions';
-import {
-  fromBaseUnits,
-  toBaseUnits,
-  vaultBalance,
-  waitForPendingNoteTotal,
-  waitForVaultBalance
-} from '../helpers/balance-truth';
+import { toBaseUnits, waitForPendingNoteTotal, waitForVaultBalance, waitForVaultDebit } from '../helpers/balance-truth';
 
 // The faucet the harness deploys (miden-cli.ts createFaucet defaults).
 const TOKEN = 'TST';
@@ -159,14 +153,12 @@ test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
 
         // The other half of a transfer: A must actually have been debited. At least
         // the sent amount, not exactly it — a fee may also leave the account.
-        const fromAfter = await vaultBalance(walletA.page, TOKEN);
-        const debited = transferBefore!.fromVault - fromAfter;
-        expect(
-          debited >= SEND_BASE_UNITS,
-          `sender (A) must be debited by at least ${SEND_AMOUNT} ${TOKEN}; was ` +
-            `${fromBaseUnits(transferBefore!.fromVault, TOKEN_DECIMALS)} → ${fromBaseUnits(fromAfter, TOKEN_DECIMALS)} ` +
-            `(debited ${fromBaseUnits(debited, TOKEN_DECIMALS)})`
-        ).toBe(true);
+        // Waited, not read once — see the note in send-public.spec.ts: the recipient's
+        // pending total and the sender's vault projection settle independently.
+        await waitForVaultDebit(walletA.page, TOKEN, transferBefore!.fromVault, SEND_BASE_UNITS, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
       },
       {
         captureStateFrom: [
