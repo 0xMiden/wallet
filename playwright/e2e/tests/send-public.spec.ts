@@ -1,4 +1,4 @@
-import { test } from '../fixtures/two-wallets';
+import { expect, test } from '../fixtures/two-wallets';
 import { snapshotTransfer, type TransferSnapshot } from '../helpers/assertions';
 import {
   fromBaseUnits,
@@ -7,6 +7,15 @@ import {
   waitForVaultBalance,
   waitForVaultDebit
 } from '../helpers/balance-truth';
+import {
+  TxStatus,
+  activityRowAddress,
+  activityRowFor,
+  openHistory,
+  openHistoryDetails,
+  readDetailRowFullValue,
+  waitForSendRow
+} from '../helpers/history';
 
 // The faucet the harness deploys (miden-cli.ts createFaucet defaults).
 const TOKEN = 'TST';
@@ -21,6 +30,12 @@ test.describe('Public Note Send', () => {
   test.describe.configure({ mode: 'serial' });
 
   test('wallet A sends tokens publicly to wallet B', async ({ walletA, walletB, midenCli, steps, timeline }) => {
+    // Above the sum of the waits this test grants itself (600s of explicit
+    // timeoutMs, plus the history tail's UI waits). Without this it runs under
+    // the config's 300s default and can die on the test timeout BEFORE any of
+    // its own waits expire — reporting a bare "Test timeout" instead of the
+    // diagnostic the wait would have printed, which is a fake failure reason.
+    test.setTimeout(900_000);
     let addressA: string;
     let addressB: string;
     let beforeSend: TransferSnapshot;
@@ -143,6 +158,76 @@ test.describe('Public Note Send', () => {
           { target: walletA.page, label: 'A' },
           { target: walletB.page, label: 'B' }
         ]
+      }
+    );
+
+    // Rides the send above at zero extra chain cost: the balances are already
+    // proven, so this asserts the wallet TELLS the user the same story its
+    // balances do. Nothing in the suite opened #/history or #/history-details
+    // before, so a row rendering the wrong amount or the wrong counterparty would
+    // have shipped unnoticed.
+    await steps.step(
+      'verify_activity_history_wallet_a',
+      async () => {
+        // A's own row completing is a DIFFERENT signal from B's delivery — the
+        // "Tx ID" row is conditional on `tx.transactionId`, which only exists
+        // once completion stamps the on-chain hash. Waiting on the row (not on a
+        // sleep) is what makes the detail-page assertions below deterministic.
+        // 60s, not more: `waitForVaultDebit` above already observed A's debit, so
+        // completion has landed and this is one poll away from resolving. A longer
+        // budget here only pushes the spec further past its own test timeout.
+        const sendRow = await waitForSendRow(walletA.page, {
+          recipient: addressB!,
+          amountBaseUnits: SEND_BASE_UNITS,
+          status: TxStatus.Completed,
+          requireTransactionId: true,
+          timeoutMs: 60_000
+        });
+
+        await openHistory(walletA);
+
+        // Addressed by the row's OWN id, not by the rendered recipient: the
+        // rendered address is truncated to `mtst1a…qq9wr6w`, and both halves are
+        // network-wide constants on a composite account id — that string matched
+        // the funding mint's row as well as this one.
+        const row = await activityRowFor(walletA.page, sendRow.id);
+        await expect(row.getByTestId('activity-row-title')).toHaveText('Sent');
+        await expect(row.getByTestId('activity-row-subtitle')).toHaveText(`To: ${activityRowAddress(addressB!)}`);
+        // Exact, signed, with the symbol: `-500 TST`. A row that showed the
+        // right number of the WRONG token reads identically without the symbol.
+        await expect(row.getByTestId('activity-row-amount')).toHaveText(`-${SEND_AMOUNT} ${TOKEN}`);
+        await expect(row.getByTestId('activity-row-status')).toHaveText('Confirmed');
+
+        // A transaction has TWO ids and the detail page renders one of each: the
+        // route param is the Dexie row uuid (`tx.id`), the "Tx ID" row is the
+        // on-chain hash (`tx.transactionId`). This is a FIELD-MAPPING assertion,
+        // not a chain-provenance one — nothing here asks the node what hash the
+        // send really got. What it catches is the mapping regressing to a value
+        // the user cannot look up on an explorer: the row uuid, a note id, or
+        // another row's hash (`HistoryDetails` builds `externalTxId` from the row
+        // it loaded by route param, and all four are hex-ish strings that look
+        // interchangeable on screen).
+        await openHistoryDetails(walletA, sendRow.id);
+        const shownHash = await readDetailRowFullValue(walletA.page, 'history-detail-tx-id');
+        expect(shownHash).toBe(sendRow.transactionId);
+        expect(shownHash).not.toBe(sendRow.id);
+
+        // The "To" row carries the untruncated recipient behind its copy field.
+        // Unlike the hash, this IS checked against an independent source: wallet
+        // B's own address, as B reported it at creation.
+        const shownTo = await readDetailRowFullValue(walletA.page, 'history-detail-to');
+        expect(shownTo).toBe(addressB!);
+        await expect(walletA.page.getByTestId('history-status-pill')).toHaveText('Confirmed');
+
+        timeline.emit({
+          category: 'blockchain_state',
+          severity: 'info',
+          message: `Activity row and transaction detail agree with the send: -${SEND_AMOUNT} ${TOKEN} to ${activityRowAddress(addressB!)}, hash ${shownHash}`,
+          data: { rowId: sendRow.id, transactionId: shownHash, recipient: addressB! }
+        });
+      },
+      {
+        screenshotWallets: [{ target: walletA.page, label: 'A' }]
       }
     );
   });
