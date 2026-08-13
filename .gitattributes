@@ -1,0 +1,16 @@
+# CHANGELOG.md is append-at-the-top by every PR, so two PRs that both add an
+# entry under the same `### Changes` heading conflict on the identical anchor —
+# not because they disagree, but because git cannot know both bullets are wanted.
+# That conflict fired on essentially every merge once more than one PR was open.
+#
+# `union` is git's built-in merge driver for exactly this shape: when both sides
+# add lines at the same place, it keeps BOTH instead of raising a conflict. It is
+# the standard treatment for changelog/authors-style append-only files.
+#
+# Scope is deliberately this one file. Union is only safe where every line stands
+# alone; applying it to code would silently splice two edits into nonsense.
+#
+# Its one failure mode is duplication (both sides adding the same line, or each
+# opening its own `## <version> (TBD)` section), so CI checks the result for
+# duplicate version headings — see scripts/check-changelog.sh.
+CHANGELOG.md merge=union
