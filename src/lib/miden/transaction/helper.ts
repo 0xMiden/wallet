@@ -89,6 +89,9 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
 
   await Repo.transactions.where({ id: id }).modify(t => {
     Object.assign(t, otherValues);
+    if (status === ITransactionStatus.Completed && !Object.prototype.hasOwnProperty.call(otherValues, 'stage')) {
+      t.stage = 'complete';
+    }
     t.status = status;
   });
 };
@@ -98,9 +101,9 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
  * `generateTransaction` / `completeSendTransaction` so the progress modal
  * can show "Syncing" / "Sending" / "Confirming" / "Delivering" instead of
  * a single opaque "Generating transaction". Does not gate on status —
- * late writes after `Completed` are no-ops via the `.modify` callback
- * (the stage field is informational and only read while status is
- * pre-terminal).
+ * late writes after `Completed` are no-ops via the `.modify` callback.
+ * Completion itself stamps `stage: 'complete'` atomically with the terminal
+ * status unless the caller supplied an explicit stage.
  */
 export const setTransactionStage = async (id: string, stage: ITransactionStage) => {
   await Repo.transactions.where({ id }).modify(tx => {
