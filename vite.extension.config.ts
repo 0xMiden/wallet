@@ -220,6 +220,16 @@ const sharedDefine = {
   'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
   'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
   'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+  // E2E behaviour opt-outs. Separate from MIDEN_E2E_TEST (which only installs
+  // the __TEST_*__ hooks) so a harness build can keep the hooks while still
+  // exercising the real side panel / endpoint-override paths. Default 'false'
+  // => identical to today in every non-E2E build. Both MUST stay defined: this
+  // bundle runs with `globals: { process: false }` below, so a `process.env.X`
+  // read that isn't replaced at build time throws a ReferenceError at runtime.
+  'process.env.MIDEN_E2E_DISABLE_SIDEPANEL': JSON.stringify(process.env.MIDEN_E2E_DISABLE_SIDEPANEL ?? 'false'),
+  'process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES': JSON.stringify(
+    process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES ?? 'false'
+  ),
   'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
   'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
     process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
