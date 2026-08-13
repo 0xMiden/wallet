@@ -9,6 +9,7 @@
 
 ### Changes
 
+- [CHANGE][all] **A completed transaction now records that it finished.** Successful rows kept whatever stage they were in when they completed — a finished key rotation stayed at "confirming", a finished Guardian claim at "guardian-synced" — so a finished transaction read as still running in diagnostics. Completion now stamps the terminal stage; failed rows still keep the stage they failed at. (#618)
 - Add hidden developer endpoint configuration (7-tap the Welcome logo during onboarding) to override RPC / prover / note-transport / faucet / explorer / guardian endpoints and network ID; read-only view with reset-to-defaults in Settings.
 
 ### Fixes
