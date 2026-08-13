@@ -1824,6 +1824,10 @@
     "message": "請求",
     "englishSource": "Claim"
   },
+  "clear": {
+    "message": "クリア",
+    "englishSource": "Clear"
+  },
   "midenWallet": {
     "message": "パン！",
     "englishSource": "Bread!"

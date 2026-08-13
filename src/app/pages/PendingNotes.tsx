@@ -36,6 +36,9 @@ const PendingNotes: FC = () => {
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg')}>
+      {/* #503 — ScreenHeader has no horizontal padding of its own, so it needs
+          an inset here or the back icon + title sit flush against the left edge,
+          unlike every other screen. */}
       <div className="shrink-0 px-4">
         <ScreenHeader title={t('pendingNotes')} backLabel={t('back')} onBack={handleBack} />
       </div>

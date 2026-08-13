@@ -1824,6 +1824,10 @@
     "message": "Claim",
     "englishSource": "Claim"
   },
+  "clear": {
+    "message": "Clear",
+    "englishSource": "Clear"
+  },
   "midenWallet": {
     "message": "Bread!",
     "englishSource": "Bread!"

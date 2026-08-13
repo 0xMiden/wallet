@@ -1807,6 +1807,10 @@
     "message": "Prawo",
     "englishSource": "Claim"
   },
+  "clear": {
+    "message": "Jasne",
+    "englishSource": "Clear"
+  },
   "midenWallet": {
     "message": "Chleb!",
     "englishSource": "Bread!"

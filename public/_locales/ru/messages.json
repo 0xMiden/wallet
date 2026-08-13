@@ -1824,6 +1824,10 @@
     "message": "Требовать",
     "englishSource": "Claim"
   },
+  "clear": {
+    "message": "Прозрачный",
+    "englishSource": "Clear"
+  },
   "midenWallet": {
     "message": "Хлеб!",
     "englishSource": "Bread!"
