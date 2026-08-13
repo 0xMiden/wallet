@@ -819,7 +819,12 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   completedAt?: number;
   displayMessage?: string;
   displayIcon: ITransactionIcon;
-  extraInputs: { newHotPublicKey?: string };
+  // `reRegisterFailed` (#619 gap 1): the on-chain rotation succeeded but the
+  // best-effort post-rotation guardian re-register did not land. Observable-only
+  // — it gates nothing (recovery is owned by the guardian-sync 401 self-heal);
+  // it exists so telemetry/E2E can tell a fully-clean rotation from one whose
+  // allowlist push needs the self-heal to catch up.
+  extraInputs: { newHotPublicKey?: string; reRegisterFailed?: boolean };
   delegateTransaction?: boolean | undefined;
 
   constructor(accountId: string, delegateTransaction?: boolean) {
