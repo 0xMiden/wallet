@@ -50,13 +50,37 @@ export function resolveCliPath(): string {
     return process.env.MIDEN_CLIENT_BIN;
   }
 
-  // 2. Already in PATH
+  // 2. Already in PATH — but only if it is the PINNED version.
+  //
+  // This used to return on any `--version` that exited 0, which meant a
+  // developer's own `miden-client` silently won regardless of version. A 0.16
+  // CLI against a 0.15 node fails with
+  //
+  //     cli::client_error ├─▶ accept header validation failed
+  //
+  // which names neither the version nor the mismatch, and sends you looking at
+  // the wallet. Presence is not the same as correctness — the same trap as an
+  // AVD that is listed but has no config.ini.
   try {
-    execSync('miden-client --version', { stdio: 'pipe' });
-    return 'miden-client';
-  } catch {
-    // not found
+    const reported = execSync('miden-client --version', { stdio: 'pipe' }).toString().trim();
+    const pinned = readPinnedCliVersion();
+    if (!pinned || reported.includes(pinned)) {
+      return 'miden-client';
+    }
+    throw new Error(
+      `miden-client on PATH is "${reported}" but this repo pins ${pinned} ` +
+        `(package.json → midenClientCliVersion).\n` +
+        `A mismatched CLI fails against the node with an unrelated-looking "accept header validation failed".\n` +
+        `Either install the pin (cargo install miden-client-cli --version ${pinned} --locked) or point the ` +
+        `harness at a matching binary with MIDEN_CLIENT_BIN=/path/to/miden-client.`
+    );
+  } catch (err) {
+    // A version MISMATCH is a hard stop; only "not installed" falls through to
+    // the auto-install below.
+    if (err instanceof Error && err.message.includes('but this repo pins')) throw err;
   }
+
+  // (see readPinnedCliVersion below for where the pin comes from)
 
   // 3. Auto-install at the pin from package.json. Two pin shapes:
   //    - `midenClientCliGit: { url, rev }` — takes precedence; used while the
@@ -334,5 +358,19 @@ export class MidenCli {
     } catch {
       // ignore cleanup errors
     }
+  }
+}
+
+/**
+ * The CLI version this repo pins, or undefined if package.json does not declare
+ * one (in which case a PATH binary is accepted as-is, the previous behaviour).
+ */
+function readPinnedCliVersion(): string | undefined {
+  try {
+    const pkgPath = path.resolve('package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { midenClientCliVersion?: string };
+    return typeof pkg.midenClientCliVersion === 'string' ? pkg.midenClientCliVersion : undefined;
+  } catch {
+    return undefined;
   }
 }
