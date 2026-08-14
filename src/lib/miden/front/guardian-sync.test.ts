@@ -59,6 +59,20 @@ jest.mock('lib/miden/guardian', () => ({
   }
 }));
 
+// The "am I still this account's signer?" guard. `getSignerDetailsFromAccount`
+// reads signer slot 0 (hot) off the on-chain account; `commitmentFromPublicKeyHex`
+// turns the locally-stored hot PUBLIC KEY into the commitment that slot holds.
+// `sameCommitment` is pure, so it runs for real.
+const mockGetSignerDetails = jest.fn();
+jest.mock('lib/miden/guardian/account', () => ({
+  getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args)
+}));
+const mockCommitmentFromPublicKeyHex = jest.fn();
+jest.mock('lib/secure-hot-key/commitment', () => ({
+  ...jest.requireActual('lib/secure-hot-key/commitment'),
+  commitmentFromPublicKeyHex: (...args: unknown[]) => mockCommitmentFromPublicKeyHex(...args)
+}));
+
 const mockGetAccount = jest.fn();
 // The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
 // of miden-client, which jest mocks separately from the relative specifier below;
@@ -245,6 +259,11 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     mockBuildColdMultisigService.mockResolvedValue({ reRegisterCurrentStateOnGuardian: mockReRegister });
     mockGetAccount.mockResolvedValue({ __sdkAccount: true });
     mockReRegister.mockResolvedValue(undefined);
+    // Default: this device IS still the account's on-chain hot signer.
+    mockGetSignerDetails.mockClear();
+    mockCommitmentFromPublicKeyHex.mockClear();
+    mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
+    mockCommitmentFromPublicKeyHex.mockResolvedValue('0xAABB');
   });
 
   it('cold re-registers only after the 401 has persisted to the threshold', async () => {
@@ -265,6 +284,45 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     // The threshold-th consecutive 401 triggers the cold re-register.
     await syncGuardianAccounts();
     expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-register once this device is no longer the on-chain hot signer', async () => {
+    // The account was recovered onto ANOTHER device, which rotated the hot key
+    // to itself. `/configure` is account-wide, so re-registering here would
+    // revoke the device that now legitimately owns the account — and that device
+    // would heal right back, livelocking both (a successful sync in between
+    // clears selfHealState, so the attempt cap never accumulates).
+    mockGetSignerDetails.mockResolvedValue({ commitment: '0xsomeotherdeviceshotkey' });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-rotated-away', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + 2; i++) await syncGuardianAccounts();
+
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(mockReRegister).not.toHaveBeenCalled();
+  });
+
+  it('still re-registers when the on-chain hot signer is this device (0x/case differences aside)', async () => {
+    mockGetSignerDetails.mockResolvedValue({ commitment: 'AABB' });
+    mockCommitmentFromPublicKeyHex.mockResolvedValue('0xaabb');
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-still-mine', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
     expect(mockReRegister).toHaveBeenCalledTimes(1);
   });
 

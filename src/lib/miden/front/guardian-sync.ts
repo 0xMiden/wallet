@@ -1,4 +1,6 @@
 import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
+import { getSignerDetailsFromAccount } from 'lib/miden/guardian/account';
+import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import type { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
@@ -96,6 +98,37 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<vo
     // the cold service acquires), never nested — no reentrancy deadlock.
     const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(account.publicKey));
     if (!sdkAccount) return;
+
+    // STOP if this device is no longer the account's hot signer.
+    //
+    // Re-registering is how a wallet takes the guardian's request-auth back, and
+    // `/configure` is account-wide — so an instance that re-registers revokes
+    // whatever the other holder of this account had. That is exactly what a
+    // recovery does: recovering the seed on a second device rotates the hot key
+    // to THAT device, and the first device — still running, still polling — sees
+    // 401s and "heals" by taking authorization back, breaking the device that
+    // legitimately owns the account now. Both then heal on their own cooldowns
+    // and neither converges (the successful sync in between deletes
+    // `selfHealState`, so SELF_HEAL_MAX_ATTEMPTS never accumulates and the
+    // livelock is unbounded).
+    //
+    // The on-chain signer set is the arbiter: signer slot 0 is the hot key by
+    // convention ([hot, cold] — see guardian/account.ts). If it no longer matches
+    // this device's key, this device did not lose authorization to a stale
+    // allowlist — it was rotated out, and there is nothing here to repair.
+    const onChainHot = await getSignerDetailsFromAccount(sdkAccount, false).catch(() => undefined);
+    if (account.hotPublicKey && onChainHot) {
+      const localHot = await commitmentFromPublicKeyHex(account.hotPublicKey).catch(() => undefined);
+      if (localHot && !sameCommitment(localHot, onChainHot.commitment)) {
+        console.warn(
+          `[Guardian Sync] not self-healing ${account.publicKey}: this device's hot key is no longer the ` +
+            `account's on-chain signer (it was rotated to another device). Re-registering would revoke ` +
+            `the device that now owns the account.`
+        );
+        return;
+      }
+    }
+
     const coldService = await MultisigService.buildColdMultisigService(sdkAccount, account, zustandProvider.signWord);
     await coldService.reRegisterCurrentStateOnGuardian();
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
