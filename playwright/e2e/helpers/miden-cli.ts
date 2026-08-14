@@ -67,12 +67,18 @@ export function resolveCliPath(): string {
     if (!pinned || reported.includes(pinned)) {
       return 'miden-client';
     }
-    // A GIT pin takes precedence over `midenClientCliVersion` (see below), and a
-    // binary built from a rev does not report that field's value — the current
-    // pin builds a CLI that says 0.15.0 while the field reads 0.14.8. So the
-    // version string cannot validate a git pin, and comparing them rejects the
-    // CORRECT binary. Only enforce where the version IS the pin.
+    // Under a GIT pin the version field records what the rev builds, and a rev
+    // bump can legitimately land before the field catches up. So WARN rather
+    // than fail: a hard failure here reds every E2E job over metadata lag, which
+    // is worse than the mismatch it reports. This is not hypothetical — the
+    // first version of this check did exactly that, because the field read
+    // 0.14.8 while the pinned rev builds 0.15.0 (corrected in #675).
     if (hasGitPin()) {
+      console.warn(
+        `[miden-cli] PATH miden-client is "${reported}" but package.json records ${pinned} for the pinned rev. ` +
+          `If chain calls fail with "accept header validation failed", this mismatch is why — point ` +
+          `MIDEN_CLIENT_BIN at a binary built from the pinned rev.`
+      );
       return 'miden-client';
     }
     throw new Error(
