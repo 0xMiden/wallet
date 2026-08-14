@@ -1,0 +1,181 @@
+name: Welcome external contributors
+
+# Posts a one-time, idempotent welcome + airdrop-policy comment on every PR
+# opened by an EXTERNAL contributor (someone without write access — i.e. a
+# fork PR from a non-member).
+#
+# Two entry points:
+#   • pull_request_target (opened/reopened/ready_for_review) — the automatic
+#     path for new external PRs.
+#   • workflow_dispatch (pr_number) — a manual backfill / re-post tool for a
+#     specific PR (e.g. external PRs that were already open when this workflow
+#     first landed, which the event triggers can't reach retroactively). The
+#     external-contributor gate is re-applied to the dispatched PR, so a manual
+#     run can't welcome an insider by mistake.
+#
+# ── Why `pull_request_target` (NOT `pull_request`) ───────────────────────────
+# A PR from a fork gets a READ-ONLY GITHUB_TOKEN on `pull_request` events
+# (GitHub's security default for untrusted forks), regardless of the
+# `permissions:` block below — so the comment API call would 403 on exactly
+# the PRs we care about (external ones). `pull_request_target` runs in the
+# BASE repo's context with a write-capable token, which is what "comment on a
+# fork PR" requires. Same reasoning as `check-linked-web-sdk-pr.yml`. The
+# explicit `permissions:` block grants `pull-requests: write` even when the
+# repo/org default token permission is read-only (an explicit block overrides
+# the default; it does not merely cap it).
+#
+# ── Safety ───────────────────────────────────────────────────────────────────
+# `pull_request_target` (and `workflow_dispatch`) run with the base repo's
+# token, so they're only dangerous when the workflow EXECUTES PR-supplied code.
+# This workflow does NOT check out or run any PR code, install dependencies, or
+# read any secret beyond the default token — it only reads PR metadata and
+# posts a comment. There is no injection surface: the one piece of PR-supplied
+# text used (the author's login) is read from the API/event at runtime INSIDE
+# the script — never interpolated into the workflow YAML or a shell — and a
+# login is constrained to `[A-Za-z0-9-]` regardless.
+#
+# ── Robustness (so we never revisit for edge cases) ──────────────────────────
+#   • Fork PRs         → handled by `pull_request_target` (write token).
+#   • Insiders/bots    → filtered out by `author_association`, a fork check,
+#                        and `user.type` — enforced for BOTH entry points.
+#   • Duplicate posts  → the script upserts a single comment keyed by a hidden
+#                        HTML-comment marker, so a re-run / `reopened` /
+#                        `ready_for_review` / repeat dispatch updates in place.
+#   • Transient errors → each API call retries (rate limit / 5xx / blip).
+#   • Hard failure     → NOT swallowed. If all retries fail the step fails
+#                        (red ✗, re-runnable) instead of silently posting
+#                        nothing. (This workflow is not a required check, so a
+#                        red ✗ never blocks the PR.)
+#   • Event races      → `concurrency` serializes runs per PR.
+#   • No PAT/secret    → a *comment* re-triggers nothing, so unlike the
+#                        translation-push workflow the default token suffices.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to post/refresh the welcome comment on (manual backfill; the external-contributor gate still applies)."
+        required: true
+        type: string
+
+permissions:
+  pull-requests: write
+
+concurrency:
+  group: welcome-contributor-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  welcome:
+    name: Post welcome + airdrop notice
+    runs-on: ubuntu-latest
+    # Fast-skip insiders on the automatic path (don't spin a runner for them);
+    # always run for a manual dispatch (the script re-checks the target PR).
+    #   • author_association is OWNER / MEMBER / COLLABORATOR for people with
+    #     access; anyone else falls through to "welcomed", so we never MISS a
+    #     real external contributor even if GitHub adds a new association value.
+    #   • the fork check additionally skips insiders (incl. private members who
+    #     surface as NONE) who push a branch to the base repo; external
+    #     contributors can only ever open from a fork, so this never skips one.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.author_association != 'OWNER' &&
+       github.event.pull_request.author_association != 'MEMBER' &&
+       github.event.pull_request.author_association != 'COLLABORATOR' &&
+       github.event.pull_request.head.repo.full_name != github.repository &&
+       github.event.pull_request.user.type != 'Bot')
+    steps:
+      - name: Post welcome + airdrop policy comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const MARKER = '<!-- external-contributor-welcome -->';
+            const { owner, repo } = context.repo;
+
+            // Retry transient failures (secondary rate limits, 5xx, blips) so a
+            // single hiccup doesn't silently drop the welcome. Throws (fails the
+            // step, visibly) if every attempt fails.
+            const retry = async (label, fn) => {
+              let lastErr;
+              for (let attempt = 1; attempt <= 4; attempt++) {
+                try {
+                  return await fn();
+                } catch (err) {
+                  lastErr = err;
+                  core.warning(`${label} failed (attempt ${attempt}/4): ${err.message}`);
+                  if (attempt < 4) await new Promise(r => setTimeout(r, 3000 * attempt));
+                }
+              }
+              throw lastErr;
+            };
+
+            // Resolve the target PR from either entry point.
+            let pr;
+            if (context.eventName === 'workflow_dispatch') {
+              const pull_number = Number(context.payload.inputs.pr_number);
+              if (!Number.isInteger(pull_number) || pull_number <= 0) {
+                core.setFailed(`Invalid pr_number input: ${context.payload.inputs.pr_number}`);
+                return;
+              }
+              ({ data: pr } = await retry('get PR', () =>
+                github.rest.pulls.get({ owner, repo, pull_number })
+              ));
+            } else {
+              pr = context.payload.pull_request;
+            }
+
+            const issue_number = pr.number;
+            const login = pr.user.login;
+
+            // External-contributor gate — applied for BOTH paths so a manual
+            // dispatch can't welcome an insider. (The job `if` already skips
+            // insiders on the automatic path; this is the authoritative check
+            // for dispatch and a cheap defense-in-depth otherwise.)
+            const assoc = pr.author_association;
+            const isFork = pr.head.repo.full_name !== `${owner}/${repo}`;
+            const isBot = pr.user.type === 'Bot';
+            if (assoc === 'OWNER' || assoc === 'MEMBER' || assoc === 'COLLABORATOR' || !isFork || isBot) {
+              core.notice(
+                `PR #${issue_number} by @${login} (association=${assoc}, fork=${isFork}, bot=${isBot}) ` +
+                `is not an external contributor — skipping welcome.`
+              );
+              return;
+            }
+
+            // Each paragraph is a SINGLE continuous line; paragraphs are joined
+            // by a blank line ('\n\n'). GitHub renders a lone newline inside a
+            // paragraph as a <br>, so pre-wrapping the prose (one array entry
+            // per ~80 chars) produced hard breaks that stopped short of the
+            // comment width. Keeping each paragraph on one line lets GitHub
+            // soft-wrap it to the full box width. The blank line around '---'
+            // is required for it to render as a horizontal rule.
+            const body = [
+              MARKER,
+              `### 👋 Thanks for contributing to Miden, @${login}!`,
+              "We really appreciate you taking the time to open this pull request. Miden is building an edge-first, zero-knowledge blockchain, and thoughtful contributions from the community are a big part of how it gets better. A maintainer will review your changes as soon as they can — in the meantime, please make sure the CI checks are green and that your change follows the repository's contribution guidelines.",
+              "We're genuinely excited to have you here. 🧡",
+              '---',
+              "**One thing we want to be transparent about up front:** contributing to this repository will **not** make you eligible for any token airdrop, allocation, or other reward — **not now, and not at any point in the future.**",
+              "Thanks again for being part of the community — we're glad you chose to contribute. 🚀"
+            ].join('\n\n');
+
+            // Idempotent upsert: find our prior comment by the hidden marker,
+            // update it in place if present, otherwise create it.
+            const comments = await retry('list comments', () =>
+              github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 })
+            );
+            const existing = comments.find(c => (c.body || '').includes(MARKER));
+
+            if (existing) {
+              await retry('update comment', () =>
+                github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body })
+              );
+              core.info(`Updated existing welcome comment ${existing.id} on PR #${issue_number}.`);
+            } else {
+              await retry('create comment', () =>
+                github.rest.issues.createComment({ owner, repo, issue_number, body })
+              );
+              core.info(`Posted welcome comment on PR #${issue_number}.`);
+            }

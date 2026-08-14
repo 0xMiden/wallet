@@ -102,7 +102,9 @@ describe('CustomModal', () => {
     );
 
     const content = document.getElementById('custom-modal') as HTMLElement;
-    expect(content).toHaveClass('bg-surface-solid', 'rounded', 'z-30', 'shadow-2xl', 'my-custom-class');
+    // z-80, not z-30: this dialog is opened from inside drawers (z-50), and at
+    // z-30 it was painted underneath them — invisible and unclickable.
+    expect(content).toHaveClass('bg-surface-solid', 'rounded', 'z-80', 'shadow-2xl', 'my-custom-class');
   });
 
   it('merges a custom overlayClassName onto the overlay', () => {
@@ -116,7 +118,20 @@ describe('CustomModal', () => {
 
     const overlay = document.querySelector('.my-overlay-class') as HTMLElement;
     expect(overlay).not.toBeNull();
-    expect(overlay).toHaveClass('fixed', 'inset-0', 'z-30', 'flex', 'items-center', 'justify-center', 'p-6');
+    // `pointer-events-auto` is load-bearing, not decoration: a vaul drawer is a
+    // modal Radix dialog, and Radix sets `pointer-events: none` on <body> while
+    // one is open. This overlay is portaled to <body>, so without it the dialog
+    // is inert no matter how high it sits.
+    expect(overlay).toHaveClass(
+      'fixed',
+      'inset-0',
+      'z-80',
+      'pointer-events-auto',
+      'flex',
+      'items-center',
+      'justify-center',
+      'p-6'
+    );
   });
 
   it('flags the body via onAfterOpen when the modal opens', () => {

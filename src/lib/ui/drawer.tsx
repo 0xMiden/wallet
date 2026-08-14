@@ -48,7 +48,30 @@ interface DrawerContentProps extends Omit<
   hideHandle?: boolean;
 }
 
-function DrawerContent({ className, overlayClassName, children, hideHandle = true, ...props }: DrawerContentProps) {
+/**
+ * Was the press that Radix is calling "outside the drawer" actually inside the
+ * confirmation/alert dialog stacked ABOVE it?
+ *
+ * react-modal portals into a `div.ReactModalPortal` on <body>, outside the
+ * drawer's subtree, so Radix reads a click on the dialog as an outside
+ * interaction and dismisses the drawer — pulling it closed underneath the very
+ * question it is still asking. Radix dispatches its outside-event on the element
+ * that was actually pressed, so the original event's target identifies the
+ * dialog.
+ */
+function isPressInsideModalPortal(event: { detail: { originalEvent: Event } }): boolean {
+  const target = event.detail.originalEvent.target;
+  return target instanceof Element && target.closest('.ReactModalPortal') !== null;
+}
+
+function DrawerContent({
+  className,
+  overlayClassName,
+  children,
+  hideHandle = true,
+  onPointerDownOutside,
+  ...props
+}: DrawerContentProps) {
   return (
     <VaulDrawer.Portal>
       <VaulDrawer.Overlay
@@ -64,6 +87,11 @@ function DrawerContent({ className, overlayClassName, children, hideHandle = tru
           'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[20px] bg-surface-solid text-sm outline-none pb-[env(safe-area-inset-bottom)]',
           className
         )}
+        onPointerDownOutside={event => {
+          onPointerDownOutside?.(event);
+          // vaul dismisses only if this event comes back un-prevented.
+          if (isPressInsideModalPortal(event)) event.preventDefault();
+        }}
         {...props}
       >
         {!hideHandle && (

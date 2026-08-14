@@ -6,8 +6,12 @@ import { IconName } from 'app/icons/v2';
 import { GuardianNeedsUrlBanner } from 'app/templates/GuardianNeedsUrlBanner';
 import { PromptCard, PromptCardHero, PromptCardStatus, PromptCarousel, PromptCardVariant } from 'components/ui';
 import { formatUsd } from 'lib/i18n/numbers';
+import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import type { TokenBalanceData } from 'lib/miden/front';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { isExtension } from 'lib/platform';
 import type { TokenPrices } from 'lib/prices';
+import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import {
   fetchActiveBridgePrompts,
@@ -76,6 +80,13 @@ const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition
     actionKey: 'hotKeyHardwareErrorPromptAction',
     variant: 'critical',
     dismissible: true
+  },
+  [WalletPromptType.HotKeyRotationNeeded]: {
+    titleKey: 'hotKeyRotationPromptTitle',
+    bodyKey: 'hotKeyRotationPromptBody',
+    actionKey: 'hotKeyRotationPromptAction',
+    variant: 'critical',
+    dismissible: true
   }
 };
 
@@ -92,9 +103,18 @@ type FundingWait = FaucetFundingMarker & { address: string };
 // completes — long enough to read the two-line lockup.
 const FAUCET_FUNDED_BEAT_MS = 2400;
 
+// E2E hooks, kebab-case like every other testid in the tree. Only prompts a
+// spec actually drives get one — deriving an id for the whole enum would leave
+// four that nothing reads. Pending notes is driven by
+// playwright/e2e/tests/group-claim.spec.ts.
+const WALLET_PROMPT_TEST_IDS: Partial<Record<WalletPromptType, string>> = {
+  [WalletPromptType.PendingNotes]: 'pending-notes-prompt'
+};
+
 const WALLET_PROMPT_ORDER = [
   WalletPromptType.PendingNotes,
   WalletPromptType.Bridge,
+  WalletPromptType.HotKeyRotationNeeded,
   WalletPromptType.HotKeyHardwareUnavailable,
   WalletPromptType.Faucet,
   WalletPromptType.VerifySeedPhrase
@@ -140,6 +160,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const [hotKeyError, setHotKeyError] = useState<string | null>(null);
   const [copyStatusIndicator, setCopyStatusIndicator] = useState<PromptCardStatus>('idle');
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const [rotationStatusIndicator, setRotationStatusIndicator] = useState<PromptCardStatus>('idle');
+  const rotatingRef = useRef(false);
   const [bridgeTransactions, setBridgeTransactions] = useState<string[]>([]);
   const bridgePromptPending = isPromptPending(WalletPromptType.Bridge);
   const hotKeyPromptPending = isPromptPending(WalletPromptType.HotKeyHardwareUnavailable);
@@ -243,6 +265,29 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         setCopyStatusIndicator('failure');
       });
   }, [hotKeyError]);
+
+  // Rotation-needed prompt action: enqueue a replace-hot-key transaction and
+  // route to the generating-transaction page (which drives the FIFO loop on
+  // mobile/desktop; on extension the SW owns it). Mirrors ReviewTransaction's
+  // initiate-then-navigate shape. The prompt completes on successful initiate —
+  // if the rotation transaction itself later fails, the next failing sign
+  // re-arms the prompt (see reportHotKeyRotationNeeded).
+  const rotateHotKey = useCallback(async () => {
+    if (rotatingRef.current) return;
+    rotatingRef.current = true;
+    setRotationStatusIndicator('loading');
+    try {
+      const txId = await initiateReplaceHotKeyTransaction(account.publicKey, isDelegateProofEnabled(), zustandProvider);
+      completePrompt(WalletPromptType.HotKeyRotationNeeded);
+      if (isExtension()) requestSWTransactionProcessing();
+      navigate(`/generating-transaction/${txId}`);
+    } catch (error) {
+      console.error('[wallet-prompts] hot-key rotation initiate failed:', error);
+      setRotationStatusIndicator('failure');
+    } finally {
+      rotatingRef.current = false;
+    }
+  }, [account.publicKey, completePrompt]);
 
   useEffect(() => {
     if (!isLoaded || balancesLoading) return;
@@ -446,6 +491,12 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             onAction: copyHotKeyError,
             status: copyStatusIndicator
           };
+        case WalletPromptType.HotKeyRotationNeeded:
+          return {
+            onAction: rotateHotKey,
+            status: rotationStatusIndicator,
+            actionDisabled: rotationStatusIndicator === 'loading'
+          };
         default:
           return {};
       }
@@ -461,6 +512,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       fundWallet,
       hasPendingNotes,
       pendingNoteIds,
+      rotateHotKey,
+      rotationStatusIndicator,
       setPromptStatus,
       t
     ]
@@ -471,9 +524,12 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       {pendingWalletPrompts.map(([type, definition]) => {
         const overrides = promptOverrides(type);
         const route = definition.route;
+        const testId = WALLET_PROMPT_TEST_IDS[type];
         return (
           <PromptCard
             key={type}
+            data-testid={testId}
+            actionTestId={testId ? `${testId}-action` : undefined}
             title={overrides.title ?? t(definition.titleKey)}
             body={overrides.body ?? t(definition.bodyKey)}
             variant={definition.variant}

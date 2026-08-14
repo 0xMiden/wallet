@@ -16,17 +16,11 @@ import {
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
-import {
-  setFaucetIdSetting,
-  useAccount,
-  useAllBalances,
-  useAllTokensBaseMetadata,
-  useMidenContext
-} from 'lib/miden/front';
+import { useAccount, useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { MIDEN_NETWORK_NAME, MIDEN_FAUCET_ENDPOINTS } from 'lib/miden-chain/constants';
+import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
@@ -113,6 +107,9 @@ const Explore: FC = () => {
       await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
     });
     await Promise.all(promises);
+    // The wallet is now auto-claiming these notes, so the "click to claim"
+    // notification is stale — dismiss it so it doesn't linger (#459).
+    clearNoteReceivedNotification();
     mutateClaimableNotes();
 
     if (isExtension()) {
@@ -166,23 +163,6 @@ const Explore: FC = () => {
     bridgeReceivesReconciled = true;
     reconcileBridgedReceives().catch(err => console.warn('[bridge-receive] reconcile on mount failed', err));
   }, []);
-
-  const fetchFaucetState = useCallback(async () => {
-    fetch(`${MIDEN_FAUCET_ENDPOINTS.get(MIDEN_NETWORK_NAME.DEVNET)}/get_metadata`)
-      .then(response => response.json())
-      .then(data => {
-        if (data.id !== midenFaucetId) {
-          setFaucetIdSetting(data.id);
-        }
-      })
-      .catch(error => {
-        console.error('Error fetching faucet metadata:', error);
-      });
-  }, [midenFaucetId]);
-
-  useEffect(() => {
-    //fetchFaucetState();
-  }, [fetchFaucetState]);
 
   const filteredTokens = useMemo(() => {
     const sorted = [...allTokenBalances].sort((a, b) => {
@@ -355,7 +335,14 @@ const HomeOverview: FC<HomeOverviewProps> = ({
           <BalanceCard
             accountNumber={truncateAddress(address, false, 8)}
             accountId={address}
-            amount={`$${toLocalFormat(balance, { decimalPlaces: 2 })}`}
+            // Gap 16: until real prices have loaded, every token falls back to the
+            // $1 default, so the "USD total" would be a fabricated number equal to
+            // the raw token count. When no prices are available (feed down or still
+            // loading) show "$—" rather than that fake figure; once any real price
+            // lands (stale-but-real via keepPreviousData counts), show the total.
+            // UX-REVIEW: a dash is the conservative honest choice; a UX owner may
+            // prefer a skeleton or an explicit "prices unavailable" affordance.
+            amount={Object.keys(tokenPrices).length === 0 ? '$—' : `$${toLocalFormat(balance, { decimalPlaces: 2 })}`}
             currency="USD"
             delta={{ absolute: '+0.00', percentage: '0.00%', direction: 'positive' }}
             onMore={() => setAccountsOpen(true)}

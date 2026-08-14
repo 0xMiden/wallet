@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
 
@@ -16,7 +17,34 @@ const DEVICE_PAIR_AVD_B = 'miden_e2e_B';
 // installed APKs (see investigation notes in the wiktor/mt-wasm-mobile branch).
 const BASE_AVD = 'Pixel_API_34';
 
-const BOOT_TIMEOUT_MS = 120_000;
+/**
+ * Boot budget. 120s was tuned on a 10-core M-series host, where a cold arm64
+ * boot is 30-60s. A GitHub ubuntu runner has ~4 vCPUs and boots TWO emulators,
+ * so the second one lost the race: `Emulator miden_e2e_B on port 5556 did not
+ * boot within 120000ms`, with its log showing an ordinary boot still in
+ * progress rather than a crash. A generous deadline costs nothing when the boot
+ * succeeds — the poll below exits the moment it does — and only spends time on
+ * a genuine failure, so this is sized for the slowest host rather than the
+ * fastest.
+ */
+const BOOT_TIMEOUT_MS = 300_000;
+
+/**
+ * Cores per emulator: up to the host's core count, capped at 8.
+ *
+ * Deliberately NOT halved for the two emulators. Halving was tried and made
+ * things worse, not better: on a 4-vCPU runner it gave 2 cores each, both
+ * emulators booted cleanly — and then `create_wallets` hung for the full 30
+ * minute test budget with the wallet logging `polls=0 iters=0`, because WASM
+ * account creation has nowhere near enough CPU on 2 cores. The two runs that
+ * PASSED asked for 8 (clamped by the emulator to 6) on the same 4 vCPUs.
+ *
+ * So oversubscribing two emulators across the host is fine — the guest is idle
+ * most of the time and bursts during proving — while starving them is not. The
+ * boot contention that this was originally meant to fix is handled by
+ * BOOT_TIMEOUT_MS instead, which costs nothing when the boot succeeds.
+ */
+const EMULATOR_CORES = Math.max(2, Math.min(8, os.cpus().length));
 const BOOT_POLL_MS = 1_000;
 
 interface DevicePair {
@@ -109,7 +137,14 @@ export class EmulatorControl {
     let gmsRunningSince: number | null = null;
     while (Date.now() - start < BOOT_TIMEOUT_MS) {
       try {
-        const { stdout } = await execFileAsync('adb', ['-s', serial, 'shell', 'pgrep', '-f', 'com.google.android.gms.persistent']);
+        const { stdout } = await execFileAsync('adb', [
+          '-s',
+          serial,
+          'shell',
+          'pgrep',
+          '-f',
+          'com.google.android.gms.persistent'
+        ]);
         if (stdout.trim().length > 0) {
           if (gmsRunningSince === null) gmsRunningSince = Date.now();
           if (Date.now() - gmsRunningSince >= GMS_STABLE_MS) return;
@@ -187,7 +222,7 @@ export class EmulatorControl {
     // binary without adb's CRLF mangling.
     const { stdout } = await execFileAsync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], {
       encoding: 'buffer',
-      maxBuffer: 50 * 1024 * 1024,
+      maxBuffer: 50 * 1024 * 1024
     });
     fs.writeFileSync(outPath, stdout);
   }
@@ -216,7 +251,7 @@ export class EmulatorControl {
       serial,
       'forward',
       `tcp:${hostPort}`,
-      `localabstract:webview_devtools_remote_${pid}`,
+      `localabstract:webview_devtools_remote_${pid}`
     ]);
   }
 
@@ -241,12 +276,47 @@ export class EmulatorControl {
 
 // ── Internals ───────────────────────────────────────────────────────────────
 
+/**
+ * Is this AVD actually usable, as opposed to merely NAMED?
+ *
+ * `emulator -list-avds` reports an AVD if its `<name>.ini` exists — it never
+ * looks inside. So an interrupted clone that wrote the `.ini` but not the
+ * `.avd/` directory is listed forever, and the emulator then boots a phantom:
+ * it cannot read `config.ini`, so it cannot resolve the ABI, and it dies with
+ *
+ *     FATAL | CPU Architecture 'arm' is not supported by the QEMU2 emulator
+ *
+ * which says nothing about the actual problem. Worse, the old name-only check
+ * treated the phantom as present and skipped the re-clone, so the state was
+ * self-perpetuating: every later run failed the same way. Check the two files
+ * that actually have to be there.
+ */
+function avdIsUsable(avdHome: string, avd: string): boolean {
+  return (
+    fs.existsSync(path.join(avdHome, `${avd}.ini`)) && fs.existsSync(path.join(avdHome, `${avd}.avd`, 'config.ini'))
+  );
+}
+
 async function ensureAvdsExist(): Promise<void> {
   const { stdout } = await execFileAsync(getEmulatorBin(), ['-list-avds']);
-  const present = new Set(stdout.split('\n').map(s => s.trim()).filter(Boolean));
+  const present = new Set(
+    stdout
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean)
+  );
+
+  const avdHome = process.env.ANDROID_AVD_HOME ?? path.join(process.env.HOME ?? '', '.android', 'avd');
 
   for (const avd of [DEVICE_PAIR_AVD_A, DEVICE_PAIR_AVD_B]) {
-    if (present.has(avd)) continue;
+    if (avdIsUsable(avdHome, avd)) continue;
+    // Listed but not usable = a half-written clone. Clear both sides before
+    // re-cloning, or the stale `.ini` keeps the phantom alive.
+    if (present.has(avd)) {
+      console.log(`[emulator] AVD "${avd}" is listed but incomplete (no config.ini) — re-cloning from ${BASE_AVD}`);
+      fs.rmSync(path.join(avdHome, `${avd}.ini`), { force: true });
+      fs.rmSync(path.join(avdHome, `${avd}.avd`), { recursive: true, force: true });
+    }
     if (!present.has(BASE_AVD)) {
       throw new Error(
         `Base AVD "${BASE_AVD}" not found and harness AVD "${avd}" is missing. ` +
@@ -255,7 +325,6 @@ async function ensureAvdsExist(): Promise<void> {
     }
     // avdmanager move/copy/create AVD doesn't have a clean clone, but
     // copying the directory works on all current AGP versions.
-    const avdHome = process.env.ANDROID_AVD_HOME ?? path.join(process.env.HOME ?? '', '.android', 'avd');
     const srcDir = path.join(avdHome, `${BASE_AVD}.avd`);
     const srcIni = path.join(avdHome, `${BASE_AVD}.ini`);
     const dstDir = path.join(avdHome, `${avd}.avd`);
@@ -274,9 +343,19 @@ async function ensureAvdsExist(): Promise<void> {
       const cfg = fs.readFileSync(dstConfig, 'utf8').replace(/^AvdId=.*$/m, `AvdId=${avd}`);
       fs.writeFileSync(dstConfig, cfg);
     }
-    const iniText = fs.readFileSync(dstIni, 'utf8')
-      .replace(new RegExp(`${BASE_AVD}\\.avd`, 'g'), `${avd}.avd`);
+    const iniText = fs.readFileSync(dstIni, 'utf8').replace(new RegExp(`${BASE_AVD}\\.avd`, 'g'), `${avd}.avd`);
     fs.writeFileSync(dstIni, iniText);
+
+    // Prove the clone is usable before returning. Leaving a half-written AVD
+    // behind is what produced the phantom described on `avdIsUsable`, and the
+    // failure only surfaced two minutes later as an unrelated-looking boot
+    // timeout.
+    if (!avdIsUsable(avdHome, avd)) {
+      throw new Error(
+        `Cloned AVD "${avd}" is incomplete: expected ${path.join(avdHome, `${avd}.avd`, 'config.ini')} to exist. ` +
+          `Delete ${path.join(avdHome, `${avd}.ini`)} and the matching .avd directory, then re-run.`
+      );
+    }
   }
 }
 
@@ -325,18 +404,17 @@ async function bootAvd(avdName: string, port: number): Promise<string> {
       // enough headroom to load the SDK WASM and run consume.
       '-memory',
       '4096',
-      // Keep `cores` at 8 — Rayon-backed native prove benefits from all
-      // host cores per emulator (we have headroom on a 10-core M-series
-      // host) and rebuilding the JNI lib on the host is unaffected.
+      // Sized from the host — see EMULATOR_CORES.
       '-cores',
-      '8',
+      String(EMULATOR_CORES)
     ],
     { detached: true, stdio: ['ignore', logFd, logFd] }
   );
   child.unref();
 
-  // Poll adb until the serial appears + boot_completed flips. Total budget
-  // ~120s — cold-boot of an arm64 emulator on Apple Silicon is ~30-60s.
+  // Poll adb until the serial appears + boot_completed flips. See
+  // BOOT_TIMEOUT_MS for why the budget is sized for a contended CI runner
+  // rather than the Apple Silicon host this was first written on.
   const start = Date.now();
   while (Date.now() - start < BOOT_TIMEOUT_MS) {
     const present = await EmulatorControl.listBootedSerials();
@@ -354,7 +432,10 @@ async function bootAvd(avdName: string, port: number): Promise<string> {
 }
 
 function getEmulatorBin(): string {
-  const home = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? path.join(process.env.HOME ?? '', 'Library/Android/sdk');
+  const home =
+    process.env.ANDROID_HOME ??
+    process.env.ANDROID_SDK_ROOT ??
+    path.join(process.env.HOME ?? '', 'Library/Android/sdk');
   return path.join(home, 'emulator', 'emulator');
 }
 

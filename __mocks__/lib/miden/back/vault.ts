@@ -51,6 +51,10 @@ export class Vault {
   // pre-existing HD accounts — a no-op in the mock (no seed to derive from).
   async backfillEvmAddresses() {}
 
+  // Best-effort post-unlock backfill of guardianEndpoint onto legacy Guardian
+  // accounts (#408 stage 2) — a no-op in the mock (no accounts to resolve).
+  async backfillGuardianEndpoints() {}
+
   async fetchSettings() {
     return state.settings;
   }

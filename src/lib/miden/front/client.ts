@@ -108,8 +108,14 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
 
   // Wrap store actions in useCallback for stable references
   const registerWallet = useCallback(
-    async (walletType: WalletType, password: string | undefined, mnemonic: string, ownMnemonic: boolean) => {
-      await storeRegisterWallet(walletType, password, mnemonic, ownMnemonic);
+    async (
+      walletType: WalletType,
+      password: string | undefined,
+      mnemonic: string,
+      ownMnemonic: boolean,
+      guardianEndpoint?: string
+    ) => {
+      await storeRegisterWallet(walletType, password, mnemonic, ownMnemonic, guardianEndpoint);
     },
     [storeRegisterWallet]
   );

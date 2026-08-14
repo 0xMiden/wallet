@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Hesap #: $number$ ",
-    "englishSource": "Account #: $number$",
+    "message": "Adres: $number$ ",
+    "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -438,6 +438,10 @@
   "earnPositionsRegionLabel": {
     "message": "Pozisyonlar",
     "englishSource": "Positions"
+  },
+  "earnPositionsLoadError": {
+    "message": "Pozisyonlarınız yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -1068,6 +1072,10 @@
     "message": "Hizmet Şartları",
     "englishSource": "Terms of Service"
   },
+  "sendFeedback": {
+    "message": "Geri bildirim gönder",
+    "englishSource": "Send feedback"
+  },
   "termsOfUse": {
     "message": "Kullanım Koşulları",
     "englishSource": "Terms of Use"
@@ -1338,6 +1346,10 @@
     "message": "Delege Kanıtı Oluşturma",
     "englishSource": "Delegate Proof Generation"
   },
+  "delegateProofSettingsDescription": {
+    "message": "Etkinleştirildiğinde, işlem kanıtları uzak sunucularda daha hızlı oluşturulur, cihazınıza büyük miktarda indirme yapılmaz ve anahtarlarınız asla cihazınızdan ayrılmaz. Kapalıyken veya hizmet kullanılamıyorsa, cüzdan yerel olarak kendini kanıtlar: Daha özeldir, ancak daha yavaştır ve tek seferlik büyük bir indirme gerektirir.",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+  },
   "transfer": {
     "message": "Aktarım",
     "englishSource": "Transfer"
@@ -1572,8 +1584,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "O zamana kadar talepte bulunulmaması durumunda, $amount$ otomatik olarak cüzdanınıza geri döner. Hiçbir fon kaybolmaz.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "O zamana kadar talepte bulunulmazsa, hak talebinde bulunabilirsiniz. $amount$ cüzdanınıza geri dönün. Hiçbir fon kaybı olmaz.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1711,6 +1723,30 @@
     "message": "Fonlarınız hazır",
     "englishSource": "Your funds are ready"
   },
+  "fundWalletLoadingTitle": {
+    "message": "Cüzdanınızı finanse etmek",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "faucet'den belirteçler isteniyor…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "Cüzdanla finanse edildi",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "Jetonlarınız yolda ve kısa süre içinde görünecek.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "Finansman başarısız oldu",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "Cüzdanınıza para yatıramadık. Lütfen tekrar deneyin.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "Bekleyen Notes kimliğiniz var",
     "englishSource": "You have Pending Notes"
@@ -1741,12 +1777,24 @@
     "englishSource": "Secure signing unavailable"
   },
   "hotKeyHardwareErrorPromptBody": {
-    "message": "Bu cihaz, işlemleri imzalamak için güvenli donanımını kullanamadı. Hatayı kopyalayıp Miden ekibine gönderin.",
-    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+    "message": "Bu cihazın güvenli donanımı işlem imzalamayı ayarlarken bir hata bildirdi. Hatayı kopyalayıp Miden ekibine gönderin.",
+    "englishSource": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team."
   },
   "hotKeyHardwareErrorPromptAction": {
     "message": "Kopyalama hatası",
     "englishSource": "Copy error"
+  },
+  "hotKeyRotationPromptTitle": {
+    "message": "Cihaz anahtarının döndürülmesi gerekiyor",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "Bu cihaz artık cihazınızın (kısayol) tuşunu kullanamaz. İmzalamayı yeniden başlatmak için döndürün; paranız etkilenmez.",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "Anahtarı döndür",
+    "englishSource": "Rotate key"
   },
   "bridgePromptTitle": {
     "message": "Köprü yapılıyor",
@@ -1840,6 +1888,10 @@
   "claim": {
     "message": "İddia",
     "englishSource": "Claim"
+  },
+  "clear": {
+    "message": "Temizlemek",
+    "englishSource": "Clear"
   },
   "midenWallet": {
     "message": "Ekmek!",
@@ -1974,8 +2026,8 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Güvenlik politikanıza göre işlemleri onaylar veya reddeder. Cihazınızı kaybederseniz kurtarmanıza yardımcı olur.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "Her işlemi birlikte imzalar; ne cihazınız ne de Guardian fonları tek başına taşıyabilir. Cihazınızı kaybederseniz hesabınızı kurtarmanıza yardımcı olur.",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "Ne yapamaz",
@@ -1990,8 +2042,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Kurtarma ifadenizi kullanarak istediğiniz zaman farklı bir Gözetmen'e geçebilir veya birini tamamen kaldırabilirsiniz.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "Kurtarma ifadenizle istediğiniz zaman farklı bir Gözetmen'e geçiş yapabilirsiniz. Yalnızca ortak imzalayanlar değişir; hesabınız ve paranız aynı kalır.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Anladım",
@@ -2324,6 +2376,38 @@
     "message": "sağlayıcı",
     "englishSource": "Provider"
   },
+  "guardianEndpointLabel": {
+    "message": "Uç nokta",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "Bölge",
+    "englishSource": "Region"
+  },
+  "guardianLastSync": {
+    "message": "Son senkronizasyon",
+    "englishSource": "Last sync"
+  },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianRotationComplete": {
+    "message": "Muhafız Güncellendi!",
+    "englishSource": "Guardian Updated!"
+  },
+  "online": {
+    "message": "Çevrimiçi",
+    "englishSource": "Online"
+  },
   "reviewRotation": {
     "message": "Rotasyonu inceleyin",
     "englishSource": "Review rotation"
@@ -2331,6 +2415,14 @@
   "newLabel": {
     "message": "Yeni",
     "englishSource": "New"
+  },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "Bu Gözetmen geçişini onaylamak için kimlik doğrulaması yapın.",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "Kimlik doğrulama kullanılamıyor. Guardian'ı değiştirmeden önce tekrar deneyin.",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
     "message": "Cüzdan anahtarı (sıcak)",
@@ -2468,6 +2560,10 @@
     "message": "Geçersiz Miden hesap kimliği",
     "englishSource": "Invalid Miden account ID"
   },
+  "midenAddressWrongNetwork": {
+    "message": "Bu adres farklı bir Miden ağına ait",
+    "englishSource": "This address belongs to a different Miden network"
+  },
   "cannotSendToSelf": {
     "message": "Kendi adresinize gönderemezsiniz",
     "englishSource": "You can't send to your own address"
@@ -2481,8 +2577,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "notes'yi Miden Faucet'den otomatik olarak tüket",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "Gelen MIDEN notes miktarını bakiyenize otomatik olarak talep edin; Al'a dokunmakla aynı şey. Paranızı harcamaz veya herhangi bir ücret eklemez.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "Şifreli Cüzdan Dosyası",
@@ -2566,12 +2662,12 @@
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
-    "message": "Bu pencereyi kapatmayın. İşlem oluşturulduktan sonra ana sayfaya geri yönlendirileceksiniz",
-    "englishSource": "Do not close this window. You will be navigated back to the home page after the transaction is generated"
+    "message": "İşlem oluşturulana kadar bu pencereyi kapatmayın",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "doNotCloseWindowAutoClose": {
-    "message": "Bu pencereyi kapatmayın. İşlem oluşturulduktan sonra pencere otomatik olarak kapanacak",
-    "englishSource": "Do not close this window. Window will auto-close after the transaction is generated"
+    "message": "İşlem oluşturulana kadar bu pencereyi kapatmayın",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "transactionSuccessDescription": {
     "message": "İşleminiz başarıyla işlendi ve ağda onaylandı.",
@@ -2616,6 +2712,10 @@
   "viewInActivities": {
     "message": "Etkinliklerde Görüntüle",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "Etkinliği görüntüle",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Ayrıntıları Görüntüle",
@@ -2957,6 +3057,23 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ çözülmedi",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Talep başarısız oldu; tekrar denemek için Yeniden Dene'ye dokunun",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "Bu note artık mevcut değil",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
     "message": "Beklemede notes",
     "englishSource": "Pending notes"
@@ -3277,6 +3394,22 @@
     "message": "Tarama iptal edildi",
     "englishSource": "Scan cancelled"
   },
+  "scanQrTitle": {
+    "message": "QR kodunu tarayın",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Kameranızı bir QR koduna doğrultun",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "Kamera bulunamadı",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Kamera erişimi isteniyor…",
+    "englishSource": "Requesting camera access…"
+  },
   "scan": {
     "message": "Tara",
     "englishSource": "Scan"
@@ -3308,6 +3441,14 @@
   "noteReceivedTitle": {
     "message": "Bir note aldınız",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "İşlem başarısız oldu",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "Bir işlem tamamlanamadı. İncelemek için cüzdanı açın.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "Hak talebinde bulunmak için buraya dokunun",
@@ -3858,8 +3999,104 @@
     "message": "Total Paid",
     "englishSource": "Total Paid"
   },
+  "totalConsumed": {
+    "message": "Toplam Tüketilen",
+    "englishSource": "Total Consumed"
+  },
+  "notesConsumed": {
+    "message": "Notes Tüketildi",
+    "englishSource": "Notes Consumed"
+  },
+  "consumed": {
+    "message": "Tüketilen",
+    "englishSource": "Consumed"
+  },
   "sourceTx": {
-    "message": "Source TX",
-    "englishSource": "Source TX"
+    "message": "İşlem Kimliği",
+    "englishSource": "Transaction ID"
+  },
+  "developerSettingsTitle": {
+    "message": "Geliştirici Ayarları",
+    "englishSource": "Developer Settings"
+  },
+  "developerSettingsWarningTitle": {
+    "message": "İleri düzey kullanıcılar için",
+    "englishSource": "For advanced users"
+  },
+  "developerSettingsWarning": {
+    "message": "Çoğu insan bunları asla değiştirmemelidir. Yanlış değerler cüzdanınızı kırar.",
+    "englishSource": "Most people should never change these. Wrong values will break your wallet."
+  },
+  "devEndpointPreset": {
+    "message": "Ağ ön ayarı",
+    "englishSource": "Network preset"
+  },
+  "devEndpointCustom": {
+    "message": "Gelenek",
+    "englishSource": "Custom"
+  },
+  "devEndpointNetworkId": {
+    "message": "Ağ Kimliği",
+    "englishSource": "Network ID"
+  },
+  "devEndpointRpc": {
+    "message": "RPC düğümü URL'si",
+    "englishSource": "RPC node URL"
+  },
+  "devEndpointProver": {
+    "message": "İşlem kanıtlayıcı URL'si",
+    "englishSource": "Transaction prover URL"
+  },
+  "devEndpointNoteTransport": {
+    "message": "Note aktarım URL'si",
+    "englishSource": "Note transport URL"
+  },
+  "devEndpointFaucet": {
+    "message": "Faucet web sitesi URL'si",
+    "englishSource": "Faucet website URL"
+  },
+  "devEndpointFaucetApi": {
+    "message": "Faucet API URL'si",
+    "englishSource": "Faucet API URL"
+  },
+  "devEndpointExplorer": {
+    "message": "Gezgin URL'si",
+    "englishSource": "Explorer URL"
+  },
+  "devEndpointGuardian": {
+    "message": "Özel veli URL'si",
+    "englishSource": "Custom guardian URL"
+  },
+  "devEndpointChecking": {
+    "message": "Kontrol ediliyor…",
+    "englishSource": "Checking…"
+  },
+  "devEndpointReachable": {
+    "message": "Sunucuya ulaşılabilir",
+    "englishSource": "Host reachable"
+  },
+  "devEndpointNoResponse": {
+    "message": "Yanıt yok",
+    "englishSource": "No response"
+  },
+  "devEndpointSaveContinue": {
+    "message": "Kaydet ve devam et",
+    "englishSource": "Save & continue"
+  },
+  "devEndpointResetDefaults": {
+    "message": "Varsayılanlara sıfırla",
+    "englishSource": "Reset to defaults"
+  },
+  "devEndpointResetAndReonboard": {
+    "message": "Varsayılanlara sıfırla ve yeniden katıl",
+    "englishSource": "Reset to defaults & re-onboard"
+  },
+  "devEndpointsRow": {
+    "message": "Ağ uç noktaları",
+    "englishSource": "Network endpoints"
+  },
+  "devEndpointResetConfirm": {
+    "message": "Bu işlem, anahtarlarınız ve işlem geçmişiniz de dahil olmak üzere bu cüzdanı kalıcı olarak siler. Geri yüklemek için kurtarma ifadenize ihtiyacınız olacak.",
+    "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   }
 }

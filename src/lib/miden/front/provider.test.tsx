@@ -2,7 +2,7 @@
 
 import React from 'react';
 
-import { render } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 
 const _g = globalThis as any;
 _g.__providerTest = {
@@ -36,7 +36,7 @@ jest.mock('./assets', () => ({
   TokensMetadataProvider: ({ children }: any) => <>{children}</>
 }));
 
-jest.mock('lib/fiat-curency', () => ({
+jest.mock('lib/fiat-currency', () => ({
   FiatCurrencyProvider: ({ children }: any) => <>{children}</>
 }));
 
@@ -105,19 +105,21 @@ describe('MidenProvider', () => {
         <div>x</div>
       </MidenProvider>
     );
-    // Wait for the useEffect to fire
-    await new Promise(r => setTimeout(r, 0));
-    expect(_g.__providerTest.getMidenClientCalls).toBeGreaterThan(0);
+    // Wait for the readiness gate (loadEndpointOverrides + ensureSdkWasmReady)
+    // to resolve and the dependent getMidenClient() effect to fire.
+    await waitFor(() => expect(_g.__providerTest.getMidenClientCalls).toBeGreaterThan(0));
   });
 
   it('skips Miden client initialization on extension', async () => {
     _g.__providerTest.isExtension = true;
-    render(
+    const { findByText } = render(
       <MidenProvider>
         <div>x</div>
       </MidenProvider>
     );
-    await new Promise(r => setTimeout(r, 0));
+    // Wait for the readiness gate to resolve (children render) before
+    // asserting the client was never initialized.
+    await findByText('x');
     expect(_g.__providerTest.getMidenClientCalls).toBe(0);
   });
 });

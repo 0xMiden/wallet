@@ -14,7 +14,14 @@ import { useEarnPositions } from './useEarnPositions';
 
 const EarnPositions: FC = () => {
   const { t } = useTranslation();
-  const { summary, positions } = useEarnPositions();
+  const { summary, positions, error, isLoading, refetch } = useEarnPositions();
+
+  // A failed load with nothing to fall back on must NOT read as "you have no
+  // positions / $0" — that misrepresents a network/service problem as an empty
+  // portfolio. Show a distinct, retryable error instead. If there is last-good
+  // data (positions present via keepPreviousData), keep showing it rather than
+  // hiding real balances behind a transient error.
+  const showLoadError = Boolean(error) && positions.length === 0 && !isLoading;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-positions-page">
@@ -35,13 +42,36 @@ const EarnPositions: FC = () => {
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col px-4 pb-8 pt-4">
-          <EarnSummaryPanel summary={summary} titleId="earn-positions-summary-title" />
+          {showLoadError ? (
+            <div
+              className="mt-10 flex flex-col items-center gap-4 text-center"
+              data-testid="earn-positions-load-error"
+              role="alert"
+            >
+              <p className="max-w-xs text-base leading-snug text-heading-gray">{t('earnPositionsLoadError')}</p>
+              <button
+                type="button"
+                data-testid="earn-positions-retry"
+                onClick={() => {
+                  hapticLight();
+                  refetch();
+                }}
+                className="rounded-full bg-gray-25 px-5 py-2.5 text-sm font-bold text-heading-gray hover:bg-gray-50 focus:bg-gray-50"
+              >
+                {t('retry')}
+              </button>
+            </div>
+          ) : (
+            <>
+              <EarnSummaryPanel summary={summary} titleId="earn-positions-summary-title" />
 
-          <section className="mt-7 flex flex-col gap-5" aria-label={t('earnPositionsRegionLabel')}>
-            {positions.map(position => (
-              <EarnPositionDetailCard key={position.id} position={position} />
-            ))}
-          </section>
+              <section className="mt-7 flex flex-col gap-5" aria-label={t('earnPositionsRegionLabel')}>
+                {positions.map(position => (
+                  <EarnPositionDetailCard key={position.id} position={position} />
+                ))}
+              </section>
+            </>
+          )}
         </div>
       </div>
     </div>

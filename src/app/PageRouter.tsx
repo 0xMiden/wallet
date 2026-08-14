@@ -13,6 +13,7 @@ import Welcome from 'app/pages/Welcome';
 import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import * as Woozie from 'lib/woozie';
+import DeveloperSettings from 'screens/developer-settings/DeveloperSettings';
 import EarnDepositAmount from 'screens/earn-flow/EarnDepositAmount';
 import EarnDepositReview from 'screens/earn-flow/EarnDepositReview';
 import EarnPositionDetail from 'screens/earn-flow/EarnPositionDetail';
@@ -84,6 +85,22 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       }
     }
   ],
+  // Developer endpoint override screen. Reachable during onboarding (before the wallet is
+  // ready) via the 7-tap logo unlock on the Welcome screen, so this must be placed ahead of the
+  // `!ready` catch-all below — an onlyReady-wrapped route would never resolve while ctx.ready is
+  // false. Deliberately NOT wrapped in onlyReady (see that helper below). Still defers to Unlock
+  // when locked: an existing, locked wallet always takes priority over this hidden debug screen.
+  [
+    '/developer-settings',
+    (_p, ctx) =>
+      ctx.locked ? (
+        Woozie.Router.SKIP
+      ) : (
+        <FullScreenPage>
+          <DeveloperSettings />
+        </FullScreenPage>
+      )
+  ],
   [
     '*',
     (_p, ctx) => {
@@ -133,6 +150,18 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       <TabLayout>
         <AllHistory programId={programId} />
       </TabLayout>
+    ))
+  ],
+  // Read-only "Network endpoints" screen, linked from the Settings row that's only
+  // shown while a developer endpoint override is active. Placed ahead of the
+  // generic `/settings/:tabSlug?` route below so it matches first (that route's
+  // pattern would otherwise swallow this path with tabSlug='network-endpoints').
+  [
+    '/settings/network-endpoints',
+    onlyReady(() => (
+      <FullScreenPage>
+        <DeveloperSettings readOnly />
+      </FullScreenPage>
     ))
   ],
   [

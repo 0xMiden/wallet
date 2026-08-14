@@ -288,6 +288,50 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('History', () => {
+  it('threads Guardian transition metadata through completed and pending entries', async () => {
+    mockGetCompletedTransactions.mockResolvedValueOnce([
+      {
+        id: 'switch-complete',
+        accountId: '0xme',
+        status: STATUS.Completed,
+        displayMessage: 'Guardian switched',
+        displayIcon: 'DEFAULT',
+        type: 'switch-guardian',
+        completedAt: 200,
+        extraInputs: {
+          previousGuardianEndpoint: 'https://old.example',
+          newGuardianEndpoint: 'https://new.example'
+        }
+      }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValueOnce([
+      {
+        id: 'switch-pending',
+        accountId: '0xme',
+        status: STATUS.Queued,
+        displayMessage: 'Switching guardian',
+        displayIcon: 'DEFAULT',
+        type: 'switch-guardian',
+        initiatedAt: 300,
+        extraInputs: { newGuardianEndpoint: 'https://legacy-new.example' }
+      }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+
+    const completed = mockHistoryViewProps.entries.find(
+      (entry: { key: string }) => entry.key === 'completed-switch-complete'
+    );
+    expect(completed.previousGuardianEndpoint).toBe('https://old.example');
+    expect(completed.newGuardianEndpoint).toBe('https://new.example');
+    const pending = mockHistoryViewProps.entries.find(
+      (entry: { key: string }) => entry.key === 'pending-switch-pending'
+    );
+    expect(pending.previousGuardianEndpoint).toBeUndefined();
+    expect(pending.newGuardianEndpoint).toBe('https://legacy-new.example');
+  });
+
   it('maps completed + pending transactions through every fetch branch and sorts completed by timestamp desc', async () => {
     await renderHistory();
 

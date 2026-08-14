@@ -22,11 +22,21 @@ jest.mock('lib/platform', () => ({
   isMobile: () => mockPlatform.isMobile
 }));
 
-// `hapticLight` is a native Capacitor wrapper; replace it with a spy so the
-// recover-link tap wiring can be asserted without touching the plugin.
+// `hapticLight`/`hapticMedium` are native Capacitor wrappers; replace them with
+// spies so the recover-link and logo-unlock tap wiring can be asserted without
+// touching the plugin.
 const hapticLight = jest.fn();
+const hapticMedium = jest.fn();
 jest.mock('lib/mobile/haptics', () => ({
-  hapticLight: () => hapticLight()
+  hapticLight: () => hapticLight(),
+  hapticMedium: () => hapticMedium()
+}));
+
+// `navigate` from the woozie router; the logo easter-egg calls it directly
+// rather than going through `onSubmit`, so it needs its own spy.
+const mockNavigate = jest.fn();
+jest.mock('lib/woozie', () => ({
+  navigate: (to: string) => mockNavigate(to)
 }));
 
 // `app/icons/v2` — replace the SVG barrel with a lightweight marker exposing the
@@ -57,6 +67,8 @@ const renderComponent = (props: Partial<React.ComponentProps<typeof WelcomeScree
 beforeEach(() => {
   mockPlatform.isMobile = false;
   hapticLight.mockClear();
+  hapticMedium.mockClear();
+  mockNavigate.mockClear();
 });
 
 // ---------------------------------------------------------------------------
@@ -159,5 +171,27 @@ describe('WelcomeScreen', () => {
     const column = screen.getByTestId('btn-getStarted').parentElement;
     expect(column).toHaveClass('pt-6');
     expect(column).not.toHaveClass('pt-8');
+  });
+});
+
+describe('WelcomeScreen developer unlock', () => {
+  it('navigates to developer settings after 7 taps on the logo', () => {
+    renderComponent();
+    const logo = screen.getByTestId('onboarding-bread-logo');
+    for (let i = 0; i < 7; i++) fireEvent.click(logo);
+    expect(mockNavigate).toHaveBeenCalledWith('/developer-settings');
+  });
+
+  it('does not navigate before the 7th tap', () => {
+    renderComponent();
+    const logo = screen.getByTestId('onboarding-bread-logo');
+    for (let i = 0; i < 6; i++) fireEvent.click(logo);
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('prevents text selection on the logo tap target', () => {
+    renderComponent();
+    const logo = screen.getByTestId('onboarding-bread-logo');
+    expect(logo).toHaveStyle({ userSelect: 'none' });
   });
 });

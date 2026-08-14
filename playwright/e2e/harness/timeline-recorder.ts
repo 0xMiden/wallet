@@ -41,7 +41,7 @@ export class TimelineRecorder {
       wallet: partial.wallet,
       message: partial.message,
       data: partial.data,
-      durationMs: partial.durationMs,
+      durationMs: partial.durationMs
     };
     this.events.push(event);
     this.stream.write(JSON.stringify(event) + '\n');
@@ -56,7 +56,7 @@ export class TimelineRecorder {
     this.emit({
       category: 'test_lifecycle',
       severity: 'info',
-      message: `Step ${this.currentStep}: ${name}`,
+      message: `Step ${this.currentStep}: ${name}`
     });
   }
 

@@ -1,6 +1,7 @@
 import React, { FC, ReactNode, useMemo } from 'react';
 
 import classNames from 'clsx';
+import { useTranslation } from 'react-i18next';
 
 import { ITransaction } from 'lib/miden/db/types';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
@@ -153,17 +154,34 @@ const earnMarketLabel = (marketUid: string): string | undefined => {
  *   send          →  {amount} {symbol}        ->  {recipient}
  *   swap          →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
  *   earn-deposit  →  {amount} {symbol}        ↑   {protocol}-USDC   (up-arrow separator)
+ *   consume       →  {amount} {symbol}        ->  Consumed
  *
- * Other transaction types (consume/claim, switch-guardian, bridged sends)
- * render nothing for now. See CLAUDE.md -> "Transaction summary badge" for how
- * to add a variant and where each type's data lives.
+ * Other transaction types (switch-guardian, bridged sends) render nothing for
+ * now. See CLAUDE.md -> "Transaction summary badge" for how to add a variant
+ * and where each type's data lives.
  */
 export const useTransactionSummaryBadgeContent = (
   transaction?: ITransaction
 ): TransactionSummaryBadgeContent | undefined => {
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
+  const { t } = useTranslation();
 
   return useMemo(() => {
+    if (transaction?.type === 'consume') {
+      const tokenMetadata = transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
+      const symbol = tokenMetadata?.symbol ?? MIDEN_METADATA.symbol;
+      const amount =
+        transaction.amount !== undefined ? formatAmount(transaction.amount, tokenMetadata?.decimals) : undefined;
+
+      // Consume amount is optional (batch claims may not carry one) — no pill then.
+      if (!amount) return undefined;
+
+      return {
+        lhs: `${amount} ${symbol}`,
+        rhs: t('consumed', { defaultValue: 'Consumed' })
+      };
+    }
+
     if (transaction?.type === 'earn-deposit') {
       const tokenMetadata = transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
       const decimals = tokenMetadata?.decimals ?? EARN_USDC_DECIMALS;
@@ -220,5 +238,5 @@ export const useTransactionSummaryBadgeContent = (
         </>
       )
     };
-  }, [assetsMetadata, transaction]);
+  }, [assetsMetadata, t, transaction]);
 };

@@ -61,21 +61,32 @@ jest.mock('lib/miden/activity/connectivity-state', () => ({
 
 const mockClient = {
   syncState: jest.fn(async () => {}),
-  getConsumableNotes: jest.fn(async () => [] as any[]),
+  getConsumableNoteDtos: jest.fn(async () => [] as any[]),
   getAccount: jest.fn(async () => null as any)
 };
+// The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
+// of miden-client, which jest mocks separately from the relative specifier below;
+// delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => mockClient,
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
   runWhenClientIdle: () => {}
 }));
 
-// Stub webextension-polyfill (the real one is also stubbed via @serh11p/jest-webextension-mock)
+// Stub webextension-polyfill (the real one is also stubbed via @serh11p/jest-webextension-mock).
+// sync-manager persists via `browser.storage.local.set`; route it through the shared
+// `mockStorageSet` spy (lazy wrapper avoids the mock-hoisting TDZ, like the mocks below).
 jest.mock('webextension-polyfill', () => ({
   __esModule: true,
   default: {
     alarms: {
       create: jest.fn()
+    },
+    storage: {
+      local: {
+        set: (...args: unknown[]) => mockStorageSet(...args)
+      }
     }
   }
 }));
@@ -129,26 +140,36 @@ jest.mock('./transaction-processor', () => ({
 
 // ── Imports under test ─────────────────────────────────────────────
 
-import { doSync, setupSyncManager } from './sync-manager';
+import { WalletMessageType } from 'lib/shared/types';
+
+import { computeSyncBackoffMs, doSync, setupSyncManager } from './sync-manager';
 
 // Helper: build a fake consumable note WASM record
-function fakeNote({ id = 'note-1', faucetId = 'faucet-1', amount = '100', senderId = 'sender-1', noteType = 0 } = {}) {
+// Since slice 4 (issue #260) getConsumableNoteDtos returns plain DTOs (the live
+// InputNoteRecord reach-through + reclaim gate now run inside the reducer), so
+// the fixtures are DTOs, not live-record mocks. bech32 encoding already applied
+// in the reducer, so faucetId/senderAccountId here are the final surfaced values.
+function fakeNote({
+  id = 'note-1',
+  faucetId = 'faucet-1',
+  amount = '100',
+  senderId = 'sender-1',
+  noteType = 0
+}: {
+  id?: string | null;
+  faucetId?: string;
+  amount?: string;
+  senderId?: string | undefined;
+  noteType?: number | undefined;
+} = {}): any {
   return {
-    id: () => ({ toString: () => id }),
-    metadata: () => ({
-      sender: () => senderId,
-      noteType: () => noteType
-    }),
-    details: () => ({
-      assets: () => ({
-        fungibleAssets: () => [
-          {
-            faucetId: () => faucetId,
-            amount: () => ({ toString: () => amount })
-          }
-        ]
-      })
-    })
+    noteId: id,
+    nullifier: id == null ? null : `null-${id}`,
+    noteType,
+    senderAccountId: senderId,
+    state: 2,
+    assets: [{ faucetId, amount }],
+    swapAttachment: null
   };
 }
 
@@ -157,7 +178,7 @@ beforeEach(() => {
   mockIsExist.mockResolvedValue(true);
   mockGetCurrentAccountPublicKey.mockResolvedValue('pk-1');
   mockClient.syncState.mockResolvedValue(undefined);
-  mockClient.getConsumableNotes.mockResolvedValue([]);
+  mockClient.getConsumableNoteDtos.mockResolvedValue([]);
   mockClient.getAccount.mockResolvedValue(null);
   mockFetchTokenMetadata.mockResolvedValue({
     base: { decimals: 6, symbol: 'TOK', name: 'Token', thumbnailUri: 'x.png' }
@@ -175,6 +196,35 @@ beforeEach(() => {
   mockInitiateConsume.mockResolvedValue('consume-tx');
 });
 
+describe('computeSyncBackoffMs (gap 14 — exponential backoff + jitter)', () => {
+  // rand=0 removes jitter so the exponential base is exact.
+  const noJitter = () => 0;
+
+  it('doubles the base interval each consecutive trip', () => {
+    expect(computeSyncBackoffMs(1, noJitter)).toBe(30_000);
+    expect(computeSyncBackoffMs(2, noJitter)).toBe(60_000);
+    expect(computeSyncBackoffMs(3, noJitter)).toBe(120_000);
+    expect(computeSyncBackoffMs(4, noJitter)).toBe(240_000);
+  });
+
+  it('caps the backoff so a long outage is not probed on an ever-growing interval', () => {
+    // 30s * 2^4 = 480s would exceed the 5-min cap.
+    expect(computeSyncBackoffMs(5, noJitter)).toBe(300_000);
+    expect(computeSyncBackoffMs(50, noJitter)).toBe(300_000);
+  });
+
+  it('adds up to 20% jitter on top of the interval (de-syncs lockstep probing)', () => {
+    expect(computeSyncBackoffMs(1, () => 1)).toBe(36_000); // +20%
+    expect(computeSyncBackoffMs(1, () => 0.5)).toBe(33_000); // +10%
+    // Jitter is bounded within [base, base*1.2].
+    for (const r of [0, 0.25, 0.75, 1]) {
+      const v = computeSyncBackoffMs(2, () => r);
+      expect(v).toBeGreaterThanOrEqual(60_000);
+      expect(v).toBeLessThanOrEqual(72_000);
+    }
+  });
+});
+
 describe('doSync', () => {
   it('is a no-op when the vault is not set up', async () => {
     mockIsExist.mockResolvedValueOnce(false);
@@ -187,11 +237,11 @@ describe('doSync', () => {
     await doSync();
     expect(mockClient.syncState).toHaveBeenCalled();
     expect(mockBroadcast).toHaveBeenCalledWith(expect.objectContaining({ type: expect.any(String) }));
-    expect(mockClient.getConsumableNotes).not.toHaveBeenCalled();
+    expect(mockClient.getConsumableNoteDtos).not.toHaveBeenCalled();
   });
 
   it('reads notes and vault assets, enriches with metadata, and writes to chrome.storage', async () => {
-    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'n1', faucetId: 'f1' })]);
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([fakeNote({ id: 'n1', faucetId: 'f1' })]);
     mockClient.getAccount.mockResolvedValueOnce({
       vault: () => ({
         fungibleAssets: () => [
@@ -206,7 +256,7 @@ describe('doSync', () => {
 
     await doSync();
 
-    expect(mockClient.getConsumableNotes).toHaveBeenCalledWith('pk-1');
+    expect(mockClient.getConsumableNoteDtos).toHaveBeenCalledWith('pk-1');
     expect(mockClient.getAccount).toHaveBeenCalledWith('pk-1');
     expect(mockFetchTokenMetadata).toHaveBeenCalledWith('f1');
     expect(mockFetchTokenMetadata).toHaveBeenCalledWith('f2');
@@ -218,8 +268,25 @@ describe('doSync', () => {
     );
   });
 
+  it('logs a warning (not silent) but still finishes the sync when the storage write fails (#386)', async () => {
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([fakeNote({ id: 'n1', faucetId: 'f1' })]);
+    // Simulate a rejected write (e.g. QUOTA_BYTES exceeded / storage unavailable).
+    mockStorageSet.mockRejectedValueOnce(new Error('QUOTA_BYTES quota exceeded'));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(doSync()).resolves.toBeUndefined();
+
+    // The failed write must not be swallowed silently.
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to persist'), expect.anything());
+    // The SyncCompleted signal still fires — it only clears the sync indicator
+    // (the data is read from storage), so it must not hang on a write failure.
+    expect(mockBroadcast).toHaveBeenCalledWith(expect.objectContaining({ type: WalletMessageType.SyncCompleted }));
+
+    warnSpy.mockRestore();
+  });
+
   it('excludes quarantined notes from the cached consumable-notes write', async () => {
-    mockClient.getConsumableNotes.mockResolvedValueOnce([
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
       fakeNote({ id: 'quarantined-note', faucetId: 'f1' }),
       fakeNote({ id: 'visible-note', faucetId: 'f1' })
     ]);
@@ -233,7 +300,7 @@ describe('doSync', () => {
   });
 
   it('shows a desktop notification when a new note arrives and no frontends are connected', async () => {
-    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'new-note' })]);
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([fakeNote({ id: 'new-note' })]);
     mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['new-note']);
     mockHasClients.mockReturnValue(false);
     (globalThis as any).chrome.notifications = {
@@ -243,30 +310,36 @@ describe('doSync', () => {
     expect((globalThis as any).chrome.notifications.create).toHaveBeenCalled();
   });
 
-  it('skips partial (metadata-less) notes whose id() is undefined', async () => {
-    const partialNote = {
-      id: () => undefined
-    };
-    mockClient.getConsumableNotes.mockResolvedValueOnce([partialNote]);
+  it('skips partial (metadata-less) notes whose noteId is null', async () => {
+    // A partial note reduces to a DTO with noteId null (the reducer keeps it so
+    // the caller applies its own skip). sync-manager drops it on !noteId.
+    const partialNote = fakeNote({ id: null });
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([partialNote]);
     await doSync();
     // The partial note is filtered; doSync still finishes successfully
     expect(mockStorageSet).toHaveBeenCalled();
   });
 
-  it('skips malformed notes that throw inside the parser', async () => {
-    const badNote = {
-      id: () => {
-        throw new Error('bad note');
-      }
-    };
-    mockClient.getConsumableNotes.mockResolvedValueOnce([badNote]);
+  it('skips notes with no fungible assets (empty assets array)', async () => {
+    // The un-reducible / malformed case is now caught by the reducer itself (see
+    // consumable-notes.test.ts). At the sync-manager level the remaining skip is
+    // the empty-asset one: a DTO with no assets can't be surfaced.
+    const emptyAssetNote = { ...fakeNote({ id: 'no-assets' }), assets: [] };
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([emptyAssetNote]);
     await doSync();
-    // The bad note is filtered; doSync still finishes successfully
+    // The asset-less note is filtered; doSync still finishes successfully
     expect(mockStorageSet).toHaveBeenCalled();
   });
 
+  // The #331 "log a parse failure instead of silently dropping the note" behavior
+  // moved with the reduction itself: since slice 4 (#260) sync-manager reads plain
+  // DTOs from the proxy and no longer parses raw note records, so the mid-parse
+  // failure now originates in — and is logged by — the reducer. That path is
+  // covered by consumable-notes.test.ts ('returns null (skips) when a record throws
+  // mid-reduction' asserts the '[consumable-notes] skipping un-reducible note' warn).
+
   it('tolerates fetchTokenMetadata rejections and still writes sync data', async () => {
-    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'n1', faucetId: 'f1' })]);
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([fakeNote({ id: 'n1', faucetId: 'f1' })]);
     mockFetchTokenMetadata.mockRejectedValueOnce(new Error('network down'));
     await doSync();
     expect(mockStorageSet).toHaveBeenCalled();
@@ -314,7 +387,7 @@ describe('doSync', () => {
   });
 
   it('does not throw when broadcast fails in the main happy-path branch', async () => {
-    mockClient.getConsumableNotes.mockResolvedValueOnce([]);
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([]);
     mockClient.getAccount.mockResolvedValueOnce(null);
     mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce([]);
     mockBroadcast.mockImplementationOnce(() => {
@@ -335,16 +408,8 @@ describe('doSync', () => {
   });
 
   it('handles a note whose firstAsset is null (no fungible assets)', async () => {
-    mockClient.getConsumableNotes.mockResolvedValueOnce([
-      {
-        id: () => ({ toString: () => 'n-null-asset' }),
-        metadata: () => ({ sender: () => 's', noteType: () => 0 }),
-        details: () => ({
-          assets: () => ({
-            fungibleAssets: () => [] // empty array means no firstAsset
-          })
-        })
-      }
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      { ...fakeNote({ id: 'n-null-asset' }), assets: [] } // empty array means no firstAsset
     ]);
     mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce([]);
     await doSync();
@@ -353,7 +418,7 @@ describe('doSync', () => {
   });
 
   it('shows single-note notification message', async () => {
-    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'solo-note' })]);
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([fakeNote({ id: 'solo-note' })]);
     mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['solo-note']);
     mockHasClients.mockReturnValue(false);
     const showNotification = jest.fn();
@@ -437,7 +502,7 @@ describe('doSync — notification getMessage fallback branches', () => {
   it('uses fallback strings when getMessage returns empty (single note)', async () => {
     const { getMessage } = jest.requireMock('lib/i18n');
     getMessage.mockReturnValue('');
-    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'n-fb' })]);
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([fakeNote({ id: 'n-fb' })]);
     mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['n-fb']);
     mockHasClients.mockReturnValue(false);
     const showNotification = jest.fn();
@@ -451,7 +516,7 @@ describe('doSync — notification getMessage fallback branches', () => {
   it('uses fallback strings when getMessage returns empty (multi note)', async () => {
     const { getMessage } = jest.requireMock('lib/i18n');
     getMessage.mockReturnValue('');
-    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'n-m1' }), fakeNote({ id: 'n-m2' })]);
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([fakeNote({ id: 'n-m1' }), fakeNote({ id: 'n-m2' })]);
     mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['n-m1', 'n-m2']);
     mockHasClients.mockReturnValue(false);
     const showNotification = jest.fn();
@@ -468,37 +533,24 @@ describe('doSync — notification getMessage fallback branches', () => {
 
 describe('doSync — note metadata branches', () => {
   it('handles a note with no fungible assets (filters it out)', async () => {
-    mockClient.getConsumableNotes.mockResolvedValueOnce([
-      {
-        id: () => ({ toString: () => 'n-empty' }),
-        metadata: () => ({ sender: () => 's', noteType: () => 0 }),
-        details: () => ({
-          assets: () => ({
-            fungibleAssets: () => []
-          })
-        })
-      }
-    ]);
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([{ ...fakeNote({ id: 'n-empty' }), assets: [] }]);
     await doSync();
     // The empty note is filtered; sync still completes
     expect(mockStorageSet).toHaveBeenCalled();
   });
 
   it('handles a note where metadata is null (uses unknown noteType)', async () => {
-    mockClient.getConsumableNotes.mockResolvedValueOnce([
+    // A metadata-less DTO: noteType/senderAccountId undefined (reducer output for
+    // a note with no metadata). sync-manager surfaces it with noteType 'unknown'.
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
       {
-        id: () => ({ toString: () => 'n-no-meta' }),
-        metadata: () => null,
-        details: () => ({
-          assets: () => ({
-            fungibleAssets: () => [
-              {
-                faucetId: () => 'f1',
-                amount: () => ({ toString: () => '1' })
-              }
-            ]
-          })
-        })
+        noteId: 'n-no-meta',
+        nullifier: null,
+        noteType: undefined,
+        senderAccountId: undefined,
+        state: 0,
+        assets: [{ faucetId: 'f1', amount: '1' }],
+        swapAttachment: null
       }
     ]);
     await doSync();
@@ -506,7 +558,7 @@ describe('doSync — note metadata branches', () => {
   });
 
   it('handles when no account exists in client (assets array stays empty)', async () => {
-    mockClient.getConsumableNotes.mockResolvedValueOnce([]);
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([]);
     mockClient.getAccount.mockResolvedValueOnce(null);
     await doSync();
     expect(mockStorageSet).toHaveBeenCalledWith(
@@ -519,25 +571,9 @@ describe('doSync — note metadata branches', () => {
   });
 
   it('shows multi-note notification when multiple new notes arrive', async () => {
-    mockClient.getConsumableNotes.mockResolvedValueOnce([
-      {
-        id: () => ({ toString: () => 'n1' }),
-        metadata: () => ({ sender: () => 's', noteType: () => 0 }),
-        details: () => ({
-          assets: () => ({
-            fungibleAssets: () => [{ faucetId: () => 'f', amount: () => ({ toString: () => '1' }) }]
-          })
-        })
-      },
-      {
-        id: () => ({ toString: () => 'n2' }),
-        metadata: () => ({ sender: () => 's', noteType: () => 0 }),
-        details: () => ({
-          assets: () => ({
-            fungibleAssets: () => [{ faucetId: () => 'f', amount: () => ({ toString: () => '1' }) }]
-          })
-        })
-      }
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'n1', faucetId: 'f', amount: '1', senderId: 's' }),
+      fakeNote({ id: 'n2', faucetId: 'f', amount: '1', senderId: 's' })
     ]);
     mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['n1', 'n2']);
     mockHasClients.mockReturnValue(false);
@@ -547,16 +583,8 @@ describe('doSync — note metadata branches', () => {
   });
 
   it('uses ServiceWorkerRegistration.showNotification when available', async () => {
-    mockClient.getConsumableNotes.mockResolvedValueOnce([
-      {
-        id: () => ({ toString: () => 'n1' }),
-        metadata: () => ({ sender: () => 's', noteType: () => 0 }),
-        details: () => ({
-          assets: () => ({
-            fungibleAssets: () => [{ faucetId: () => 'f', amount: () => ({ toString: () => '1' }) }]
-          })
-        })
-      }
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'n1', faucetId: 'f', amount: '1', senderId: 's' })
     ]);
     mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['n1']);
     mockHasClients.mockReturnValue(false);
@@ -624,7 +652,7 @@ describe('doSync — syncState timeout + circuit breaker', () => {
       await isolated(true);
       expect(mockClient.syncState).toHaveBeenCalledTimes(4);
 
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('circuit breaker open — skipping syncs'));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('circuit breaker open'));
       warnSpy.mockRestore();
     });
   });
@@ -735,7 +763,7 @@ describe('doSync — native-note auto-consume', () => {
     mockIsAutoConsumeAsync.mockResolvedValue(true);
     mockIsDelegateProofAsync.mockResolvedValue(false); // user picked LOCAL proving
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
-    mockClient.getConsumableNotes.mockResolvedValueOnce([
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
       fakeNote({ id: 'native-a', faucetId: 'native-faucet' }),
       fakeNote({ id: 'native-b', faucetId: 'native-faucet' }),
       fakeNote({ id: 'other-note', faucetId: 'other-faucet' })
@@ -757,7 +785,9 @@ describe('doSync — native-note auto-consume', () => {
   it('does not auto-consume when the toggle is off', async () => {
     mockIsAutoConsumeAsync.mockResolvedValue(false);
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
-    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'native-note', faucetId: 'native-faucet' })
+    ]);
 
     await doSync();
 
@@ -770,7 +800,9 @@ describe('doSync — native-note auto-consume', () => {
     mockHasClients.mockReturnValue(false); // popup closed
     mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['native-note']); // note is "new" this tick
     (globalThis as any).chrome.notifications = { create: jest.fn() };
-    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'native-note', faucetId: 'native-faucet' })
+    ]);
 
     await doSync();
 
@@ -785,7 +817,9 @@ describe('doSync — native-note auto-consume', () => {
     mockAreBgMirrored.mockResolvedValue(false); // settings not yet mirrored into the SW store
     mockIsAutoConsumeAsync.mockResolvedValue(true);
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
-    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'native-note', faucetId: 'native-faucet' })
+    ]);
 
     await doSync();
 
@@ -796,7 +830,9 @@ describe('doSync — native-note auto-consume', () => {
   it('resolves cleanly when the eligibility resolve (getFaucetIdSetting) rejects', async () => {
     mockIsAutoConsumeAsync.mockResolvedValue(true);
     mockGetFaucetIdSetting.mockRejectedValue(new Error('storage boom'));
-    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'native-note', faucetId: 'native-faucet' })
+    ]);
 
     await expect(doSync()).resolves.toBeUndefined();
     expect(mockGetFaucetIdSetting).toHaveBeenCalled(); // the rejecting path WAS exercised
@@ -808,7 +844,9 @@ describe('doSync — native-note auto-consume', () => {
     mockIsAutoConsumeAsync.mockResolvedValue(true);
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
     mockInitiateConsume.mockRejectedValueOnce(new Error('enqueue boom'));
-    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'native-note', faucetId: 'native-faucet' })
+    ]);
 
     await expect(doSync()).resolves.toBeUndefined();
     expect(mockInitiateConsume).toHaveBeenCalled(); // the rejecting path WAS exercised

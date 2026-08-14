@@ -8,7 +8,7 @@ test.describe('Multi-Account Operations', () => {
     walletB,
     midenCli,
     steps,
-    timeline,
+    timeline
   }) => {
     let addressA: string;
 
@@ -30,40 +30,48 @@ test.describe('Multi-Account Operations', () => {
       expect(balance).toBeGreaterThan(0);
     });
 
-    await steps.step('navigate_to_create_account', async () => {
-      // Navigate to create a second account within the same wallet
-      await walletA.navigateTo('/create-account');
-      await walletA.page.waitForTimeout(2_000);
+    await steps.step(
+      'navigate_to_create_account',
+      async () => {
+        // Navigate to create a second account within the same wallet
+        await walletA.navigateTo('/create-account');
+        await walletA.page.waitForTimeout(2_000);
 
-      // Look for account creation UI elements
-      const pageText = await walletA.page.locator('body').textContent();
-      timeline.emit({
-        category: 'ui_action',
-        severity: 'info',
-        wallet: 'A',
-        message: 'Navigated to create account page',
-        data: { pageTextSnippet: pageText?.slice(0, 200) },
-      });
-    }, {
-      screenshotWallets: [{ target: walletA.page, label: 'A' }],
-    });
+        // Look for account creation UI elements
+        const pageText = await walletA.page.locator('body').textContent();
+        timeline.emit({
+          category: 'ui_action',
+          severity: 'info',
+          wallet: 'A',
+          message: 'Navigated to create account page',
+          data: { pageTextSnippet: pageText?.slice(0, 200) }
+        });
+      },
+      {
+        screenshotWallets: [{ target: walletA.page, label: 'A' }]
+      }
+    );
 
-    await steps.step('verify_account_selector', async () => {
-      // Navigate to account selection
-      await walletA.navigateTo('/select-account');
-      await walletA.page.waitForTimeout(2_000);
+    await steps.step(
+      'verify_account_selector',
+      async () => {
+        // Navigate to account selection
+        await walletA.navigateTo('/select-account');
+        await walletA.page.waitForTimeout(2_000);
 
-      const pageText = await walletA.page.locator('body').textContent();
-      timeline.emit({
-        category: 'ui_action',
-        severity: 'info',
-        wallet: 'A',
-        message: 'Navigated to account selector',
-        data: { pageTextSnippet: pageText?.slice(0, 200) },
-      });
-    }, {
-      screenshotWallets: [{ target: walletA.page, label: 'A' }],
-      captureStateFrom: [{ target: walletA.page, label: 'A', extensionId: walletA.extensionId }],
-    });
+        const pageText = await walletA.page.locator('body').textContent();
+        timeline.emit({
+          category: 'ui_action',
+          severity: 'info',
+          wallet: 'A',
+          message: 'Navigated to account selector',
+          data: { pageTextSnippet: pageText?.slice(0, 200) }
+        });
+      },
+      {
+        screenshotWallets: [{ target: walletA.page, label: 'A' }],
+        captureStateFrom: [{ target: walletA.page, label: 'A', extensionId: walletA.extensionId }]
+      }
+    );
   });
 });

@@ -36,7 +36,11 @@ export default defineConfig({
             plugins: ['@svgr/plugin-jsx'],
             exportType: 'named',
             namedExport: 'ReactComponent',
-            jsxRuntime: 'automatic'
+            // Classic runtime so SVGR imports React into each generated component,
+            // matching the bundler's classic JSX compile (see vite.extension.config.ts
+            // for the full rationale) — automatic emits `React.createElement` with an
+            // undefined `React`, crashing minified production builds.
+            jsxRuntime: 'classic'
           },
           { filePath }
         );
@@ -89,6 +93,9 @@ export default defineConfig({
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.MIDEN_PLATFORM': JSON.stringify('desktop'),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
+    // Issue #260: offscreen client rehost is Chrome-MV3 only; keep the flag
+    // defined (default OFF) so shared code that reads it resolves cleanly.
+    'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'false'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_DEFAULT_NETWORK': JSON.stringify(process.env.MIDEN_DEFAULT_NETWORK ?? ''),
     'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),

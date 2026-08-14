@@ -1,5 +1,6 @@
 import type { BrowserContext, Page, Request, Response as PwResponse, Worker } from '@playwright/test';
 
+import type { FetchFaultWire } from './network-faults';
 import type { TimelineRecorder } from './timeline-recorder';
 import type { NetworkCategory } from './types';
 
@@ -132,6 +133,12 @@ export async function attachServiceWorkerFetchCapture(
       const parsed = JSON.parse(text.slice(SW_FETCH_LOG_PREFIX.length));
       const status: number = parsed.status ?? 0;
       const err: string | undefined = parsed.err;
+      if (process.env.FETCH_FAULT_DEBUG && parsed.category === 'rpc') {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[net-obs] rpc ${parsed.method} status=${status} err=${(err ?? '').slice(0, 40)} realm=${String(parsed.realm).split('/').pop()}`
+        );
+      }
       timeline.emit({
         category: 'network_request',
         severity: status >= 400 || err ? 'error' : 'info',
@@ -179,16 +186,56 @@ export async function attachServiceWorkerFetchCapture(
         if (!HOST_PATTERN.test(url)) return origFetch(input, init);
 
         const category = classify(url);
+
+        // --- Fault injection (resilience harness) ---
+        // context.route CANNOT reach node/prover/transport gRPC-web (it runs in
+        // this realm — the SW or the SDK's page-worker — not on a routable page
+        // request), so faults for those targets are applied HERE at the fetch
+        // layer. Gated on `__E2E_NET_FAULTS` (set by armFetchFaults): unarmed, this
+        // is a pure pass-through, so every non-resilience suite is unaffected.
+        const faults = (g.__E2E_NET_FAULTS as FetchFaultWire[] | undefined) || [];
+        if (faults.length) {
+          g.__E2E_NET_FAULT_HITS = g.__E2E_NET_FAULT_HITS || {};
+          const hits = g.__E2E_NET_FAULT_HITS as Record<string, number>;
+          for (const f of faults) {
+            if (!url.includes(f.host)) continue;
+            if (f.path && !url.includes(f.path)) continue;
+            const prior = hits[f.id] || 0;
+            if (f.mode === 'failFirstN' && prior >= (f.count || 1)) break; // recovered — pass through
+            hits[f.id] = prior + 1;
+            console.log(prefix + JSON.stringify({ url, method, status: 0, category, err: 'INJECTED:' + f.mode }));
+            if (f.mode === 'delay' || f.mode === 'slowStream') {
+              await new Promise(r => setTimeout(r, f.delayMs || (f.mode === 'slowStream' ? 8000 : 3000)));
+              break; // fall through to the real fetch below
+            }
+            if (f.mode === 'hang') return new Promise<Response>(() => {}); // never settles
+            if (f.mode === 'status500' || f.mode === 'failFirstN') {
+              return new Response('injected network fault', { status: 500 });
+            }
+            if (f.mode === 'status429RetryAfter') {
+              return new Response(JSON.stringify({ error: 'rate_limited', retryable: true }), {
+                status: 429,
+                headers: { 'retry-after': String(f.retryAfterSec || 1) }
+              });
+            }
+            if (f.mode === 'truncatedBody') return new Response('{', { status: 200 });
+            if (f.mode === 'malformedBody') return new Response('not a valid response body', { status: 200 });
+            // connectionRefused / abort / timeout → surface as a transport error
+            throw new TypeError('Failed to fetch (injected ' + f.mode + ')');
+          }
+        }
+
         const start = performance.now();
+        const realm = (g.location && g.location.href) || 'unknown';
         try {
           const res = await origFetch(input, init);
           const durationMs = Math.round(performance.now() - start);
-          console.log(prefix + JSON.stringify({ url, method, status: res.status, durationMs, category }));
+          console.log(prefix + JSON.stringify({ url, method, status: res.status, durationMs, category, realm }));
           return res;
         } catch (err) {
           const durationMs = Math.round(performance.now() - start);
           const errStr = err instanceof Error ? err.message : String(err);
-          console.log(prefix + JSON.stringify({ url, method, status: 0, durationMs, category, err: errStr }));
+          console.log(prefix + JSON.stringify({ url, method, status: 0, durationMs, category, err: errStr, realm }));
           throw err;
         }
       };

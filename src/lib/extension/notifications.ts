@@ -21,7 +21,9 @@ export async function showExtensionNotification(title: string, message: string):
       });
 
       notif.onclick = () => {
-        chrome.tabs.create({ url: chrome.runtime.getURL('fullpage.html#/receive') });
+        // Deep-link to the incoming-notes list (claim actions), matching the
+        // mobile handler — not the generic wallet QR/receive page (#467).
+        chrome.tabs.create({ url: chrome.runtime.getURL('fullpage.html#/pending-notes') });
         notif.close();
       };
       return;

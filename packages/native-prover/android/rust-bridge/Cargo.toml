@@ -17,13 +17,20 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # Pin the EXACT published miden-client the wallet's @miden-sdk/miden-sdk is
-# built from (web-sdk v0.15.8 → miden-client 0.15.4 on crates.io; check the
-# web-sdk tag's Cargo.lock). Both the TransactionInputs / ProvenTransaction
-# wire format AND the transaction-kernel / library MAST procedure roots must
-# match the SDK byte-for-byte — building against a divergent pre-release git
-# rev (even at the same 0.15.x version number) makes the prover reject valid
-# transactions with "procedure with root digest … could not be found".
-# Bump this in lockstep with the wallet's @miden-sdk/miden-sdk version.
+# built from. Both the TransactionInputs / ProvenTransaction wire format AND the
+# transaction-kernel / library MAST procedure roots must match the SDK
+# byte-for-byte — building against a divergent rev (even at the same 0.15.x
+# version number) makes the prover reject valid transactions with "procedure
+# with root digest … could not be found".
+#
+# The wallet is on @miden-sdk/miden-sdk 0.15.9, whose Cargo.lock resolves
+# miden-client to 0.15.5; this pin currently lags at =0.15.4 — a drift recorded
+# as safe in ../../pin-drift-exemptions.json (only miden-client moved, so the
+# procedure set is unchanged). CI enforces the invariant via
+# scripts/check-native-prover-pin.mjs (#594): a pin↔SDK mismatch that isn't a
+# documented exemption fails the build. Bump this in lockstep with the wallet's
+# @miden-sdk/miden-sdk version (and rebuild the committed binaries); only defer a
+# bump behind an exemption when it's a miden-client-only move.
 # `concurrent` cascades rayon-backed parallel proving through miden-tx →
 # miden-prover.
 miden-client = { version = "=0.15.4", default-features = false, features = ["std", "concurrent"] }

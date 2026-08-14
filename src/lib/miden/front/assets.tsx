@@ -18,6 +18,7 @@ import {
   usePassiveStorage,
   isMidenAsset
 } from 'lib/miden/front';
+import { updateTokensBaseMetadata } from 'lib/miden/metadata/storage';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
@@ -88,7 +89,6 @@ export async function useAllAssetMetadata(): Promise<Record<string, AssetMetadat
 }
 
 const defaultAllTokensBaseMetadata: Record<string, AssetMetadata> = {};
-const setAllTokensBaseMetadataQueue = new PQueue({ concurrency: 1 });
 
 /**
  * TokensMetadataProvider - Syncs storage to Zustand on mount
@@ -130,14 +130,10 @@ async function setTokensDetailedMetadataStorage(toSet: Record<string, DetailedAs
 }
 
 export async function setTokensBaseMetadata(toSet: Record<string, AssetMetadata>): Promise<void> {
-  const initialAllTokensBaseMetadata: Record<string, AssetMetadata> =
-    (await fetchFromStorage(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || defaultAllTokensBaseMetadata;
-
-  setAllTokensBaseMetadataQueue.add(async () =>
-    putToStorage(ALL_TOKENS_BASE_METADATA_STORAGE_KEY, {
-      ...initialAllTokensBaseMetadata,
-      ...toSet
-    })
+  await updateTokensBaseMetadata(
+    toSet,
+    () => fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY),
+    metadata => putToStorage(ALL_TOKENS_BASE_METADATA_STORAGE_KEY, metadata)
   );
 }
 

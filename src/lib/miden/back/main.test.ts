@@ -16,6 +16,7 @@ _g.__mainTest = {
   storeWatch: jest.fn(),
   doSync: jest.fn(),
   startTransactionProcessing: jest.fn(),
+  swSignCallback: jest.fn(async () => new Uint8Array([0xab, 0xcd])),
   client: {
     importNoteBytes: jest.fn(),
     syncState: jest.fn(),
@@ -43,9 +44,25 @@ jest.mock('./sync-manager', () => ({
 }));
 
 jest.mock('./transaction-processor', () => ({
-  startTransactionProcessing: () => (globalThis as any).__mainTest.startTransactionProcessing()
+  startTransactionProcessing: () => (globalThis as any).__mainTest.startTransactionProcessing(),
+  // The reverse-IPC sign handler's fallback signer (issue #260, slice 5).
+  swSignCallback: (...a: any[]) => (globalThis as any).__mainTest.swSignCallback(...a)
 }));
 
+// Keep the REAL proxy (handleOffscreenSignRequest / midenClientProxy) but replace
+// `markOpStarted` with a spy so the reverse-IPC listener's routing of the
+// OFFSCREEN_OP_STARTED execution-start signal is observable (issue #260 flip-prep #3).
+jest.mock('lib/miden/back/miden-client-proxy', () => {
+  const actual = jest.requireActual('lib/miden/back/miden-client-proxy');
+  return { ...actual, markOpStarted: jest.fn() };
+});
+const proxyMock: any = jest.requireMock('lib/miden/back/miden-client-proxy');
+
+// The #260 offscreen client proxy reads (getAccount/syncState/exportNote/
+// getInputNoteDetails) through the `lib/...` alias of miden-client, which jest
+// mocks separately from the relative specifier below; delegate the alias to the
+// same mock so the proxy's flag-off passthrough hits it.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => (globalThis as any).__mainTest.client,
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
@@ -242,15 +259,16 @@ describe('processRequest', () => {
     expect(res.state).toEqual({ status: 'Ready', accounts: [] });
   });
 
-  it('NewWalletRequest delegates to registerNewWallet', async () => {
+  it('NewWalletRequest delegates to registerNewWallet (forwarding the picked guardianEndpoint)', async () => {
     const res = await dispatch({
       type: WalletMessageType.NewWalletRequest,
       walletType: 'on-chain',
       password: 'pw',
       mnemonic: 'm',
-      ownMnemonic: false
+      ownMnemonic: false,
+      guardianEndpoint: 'https://guardian.example'
     });
-    expect(Actions.registerNewWallet).toHaveBeenCalledWith('on-chain', 'pw', 'm', false);
+    expect(Actions.registerNewWallet).toHaveBeenCalledWith('on-chain', 'pw', 'm', false, 'https://guardian.example');
     expect(res.type).toBe(WalletMessageType.NewWalletResponse);
   });
 
@@ -506,5 +524,112 @@ describe('processRequest', () => {
       assets: [{ amount: '0', faucetId: '' }],
       nullifier: ''
     });
+  });
+});
+
+// Capture the reverse-IPC listener `start()` registers on the global
+// webextension `chrome` mock. `registerOffscreenSignHandler` self-guards, so it
+// wires the listener exactly ONCE (during the first beforeEach's start()). Wrap
+// `addListener` at file scope — before that first start() — and stash listeners
+// in a plain array `jest.clearAllMocks()` won't wipe. `start()` only ever calls
+// `chrome.runtime.onMessage.addListener` from the sign handler (intercom.onRequest
+// is a separate, mocked channel), so index 0 is the sign listener.
+const capturedRuntimeListeners: Array<(m: any, s: any, r: (x?: any) => void) => any> = [];
+beforeAll(() => {
+  const chromeAny = (globalThis as any).chrome;
+  if (chromeAny?.runtime?.onMessage) {
+    chromeAny.runtime.onMessage.addListener = (l: any) => capturedRuntimeListeners.push(l);
+  }
+});
+
+describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 slice 5)', () => {
+  const flushMicro = () => new Promise(resolve => setTimeout(resolve, 0));
+  const signListener = () => capturedRuntimeListeners[0]!;
+
+  it('registers exactly one runtime.onMessage listener that ignores non-sign messages (returns false)', () => {
+    expect(capturedRuntimeListeners.length).toBe(1);
+    const listener = signListener();
+    expect(typeof listener).toBe('function');
+    // Wrong target / wrong type → not ours, let other listeners handle it.
+    expect(listener({ target: 'offscreen', type: 'OFFSCREEN_CALL' }, {}, jest.fn())).toBe(false);
+    expect(listener({ type: 'OFFSCREEN_READY' }, {}, jest.fn())).toBe(false);
+    expect(listener(undefined, {}, jest.fn())).toBe(false);
+  });
+
+  it('answers an OFFSCREEN_SIGN_REQUEST via handleOffscreenSignRequest → swSignCallback (bytes only)', async () => {
+    _g.__mainTest.swSignCallback.mockResolvedValue(new Uint8Array([0xab, 0xcd]));
+    const sendResponse = jest.fn();
+    const ret = signListener()(
+      {
+        target: 'sw',
+        type: 'OFFSCREEN_SIGN_REQUEST',
+        op_id: 'op-x',
+        sign_id: 'sign-x',
+        publicKeyB64: Buffer.from([0x01, 0x02]).toString('base64'),
+        signingInputsB64: Buffer.from([0x03, 0x04]).toString('base64')
+      },
+      {},
+      sendResponse
+    );
+    // Returning true keeps the message port open for the async sendResponse.
+    expect(ret).toBe(true);
+    await flushMicro();
+    // The fallback signer was called with HEX-converted pubkey / signing inputs.
+    expect(_g.__mainTest.swSignCallback).toHaveBeenCalledWith('0102', '0304');
+    // And the signature bytes flowed back base64-encoded.
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ok: true,
+        sign_id: 'sign-x',
+        signatureB64: Buffer.from([0xab, 0xcd]).toString('base64')
+      })
+    );
+  });
+
+  it('routes an OFFSCREEN_OP_STARTED signal to markOpStarted (arms the deadline at execution start) and returns false', () => {
+    const sendResponse = jest.fn();
+    const ret = signListener()(
+      { target: 'sw', type: 'OFFSCREEN_OP_STARTED', op_id: 'op-started-42' },
+      {},
+      sendResponse
+    );
+    // Fire-and-forget: no async response, so the port is NOT held open.
+    expect(ret).toBe(false);
+    expect(sendResponse).not.toHaveBeenCalled();
+    // Routed to markOpStarted with the op id — NOT to the sign handler.
+    expect(proxyMock.markOpStarted).toHaveBeenCalledWith('op-started-42');
+    expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
+  });
+
+  it('ignores an OFFSCREEN_OP_STARTED with a non-string op_id (no markOpStarted, no crash)', () => {
+    const ret = signListener()({ target: 'sw', type: 'OFFSCREEN_OP_STARTED' }, {}, jest.fn());
+    expect(ret).toBe(false);
+    expect(proxyMock.markOpStarted).not.toHaveBeenCalled();
+  });
+
+  it('responds ok:false when the sign handler itself throws (never drops the response)', async () => {
+    // Force an internal fault inside handleOffscreenSignRequest by feeding a
+    // malformed base64 that b64ToBytes/Buffer will still process but the signer
+    // rejects — simplest: make the fallback signer throw a non-classified error.
+    _g.__mainTest.swSignCallback.mockRejectedValueOnce(new Error('keystore exploded'));
+    const sendResponse = jest.fn();
+    signListener()(
+      {
+        target: 'sw',
+        type: 'OFFSCREEN_SIGN_REQUEST',
+        op_id: 'op-y',
+        sign_id: 'sign-y',
+        publicKeyB64: Buffer.from([0x01]).toString('base64'),
+        signingInputsB64: Buffer.from([0x02]).toString('base64')
+      },
+      {},
+      sendResponse
+    );
+    await flushMicro();
+    // A thrown signer is classified (internal) and returned as ok:false — the
+    // offscreen stub then rejects, failing the write rather than hanging.
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.sign_id).toBe('sign-y');
   });
 });

@@ -92,7 +92,9 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
                 className="h-8 w-8 shrink-0 rounded-full bg-grey-300"
                 aria-hidden="true"
               />
-              <span className="font-heading text-2xl font-bold text-black">{recipientName}</span>
+              <span data-testid="send-recipient-name" className="font-heading text-2xl font-bold text-black">
+                {recipientName}
+              </span>
             </div>
           )}
           <textarea

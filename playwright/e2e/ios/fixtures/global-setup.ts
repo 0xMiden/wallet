@@ -4,16 +4,7 @@ import * as path from 'path';
 import { SimulatorControl } from '../helpers/simulator-control';
 
 const ROOT_DIR = path.resolve(__dirname, '../../../..');
-const APP_PATH = path.join(
-  ROOT_DIR,
-  'ios',
-  'App',
-  'build',
-  'Build',
-  'Products',
-  'Debug-iphonesimulator',
-  'App.app'
-);
+const APP_PATH = path.join(ROOT_DIR, 'ios', 'App', 'build', 'Build', 'Products', 'Debug-iphonesimulator', 'App.app');
 
 /**
  * Validate the App.app exists and reserve+boot the simulator pair before any
@@ -22,10 +13,7 @@ const APP_PATH = path.join(
  */
 export default async function globalSetup(): Promise<void> {
   if (!fs.existsSync(APP_PATH)) {
-    throw new Error(
-      `iOS app bundle not found at ${APP_PATH}\n` +
-        `Run \`yarn test:e2e:mobile:build\` first.`
-    );
+    throw new Error(`iOS app bundle not found at ${APP_PATH}\nRun \`yarn test:e2e:mobile:build\` first.`);
   }
 
   const { udidA, udidB } = await SimulatorControl.reservePair();

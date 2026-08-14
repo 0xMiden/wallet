@@ -1,5 +1,12 @@
 import { DEFAULT_NETWORK, MIDEN_FAUCET_API_ENDPOINTS } from './constants';
-import { getFaucetApiUrl, getPowChallenge, mintFromMidenFaucet, requestTokens, solvePowChallenge } from './faucet-api';
+import {
+  faucetFetch,
+  getFaucetApiUrl,
+  getPowChallenge,
+  mintFromMidenFaucet,
+  requestTokens,
+  solvePowChallenge
+} from './faucet-api';
 
 const fetchMock = jest.fn();
 Object.defineProperty(globalThis, 'fetch', {
@@ -10,19 +17,23 @@ Object.defineProperty(globalThis, 'fetch', {
 
 const CHALLENGE_HEX = '00112233445566778899aabbccddeeff';
 
-function jsonResponse(body: unknown): Pick<Response, 'ok' | 'status' | 'json' | 'text'> {
+type MockResponse = Pick<Response, 'ok' | 'status' | 'json' | 'text' | 'headers'>;
+
+function jsonResponse(body: unknown, headers: Record<string, string> = {}): MockResponse {
   return {
     ok: true,
     status: 200,
+    headers: new Headers(headers),
     json: () => Promise.resolve(body),
     text: () => Promise.resolve(JSON.stringify(body))
   };
 }
 
-function errorResponse(status: number, body: string): Pick<Response, 'ok' | 'status' | 'json' | 'text'> {
+function errorResponse(status: number, body: string, headers: Record<string, string> = {}): MockResponse {
   return {
     ok: false,
     status,
+    headers: new Headers(headers),
     json: () => Promise.reject(new Error('not json')),
     text: () => Promise.resolve(body)
   };
@@ -65,20 +76,32 @@ describe('faucet-api', () => {
 
       expect(fetchMock).toHaveBeenCalledWith(
         'https://faucet-api.example/pow?account_id=mtst1testaddress&amount=100000000',
-        {
-          signal: undefined
-        }
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
       expect(result).toEqual({ challenge: CHALLENGE_HEX, target: 1024n });
     });
 
     it('forwards the abort signal to the fetch', async () => {
-      fetchMock.mockResolvedValue(jsonResponse({ challenge: CHALLENGE_HEX, target: 1024 }));
+      // `faucetFetch` swaps in its own timeout controller, so the caller's
+      // signal reaches the fetch by linkage, not identity: aborting the
+      // caller's controller must abort the in-flight request with its reason.
+      fetchMock.mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+          })
+      );
       const controller = new AbortController();
 
-      await getPowChallenge('https://faucet-api.example', 'mtst1testaddress', 100_000_000n, controller.signal);
+      const request = getPowChallenge(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        controller.signal
+      );
+      controller.abort(new Error('Faucet request timed out'));
 
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/pow?'), { signal: controller.signal });
+      await expect(request).rejects.toThrow('Faucet request timed out');
     });
 
     it('rejects with the response text on failure', async () => {
@@ -104,10 +127,72 @@ describe('faucet-api', () => {
       // Target 0: no nonce can ever solve, so only the abort ends the loop.
       const controller = new AbortController();
 
-      const search = solvePowChallenge(CHALLENGE_HEX, 0n, controller.signal);
+      const search = solvePowChallenge(CHALLENGE_HEX, 0n, { signal: controller.signal });
       controller.abort(new Error('Faucet request timed out'));
 
       await expect(search).rejects.toThrow('Faucet request timed out');
+    });
+
+    it('gives up on an UNSOLVABLE challenge (target 0) within the deadline instead of hanging (gap 10)', async () => {
+      // No SHA-256 digest read as a u64 is `< 0`, so `target: 0` (a malformed or
+      // hostile challenge) can never be solved — the old `for (;;)` would spin the
+      // CPU forever. It must now fail cleanly within the bounded deadline.
+      await expect(solvePowChallenge(CHALLENGE_HEX, 0n, { deadlineMs: 50 })).rejects.toThrow(
+        /Faucet PoW challenge unsolved within 50ms/
+      );
+    });
+  });
+
+  describe('faucetFetch (gap 10)', () => {
+    it('honors a 429 Retry-After and retries once, then succeeds', async () => {
+      jest.useFakeTimers();
+      try {
+        fetchMock
+          .mockResolvedValueOnce(errorResponse(429, 'rate limited', { 'retry-after': '1' }))
+          .mockResolvedValueOnce(jsonResponse({ ok: true }));
+
+        const promise = faucetFetch('https://faucet-api.example/pow');
+        // Advance past the 1s Retry-After the server asked for.
+        await jest.advanceTimersByTimeAsync(1100);
+        const res = await promise;
+
+        expect(res.status).toBe(200);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('does not retry a 429 with no Retry-After — returns it for the caller to fail', async () => {
+      fetchMock.mockResolvedValueOnce(errorResponse(429, 'rate limited'));
+
+      const res = await faucetFetch('https://faucet-api.example/pow');
+
+      expect(res.status).toBe(429);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('aborts a request that never answers, bounded by the timeout (no infinite hang)', async () => {
+      jest.useFakeTimers();
+      try {
+        // A faucet that accepts the socket but never responds — respects the abort
+        // signal the way a real fetch does.
+        fetchMock.mockImplementation(
+          (_url: string, init: RequestInit) =>
+            new Promise((_resolve, reject) => {
+              init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+            })
+        );
+
+        const caught = faucetFetch('https://faucet-api.example/pow', undefined, 100).catch((e: unknown) => e);
+        await jest.advanceTimersByTimeAsync(150);
+        const err = await caught;
+
+        expect(err).toBeInstanceOf(Error);
+        expect((err as Error).name).toBe('AbortError');
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 
@@ -130,9 +215,10 @@ describe('faucet-api', () => {
         challenge: CHALLENGE_HEX,
         nonce: '42'
       });
-      expect(fetchMock).toHaveBeenCalledWith(`https://faucet-api.example/get_tokens?${expectedParams}`, {
-        signal: undefined
-      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        `https://faucet-api.example/get_tokens?${expectedParams}`,
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
       expect(result).toEqual({ txId: '0xtx', noteId: '0xnote' });
     });
 
@@ -176,9 +262,10 @@ describe('faucet-api', () => {
       const result = await mintFromMidenFaucet('mtst1testaddress', 100_000_000n);
 
       const baseUrl = getFaucetApiUrl();
-      expect(fetchMock).toHaveBeenCalledWith(`${baseUrl}/pow?account_id=mtst1testaddress&amount=100000000`, {
-        signal: undefined
-      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        `${baseUrl}/pow?account_id=mtst1testaddress&amount=100000000`,
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
       const tokensUrl = new URL(fetchMock.mock.calls[1][0]);
       expect(`${tokensUrl.origin}${tokensUrl.pathname}`).toBe(`${baseUrl}/get_tokens`);
       expect(tokensUrl.searchParams.get('account_id')).toBe('mtst1testaddress');

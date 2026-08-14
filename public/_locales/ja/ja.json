@@ -268,7 +268,6 @@
   "fastTransactionDescription": "トランザクションは自動的にブロードキャストされ、完了します。",
   "fastTransaction": "トランザクション速度",
   "delegateProofSettings": "代理証明の生成",
-  "delegateProofSettingsDescription": "ここで、証明生成のリモート サーバーへの委任を構成できます。これにより証拠の生成が高速化されますが、トランザクションの詳細は信頼できるサーバーに開示されます。",
   "mainAssetBalanceIsZero": "aleo クレジット (主要資産) の残高がゼロです。料金にはAleoクレジットが必要です。",
   "claim": "請求",
   "availableToClaim": "請求可能",

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { getCurrentLocale } from 'lib/i18n/core';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
@@ -48,6 +48,14 @@ jest.mock('lib/miden-chain/constants', () => ({
   MIDEN_NETWORK_NAME: { DEVNET: 'devnet', TESTNET: 'testnet', MAINNET: 'mainnet' }
 }));
 
+// Defaults to hidden; individual tests flip `mockShowDevEndpoints.value` to
+// exercise the row's async, cancellation-safe mount effect.
+const mockShowDevEndpoints = { value: false };
+const mockIsEndpointOverrideActive = jest.fn(() => Promise.resolve(mockShowDevEndpoints.value));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  isEndpointOverrideActive: () => mockIsEndpointOverrideActive()
+}));
+
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (s: typeof mockWalletState) => unknown) => selector(mockWalletState)
 }));
@@ -59,6 +67,14 @@ jest.mock('lib/platform', () => ({
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn(),
   hapticMedium: jest.fn()
+}));
+
+// External-browser helper: window.open a new tab on desktop / native
+// InAppBrowser overlay on mobile. Mocked so the "Send feedback" row can be
+// asserted without touching the real platform bridge.
+const mockOpenExternalUrl = jest.fn();
+jest.mock('lib/mobile/external-browser', () => ({
+  openExternalUrl: (...args: unknown[]) => mockOpenExternalUrl(...args)
 }));
 
 jest.mock('lib/woozie', () => ({
@@ -99,7 +115,11 @@ jest.mock('lib/ui/drawer', () => ({
     </div>
   ),
   DrawerContent: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-content">{children}</div>,
-  DrawerHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DrawerHeader: ({ className, children }: { className?: string; children: React.ReactNode }) => (
+    <div data-testid="drawer-header" data-classname={className}>
+      {children}
+    </div>
+  ),
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-title">{children}</div>
 }));
 
@@ -234,6 +254,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockIsMobile = false;
   mockReduceMotion = false;
+  mockShowDevEndpoints.value = false;
   setAccount({ type: 'on-chain' });
   mockGetCurrentLocale.mockReturnValue('en-US');
   document.body.removeAttribute('data-drawer-open');
@@ -297,6 +318,30 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(tos).toHaveAttribute('data-slug', TERMS_OF_USE_URL);
   });
 
+  it('renders a discoverable "Send feedback" row in the about group as a button (no route, keyboard-accessible)', () => {
+    render(<Settings tabSlug={null} />);
+
+    const feedback = screen.getByTestId('menuitem-sendFeedback');
+    expect(feedback).toBeInTheDocument();
+    expect(feedback).toHaveAttribute('data-selector', 'Settings/SendFeedbackButton');
+    // Not an external anchor and no route slug → the real MenuItem takes the
+    // `onClick && !slug` branch and renders a focusable <button>.
+    expect(feedback).toHaveAttribute('data-external', 'false');
+    expect(feedback).toHaveAttribute('data-slug', 'undefined');
+  });
+
+  it('opens the feedback form via the external browser (native webview on mobile / new tab on desktop) when clicked', () => {
+    render(<Settings tabSlug={null} />);
+
+    fireEvent.click(screen.getByTestId('menuitem-sendFeedback'));
+
+    expect(mockOpenExternalUrl).toHaveBeenCalledTimes(1);
+    expect(mockOpenExternalUrl).toHaveBeenCalledWith({
+      url: 'https://miden-feedback-form.miden-feedback-relay.workers.dev/',
+      title: 'Send feedback'
+    });
+  });
+
   it('shows the resolved language label on the language item (known locale)', () => {
     mockGetCurrentLocale.mockReturnValue('en-US');
     render(<Settings tabSlug={null} />);
@@ -348,6 +393,17 @@ describe('Settings page — guardian account', () => {
 
     expect(screen.getByTestId('guardian-settings-body')).toBeInTheDocument();
   });
+
+  it('titles the Guardian settings drawer as a rotation action', () => {
+    setAccount({ type: 'guardian' });
+    render(<Settings tabSlug={null} />);
+
+    fireEvent.click(screen.getByTestId('menuitem-guardianSettings'));
+
+    const openDrawer = openDrawers()[0]!;
+    expect(within(openDrawer).getByTestId('drawer-title')).toHaveTextContent('rotateGuardian');
+    expect(within(openDrawer).getByTestId('drawer-header')).toHaveAttribute('data-classname', 'mb-0');
+  });
 });
 
 describe('Settings page — drawer interactions', () => {
@@ -361,6 +417,7 @@ describe('Settings page — drawer interactions', () => {
     const open = openDrawers();
     expect(open).toHaveLength(1);
     expect(within(open[0]!).getByTestId('drawer-title')).toHaveTextContent('generalSettings');
+    expect(within(open[0]!).getByTestId('drawer-header')).not.toHaveAttribute('data-classname');
   });
 
   it('closes the drawer via onOpenChange(false)', () => {
@@ -515,6 +572,23 @@ describe('Settings page — active tab routing', () => {
 
     expect(screen.queryByTestId('reveal-secret')).not.toBeInTheDocument();
     expect(screen.getByTestId('menuitem-generalSettings')).toBeInTheDocument();
+  });
+});
+
+describe('Settings page — developer endpoints row', () => {
+  it('stays hidden once the override-active check resolves false (default)', async () => {
+    render(<Settings tabSlug={null} />);
+
+    await waitFor(() => expect(mockIsEndpointOverrideActive).toHaveBeenCalled());
+    expect(screen.queryByTestId('menuitem-devEndpointsRow')).not.toBeInTheDocument();
+  });
+
+  it('appears in the developer group, linked to /settings/network-endpoints, once an override is active', async () => {
+    mockShowDevEndpoints.value = true;
+    render(<Settings tabSlug={null} />);
+
+    const row = await screen.findByTestId('menuitem-devEndpointsRow');
+    expect(row).toHaveAttribute('data-slug', '/settings/network-endpoints');
   });
 });
 

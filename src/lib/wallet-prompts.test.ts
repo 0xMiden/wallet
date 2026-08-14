@@ -20,6 +20,7 @@ import {
   normalizeWalletPromptStorage,
   pollActiveBridgePrompts,
   reportHotKeyHardwareFailure,
+  reportHotKeyRotationNeeded,
   seedWalletPrompt,
   setFaucetFundingMarker,
   setWalletPromptStatus,
@@ -468,5 +469,34 @@ describe('hot-key hardware failure report', () => {
     const storage = await fetchWalletPromptStorage();
     expect(storage.prompts[WalletPromptType.HotKeyHardwareUnavailable]).toBe(WalletPromptStatus.Dismissed);
     expect(await fetchHotKeyHardwareError()).toEqual({ message: 'still broken' });
+  });
+});
+
+describe('hot-key rotation-needed report', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('seeds the rotation prompt', async () => {
+    await reportHotKeyRotationNeeded();
+
+    const storage = await fetchWalletPromptStorage();
+    expect(storage.prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(WalletPromptStatus.Pending);
+  });
+
+  it('does not re-seed after the user dismissed it', async () => {
+    await dismissWalletPrompt(WalletPromptType.HotKeyRotationNeeded);
+    await reportHotKeyRotationNeeded();
+
+    const storage = await fetchWalletPromptStorage();
+    expect(storage.prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(WalletPromptStatus.Dismissed);
+  });
+
+  it('re-arms after a completed rotation (a new unwrap failure is a new incident)', async () => {
+    await completeWalletPrompt(WalletPromptType.HotKeyRotationNeeded);
+    await reportHotKeyRotationNeeded();
+
+    const storage = await fetchWalletPromptStorage();
+    expect(storage.prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(WalletPromptStatus.Pending);
   });
 });

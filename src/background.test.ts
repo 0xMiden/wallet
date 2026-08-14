@@ -315,15 +315,17 @@ describe('background.ts — core service-worker listeners', () => {
     expect(warnSpy).toHaveBeenCalledWith('[Background] Interrupted-transaction sweep error:', err);
   });
 
-  it('opens the receive full page when a notification is clicked', () => {
+  it('opens the pending-notes page when a note notification is clicked', () => {
     const wep = loadBackground({ target: 'firefox' });
 
     fire(wep.notifications.onClicked, 'note-123');
 
     expect(wep.notifications.clear).toHaveBeenCalledWith('note-123');
-    expect(wep.runtime.getURL).toHaveBeenCalledWith('fullpage.html#/receive');
+    // The note-received notification should deep-link to the incoming-notes list
+    // (claim actions), matching the mobile handler, not the generic receive page (#467).
+    expect(wep.runtime.getURL).toHaveBeenCalledWith('fullpage.html#/pending-notes');
     expect(wep.tabs.create).toHaveBeenCalledWith({
-      url: 'chrome-extension://test-id/fullpage.html#/receive'
+      url: 'chrome-extension://test-id/fullpage.html#/pending-notes'
     });
   });
 });
