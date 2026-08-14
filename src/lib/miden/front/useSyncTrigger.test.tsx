@@ -78,6 +78,11 @@ jest.mock('lib/miden/activity/connectivity-classify', () => ({
   classifySyncError: (...args: unknown[]) => mockClassifySyncError(...args)
 }));
 
+const mockRequestNotesRefresh = jest.fn();
+jest.mock('./note-refresh', () => ({
+  requestNotesRefresh: () => mockRequestNotesRefresh()
+}));
+
 const HookHost: React.FC = () => {
   useSyncTrigger();
   return null;
@@ -146,6 +151,16 @@ describe('useSyncTrigger', () => {
     // Flips sync status on and off around the call.
     expect(storeState.setSyncStatus).toHaveBeenCalledWith(true);
     await waitFor(() => expect(storeState.setSyncStatus).toHaveBeenCalledWith(false));
+    unmount();
+  });
+
+  it('mobile/desktop: refreshes claimable notes after a successful sync (#462)', async () => {
+    const { unmount } = render(<HookHost />);
+
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalled());
+    // A completed sync surfaces just-imported notes immediately, without waiting
+    // out the claimable-notes SWR interval.
+    await waitFor(() => expect(mockRequestNotesRefresh).toHaveBeenCalled());
     unmount();
   });
 
