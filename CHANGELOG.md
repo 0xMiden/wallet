@@ -36,6 +36,8 @@
 
 ### Changes
 
+- [CHANGE][ci] **When an Android test run fails, the logs collected afterwards now contain something.** The step that exists to explain a failure read only the tail end of the device log and then filtered it, so on a run where the wallet never started it produced an empty section — no way to tell whether the app had crashed, been killed for memory, or simply never been asked to do anything. It now checks whether the app is running at all, reads the crash log, searches the whole buffer rather than its last few hundred lines, and always prints an unfiltered tail as a fallback.
+
 - [CHANGE][ci] **Android test emulators get enough processors to actually do the work.** An earlier attempt to stop them competing for the machine gave each one half of it, which fixed start-up and then broke everything after it: both emulators came up fine and the first test sat for its entire thirty-minute budget without the wallet completing account creation. They now get the whole machine each — sharing it is fine, starving them is not — and the start-up flakiness is handled by a longer start-up budget instead.
 
 - [CHANGE][ci] **The Android end-to-end run goes back to Linux.** Moving it to the larger Apple-silicon machines the iPhone tests use looked right — it is the kind of machine the Android harness was written for — but those machines are themselves virtualised and do not offer the hardware acceleration an emulator needs, so it died at start-up with "HV_UNSUPPORTED". Linux is the only hosted option that provides it. The contention that made the run flaky in the first place is handled instead by sizing each emulator to the machine it finds, and by a start-up budget that suits a busy CI machine rather than a fast laptop.
