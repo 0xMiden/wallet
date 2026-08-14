@@ -165,14 +165,31 @@ jobs:
       - name: Run Android E2E
         run: yarn test:e2e:android:run
 
+      # This step produced NOTHING on the failure it exists for: `-t 400` reads
+      # only the last 400 lines of the ring buffer, and after a 30-minute hang
+      # those are idle system chatter that the grep then discarded entirely. So
+      # the one run where the wallet never started left no evidence of whether it
+      # had crashed, been killed, or simply never been driven. Read the WHOLE
+      # buffer for the filtered pass, check liveness explicitly, and always print
+      # a raw tail so the step can never come back empty again.
       - name: Collect emulator logs on failure
         if: failure()
         run: |
           adb devices || true
           for serial in emulator-5554 emulator-5556; do
-            echo "=== logcat $serial (wallet + chromium only) ==="
-            adb -s "$serial" logcat -d -t 400 2>/dev/null \
-              | grep -iE "miden|chromium|console|fatal" | tail -120 || true
+            echo "::group::$serial — app process"
+            adb -s "$serial" shell ps -A 2>/dev/null | grep -i miden || echo "  NO MIDEN PROCESS (app not running)"
+            echo "::endgroup::"
+            echo "::group::$serial — crash buffer"
+            adb -s "$serial" logcat -b crash -d -t 200 2>/dev/null || true
+            echo "::endgroup::"
+            echo "::group::$serial — wallet/chromium/OOM lines (whole buffer)"
+            adb -s "$serial" logcat -d 2>/dev/null \
+              | grep -iE "miden|chromium|console|fatal|ANR|lowmemorykiller|Killed" | tail -300 || true
+            echo "::endgroup::"
+            echo "::group::$serial — raw tail (fallback, never filtered)"
+            adb -s "$serial" logcat -d -t 150 2>/dev/null || true
+            echo "::endgroup::"
           done
 
       - name: Upload artifacts
