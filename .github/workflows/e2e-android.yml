@@ -111,6 +111,44 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      # Same shared cache + pre-install every other E2E workflow uses. Without
+      # it the harness compiles miden-client-cli lazily on FIRST USE — i.e.
+      # inside the test — and the ~9 minutes of cargo build ate the 15-minute
+      # per-test budget: `mint-and-balance.android` failed with "Test timeout of
+      # 900000ms exceeded" having spent most of it in `Compiling thiserror`.
+      # Keyed on what actually determines the binaries (rustc pin, the
+      # note-transport ref, the pinned CLI rev), so it hits the entry warmed on
+      # main rather than rebuilding per run.
+      - name: Compute shared cargo cache key
+        id: cargo_cache_key
+        run: |
+          rev=$(node -p "require('./package.json').midenClientCliGit.rev")
+          url=$(node -p "require('./package.json').midenClientCliGit.url")
+          ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
+          pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
+          echo "key=miden-e2e-cargo-v1-rust1.96.1-${{ hashFiles('playwright/e2e/local-stack/versions.env') }}-$pins" >> "$GITHUB_OUTPUT"
+
+      - name: Cache cargo (cli + note-transport)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ${{ runner.temp }}/note-transport/target
+          key: ${{ steps.cargo_cache_key.outputs.key }}
+
+      - name: Pre-install miden-client-cli (off the per-test clock)
+        run: |
+          # Skip when the cargo cache already restored it (else `cargo install`
+          # errors "binary already exists"); the key pins the rev, so a present
+          # binary is guaranteed to be the right one.
+          if ! command -v miden-client >/dev/null 2>&1; then
+            url=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.url)")
+            rev=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.rev)")
+            cargo install miden-client-cli --git "$url" --rev "$rev" --locked
+          fi
+          miden-client --version
+
       - name: Build debug APK
         run: yarn test:e2e:android:build
 

@@ -1580,8 +1580,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "S'il n'est pas réclamé d'ici là, le $amount$ revient automatiquement dans votre portefeuille. Aucun fonds n'est perdu.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "Si vous n'êtes pas réclamé d'ici là, vous pouvez réclamer le $amount$ retournez dans votre portefeuille. Aucun fonds n'est perdu.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"

@@ -1580,8 +1580,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "그 때까지 청구되지 않은 경우, $amount$ 자동으로 지갑으로 돌아갑니다. 자금은 손실되지 않습니다.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "그 때까지 청구하지 않으면 청구할 수 있습니다. $amount$ 다시 지갑으로. 자금은 손실되지 않습니다.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"

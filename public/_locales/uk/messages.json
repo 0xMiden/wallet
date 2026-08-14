@@ -1580,8 +1580,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "Якщо до того часу не буде затребувано, $amount$ автоматично повертається у ваш гаманець. Жодні кошти не втрачаються.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "Якщо ви не затребували до того часу, ви можете вимагати $amount$ назад у ваш гаманець. Жодні кошти не втрачаються.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"

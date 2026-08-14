@@ -241,15 +241,49 @@ export interface SentNoteShape {
  * PUBLIC recallable P2IDE: the allocator can't read a private note ("not found
  * on-chain") and rejects a plain P2ID for having no recall window. This is the
  * on-chain guard for the guardian bridged-send path (#439).
+ *
+ * The hook runs a full `mc.syncState()` in the service worker before it reads,
+ * so this call is UNBOUNDED by default — under load it can sit behind the WASM
+ * lock for as long as a sync takes. Pass `timeoutMs` from any spec whose
+ * `test.setTimeout` budget has to account for it: an unbounded call inside a
+ * long chain burns the whole budget with nothing saying which step hung.
  */
-export async function inspectSentNote(wallet: Wallet, noteId: string): Promise<SentNoteShape> {
-  return (await swOf(wallet).evaluate(
+export async function inspectSentNote(
+  wallet: Wallet,
+  noteId: string,
+  opts: { timeoutMs?: number } = {}
+): Promise<SentNoteShape> {
+  const inspect = swOf(wallet).evaluate(
     (id: string) =>
       (
         globalThis as unknown as { __TEST_INSPECT_SENT_NOTE__: (n: string) => Promise<SentNoteShape> }
       ).__TEST_INSPECT_SENT_NOTE__(id),
     noteId
-  )) as SentNoteShape;
+  ) as Promise<SentNoteShape>;
+
+  if (opts.timeoutMs === undefined) return inspect;
+
+  const timeoutMs = opts.timeoutMs;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      inspect,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `inspectSentNote(${noteId}) did not answer within ${timeoutMs}ms. The hook syncs the service ` +
+                  `worker's WASM client before reading, so this is a stalled/blocked sync, not a missing note.`
+              )
+            ),
+          timeoutMs
+        );
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /**

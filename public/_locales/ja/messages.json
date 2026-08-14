@@ -1580,8 +1580,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "それまでに請求されなかった場合、 $amount$ 自動的にウォレットに戻ります。資金が失われることはありません。",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "それまでに請求されていない場合は、請求することができます $amount$ 財布に戻します。資金が失われることはありません。",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"

@@ -5,6 +5,7 @@ import type { MidenCli } from './miden-cli';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 import type { TestStepRunner } from '../harness/test-step';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
+import type { StepOptions } from '../harness/types';
 
 /**
  * The core money journeys, written once and run against every account type.
@@ -49,6 +50,77 @@ export function guardianAxis(guardianUrl: string): AccountAxis {
     label: 'guardian',
     create: async wallet => wallet.createGuardianWallet(guardianUrl)
   };
+}
+
+/**
+ * Deploy a faucet, mint `mintBaseUnits` to `address`, claim it, and pin the
+ * wallet's SPENDABLE vault to exactly that amount. Returns the faucet id.
+ *
+ * WHY THIS IS A HELPER. Every money spec needs funded wallets, and the prologue
+ * that funds them is not three lines — it is a faucet deploy, a mint, a CLI
+ * sync, a discovery wait for the exact pending total, a claim, and a vault-settle
+ * wait, in that order, where dropping any one of the waits produces a flaky
+ * failure attributed to whatever the spec actually tests. That block was copied
+ * verbatim into `runPrivateSendJourney` and `recall-reclaim.spec.ts`; the #650
+ * class of bug (read-once balances) and the #645 class (discovery races) are
+ * exactly what gets fixed in one copy and missed in the others.
+ *
+ * Step names are unchanged from the copies (`deploy_and_fund`,
+ * `claim_funding_note`) so existing timelines and checkpoint artifacts still
+ * line up.
+ */
+export interface FundAndClaimOptions {
+  address: string;
+  mintBaseUnits: bigint;
+  /** How long the minted note may take to appear in the wallet's pending list. */
+  discoveryMs: number;
+  /** Budget handed to `claimAllNotes`. */
+  claimMs: number;
+  /** How long the spendable-vault projection may take to settle at the full mint. */
+  vaultSettleMs: number;
+  /** Per-step diagnostic state capture, when the caller wants it on the claim step. */
+  captureStateFrom?: StepOptions['captureStateFrom'];
+}
+
+export async function fundAndClaim(
+  wallet: GuardianAwareWalletPage,
+  midenCli: MidenCli,
+  steps: TestStepRunner,
+  opts: FundAndClaimOptions
+): Promise<string> {
+  let faucetId = '';
+
+  await steps.step('deploy_and_fund', async () => {
+    await midenCli.init();
+    faucetId = await midenCli.createFaucet();
+    await midenCli.mint(faucetId, opts.address, Number(opts.mintBaseUnits), 'public');
+    await midenCli.sync();
+  });
+
+  await steps.step(
+    'claim_funding_note',
+    async () => {
+      // Wait for the EXACT pending total before claiming: claiming while only
+      // part of the mint has synced consumes what is there and strands the rest
+      // (#645).
+      await waitForPendingNoteTotal(wallet.page, TOKEN, opts.mintBaseUnits, {
+        timeoutMs: opts.discoveryMs,
+        decimals: TOKEN_DECIMALS
+      });
+      await wallet.claimAllNotes(opts.claimMs);
+      // `claimAllNotes` returns when the PENDING list reads empty twice — it does
+      // not wait for the balances projection to catch up. Every downstream
+      // assertion about a send is relative to this number, so it has to have
+      // settled at the full mint before anything is spent (#650).
+      await waitForVaultBalance(wallet.page, TOKEN, opts.mintBaseUnits, {
+        timeoutMs: opts.vaultSettleMs,
+        decimals: TOKEN_DECIMALS
+      });
+    },
+    opts.captureStateFrom ? { captureStateFrom: opts.captureStateFrom } : {}
+  );
+
+  return faucetId;
 }
 
 interface JourneyContext {
@@ -151,7 +223,6 @@ export async function runPrivateSendJourney(
   const sendBaseUnits = toBaseUnits(opts.sendAmount, TOKEN_DECIMALS);
   let addressA = '';
   let addressB = '';
-  let faucetId = '';
 
   await steps.step(`create_wallets_${axis.label}`, async () => {
     const a = await axis.create(walletA);
@@ -161,25 +232,12 @@ export async function runPrivateSendJourney(
     expect(addressA).not.toBe(addressB);
   });
 
-  await steps.step('deploy_and_fund', async () => {
-    await midenCli.init();
-    faucetId = await midenCli.createFaucet();
-    await midenCli.mint(faucetId, addressA, Number(opts.mintBaseUnits), 'public');
-    await midenCli.sync();
-  });
-
-  await steps.step('claim_funding_note', async () => {
-    await waitForPendingNoteTotal(walletA.page, TOKEN, opts.mintBaseUnits, {
-      timeoutMs: 180_000,
-      decimals: TOKEN_DECIMALS
-    });
-    await walletA.claimAllNotes(180_000);
-    // The send below can only be asserted exactly once A's SPENDABLE vault has
-    // settled at the full claimed amount.
-    await waitForVaultBalance(walletA.page, TOKEN, opts.mintBaseUnits, {
-      timeoutMs: 180_000,
-      decimals: TOKEN_DECIMALS
-    });
+  await fundAndClaim(walletA, midenCli, steps, {
+    address: addressA,
+    mintBaseUnits: opts.mintBaseUnits,
+    discoveryMs: 180_000,
+    claimMs: 180_000,
+    vaultSettleMs: 180_000
   });
 
   await steps.step(

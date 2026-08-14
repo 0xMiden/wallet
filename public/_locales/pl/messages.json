@@ -1563,8 +1563,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "Jeśli do tego czasu nie zostanie odebrane, $amount$ automatycznie wraca do Twojego portfela. Żadne środki nie zostaną utracone.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "Jeśli do tego czasu nie zostanie odebrany, możesz ubiegać się o $amount$ z powrotem do portfela. Żadne środki nie zostaną utracone.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
