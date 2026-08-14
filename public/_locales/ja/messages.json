@@ -439,6 +439,10 @@
     "message": "ポジション",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "ポジションを読み込めませんでした。接続を確認して、もう一度試してください。",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",

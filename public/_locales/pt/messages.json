@@ -439,6 +439,10 @@
     "message": "Posições",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "Não foi possível carregar suas posições. Verifique sua conexão e tente novamente.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$APY",
     "englishSource": "$apy$ APY",

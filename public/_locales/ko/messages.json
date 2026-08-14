@@ -439,6 +439,10 @@
     "message": "직위",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "위치를 로드할 수 없습니다. 연결을 확인하고 다시 시도하세요.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",

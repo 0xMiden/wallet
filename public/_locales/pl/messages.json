@@ -439,6 +439,10 @@
     "message": "Pozycje",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "Nie udało się wczytać Twoich pozycji. Sprawdź połączenie i spróbuj ponownie.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ RRSO",
     "englishSource": "$apy$ APY",
