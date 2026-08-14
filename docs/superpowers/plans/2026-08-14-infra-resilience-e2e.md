@@ -329,14 +329,20 @@ Since the e2e/guardian work, the remaining CLEAN-LOGIC gaps were fixed at the pr
 
 Full jest suite green (535 suites / 7469 tests) after these.
 
-**Still open — genuinely UX/design-coupled (need the UX owner; each touches a shared/core surface e2e can't reach):**
-- **Gap 3** (private-send delivery-state chip) — new "delivery pending vs Sent" state on send rows.
-- **Gap 5** (app-wide connectivity + "last synced Xs ago") — the connectivity banner exists but renders only on Explore; making it app-wide is a layout decision, and the staleness cue is a new UI element.
-- **Gap 6** (background tx-failure notification) — needs the notification-style decision (toast / OS notification / badge), symmetric with the received-note notification.
-- **Gap 16** (prices "unavailable" cue) — the shared `Balance` render-prop total can't distinguish a price-feed outage (mapped tokens fall to the $1 default) from unmapped-token defaults without a store flag + a display treatment that the UX owner should choose.
-- **Gap 17** (storage false-freshness) — the code deliberately fires `SyncCompleted` on a persist failure (gating it would just hang the spinner); showing "synced but not saved" distinctly is a spinner-semantics/UX decision.
+### Update — UX-coupled bucket attempted; the clean-path ones landed
 
-These are good follow-up PRs; each should pair with the UX owner on the banner/notification/chip/stale-badge design.
+Of the five UX-coupled gaps, the three with a clean, self-contained, low-risk, tested path were implemented:
+
+- **Gap 6** (background tx-failure notification) — DONE. Extracted the received-note notifier to `back/background-notification.ts`; `cancelTransaction` fires it on a genuine failure (never on a user cancel / startup interrupt, never when a popup is open). Extension-only, matching the received-note path. + tests.
+- **Gap 16** (prices "unavailable" cue) — DONE, self-contained in `Explore.tsx`: the portfolio USD shows "$—" until real prices load (stale-but-real counts), instead of the fabricated all-$1 total. + test. UX-review: a dash is the conservative choice.
+- **Gap 4** (positions error, above) also lands in this bucket.
+
+**Still open — verified to require cross-cutting layout/model/protocol changes on shared surfaces (real regression risk, no clean insertion; pair with the UX owner):**
+- **Gap 3** (private-send delivery-state chip) — needs a new delivery-state field on the transaction model AND a chip rendered on the transaction rows across the history views. New feature + model change.
+- **Gap 5** (app-wide connectivity + "last synced Xs ago") — the banner is IN-FLOW and there is NO shared money-screen layout (only 3 pages use `PageLayout`; Explore/Send/Swap each render bespoke), so "app-wide" means editing each screen's layout individually, plus the staleness cue is a brand-new element. Layout decision per screen.
+- **Gap 17** (storage false-freshness) — `SyncCompleted` is deliberately fired on a persist failure (gating it just hangs the spinner); a distinct "synced but not saved" state needs a message-protocol flag AND a frontend consumer AND (to be visible broadly) the app-wide banner from gap 5. Interconnected + spinner-semantics UX decision.
+
+These are good follow-up PRs; each should pair with the UX owner on the chip / banner-placement / stale-badge design.
 
 ## Self-Review
 
