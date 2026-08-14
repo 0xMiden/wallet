@@ -239,6 +239,16 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   });
 };
 
+/**
+ * Attempts for the post-rotation guardian re-register, covering the WHOLE block
+ * (provider read -> sync -> local account -> cold service -> push), not just the
+ * final push which retries internally. A miss here leaves the freshly-rotated
+ * hot key unauthorized, so every later guardian request 401s.
+ */
+const POST_ROTATION_REREGISTER_ATTEMPTS = 3;
+/** Linear backoff base between those attempts. */
+const POST_ROTATION_REREGISTER_BACKOFF_MS = 1_000;
+
 export const completeReplaceHotKeyTransaction = async (
   tx: ReplaceHotKeyTransaction,
   result: TransactionResult | undefined,
@@ -272,31 +282,61 @@ export const completeReplaceHotKeyTransaction = async (
     // MAX_GUARDIAN_REGISTER_RETRIES times, honouring Retry-After); a miss is
     // recorded as `reRegisterFailed` for observability and healed by the
     // guardian-sync 401 self-heal.
+    // Retried as a WHOLE, not just at its last call. `registerOnGuardianWithRetry`
+    // only covers the final push; everything that feeds it — reading the provider
+    // accounts, the `syncState`, the local `getAccount`, building the cold service
+    // — runs exactly once, and any of them throwing lands in the catch below with
+    // the allowlist never written. That is not a theoretical gap: a guardian
+    // recovery run rotated the key, missed the re-register, and then 401'd
+    // ("session has expired") on every consume that followed, because nothing
+    // re-attempts a miss on this path. The frontend self-heal does eventually
+    // repair it, but only after SELF_HEAL_AUTH_FAILURE_THRESHOLD consecutive
+    // 401s on SYNC ticks plus a 60s cooldown — so a wallet that rotates and
+    // immediately transacts stays broken for the whole of that window.
     let reRegisterFailed = false;
-    try {
-      const accounts = await guardianProvider.getAccounts();
-      const walletAccount = accounts.find(a => sameWalletAccountId(a.publicKey, tx.accountId));
-      if (!walletAccount) {
-        throw new Error(`Guardian account ${tx.accountId} not found in provider`);
+    let reRegisterError: unknown;
+    for (let attempt = 1; attempt <= POST_ROTATION_REREGISTER_ATTEMPTS; attempt++) {
+      try {
+        const accounts = await guardianProvider.getAccounts();
+        const walletAccount = accounts.find(a => sameWalletAccountId(a.publicKey, tx.accountId));
+        if (!walletAccount) {
+          throw new Error(`Guardian account ${tx.accountId} not found in provider`);
+        }
+        const sdkAccount = await withWasmClientLock(async () => {
+          await midenClientProxy.syncState();
+          return midenClientProxy.getAccount(tx.accountId);
+        });
+        if (!sdkAccount) {
+          throw new Error(`Guardian account ${tx.accountId} not found in local client`);
+        }
+        const coldService = await MultisigService.buildColdMultisigService(
+          sdkAccount,
+          walletAccount,
+          guardianProvider.signWord
+        );
+        await coldService.reRegisterCurrentStateOnGuardian();
+        reRegisterError = undefined;
+        break;
+      } catch (e) {
+        reRegisterError = e;
+        if (attempt < POST_ROTATION_REREGISTER_ATTEMPTS) {
+          console.warn(
+            `Post-rotation guardian re-register attempt ${attempt}/${POST_ROTATION_REREGISTER_ATTEMPTS} failed; retrying:`,
+            e
+          );
+          // Linear backoff. The common failures here are a not-yet-canonicalized
+          // account read and a guardian still settling the rotation, both of
+          // which clear in seconds — so waiting is what makes the retry useful.
+          await new Promise(resolve => setTimeout(resolve, POST_ROTATION_REREGISTER_BACKOFF_MS * attempt));
+        }
       }
-      const sdkAccount = await withWasmClientLock(async () => {
-        await midenClientProxy.syncState();
-        return midenClientProxy.getAccount(tx.accountId);
-      });
-      if (!sdkAccount) {
-        throw new Error(`Guardian account ${tx.accountId} not found in local client`);
-      }
-      const coldService = await MultisigService.buildColdMultisigService(
-        sdkAccount,
-        walletAccount,
-        guardianProvider.signWord
-      );
-      await coldService.reRegisterCurrentStateOnGuardian();
-    } catch (e) {
+    }
+    if (reRegisterError) {
       reRegisterFailed = true;
       console.error(
-        'Failed to re-register post-rotation signer set on guardian — the new hot key stays unauthorized (401) until a re-register lands:',
-        e
+        `Failed to re-register post-rotation signer set on guardian after ${POST_ROTATION_REREGISTER_ATTEMPTS} attempts — ` +
+          'the new hot key stays unauthorized (401) until a re-register lands:',
+        reRegisterError
       );
     }
 

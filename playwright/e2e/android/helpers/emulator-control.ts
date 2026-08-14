@@ -248,6 +248,27 @@ export class EmulatorControl {
 
 // ── Internals ───────────────────────────────────────────────────────────────
 
+/**
+ * Is this AVD actually usable, as opposed to merely NAMED?
+ *
+ * `emulator -list-avds` reports an AVD if its `<name>.ini` exists — it never
+ * looks inside. So an interrupted clone that wrote the `.ini` but not the
+ * `.avd/` directory is listed forever, and the emulator then boots a phantom:
+ * it cannot read `config.ini`, so it cannot resolve the ABI, and it dies with
+ *
+ *     FATAL | CPU Architecture 'arm' is not supported by the QEMU2 emulator
+ *
+ * which says nothing about the actual problem. Worse, the old name-only check
+ * treated the phantom as present and skipped the re-clone, so the state was
+ * self-perpetuating: every later run failed the same way. Check the two files
+ * that actually have to be there.
+ */
+function avdIsUsable(avdHome: string, avd: string): boolean {
+  return (
+    fs.existsSync(path.join(avdHome, `${avd}.ini`)) && fs.existsSync(path.join(avdHome, `${avd}.avd`, 'config.ini'))
+  );
+}
+
 async function ensureAvdsExist(): Promise<void> {
   const { stdout } = await execFileAsync(getEmulatorBin(), ['-list-avds']);
   const present = new Set(
@@ -257,8 +278,17 @@ async function ensureAvdsExist(): Promise<void> {
       .filter(Boolean)
   );
 
+  const avdHome = process.env.ANDROID_AVD_HOME ?? path.join(process.env.HOME ?? '', '.android', 'avd');
+
   for (const avd of [DEVICE_PAIR_AVD_A, DEVICE_PAIR_AVD_B]) {
-    if (present.has(avd)) continue;
+    if (avdIsUsable(avdHome, avd)) continue;
+    // Listed but not usable = a half-written clone. Clear both sides before
+    // re-cloning, or the stale `.ini` keeps the phantom alive.
+    if (present.has(avd)) {
+      console.log(`[emulator] AVD "${avd}" is listed but incomplete (no config.ini) — re-cloning from ${BASE_AVD}`);
+      fs.rmSync(path.join(avdHome, `${avd}.ini`), { force: true });
+      fs.rmSync(path.join(avdHome, `${avd}.avd`), { recursive: true, force: true });
+    }
     if (!present.has(BASE_AVD)) {
       throw new Error(
         `Base AVD "${BASE_AVD}" not found and harness AVD "${avd}" is missing. ` +
@@ -267,7 +297,6 @@ async function ensureAvdsExist(): Promise<void> {
     }
     // avdmanager move/copy/create AVD doesn't have a clean clone, but
     // copying the directory works on all current AGP versions.
-    const avdHome = process.env.ANDROID_AVD_HOME ?? path.join(process.env.HOME ?? '', '.android', 'avd');
     const srcDir = path.join(avdHome, `${BASE_AVD}.avd`);
     const srcIni = path.join(avdHome, `${BASE_AVD}.ini`);
     const dstDir = path.join(avdHome, `${avd}.avd`);
@@ -288,6 +317,17 @@ async function ensureAvdsExist(): Promise<void> {
     }
     const iniText = fs.readFileSync(dstIni, 'utf8').replace(new RegExp(`${BASE_AVD}\\.avd`, 'g'), `${avd}.avd`);
     fs.writeFileSync(dstIni, iniText);
+
+    // Prove the clone is usable before returning. Leaving a half-written AVD
+    // behind is what produced the phantom described on `avdIsUsable`, and the
+    // failure only surfaced two minutes later as an unrelated-looking boot
+    // timeout.
+    if (!avdIsUsable(avdHome, avd)) {
+      throw new Error(
+        `Cloned AVD "${avd}" is incomplete: expected ${path.join(avdHome, `${avd}.avd`, 'config.ini')} to exist. ` +
+          `Delete ${path.join(avdHome, `${avd}.ini`)} and the matching .avd directory, then re-run.`
+      );
+    }
   }
 }
 

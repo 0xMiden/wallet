@@ -5,7 +5,7 @@
   "engines": {
     "node": ">=22.0.0"
   },
-  "midenClientCliVersion": "0.14.8",
+  "midenClientCliVersion": "0.15.0",
   "midenClientCliGit": {
     "url": "https://github.com/0xMiden/miden-client",
     "rev": "733720a7ce5886a390c848402b61079be1e6aa38"

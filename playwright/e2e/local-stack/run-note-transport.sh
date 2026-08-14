@@ -10,6 +10,14 @@ if [ ! -x "$work/target/release/miden-note-transport-node-bin" ]; then
   rm -rf "$work"; git clone --depth 1 --branch "$NOTE_TRANSPORT_REF" "$NOTE_TRANSPORT_REPO" "$work"
   ( cd "$work" && cargo build --release --locked --bin miden-note-transport-node-bin )
 fi
+# Build-only mode, used by the cache-warming workflow on main: it needs the
+# compiled artifact in the cache, not a running service (there is no node for it
+# to talk to there). Keeping this in the same script means the warm build and the
+# PR build can never drift to different refs or flags.
+if [ "${NOTE_TRANSPORT_BUILD_ONLY:-}" = "1" ]; then
+  echo "note-transport built (build-only mode); not starting"
+  exit 0
+fi
 "$work/target/release/miden-note-transport-node-bin" &
 echo $! > "${RUNNER_TEMP:-/tmp}/note-transport.pid"
 # Wait for the port (defaults 127.0.0.1:57292, :memory: sqlite — no flags)

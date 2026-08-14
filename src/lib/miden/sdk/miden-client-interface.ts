@@ -41,6 +41,7 @@ import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumabl
 import { getBech32AddressFromAccountId } from './helpers';
 import { yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
+import { recordProveTelemetry } from './prove-telemetry';
 import { ConsumeTransaction, SendTransaction, SwapTransaction } from '../db/types';
 // Guardian helpers are dynamic-imported inside the methods that use them to avoid
 // a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
@@ -1006,12 +1007,16 @@ export async function proveWithFallback<T>(
     return TransactionProver.newLocalProver();
   };
 
+  const startedAt = performance.now();
   try {
-    const t0 = performance.now();
     const result = !shouldDelegate ? await fn(localProverFactory()) : await fn();
     const pathLabel = shouldDelegate ? 'delegate' : isMobile() ? 'native-mobile' : 'local';
-    const durationMs = (performance.now() - t0).toFixed(1);
-    recordProveTiming(`path=${pathLabel} duration_ms=${durationMs} platform=${isMobile() ? 'mobile' : 'desktop'}`);
+    const durationMs = performance.now() - startedAt;
+    recordProveTiming(
+      `path=${pathLabel} duration_ms=${durationMs.toFixed(1)} platform=${isMobile() ? 'mobile' : 'desktop'}`
+    );
+    // #466: always-on structured timing so an occasional 20s+ prove is visible.
+    recordProveTelemetry({ path: pathLabel, durationMs, fellBack: false });
     // A successful prover call (whether local or remote) means the prover
     // pathway the wallet actually uses is healthy. If we'd previously
     // marked the prover as down, clear it now — the old design never
@@ -1020,6 +1025,7 @@ export async function proveWithFallback<T>(
     return result;
   } catch (err) {
     if (shouldDelegate) {
+      const remoteDurationMs = performance.now() - startedAt;
       // The remote prover path failed. Whether or not we can fall back
       // locally, the user-facing surface should know remote proving is
       // unavailable. Only categorize transport-shaped errors so we
@@ -1031,14 +1037,35 @@ export async function proveWithFallback<T>(
       // Fall back to the local path. On mobile this is the native
       // Rust prover; on desktop / extension it's the WASM local prover.
       recordProveTiming('delegate failed, retrying with local prover');
-      const t0 = performance.now();
-      const result = await fn(localProverFactory());
-      recordProveTiming(
-        `path=${isMobile() ? 'native-mobile-fallback' : 'local-fallback'} duration_ms=${(
-          performance.now() - t0
-        ).toFixed(1)}`
-      );
-      return result;
+      const fallbackStartedAt = performance.now();
+      const fallbackPath = isMobile() ? 'native-mobile' : 'local';
+      try {
+        const result = await fn(localProverFactory());
+        recordProveTiming(
+          `path=${fallbackPath}-fallback duration_ms=${(performance.now() - fallbackStartedAt).toFixed(1)}`
+        );
+        // #466: the user waited for the stalled remote attempt AND the local
+        // re-prove — record the total wall time + the remote portion, since this
+        // remote→local doubling is the prime 20s+ suspect.
+        recordProveTelemetry({
+          path: fallbackPath,
+          durationMs: performance.now() - startedAt,
+          fellBack: true,
+          remoteDurationMs
+        });
+        return result;
+      } catch (fallbackErr) {
+        // Both remote and local proving failed — a 20s+ that ends in failure is
+        // exactly the worst #466 case, so record it before the error propagates.
+        recordProveTelemetry({
+          path: fallbackPath,
+          durationMs: performance.now() - startedAt,
+          fellBack: true,
+          remoteDurationMs,
+          failed: true
+        });
+        throw fallbackErr;
+      }
     }
     throw err;
   }

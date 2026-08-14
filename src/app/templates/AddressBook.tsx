@@ -43,7 +43,7 @@ const AddressBook: React.FC = () => {
   }, [allContacts, searchQuery]);
 
   return (
-    <div className="w-full mx-auto">
+    <div className="w-full mx-auto" data-testid="address-book">
       <AddNewContactForm />
 
       <hr className="border-border-light my-8" />
@@ -72,6 +72,7 @@ const AddressBook: React.FC = () => {
           filteredContacts.map(contact => (
             <CardItem
               key={contact.address}
+              data-testid={`address-book-contact-${contact.address}`}
               title={contact.name}
               subtitle={`${contact.accountInWallet ? (contact.isPublic ? t('public') : t('private')) : t('external')} · ${truncateAddress(contact.address, true, 12)}`}
               iconLeft={<Avatar image="/misc/avatars/miden-orange.png" size="lg" />}
@@ -143,6 +144,7 @@ const AddNewContactForm: React.FC<{ className?: string }> = ({ className }) => {
           })}
           id="name"
           name="name"
+          data-testid="address-book-name-input"
           placeholder={t('enterUsername')}
           errorCaption={errors.name?.message}
           containerClassName="bg-gray-25 border-gray-100 border rounded-10"
@@ -157,6 +159,7 @@ const AddNewContactForm: React.FC<{ className?: string }> = ({ className }) => {
           })}
           id="address"
           name="address"
+          data-testid="address-book-address-input"
           placeholder={t('enterAddress')}
           errorCaption={errors.address?.message}
           className="bg-gray-25 h-14 active:border-none focus:border-none placeholder:text-text-muted rounded-10"
@@ -169,6 +172,10 @@ const AddNewContactForm: React.FC<{ className?: string }> = ({ className }) => {
         loading={isSubmitting}
         disabled={isFormEmpty}
         testID="AddressBook/AddNewContact"
+        // `testID` above is analytics-only — FormSubmitButton destructures it out and
+        // never renders it. The raw lowercase prop is the one that reaches the DOM
+        // (via ...rest -> Button), same as ConfirmationModal's buttons.
+        data-testid="address-book-add-contact"
       >
         {t('addContact')}
       </FormSubmitButton>

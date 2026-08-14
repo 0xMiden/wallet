@@ -21,6 +21,18 @@ export default defineConfig({
   // playwright.earn.config.ts on the dedicated earn job, not here.
   testIgnore: ['**/guardian-*.spec.ts', '**/swap/**', '**/bridge/**', '**/earn/**', '**/resilience/**'],
   timeout: 300_000, // 5 min per test (blockchain ops are slow)
+  use: {
+    // Playwright defaults BOTH of these to 0 = unbounded. An action whose
+    // actionability check never settles (a button under a modal still animating
+    // in, say) then hangs for the whole per-test budget and fails with
+    // "Target page, context or browser has been closed" — which names neither
+    // the step nor the element, and looks like a crash rather than a stuck
+    // click. That is what `contacts-send` did on main: 10 minutes, no
+    // diagnostic. Bounded here so the failing ACTION reports itself; specs that
+    // legitimately need longer pass an explicit per-call timeout, which wins.
+    actionTimeout: 30_000,
+    navigationTimeout: 90_000
+  },
   expect: {
     timeout: 60_000
   },
