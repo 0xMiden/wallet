@@ -96,7 +96,15 @@ test.describe('infra resilience — node outage during the money path', () => {
         // node is unreachable — discovery has no local shortcut. Drive several
         // forced syncs (each attempts a node round-trip that is injected-failed)
         // and prove nothing new appears. This would fail if the fault no-op'd.
+        //
+        // Re-arm before EACH sync: the fault config lives on the service worker's
+        // globalThis, and MV3 can suspend/restart the SW mid-test (likely under
+        // full-suite prover load) — a restarted SW loses `__E2E_NET_FAULTS`, so a
+        // post-restart sync would slip through and discover note #2, making this
+        // assertion flaky. Re-arming immediately before each sync re-applies the
+        // fault to the live (possibly-restarted) SW, closing that race.
         for (let i = 0; i < 4; i++) {
+          await walletA.armNetworkFault({ target: 'node', mode: 'connectionRefused' });
           await walletA.triggerSync(true);
         }
         const pendingUnderOutage = await pendingNoteTotal(walletA.page, TOKEN);

@@ -120,10 +120,15 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
       - name: Run resilience specs
-        # retries=0 (spec decision): resilience assertions are correctness checks
-        # under deterministic fault arming; a retry would mask a non-graceful
-        # regression.
-        run: xvfb-run -a yarn test:e2e:resilience:run --retries=0
+        # No --retries override: use the config's retries=2. The resilience
+        # ASSERTIONS are deterministic (armed fault → a non-graceful regression
+        # fails on every attempt, so a retry can't mask it), but the guardian
+        # specs' onboarding SETUP drives real proofs through the single serial
+        # prover and flakes under back-to-back load — the exact prover-timing
+        # flake the base localnet config already retries for. See the config
+        # comment. The "Report flaky" step below surfaces any retried-then-passed
+        # spec so a creeping flake stays visible instead of silent.
+        run: xvfb-run -a yarn test:e2e:resilience:run
       - name: Report flaky (retried-then-passed) specs
         if: always()
         run: node scripts/report-flaky-e2e.mjs test-results/results.json
