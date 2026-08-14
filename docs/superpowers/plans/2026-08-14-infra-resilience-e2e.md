@@ -318,7 +318,25 @@ Delivered, each verified live against the localnet stack and made **falsifiable*
 
 **PIVOTAL FINDING — the fetch seam faults only the node READ path.** Verified the hard way (external ground truth, not just green tests): the delegated **prover**, the transaction **submit**, and **note-transport delivery** all use a non-`fetch` gRPC-web transport the evaluate-installed wrapper cannot retrofit — a prover fault leaves the container still proving, a consume submitted under a node fault still lands on-chain, and a private note is still delivered under a recipient transport fault (zero requests seen at the fetch layer). Only node SyncState/GetAccount/GetBlockHeader reads go through the wrapped `fetch` and genuinely fault (they log `INJECTED:<mode>`). Two false-green specs (prover-fallback, transport-delivery) were written, caught, and deleted. Consequence: the original design's assumption that node/prover/transport are all fetch-faultable holds **only for node reads**; prover / submit / transport-delivery / total-node-partition scenarios need **infra-level faulting** (`docker pause <svc>` / disconnect the container network), which is the natural next harness increment. Guardian (context.route) and node-read (fetch) are the two working seams today. See the FIDELITY BOUNDARY block in `harness/fetch-faults.ts`.
 
-These are good follow-up PRs; several (3–6, 16) should pair with the UX owner on the banner/notification/stale-badge design.
+### Update — remaining gap FIXES landed (product changes + jest, not e2e)
+
+Since the e2e/guardian work, the remaining CLEAN-LOGIC gaps were fixed at the product layer with jest coverage (the fetch/guardian seams can't reach these, so they're unit-tested, not e2e):
+
+- **Gap 10** (faucet) — per-source retry so Retry re-mints only the FAILED source (no double-mint), fetch timeout, honor `Retry-After`, and a wall-clock deadline on the PoW solve (a `target=0` challenge can't spin forever). `faucet-api.ts` + `wallet-prompts.ts` + tests.
+- **Gap 8** (AggLayer poll) — both bridge-status requests bounded by an AbortController timeout so a silent indexer fails the poll tick and retries instead of a wedged "Claim Pending". (The larger stalled-delivery reconcile is still deferred.) `agglayer/status.ts` + test.
+- **Gap 14** (sync backoff) — the circuit breaker now backs off EXPONENTIALLY with jitter (capped 5 min) instead of a fixed 30s, extracted as the pure, unit-tested `computeSyncBackoffMs`. (True SDK-sync cancellation is still deferred — the SDK sync isn't cheaply abortable, as the code notes.) `sync-manager.ts` + test.
+- **Gap 4** (positions) — a failed positions load now shows a retryable "couldn't load your positions" state instead of a misleading empty "$0 / no positions", while keeping last-good data on a transient error. `useEarnPositions.ts` + `EarnPositions.tsx` + i18n + tests.
+
+Full jest suite green (535 suites / 7469 tests) after these.
+
+**Still open — genuinely UX/design-coupled (need the UX owner; each touches a shared/core surface e2e can't reach):**
+- **Gap 3** (private-send delivery-state chip) — new "delivery pending vs Sent" state on send rows.
+- **Gap 5** (app-wide connectivity + "last synced Xs ago") — the connectivity banner exists but renders only on Explore; making it app-wide is a layout decision, and the staleness cue is a new UI element.
+- **Gap 6** (background tx-failure notification) — needs the notification-style decision (toast / OS notification / badge), symmetric with the received-note notification.
+- **Gap 16** (prices "unavailable" cue) — the shared `Balance` render-prop total can't distinguish a price-feed outage (mapped tokens fall to the $1 default) from unmapped-token defaults without a store flag + a display treatment that the UX owner should choose.
+- **Gap 17** (storage false-freshness) — the code deliberately fires `SyncCompleted` on a persist failure (gating it would just hang the spinner); showing "synced but not saved" distinctly is a spinner-semantics/UX decision.
+
+These are good follow-up PRs; each should pair with the UX owner on the banner/notification/chip/stale-badge design.
 
 ## Self-Review
 
