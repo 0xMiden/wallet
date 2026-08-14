@@ -178,6 +178,25 @@ already handled" double-`continue()` conflict of two `**/*` handlers.
 
 ### Task 1.2 — Gap 2: idempotent Retry / node-verified completion for send/swap (scenarios 3 & 4)
 
+**DECISION (revisited with the user): FULL PROJECT.** The double-send risk lives in
+the offscreen-kill (`OperationAbortedError`) path where the submit landed but the
+row was marked Failed — and that's where no anchor is captured. A naive nonce
+check has a "silently never sends" false-Completed trap, so the full fix is:
+(a) **anchor capture** — persist `transactionId` + `outputNoteIds` from the
+execute `TransactionResult` to the row *before* the kill-prone submit/apply, so
+every Failed send has a verifiable identity; (b) **`verifySendLanded(tx)`** —
+sync, then match the row's `transactionId` against `getTransactionsForAccount`
+and treat `TransactionStatus.getBlockNum() !== undefined` (committed) as landed;
+fall back to checking the captured `outputNoteIds` on-chain; (c) **sync-side
+reconciliation** — flip a landed-but-Failed send to Completed; (d) **requeue** —
+`requeueFailedTransaction` calls `verifySendLanded` first (landed → Completed, no
+resend; not-landed → resubmit; unknown → funds-safe, no blind resubmit).
+**Verification note:** whether the SDK's local tx list materializes a
+killed-but-landed tx after sync is SDK behavior that must be confirmed against the
+running localnet stack — this fix's e2e (scenario 3) is the authority; unit tests
+cover the branch logic with a mocked client.
+
+
 **Files:** `playwright/e2e/tests/resilience/send-submit-lost.spec.ts`, `send-retry-idempotent.spec.ts`, `apply-after-submit-confirmed.spec.ts`; Modify `src/lib/miden/transaction/retry.ts`, `.../cancel.ts` (add a send/swap analogue of `verifyConsumeLanded`), `.../transaction/index.ts:1361-1454` (`ApplyTransactionAfterSubmitFailed` path).
 
 - **Fault:** submit lands then result is lost — `{target:'node', path:'submit', mode:'hang'|'abort'}` armed to fire AFTER the CLI-counterparty confirms the tx on-chain; plus the harness hook for `ApplyTransactionAfterSubmitFailed` (Task 0.1 `malformedBody` on the apply read, or the `playwright/`-level hook if unreachable).
