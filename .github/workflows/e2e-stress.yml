@@ -113,6 +113,16 @@ jobs:
           echo "node RPC (57291) / prover (50052) not ready in time" >&2
           docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color | tail -120
           exit 1
+      # Every other localnet workflow starts this; only this one didn't, and
+      # without it a wallet cannot even be CREATED. `Vault.createWallet` syncs
+      # before it returns, the sync hits note-transport on :57292, and the first
+      # real run died there:
+      #   failed to sync state: note transport error: Fetch notes failed: TypeError: Failed to fetch
+      #   [Actions.registerNewWallet] FAILED: PublicError: Failed to create wallet
+      # so `create_wallets` timed out with accountCount: 0 on both wallets,
+      # before a single stress iteration.
+      - name: Start note-transport
+        run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Build extension
         run: yarn test:e2e:blockchain:build
       - run: npx playwright install --with-deps chromium
