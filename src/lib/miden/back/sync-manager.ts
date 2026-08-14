@@ -13,6 +13,7 @@ import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessage
 
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
+import { showBackgroundNotification } from './background-notification';
 import { getIntercom } from './defaults';
 import { midenClientProxy } from './miden-client-proxy';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
@@ -49,7 +50,24 @@ const SYNC_TIMEOUT_MS = 30_000;
 // successful sync resets the counter. Protects both the wasm client and the
 // RPC backend from being hammered when the network (or the node) is flapping.
 const MAX_CONSECUTIVE_SYNC_FAILURES = 3;
-const BACKOFF_MS = 30_000;
+
+// Circuit-breaker backoff: EXPONENTIAL with jitter (gap 14). Each consecutive
+// trip roughly doubles the wait (capped at BACKOFF_MAX_MS) so a sustained outage
+// is probed ever less aggressively instead of hammered every 30s; the jitter
+// de-syncs many wallets from all probing in lockstep. A successful sync resets
+// the trip count back to the base interval.
+const BACKOFF_BASE_MS = 30_000;
+const BACKOFF_MAX_MS = 5 * 60_000;
+
+/**
+ * Backoff (ms) for the Nth consecutive breaker trip (1-based): base for the
+ * first trip, doubling each subsequent trip up to the cap, plus 0–20% jitter.
+ * Pure + injectable RNG so it's unit-testable.
+ */
+export function computeSyncBackoffMs(tripCount: number, rand: () => number = Math.random): number {
+  const exp = Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, tripCount - 1), BACKOFF_MAX_MS);
+  return Math.round(exp + exp * 0.2 * rand());
+}
 
 // Concurrent doSync() callers join the in-flight sync instead of being dropped.
 // The previous boolean-guard silently no-op'd concurrent calls, so a single stuck
@@ -61,6 +79,9 @@ let queuedForcedSync: Promise<void> | null = null;
 // doSync caller in the extension path; mobile/desktop runs have one sync loop.
 let consecutiveSyncFailures = 0;
 let syncBackoffUntilMs = 0;
+// How many times the breaker has tripped in a row (drives the exponential
+// backoff); reset by any successful sync.
+let breakerTripCount = 0;
 
 // Lazy Vault initialization to prevent service worker cold-start race.
 // See actions.ts:getVault for the full explanation. In Jest, `init_vault`
@@ -127,6 +148,7 @@ async function runSync(): Promise<void> {
       });
       consecutiveSyncFailures = 0;
       syncBackoffUntilMs = 0;
+      breakerTripCount = 0;
       // Sync went through end-to-end: the user has connectivity AND the
       // node is responding. Clear any active reachability category. We
       // don't touch `prover` — that's a separate service with separate
@@ -156,9 +178,13 @@ async function runSync(): Promise<void> {
         if (isLikelyNetworkError(err) || /sync timeout/i.test(String((err as any)?.message ?? err))) {
           markConnectivityIssue(classifySyncError(err));
         }
-        syncBackoffUntilMs = Date.now() + BACKOFF_MS;
+        breakerTripCount++;
+        const backoffMs = computeSyncBackoffMs(breakerTripCount);
+        syncBackoffUntilMs = Date.now() + backoffMs;
         consecutiveSyncFailures = 0;
-        console.warn(`[SyncManager] circuit breaker open — skipping syncs for ${BACKOFF_MS}ms`);
+        console.warn(
+          `[SyncManager] circuit breaker open (trip ${breakerTripCount}) — skipping syncs for ${backoffMs}ms`
+        );
       }
       // Continue to the downstream read path: the client may still have
       // cached state from a prior successful sync worth surfacing.
@@ -352,7 +378,7 @@ async function runSync(): Promise<void> {
             ? getMessage('noteReceivedClickToClaim') || 'Click to view and claim it'
             : getMessage('noteReceivedMultiple', { count: String(newIds.length) }) ||
               `You have ${newIds.length} new notes to claim`;
-        showBackgroundNotification(title, message);
+        showBackgroundNotification(title, message, 'miden-note-received');
       }
 
       // Reuse the notes classified above under Lock 2 — re-running
@@ -437,42 +463,6 @@ async function runSync(): Promise<void> {
     } catch {
       // No frontends connected
     }
-  }
-}
-
-function showBackgroundNotification(title: string, message: string): void {
-  // Primary: ServiceWorkerRegistration.showNotification — same underlying system as
-  // Web Notifications API (new Notification()) which works reliably in Brave.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sw = globalThis as any;
-  if (sw.registration?.showNotification) {
-    sw.registration.showNotification(title, {
-      body: message,
-      icon: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
-      requireInteraction: true
-    });
-    return;
-  }
-
-  // Fallback: chrome.notifications API
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const chromeNotifications = (globalThis as any).chrome?.notifications;
-  if (chromeNotifications) {
-    chromeNotifications.create(
-      'miden-note-received',
-      {
-        type: 'basic',
-        iconUrl: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
-        title,
-        message,
-        requireInteraction: true
-      },
-      () => {
-        if (chrome.runtime.lastError) {
-          console.warn('[SyncManager] chrome.notifications error:', chrome.runtime.lastError.message);
-        }
-      }
-    );
   }
 }
 

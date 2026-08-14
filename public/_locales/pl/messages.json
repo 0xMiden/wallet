@@ -439,6 +439,10 @@
     "message": "Pozycje",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "Nie udało się wczytać Twoich pozycji. Sprawdź połączenie i spróbuj ponownie.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ RRSO",
     "englishSource": "$apy$ APY",
@@ -3335,6 +3339,14 @@
   "noteReceivedTitle": {
     "message": "Otrzymałeś note",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "Transakcja nie powiodła się",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "Nie udało się sfinalizować transakcji. Otwórz portfel, aby przejrzeć.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "Kliknij tutaj, aby to odebrać",

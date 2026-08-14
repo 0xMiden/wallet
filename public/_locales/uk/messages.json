@@ -439,6 +439,10 @@
     "message": "посади",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "Не вдалося завантажити ваші позиції. Перевірте підключення та повторіть спробу.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -3389,6 +3393,14 @@
   "noteReceivedTitle": {
     "message": "Ви отримали note",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "Помилка транзакції",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "Не вдалося завершити транзакцію. Відкрийте гаманець для перегляду.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "Торкніться тут, щоб отримати його",

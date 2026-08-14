@@ -70,20 +70,14 @@ jest.mock('./components', () => ({
 }));
 
 // The screen reads live Epoch data through `useEarnPositions`, which pulls in
-// `useAccount` + SWR. Feed it the static demo fixture instead so the assertions
-// below can stay pinned to `EARN_DATA`.
-jest.mock('./useEarnPositions', () => {
-  const { EARN_DATA } = jest.requireActual<typeof import('./data')>('./data');
-  return {
-    useEarnPositions: () => ({
-      summary: EARN_DATA.summary,
-      positions: EARN_DATA.positions,
-      vaults: EARN_DATA.vaults,
-      isLoading: false,
-      error: undefined
-    })
-  };
-});
+// `useAccount` + SWR. Feed it a controllable stub (default: the static demo
+// fixture) so the happy-path assertions stay pinned to `EARN_DATA` while the
+// load-error branch can be driven per-test.
+const mockUseEarnPositions = jest.fn();
+const mockRefetch = jest.fn();
+jest.mock('./useEarnPositions', () => ({
+  useEarnPositions: () => mockUseEarnPositions()
+}));
 
 const mockGoBack = goBack as jest.Mock;
 const mockNavigate = navigate as jest.Mock;
@@ -92,6 +86,14 @@ const mockHapticLight = hapticLight as jest.Mock;
 describe('EarnPositions', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUseEarnPositions.mockReturnValue({
+      summary: EARN_DATA.summary,
+      positions: EARN_DATA.positions,
+      vaults: EARN_DATA.vaults,
+      isLoading: false,
+      error: undefined,
+      refetch: mockRefetch
+    });
   });
 
   it('renders the page shell with the "My positions" heading', () => {
@@ -190,5 +192,56 @@ describe('EarnPositions', () => {
 
     expect(mockHapticLight).toHaveBeenCalledTimes(EARN_DATA.positions.length);
     expect(mockNavigate).toHaveBeenCalledTimes(EARN_DATA.positions.length);
+  });
+
+  describe('load failure (gap 4)', () => {
+    beforeEach(() => {
+      // A failed positions load with no fallback data: the misleading state this
+      // guard exists to prevent (empty list + $0 summary read as "you have none").
+      mockUseEarnPositions.mockReturnValue({
+        summary: EARN_DATA.summary,
+        positions: [],
+        vaults: [],
+        isLoading: false,
+        error: 'positions request failed (503)',
+        refetch: mockRefetch
+      });
+    });
+
+    it('shows a retryable error instead of an empty "$0 / no positions" state', () => {
+      render(<EarnPositions />);
+
+      expect(screen.getByTestId('earn-positions-load-error')).toBeInTheDocument();
+      expect(screen.getByText('earnPositionsLoadError')).toBeInTheDocument();
+      // The misleading empty affordances must NOT render on a load failure.
+      expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'earnPositionsRegionLabel' })).not.toBeInTheDocument();
+    });
+
+    it('refetches when Retry is pressed', () => {
+      render(<EarnPositions />);
+
+      fireEvent.click(screen.getByTestId('earn-positions-retry'));
+
+      expect(mockRefetch).toHaveBeenCalledTimes(1);
+      expect(mockHapticLight).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps showing last-good positions on a transient error rather than hiding real balances', () => {
+      mockUseEarnPositions.mockReturnValue({
+        summary: EARN_DATA.summary,
+        positions: EARN_DATA.positions, // stale-but-real data survived via keepPreviousData
+        vaults: EARN_DATA.vaults,
+        isLoading: false,
+        error: 'positions request failed (503)',
+        refetch: mockRefetch
+      });
+
+      render(<EarnPositions />);
+
+      // With real data to show, the error state is suppressed.
+      expect(screen.queryByTestId('earn-positions-load-error')).not.toBeInTheDocument();
+      expect(screen.getByTestId('earn-summary-panel')).toBeInTheDocument();
+    });
   });
 });

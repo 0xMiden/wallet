@@ -17,6 +17,7 @@ import {
 } from './constants';
 import { getTransactionsInProgress } from './get';
 import { updateTransactionStatus } from './helper';
+import { notifyBackgroundTransactionFailed } from '../back/background-notification';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
 import { withWasmClientLock } from '../sdk/miden-client';
@@ -59,6 +60,18 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
     dbTx.displayMessage = displayMessage;
     dbTx.displayIcon = 'FAILED';
   });
+
+  // Gap 6: a transaction that terminally failed while the user wasn't watching
+  // used to be silent — the row went to Failed and nothing told them. Notify,
+  // but NEVER for a user-initiated cancel or a startup/teardown interruption
+  // (those aren't failures the user needs alerting to). The notifier itself
+  // no-ops off the extension and when a wallet popup is already open, so this is
+  // a safe unconditional call for a genuine failure.
+  const isGenuineFailure =
+    error !== USER_CANCELLED_TRANSACTION_REASON &&
+    error !== TRANSACTION_INTERRUPTED_ON_STARTUP &&
+    error !== TRANSACTION_INTERRUPTED_ERROR;
+  if (isGenuineFailure) notifyBackgroundTransactionFailed();
 };
 
 export const cancelTransactionById = async (id: string, error: any) => {
@@ -262,6 +275,49 @@ export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean)
     return 'not-landed';
   } catch (error) {
     console.error('[verifyConsumeLanded] error checking note state for tx', tx.id, error);
+    return 'unknown';
+  }
+};
+
+/**
+ * The verdict of a node-authoritative check of whether a send/swap/execute
+ * already landed on chain:
+ *   - `'landed'`  the tx's captured `transactionId` is committed OR pending
+ *                 (submitted) on the node — its effect already happened, so a
+ *                 Retry must NOT resubmit it (that would be a double-send).
+ *   - `'unknown'` no captured `transactionId`, or the node/client has no record
+ *                 of it — INDETERMINATE. We cannot prove it landed, so the caller
+ *                 keeps the funds-safe default (surface it, don't auto-complete).
+ */
+export type SendLandedVerdict = 'landed' | 'unknown';
+
+/**
+ * Node-authoritative idempotency check for the value-moving, output-producing
+ * types (send / swap / bridged-send / execute), so a manual Retry never
+ * resubmits a transaction whose original submit actually landed (double-send —
+ * a real fund-loss). Keyed on the tx row's captured `transactionId` (stamped by
+ * the completion path). A committed OR pending record → `'landed'` (the tx is on
+ * chain or in the mempool; resending would duplicate it). No id, or an id the
+ * client has no record of, → `'unknown'` (never treated as landed, but also
+ * never proven not-landed — the caller must not silently complete it).
+ *
+ * Mirrors {@link verifyConsumeLanded} (which checks the INPUT note's consumed
+ * state) but for the OUTPUT side, via the tx id. Best-effort syncs first for the
+ * freshest node state; a sync failure falls back to the last-synced record.
+ */
+export const verifySendLanded = async (tx: { id: string; transactionId?: string }): Promise<SendLandedVerdict> => {
+  if (!tx.transactionId) return 'unknown';
+  const txId = tx.transactionId;
+  try {
+    try {
+      await withWasmClientLock(async () => midenClientProxy.syncState());
+    } catch (syncError) {
+      console.warn('[verifySendLanded] sync failed; reading last-synced tx state for', tx.id, syncError);
+    }
+    const state = await withWasmClientLock(async () => midenClientProxy.getTransactionCommitState(txId));
+    return state === 'committed' || state === 'pending' ? 'landed' : 'unknown';
+  } catch (error) {
+    console.error('[verifySendLanded] error checking tx state for', tx.id, error);
     return 'unknown';
   }
 };

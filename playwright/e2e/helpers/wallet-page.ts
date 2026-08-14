@@ -79,7 +79,7 @@ export interface WalletPage {
   importWallet(seedPhrase: string[], password?: string): Promise<{ address: string }>;
   getAccountAddress(): Promise<string>;
   getBalance(tokenSymbol?: string): Promise<number>;
-  triggerSync(): Promise<void>;
+  triggerSync(force?: boolean): Promise<void>;
   claimAllNotes(timeoutMs?: number): Promise<void>;
   sendTokens(params: {
     recipientAddress: string;
@@ -155,6 +155,13 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   refreshBalances(): Promise<void>;
   /** Full dump of chrome.storage.local — end-of-run forensic snapshot. */
   dumpChromeStorage(): Promise<Record<string, unknown>>;
+  /**
+   * One line per `TridentMain.transactions` row (`id·type·status·stage·error`) —
+   * the fastest way to see WHY a claim or send stalled, instead of inferring it
+   * from a balance that never moved. Implemented on ChromeWalletPage and used by
+   * specs through this interface, so it has to be declared here.
+   */
+  dumpTransactions(): Promise<string>;
   /**
    * Drain pending notes via the two-level per-faucet GROUP-claim UI (Pending
    * tab → asset detail → group claim / per-note claim) instead of the top-level
@@ -1541,13 +1548,13 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * That window is exactly when pending-note counts are non-zero anyway, and
    * the cap means the worst case is the old fixed sleep.
    */
-  async triggerSync(): Promise<void> {
+  async triggerSync(force: boolean = false): Promise<void> {
     let seenBefore: number | null = null;
     try {
-      seenBefore = await this.page.evaluate(async () => {
+      seenBefore = await this.page.evaluate(async forceSync => {
         const w = window as unknown as {
           __TEST_INTERCOM__?: {
-            request(payload: { type: string }): Promise<unknown>;
+            request(payload: { type: string; force?: boolean }): Promise<unknown>;
             subscribe(callback: (data: { type?: string }) => void): () => void;
           };
           __E2E_SYNC_COMPLETED_COUNT__?: number;
@@ -1564,12 +1571,14 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           });
         }
         const seen = w.__E2E_SYNC_COMPLETED_COUNT__;
-        // Sync state with the blockchain node
-        await intercom.request({ type: 'SYNC_REQUEST' });
+        // Sync state with the blockchain node. `force` bypasses the SW sync
+        // backoff / in-flight-join so a resilience spec can guarantee a real
+        // node round-trip (an un-forced sync is often skipped once caught up).
+        await intercom.request({ type: 'SYNC_REQUEST', force: forceSync });
         // Trigger transaction processing (auto-consume pending notes)
         await intercom.request({ type: 'PROCESS_TRANSACTIONS_REQUEST' });
         return seen;
-      });
+      }, force);
     } catch {
       // May fail during navigation, ignore
     }
