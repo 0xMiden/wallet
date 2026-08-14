@@ -62,5 +62,21 @@ describe('popup-mode storage helpers', () => {
       setPopupMode(true);
       expect(isPopupModeEnabled()).toBe(true);
     });
+
+    it('handles malformed JSON in localStorage', () => {
+      localStorage.setItem(POPUP_MODE_STORAGE_KEY, '{invalid json}');
+      
+      // Should not throw, return default instead
+      expect(() => isPopupModeEnabled()).not.toThrow();
+      expect(isPopupModeEnabled()).toBe(DEFAULT_POPUP_MODE);
+    });
+
+    it('handles storage access errors gracefully', () => {
+      // Simulate corrupted storage by setting non-JSON string
+      localStorage.setItem(POPUP_MODE_STORAGE_KEY, 'not a boolean');
+      
+      const result = isPopupModeEnabled();
+      expect(result).toBe(DEFAULT_POPUP_MODE);
+    });
   });
 });

@@ -9,5 +9,15 @@ export function setPopupMode(enabled: boolean) {
 
 export function isPopupModeEnabled() {
   const stored = localStorage.getItem(POPUP_MODE_STORAGE_KEY);
-  return stored ? (JSON.parse(stored) as boolean) : DEFAULT_POPUP_MODE;
+  if (!stored) {
+    return DEFAULT_POPUP_MODE;
+  }
+  
+  try {
+    return JSON.parse(stored) as boolean;
+  } catch {
+    // Gracefully handle corrupted localStorage data
+    // instead of crashing the entire extension
+    return DEFAULT_POPUP_MODE;
+  }
 }
