@@ -16,6 +16,11 @@ name: E2E Blockchain
 # is not the property anyone wants — the property is "the network this branch
 # targets passed".
 #
+# Measured, not asserted: over the last 14 pushes to main, `Chrome Guardian E2E
+# (testnet)` concluded failure 7 times, success once, and was cancelled 3 times —
+# while the Chrome Guardian gate reported green throughout, because devnet passed
+# alongside it.
+#
 # Splitting by branch gives each line a hard gate. Nothing is `continue-on-error`
 # any more: on main a testnet failure is fatal, and on next a devnet failure is
 # fatal, because in each case that network IS the branch's line.
@@ -46,9 +51,11 @@ on:
         default: 'testnet'
         type: choice
         options:
-          - both
-          - devnet
+          # No 'both': the gates require every network that ran to succeed, and a
+          # wallet built for one protocol line cannot pass against the other, so
+          # 'both' is unpassable by construction rather than merely slow.
           - testnet
+          - devnet
 
 permissions:
   contents: read
@@ -223,7 +230,13 @@ jobs:
   chrome-gate:
     name: Chrome E2E Gate
     needs: [chrome-devnet, chrome-testnet]
-    if: always()
+    # `!cancelled()` rather than `always()`: the concurrency group supersedes
+    # in-progress runs constantly, and the whitelist below correctly treats a
+    # cancelled network as not-a-pass. Combined with `always()` that would paint a
+    # red gate on every superseded run — noise that trains people to ignore it. A
+    # cancelled run should report cancelled, not failed; a genuinely failed job
+    # still runs this gate and still fails it.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Require the branch's network to pass
@@ -265,8 +278,8 @@ jobs:
   # opposite — that testnet was "expected red until testnet upgrades" — and that
   # was wrong. It mattered: paired with a gate that passed if EITHER network
   # succeeded, it turned real testnet guardian failures on main into something
-  # the workflow described as normal. `Chrome Guardian E2E (testnet)` has been
-  # failing on main while devnet passes, and the OR gate reported that as green.
+  # the workflow described as normal. Over the last 14 pushes to main this job
+  # concluded failure 7 times against 1 success, and the gate stayed green.
   #
   # The direction of the version risk is the other way round: DEVNET guardian is
   # the one expected to break, until guardian packages are published for the
@@ -421,7 +434,13 @@ jobs:
   chrome-guardian-gate:
     name: Chrome Guardian E2E Gate
     needs: [chrome-guardian-devnet, chrome-guardian-testnet]
-    if: always()
+    # `!cancelled()` rather than `always()`: the concurrency group supersedes
+    # in-progress runs constantly, and the whitelist below correctly treats a
+    # cancelled network as not-a-pass. Combined with `always()` that would paint a
+    # red gate on every superseded run — noise that trains people to ignore it. A
+    # cancelled run should report cancelled, not failed; a genuinely failed job
+    # still runs this gate and still fails it.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Require the branch's network to pass
@@ -837,7 +856,13 @@ jobs:
   mobile-gate:
     name: Mobile E2E Gate
     needs: [mobile-devnet, mobile-testnet]
-    if: always()
+    # `!cancelled()` rather than `always()`: the concurrency group supersedes
+    # in-progress runs constantly, and the whitelist below correctly treats a
+    # cancelled network as not-a-pass. Combined with `always()` that would paint a
+    # red gate on every superseded run — noise that trains people to ignore it. A
+    # cancelled run should report cancelled, not failed; a genuinely failed job
+    # still runs this gate and still fails it.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Require the branch's network to pass
@@ -1254,7 +1279,13 @@ jobs:
   mobile-guardian-gate:
     name: Mobile Guardian E2E Gate
     needs: [mobile-guardian-devnet, mobile-guardian-testnet]
-    if: always()
+    # `!cancelled()` rather than `always()`: the concurrency group supersedes
+    # in-progress runs constantly, and the whitelist below correctly treats a
+    # cancelled network as not-a-pass. Combined with `always()` that would paint a
+    # red gate on every superseded run — noise that trains people to ignore it. A
+    # cancelled run should report cancelled, not failed; a genuinely failed job
+    # still runs this gate and still fails it.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Require the branch's network to pass
