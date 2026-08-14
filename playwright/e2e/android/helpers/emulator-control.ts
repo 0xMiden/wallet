@@ -397,13 +397,23 @@ async function bootAvd(avdName: string, port: number): Promise<string> {
       '-no-window',
       // Override config.ini's `hw.ramSize` — emulator silently clamps the
       // file value to ~2 GB at boot when regenerating hardware-qemu.ini.
-      // 4 GB is the sweet spot: 3 GB OOM-killed the Chromium sandboxed
-      // renderer (wallet WASM + Chromium + Android system bumped against
-      // the lowmem killer); 6 GB inflated qemu RSS to ~22 GB per emulator.
-      // 4 GB keeps host RSS ~5 GB per emulator and gives the WebView
-      // enough headroom to load the SDK WASM and run consume.
+      //
+      // 4 GB was chosen on an Apple Silicon host, where it worked (3 GB
+      // OOM-killed the Chromium sandboxed renderer; 6 GB inflated qemu RSS to
+      // ~22 GB per emulator under HVF). On the Linux CI runner 4 GB is NOT
+      // enough — the guest's own low-memory killer reaps the wallet:
+      //
+      //   I lowmemorykiller: lmkd data connection established
+      //   I Zygote : Process 2268 exited due to signal 9 (Killed)
+      //   emulator-5556 — app process: NO MIDEN PROCESS (app not running)
+      //
+      // That is GUEST-side pressure (Android's LMK), not the host running out,
+      // so the fix is guest RAM. 5 GB rather than 6: two emulators plus node
+      // and Playwright have to fit in the runner's 16 GB, and qemu RSS on
+      // KVM tracks touched guest pages closely — unlike the HVF figure above,
+      // which is why that 6 GB warning does not transfer to this host.
       '-memory',
-      '4096',
+      '5120',
       // Sized from the host — see EMULATOR_CORES.
       '-cores',
       String(EMULATOR_CORES)
