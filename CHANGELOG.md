@@ -5,6 +5,8 @@
 ### Features
 ### Fixes
 
+- [FIX][all] **The rotated-out-device fix now actually triggers.** The check shipped last round compared this device's key against its own local copy of the account — but Guardian accounts are private, so their state never travels on chain and that copy stays frozen at whatever this device last knew. Every device therefore still concluded it was the rightful signer and kept taking authorisation back. The device now asks the Guardian for the current state first, which it can still do because its recovery key is accepted even while its device key is being rejected.
+
 - [FIX][all] **The send review screen no longer promises that an unclaimed payment comes back on its own.** It said the amount "returns to your wallet automatically" once the expiration passed. That is only true for the network's own token: everything else — every token you actually send — waits in your pending list until you claim it. The screen now says you can claim it back, which is what the wallet does. Found while writing the recall end-to-end test.
 
 - [FIX][all] **A device-key rotation can no longer leave the wallet locked out of its own guardian.** After rotating, the wallet re-registers the new signer set so the guardian will accept requests from the new key — but that step ran once, and only its final push had retries. If any of the reads feeding it hiccuped while the rotation was still settling, the registration never landed and every following action failed with "Your session has expired" until a background repair eventually noticed. The whole step is now retried.
