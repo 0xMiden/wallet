@@ -49,6 +49,15 @@ jobs:
     env:
       E2E_NETWORK: ${{ github.event.inputs.network || 'testnet' }}
       MIDEN_E2E_TEST: 'true'
+      # Pin ONE avd directory for all three tools. `avdmanager` writes where its
+      # own home resolution lands, `emulator -list-avds` scans where ITS home
+      # resolution lands, and the harness reads
+      # `ANDROID_AVD_HOME ?? $HOME/.android/avd` — on the runner those did not
+      # agree, so the base AVD was created successfully, listed as nothing, and
+      # the run died in global setup with `Base AVD "Pixel_API_34" not found`
+      # after paying for the SDK install and the APK build. Setting this makes
+      # all three read the same path.
+      ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
     steps:
       - uses: actions/checkout@v4
 
@@ -82,12 +91,22 @@ jobs:
       # ever renamed, this step fails loudly rather than silently booting nothing.
       - name: Create base AVD
         run: |
+          mkdir -p "$ANDROID_AVD_HOME"
           echo no | avdmanager create avd \
             --name Pixel_API_34 \
             --package "system-images;android-34;google_apis;x86_64" \
             --device pixel_6 \
             --force
-          $ANDROID_HOME/emulator/emulator -list-avds
+          # Fail HERE if the emulator can't see what avdmanager just wrote,
+          # rather than 5 minutes later in Playwright's global setup with the
+          # SDK install and the APK build already paid for.
+          echo "AVDs visible to the emulator (ANDROID_AVD_HOME=$ANDROID_AVD_HOME):"
+          "$ANDROID_HOME/emulator/emulator" -list-avds
+          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx 'Pixel_API_34' || {
+            echo "::error::avdmanager created Pixel_API_34 but 'emulator -list-avds' does not list it" >&2
+            ls -la "$ANDROID_AVD_HOME" || true
+            exit 1
+          }
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile

@@ -12,10 +12,9 @@
  * derived here via the SDK so the GeneratedHotKey shape matches jsFallback.
  */
 
-import { Buffer } from 'buffer';
-
 import { isAndroid, isIOS } from 'lib/platform';
 
+import { commitmentFromPublicKeyHex } from './commitment';
 import { HotKey } from './hotKeyPlugin';
 import type { GeneratedHotKey } from './jsFallback';
 
@@ -65,16 +64,4 @@ export async function revealHotKey(ciphertext: string): Promise<string> {
 
   const { secretKeyHex } = await HotKey.revealHotKey({ ciphertext });
   return secretKeyHex;
-}
-
-async function commitmentFromPublicKeyHex(publicKeyHex: string): Promise<string> {
-  const { PublicKey } = await import('@miden-sdk/miden-sdk/lazy');
-  const raw = Buffer.from(publicKeyHex, 'hex');
-  const framed = new Uint8Array(raw.length + 1);
-  if (raw.length !== 33) {
-    throw new Error(`unexpected public key length ${raw.length} (expected 33)`);
-  }
-  framed[0] = 1; // ECDSA k256 type prefix expected by PublicKey.deserialize
-  framed.set(raw, 1);
-  return PublicKey.deserialize(framed).toCommitment().toHex();
 }
