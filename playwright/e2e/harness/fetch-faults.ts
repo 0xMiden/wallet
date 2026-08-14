@@ -20,6 +20,19 @@ import type { FetchFaultWire, NetworkFaultPolicy, NetworkFaultTarget, NetworkOri
  * FetchFaultWire, pushes the config into every relevant realm (the SW + all
  * current page-workers), and re-applies it to any worker the page spawns later
  * (the SDK spawns its worker lazily on first use, often AFTER a fault is armed).
+ *
+ * FIDELITY BOUNDARY (verified live — read before writing a fault spec). The seam
+ * intercepts `globalThis.fetch`, so it reaches the SDK's FETCH-based traffic: the
+ * node READ/sync RPCs (SyncState / GetAccount / GetBlockHeader → note discovery,
+ * balances, chain head) and note-transport reads. It does NOT reach the delegated
+ * PROVER or the transaction SUBMIT: those go over a transport the evaluate-
+ * installed wrapper can't retrofit (confirmed — a prover fault leaves the tx-
+ * prover container still proving, and a consume SUBMITTED under a node fault still
+ * lands on-chain). So a `node` fault here models a "reads/discovery unavailable"
+ * outage, NOT a total partition, and `prover` faults are effectively inert.
+ * Design specs around DISCOVERY / staleness / read-path resilience (which this
+ * reliably faults); to fault submit/prove or simulate a total node partition, use
+ * infra-level faulting (e.g. `docker pause`) instead.
  */
 
 /** Targets whose traffic is gRPC-web-in-realm and must be faulted at the fetch layer. */
