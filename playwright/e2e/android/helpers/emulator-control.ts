@@ -133,6 +133,17 @@ export class EmulatorControl {
     // app that bound to its FontsProvider (we saw com.miden.wallet killed
     // this way during a rerun). Poll until it's been seen running for 5
     // consecutive seconds before we proceed.
+    //
+    // SKIPPED on images without Play Services. The AOSP (`default`) image has
+    // no `com.google.android.gms` at all, so this poll could never succeed — it
+    // spun out the whole budget and threw "did not stabilize", every run, the
+    // moment the workflow switched images. The wait exists to dodge a GMS crash
+    // taking the app with it; with no GMS there is neither a process to wait for
+    // nor a crash to dodge.
+    if (!(await deviceHasPackage(serial, 'com.google.android.gms'))) {
+      console.log(`[emulator] ${serial}: no Play Services on this image — skipping the GMS settle wait`);
+      return;
+    }
     const GMS_STABLE_MS = 5_000;
     let gmsRunningSince: number | null = null;
     while (Date.now() - start < BOOT_TIMEOUT_MS) {
@@ -295,6 +306,16 @@ function avdIsUsable(avdHome: string, avd: string): boolean {
   return (
     fs.existsSync(path.join(avdHome, `${avd}.ini`)) && fs.existsSync(path.join(avdHome, `${avd}.avd`, 'config.ini'))
   );
+}
+
+/** Is `pkg` installed on this device? Used to skip GMS-only wait steps on AOSP images. */
+async function deviceHasPackage(serial: string, pkg: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync('adb', ['-s', serial, 'shell', 'pm', 'list', 'packages', pkg]);
+    return stdout.includes(pkg);
+  } catch {
+    return false;
+  }
 }
 
 async function ensureAvdsExist(): Promise<void> {
