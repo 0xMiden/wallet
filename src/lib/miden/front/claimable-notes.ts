@@ -11,6 +11,7 @@ import { isMidenFaucet } from '../assets';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { toNoteTypeString } from '../helpers';
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
+import { onNotesRefresh } from './note-refresh';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
 import { classifySwapOrderNotes } from '../swap/classification';
@@ -343,6 +344,16 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
       };
     }
   });
+
+  // Revalidate immediately when a sync completes or the app foregrounds, so a
+  // just-imported note surfaces without waiting out the 5s SWR interval (#462).
+  const { mutate } = swrResult;
+  useEffect(() => {
+    if (!enabled) return;
+    return onNotesRefresh(() => {
+      void mutate();
+    });
+  }, [enabled, mutate]);
 
   return {
     ...swrResult,

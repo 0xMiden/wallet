@@ -22,6 +22,7 @@ import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 import { TokensMetadataProvider } from './assets';
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
 import { SwapSettlementManager } from './SwapSettlementManager';
+import { useForegroundRefresh } from './useForegroundRefresh';
 import { useSyncTrigger } from './useSyncTrigger';
 import { getMidenClient } from '../sdk/miden-client';
 
@@ -151,6 +152,10 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
 
   // On extension: send SyncRequest to service worker every 3s (replaces AutoSync)
   useSyncTrigger();
+  // On mobile: force an immediate sync + note refresh on app foreground so a note
+  // that arrived while backgrounded appears promptly instead of after the poll
+  // intervals elapse (#462). No-op off mobile.
+  useForegroundRefresh();
 
   return useMemo(
     () =>
