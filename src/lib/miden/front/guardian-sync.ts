@@ -96,6 +96,34 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<vo
     // reRegisterCurrentStateOnGuardian re-syncs on its own for the state it
     // pushes. The two lock uses are sequential (this getAccount releases before
     // the cold service acquires), never nested — no reentrancy deadlock.
+    const staleAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(account.publicKey));
+    if (!staleAccount) return;
+
+    // ADOPT THE GUARDIAN'S OWN VIEW FIRST — the check below is worthless without it.
+    //
+    // Guardian accounts are `storageMode: 'private'` (guardian/account.ts), so the
+    // account STATE never travels on chain; only its commitment does. A chain sync
+    // therefore cannot tell this device that another device rotated the hot key —
+    // `getAccount` keeps returning this client's own pre-rotation copy, in which
+    // this device is of course still signer 0. That is why the guard below shipped
+    // as a no-op: in a real two-device run neither side ever saw the other's
+    // rotation, both kept re-registering, and the livelock continued.
+    //
+    // The guardian is the only holder of the current state, and COLD is a permanent
+    // allowlist member — present in every signer set the account has held — so a
+    // cold-signed sync authenticates even while this device's hot key is being
+    // rejected. `multisig.syncState()` imports the guardian's state only when it is
+    // AHEAD of local (`isSafeToOverwriteLocalState`), so a guardian that is merely
+    // lagging cannot clobber a local account that is genuinely newer.
+    //
+    // Deliberately NOT `MultisigService.sync()`: that wrapper's last-resort stage
+    // re-registers local state on a lagging guardian, which is the exact push this
+    // function has to decide about first.
+    const coldService = await MultisigService.buildColdMultisigService(staleAccount, account, zustandProvider.signWord);
+    await coldService.adoptGuardianStateOnce().catch(e => {
+      console.warn(`[Guardian Sync] could not read the guardian's state before self-healing ${account.publicKey}:`, e);
+    });
+
     const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(account.publicKey));
     if (!sdkAccount) return;
 
@@ -129,7 +157,6 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<vo
       }
     }
 
-    const coldService = await MultisigService.buildColdMultisigService(sdkAccount, account, zustandProvider.signWord);
     await coldService.reRegisterCurrentStateOnGuardian();
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
   } catch (e) {
