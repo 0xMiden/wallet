@@ -2335,6 +2335,18 @@
     "message": "上次同步",
     "englishSource": "Last sync"
   },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
+  },
   "guardianRotationComplete": {
     "message": "守护者更新了！",
     "englishSource": "Guardian Updated!"
