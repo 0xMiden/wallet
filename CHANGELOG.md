@@ -36,6 +36,8 @@
 
 ### Changes
 
+- [CHANGE][ci] **Android test devices go back to four gigabytes each.** Giving them five made things worse rather than better — with two devices on one machine the host ran short and the devices stopped starting up reliably at all. The memory freed by shutting down the leftover build process stays, since that gives the machine room without taking it from anywhere.
+
 - [CHANGE][ci] **Android test devices get enough memory to keep the wallet alive.** Each device was given four gigabytes, a figure chosen on a developer Mac; on the CI machine that is too little and Android was killing the wallet itself to free memory, which is why the run kept failing with the app simply not running. Each device now gets five, and the build tool's leftover background process is shut down first so the memory is there to give.
 
 - [CHANGE][ci] **Android test devices no longer run Google Play Services, which was starving the wallet.** The test emulators used a system image bundling Play Services even though the wallet needs none of it. With two devices on one CI machine, Play Services locked up for half a minute at a time and the operating system killed processes to cope — including, on the failing run, the wallet itself. The devices now use the plain Android image.

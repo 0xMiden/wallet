@@ -398,22 +398,23 @@ async function bootAvd(avdName: string, port: number): Promise<string> {
       // Override config.ini's `hw.ramSize` — emulator silently clamps the
       // file value to ~2 GB at boot when regenerating hardware-qemu.ini.
       //
-      // 4 GB was chosen on an Apple Silicon host, where it worked (3 GB
-      // OOM-killed the Chromium sandboxed renderer; 6 GB inflated qemu RSS to
-      // ~22 GB per emulator under HVF). On the Linux CI runner 4 GB is NOT
-      // enough — the guest's own low-memory killer reaps the wallet:
+      // 4 GB, measured — do not raise this without re-measuring.
       //
-      //   I lowmemorykiller: lmkd data connection established
-      //   I Zygote : Process 2268 exited due to signal 9 (Killed)
-      //   emulator-5556 — app process: NO MIDEN PROCESS (app not running)
+      // Origin: chosen on an Apple Silicon host (3 GB OOM-killed the Chromium
+      // sandboxed renderer; 6 GB inflated qemu RSS to ~22 GB per emulator under
+      // HVF). On the Linux CI runner the guest's own low-memory killer still
+      // reaps the wallet sometimes, so 5 GB was tried — and made it strictly
+      // WORSE: at 5 GB x 2 the host is short enough that the emulator no longer
+      // even finishes starting.
       //
-      // That is GUEST-side pressure (Android's LMK), not the host running out,
-      // so the fix is guest RAM. 5 GB rather than 6: two emulators plus node
-      // and Playwright have to fit in the runner's 16 GB, and qemu RSS on
-      // KVM tracks touched guest pages closely — unlike the HVF figure above,
-      // which is why that 6 GB warning does not transfer to this host.
+      //   4 GB x 2:  passes ~half the time; guest LMK kills the app on the rest
+      //   5 GB x 2:  "Emulator emulator-5556 did not stabilize within 300000ms"
+      //
+      // Two full emulators are simply close to what a 16 GB runner can host.
+      // The lever that helps is giving the HOST more room (see the workflow's
+      // gradle-daemon stop), not giving each guest a bigger share of it.
       '-memory',
-      '5120',
+      '4096',
       // Sized from the host — see EMULATOR_CORES.
       '-cores',
       String(EMULATOR_CORES)
