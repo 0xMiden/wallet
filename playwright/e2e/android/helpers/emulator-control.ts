@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
 
@@ -16,7 +17,31 @@ const DEVICE_PAIR_AVD_B = 'miden_e2e_B';
 // installed APKs (see investigation notes in the wiktor/mt-wasm-mobile branch).
 const BASE_AVD = 'Pixel_API_34';
 
-const BOOT_TIMEOUT_MS = 120_000;
+/**
+ * Boot budget. 120s was tuned on a 10-core M-series host, where a cold arm64
+ * boot is 30-60s. A GitHub ubuntu runner has ~4 vCPUs and boots TWO emulators,
+ * so the second one lost the race: `Emulator miden_e2e_B on port 5556 did not
+ * boot within 120000ms`, with its log showing an ordinary boot still in
+ * progress rather than a crash. A generous deadline costs nothing when the boot
+ * succeeds — the poll below exits the moment it does — and only spends time on
+ * a genuine failure, so this is sized for the slowest host rather than the
+ * fastest.
+ */
+const BOOT_TIMEOUT_MS = 300_000;
+
+/**
+ * Cores per emulator. TWO emulators share one host, so asking for more than
+ * half the CPUs each guarantees they fight. The old fixed `8` was fine on the
+ * 10-core Mac it was written for and actively harmful on a 4-vCPU runner, where
+ * the emulator itself warned:
+ *
+ *   qemu: Number of SMP cpus requested (6) exceeds the recommended cpus
+ *   supported by KVM (4)
+ *
+ * Rayon-backed native proving still benefits from cores where they exist, hence
+ * the 8 ceiling rather than a flat small number.
+ */
+const EMULATOR_CORES = Math.max(2, Math.min(8, Math.floor(os.cpus().length / 2)));
 const BOOT_POLL_MS = 1_000;
 
 interface DevicePair {
@@ -376,18 +401,17 @@ async function bootAvd(avdName: string, port: number): Promise<string> {
       // enough headroom to load the SDK WASM and run consume.
       '-memory',
       '4096',
-      // Keep `cores` at 8 — Rayon-backed native prove benefits from all
-      // host cores per emulator (we have headroom on a 10-core M-series
-      // host) and rebuilding the JNI lib on the host is unaffected.
+      // Sized from the host — see EMULATOR_CORES.
       '-cores',
-      '8'
+      String(EMULATOR_CORES)
     ],
     { detached: true, stdio: ['ignore', logFd, logFd] }
   );
   child.unref();
 
-  // Poll adb until the serial appears + boot_completed flips. Total budget
-  // ~120s — cold-boot of an arm64 emulator on Apple Silicon is ~30-60s.
+  // Poll adb until the serial appears + boot_completed flips. See
+  // BOOT_TIMEOUT_MS for why the budget is sized for a contended CI runner
+  // rather than the Apple Silicon host this was first written on.
   const start = Date.now();
   while (Date.now() - start < BOOT_TIMEOUT_MS) {
     const present = await EmulatorControl.listBootedSerials();
