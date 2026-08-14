@@ -15,6 +15,8 @@
 
 ### Changes
 
+- [CHANGE][ci] **Pull requests now check that iOS, Android and the desktop app still build.** The wallet ships four surfaces but only the browser extension was compiled on a PR, so a change that broke the Android, iOS or desktop build merged with nothing going red and was discovered by whoever next tried to ship that platform.
+
 - [CHANGE][ci] **Android now has automated end-to-end tests, and they actually run.** The Android harness existed but had no workflow and had gone stale against the app, so a regression that only reproduced on Android could ship with nothing going red. It now runs on every push to main. Fixing it turned up four separate faults, including an emulator that could never boot and a claim check that reported success when nothing had been claimed.
 - [CHANGE][ci] **A stuck click in the test suite no longer burns ten minutes and reports nothing.** Playwright leaves action timeouts unbounded by default, so a click on a button that never becomes actionable — one under a modal still animating in — waited out the entire per-test budget and then failed with a closed-context error naming neither the step nor the element. Actions are now bounded, and the address-book delete that hit this reports what it was waiting for. Also corrects the pinned `miden-client` CLI version, which recorded 0.14.8 while the pinned revision builds 0.15.0 — a mismatched CLI fails against the node with an unrelated-looking "accept header validation failed".
 
