@@ -13,6 +13,7 @@ import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessage
 
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
+import { showBackgroundNotification } from './background-notification';
 import { getIntercom } from './defaults';
 import { midenClientProxy } from './miden-client-proxy';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
@@ -377,7 +378,7 @@ async function runSync(): Promise<void> {
             ? getMessage('noteReceivedClickToClaim') || 'Click to view and claim it'
             : getMessage('noteReceivedMultiple', { count: String(newIds.length) }) ||
               `You have ${newIds.length} new notes to claim`;
-        showBackgroundNotification(title, message);
+        showBackgroundNotification(title, message, 'miden-note-received');
       }
 
       // Reuse the notes classified above under Lock 2 — re-running
@@ -462,42 +463,6 @@ async function runSync(): Promise<void> {
     } catch {
       // No frontends connected
     }
-  }
-}
-
-function showBackgroundNotification(title: string, message: string): void {
-  // Primary: ServiceWorkerRegistration.showNotification — same underlying system as
-  // Web Notifications API (new Notification()) which works reliably in Brave.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sw = globalThis as any;
-  if (sw.registration?.showNotification) {
-    sw.registration.showNotification(title, {
-      body: message,
-      icon: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
-      requireInteraction: true
-    });
-    return;
-  }
-
-  // Fallback: chrome.notifications API
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const chromeNotifications = (globalThis as any).chrome?.notifications;
-  if (chromeNotifications) {
-    chromeNotifications.create(
-      'miden-note-received',
-      {
-        type: 'basic',
-        iconUrl: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
-        title,
-        message,
-        requireInteraction: true
-      },
-      () => {
-        if (chrome.runtime.lastError) {
-          console.warn('[SyncManager] chrome.notifications error:', chrome.runtime.lastError.message);
-        }
-      }
-    );
   }
 }
 

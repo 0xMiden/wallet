@@ -17,6 +17,7 @@ import {
 } from './constants';
 import { getTransactionsInProgress } from './get';
 import { updateTransactionStatus } from './helper';
+import { notifyBackgroundTransactionFailed } from '../back/background-notification';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
 import { withWasmClientLock } from '../sdk/miden-client';
@@ -59,6 +60,18 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
     dbTx.displayMessage = displayMessage;
     dbTx.displayIcon = 'FAILED';
   });
+
+  // Gap 6: a transaction that terminally failed while the user wasn't watching
+  // used to be silent — the row went to Failed and nothing told them. Notify,
+  // but NEVER for a user-initiated cancel or a startup/teardown interruption
+  // (those aren't failures the user needs alerting to). The notifier itself
+  // no-ops off the extension and when a wallet popup is already open, so this is
+  // a safe unconditional call for a genuine failure.
+  const isGenuineFailure =
+    error !== USER_CANCELLED_TRANSACTION_REASON &&
+    error !== TRANSACTION_INTERRUPTED_ON_STARTUP &&
+    error !== TRANSACTION_INTERRUPTED_ERROR;
+  if (isGenuineFailure) notifyBackgroundTransactionFailed();
 };
 
 export const cancelTransactionById = async (id: string, error: any) => {
