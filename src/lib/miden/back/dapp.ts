@@ -71,6 +71,7 @@ import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
+import { isLikelyNetworkError } from '../activity/connectivity-classify';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
@@ -936,6 +937,14 @@ export const generatePromisifyImportPrivateNote = async (
               noteId
             });
           } catch (e) {
+            // Don't lose the note on a transient blip (resilience gap 1): a
+            // private note's bytes can be its only copy. Queue it for the
+            // background import loop (wall-clock retry + backoff, dead-letter on
+            // give-up) before surfacing the error. Only transient failures are
+            // re-queued — a genuinely malformed note would just dead-letter.
+            if (isLikelyNetworkError(e)) {
+              await queueNoteImport(req.note).catch(() => {});
+            }
             reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
           }
         } else {
