@@ -2,6 +2,7 @@ import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 
 import { InAppBrowser, ToolBarType } from '@miden/dapp-browser';
+import { PREVENT_INPUT_ZOOM_SCRIPT } from 'lib/mobile/prevent-input-zoom';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { isMobile } from 'lib/platform';
@@ -237,7 +238,12 @@ export async function openFaucetWebview({ url, title, recipientAddress }: Faucet
       return;
     }
     try {
-      // Inject download interceptor first
+      // Lock the viewport first (before the download interceptor) so a manual tap
+      // on a faucet form input doesn't permanently zoom the WKWebView on iOS
+      // (#503). This runs at didFinish, so a field the page `autofocus`es on load
+      // could still flash a zoom; manual focus — the reported case — is covered.
+      await InAppBrowser.executeScript({ code: PREVENT_INPUT_ZOOM_SCRIPT, id: FAUCET_INSTANCE_ID });
+      // Inject download interceptor
       await InAppBrowser.executeScript({ code: DOWNLOAD_INTERCEPTOR_SCRIPT, id: FAUCET_INSTANCE_ID });
       // Then prefill address if provided
       if (prefillAddressScript) {

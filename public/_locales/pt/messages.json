@@ -2333,6 +2333,18 @@
     "message": "Última sincronização",
     "englishSource": "Last sync"
   },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
+  },
   "guardianRotationComplete": {
     "message": "Guardião atualizado!",
     "englishSource": "Guardian Updated!"

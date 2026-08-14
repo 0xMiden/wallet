@@ -2287,6 +2287,18 @@
     "message": "Ostatnia synchronizacja",
     "englishSource": "Last sync"
   },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
+  },
   "guardianRotationComplete": {
     "message": "Strażnik zaktualizowany!",
     "englishSource": "Guardian Updated!"

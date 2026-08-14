@@ -2335,6 +2335,18 @@
     "message": "마지막 동기화",
     "englishSource": "Last sync"
   },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
+  },
   "guardianRotationComplete": {
     "message": "가디언이 업데이트되었습니다!",
     "englishSource": "Guardian Updated!"
