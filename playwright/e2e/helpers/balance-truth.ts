@@ -147,6 +147,35 @@ export async function pendingNoteTotal(page: Page, symbol: string): Promise<bigi
 }
 
 /**
+ * The LARGEST unconsumed-note total observed for `symbol` over `forMs`.
+ *
+ * For assertions whose subject is an ABSENCE. A single `pendingNoteTotal` read is
+ * one sample of a projection the service worker rewrites every sync cycle, so
+ * "the note is not listed" at one instant can mean "the cycle that would have
+ * listed it has not run yet". Sampling across several cycles and asserting the
+ * MAXIMUM turns that into "no cycle in this window listed it", which is the
+ * statement an absence assertion actually wants to make.
+ *
+ * Returns the max rather than throwing so the caller owns the comparison — an
+ * `expect` in the spec names the product breakage; a throw in here would not.
+ */
+export async function maxPendingNoteTotal(
+  page: Page,
+  symbol: string,
+  opts: { forMs: number; pollMs?: number }
+): Promise<bigint> {
+  const pollMs = opts.pollMs ?? 2_000;
+  const deadline = Date.now() + opts.forMs;
+  let max = await pendingNoteTotal(page, symbol);
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(pollMs);
+    const sample = await pendingNoteTotal(page, symbol);
+    if (sample > max) max = sample;
+  }
+  return max;
+}
+
+/**
  * Poll until the UNCONSUMED-note total for `symbol` equals `expected` exactly.
  *
  * This is the right assertion for "the mint arrived" — a minted note is discovered

@@ -1480,12 +1480,43 @@ describe('Vault hardware branches', () => {
     (isMobile as jest.Mock).mockReturnValue(false);
     mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce(new Error('guardian lookup failed'));
 
-    await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-fail', VALID_MNEMONIC, true)).rejects.toThrow(
-      PublicError
-    );
+    // …and the lookup's OWN reason must survive. `withError('Failed to create
+    // wallet', …)` replaces any non-PublicError with that generic string; on the
+    // forgot-password reset the wallet is already wiped by the time this throws,
+    // so the reason is all the user has left (#630). Asserting the message, not
+    // just the class, is what pins that (a plain `toThrow(PublicError)` passes on
+    // the generic wrapper too).
+    const spawning = Vault.spawn(WalletType.Guardian, 'pw-guardian-fail', VALID_MNEMONIC, true);
+    await expect(spawning).rejects.toThrow(PublicError);
+    await expect(spawning).rejects.toThrow('guardian lookup failed');
 
     // createGuardianMidenWallet must NOT be called as a fallback — Guardian rethrows.
     expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
+  });
+
+  it('Vault.spawn re-throws a PublicError from the recovery lookup unchanged', async () => {
+    // The lookup may already be raising a user-facing error; promoting it a
+    // second time would be a pointless re-wrap, and `withError` passes
+    // PublicErrors through untouched, so the message must arrive verbatim.
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    const original = new PublicError('Could not reach the Miden network');
+    mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce(original);
+
+    await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-public', VALID_MNEMONIC, true)).rejects.toBe(original);
+  });
+
+  it('Vault.spawn stringifies a non-Error recovery rejection rather than losing it', async () => {
+    // A rejection that is not an Error at all (an SDK that throws a string, or a
+    // WASM trap surfacing as one) must still reach the screen as text — the
+    // alternative is the generic 'Failed to create wallet' after a wipe.
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce('guardian endpoint returned 503');
+
+    await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-string', VALID_MNEMONIC, true)).rejects.toThrow(
+      'guardian endpoint returned 503'
+    );
   });
 
   it('Vault.spawn threads the picked guardianEndpoint into createGuardianMidenWallet (create path)', async () => {
