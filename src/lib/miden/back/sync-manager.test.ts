@@ -142,7 +142,7 @@ jest.mock('./transaction-processor', () => ({
 
 import { WalletMessageType } from 'lib/shared/types';
 
-import { doSync, setupSyncManager } from './sync-manager';
+import { computeSyncBackoffMs, doSync, setupSyncManager } from './sync-manager';
 
 // Helper: build a fake consumable note WASM record
 // Since slice 4 (issue #260) getConsumableNoteDtos returns plain DTOs (the live
@@ -194,6 +194,35 @@ beforeEach(() => {
   mockIsDelegateProofAsync.mockResolvedValue(true);
   mockGetFaucetIdSetting.mockResolvedValue(null);
   mockInitiateConsume.mockResolvedValue('consume-tx');
+});
+
+describe('computeSyncBackoffMs (gap 14 — exponential backoff + jitter)', () => {
+  // rand=0 removes jitter so the exponential base is exact.
+  const noJitter = () => 0;
+
+  it('doubles the base interval each consecutive trip', () => {
+    expect(computeSyncBackoffMs(1, noJitter)).toBe(30_000);
+    expect(computeSyncBackoffMs(2, noJitter)).toBe(60_000);
+    expect(computeSyncBackoffMs(3, noJitter)).toBe(120_000);
+    expect(computeSyncBackoffMs(4, noJitter)).toBe(240_000);
+  });
+
+  it('caps the backoff so a long outage is not probed on an ever-growing interval', () => {
+    // 30s * 2^4 = 480s would exceed the 5-min cap.
+    expect(computeSyncBackoffMs(5, noJitter)).toBe(300_000);
+    expect(computeSyncBackoffMs(50, noJitter)).toBe(300_000);
+  });
+
+  it('adds up to 20% jitter on top of the interval (de-syncs lockstep probing)', () => {
+    expect(computeSyncBackoffMs(1, () => 1)).toBe(36_000); // +20%
+    expect(computeSyncBackoffMs(1, () => 0.5)).toBe(33_000); // +10%
+    // Jitter is bounded within [base, base*1.2].
+    for (const r of [0, 0.25, 0.75, 1]) {
+      const v = computeSyncBackoffMs(2, () => r);
+      expect(v).toBeGreaterThanOrEqual(60_000);
+      expect(v).toBeLessThanOrEqual(72_000);
+    }
+  });
 });
 
 describe('doSync', () => {
@@ -623,7 +652,7 @@ describe('doSync — syncState timeout + circuit breaker', () => {
       await isolated(true);
       expect(mockClient.syncState).toHaveBeenCalledTimes(4);
 
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('circuit breaker open — skipping syncs'));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('circuit breaker open'));
       warnSpy.mockRestore();
     });
   });
