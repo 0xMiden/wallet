@@ -733,6 +733,14 @@ describe('doSync — syncState timeout + circuit breaker', () => {
 
       let fakeNow = 1_000_000;
       const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => fakeNow);
+      // Pin the jitter. `computeSyncBackoffMs` adds 0-20% of the base to
+      // de-sync wallets, so the real backoff is 30_000-36_000ms — and the 35s
+      // this test advances by lands INSIDE that range whenever Math.random()
+      // exceeds ~0.833. That made this test fail one run in six, regardless of
+      // machine or load; it failed exactly that way on CI while passing eight
+      // times locally. Zero jitter makes the window exactly BACKOFF_BASE_MS, so
+      // "advance past it" is a fact rather than a coin flip.
+      const randSpy = jest.spyOn(Math, 'random').mockReturnValue(0);
 
       const { doSync: isolated } = await import('./sync-manager');
 
@@ -754,6 +762,7 @@ describe('doSync — syncState timeout + circuit breaker', () => {
       expect(mockClient.syncState).toHaveBeenCalledTimes(1);
 
       nowSpy.mockRestore();
+      randSpy.mockRestore();
     });
   });
 });
