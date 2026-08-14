@@ -15,6 +15,8 @@
 
 ### Changes
 
+- [CHANGE][ci] **PR test runs stop rebuilding the same Rust binaries every time.** Each E2E job compiled `miden-client-cli` and note-transport from source — about 12 minutes per job, roughly 70 minutes per PR across six jobs, more than the actual test execution. Two causes: nothing populated the cache on `main` (GitHub scopes a cache to the branch that wrote it, so a fresh PR could never read one), and the six workflows used different cache keys for byte-identical content, which also made those entries evict each other under the repo cache limit. They now share one key, warmed on `main`, narrowed to the pins that actually determine the binaries instead of all of `package.json`.
+
 - [FIX][all] **A device-key rotation can no longer leave the wallet locked out of its own guardian.** After rotating, the wallet re-registers the new signer set so the guardian will accept requests from the new key — but that step ran once, and only its final push had retries. If any of the reads feeding it hiccuped while the rotation was still settling, the registration never landed and every following action failed with "Your session has expired" until a background repair eventually noticed. The whole step is now retried.
 
 - [CHANGE][ci] **Changelog entries from parallel PRs no longer collide.** Every PR adds its line under the same heading, so any two open PRs conflicted on that one anchor — not because they disagreed, but because git could not tell that both lines were wanted. The file is now union-merged, which keeps both, and CI checks the result for the duplicate version headings that are union's only failure mode.
