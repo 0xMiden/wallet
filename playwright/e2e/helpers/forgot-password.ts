@@ -95,8 +95,11 @@ export async function openForgotPasswordFlow(wallet: ForgotPasswordDriver): Prom
   // rendered by the first-run onboarding host (`app/pages/Welcome.tsx`) as well
   // as by `ForgotPassword.tsx` — and the fullpage URL still carries
   // `?__test_skip_onboarding=1&password=<OLD>&walletType=guardian&…` from
-  // `createWalletViaBypass` for the whole test (neither `navigateHome()` nor
-  // `lockWallet()`'s reload strips the query). So if a routing change ever
+  // `createWalletViaBypass` until something navigates without it. Note
+  // `navigateHome()` DOES strip it — `fullpageUrl` (wallet-page.ts) builds
+  // `chrome-extension://<id>/fullpage.html` with no query — so this hazard
+  // applies while the bypass query is still on the URL, which is the state this
+  // helper is entered in. So if a routing change ever
   // dropped this click on `/` instead, the bypass would fire and provision a
   // brand-new wallet under the OLD password while every testid below still
   // matched. `#/forgot-password-info` also contains this substring, hence the

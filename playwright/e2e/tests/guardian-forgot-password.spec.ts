@@ -127,9 +127,16 @@ test.describe('Forgot password — destructive in-place reset', () => {
     // storm, and a run in that state has already lost the chain rather than the
     // assertion. Expected real runtime is ~8 minutes, so every individual wait
     // above has room to blow its own ceiling and still print its own diagnostic
-    // — which is the entire point of the budget. It stays inside the guardian
-    // job's `timeout-minutes: 60` because `maxFailures` (playwright.e2e.config
-    // .ts) stops the run long before N specs each burn a full ceiling.
+    // — which is the entire point of the budget.
+    //
+    // The honest cost, since an earlier version of this comment cited
+    // `maxFailures` as the reason it fits: `maxFailures` bounds the NUMBER of
+    // failures, not wall clock, so it does not cap this. A single wedged run of
+    // this file can claim 35 of the guardian job's 60 minutes while sitting
+    // partway through a long sequential list — and a job timeout loses the
+    // artifacts that would explain it. That is the trade being made: a budget
+    // shorter than the waits reports a bare "Test timeout" naming no step, which
+    // is worse. Sharding the guardian job is the real fix if this bites.
     test.setTimeout(2_100_000);
 
     let addressBeforeReset: string;
