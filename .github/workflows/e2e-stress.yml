@@ -117,7 +117,13 @@ jobs:
         run: yarn test:e2e:blockchain:build
       - run: npx playwright install --with-deps chromium
       - name: Run stress suite (conservation enforced)
-        run: yarn test:e2e:stress:run-only
+        # xvfb-run, like every other E2E workflow: a browser EXTENSION cannot be
+        # loaded headless, so the suite launches headed Chromium, and a headed
+        # launch on a bare ubuntu runner dies instantly with "Missing X server or
+        # $DISPLAY". This job was the only one missing it, so it failed at
+        # `launchPersistentContext` — after paying for the full localnet bring-up
+        # and extension build — and had never actually run a stress iteration.
+        run: xvfb-run -a yarn test:e2e:stress:run-only
       - name: Capture stack logs on failure
         if: failure()
         working-directory: playwright/e2e/local-stack
