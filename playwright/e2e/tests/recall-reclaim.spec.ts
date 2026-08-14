@@ -10,7 +10,13 @@ import {
 } from '../helpers/balance-truth';
 import { inspectSentNote } from '../helpers/bridge';
 import { TOKEN, TOKEN_DECIMALS, fundAndClaim } from '../helpers/money-path';
-import { IS_LOCALNET, armRecallBlocks, recallBlocksForWindow, waitForCompletedRow } from '../helpers/recall';
+import {
+  IS_FAST_BLOCKS,
+  IS_LOCALNET,
+  armRecallBlocks,
+  recallBlocksForWindow,
+  waitForCompletedRow
+} from '../helpers/recall';
 
 /**
  * Recall / reclaim — the send half nothing else in this suite touches.
@@ -147,6 +153,13 @@ if (EXPIRY_MS < RECALL_WINDOW_MS + 30_000) {
 
 test.describe('Recall and Reclaim', () => {
   test.describe.configure({ mode: 'serial' });
+  // Runs ONLY on the 500ms-block leg. On the default 3s leg this same window
+  // costs 6x the blocks and shares a 45-minute job with the entire core suite,
+  // so its budget could not fit; the fast leg runs almost nothing else.
+  test.skip(
+    !IS_FAST_BLOCKS,
+    'recall-reclaim needs the 500ms-block leg (MIDEN_NODE_BLOCK_INTERVAL=500ms) to bound the expiry wait'
+  );
   test.skip(
     !IS_LOCALNET,
     'recall windows are sized in blocks against a cadence only the local stack configures — see the header'
@@ -189,6 +202,10 @@ test.describe('Recall and Reclaim', () => {
     // needs the budget to be short of the waits that would otherwise print, and
     // those print regardless. Expected runtime is ~7 min; the dominant real
     // cost is waiting out the recall window itself.
+    // Fits its job because this spec now runs ONLY on the fast-blocks leg, which
+    // carries two specs — not the default leg, which shares `timeout-minutes: 45`
+    // with the entire core suite. A 38-minute ceiling there could not fit and
+    // would have cost the run its artifacts on a job timeout.
     test.setTimeout(2_280_000);
 
     // Bound the helper chain. @playwright/test defaults actionTimeout and

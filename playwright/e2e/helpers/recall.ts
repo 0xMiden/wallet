@@ -98,6 +98,17 @@ export const IS_LOCALNET = process.env.E2E_NETWORK === 'localhost';
  * (`IS_LOCALNET`). Call this INSIDE the test body, never at module scope — a
  * module-scope call would break collection on the very legs that must skip.
  */
+/**
+ * True only on the 500ms-block leg of pr-e2e-local.yml.
+ *
+ * The recall spec waits out a real expiry, so its runtime is set by block
+ * cadence. On the default 3s leg the same window costs 6x the blocks AND shares
+ * a 45-minute job with the whole core suite; on the fast leg it is bounded and
+ * the leg runs almost nothing else. Gating on the cadence rather than on a
+ * workflow file keeps the requirement next to the code that depends on it.
+ */
+export const IS_FAST_BLOCKS = (process.env.MIDEN_NODE_BLOCK_INTERVAL ?? '').trim() === '500ms';
+
 export function recallBlocksForWindow(windowMs: number): number {
   if (!IS_LOCALNET) {
     throw new Error(
