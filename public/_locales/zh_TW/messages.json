@@ -439,6 +439,10 @@
     "message": "职位",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "无法加载您的职位。检查您的连接并重试。",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
