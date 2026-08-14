@@ -121,6 +121,22 @@ export interface NetworkFaultPolicy {
   retryAfterSec?: number;
 }
 
+/**
+ * Serialized fault policy handed to the in-realm fetch wrapper
+ * (harness/network-capture.ts) for node/prover/transport gRPC-web faults —
+ * see fetch-faults.ts. `host` is a URL substring (a `:port`) since the same
+ * target can appear as localhost or 127.0.0.1 on the wire.
+ */
+export interface FetchFaultWire {
+  id: string;
+  host: string;
+  path?: string;
+  mode: NetworkFaultMode;
+  count?: number;
+  delayMs?: number;
+  retryAfterSec?: number;
+}
+
 export interface NetworkFaultControls {
   /**
    * Arm one or more network fault policies, REPLACING any previously-armed set

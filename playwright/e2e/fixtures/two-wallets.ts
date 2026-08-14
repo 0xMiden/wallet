@@ -13,6 +13,7 @@ import { CLIRunner } from '../harness/cli-runner';
 import { assertExtensionNetworkMatches } from '../harness/extension-network';
 import { buildFailureReport, saveFailureReport } from '../harness/failure-report';
 import { type GuardianFaultPolicy, type GuardianOrigins } from '../harness/guardian-fault';
+import { installFetchFaultControls, isFetchFaultTarget, toFetchWire } from '../harness/fetch-faults';
 import {
   installNetworkFaults,
   LOCAL_NETWORK_ORIGINS,
@@ -51,11 +52,13 @@ export interface GuardianFaultTestApi {
   armGuardianFault(policy: GuardianFaultPolicy): void;
   /**
    * Arm one or more whole-infra faults (node/prover/transport/positions/…).
-   * Pass an array to fault several dependencies at once. See
-   * harness/network-faults.ts for targets and modes.
+   * Pass an array to fault several dependencies at once. node/prover/transport
+   * are applied at the fetch layer (async — they're gRPC-web inside the SW /
+   * SDK worker), so this returns a promise; await it before driving the action.
+   * See harness/network-faults.ts for targets and modes.
    */
-  armNetworkFault(policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]): void;
-  clearFaults(): void;
+  armNetworkFault(policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]): Promise<void>;
+  clearFaults(): Promise<void>;
 }
 
 export type GuardianAwareWalletPage = ChromeWalletPageApi & GuardianFaultTestApi;
@@ -291,6 +294,10 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
   serviceWorker.on('console', (msg: any) => {
     const text = msg.text();
     if (text.startsWith(SW_FETCH_LOG_PREFIX)) return;
+    if (process.env.SW_DEBUG && /SyncManager|connectivity|onnectivity|syncState/.test(text)) {
+      // eslint-disable-next-line no-console
+      console.log(`[SW-DBG ${label}] ${text}`);
+    }
     timeline.emit({
       category: 'browser_console',
       severity: msg.type() === 'error' ? 'error' : msg.type() === 'warning' ? 'warn' : 'info',
@@ -480,6 +487,12 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
   // clearFaults() (captured by reference below) keep targeting the live context.
   let faults = installNetworkFaults(context, { network: networkOrigins(), guardian: guardianOrigins() });
 
+  // Fetch-layer faults for node/prover/transport (gRPC-web inside the SW / SDK
+  // worker — context.route can't reach it). Live SW via the context thunk so it
+  // follows a relaunch; the worker hook re-applies to the SDK's lazily-spawned
+  // worker. See harness/fetch-faults.ts.
+  const fetchFaults = installFetchFaultControls(() => context.serviceWorkers()[0], page);
+
   // Passed to ChromeWalletPage.reopen(): when the browser PROCESS has died (not
   // just the page), relaunch a fresh context on this same userDataDir and swap
   // it in, so the wallet resumes from its on-disk profile. Reassigning the
@@ -504,9 +517,17 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
     new ChromeWalletPage(page, extensionId, userDataDir, relaunch),
     {
       armGuardianFault: (policy: GuardianFaultPolicy) => faults.armGuardian(policy),
-      armNetworkFault: (policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]) =>
-        faults.armNetwork(policyOrPolicies),
-      clearFaults: () => faults.clear()
+      armNetworkFault: async (policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]) => {
+        const list = Array.isArray(policyOrPolicies) ? policyOrPolicies : [policyOrPolicies];
+        // context.route serves guardian + HTTP services; the fetch layer serves
+        // node/prover/transport gRPC-web.
+        faults.armNetwork(list.filter(p => !isFetchFaultTarget(p.target)));
+        await fetchFaults.arm(toFetchWire(list, networkOrigins()));
+      },
+      clearFaults: async () => {
+        faults.clear();
+        await fetchFaults.clear();
+      }
     }
   );
 
