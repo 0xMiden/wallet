@@ -302,6 +302,21 @@ export class MultisigService {
     return withWasmClientLock(() => this.multisig.createTransactionProposalRequest(id));
   }
 
+  /**
+   * Import the GUARDIAN's stored state into the local client — once, no retries,
+   * and NO re-register fallback.
+   *
+   * `sync()` is the wrong tool when the caller is still deciding whether to push:
+   * its last-resort stage re-registers local state at a lagging guardian. This is
+   * the read half on its own, for a caller that needs the guardian's own view
+   * before it can tell a stale allowlist from a device that has been rotated out.
+   * `multisig.syncState()` only overwrites local when the guardian is genuinely
+   * AHEAD, so this cannot pull a good local account backwards.
+   */
+  async adoptGuardianStateOnce(): Promise<void> {
+    await withWasmClientLock(() => this.multisig.syncState());
+  }
+
   sync(): Promise<void> {
     // Coalesce overlapping ticks onto a single in-flight run so the retry
     // counter and `syncState` aren't driven concurrently. Not `async`: return

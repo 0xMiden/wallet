@@ -51,6 +51,8 @@ jest.mock('lib/miden/transaction', () => ({
 // Cold-re-register self-heal dependencies. isGuardianAuthRejection is stubbed to
 // treat an error tagged `__authRejection` as a 401 so tests can drive that path.
 const mockReRegister = jest.fn();
+// The self-heal pulls the guardian's own state before deciding whether to push.
+const mockAdoptGuardianState = jest.fn();
 const mockBuildColdMultisigService = jest.fn();
 jest.mock('lib/miden/guardian', () => ({
   isGuardianAuthRejection: (err: unknown) => (err as { __authRejection?: boolean } | null)?.__authRejection === true,
@@ -256,7 +258,12 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     mockReRegister.mockClear();
     mockGetAccount.mockClear();
     mockClearGuardianServiceFor.mockClear();
-    mockBuildColdMultisigService.mockResolvedValue({ reRegisterCurrentStateOnGuardian: mockReRegister });
+    mockAdoptGuardianState.mockClear();
+    mockAdoptGuardianState.mockResolvedValue(undefined);
+    mockBuildColdMultisigService.mockResolvedValue({
+      reRegisterCurrentStateOnGuardian: mockReRegister,
+      adoptGuardianStateOnce: mockAdoptGuardianState
+    });
     mockGetAccount.mockResolvedValue({ __sdkAccount: true });
     mockReRegister.mockResolvedValue(undefined);
     // Default: this device IS still the account's on-chain hot signer.
@@ -305,7 +312,10 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + 2; i++) await syncGuardianAccounts();
 
-    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    // The cold service IS built and IS used to read: the guardian holds the only
+    // current copy of a private account's state, so this device cannot tell it was
+    // rotated out without asking. What must not happen is the WRITE.
+    expect(mockAdoptGuardianState).toHaveBeenCalled();
     expect(mockReRegister).not.toHaveBeenCalled();
   });
 
