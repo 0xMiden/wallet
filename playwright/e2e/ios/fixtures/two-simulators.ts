@@ -8,6 +8,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { getEnvironmentConfig } from '../../config/environments';
+import { testArtifactDirName } from '../../harness/artifact-path';
 import { CLIRunner } from '../../harness/cli-runner';
 import { buildFailureReport, saveFailureReport } from '../../harness/failure-report';
 import { captureWalletSnapshot } from '../../harness/state-snapshot';
@@ -312,7 +313,7 @@ export const test = base.extend<TwoSimulatorFixtures>({
   },
 
   timeline: async ({}, use, testInfo) => {
-    const outputDir = getRunOutputDir(testInfo.titlePath.join('-').replace(/\s+/g, '_'));
+    const outputDir = getRunOutputDir(testArtifactDirName(testInfo.titlePath));
     const timeline = new TimelineRecorder(outputDir);
 
     timeline.emit({
