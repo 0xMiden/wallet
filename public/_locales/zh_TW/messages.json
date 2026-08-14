@@ -439,6 +439,10 @@
     "message": "职位",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "无法加载您的职位。检查您的连接并重试。",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -3388,6 +3392,14 @@
   "noteReceivedTitle": {
     "message": "您已收到note",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "交易失败",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "交易无法完成。打开钱包查看。",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "点击此处领取它",

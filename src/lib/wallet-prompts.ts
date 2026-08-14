@@ -10,7 +10,7 @@ import type { AssetMetadata } from 'lib/miden/metadata';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
 import type { ConsumableNote } from 'lib/miden/types';
-import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
+import { faucetFetch, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 
@@ -258,7 +258,10 @@ const IMIDEN_FAUCET_AMOUNT = 1_000_000_000;
 const MIDEN_FAUCET_AMOUNT = 100_000_000n;
 
 async function mintFromForkchoice(address: string): Promise<void> {
-  const response = await fetch(FAUCET_API_URL, {
+  // `faucetFetch` bounds the request with a timeout and honors a 429 Retry-After,
+  // so a wedged or rate-limited forkchoice faucet fails cleanly instead of
+  // hanging the funding flow.
+  const response = await faucetFetch(FAUCET_API_URL, {
     method: 'POST',
     headers: {
       'content-type': 'application/json'
@@ -293,19 +296,62 @@ function reasonMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason);
 }
 
+type FaucetSource = 'forkchoice' | 'miden';
+
+/**
+ * Per-address record of which faucet SOURCES have already paid out, so a Retry
+ * after a partial failure re-mints ONLY the source that actually failed.
+ *
+ * Without this, `faucet()` re-ran BOTH sources on every call: if forkchoice
+ * succeeded but MIDEN failed, tapping Retry minted forkchoice a SECOND time
+ * (double-funding the source that already worked) while retrying MIDEN. The memo
+ * is cleared once BOTH sources have succeeded, so a genuine later re-fund starts
+ * fresh rather than being skipped forever.
+ */
+const succeededFaucetSources = new Map<string, Set<FaucetSource>>();
+
+/** Test-only: clear the per-address faucet-source progress between cases. */
+export function __resetFaucetProgressForTest(): void {
+  succeededFaucetSources.clear();
+}
+
 export async function faucet(address: string): Promise<void> {
-  const [forkchoice, miden] = await Promise.allSettled([
-    mintFromForkchoice(address),
-    mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT)
-  ]);
+  const done = succeededFaucetSources.get(address) ?? new Set<FaucetSource>();
+
+  const sources: Array<{ source: FaucetSource; label: string; run: () => Promise<unknown> }> = [
+    { source: 'forkchoice', label: 'IMIDEN', run: () => mintFromForkchoice(address) },
+    { source: 'miden', label: 'MIDEN', run: () => mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT) }
+  ];
+  const pending = sources.filter(source => !done.has(source.source));
+
+  // Both sources already funded this address in a prior (partial) attempt —
+  // nothing to re-mint. Clear the memo and report success.
+  if (pending.length === 0) {
+    succeededFaucetSources.delete(address);
+    return;
+  }
+
+  const results = await Promise.allSettled(pending.map(source => source.run()));
 
   const failures: string[] = [];
-  if (forkchoice.status === 'rejected') failures.push(`IMIDEN: ${reasonMessage(forkchoice.reason)}`);
-  if (miden.status === 'rejected') failures.push(`MIDEN: ${reasonMessage(miden.reason)}`);
+  pending.forEach((source, i) => {
+    const result = results[i];
+    if (!result) return;
+    if (result.status === 'fulfilled') {
+      done.add(source.source);
+    } else {
+      failures.push(`${source.label}: ${reasonMessage(result.reason)}`);
+    }
+  });
 
   if (failures.length > 0) {
+    // Remember the sources that DID pay out, so Retry skips them.
+    succeededFaucetSources.set(address, done);
     throw new FaucetError(failures.join('; '));
   }
+
+  // Fully funded — forget the address so a future re-fund isn't skipped.
+  succeededFaucetSources.delete(address);
 }
 
 export function useWalletPromptStorage() {

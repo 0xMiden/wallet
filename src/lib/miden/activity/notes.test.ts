@@ -102,16 +102,48 @@ describe('importAllNotes', () => {
     expect(_g.__notesTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(2);
     expect(_g.__notesTest.midenClient.syncState).toHaveBeenCalled();
     // The good note was imported and removed; the failing note is retained with
-    // attempts === 1 (legacy string entries are normalized to objects).
-    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([{ bytes: 'bad', attempts: 1 }]);
+    // attempts === 1 (legacy string entries are normalized to objects; the entry
+    // now also carries a firstFailureAt anchor for the retry budget).
+    const q = _g.__notesTest.store['miden-notes-pending-import'];
+    expect(q).toHaveLength(1);
+    expect(q[0]).toMatchObject({ bytes: 'bad', attempts: 1 });
+    jest.useRealTimers();
+  });
+
+  // GAP 1 (resilience): a TRANSIENT (network/RPC) import failure must NOT be
+  // dropped just because it spanned a few loop ticks. The old iteration-count cap
+  // (MAX_IMPORT_ATTEMPTS=3) exhausted in ~seconds, silently losing a recoverable
+  // (possibly private, bytes-are-only-copy) note on a brief outage. The note must
+  // be retained and retried on a WALL-CLOCK budget, not an iteration count.
+  it('does NOT drop a transient import failure after 3 loop ticks (wall-clock budget)', async () => {
+    jest.useFakeTimers();
+    _g.__notesTest.store['miden-notes-pending-import'] = ['transient-note'];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    // A transport error (transient) — recognized by isLikelyNetworkError.
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(new Error('transport error: connection refused'));
+
+    // Run FOUR import passes (more than the old cap of 3), advancing wall-clock
+    // only a little between them (far inside any reasonable retry budget).
+    for (let i = 0; i < 4; i++) {
+      const p = importAllNotes();
+      await jest.advanceTimersByTimeAsync(2100);
+      await expect(p).resolves.toBeUndefined();
+    }
+
+    // The note must still be queued — retained for retry, not silently dropped.
+    const queue = _g.__notesTest.store['miden-notes-pending-import'] as Array<{ bytes: string }>;
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({ bytes: 'transient-note' });
     jest.useRealTimers();
   });
 
   // The brick: a deterministically bad note (e.g. raw Note bytes where a
-  // NoteFile is expected) fails every attempt. It must be dropped after a bounded
-  // number of retries so it can't re-throw forever and jam the queue — and with
-  // it all transaction generation. importAllNotes must never throw for this.
-  it('drops a poison note after MAX_IMPORT_ATTEMPTS without ever throwing', async () => {
+  // NoteFile is expected) fails every attempt with a NON-transport error. It must
+  // drain from the active queue after a bounded number of retries so it can't
+  // re-throw forever and jam transaction generation — but it must be moved to the
+  // DEAD-LETTER store, not silently dropped, so it stays recoverable. importAllNotes
+  // must never throw for this.
+  it('dead-letters a poison note after POISON_MAX_ATTEMPTS without ever throwing', async () => {
     jest.useFakeTimers();
     _g.__notesTest.store['miden-notes-pending-import'] = ['poison'];
     _g.__notesTest.midenClient.importNoteBytes.mockReset();
@@ -122,18 +154,45 @@ describe('importAllNotes', () => {
       const p = importAllNotes();
       await jest.advanceTimersByTimeAsync(2100);
       await expect(p).resolves.toBeUndefined();
-      expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([
-        { bytes: 'poison', attempts: expectedAttempts }
-      ]);
+      const q = _g.__notesTest.store['miden-notes-pending-import'];
+      expect(q).toHaveLength(1);
+      expect(q[0]).toMatchObject({ bytes: 'poison', attempts: expectedAttempts });
     }
 
-    // Pass 3: third failure hits the cap, so the note is dropped and the queue
-    // drains — the next loop iteration is a clean no-op.
+    // Pass 3: third failure hits the poison cap, so the note leaves the active
+    // queue AND lands in the dead-letter store (never silently dropped).
     const p3 = importAllNotes();
     await jest.advanceTimersByTimeAsync(2100);
     await expect(p3).resolves.toBeUndefined();
     expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
+    const deadletter = _g.__notesTest.store['miden-note-import-deadletter'];
+    expect(deadletter).toHaveLength(1);
+    expect(deadletter[0]).toMatchObject({ bytes: 'poison', reason: 'malformed', attempts: 3 });
     expect(_g.__notesTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(3);
+    jest.useRealTimers();
+  });
+
+  // GAP 1 (resilience): a note whose TRANSIENT failures outlast the wall-clock
+  // retry budget must land in the dead-letter store (recoverable + surfaceable),
+  // never be silently dropped.
+  it('dead-letters a transient note once the wall-clock retry budget is exhausted', async () => {
+    jest.useFakeTimers();
+    _g.__notesTest.store['miden-notes-pending-import'] = ['transient'];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(new Error('transport error: connection refused'));
+
+    // Drive passes across MORE than the 24h budget, advancing well past each
+    // backoff window so an attempt is actually spent each pass.
+    for (let i = 0; i < 30; i++) {
+      const p = importAllNotes();
+      await jest.advanceTimersByTimeAsync(60 * 60 * 1000 + 2100); // +1h + the sync delay
+      await expect(p).resolves.toBeUndefined();
+    }
+
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
+    const deadletter = _g.__notesTest.store['miden-note-import-deadletter'];
+    expect(deadletter).toHaveLength(1);
+    expect(deadletter[0]).toMatchObject({ bytes: 'transient', reason: 'transport' });
     jest.useRealTimers();
   });
 

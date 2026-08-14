@@ -439,6 +439,10 @@
     "message": "Posições",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "Não foi possível carregar suas posições. Verifique sua conexão e tente novamente.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$APY",
     "englishSource": "$apy$ APY",
@@ -3386,6 +3390,14 @@
   "noteReceivedTitle": {
     "message": "Você recebeu um note",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "Falha na transação",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "Não foi possível concluir uma transação. Abra a carteira para revisar.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "Toque aqui para reivindicá-lo",

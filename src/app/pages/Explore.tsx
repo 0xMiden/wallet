@@ -335,7 +335,14 @@ const HomeOverview: FC<HomeOverviewProps> = ({
           <BalanceCard
             accountNumber={truncateAddress(address, false, 8)}
             accountId={address}
-            amount={`$${toLocalFormat(balance, { decimalPlaces: 2 })}`}
+            // Gap 16: until real prices have loaded, every token falls back to the
+            // $1 default, so the "USD total" would be a fabricated number equal to
+            // the raw token count. When no prices are available (feed down or still
+            // loading) show "$—" rather than that fake figure; once any real price
+            // lands (stale-but-real via keepPreviousData counts), show the total.
+            // UX-REVIEW: a dash is the conservative honest choice; a UX owner may
+            // prefer a skeleton or an explicit "prices unavailable" affordance.
+            amount={Object.keys(tokenPrices).length === 0 ? '$—' : `$${toLocalFormat(balance, { decimalPlaces: 2 })}`}
             currency="USD"
             delta={{ absolute: '+0.00', percentage: '0.00%', direction: 'positive' }}
             onMore={() => setAccountsOpen(true)}

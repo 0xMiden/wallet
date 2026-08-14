@@ -439,6 +439,10 @@
     "message": "ポジション",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "ポジションを読み込めませんでした。接続を確認して、もう一度試してください。",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -3388,6 +3392,14 @@
   "noteReceivedTitle": {
     "message": "note を受け取りました",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "トランザクションが失敗しました",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "トランザクションを完了できませんでした。ウォレットを開いて確認してください。",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "ここをタップして申請してください",
