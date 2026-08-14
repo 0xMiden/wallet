@@ -1,0 +1,119 @@
+name: E2E Android
+
+# Android is the third shipped surface and had NO per-PR or per-push signal at
+# all: a complete ~1300-line harness, one spec, and no workflow to run it. A
+# regression that only reproduced on Android could ship without anything going
+# red.
+#
+# This runs the Android emulator suite on every push to main, mirroring what
+# e2e-blockchain.yml does for Chrome and iOS.
+#
+# Why ubuntu and not macOS: the Android emulator needs hardware acceleration,
+# which on GitHub-hosted runners means KVM on Linux. That is both far cheaper
+# than macOS minutes and substantially faster than an unaccelerated emulator.
+#
+# The harness boots TWO emulators (the two-wallet fixture needs a sender and a
+# recipient), cloning the base AVD into `miden_e2e_A`/`miden_e2e_B` on first run
+# — see playwright/e2e/android/helpers/emulator-control.ts. So this job only has
+# to provide the SDK, a system image, and the BASE AVD; global-setup does the
+# rest and reuses an already-booted pair if one is present.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      network:
+        description: 'Network to test against'
+        required: false
+        default: 'testnet'
+        type: choice
+        options:
+          - testnet
+          - devnet
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-e2e:
+    name: Android E2E (${{ github.event.inputs.network || 'testnet' }})
+    runs-on: ubuntu-latest
+    # Two emulator boots (~3 min) + an APK assemble + a live-chain spec.
+    timeout-minutes: 60
+    env:
+      E2E_NETWORK: ${{ github.event.inputs.network || 'testnet' }}
+      MIDEN_E2E_TEST: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      # KVM is what makes the emulator usable rather than merely present. Without
+      # this the boot either fails outright or is slow enough to blow every wait.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: yarn }
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: |
+          sdkmanager --install "platform-tools" "emulator" \
+            "platforms;android-34" "system-images;android-34;google_apis;x86_64"
+
+      # The AVD pair is derived from this base by the harness, so its name has to
+      # match BASE_AVD in emulator-control.ts. Kept in one place there; if it is
+      # ever renamed, this step fails loudly rather than silently booting nothing.
+      - name: Create base AVD
+        run: |
+          echo no | avdmanager create avd \
+            --name Pixel_API_34 \
+            --package "system-images;android-34;google_apis;x86_64" \
+            --device pixel_6 \
+            --force
+          $ANDROID_HOME/emulator/emulator -list-avds
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build debug APK
+        run: yarn test:e2e:android:build
+
+      - name: Run Android E2E
+        run: yarn test:e2e:android:run
+
+      - name: Collect emulator logs on failure
+        if: failure()
+        run: |
+          adb devices || true
+          for serial in emulator-5554 emulator-5556; do
+            echo "=== logcat $serial (wallet + chromium only) ==="
+            adb -s "$serial" logcat -d -t 400 2>/dev/null \
+              | grep -iE "miden|chromium|console|fatal" | tail -120 || true
+          done
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-e2e-${{ github.run_id }}
+          path: |
+            test-results-android/
+          retention-days: 7
+          if-no-files-found: ignore
