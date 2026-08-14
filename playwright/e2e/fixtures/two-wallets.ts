@@ -12,7 +12,13 @@ import { attachConsoleCapture } from '../harness/browser-capture';
 import { CLIRunner } from '../harness/cli-runner';
 import { assertExtensionNetworkMatches } from '../harness/extension-network';
 import { buildFailureReport, saveFailureReport } from '../harness/failure-report';
-import { installGuardianFaults, type GuardianFaultPolicy, type GuardianOrigins } from '../harness/guardian-fault';
+import { type GuardianFaultPolicy, type GuardianOrigins } from '../harness/guardian-fault';
+import {
+  installNetworkFaults,
+  LOCAL_NETWORK_ORIGINS,
+  type NetworkFaultPolicy,
+  type NetworkOrigins
+} from '../harness/network-faults';
 import {
   SW_FETCH_LOG_PREFIX,
   attachNetworkCapture,
@@ -36,11 +42,19 @@ import { ChromeWalletPage, type ChromeWalletPageApi } from '../helpers/wallet-pa
 
 /**
  * Test-only controls layered onto the wallet page object so specs can arm/
- * clear guardian HTTP faults (see harness/guardian-fault.ts) without reaching
- * into the BrowserContext directly.
+ * clear infra faults (guardian HTTP via harness/guardian-fault.ts; the whole
+ * infra surface via harness/network-faults.ts) without reaching into the
+ * BrowserContext directly. Both route through the single combined handler
+ * installed by `installNetworkFaults`.
  */
 export interface GuardianFaultTestApi {
   armGuardianFault(policy: GuardianFaultPolicy): void;
+  /**
+   * Arm one or more whole-infra faults (node/prover/transport/positions/…).
+   * Pass an array to fault several dependencies at once. See
+   * harness/network-faults.ts for targets and modes.
+   */
+  armNetworkFault(policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]): void;
   clearFaults(): void;
 }
 
@@ -78,6 +92,34 @@ type TwoWalletFixtures = {
 const guardianOrigins = (): GuardianOrigins => {
   const cfg = getEnvironmentConfig();
   return { a: cfg.guardianUrl, b: cfg.guardianUrlB };
+};
+
+// Origin (protocol//host:port) of a URL, or undefined if unparseable.
+const toOrigin = (u?: string): string | undefined => {
+  if (!u) return undefined;
+  try {
+    return new URL(u).origin;
+  } catch {
+    return undefined;
+  }
+};
+
+// Whole-infra fault origins for the resilience suite. Node/prover/transport/
+// guardian come from the active environment (so localhost matches the harness's
+// own endpoints); positions/allocator/anvil/agglayer/binance/faucet keep the
+// localnet defaults (they're localhost-only). The network policy set is only
+// consulted when a spec calls armNetworkFault (resilience specs on localhost),
+// so this is inert for the guardian/blockchain suites that share this fixture.
+const networkOrigins = (): NetworkOrigins => {
+  const cfg = getEnvironmentConfig();
+  return {
+    ...LOCAL_NETWORK_ORIGINS,
+    node: toOrigin(cfg.rpcUrl) ?? LOCAL_NETWORK_ORIGINS.node,
+    prover: toOrigin(cfg.provingUrl) ?? LOCAL_NETWORK_ORIGINS.prover,
+    transport: toOrigin(cfg.transportUrl) ?? LOCAL_NETWORK_ORIGINS.transport,
+    guardianA: toOrigin(cfg.guardianUrl) ?? LOCAL_NETWORK_ORIGINS.guardianA,
+    guardianB: toOrigin(cfg.guardianUrlB) ?? LOCAL_NETWORK_ORIGINS.guardianB
+  };
 };
 
 const ROOT_DIR = path.resolve(__dirname, '../../..');
@@ -221,7 +263,7 @@ async function relaunchContext(userDataDir: string, extensionPath: string) {
   for (const p of context.pages()) {
     if (p !== page) await p.close().catch(() => {});
   }
-  const faults = installGuardianFaults(context, guardianOrigins());
+  const faults = installNetworkFaults(context, { network: networkOrigins(), guardian: guardianOrigins() });
   return { context, page, faults };
 }
 
@@ -436,7 +478,7 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
   // GuardianFaultPolicy the spec arms via the wallet page object below.
   // `let`: relaunch swaps in the new context's faults so armGuardianFault()/
   // clearFaults() (captured by reference below) keep targeting the live context.
-  let faults = installGuardianFaults(context, guardianOrigins());
+  let faults = installNetworkFaults(context, { network: networkOrigins(), guardian: guardianOrigins() });
 
   // Passed to ChromeWalletPage.reopen(): when the browser PROCESS has died (not
   // just the page), relaunch a fresh context on this same userDataDir and swap
@@ -461,7 +503,9 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
   const walletPage: GuardianAwareWalletPage = Object.assign(
     new ChromeWalletPage(page, extensionId, userDataDir, relaunch),
     {
-      armGuardianFault: (policy: GuardianFaultPolicy) => faults.arm(policy),
+      armGuardianFault: (policy: GuardianFaultPolicy) => faults.armGuardian(policy),
+      armNetworkFault: (policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]) =>
+        faults.armNetwork(policyOrPolicies),
       clearFaults: () => faults.clear()
     }
   );

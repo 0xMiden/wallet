@@ -82,15 +82,20 @@ test.describe('decideNetworkFault — mode → action', () => {
     expect(decideOne(NODE, { target: 'node', mode: 'delay', delayMs: 100 })).toEqual({ kind: 'delay', delayMs: 100 });
   });
 
-  test('truncatedBody / malformedBody → fulfill 200 with a bad body', () => {
-    const t = decideOne(NODE, { target: 'node', mode: 'truncatedBody' });
-    const m = decideOne(NODE, { target: 'node', mode: 'malformedBody' });
-    expect(t.kind === 'fulfill' && t.status).toBe(200);
-    expect(m.kind === 'fulfill' && m.status).toBe(200);
-    if (t.kind === 'fulfill' && m.kind === 'fulfill') {
-      expect(() => JSON.parse(t.body)).toThrow();
-      expect(() => JSON.parse(m.body)).toThrow();
-    }
+  test('truncatedBody → fulfill 200 with an unparseable body', () => {
+    const a = decideOne(NODE, { target: 'node', mode: 'truncatedBody' });
+    expect(a.kind).toBe('fulfill');
+    if (a.kind !== 'fulfill') throw new Error('unreachable');
+    expect(a.status).toBe(200);
+    expect(() => JSON.parse(a.body)).toThrow();
+  });
+
+  test('malformedBody → fulfill 200 with an unparseable body', () => {
+    const a = decideOne(NODE, { target: 'node', mode: 'malformedBody' });
+    expect(a.kind).toBe('fulfill');
+    if (a.kind !== 'fulfill') throw new Error('unreachable');
+    expect(a.status).toBe(200);
+    expect(() => JSON.parse(a.body)).toThrow();
   });
 });
 

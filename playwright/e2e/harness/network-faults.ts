@@ -229,7 +229,7 @@ export function decideNetworkFault(
   const nextHits = hits.slice();
   for (let i = 0; i < policies.length; i++) {
     const policy = policies[i];
-    if (!policyMatches(url, policy, origins)) continue;
+    if (!policy || !policyMatches(url, policy, origins)) continue;
     if (policy.mode === 'failFirstN' && (nextHits[i] ?? 0) >= (policy.count ?? 1)) {
       return { matchedIndex: i, action: { kind: 'continue' }, hits: nextHits };
     }
