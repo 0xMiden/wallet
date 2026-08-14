@@ -15,6 +15,8 @@
 
 ### Changes
 
+- [CHANGE][ci] **The Android end-to-end run now gets as far as starting an emulator.** Its first real run created the base virtual device successfully and then died in setup with "Base AVD not found": the tool that writes the device, the tool that lists it, and the test harness each resolved the Android home directory differently. All three are now pinned to one path, and the workflow fails at the create step if the emulator cannot see what was just written — instead of five minutes later, after paying for the SDK install and the APK build.
+
 - [CHANGE][ci] **Android now has automated end-to-end tests, and they actually run.** The Android harness existed but had no workflow and had gone stale against the app, so a regression that only reproduced on Android could ship with nothing going red. It now runs on every push to main. Fixing it turned up four separate faults, including an emulator that could never boot and a claim check that reported success when nothing had been claimed.
 - [CHANGE][ci] **A stuck click in the test suite no longer burns ten minutes and reports nothing.** Playwright leaves action timeouts unbounded by default, so a click on a button that never becomes actionable — one under a modal still animating in — waited out the entire per-test budget and then failed with a closed-context error naming neither the step nor the element. Actions are now bounded, and the address-book delete that hit this reports what it was waiting for. Also corrects the pinned `miden-client` CLI version, which recorded 0.14.8 while the pinned revision builds 0.15.0 — a mismatched CLI fails against the node with an unrelated-looking "accept header validation failed".
 
