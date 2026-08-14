@@ -3393,6 +3393,14 @@
     "message": "Bir note aldınız",
     "englishSource": "You have received a note"
   },
+  "transactionFailedNotificationTitle": {
+    "message": "İşlem başarısız oldu",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "Bir işlem tamamlanamadı. İncelemek için cüzdanı açın.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
   "noteReceivedTapToClaim": {
     "message": "Hak talebinde bulunmak için buraya dokunun",
     "englishSource": "Tap here to claim it"
