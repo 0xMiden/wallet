@@ -8,15 +8,19 @@ name: E2E Android
 # This runs the Android emulator suite on every push to main, mirroring what
 # e2e-blockchain.yml does for Chrome and iOS.
 #
-# Why macOS and not ubuntu: the emulator needs hardware acceleration, and it
-# needs enough CPU to run TWO of them. A standard ubuntu runner has ~4 vCPUs and
-# gave neither — the emulator warned that its requested core count "exceeds the
-# recommended cpus supported by KVM (4)" and the second emulator failed to boot
-# inside its deadline. macos-*-xlarge is the same runner class the iOS E2E jobs
-# already use, is an Apple Silicon host with HVF acceleration, and matches the
-# machine this harness was developed against (see emulator-control.ts, which
-# sizes itself for "a 10-core M-series host"). It costs more per minute than
-# ubuntu; a suite that cannot boot its emulators costs more than that.
+# Why ubuntu and NOT macOS: the emulator needs hardware acceleration, and on
+# GitHub-hosted runners only Linux can give it. macos-26-xlarge was tried and the
+# emulator died on the spot:
+#
+#   HVF error: HV_UNSUPPORTED
+#   qemu-system-aarch64-headless: failed to initialize HVF: Invalid argument
+#   QEMU main loop exits abnormally with code 1
+#
+# GitHub's macOS runners are themselves VMs and do not expose the Hypervisor
+# framework, so there is no acceleration to be had there at any runner size. KVM
+# on Linux is the only option — which is also why Android CI conventionally runs
+# on Linux. The contention that made this flaky is addressed by sizing the
+# emulators to the host instead (see EMULATOR_CORES in emulator-control.ts).
 #
 # The harness boots TWO emulators (the two-wallet fixture needs a sender and a
 # recipient), cloning the base AVD into `miden_e2e_A`/`miden_e2e_B` on first run
@@ -49,20 +53,7 @@ concurrency:
 jobs:
   android-e2e:
     name: Android E2E (${{ github.event.inputs.network || 'testnet' }})
-    # Same runner class the iOS E2E jobs use. Two Android emulators do not fit
-    # on a standard 4-vCPU ubuntu runner: the emulator itself warned "Number of
-    # SMP cpus requested (6) exceeds the recommended cpus supported by KVM (4)",
-    # and the second one lost the boot race outright ("miden_e2e_B on port 5556
-    # did not boot within 120000ms"). This is also the environment the Android
-    # harness was actually developed against — its own comments size things for
-    # "a 10-core M-series host" running arm64 emulators on HVF — so the CI job
-    # now matches the machine the code was written for instead of fighting a
-    # smaller, differently-virtualized one.
-    #
-    # Costs macOS runner minutes (billed at a higher multiplier than ubuntu).
-    # Deliberate: an Android suite that cannot boot its emulators is worth less
-    # than the minutes it saves.
-    runs-on: macos-26-xlarge
+    runs-on: ubuntu-latest
     # Two emulator boots + an APK assemble + a live-chain spec.
     timeout-minutes: 60
     env:
@@ -80,8 +71,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # No KVM step: that is a Linux concept. On Apple Silicon the emulator
-      # uses the Hypervisor framework, which needs no host setup.
+      # KVM is what makes the emulator usable rather than merely present. Without
+      # this the boot either fails outright or is slow enough to blow every wait.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
 
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: yarn }
@@ -96,7 +94,7 @@ jobs:
       - name: Install SDK packages
         run: |
           sdkmanager --install "platform-tools" "emulator" \
-            "platforms;android-34" "system-images;android-34;google_apis;arm64-v8a"
+            "platforms;android-34" "system-images;android-34;google_apis;x86_64"
 
       # The AVD pair is derived from this base by the harness, so its name has to
       # match BASE_AVD in emulator-control.ts. Kept in one place there; if it is
@@ -106,7 +104,7 @@ jobs:
           mkdir -p "$ANDROID_AVD_HOME"
           echo no | avdmanager create avd \
             --name Pixel_API_34 \
-            --package "system-images;android-34;google_apis;arm64-v8a" \
+            --package "system-images;android-34;google_apis;x86_64" \
             --device pixel_6 \
             --force
           # Fail HERE if the emulator can't see what avdmanager just wrote,
@@ -137,11 +135,7 @@ jobs:
           rev=$(node -p "require('./package.json').midenClientCliGit.rev")
           url=$(node -p "require('./package.json').midenClientCliGit.url")
           ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
-          # shasum, not sha256sum: this job runs on macOS, which ships the
-          # former and not the latter. The other E2E workflows are ubuntu-only
-          # and use sha256sum; both produce the same digest for the same input,
-          # so the cache key stays compatible with the entry warmed on main.
-          pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | shasum -a 256 | cut -c1-16)
+          pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
           echo "key=miden-e2e-cargo-v1-rust1.96.1-${{ hashFiles('playwright/e2e/local-stack/versions.env') }}-$pins" >> "$GITHUB_OUTPUT"
 
       - name: Cache cargo (cli + note-transport)
