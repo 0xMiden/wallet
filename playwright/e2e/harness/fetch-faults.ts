@@ -77,19 +77,21 @@ async function applyToRealm(realm: Worker, wire: FetchFaultWire[]): Promise<void
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
       await Promise.race([
-        realm.evaluate(cfg => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const g = globalThis as any;
-          g.__E2E_NET_FAULTS = cfg;
-          g.__E2E_NET_FAULT_HITS = {};
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return { wrapped: !!(globalThis as any).__e2e_fetch_wrapped, url: (globalThis as any).location?.href };
-        }, wire).then(r => {
-          if (process.env.FETCH_FAULT_DEBUG) {
-            // eslint-disable-next-line no-console
-            console.log(`[fetch-fault-debug] armed realm wrapped=${JSON.stringify(r)}`);
-          }
-        }),
+        realm
+          .evaluate(cfg => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const g = globalThis as any;
+            g.__E2E_NET_FAULTS = cfg;
+            g.__E2E_NET_FAULT_HITS = {};
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            return { wrapped: !!(globalThis as any).__e2e_fetch_wrapped, url: (globalThis as any).location?.href };
+          }, wire)
+          .then(r => {
+            if (process.env.FETCH_FAULT_DEBUG) {
+              // eslint-disable-next-line no-console
+              console.log(`[fetch-fault-debug] armed realm wrapped=${JSON.stringify(r)}`);
+            }
+          }),
         new Promise<void>((_, reject) => setTimeout(() => reject(new Error('evaluate timeout')), 3_000))
       ]);
       return;
