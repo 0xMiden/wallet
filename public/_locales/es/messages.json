@@ -1563,8 +1563,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "Si para entonces no ha sido reclamado, el $amount$ regresa a su billetera automáticamente. No se pierden fondos.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "Si no lo ha reclamado para entonces, puede reclamar el $amount$ nuevamente en su billetera. No se pierden fondos.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
