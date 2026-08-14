@@ -105,6 +105,8 @@
 
 ### Changes
 
+- [CHANGE][ci] **The end-to-end suites now test the network that matches the branch.** Devnet and testnet run different protocol versions, so a build for one cannot pass against the other. Both used to run on every push to main, with each gate passing if EITHER succeeded — which reported green whenever one network passed, masking real failures on the other. Devnet now runs on `next` and testnet on `main`, each with a gate that fails if its own network fails.
+
 - [CHANGE][extension] **Dropped the `tabs` permission from the extension manifest.** Nothing in the wallet reads other tabs' URLs/titles — `tabs.create/query/update/remove` and matching our own extension-page URLs work without it — so the permission was pure over-privilege (its "Read your browsing history" install warning was already subsumed by the content-script warning).
 
 ## 1.15.12 (2026-07-28)
