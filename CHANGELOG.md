@@ -36,6 +36,8 @@
 
 ### Changes
 
+- [CHANGE][ci] **Android test devices get enough memory to keep the wallet alive.** Each device was given four gigabytes, a figure chosen on a developer Mac; on the CI machine that is too little and Android was killing the wallet itself to free memory, which is why the run kept failing with the app simply not running. Each device now gets five, and the build tool's leftover background process is shut down first so the memory is there to give.
+
 - [CHANGE][ci] **Android test devices no longer run Google Play Services, which was starving the wallet.** The test emulators used a system image bundling Play Services even though the wallet needs none of it. With two devices on one CI machine, Play Services locked up for half a minute at a time and the operating system killed processes to cope — including, on the failing run, the wallet itself. The devices now use the plain Android image.
 
 - [CHANGE][ci] **A test that failed one run in six no longer does.** The wallet deliberately staggers how long it waits before retrying a failed network sync, so many wallets don't all retry in lockstep. A test checked that the wait had elapsed by advancing its clock to a fixed point that fell inside the staggered range about a sixth of the time — so roughly every sixth pull request failed its coverage gate for no reason. The test now pins the stagger instead of gambling on it.

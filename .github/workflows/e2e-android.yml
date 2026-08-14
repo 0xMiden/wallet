@@ -176,6 +176,12 @@ jobs:
       - name: Build debug APK
         run: yarn test:e2e:android:build
 
+      # Reclaim the Gradle daemon's heap before two emulators start competing
+      # for the runner's 16 GB. The daemon lingers after `assembleDebug` holding
+      # a GB or two it will never use again in this job.
+      - name: Stop the Gradle daemon
+        run: cd android && ./gradlew --stop || true
+
       - name: Run Android E2E
         run: yarn test:e2e:android:run
 
