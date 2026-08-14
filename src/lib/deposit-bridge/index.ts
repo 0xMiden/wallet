@@ -39,6 +39,8 @@ export {
   type DetectArrivalsResult
 } from './detect';
 
+export { SEPOLIA_CHAIN_ID, buildDepositPaymentUri, openPaymentDeeplink } from './deeplinks';
+
 export { fetchRecentDepositTxs, type DepositEvmTx } from './history';
 
 export {

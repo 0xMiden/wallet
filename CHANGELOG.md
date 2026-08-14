@@ -5,6 +5,7 @@
 ### Features
 
 - [FEATURE][all] **CEX-style deposit address for bridging in.** Every account's vault-derived EVM address is now a deposit address on Ethereum Sepolia: the Receive screen gains a **Cross-chain** tab (QR + copy/share, supported-token chips, recent on-chain activity) showing it. The wallet watches the address, pops a "funds arrived" drawer when ETH or USDC lands, and bridges to Miden in one tap — USDC via Epoch (gasless), ETH via Agglayer (gas self-funded from the deposit) or via Epoch's Fast route (the deposit ETH is first converted into WETH, with the conversion step called out in the route picker) — signed with the wallet key, no external wallet or WalletConnect needed, so bridge-in now also works on the extension (arrival detection runs while the popup is open). The WalletConnect flow remains as "Bridge from a connected wallet instead".
+- [FEATURE][all] **Cross-chain deposit starts from an amount.** The Receive Cross-chain tab now opens on an amount + token (ETH/USDC) form; tapping Bridge offers three ways to fund the deposit address: connect a wallet (WalletConnect), an EIP-681 `ethereum:` deeplink that pre-fills the send in an installed EVM wallet, or a payment-request QR (amount + token + Sepolia encoded) with copyable address.
 
 ### Fixes
 

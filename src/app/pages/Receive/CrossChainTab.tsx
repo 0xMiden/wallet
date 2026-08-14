@@ -2,14 +2,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
+import { parseUnits } from 'viem';
 
-import CopyButton from 'app/atoms/CopyButton';
-import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
-import { useShareAddress } from 'app/pages/Receive/useShareAddress';
+import { DepositMethodDrawer } from 'app/pages/Receive/DepositMethodDrawer';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
 import { Button, ButtonVariant } from 'components/Button';
-import { QRCode } from 'components/QRCode';
 import { TokenLogo } from 'components/TokenLogo';
 import { ActivityRow, type ActivityStatusTone } from 'components/ui/ActivityRow';
 import {
@@ -23,9 +21,12 @@ import {
 import { isBridgeDepositEnabled } from 'lib/feature-flags';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { hapticLight } from 'lib/mobile/haptics';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
+import { SelectAmount } from 'screens/send-flow/SelectAmount';
+import type { UIToken } from 'screens/send-flow/types';
 import { truncateAddress } from 'utils/string';
 
 interface CrossChainTabProps {
@@ -37,8 +38,6 @@ interface CrossChainTabProps {
   /** Opens the legacy WalletConnect bridge-deposit flow. */
   onBridgeDeposit: () => void;
 }
-
-const QR_FILE_NAME = 'miden-deposit-address.png';
 
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
 
@@ -67,6 +66,18 @@ const STATUS_TONE: Record<DepositEvmTx['status'], ActivityStatusTone> = {
   failed: 'failed'
 };
 
+/** Parse user input into base units; `undefined` for anything unusable. */
+function parseAmount(amount: string, decimals: number): bigint | undefined {
+  const trimmed = amount.trim();
+  if (!trimmed) return undefined;
+  try {
+    const parsed = parseUnits(trimmed, decimals);
+    return parsed > 0n ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const CrossChainTab: React.FC<CrossChainTabProps> = ({
   evmAddress,
   midenAddress,
@@ -74,8 +85,6 @@ export const CrossChainTab: React.FC<CrossChainTabProps> = ({
   onBridgeDeposit
 }) => {
   const { t } = useTranslation();
-  const { fieldRef, copy } = useCopyToClipboard();
-  const { qrRef, share } = useShareAddress({ address: evmAddress, fileName: QR_FILE_NAME, onFallbackCopy: copy });
   const relativeTime = useRelativeTime();
 
   const balances = useDepositAddressStore(s => s.balances);
@@ -83,9 +92,25 @@ export const CrossChainTab: React.FC<CrossChainTabProps> = ({
   const poll = useDepositAddressStore(s => s.poll);
   const recentTxs = useDepositAddressStore(s => s.recentTxs);
 
+  const [token, setToken] = useState<DepositTokenId>('ETH');
+  const [amount, setAmount] = useState('');
+  const [tokenPickerOpen, setTokenPickerOpen] = useState(false);
+  const [methodOpen, setMethodOpen] = useState(false);
+
   const [evmOpen, setEvmOpen] = useState(false);
   const { address: connectedEvmAddress, connected: evmConnected } = useEvmWalletConnection();
   const walletConnectAvailable = !isExtension() && isBridgeDepositEnabled();
+
+  const config = getDepositToken(token);
+  const parsedAmount = parseAmount(amount, config.decimals);
+
+  const uiToken: UIToken = {
+    id: config.id,
+    name: config.symbol,
+    decimals: config.decimals,
+    balance: 0,
+    fiatPrice: 0
+  };
 
   const handleOpenEvm = useCallback(() => {
     hapticLight();
@@ -101,6 +126,19 @@ export const CrossChainTab: React.FC<CrossChainTabProps> = ({
     setEvmOpen(false);
     onBridgeDeposit();
   }, [connectedEvmAddress, evmConnected, evmOpen, onBridgeDeposit]);
+
+  // Hardware/swipe back peels the tab's own sheets before the page-level default.
+  useMobileBackHandler(() => {
+    if (methodOpen) {
+      setMethodOpen(false);
+      return true;
+    }
+    if (tokenPickerOpen) {
+      setTokenPickerOpen(false);
+      return true;
+    }
+    return false;
+  }, [methodOpen, tokenPickerOpen]);
 
   /** Tokens whose detected balance clears their dust floor — the persistent bridge entry point. */
   const fundedTokens = useMemo(
@@ -124,6 +162,18 @@ export const CrossChainTab: React.FC<CrossChainTabProps> = ({
     [t]
   );
 
+  const handleSelectToken = useCallback((next: DepositTokenId) => {
+    hapticLight();
+    setToken(next);
+    setTokenPickerOpen(false);
+  }, []);
+
+  const handleBridgeClick = useCallback(() => {
+    if (!parsedAmount) return;
+    hapticLight();
+    setMethodOpen(true);
+  }, [parsedAmount]);
+
   return (
     <div
       className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
@@ -132,8 +182,7 @@ export const CrossChainTab: React.FC<CrossChainTabProps> = ({
     >
       <div className="min-h-full flex flex-col">
         <div className="flex flex-col items-center px-6 pt-4 pb-32">
-          <FormField ref={fieldRef} value={evmAddress} style={{ display: 'none' }} />
-          {/* Hidden, untruncated address for E2E DOM fallback (visible address below is truncated). */}
+          {/* Hidden, untruncated address for E2E DOM fallback. */}
           <span data-testid="receive-evm-address-full" className="sr-only">
             {evmAddress}
           </span>
@@ -142,30 +191,32 @@ export const CrossChainTab: React.FC<CrossChainTabProps> = ({
             {midenAddress}
           </span>
 
-          <div className="flex items-center gap-2 rounded-full bg-gray-50 px-3 py-1.5 mb-4">
+          <div className="flex items-center gap-2 rounded-full bg-gray-50 px-3 py-1.5 mb-6">
             <TokenLogo symbol="ETH" size="sm" />
             <span className="text-xs font-medium text-black">{t('ethereumSepolia')}</span>
           </div>
 
-          <div className="w-full flex flex-col items-center justify-center gap-6">
-            <QRCode ref={qrRef} address={evmAddress} payload={evmAddress} size={300} />
-            <CopyButton
-              text={evmAddress}
-              className="w-full rounded-full! text-center py-5 bg-surface-interactive hover:bg-surface-interactive"
-            >
-              <span className="text-base font-heading font-bold text-heading-gray">
-                {truncateAddress(evmAddress, false, 16, 8)}
-              </span>
-            </CopyButton>
+          <div className="w-full">
+            <SelectAmount
+              embedded
+              token={uiToken}
+              amount={amount}
+              isValidAmount={!amount.trim() || !!parsedAmount}
+              label={t('depositAmountEntryTitle')}
+              onAmountChange={setAmount}
+              onSelectToken={() => setTokenPickerOpen(true)}
+            />
           </div>
 
-          <div className="w-full flex items-center justify-center gap-3 pt-5">
-            {DEPOSIT_TOKEN_IDS.map(id => (
-              <div key={id} className="flex items-center gap-2 rounded-full bg-gray-50 px-3 py-1.5">
-                <TokenLogo symbol={getDepositToken(id).symbol} size="sm" />
-                <span className="text-sm font-medium text-black">{getDepositToken(id).symbol}</span>
-              </div>
-            ))}
+          <div className="w-full pt-6">
+            <Button
+              title={t('bridge')}
+              variant={ButtonVariant.Primary}
+              disabled={!parsedAmount}
+              data-testid="deposit-entry-bridge"
+              onClick={handleBridgeClick}
+              className="w-full max-w-none rounded-full text-base font-semibold"
+            />
           </div>
 
           <p className="w-full pt-5 text-center text-sm text-heading-gray opacity-70">{t('depositAddressExplainer')}</p>
@@ -174,17 +225,12 @@ export const CrossChainTab: React.FC<CrossChainTabProps> = ({
             <p className="text-xs leading-snug text-heading-gray">{t('depositAddressWarning')}</p>
           </div>
 
-          <button type="button" onClick={share} className="flex items-center gap-3 text-accent-primary pt-6">
-            <Icon name={IconName.Share} size="md" className="shrink-0" />
-            <span className="font-heading text-2xl font-bold leading-none text-heading-gray">{t('share')}</span>
-          </button>
-
           {/* Persistent entry point: current detected balances, not a dismissible prompt. */}
           <div className="w-full pt-6">
             {fundedTokens.length > 0 ? (
               <div className="w-full flex flex-col gap-2">
                 {fundedTokens.map(id => {
-                  const token = getDepositToken(id);
+                  const funded = getDepositToken(id);
                   const raw = balances[id];
                   return (
                     <div
@@ -193,9 +239,9 @@ export const CrossChainTab: React.FC<CrossChainTabProps> = ({
                       className="w-full flex items-center justify-between rounded-10 bg-gray-50 px-4 py-3"
                     >
                       <div className="flex items-center gap-2">
-                        <TokenLogo symbol={token.symbol} size="sm" />
+                        <TokenLogo symbol={funded.symbol} size="sm" />
                         <span className="font-heading text-base font-bold text-heading-gray">
-                          {`${formatBalance(raw ?? 0n, token.decimals)} ${token.symbol}`}
+                          {`${formatBalance(raw ?? 0n, funded.decimals)} ${funded.symbol}`}
                         </span>
                       </div>
                       <Button
@@ -249,22 +295,48 @@ export const CrossChainTab: React.FC<CrossChainTabProps> = ({
               </div>
             </div>
           )}
-
-          {/* WalletConnect is not supported on the extension: the Reown relay rejects the
-              extension bundle's auth JWT (WebSocket close 3000), so the AppKit connect flow
-              can never complete there. */}
-          {walletConnectAvailable && (
-            <button
-              type="button"
-              data-testid="receive-cross-chain"
-              onClick={handleOpenEvm}
-              className="pt-8 text-sm font-medium text-accent-primary underline"
-            >
-              {t('bridgeFromConnectedWallet')}
-            </button>
-          )}
         </div>
       </div>
+
+      {/* Which token to request from the counterparty wallet — always both options. */}
+      <Drawer open={tokenPickerOpen} onOpenChange={setTokenPickerOpen}>
+        <DrawerContent className="md:mx-auto md:max-w-md">
+          <DrawerHeader>
+            <DrawerTitle>{t('depositBridgeSelectAsset')}</DrawerTitle>
+          </DrawerHeader>
+          <div className="flex flex-col divide-y divide-rule-default px-6 pb-6">
+            {DEPOSIT_TOKEN_IDS.map(id => (
+              <button
+                key={id}
+                type="button"
+                data-testid={`deposit-entry-token-${id}`}
+                onClick={() => handleSelectToken(id)}
+                className="flex w-full items-center gap-3 py-4 text-left"
+              >
+                <TokenLogo symbol={getDepositToken(id).symbol} size="md" />
+                <span className="flex-1 font-heading text-base font-bold text-heading-gray">
+                  {getDepositToken(id).symbol}
+                </span>
+                {id === token && (
+                  <Icon name={IconName.Checkmark} size="sm" className="text-accent-primary" fill="currentColor" />
+                )}
+              </button>
+            ))}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {parsedAmount !== undefined && (
+        <DepositMethodDrawer
+          open={methodOpen}
+          onOpenChange={setMethodOpen}
+          token={token}
+          amount={parsedAmount}
+          evmAddress={evmAddress}
+          onConnectWallet={walletConnectAvailable ? handleOpenEvm : undefined}
+        />
+      )}
+
       {walletConnectAvailable && <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />}
     </div>
   );

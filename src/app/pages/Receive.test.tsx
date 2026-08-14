@@ -64,6 +64,25 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
   useMobileBackHandler: jest.fn()
 }));
 
+jest.mock('lib/ui/drawer', () => ({
+  Drawer: ({ open, children }: { open: boolean; children: React.ReactNode }) => (
+    <div data-testid="drawer" data-open={String(open)}>
+      {children}
+    </div>
+  ),
+  DrawerContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DrawerHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DrawerTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>
+}));
+
+// The amount field is the shared SelectAmount input; stub it to a plain input so
+// the test drives the value contract directly.
+jest.mock('screens/send-flow/SelectAmount', () => ({
+  SelectAmount: ({ amount, onAmountChange }: { amount: string; onAmountChange: (v: string) => void }) => (
+    <input data-testid="deposit-amount-input" value={amount} onChange={e => onAmountChange(e.target.value)} />
+  )
+}));
+
 jest.mock('components/Button', () => ({
   Button: ({
     children,
@@ -113,6 +132,8 @@ jest.mock('components/TabPicker', () => ({
 
 jest.mock('lib/deposit-bridge', () => ({
   DEPOSIT_TOKEN_IDS: ['ETH', 'USDC'],
+  buildDepositPaymentUri: jest.fn(() => 'ethereum:mock'),
+  openPaymentDeeplink: jest.fn(),
   getDepositToken: (id: string) => ({
     id,
     symbol: id,
