@@ -1580,8 +1580,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "O zamana kadar talepte bulunulmaması durumunda, $amount$ otomatik olarak cüzdanınıza geri döner. Hiçbir fon kaybolmaz.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "O zamana kadar talepte bulunulmazsa, hak talebinde bulunabilirsiniz. $amount$ cüzdanınıza geri dönün. Hiçbir fon kaybı olmaz.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"

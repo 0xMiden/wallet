@@ -325,7 +325,7 @@
   "swapSuccessSourcingLiquidity": "We're sourcing liquidity for your swap. It usually fills in about 30 seconds.",
   "swapSuccessTrackProgress": "You can track its progress in Activities.",
   "expirationDate": "Expiration Date",
-  "recallReturnsNote": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+  "recallReturnsNote": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
   "recallTimeInPast": "This time has already passed — pick a future time",
   "expiresInSeconds": "In $seconds$ seconds",
   "expiresInMinutes": "In $minutes$ minutes",
