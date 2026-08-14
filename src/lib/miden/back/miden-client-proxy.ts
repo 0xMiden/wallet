@@ -776,6 +776,22 @@ export const midenClientProxy = {
   },
 
   /**
+   * Node-authoritative commit state of a tx by hex id (see
+   * MidenClientInterface.getTransactionCommitState). Backs the send/swap
+   * idempotent-retry guard so a Failed row whose submit actually landed is never
+   * resubmitted (double-send).
+   */
+  async getTransactionCommitState(txId: string): Promise<'committed' | 'pending' | 'not-found'> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return (await getMidenClient()).getTransactionCommitState(txId);
+    }
+    // Offscreen (mobile) dispatch for this read isn't wired yet; conservatively
+    // report indeterminate so the retry guard blocks a possible double-send
+    // rather than risk one. Extension/desktop + E2E run flag-off (the path above).
+    return 'not-found';
+  },
+
+  /**
    * Read consumable notes as plain {@link ConsumableNoteDto}s (issue #260, slice 4).
    *
    * This is the behavior-AFFECTING move: the return shape changes from live

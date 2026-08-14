@@ -936,6 +936,29 @@ export class MidenClientInterface {
     return transactions.filter(tx => getBech32AddressFromAccountId(tx.accountId()) === accountId);
   }
 
+  /**
+   * Node-authoritative commit state of a specific transaction (by hex id).
+   *
+   *   - `'committed'` the tx is on chain (TransactionStatus has a block number).
+   *   - `'pending'`   the tx is locally known but not yet committed (still in
+   *                   the mempool / awaiting a block) — it was submitted.
+   *   - `'not-found'` no local record — INDETERMINATE. The tx may have landed on
+   *                   chain without this client recording it (e.g. an offscreen
+   *                   write killed after submit but before apply), so a caller
+   *                   MUST NOT treat this as "definitely didn't land".
+   *
+   * Used by the send/swap idempotent-retry guard (transaction/cancel.ts
+   * `verifySendLanded`) so a Failed row whose original submit actually landed is
+   * never blindly resubmitted (double-send). Mirrors the note-state authority of
+   * `verifyConsumeLanded` but for the OUTPUT side, keyed on the tx id.
+   */
+  async getTransactionCommitState(txId: string): Promise<'committed' | 'pending' | 'not-found'> {
+    const transactions = await this.client.transactions.list();
+    const record = transactions.find(tx => tx.id().toHex() === txId);
+    if (!record) return 'not-found';
+    return record.transactionStatus().getBlockNum() !== undefined ? 'committed' : 'pending';
+  }
+
   async waitForTransactionCommit(
     transactionId: string,
     maxWaitMs: number = 60_000,
