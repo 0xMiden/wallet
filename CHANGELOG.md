@@ -36,6 +36,8 @@
 
 ### Changes
 
+- [CHANGE][ci] **Android test devices no longer run Google Play Services, which was starving the wallet.** The test emulators used a system image bundling Play Services even though the wallet needs none of it. With two devices on one CI machine, Play Services locked up for half a minute at a time and the operating system killed processes to cope — including, on the failing run, the wallet itself. The devices now use the plain Android image.
+
 - [CHANGE][ci] **A test that failed one run in six no longer does.** The wallet deliberately staggers how long it waits before retrying a failed network sync, so many wallets don't all retry in lockstep. A test checked that the wait had elapsed by advancing its clock to a fixed point that fell inside the staggered range about a sixth of the time — so roughly every sixth pull request failed its coverage gate for no reason. The test now pins the stagger instead of gambling on it.
 
 - [CHANGE][ci] **When an Android test run fails, the logs collected afterwards now contain something.** The step that exists to explain a failure read only the tail end of the device log and then filtered it, so on a run where the wallet never started it produced an empty section — no way to tell whether the app had crashed, been killed for memory, or simply never been asked to do anything. It now checks whether the app is running at all, reads the crash log, searches the whole buffer rather than its last few hundred lines, and always prints an unfiltered tail as a fallback.

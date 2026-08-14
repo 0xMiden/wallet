@@ -22,6 +22,20 @@ name: E2E Android
 # on Linux. The contention that made this flaky is addressed by sizing the
 # emulators to the host instead (see EMULATOR_CORES in emulator-control.ts).
 #
+# The system image is `default` (AOSP), NOT `google_apis`: the wallet has no
+# dependency on Play Services — no firebase, no push-notifications plugin, no
+# google-services.json — so GMS is pure overhead, and on a runner hosting two
+# emulators it is overhead that costs a test. With google_apis the failing run
+# showed Play Services itself falling over under the load:
+#
+#   ANR in com.google.android.partnersetup      latency 31943ms
+#   ANR in com.google.android.gms.persistent    latency 26613ms
+#   Zygote: Process ... exited due to signal 9 (Killed)   (x4)
+#   emulator-5556 — app process: NO MIDEN PROCESS (app not running)
+#
+# i.e. the wallet under test was killed while GMS thrashed. AOSP still ships a
+# WebView, which is all a Capacitor app needs.
+#
 # The harness boots TWO emulators (the two-wallet fixture needs a sender and a
 # recipient), cloning the base AVD into `miden_e2e_A`/`miden_e2e_B` on first run
 # — see playwright/e2e/android/helpers/emulator-control.ts. So this job only has
@@ -94,7 +108,7 @@ jobs:
       - name: Install SDK packages
         run: |
           sdkmanager --install "platform-tools" "emulator" \
-            "platforms;android-34" "system-images;android-34;google_apis;x86_64"
+            "platforms;android-34" "system-images;android-34;default;x86_64"
 
       # The AVD pair is derived from this base by the harness, so its name has to
       # match BASE_AVD in emulator-control.ts. Kept in one place there; if it is
@@ -104,7 +118,7 @@ jobs:
           mkdir -p "$ANDROID_AVD_HOME"
           echo no | avdmanager create avd \
             --name Pixel_API_34 \
-            --package "system-images;android-34;google_apis;x86_64" \
+            --package "system-images;android-34;default;x86_64" \
             --device pixel_6 \
             --force
           # Fail HERE if the emulator can't see what avdmanager just wrote,
