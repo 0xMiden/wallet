@@ -797,7 +797,20 @@ export class Vault {
               console.log('[Vault.createHDAccount] Step 8a: importPublicMidenWalletFromSeed');
               return { accountId: await midenClient.importPublicMidenWalletFromSeed(walletSeed, newScheme) };
             } catch (e) {
-              console.warn('Failed to import wallet from seed, creating new wallet instead', e);
+              // A network-unreachable import and a genuine "not on chain" miss are
+              // different answers; swallowing both creates a fresh EMPTY wallet on a
+              // transient node blip, hiding the user's real (correctly-seeded)
+              // account — a fund-loss shape. Mirror the Vault.spawn guard: only a
+              // definitive miss may fall through to create-fresh; connectivity
+              // aborts so the user can retry against a reachable node (resilience gap 13).
+              if (isLikelyNetworkError(e)) {
+                console.error('[Vault.createHDAccount] import could not reach the node', e);
+                throw new PublicError(
+                  'Could not reach the Miden network to look up your account. Your seed phrase is fine — ' +
+                    'please check your connection and try again.'
+                );
+              }
+              console.warn('Seed not found on chain; creating a new wallet instead', e);
               return { accountId: await midenClient.createMidenWallet(walletType, walletSeed, newScheme) };
             }
           }
