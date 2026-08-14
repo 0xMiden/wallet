@@ -288,6 +288,25 @@ cover the branch logic with a mocked client.
 
 ---
 
+## Delivery status (as of 2026-08-14)
+
+**Done, verified, committed (full unit suite green: 529 suites / 7,414 tests; tsc + lint:e2e clean):**
+- **Harness foundation** — generalized fault engine (`network-faults.ts`, 18 unit tests); dedicated config + base exclusion; package scripts; `e2e-resilience.yml` (push:main + nightly + dispatch). **Key discovery + fix:** `context.route` cannot reach node/prover/transport gRPC-web (it runs in the SW + the SDK's `web-client-methods-worker`), so a **fetch-layer fault injector** was built (`fetch-faults.ts` + the wrapper in `network-capture.ts`), with reliable arming that skips the parked rayon WASM workers. **Seam smoke passes against the live localnet stack** — the seam is proven to fault real node operations.
+- **Gap 1** (critical) — silent note-drop → wall-clock retry + backoff + dead-letter store + dApp/manual funnel. 18 tests.
+- **Gap 2** (critical) — double-send → `verifySendLanded` + node-verified idempotent Retry (`getTransactionCommitState`). 12 tests. (Remaining for the FULL project: anchor-capture-before-submit for the offscreen-kill no-id case + sync-side reconciliation — mobile/offscreen is out of e2e scope; the inline/default path is covered.)
+- **Gap 7** (high) — client singleton self-heals after a startup RPC failure. Test.
+- **Gap 9** (high) — one-shot RPC reads get a timeout + retry (`rpc-timeout.ts`). 3 tests.
+- **Gap 11** (med) — ErrorBoundary Try Again wired + live offline subscription. Test.
+- **Gap 13** (med) — add-account discriminates node-unreachable from on-chain miss (extends shipped #629). Mirrors the tested spawn guard.
+- CHANGELOG entries.
+
+**Remaining (roadmap — most are UI/UX-coupled or larger, several need a UX decision):**
+- **Gap 3** (NTL delivery-state chip), **4** (positions error state vs $0), **5** (app-wide connectivity + staleness — needs banner placement + threshold decisions), **6** (background-failure notification — needs notification-style decision), **16** (prices "unavailable" cue) — each spans data + store + UI layers and involves a UX choice.
+- **Gap 8** (AggLayer poll timeout is easy; the stalled-delivery reconcile is larger), **10** (faucet per-source retry + bounded PoW + timeout — clean logic, unit-testable), **14** (sync watchdog *true* cancellation — hard: the SDK sync isn't cheaply abortable), **15** (guardian 5xx/429 for structural ops + `guardian` connectivity category), **17** (storage false-freshness — couples to the SyncCompleted/spinner semantics).
+- **Per-gap browser e2e specs** — the seam is proven; each gap's e2e (arm fault → assert graceful behavior) is written against the validated harness. The 3 regression-guard specs (#15/#16/#19) similarly.
+
+These are good follow-up PRs; several (3–6, 16) should pair with the UX owner on the banner/notification/stale-badge design.
+
 ## Self-Review
 
 **Spec coverage:** every ranked gap 1–17 maps to a task (g1→1.1, g2→1.2, g3→2.1, g4→2.2, g5→2.3, g6→2.4, g7→2.5, g8→2.6, g9→2.7, g10→3.1, g11→3.4, g12→3.6, g13→3.7, g14→3.8, g15→3.2, g16→3.9, g17→3.9); all 25 scenarios map to a spec (guards 15/16/19 → Tasks 0.7/3.3). Harness/config/CI/lint from the spec → Phase 0. Env-override seams + timing knobs → Task 0.5. Mobile explicitly out of scope (spec non-goal).
