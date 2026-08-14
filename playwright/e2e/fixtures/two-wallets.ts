@@ -8,6 +8,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { getEnvironmentConfig } from '../config/environments';
+import { testArtifactDirName } from '../harness/artifact-path';
 import { attachConsoleCapture } from '../harness/browser-capture';
 import { CLIRunner } from '../harness/cli-runner';
 import { assertExtensionNetworkMatches } from '../harness/extension-network';
@@ -647,7 +648,7 @@ export const test = base.extend<TwoWalletFixtures>({
   },
 
   timeline: async ({}, use, testInfo) => {
-    const outputDir = getRunOutputDir(testInfo.titlePath.join('-').replace(/\s+/g, '_'));
+    const outputDir = getRunOutputDir(testArtifactDirName(testInfo.titlePath));
     const timeline = new TimelineRecorder(outputDir);
 
     timeline.emit({
