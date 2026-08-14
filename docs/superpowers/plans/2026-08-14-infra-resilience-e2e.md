@@ -82,11 +82,21 @@ Guardian faults keep working via `armGuardianFault` (unchanged); `armNetworkFaul
 
 **Files:**
 - Create: `playwright/e2e/harness/network-faults.ts`
-- Create: `playwright/e2e/harness/network-faults.spec.ts`
+- Create: `playwright/e2e/tests/resilience/network-faults-policy.spec.ts` (Playwright pure-logic spec, mirroring `guardian-fault-policy.spec.ts` — no browser/stack)
+
+**Design (integration-critical):** ONE combined `context.route('**/*')` handler.
+`guardian-fault.ts` stays **untouched**. `installNetworkFaults` holds two policy
+slots: an array of `NetworkFaultPolicy` (armed by `armNetwork`) and one
+`GuardianFaultPolicy` (armed by `armGuardian`, the adapter behind `armGuardianFault`).
+The handler tries network policies first; on no network match it defers to the
+existing `decideGuardianFault`/`applyGuardianFaultAction` (byte-identical guardian
+behavior — the guardian suite is unaffected). This avoids the Playwright "route
+already handled" double-`continue()` conflict of two `**/*` handlers.
 
 **Interfaces:**
-- Produces: `installNetworkFaults(context, origins): NetworkFaultControls` with `arm(policy)/clear()`; pure `decideNetworkFault(url, policy, hits, origins)` and `applyNetworkFaultAction(route, action)`; types `NetworkFaultTarget`, `NetworkFaultMode`, `NetworkFaultPolicy`, `NetworkOrigins`.
-- Consumes: the `GuardianRouteLike` pattern from `guardian-fault.ts` (copy the narrow route interface for unit-testability).
+- Produces: `installNetworkFaults(context, {network, guardian}): NetworkFaultControls` with `armNetwork(policyOrPolicies)/armGuardian(policy)/clear()`; pure `decideNetworkFault(url, policies, hits, origins)` returning `{matchedIndex, action, hits}` and `applyNetworkFaultAction(route, action)`; types `NetworkFaultTarget` (incl. `guardianA`/`guardianB`), `NetworkFaultMode`, `NetworkFaultPolicy`, `NetworkOrigins`, `LOCAL_NETWORK_ORIGINS`.
+- Consumes: `decideGuardianFault`, `applyGuardianFaultAction`, `GuardianFaultPolicy`, `GuardianOrigins` from `guardian-fault.ts` (imported, not modified).
+- Modes implemented here: `status500`, `status429RetryAfter`, `abort`, `connectionRefused`, `timeout`, `hang` (never settle), `delay`, `slowStream`, `truncatedBody`, `malformedBody`, `failFirstN`. (`conflictPendingDelta` stays guardian-only via `armGuardian`; `nonceMismatch`/`canonicalizing` added in Task 3.3 with real wire envelopes read from the guardian client.)
 
 - [ ] **Step 1 — Write failing unit tests** in `network-faults.spec.ts` mirroring `guardian-fault-policy.spec.ts`: for each `mode`, assert `decideNetworkFault` returns the right `action` and hit-count; assert target/path matching by origin table; assert `failFirstN`/`count` self-clears; assert an unmatched origin → `{kind:'continue'}`.
 - [ ] **Step 2 — Run → FAIL** (`yarn jest network-faults` → "installNetworkFaults is not a function").
