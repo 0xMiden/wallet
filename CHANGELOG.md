@@ -36,6 +36,8 @@
 
 ### Changes
 
+- [CHANGE][ci] **The Android test set-up no longer waits forever for software that isn't installed.** After the test devices were switched to a plain Android image, start-up still waited for a Google Play Services process to settle — on an image that has no Play Services, so it could never appear. Every run then spent its whole start-up budget waiting and failed with "did not stabilize". That wait is now skipped when the device has no Play Services, which is also the case where the problem it guards against cannot happen.
+
 - [CHANGE][ci] **Android test devices go back to four gigabytes each.** Giving them five made things worse rather than better — with two devices on one machine the host ran short and the devices stopped starting up reliably at all. The memory freed by shutting down the leftover build process stays, since that gives the machine room without taking it from anywhere.
 
 - [CHANGE][ci] **Android test devices get enough memory to keep the wallet alive.** Each device was given four gigabytes, a figure chosen on a developer Mac; on the CI machine that is too little and Android was killing the wallet itself to free memory, which is why the run kept failing with the app simply not running. Each device now gets five, and the build tool's leftover background process is shut down first so the memory is there to give.
