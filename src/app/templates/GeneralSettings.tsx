@@ -29,6 +29,9 @@ const GeneralSettings: FC = () => {
     () =>
       themeOptions.map(opt => ({
         id: `theme-${opt}`,
+        // TabPickerItem destructures `id` OUT before spreading, so the id above never
+        // reaches the DOM; the raw data-testid rides ...props onto the <button>.
+        'data-testid': `theme-${opt}`,
         title: t(opt === 'system' ? 'themeSystem' : opt === 'light' ? 'themeLight' : 'themeDark'),
         active: themeSetting === opt
       })),
@@ -70,7 +73,7 @@ const GeneralSettings: FC = () => {
   }, []);
 
   return (
-    <div className="w-full flex flex-col gap-y-6">
+    <div className="w-full flex flex-col gap-y-6" data-testid="general-settings">
       <div className="flex items-center justify-between gap-x-4" data-testid={GeneralSettingsSelectors.ThemeSelector}>
         <span className="font-medium text-base leading-[130%] text-black">{t('theme')}</span>
         <TabPicker className="flex-shrink-0" tabs={themeTabs} onTabChange={handleThemeTabChange} />
