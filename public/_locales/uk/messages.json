@@ -3394,6 +3394,14 @@
     "message": "Ви отримали note",
     "englishSource": "You have received a note"
   },
+  "transactionFailedNotificationTitle": {
+    "message": "Помилка транзакції",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "Не вдалося завершити транзакцію. Відкрийте гаманець для перегляду.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
   "noteReceivedTapToClaim": {
     "message": "Торкніться тут, щоб отримати його",
     "englishSource": "Tap here to claim it"

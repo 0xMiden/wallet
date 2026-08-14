@@ -3393,6 +3393,14 @@
     "message": "您已收到note",
     "englishSource": "You have received a note"
   },
+  "transactionFailedNotificationTitle": {
+    "message": "交易失败",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "交易无法完成。打开钱包查看。",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
   "noteReceivedTapToClaim": {
     "message": "点击此处领取它",
     "englishSource": "Tap here to claim it"

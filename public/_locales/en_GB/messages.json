@@ -3394,6 +3394,14 @@
     "message": "You have received a note",
     "englishSource": "You have received a note"
   },
+  "transactionFailedNotificationTitle": {
+    "message": "Transaction failed",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "A transaction couldn't be completed. Open the wallet to review.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
   "noteReceivedTapToClaim": {
     "message": "Tap here to claim it",
     "englishSource": "Tap here to claim it"

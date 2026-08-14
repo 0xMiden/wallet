@@ -3393,6 +3393,14 @@
     "message": "note을(를) 받았습니다.",
     "englishSource": "You have received a note"
   },
+  "transactionFailedNotificationTitle": {
+    "message": "거래 실패",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "거래를 완료할 수 없습니다. 지갑을 열어 검토해 보세요.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
   "noteReceivedTapToClaim": {
     "message": "여기를 탭하여 신청하세요.",
     "englishSource": "Tap here to claim it"
