@@ -150,6 +150,13 @@ export interface NetworkFaultControls {
    * to `installGuardianFaults`). Backs the wallet page object's `armGuardianFault`.
    */
   armGuardian(policy: GuardianFaultPolicy): void;
+  /**
+   * How many guardian requests the armed guardian policy has faulted since it
+   * was armed. Lets a spec assert the fault ACTUALLY FIRED (a guardian op that
+   * completed with zero hits proves the fault never reached it — a false green),
+   * without reaching into the container. Reset by `armGuardian`/`clear`.
+   */
+  guardianFaultHits(): number;
   /** Disarm everything — all subsequent requests pass through untouched. */
   clear(): void;
 }
@@ -318,6 +325,9 @@ export function installNetworkFaults(
     armGuardian(policy) {
       guardianPolicy = policy;
       guardianHits = 0;
+    },
+    guardianFaultHits() {
+      return guardianHits;
     },
     clear() {
       networkPolicies = [];

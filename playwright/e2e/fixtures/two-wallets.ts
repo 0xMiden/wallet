@@ -12,20 +12,20 @@ import { attachConsoleCapture } from '../harness/browser-capture';
 import { CLIRunner } from '../harness/cli-runner';
 import { assertExtensionNetworkMatches } from '../harness/extension-network';
 import { buildFailureReport, saveFailureReport } from '../harness/failure-report';
-import { type GuardianFaultPolicy, type GuardianOrigins } from '../harness/guardian-fault';
 import { installFetchFaultControls, isFetchFaultTarget, toFetchWire } from '../harness/fetch-faults';
-import {
-  installNetworkFaults,
-  LOCAL_NETWORK_ORIGINS,
-  type NetworkFaultPolicy,
-  type NetworkOrigins
-} from '../harness/network-faults';
+import { type GuardianFaultPolicy, type GuardianOrigins } from '../harness/guardian-fault';
 import {
   SW_FETCH_LOG_PREFIX,
   attachNetworkCapture,
   attachPageWorkersCapture,
   attachServiceWorkerFetchCapture
 } from '../harness/network-capture';
+import {
+  installNetworkFaults,
+  LOCAL_NETWORK_ORIGINS,
+  type NetworkFaultPolicy,
+  type NetworkOrigins
+} from '../harness/network-faults';
 import { captureWalletSnapshot } from '../harness/state-snapshot';
 import { TestStepRunner } from '../harness/test-step';
 import { TimelineRecorder } from '../harness/timeline-recorder';
@@ -58,6 +58,12 @@ export interface GuardianFaultTestApi {
    * See harness/network-faults.ts for targets and modes.
    */
   armNetworkFault(policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]): Promise<void>;
+  /**
+   * How many guardian requests the currently-armed guardian fault has faulted.
+   * Lets a spec prove the fault actually fired (0 hits ⇒ the fault never reached
+   * the op, i.e. a false green). See `NetworkFaultControls.guardianFaultHits`.
+   */
+  guardianFaultHits(): number;
   clearFaults(): Promise<void>;
 }
 
@@ -517,6 +523,7 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
     new ChromeWalletPage(page, extensionId, userDataDir, relaunch),
     {
       armGuardianFault: (policy: GuardianFaultPolicy) => faults.armGuardian(policy),
+      guardianFaultHits: () => faults.guardianFaultHits(),
       armNetworkFault: async (policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]) => {
         const list = Array.isArray(policyOrPolicies) ? policyOrPolicies : [policyOrPolicies];
         // context.route serves guardian + HTTP services; the fetch layer serves
