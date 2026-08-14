@@ -18,10 +18,12 @@ const SEND_BASE_UNITS = toBaseUnits('1', TOKEN_DECIMALS);
 // wallet actually talks to on this network.
 const envConfig = getEnvironmentConfig();
 const A = envConfig.guardianUrl;
-if (!envConfig.guardianUrlB) {
-  throw new Error(`E2E_NETWORK=${envConfig.name} has no second guardian (guardianUrlB) configured for switch tests`);
-}
-const B = envConfig.guardianUrlB;
+// SKIP, not throw — see guardian-switch.spec.ts for the reasoning: a module-level
+// throw aborts COLLECTION and takes down every other spec in the run, which is
+// how the whole devnet guardian job died at setup on `next`. `?? ''` keeps every
+// downstream use a plain string, since the describes skip on the empty one.
+const B = envConfig.guardianUrlB ?? '';
+const NO_SECOND_GUARDIAN = `E2E_NETWORK=${envConfig.name} has no second guardian (guardianUrlB) — switch tests need two operators`;
 
 /**
  * Guardian commitment (the on-chain `GUARDIAN_SLOT_NAMES.PUBLIC_KEY` value)
@@ -81,6 +83,7 @@ async function guardianCommitment(endpoint: string): Promise<string> {
  * actually exercises.
  */
 test.describe('Guardian switch stress - kill mid-switch resumes', () => {
+  test.skip(() => !B, NO_SECOND_GUARDIAN);
   test('kill during finalizeGuardianSwitch (registering-guardian), then reopen resumes to a consistent state', async ({
     walletA,
     midenCli,
@@ -217,6 +220,7 @@ test.describe('Guardian switch stress - kill mid-switch resumes', () => {
  * switch (not just the retry) landed on B.
  */
 test.describe('Guardian switch stress - register fault retries', () => {
+  test.skip(() => !B, NO_SECOND_GUARDIAN);
   test('transient register failures on B then backoff recovers, switch completes', async ({
     walletA,
     midenCli,
@@ -333,6 +337,7 @@ test.describe('Guardian switch stress - register fault retries', () => {
  * (`SendManager.tsx`'s `cannotSendToSelf` guard).
  */
 test.describe('Guardian switch stress - repeat round-trip', () => {
+  test.skip(() => !B, NO_SECOND_GUARDIAN);
   test('A to B to A round-trip keeps guardian state consistent, still usable', async ({
     walletA,
     walletB,
@@ -468,6 +473,7 @@ test.describe('Guardian switch stress - repeat round-trip', () => {
  * other, which this catches regardless of which guardian ends up active.
  */
 test.describe('Guardian switch stress - concurrent send + switch', () => {
+  test.skip(() => !B, NO_SECOND_GUARDIAN);
   test('concurrent send + switch on the same account serialize cleanly', async ({
     walletA,
     walletB,

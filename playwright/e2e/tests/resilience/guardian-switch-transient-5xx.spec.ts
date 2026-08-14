@@ -1,3 +1,4 @@
+import { getEnvironmentConfig } from '../../config/environments';
 import { test, expect } from '../../fixtures/two-wallets';
 
 /**
@@ -19,11 +20,23 @@ import { test, expect } from '../../fixtures/two-wallets';
  * This is a TDD guard: if it goes RED, the register-retry does not cover a
  * transient 5xx on this path and the product needs the fix (gap 15).
  */
-const GUARDIAN_A_URL = process.env.GUARDIAN_URL ?? 'http://localhost:3000';
-const GUARDIAN_B_URL = process.env.GUARDIAN_URL_B ?? 'http://localhost:3001';
+// Guardian operators for the SELECTED network, from the same source
+// guardian-switch.spec.ts uses. The ad-hoc `process.env.GUARDIAN_URL_B ??
+// 'http://localhost:3001'` this replaced defaulted to the LOCALNET container on
+// every network that doesn't export that variable — and no workflow does — so on
+// testnet this spec asked the picker for `http://localhost:3001` and failed with
+// "no guardian picker option with endpoint http://localhost:3001" while its 47
+// siblings passed.
+const envConfig = getEnvironmentConfig();
+const GUARDIAN_A_URL = envConfig.guardianUrl;
+// `?? ''` rather than a non-null assertion at the call sites: the describe below
+// skips on the empty string, so every use downstream is an ordinary string.
+const GUARDIAN_B_URL = envConfig.guardianUrlB ?? '';
+const NO_SECOND_GUARDIAN = `E2E_NETWORK=${envConfig.name} has no second guardian (guardianUrlB) — a switch needs two operators`;
 
 test.describe('infra resilience — transient guardian 5xx during a structural op', () => {
   test.describe.configure({ mode: 'serial' });
+  test.skip(() => !GUARDIAN_B_URL, NO_SECOND_GUARDIAN);
 
   test('switch-guardian survives a transient 5xx on the register call and completes', async ({ walletA, steps }) => {
     test.setTimeout(600_000);
