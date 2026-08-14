@@ -75,6 +75,7 @@
   "earnEstimatedRewards": "Estimated Rewards",
   "earnPositionsTitle": "My positions",
   "earnPositionsRegionLabel": "Positions",
+  "earnPositionsLoadError": "Couldn't load your positions. Check your connection and try again.",
   "earnPositionsApy": "$apy$ APY",
   "earnDeposited": "Deposited",
   "earnDepositAmountLabel": "Deposit Amount",
