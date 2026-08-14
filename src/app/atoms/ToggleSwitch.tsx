@@ -81,6 +81,11 @@ const ToggleSwitch = forwardRef<HTMLInputElement, ToggleSwitchProps>(
           style={{ width: '40px', height: '22px', top: 0, left: 0, zIndex: 10 }}
           checked={localChecked}
           onChange={handleChange}
+          // `testID` was analytics-only until now: every `General Settings/*Toggle`
+          // string existed as a trackEvent label with no DOM counterpart, so no E2E
+          // could reach a toggle. Emit it as a data-testid too (attribute only — the
+          // analytics call above is unchanged).
+          data-testid={testID}
           {...rest}
         />
       </div>
