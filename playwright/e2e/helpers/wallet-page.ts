@@ -156,6 +156,13 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   /** Full dump of chrome.storage.local — end-of-run forensic snapshot. */
   dumpChromeStorage(): Promise<Record<string, unknown>>;
   /**
+   * One line per `TridentMain.transactions` row (`id·type·status·stage·error`) —
+   * the fastest way to see WHY a claim or send stalled, instead of inferring it
+   * from a balance that never moved. Implemented on ChromeWalletPage and used by
+   * specs through this interface, so it has to be declared here.
+   */
+  dumpTransactions(): Promise<string>;
+  /**
    * Drain pending notes via the two-level per-faucet GROUP-claim UI (Pending
    * tab → asset detail → group claim / per-note claim) instead of the top-level
    * "Claim All". Chrome-only: mobile page objects cover their React Claim All
