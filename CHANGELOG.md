@@ -24,6 +24,8 @@
 
 ### Changes
 
+- [CHANGE][ci] **The Android end-to-end run no longer loses a coin flip on the second emulator.** Its boot budget and per-emulator core count were both tuned on a 10-core Mac; on the CI runner, which has about four and boots two emulators at once, they contend badly and the second one missed a two-minute deadline while still booting normally. Both numbers are now derived from the machine actually running them.
+
 - [CHANGE][ci] **A passing test run no longer gets reported as a failed one because of the words in a test's name.** Each test's diagnostics are saved to a folder named after its title, and GitHub rejects an entire upload if any path in it contains a colon, angle bracket or similar. One test's name contains "miden:<publicKey>", so the whole Chrome suite ran green on main and the job still went red at the upload step — throwing away the very diagnostics that step exists to keep. Folder names are now sanitised in one shared place used by the Chrome, iOS and Android harnesses. This also fixes a quieter bug: a title containing a slash was splitting one test's artifacts across nested folders.
 
 - [CHANGE][ci] **The two newest end-to-end workflows were each missing a setup step every other one has, and both failed on their first real run.** The stress suite never started the note-transport service, so a wallet could not even be created — creation syncs before it returns, the sync could not reach the service, and both wallets ended the run with no account at all. The Android suite never pre-built the Miden client binary, so it compiled from source *inside* the first test and spent nine of its fifteen allotted minutes in the compiler before timing out. Both now do what the other suites already did.
