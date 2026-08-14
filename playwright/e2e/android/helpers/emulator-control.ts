@@ -30,18 +30,21 @@ const BASE_AVD = 'Pixel_API_34';
 const BOOT_TIMEOUT_MS = 300_000;
 
 /**
- * Cores per emulator. TWO emulators share one host, so asking for more than
- * half the CPUs each guarantees they fight. The old fixed `8` was fine on the
- * 10-core Mac it was written for and actively harmful on a 4-vCPU runner, where
- * the emulator itself warned:
+ * Cores per emulator: up to the host's core count, capped at 8.
  *
- *   qemu: Number of SMP cpus requested (6) exceeds the recommended cpus
- *   supported by KVM (4)
+ * Deliberately NOT halved for the two emulators. Halving was tried and made
+ * things worse, not better: on a 4-vCPU runner it gave 2 cores each, both
+ * emulators booted cleanly — and then `create_wallets` hung for the full 30
+ * minute test budget with the wallet logging `polls=0 iters=0`, because WASM
+ * account creation has nowhere near enough CPU on 2 cores. The two runs that
+ * PASSED asked for 8 (clamped by the emulator to 6) on the same 4 vCPUs.
  *
- * Rayon-backed native proving still benefits from cores where they exist, hence
- * the 8 ceiling rather than a flat small number.
+ * So oversubscribing two emulators across the host is fine — the guest is idle
+ * most of the time and bursts during proving — while starving them is not. The
+ * boot contention that this was originally meant to fix is handled by
+ * BOOT_TIMEOUT_MS instead, which costs nothing when the boot succeeds.
  */
-const EMULATOR_CORES = Math.max(2, Math.min(8, Math.floor(os.cpus().length / 2)));
+const EMULATOR_CORES = Math.max(2, Math.min(8, os.cpus().length));
 const BOOT_POLL_MS = 1_000;
 
 interface DevicePair {
