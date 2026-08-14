@@ -5,6 +5,8 @@
 ### Features
 ### Fixes
 
+- [FIX][all] **The wallet no longer ignores the Guardian asking it to slow down.** The background sync runs every few seconds and is by far the Guardian's most frequent caller, yet it was the one caller that treated "too many requests" as an ordinary error — logging it and coming straight back, which kept the limit tripped. Sends and claims already backed off on that signal; the sync now does too, pausing for as long as the Guardian asks and leaving the budget for the transaction that is actually trying to go through.
+
 - [FIX][all] **The rotated-out-device fix now actually triggers.** The check shipped last round compared this device's key against its own local copy of the account — but Guardian accounts are private, so their state never travels on chain and that copy stays frozen at whatever this device last knew. Every device therefore still concluded it was the rightful signer and kept taking authorisation back. The device now asks the Guardian for the current state first, which it can still do because its recovery key is accepted even while its device key is being rejected.
 
 - [FIX][all] **The send review screen no longer promises that an unclaimed payment comes back on its own.** It said the amount "returns to your wallet automatically" once the expiration passed. That is only true for the network's own token: everything else — every token you actually send — waits in your pending list until you claim it. The screen now says you can claim it back, which is what the wallet does. Found while writing the recall end-to-end test.

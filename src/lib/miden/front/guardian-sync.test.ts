@@ -8,7 +8,7 @@
 import { WalletType } from 'screens/onboarding/types';
 
 import { SELF_HEAL_AUTH_FAILURE_THRESHOLD } from './guardian-selfheal';
-import { syncGuardianAccounts, zustandProvider } from './guardian-sync';
+import { SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS, syncGuardianAccounts, zustandProvider } from './guardian-sync';
 
 const storeState: {
   accounts: Array<{ publicKey: string; type: WalletType; requiresHotKeyRotation?: boolean; hotPublicKey?: string }>;
@@ -387,5 +387,86 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
     expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
     expect(mockReRegister).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('syncGuardianAccounts — 429 back-off', () => {
+  const rateLimited = (retryAfterSecs?: number) => ({ status: 429, meta: { retryAfterSecs } });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    storeState.accounts = [];
+    storeState.checkGuardianDrift.mockResolvedValue(undefined);
+  });
+
+  it('stops calling the guardian for the cooldown it asked for', async () => {
+    const sync = jest.fn(async () => {
+      throw rateLimited(45);
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+    storeState.accounts = [
+      { publicKey: 'acct-429', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    const now = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now');
+    nowSpy.mockReturnValue(now);
+    await syncGuardianAccounts();
+    expect(sync).toHaveBeenCalledTimes(1);
+
+    // Inside the 45s the guardian named: not one further request.
+    nowSpy.mockReturnValue(now + 44_000);
+    await syncGuardianAccounts();
+    await syncGuardianAccounts();
+    expect(sync).toHaveBeenCalledTimes(1);
+
+    // Past it, syncing resumes.
+    nowSpy.mockReturnValue(now + 46_000);
+    await syncGuardianAccounts();
+    expect(sync).toHaveBeenCalledTimes(2);
+    nowSpy.mockRestore();
+  });
+
+  it('applies a floor when the guardian names no cooldown', async () => {
+    const sync = jest.fn(async () => {
+      throw rateLimited(undefined);
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+    storeState.accounts = [
+      { publicKey: 'acct-429-nofloor', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    const now = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now');
+    nowSpy.mockReturnValue(now);
+    await syncGuardianAccounts();
+
+    nowSpy.mockReturnValue(now + SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS - 1_000);
+    await syncGuardianAccounts();
+    expect(sync).toHaveBeenCalledTimes(1);
+
+    nowSpy.mockReturnValue(now + SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS + 1_000);
+    await syncGuardianAccounts();
+    expect(sync).toHaveBeenCalledTimes(2);
+    nowSpy.mockRestore();
+  });
+
+  it('never self-heals on a 429 — it is not an auth failure', async () => {
+    const sync = jest.fn(async () => {
+      throw rateLimited(1);
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+    storeState.accounts = [
+      { publicKey: 'acct-429-noheal', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    const now = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now');
+    for (let i = 0; i <= SELF_HEAL_AUTH_FAILURE_THRESHOLD + 2; i++) {
+      nowSpy.mockReturnValue(now + i * 60_000);
+      await syncGuardianAccounts();
+    }
+    expect(mockReRegister).not.toHaveBeenCalled();
+    nowSpy.mockRestore();
   });
 });

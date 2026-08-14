@@ -1,5 +1,6 @@
 import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
 import { getSignerDetailsFromAccount } from 'lib/miden/guardian/account';
+import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import type { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -64,6 +65,24 @@ const hardeningChecked = new Set<string>();
 // lives in decideColdReRegisterSelfHeal (guardian-selfheal.ts, unit-tested).
 const consecutiveAuthFailures = new Map<string, number>();
 const selfHealState = new Map<string, SelfHealAttemptState>();
+
+/**
+ * `Date.now()` before which an account's sync is paused because the guardian
+ * rate-limited it. This tick runs every ~3s per account, which makes it by far
+ * the guardian's most frequent caller — and it was the ONE caller that ignored a
+ * 429 completely. The transaction pipeline requeues on the server's own
+ * `Retry-After` and `registerOnGuardianWithRetry` honours it too; this path just
+ * logged the error and came back 3 seconds later, sustaining the very condition
+ * the guardian was complaining about. Two wallets sharing a runner's IP sit at
+ * ~40 requests/minute from this poll alone against a 60/minute cap, so once
+ * transaction traffic starts, a 429 storm is self-inflicted and self-feeding.
+ */
+const rateLimitedUntil = new Map<string, number>();
+
+/** Cooldown when the guardian rate-limits without naming one. */
+export const SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS = 30_000;
+/** Ceiling on a server-provided cooldown, so one bad header can't park syncing. */
+export const SYNC_RATE_LIMIT_MAX_COOLDOWN_MS = 120_000;
 
 /**
  * Re-register the account's CURRENT on-chain signer set on the guardian,
@@ -173,6 +192,15 @@ export async function syncGuardianAccounts(): Promise<void> {
   if (guardianAccounts.length === 0) return;
 
   for (const account of guardianAccounts) {
+    // Serve the guardian's own cooldown before anything else: a rate-limited
+    // account has nothing to gain from another request, and every one we skip is
+    // budget the transaction path can use instead.
+    const pausedUntil = rateLimitedUntil.get(account.publicKey);
+    if (pausedUntil !== undefined) {
+      if (Date.now() < pausedUntil) continue;
+      rateLimitedUntil.delete(account.publicKey);
+    }
+
     try {
       const service = await getOrCreateMultisigService(account.publicKey, zustandProvider);
       await service.sync();
@@ -217,6 +245,20 @@ export async function syncGuardianAccounts(): Promise<void> {
           selfHealState.set(account.publicKey, { attempts: (prev?.attempts ?? 0) + 1, lastAttemptAt: now });
           await attemptColdReRegisterSelfHeal(account);
         }
+      } else if (isGuardianRateLimited(error)) {
+        // Back off for as long as the guardian asked, and say so once rather than
+        // every 3s. A 429 is not an auth problem, so the failure count resets.
+        consecutiveAuthFailures.delete(account.publicKey);
+        const askedMs = (guardianRetryAfterSec(error) ?? 0) * 1000;
+        const cooldown = Math.min(
+          Math.max(askedMs, SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS),
+          SYNC_RATE_LIMIT_MAX_COOLDOWN_MS
+        );
+        rateLimitedUntil.set(account.publicKey, Date.now() + cooldown);
+        console.warn(
+          `[Guardian Sync] rate limited (429) for ${account.publicKey}; pausing sync for ${Math.round(cooldown / 1000)}s`
+        );
+        continue;
       } else {
         // Non-auth error (e.g. network) — don't accumulate auth-failure count.
         consecutiveAuthFailures.delete(account.publicKey);
