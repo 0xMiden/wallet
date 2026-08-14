@@ -305,6 +305,19 @@ cover the branch logic with a mocked client.
 - **Gap 8** (AggLayer poll timeout is easy; the stalled-delivery reconcile is larger), **10** (faucet per-source retry + bounded PoW + timeout — clean logic, unit-testable), **14** (sync watchdog *true* cancellation — hard: the SDK sync isn't cheaply abortable), **15** (guardian 5xx/429 for structural ops + `guardian` connectivity category), **17** (storage false-freshness — couples to the SyncCompleted/spinner semantics).
 - **Per-gap browser e2e specs** — the seam is proven; each gap's e2e (arm fault → assert graceful behavior) is written against the validated harness. The 3 regression-guard specs (#15/#16/#19) similarly.
 
+### Update — browser e2e specs delivered + a pivotal fetch-seam finding
+
+Delivered, each verified live against the localnet stack and made **falsifiable** (the fault-fired half fails if the fault doesn't actually bite, so none can be a false green):
+
+- `node-outage-recovery` — under a node read outage, a note minted while offline is undiscoverable (proves the fault bit); after reconnect the wallet catches up and conserves both notes exactly.
+- `claim-under-outage-recovery` — a claim during a node outage does not strand funds; the claimed balance is proven spendable **on-chain** (sent to B, B receives). *Finding #2 investigated → NOT a gap.*
+- `guardian-conflict-retry` (guard #16) — co-signed **send** survives a transient `conflict_pending_delta` (409); `guardianFaultHits()` proves it fired.
+- `guardian-switch-transient-5xx` (gap 15) — **switch-guardian** survives a transient 5xx on the `/configure` register call; endpoint ends on B. *Not a gap — `registerOnGuardianWithRetry` covers it.*
+- `guardian-consume-transient-5xx` — co-signed **consume** survives a transient guardian 5xx; vault settles exactly.
+- Added `guardianFaultHits()` to the fault controls + wallet page object so every guardian-fault spec self-verifies the fault fired.
+
+**PIVOTAL FINDING — the fetch seam faults only the node READ path.** Verified the hard way (external ground truth, not just green tests): the delegated **prover**, the transaction **submit**, and **note-transport delivery** all use a non-`fetch` gRPC-web transport the evaluate-installed wrapper cannot retrofit — a prover fault leaves the container still proving, a consume submitted under a node fault still lands on-chain, and a private note is still delivered under a recipient transport fault (zero requests seen at the fetch layer). Only node SyncState/GetAccount/GetBlockHeader reads go through the wrapped `fetch` and genuinely fault (they log `INJECTED:<mode>`). Two false-green specs (prover-fallback, transport-delivery) were written, caught, and deleted. Consequence: the original design's assumption that node/prover/transport are all fetch-faultable holds **only for node reads**; prover / submit / transport-delivery / total-node-partition scenarios need **infra-level faulting** (`docker pause <svc>` / disconnect the container network), which is the natural next harness increment. Guardian (context.route) and node-read (fetch) are the two working seams today. See the FIDELITY BOUNDARY block in `harness/fetch-faults.ts`.
+
 These are good follow-up PRs; several (3–6, 16) should pair with the UX owner on the banner/notification/stale-badge design.
 
 ## Self-Review
