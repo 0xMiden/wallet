@@ -9,6 +9,7 @@ import { getIntercom, useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
 import { syncGuardianAccounts } from './guardian-sync';
+import { requestNotesRefresh } from './note-refresh';
 import { isTestSyncPaused } from './test-sync-pause';
 
 const SYNC_INTERVAL_MS = 3_000;
@@ -134,6 +135,10 @@ export function useSyncTrigger() {
               consecutiveSyncFailures = 0;
             });
             clearReachabilityIssues();
+            // The sync just imported any new notes; surface them NOW instead of
+            // waiting out the claimable-notes SWR interval (up to 5s) — the note
+            // read runs after the sync's wasm lock has been released (#462).
+            requestNotesRefresh();
 
             const guardianAccountKeys = useWalletStore
               .getState()
