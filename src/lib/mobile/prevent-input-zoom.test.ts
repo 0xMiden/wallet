@@ -68,9 +68,8 @@ describe('PREVENT_INPUT_ZOOM_SCRIPT (#503 — iOS faucet WebView input zoom)', (
     runInjectedScript();
     // The latch must NOT be set — otherwise a later, effective injection would be
     // permanently suppressed (the reviewed ordering bug).
-    expect(
-      (window as unknown as { __preventInputZoomInjected?: boolean }).__preventInputZoomInjected
-    ).toBeUndefined();
+    const latch = (window as unknown as { __preventInputZoomInjected?: boolean }).__preventInputZoomInjected;
+    expect(latch).toBeUndefined();
 
     // Once <head> exists, a re-injection applies the viewport lock.
     document.documentElement.appendChild(document.createElement('head'));
