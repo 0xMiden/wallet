@@ -24,6 +24,10 @@
 - Add hidden developer endpoint configuration (7-tap the Welcome logo during onboarding) to override RPC / prover / note-transport / faucet / explorer / guardian endpoints and network ID; read-only view with reset-to-defaults in Settings.
 - Dev-only: a "No guardian" option can be enabled from developer settings (7-tap the onboarding logo), which then shows a "No guardian" card on the Choose-your-guardian screen; selecting it creates a private single-key account with no guardian co-signer.
 
+### Changes
+
+- [CHANGE][ci] **The end-to-end suites now test the network that matches the branch.** Devnet and testnet run different protocol versions, so a build for one cannot pass against the other. Both used to run on every push to main, with each gate passing if EITHER succeeded — which reported green whenever one network passed, masking real failures on the other. Devnet now runs on `next` and testnet on `main`, each with a gate that fails if its own network fails.
+
 ## 1.15.19 (2026-08-05)
 
 ### Fixes
