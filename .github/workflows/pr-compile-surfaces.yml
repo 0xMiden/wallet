@@ -81,7 +81,12 @@ jobs:
 
   ios:
     name: Compile iOS
-    runs-on: macos-15
+    # macos-26, matching the iOS E2E jobs in e2e-blockchain.yml. NOT macos-15:
+    # that image ships Xcode 16.4 / iOS 18.5, and the in-app browser plugin uses
+    # `UIGlassEffect`, an iOS 26 API — so the build fails there with
+    # "cannot find 'UIGlassEffect' in scope" while compiling fine on a machine
+    # with Xcode 26. A compile gate on the wrong toolchain tests the wrong thing.
+    runs-on: macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
