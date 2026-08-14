@@ -14,10 +14,10 @@ describe('withRpcTimeout (resilience gap 9)', () => {
   it('rejects with RpcTimeoutError when the node blackholes past the timeout (no infinite hang)', async () => {
     jest.useFakeTimers();
     const hang = () => new Promise<number>(() => {}); // never settles
-    const promise = withRpcTimeout(hang, 'wedged', { timeoutMs: 100, retries: 1 });
-    const assertion = expect(promise).rejects.toBeInstanceOf(RpcTimeoutError);
-    await jest.advanceTimersByTimeAsync(250); // past both attempts
-    await assertion;
+    // Capture the outcome, advance past both attempts' timeouts, then assert.
+    const caught = withRpcTimeout(hang, 'wedged', { timeoutMs: 100, retries: 1 }).catch((e: unknown) => e);
+    await jest.advanceTimersByTimeAsync(250);
+    expect(await caught).toBeInstanceOf(RpcTimeoutError);
     jest.useRealTimers();
   });
 });
