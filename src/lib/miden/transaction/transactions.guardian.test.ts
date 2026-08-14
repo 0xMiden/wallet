@@ -2963,6 +2963,15 @@ describe('completeReplaceHotKeyTransaction', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     txStore.length = 0;
+    // `clearAllMocks` resets this to return undefined, which made the
+    // post-rotation re-register throw a TypeError in every test that did not
+    // override it. That went unnoticed while the re-register was best-effort:
+    // the tests asserted the rotation completed, and it did — with the guardian
+    // allowlist never written, which is the permanent-401 bug in miniature.
+    // Default to a working cold service so the happy paths exercise the real one.
+    mockBuildColdMultisigService.mockResolvedValue({
+      reRegisterCurrentStateOnGuardian: jest.fn(async () => {})
+    });
   });
 
   it('calls swapHotKey with the new hot pubkey, drops the cached service, and marks the row Completed', async () => {
@@ -3035,11 +3044,10 @@ describe('completeReplaceHotKeyTransaction', () => {
     tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
     txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
 
-    mockBuildColdMultisigService.mockResolvedValue({
-      reRegisterCurrentStateOnGuardian: jest.fn(async () => {
-        throw new Error('guardian down');
-      })
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {
+      throw new Error('guardian down');
     });
+    mockBuildColdMultisigService.mockResolvedValue({ reRegisterCurrentStateOnGuardian });
     mockGetMidenClient.mockResolvedValue({
       syncState: async () => {},
       getAccount: async () => ({ id: () => ({ toString: () => 'acc-1' }) })
@@ -3054,9 +3062,53 @@ describe('completeReplaceHotKeyTransaction', () => {
 
     await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
 
+    // Every attempt is spent before giving up. Without this the retry could be
+    // deleted and the suite would stay green.
+    expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(3);
     expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
+    expect((row.extraInputs as Record<string, unknown>).reRegisterFailed).toBe(true);
+  });
+
+  it('recovers a transient re-register failure instead of leaving the new hot key unauthorized', async () => {
+    // The regression this guards: a guardian recovery run rotated the key, the
+    // single re-register attempt failed, and every consume afterwards died with
+    // "GUARDIAN HTTP error 401: Unauthorized - Your session has expired".
+    // The whole block is retried, not just its final push, because the reads
+    // that feed it (provider accounts, syncState, getAccount, cold service) are
+    // exactly what fails while the rotation is still settling.
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    let calls = 0;
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('guardian still settling the rotation');
+    });
+    mockBuildColdMultisigService.mockResolvedValue({ reRegisterCurrentStateOnGuardian });
+    mockGetMidenClient.mockResolvedValue({
+      syncState: async () => {},
+      getAccount: async () => ({ id: () => ({ toString: () => 'acc-1' }) })
+    });
+
+    const swapHotKey = jest.fn(async () => {});
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [{ publicKey: 'acc-1', hotPublicKey: 'old-hot-pub', coldPublicKey: 'cold' }],
+      swapHotKey
+    };
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+
+    expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(2);
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    // The allowlist DID land on the second attempt, so the row must not claim
+    // otherwise — a stale `true` here would send the self-heal chasing a
+    // problem that no longer exists.
+    expect((row.extraInputs as Record<string, unknown>).reRegisterFailed).toBe(false);
   });
 
   it('marks the row Failed when the provider does not implement swapHotKey', async () => {
