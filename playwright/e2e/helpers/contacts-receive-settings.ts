@@ -215,7 +215,21 @@ export async function deleteContact(wallet: ChromeWalletPageApi, address: string
         `so this address is probably one of this wallet's accounts rather than an external contact.`
     );
   }
-  await confirmButton.click();
+  // Bounded and self-describing. This click hung for the entire test budget on
+  // main: the confirmation modal animates in, so the actionability check can sit
+  // unsettled, and with no actionTimeout Playwright waits forever. A forced
+  // retry covers the animating-overlay case; the throw names what happened
+  // rather than surfacing later as a closed-context error.
+  try {
+    await confirmButton.click({ timeout: 15_000 });
+  } catch {
+    await confirmButton.click({ force: true, timeout: 15_000 }).catch(() => {
+      throw new Error(
+        `deleteContact(${address}): the confirmation modal's Confirm button was visible but not clickable ` +
+          `within 15s, even forced. Something is overlaying it, or the modal never finished animating in.`
+      );
+    });
+  }
 
   try {
     await row.waitFor({ state: 'detached', timeout: timeoutMs });

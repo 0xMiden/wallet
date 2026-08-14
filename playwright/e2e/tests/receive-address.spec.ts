@@ -38,8 +38,8 @@
  * prefixes the BIP21-style scheme. Asserting `payload === publicKey` would fail
  * on a perfectly working wallet.
  */
-import { ACCOUNT_ID_RE } from '../helpers/account-id';
 import { expect, test } from '../fixtures/two-wallets';
+import { ACCOUNT_ID_RE } from '../helpers/account-id';
 import {
   MIDEN_URI_PREFIX,
   copyReceiveAddress,
