@@ -41,7 +41,9 @@ on:
         default: 'devnet'
         type: choice
         options:
-          - both
+          # No 'both': the gates require every network that ran to succeed, and a
+          # wallet built for one protocol line cannot pass against the other, so
+          # 'both' is unpassable by construction rather than merely slow.
           - devnet
           - testnet
 
@@ -217,7 +219,13 @@ jobs:
   chrome-gate:
     name: Chrome E2E Gate
     needs: [chrome-devnet, chrome-testnet]
-    if: always()
+    # `!cancelled()` rather than `always()`: the concurrency group supersedes
+    # in-progress runs constantly, and the whitelist below correctly treats a
+    # cancelled network as not-a-pass. Combined with `always()` that would paint a
+    # red gate on every superseded run — noise that trains people to ignore it. A
+    # cancelled run should report cancelled, not failed; a genuinely failed job
+    # still runs this gate and still fails it.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Require the branch's network to pass
@@ -408,7 +416,13 @@ jobs:
   chrome-guardian-gate:
     name: Chrome Guardian E2E Gate
     needs: [chrome-guardian-devnet, chrome-guardian-testnet]
-    if: always()
+    # `!cancelled()` rather than `always()`: the concurrency group supersedes
+    # in-progress runs constantly, and the whitelist below correctly treats a
+    # cancelled network as not-a-pass. Combined with `always()` that would paint a
+    # red gate on every superseded run — noise that trains people to ignore it. A
+    # cancelled run should report cancelled, not failed; a genuinely failed job
+    # still runs this gate and still fails it.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Require the branch's network to pass
@@ -800,7 +814,13 @@ jobs:
   mobile-gate:
     name: Mobile E2E Gate
     needs: [mobile-devnet, mobile-testnet]
-    if: always()
+    # `!cancelled()` rather than `always()`: the concurrency group supersedes
+    # in-progress runs constantly, and the whitelist below correctly treats a
+    # cancelled network as not-a-pass. Combined with `always()` that would paint a
+    # red gate on every superseded run — noise that trains people to ignore it. A
+    # cancelled run should report cancelled, not failed; a genuinely failed job
+    # still runs this gate and still fails it.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Require the branch's network to pass
@@ -1193,7 +1213,13 @@ jobs:
   mobile-guardian-gate:
     name: Mobile Guardian E2E Gate
     needs: [mobile-guardian-devnet, mobile-guardian-testnet]
-    if: always()
+    # `!cancelled()` rather than `always()`: the concurrency group supersedes
+    # in-progress runs constantly, and the whitelist below correctly treats a
+    # cancelled network as not-a-pass. Combined with `always()` that would paint a
+    # red gate on every superseded run — noise that trains people to ignore it. A
+    # cancelled run should report cancelled, not failed; a genuinely failed job
+    # still runs this gate and still fails it.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Require the branch's network to pass
