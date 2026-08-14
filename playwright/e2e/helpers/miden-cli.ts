@@ -67,6 +67,14 @@ export function resolveCliPath(): string {
     if (!pinned || reported.includes(pinned)) {
       return 'miden-client';
     }
+    // A GIT pin takes precedence over `midenClientCliVersion` (see below), and a
+    // binary built from a rev does not report that field's value — the current
+    // pin builds a CLI that says 0.15.0 while the field reads 0.14.8. So the
+    // version string cannot validate a git pin, and comparing them rejects the
+    // CORRECT binary. Only enforce where the version IS the pin.
+    if (hasGitPin()) {
+      return 'miden-client';
+    }
     throw new Error(
       `miden-client on PATH is "${reported}" but this repo pins ${pinned} ` +
         `(package.json → midenClientCliVersion).\n` +
@@ -372,5 +380,17 @@ function readPinnedCliVersion(): string | undefined {
     return typeof pkg.midenClientCliVersion === 'string' ? pkg.midenClientCliVersion : undefined;
   } catch {
     return undefined;
+  }
+}
+
+/** Is the CLI pinned by git rev? If so, `midenClientCliVersion` does not describe the installed binary. */
+function hasGitPin(): boolean {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as {
+      midenClientCliGit?: { url?: string; rev?: string };
+    };
+    return typeof pkg.midenClientCliGit?.rev === 'string';
+  } catch {
+    return false;
   }
 }
