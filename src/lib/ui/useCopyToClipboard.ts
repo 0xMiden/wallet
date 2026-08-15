@@ -24,7 +24,7 @@ export default function useCopyToClipboard<T extends HTMLInputElement | HTMLText
     };
   }, [copied, setCopied, copyDelay]);
 
-  const copy = useCallback(() => {
+  const copy = useCallback(async () => {
     if (copied) return;
 
     const textarea = fieldRef.current;
@@ -32,8 +32,13 @@ export default function useCopyToClipboard<T extends HTMLInputElement | HTMLText
     if (textarea) {
       textarea.focus();
       textarea.select();
-      navigator.clipboard.writeText(textarea.value);
-      setCopied(true);
+
+      try {
+        await navigator.clipboard.writeText(textarea.value);
+        setCopied(true);
+      } catch {
+        setCopied(false);
+      }
     }
   }, [copied, setCopied]);
 
