@@ -11,6 +11,7 @@ import PageLayout from 'app/layouts/PageLayout';
 import { Button, ButtonVariant } from 'components/Button';
 import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
 import { ScreenHeader } from 'components/ScreenHeader';
+import { SwapExecutionNotice } from 'components/swap/SwapExecutionNotice';
 import {
   cancelTransactionById,
   getSwapSettlementNotes,
@@ -1099,6 +1100,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <div className="mt-6" data-testid="swap-order-card">
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
+                  <SwapExecutionNotice outputSymbol={requestedToken?.symbol} className="mb-4" />
                   <DetailCard title={t('orderTracking')}>
                     <DetailRow label={t('orderStatus')} isLast={!swapTracking}>
                       {displayOrderState ? (

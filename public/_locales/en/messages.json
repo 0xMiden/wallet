@@ -1499,6 +1499,14 @@
       }
     }
   },
+  "swapIethExplanation": {
+    "message": "iETH is the ETH-denominated asset used on Miden. It is separate from native ETH on Ethereum.",
+    "englishSource": "iETH is the ETH-denominated asset used on Miden. It is separate from native ETH on Ethereum."
+  },
+  "swapExecutionVenueExplanation": {
+    "message": "This swap executes on Miden's protocol DEX, not on Ethereum or a centralized exchange.",
+    "englishSource": "This swap executes on Miden's protocol DEX, not on Ethereum or a centralized exchange."
+  },
   "usuallyFillsIn": {
     "message": "Usually fills in",
     "englishSource": "Usually fills in"

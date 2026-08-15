@@ -4,6 +4,7 @@ import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { ReviewAmount, ReviewLabel, ReviewLayout, ReviewRow } from 'components/review';
+import { SwapExecutionNotice } from 'components/swap/SwapExecutionNotice';
 import { Toggle } from 'components/Toggle';
 import { SOLVER_MARGIN, SwapEta, SwapToken } from 'lib/miden/swap/tokens';
 
@@ -138,6 +139,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
           {t('swapSolverFeeNote', { percent: `${Math.round(SOLVER_MARGIN * 100)}%` })}
         </p>
       )}
+      <SwapExecutionNotice outputSymbol={requestToken.symbol} className="mt-4" />
       <ReviewRow label={t('usuallyFillsIn')} value={formatFillsIn(t, swapEta)} />
       <ReviewControlRow label={t('expires')}>
         <label className="inline-flex items-center justify-end gap-2 font-heading text-2xl font-bold text-heading-gray">

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as InfoIcon } from 'app/icons/information.svg';
 import { ButtonVariant } from 'components/Button';
+import { SwapExecutionNotice } from 'components/swap/SwapExecutionNotice';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
@@ -36,6 +37,7 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
   const offeredAmount =
     transaction?.amount !== undefined ? formatAmount(transaction.amount, offered.decimals) : undefined;
   const returnAmountText = offeredAmount ? `${offeredAmount} ${offered.symbol}` : undefined;
+  const requested = resolveSwapAsset(transaction?.extraInputs?.requestedFaucetId, assetsMetadata);
 
   return (
     <TransactionSuccessLayout
@@ -58,6 +60,8 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
     >
       {badgeContent && <SuccessSummaryPill lhs={badgeContent.lhs} rhs={badgeContent.rhs} />}
       <SuccessDivider />
+
+      <SwapExecutionNotice outputSymbol={requested.symbol} className="mt-4" />
 
       {returnAmountText && (
         <div className="flex w-full items-start gap-1.5 text-xs text-heading-gray">

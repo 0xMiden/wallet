@@ -144,6 +144,15 @@ describe('ReviewSwap', () => {
     });
   });
 
+  describe('asset and execution context', () => {
+    it('explains iETH and that the swap executes on the Miden protocol DEX', () => {
+      renderComponent();
+
+      expect(screen.getByText('swapIethExplanation')).toBeInTheDocument();
+      expect(screen.getByText('swapExecutionVenueExplanation')).toBeInTheDocument();
+    });
+  });
+
   describe('rate row', () => {
     const rateValue = () => screen.getAllByTestId('rr-value')[0];
 

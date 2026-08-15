@@ -66,6 +66,12 @@ jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokenByFaucetId: (...args: unknown[]) => mockGetSwapTokenByFaucetId(...args)
 }));
 
+jest.mock('components/swap/SwapExecutionNotice', () => ({
+  SwapExecutionNotice: ({ outputSymbol }: { outputSymbol?: string }) => (
+    <div data-testid="swap-execution-notice" data-output-symbol={outputSymbol} />
+  )
+}));
+
 jest.mock('lib/prices', () => ({
   getTokenPrice: () => ({ price: mockPrice })
 }));
@@ -519,6 +525,7 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusFilled');
       expect(screen.getByTestId('swap-order-fill-rounds').textContent).toBe('2');
+      expect(screen.getByTestId('swap-execution-notice')).toHaveAttribute('data-output-symbol', 'ETH');
       // filledRequested = 1000 - 400 = 600; symbol appended (interpolated into the key).
       expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe(
         'historyDetailsAmountFilledValue_600_1000_ ETH'

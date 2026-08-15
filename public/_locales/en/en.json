@@ -313,6 +313,8 @@
   "swapDirection": "Swap direction",
   "rate": "Rate",
   "swapSolverFeeNote": "Your receive amount already includes a $percent$ solver fee.",
+  "swapIethExplanation": "iETH is the ETH-denominated asset used on Miden. It is separate from native ETH on Ethereum.",
+  "swapExecutionVenueExplanation": "This swap executes on Miden's protocol DEX, not on Ethereum or a centralized exchange.",
   "usuallyFillsIn": "Usually fills in",
   "swapEtaSeconds": "~$seconds$s",
   "swapEtaMinutes": "~$minutes$ min",
