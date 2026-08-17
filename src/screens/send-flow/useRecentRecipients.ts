@@ -93,7 +93,12 @@ export const useRecentRecipients = (accountId: string | null | undefined): Recen
       Repo.transactions.filter(row => row.type === 'send' || row.type === 'bridged-send').toArray()
     ).subscribe({
       next: rows => setRecents(selectRecentRecipients(rows, accountId)),
-      error: () => setRecents(EMPTY_RECENTS)
+      error: err => {
+        // Losing the suggestions is cosmetic, but a silently-empty "Recent"
+        // list is indistinguishable from "you've never sent to anyone".
+        console.warn('[useRecentRecipients] recent-recipient query failed', err);
+        setRecents(EMPTY_RECENTS);
+      }
     });
 
     return () => subscription.unsubscribe();
