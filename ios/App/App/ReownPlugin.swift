@@ -10,6 +10,7 @@ import UIKit
 import Combine
 import Capacitor
 import CryptoSwift
+import Security
 import ReownAppKit
 import WalletConnectNetworking
 import WalletConnectRelay
@@ -111,6 +112,41 @@ private struct ReownSocketFactory: WebSocketFactory {
     func create(with url: URL) -> WebSocketConnecting {
         ReownWebSocket(url: url)
     }
+}
+
+// Reown persists its relay client-id in a keychain access group named by
+// `groupIdentifier`. It MUST be a group this app is entitled to — otherwise the
+// keychain ops fail with errSecMissingEntitlement, which reown-swift force-tries
+// (`try!` in AppPairService.create) → EXC_BREAKPOINT the moment a pairing is
+// created. The entitled group is `<AppIdentifierPrefix><bundleId>`, and the
+// prefix is the signing team's ID — which differs between release and dev-team
+// builds — so resolve it at runtime via the bundle-seed keychain probe instead
+// of hardcoding. Simulators don't enforce access groups, so a bad group only
+// crashes on physical devices.
+private func resolvedReownKeychainGroup() -> String {
+    let bundleId = Bundle.main.bundleIdentifier ?? "com.miden.bread"
+    let fallback = "LHU7B7J5WL.\(bundleId)"
+
+    let probe: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: "reown-keychain-group-probe",
+        kSecAttrAccount as String: "probe",
+        kSecReturnAttributes as String: true
+    ]
+
+    var result: CFTypeRef?
+    var status = SecItemAdd(probe as CFDictionary, &result)
+    if status == errSecDuplicateItem {
+        status = SecItemCopyMatching(probe as CFDictionary, &result)
+    }
+
+    guard status == errSecSuccess,
+          let attributes = result as? [String: Any],
+          let accessGroup = attributes[kSecAttrAccessGroup as String] as? String,
+          let teamPrefix = accessGroup.split(separator: ".").first else {
+        return fallback
+    }
+    return "\(teamPrefix).\(bundleId)"
 }
 
 private enum ReownCryptoError: Error {
@@ -254,18 +290,8 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
         ]
         self.proposalNamespaces = namespaces
 
-        // Reown persists its relay client-id in a keychain access group AND a
-        // UserDefaults suite named by `groupIdentifier` (RelayClientFactory /
-        // NetworkingClientFactory). It MUST be a group this app is entitled to —
-        // otherwise the keychain ops return errSecMissingEntitlement, which the KMS
-        // force-tries (`try! kms.create…`) → EXC_BREAKPOINT/swift_unexpectedError at
-        // launch. The old `group.com.miden.wallet` App Group was dropped from
-        // App.entitlements in #405 (owned by a former Apple team, not provisionable),
-        // so point Reown at the app's OWN entitled keychain access group
-        // ($(AppIdentifierPrefix)com.miden.bread = <teamID>.com.miden.bread). No App
-        // Group / provisioning-profile change required.
         Networking.configure(
-            groupIdentifier: "LHU7B7J5WL.com.miden.bread",
+            groupIdentifier: resolvedReownKeychainGroup(),
             projectId: projectId,
             socketFactory: ReownSocketFactory()
         )

@@ -132,6 +132,7 @@ jest.mock('components/TabPicker', () => ({
 
 jest.mock('lib/deposit-bridge', () => ({
   DEPOSIT_TOKEN_IDS: ['ETH', 'USDC'],
+  DEPOSIT_WALLETS: [],
   buildDepositPaymentUri: jest.fn(() => 'ethereum:mock'),
   openPaymentDeeplink: jest.fn(),
   getDepositToken: (id: string) => ({

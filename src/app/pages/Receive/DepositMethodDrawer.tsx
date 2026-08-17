@@ -8,11 +8,13 @@ import { Icon, IconName } from 'app/icons/v2';
 import { useShareAddress } from 'app/pages/Receive/useShareAddress';
 import { QRCode } from 'components/QRCode';
 import {
+  DEPOSIT_WALLETS,
   buildDepositPaymentUri,
   formatBalance,
   getDepositToken,
   openPaymentDeeplink,
-  type DepositTokenId
+  type DepositTokenId,
+  type DepositWalletOption
 } from 'lib/deposit-bridge';
 import { hapticLight } from 'lib/mobile/haptics';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
@@ -31,7 +33,7 @@ export interface DepositMethodDrawerProps {
   onConnectWallet?: () => void;
 }
 
-type MethodStep = 'options' | 'qr';
+type MethodStep = 'options' | 'wallets' | 'qr';
 
 const QR_FILE_NAME = 'miden-deposit-request.png';
 
@@ -97,9 +99,12 @@ export const DepositMethodDrawer: React.FC<DepositMethodDrawerProps> = ({
     onConnectWallet?.();
   }, [onConnectWallet, onOpenChange]);
 
-  const handleDeeplink = useCallback(() => {
-    openPaymentDeeplink(paymentUri);
-  }, [paymentUri]);
+  const handleWallet = useCallback(
+    (wallet: DepositWalletOption) => {
+      openPaymentDeeplink(wallet.buildUri(token, evmAddress, amount));
+    },
+    [token, evmAddress, amount]
+  );
 
   const handleBack = useCallback(() => {
     hapticLight();
@@ -111,7 +116,7 @@ export const DepositMethodDrawer: React.FC<DepositMethodDrawerProps> = ({
       <DrawerContent className="md:mx-auto md:max-w-md">
         <DrawerHeader>
           <div className="flex items-center gap-2">
-            {step === 'qr' && (
+            {step !== 'options' && (
               <button
                 type="button"
                 aria-label={t('back')}
@@ -122,7 +127,13 @@ export const DepositMethodDrawer: React.FC<DepositMethodDrawerProps> = ({
                 <Icon name={IconName.ChevronLeft} size="xs" fill="currentColor" className="text-heading-gray" />
               </button>
             )}
-            <DrawerTitle>{step === 'qr' ? t('depositMethodQrTitle') : t('depositMethodTitle')}</DrawerTitle>
+            <DrawerTitle>
+              {step === 'qr'
+                ? t('depositMethodQrTitle')
+                : step === 'wallets'
+                  ? t('depositWalletListTitle')
+                  : t('depositMethodTitle')}
+            </DrawerTitle>
           </div>
         </DrawerHeader>
 
@@ -142,7 +153,7 @@ export const DepositMethodDrawer: React.FC<DepositMethodDrawerProps> = ({
               title={t('depositMethodWalletApp')}
               subtitle={t('depositMethodWalletAppDesc', { amount: amountLabel })}
               testId="deposit-method-deeplink"
-              onClick={handleDeeplink}
+              onClick={() => setStep('wallets')}
             />
             <MethodRow
               icon={IconName.QrScan}
@@ -151,6 +162,21 @@ export const DepositMethodDrawer: React.FC<DepositMethodDrawerProps> = ({
               testId="deposit-method-qr"
               onClick={() => setStep('qr')}
             />
+          </div>
+        )}
+
+        {step === 'wallets' && (
+          <div className="flex flex-col divide-y divide-rule-default px-6 pb-6">
+            {DEPOSIT_WALLETS.map(wallet => (
+              <MethodRow
+                key={wallet.id}
+                icon={IconName.Wallet}
+                title={wallet.name || t('depositWalletDefaultName')}
+                subtitle={t(wallet.descriptionKey)}
+                testId={`deposit-wallet-${wallet.id}`}
+                onClick={() => handleWallet(wallet)}
+              />
+            ))}
           </div>
         )}
 
