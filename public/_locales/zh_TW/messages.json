@@ -217,18 +217,6 @@
     "message": "麵包",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "我對$protocol$與$asset$的立場",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ 網址：$network$",
     "englishSource": "$asset$ on $network$",
@@ -277,10 +265,6 @@
     "message": "議程",
     "englishSource": "Protocol"
   },
-  "position": {
-    "message": "職位",
-    "englishSource": "Position"
-  },
   "withdraw": {
     "message": "提款",
     "englishSource": "Withdraw"
@@ -297,10 +281,6 @@
     "message": "撤回",
     "englishSource": "Withdrawal"
   },
-  "earnFullPositionGasless": {
-    "message": "全行程（無氣）",
-    "englishSource": "Full position (gasless)"
-  },
   "earnEstimatedTimeLabel": {
     "message": "預計時間",
     "englishSource": "Estimated time"
@@ -312,10 +292,6 @@
   "withdrawing": {
     "message": "正在撤回……",
     "englishSource": "Withdrawing…"
-  },
-  "earnWithdrawNotOwned": {
-    "message": "此位置並非由當前從錢包衍生的 EVM 帳戶所擁有。",
-    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "無氣體提取失敗。",
@@ -344,10 +320,6 @@
   "earnDepositAmountTitle": {
     "message": "存款金額",
     "englishSource": "Deposit Amount"
-  },
-  "earnOpenPosition": {
-    "message": "職缺",
-    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1 個月",
@@ -406,10 +378,6 @@
     "message": "此帳戶沒有可用的 EVM 位址。",
     "englishSource": "No EVM address available for this account."
   },
-  "earnFailedToOpenPosition": {
-    "message": "無法開立倉位",
-    "englishSource": "Failed to open position"
-  },
   "earnTotalEarnedRewards": {
     "message": "已賺取的獎勵總額",
     "englishSource": "Total Earned Rewards"
@@ -430,18 +398,6 @@
   "earnEstimatedRewards": {
     "message": "預估獎勵",
     "englishSource": "Estimated Rewards"
-  },
-  "earnPositionsTitle": {
-    "message": "我的立場",
-    "englishSource": "My positions"
-  },
-  "earnPositionsRegionLabel": {
-    "message": "職位",
-    "englishSource": "Positions"
-  },
-  "earnPositionsLoadError": {
-    "message": "無法載入您的持倉資料。請檢查網路連線，然後重試。",
-    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -483,10 +439,6 @@
         "content": "$2"
       }
     }
-  },
-  "earnCurrentPositionsTitle": {
-    "message": "現有職位",
-    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "進階",
@@ -3832,10 +3784,6 @@
   "earnMarketLabel": {
     "message": "市場",
     "englishSource": "Market"
-  },
-  "positionOwnerLabel": {
-    "message": "職位負責人",
-    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "存款詳情",

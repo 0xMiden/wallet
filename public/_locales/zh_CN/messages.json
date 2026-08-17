@@ -217,18 +217,6 @@
     "message": "面包",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "我的$protocol$ • $asset$ 职位",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ 网址：$network$",
     "englishSource": "$asset$ on $network$",
@@ -277,10 +265,6 @@
     "message": "议定书",
     "englishSource": "Protocol"
   },
-  "position": {
-    "message": "职位",
-    "englishSource": "Position"
-  },
   "withdraw": {
     "message": "撤回",
     "englishSource": "Withdraw"
@@ -297,10 +281,6 @@
     "message": "退订",
     "englishSource": "Withdrawal"
   },
-  "earnFullPositionGasless": {
-    "message": "全行程（无气）",
-    "englishSource": "Full position (gasless)"
-  },
   "earnEstimatedTimeLabel": {
     "message": "预计时间",
     "englishSource": "Estimated time"
@@ -312,10 +292,6 @@
   "withdrawing": {
     "message": "正在退出……",
     "englishSource": "Withdrawing…"
-  },
-  "earnWithdrawNotOwned": {
-    "message": "该位置不属于当前由钱包派生的 EVM 账户。",
-    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "无气提取失败。",
@@ -344,10 +320,6 @@
   "earnDepositAmountTitle": {
     "message": "存款金额",
     "englishSource": "Deposit Amount"
-  },
-  "earnOpenPosition": {
-    "message": "招聘职位",
-    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1个月",
@@ -406,10 +378,6 @@
     "message": "该账户没有可用的EVM地址。",
     "englishSource": "No EVM address available for this account."
   },
-  "earnFailedToOpenPosition": {
-    "message": "无法开仓",
-    "englishSource": "Failed to open position"
-  },
   "earnTotalEarnedRewards": {
     "message": "累计获得的奖励",
     "englishSource": "Total Earned Rewards"
@@ -430,18 +398,6 @@
   "earnEstimatedRewards": {
     "message": "预计奖励",
     "englishSource": "Estimated Rewards"
-  },
-  "earnPositionsTitle": {
-    "message": "我的立场",
-    "englishSource": "My positions"
-  },
-  "earnPositionsRegionLabel": {
-    "message": "职位",
-    "englishSource": "Positions"
-  },
-  "earnPositionsLoadError": {
-    "message": "无法加载您的持仓。请检查网络连接，然后重试。",
-    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -483,10 +439,6 @@
         "content": "$2"
       }
     }
-  },
-  "earnCurrentPositionsTitle": {
-    "message": "当前职位",
-    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "高级",
@@ -3832,10 +3784,6 @@
   "earnMarketLabel": {
     "message": "市场",
     "englishSource": "Market"
-  },
-  "positionOwnerLabel": {
-    "message": "岗位负责人",
-    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "存款详情",

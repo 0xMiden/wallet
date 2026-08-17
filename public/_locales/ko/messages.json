@@ -217,18 +217,6 @@
     "message": "빵",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "$protocol$ • $asset$에 대한 제 입장",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ $network$에서",
     "englishSource": "$asset$ on $network$",
@@ -277,10 +265,6 @@
     "message": "의전",
     "englishSource": "Protocol"
   },
-  "position": {
-    "message": "직책",
-    "englishSource": "Position"
-  },
   "withdraw": {
     "message": "취소",
     "englishSource": "Withdraw"
@@ -297,10 +281,6 @@
     "message": "인출",
     "englishSource": "Withdrawal"
   },
-  "earnFullPositionGasless": {
-    "message": "완전 위치 (가스 없음)",
-    "englishSource": "Full position (gasless)"
-  },
   "earnEstimatedTimeLabel": {
     "message": "예상 소요 시간",
     "englishSource": "Estimated time"
@@ -312,10 +292,6 @@
   "withdrawing": {
     "message": "중단 중…",
     "englishSource": "Withdrawing…"
-  },
-  "earnWithdrawNotOwned": {
-    "message": "이 포지션은 현재 지갑에서 파생된 EVM 계정의 소유가 아닙니다.",
-    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "가스 없는 인출에 실패했습니다.",
@@ -344,10 +320,6 @@
   "earnDepositAmountTitle": {
     "message": "입금액",
     "englishSource": "Deposit Amount"
-  },
-  "earnOpenPosition": {
-    "message": "채용 공고",
-    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1개월",
@@ -406,10 +378,6 @@
     "message": "이 계정에는 사용 가능한 EVM 주소가 없습니다.",
     "englishSource": "No EVM address available for this account."
   },
-  "earnFailedToOpenPosition": {
-    "message": "포지션 개설에 실패했습니다",
-    "englishSource": "Failed to open position"
-  },
   "earnTotalEarnedRewards": {
     "message": "총 적립 포인트",
     "englishSource": "Total Earned Rewards"
@@ -430,18 +398,6 @@
   "earnEstimatedRewards": {
     "message": "예상 보상",
     "englishSource": "Estimated Rewards"
-  },
-  "earnPositionsTitle": {
-    "message": "제 입장",
-    "englishSource": "My positions"
-  },
-  "earnPositionsRegionLabel": {
-    "message": "직책",
-    "englishSource": "Positions"
-  },
-  "earnPositionsLoadError": {
-    "message": "포지션을 불러올 수 없습니다. 인터넷 연결 상태를 확인한 후 다시 시도해 주세요.",
-    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -483,10 +439,6 @@
         "content": "$2"
       }
     }
-  },
-  "earnCurrentPositionsTitle": {
-    "message": "현재 채용 중인 직책",
-    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "고급",
@@ -3832,10 +3784,6 @@
   "earnMarketLabel": {
     "message": "시장",
     "englishSource": "Market"
-  },
-  "positionOwnerLabel": {
-    "message": "담당자",
-    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "입금 내역",

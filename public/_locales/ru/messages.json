@@ -217,18 +217,6 @@
     "message": "Хлеб",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "Моя позиция по вопросу «$protocol$» • «$asset$»",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ на сайте $network$",
     "englishSource": "$asset$ on $network$",
@@ -277,10 +265,6 @@
     "message": "Протокол",
     "englishSource": "Protocol"
   },
-  "position": {
-    "message": "Должность",
-    "englishSource": "Position"
-  },
   "withdraw": {
     "message": "Отменить",
     "englishSource": "Withdraw"
@@ -297,10 +281,6 @@
     "message": "Вывод средств",
     "englishSource": "Withdrawal"
   },
-  "earnFullPositionGasless": {
-    "message": "Полное положение (без газа)",
-    "englishSource": "Full position (gasless)"
-  },
   "earnEstimatedTimeLabel": {
     "message": "Предполагаемое время",
     "englishSource": "Estimated time"
@@ -312,10 +292,6 @@
   "withdrawing": {
     "message": "Ожидается отключение…",
     "englishSource": "Withdrawing…"
-  },
-  "earnWithdrawNotOwned": {
-    "message": "Эта позиция не принадлежит текущему счету EVM, созданному на основе кошелька.",
-    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "Отказ при извлечении без газа.",
@@ -344,10 +320,6 @@
   "earnDepositAmountTitle": {
     "message": "Сумма депозита",
     "englishSource": "Deposit Amount"
-  },
-  "earnOpenPosition": {
-    "message": "Вакансия",
-    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1 месяц",
@@ -406,10 +378,6 @@
     "message": "Для этого счета отсутствует адрес EVM.",
     "englishSource": "No EVM address available for this account."
   },
-  "earnFailedToOpenPosition": {
-    "message": "Не удалось открыть позицию",
-    "englishSource": "Failed to open position"
-  },
   "earnTotalEarnedRewards": {
     "message": "Общая сумма начисленных бонусов",
     "englishSource": "Total Earned Rewards"
@@ -430,18 +398,6 @@
   "earnEstimatedRewards": {
     "message": "Предполагаемые вознаграждения",
     "englishSource": "Estimated Rewards"
-  },
-  "earnPositionsTitle": {
-    "message": "Мои позиции",
-    "englishSource": "My positions"
-  },
-  "earnPositionsRegionLabel": {
-    "message": "Должности",
-    "englishSource": "Positions"
-  },
-  "earnPositionsLoadError": {
-    "message": "Не удалось загрузить ваши позиции. Проверьте подключение и попробуйте ещё раз.",
-    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -483,10 +439,6 @@
         "content": "$2"
       }
     }
-  },
-  "earnCurrentPositionsTitle": {
-    "message": "Открытые вакансии",
-    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "Для опытных пользователей",
@@ -3832,10 +3784,6 @@
   "earnMarketLabel": {
     "message": "Рынок",
     "englishSource": "Market"
-  },
-  "positionOwnerLabel": {
-    "message": "Ответственное лицо",
-    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "Реквизиты счета",

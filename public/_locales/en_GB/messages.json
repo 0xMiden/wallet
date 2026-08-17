@@ -217,18 +217,6 @@
     "message": "Bread",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "My $protocol$ • $asset$ position",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ on $network$",
     "englishSource": "$asset$ on $network$",
@@ -277,10 +265,6 @@
     "message": "Protocol",
     "englishSource": "Protocol"
   },
-  "position": {
-    "message": "Position",
-    "englishSource": "Position"
-  },
   "withdraw": {
     "message": "Withdraw",
     "englishSource": "Withdraw"
@@ -297,10 +281,6 @@
     "message": "Withdrawal",
     "englishSource": "Withdrawal"
   },
-  "earnFullPositionGasless": {
-    "message": "Full position (gasless)",
-    "englishSource": "Full position (gasless)"
-  },
   "earnEstimatedTimeLabel": {
     "message": "Estimated time",
     "englishSource": "Estimated time"
@@ -312,10 +292,6 @@
   "withdrawing": {
     "message": "Withdrawing…",
     "englishSource": "Withdrawing…"
-  },
-  "earnWithdrawNotOwned": {
-    "message": "This position is not owned by the current wallet-derived EVM account.",
-    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "Gasless withdrawal failed.",
@@ -344,10 +320,6 @@
   "earnDepositAmountTitle": {
     "message": "Deposit Amount",
     "englishSource": "Deposit Amount"
-  },
-  "earnOpenPosition": {
-    "message": "Open position",
-    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1 Month",
@@ -406,10 +378,6 @@
     "message": "No EVM address available for this account.",
     "englishSource": "No EVM address available for this account."
   },
-  "earnFailedToOpenPosition": {
-    "message": "Failed to open position",
-    "englishSource": "Failed to open position"
-  },
   "earnTotalEarnedRewards": {
     "message": "Total Earned Rewards",
     "englishSource": "Total Earned Rewards"
@@ -430,18 +398,6 @@
   "earnEstimatedRewards": {
     "message": "Estimated Rewards",
     "englishSource": "Estimated Rewards"
-  },
-  "earnPositionsTitle": {
-    "message": "My positions",
-    "englishSource": "My positions"
-  },
-  "earnPositionsRegionLabel": {
-    "message": "Positions",
-    "englishSource": "Positions"
-  },
-  "earnPositionsLoadError": {
-    "message": "Couldn't load your positions. Check your connection and try again.",
-    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -483,10 +439,6 @@
         "content": "$2"
       }
     }
-  },
-  "earnCurrentPositionsTitle": {
-    "message": "Current Positions",
-    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "Advanced",
@@ -3832,10 +3784,6 @@
   "earnMarketLabel": {
     "message": "Market",
     "englishSource": "Market"
-  },
-  "positionOwnerLabel": {
-    "message": "Position owner",
-    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "Deposit details",

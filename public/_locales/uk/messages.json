@@ -217,18 +217,6 @@
     "message": "Хліб",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "Моя позиція щодо «$protocol$» • «$asset$»",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ на сайті $network$",
     "englishSource": "$asset$ on $network$",
@@ -277,10 +265,6 @@
     "message": "Протокол",
     "englishSource": "Protocol"
   },
-  "position": {
-    "message": "Посада",
-    "englishSource": "Position"
-  },
   "withdraw": {
     "message": "Вивести кошти",
     "englishSource": "Withdraw"
@@ -297,10 +281,6 @@
     "message": "Виведення коштів",
     "englishSource": "Withdrawal"
   },
-  "earnFullPositionGasless": {
-    "message": "Повне положення (без газу)",
-    "englishSource": "Full position (gasless)"
-  },
   "earnEstimatedTimeLabel": {
     "message": "Орієнтовний час",
     "englishSource": "Estimated time"
@@ -312,10 +292,6 @@
   "withdrawing": {
     "message": "Виведення коштів…",
     "englishSource": "Withdrawing…"
-  },
-  "earnWithdrawNotOwned": {
-    "message": "Ця позиція не належить поточному обліковому запису EVM, створеному на основі гаманця.",
-    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "Виведення коштів без використання газу не вдалося.",
@@ -344,10 +320,6 @@
   "earnDepositAmountTitle": {
     "message": "Сума депозиту",
     "englishSource": "Deposit Amount"
-  },
-  "earnOpenPosition": {
-    "message": "Вакансія",
-    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1 місяць",
@@ -406,10 +378,6 @@
     "message": "Для цього рахунку немає доступної адреси EVM.",
     "englishSource": "No EVM address available for this account."
   },
-  "earnFailedToOpenPosition": {
-    "message": "Не вдалося відкрити позицію",
-    "englishSource": "Failed to open position"
-  },
   "earnTotalEarnedRewards": {
     "message": "Загальна сума зароблених винагород",
     "englishSource": "Total Earned Rewards"
@@ -430,18 +398,6 @@
   "earnEstimatedRewards": {
     "message": "Орієнтовні винагороди",
     "englishSource": "Estimated Rewards"
-  },
-  "earnPositionsTitle": {
-    "message": "Мої погляди",
-    "englishSource": "My positions"
-  },
-  "earnPositionsRegionLabel": {
-    "message": "Посади",
-    "englishSource": "Positions"
-  },
-  "earnPositionsLoadError": {
-    "message": "Не вдалося завантажити ваші позиції. Перевірте з’єднання та спробуйте ще раз.",
-    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -483,10 +439,6 @@
         "content": "$2"
       }
     }
-  },
-  "earnCurrentPositionsTitle": {
-    "message": "Вакансії",
-    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "Для досвідчених користувачів",
@@ -3832,10 +3784,6 @@
   "earnMarketLabel": {
     "message": "Ринок",
     "englishSource": "Market"
-  },
-  "positionOwnerLabel": {
-    "message": "Відповідальний за посаду",
-    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "Реквізити рахунку для внесення депозиту",

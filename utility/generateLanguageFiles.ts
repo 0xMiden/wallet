@@ -38,6 +38,16 @@ const LOCALE_TO_DEEPL: Record<string, string> = {
 // from ~11k sequential calls to a few hundred.
 const DEEPL_BATCH_SIZE = 50;
 
+// Domain context sent with every request. DeepL does not translate it and does not
+// bill for it — it only biases word-sense disambiguation toward the crypto/DeFi
+// meaning, e.g. so "Position" reads as an investment position, not a job vacancy
+// (which is why Polish "Current Positions" was coming out as "job offers").
+const DEEPL_CONTEXT =
+  'These are short UI labels for Miden, a self-custody cryptocurrency wallet with DeFi ' +
+  'earning, lending, bridging and token swaps. Use finance/crypto word senses: "Position" ' +
+  'means an investment/holding position, never a job; "Claim" means collecting tokens; ' +
+  '"Bridge" means moving assets between blockchains; "Vault" is a secure asset store.';
+
 const root = path.resolve(__dirname, '..');
 // Use en.json as source of truth (flat format), not messages.json (Chrome extension format)
 const englishFilePath = path.join(root, 'public/_locales/en/en.json');
@@ -113,6 +123,7 @@ async function translateBatch(sources: string[], targetCode: string): Promise<st
       tagHandling: 'xml',
       ignoreTags: ['x'],
       outlineDetection: false,
+      context: DEEPL_CONTEXT,
     });
     for (const r of results) out.push(fromDeepLXml(r.text));
   }

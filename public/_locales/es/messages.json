@@ -217,18 +217,6 @@
     "message": "Pan",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "Mi puesto en «$protocol$» • «$asset$»",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ en $network$",
     "englishSource": "$asset$ on $network$",
@@ -277,10 +265,6 @@
     "message": "Protocolo",
     "englishSource": "Protocol"
   },
-  "position": {
-    "message": "Puesto",
-    "englishSource": "Position"
-  },
   "withdraw": {
     "message": "Retirar",
     "englishSource": "Withdraw"
@@ -297,10 +281,6 @@
     "message": "Retirada",
     "englishSource": "Withdrawal"
   },
-  "earnFullPositionGasless": {
-    "message": "Posición completa (sin gas)",
-    "englishSource": "Full position (gasless)"
-  },
   "earnEstimatedTimeLabel": {
     "message": "Tiempo estimado",
     "englishSource": "Estimated time"
@@ -312,10 +292,6 @@
   "withdrawing": {
     "message": "Retirando…",
     "englishSource": "Withdrawing…"
-  },
-  "earnWithdrawNotOwned": {
-    "message": "Esta posición no pertenece a la cuenta EVM derivada del monedero actual.",
-    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "El retiro sin gas ha fallado.",
@@ -344,10 +320,6 @@
   "earnDepositAmountTitle": {
     "message": "Importe del depósito",
     "englishSource": "Deposit Amount"
-  },
-  "earnOpenPosition": {
-    "message": "Puesto vacante",
-    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1 mes",
@@ -406,10 +378,6 @@
     "message": "No hay ninguna dirección EVM disponible para esta cuenta.",
     "englishSource": "No EVM address available for this account."
   },
-  "earnFailedToOpenPosition": {
-    "message": "No se ha podido abrir la posición",
-    "englishSource": "Failed to open position"
-  },
   "earnTotalEarnedRewards": {
     "message": "Total de recompensas obtenidas",
     "englishSource": "Total Earned Rewards"
@@ -430,18 +398,6 @@
   "earnEstimatedRewards": {
     "message": "Recompensas estimadas",
     "englishSource": "Estimated Rewards"
-  },
-  "earnPositionsTitle": {
-    "message": "Mis cargos",
-    "englishSource": "My positions"
-  },
-  "earnPositionsRegionLabel": {
-    "message": "Puestos",
-    "englishSource": "Positions"
-  },
-  "earnPositionsLoadError": {
-    "message": "No se han podido cargar tus posiciones. Comprueba tu conexión e inténtalo de nuevo.",
-    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -483,10 +439,6 @@
         "content": "$2"
       }
     }
-  },
-  "earnCurrentPositionsTitle": {
-    "message": "Puestos vacantes",
-    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "Avanzado",
@@ -3832,10 +3784,6 @@
   "earnMarketLabel": {
     "message": "Mercado",
     "englishSource": "Market"
-  },
-  "positionOwnerLabel": {
-    "message": "Responsable del puesto",
-    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "Datos del ingreso",

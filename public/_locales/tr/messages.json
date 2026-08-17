@@ -217,18 +217,6 @@
     "message": "Ekmek",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "$protocol$ • $asset$ adresindeki pozisyonum",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ $network$ adresinde",
     "englishSource": "$asset$ on $network$",
@@ -277,10 +265,6 @@
     "message": "Protokol",
     "englishSource": "Protocol"
   },
-  "position": {
-    "message": "Pozisyon",
-    "englishSource": "Position"
-  },
   "withdraw": {
     "message": "Para Çekme",
     "englishSource": "Withdraw"
@@ -297,10 +281,6 @@
     "message": "Para Çekme",
     "englishSource": "Withdrawal"
   },
-  "earnFullPositionGasless": {
-    "message": "Tam konum (gazsız)",
-    "englishSource": "Full position (gasless)"
-  },
   "earnEstimatedTimeLabel": {
     "message": "Tahmini süre",
     "englishSource": "Estimated time"
@@ -312,10 +292,6 @@
   "withdrawing": {
     "message": "Geri çekiliyor…",
     "englishSource": "Withdrawing…"
-  },
-  "earnWithdrawNotOwned": {
-    "message": "Bu pozisyon, mevcut cüzdandan türetilen EVM hesabına ait değildir.",
-    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "Gazsız çekme işlemi başarısız oldu.",
@@ -344,10 +320,6 @@
   "earnDepositAmountTitle": {
     "message": "Para Yatırma Tutarı",
     "englishSource": "Deposit Amount"
-  },
-  "earnOpenPosition": {
-    "message": "Açık pozisyon",
-    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1 Ay",
@@ -406,10 +378,6 @@
     "message": "Bu hesap için EVM adresi mevcut değil.",
     "englishSource": "No EVM address available for this account."
   },
-  "earnFailedToOpenPosition": {
-    "message": "Pozisyon açılamadı",
-    "englishSource": "Failed to open position"
-  },
   "earnTotalEarnedRewards": {
     "message": "Toplam Kazanılan Ödüller",
     "englishSource": "Total Earned Rewards"
@@ -430,18 +398,6 @@
   "earnEstimatedRewards": {
     "message": "Tahmini Ödüller",
     "englishSource": "Estimated Rewards"
-  },
-  "earnPositionsTitle": {
-    "message": "Görüşlerim",
-    "englishSource": "My positions"
-  },
-  "earnPositionsRegionLabel": {
-    "message": "Pozisyonlar",
-    "englishSource": "Positions"
-  },
-  "earnPositionsLoadError": {
-    "message": "Pozisyonlarınız yüklenemedi. İnternet bağlantınızı kontrol edin ve tekrar deneyin.",
-    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -483,10 +439,6 @@
         "content": "$2"
       }
     }
-  },
-  "earnCurrentPositionsTitle": {
-    "message": "Mevcut Pozisyonlar",
-    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "İleri Düzey",
@@ -3832,10 +3784,6 @@
   "earnMarketLabel": {
     "message": "Pazar",
     "englishSource": "Market"
-  },
-  "positionOwnerLabel": {
-    "message": "Sorumlu kişi",
-    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "Para yatırma bilgileri",
