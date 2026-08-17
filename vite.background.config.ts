@@ -308,7 +308,28 @@ export default defineConfig({
   },
 
   worker: {
-    format: 'es' // Workers need ESM for top-level await support
+    format: 'es', // Workers need ESM for top-level await support
+    // Emit worker ASSETS under the same names the main pass uses (above).
+    // Vite bundles workers in a SEPARATE pass with its own defaults, so this
+    // one config wrote the SDK's 19.5 MB wasm into the package twice — the main
+    // pass as `static/wasm/miden_client_web.<hash>.wasm`, the worker pass as
+    // `assets/miden_client_web-<hash>.wasm`. Byte-identical (same SHA-256, and
+    // Vite derives the same content hash for both), both genuinely referenced,
+    // and worth ~5 MB of the shipped zip for the redundant copy.
+    //
+    // Verified this config is the source: a `build:bg` alone into an empty
+    // dist produces BOTH files. With one naming scheme both passes resolve to
+    // the same path, the second write is the same bytes, and the package
+    // carries one wasm; Vite rewrites the worker's URL to wherever the asset
+    // lands, so it still resolves.
+    rollupOptions: {
+      output: {
+        assetFileNames: assetInfo =>
+          assetInfo.names?.[0]?.endsWith('.wasm')
+            ? 'static/wasm/[name].[hash][extname]'
+            : 'static/media/[name].[hash][extname]'
+      }
+    }
   },
 
   resolve: {

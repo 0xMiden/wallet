@@ -34,7 +34,7 @@ export const AccountsListDrawer: React.FC<AccountsListDrawerProps> = ({
   const { t } = useTranslation();
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} screenKey="accounts">
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{t('contacts')}</DrawerTitle>

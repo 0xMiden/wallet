@@ -155,7 +155,7 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({ open, onOpenChange, 
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} screenKey="scan-qr">
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{t('scanQrTitle')}</DrawerTitle>

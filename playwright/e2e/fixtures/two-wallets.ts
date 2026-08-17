@@ -27,6 +27,7 @@ import {
   type NetworkFaultPolicy,
   type NetworkOrigins
 } from '../harness/network-faults';
+import { captureBestEffort } from '../harness/screen-capture';
 import { captureWalletSnapshot } from '../harness/state-snapshot';
 import { TestStepRunner } from '../harness/test-step';
 import { TimelineRecorder } from '../harness/timeline-recorder';
@@ -193,6 +194,25 @@ function buildChromeSnapshotCaps(page: Page, context: BrowserContext, extensionI
   };
 }
 
+/**
+ * Bind the app's reactive screen-change signal (`window.__e2eScreenChanged`,
+ * emitted when `MIDEN_E2E_TEST=true`) to a best-effort screenshot capture.
+ * Must be re-installed whenever the page's JS realm is torn down and rebuilt
+ * -- a fresh `Page` (relaunch()) or a reload that drops the exposed binding
+ * -- since `exposeFunction` is scoped to the current page instance.
+ */
+export async function installScreenCapture(page: Page, label: string, outputDir: string): Promise<void> {
+  const screensDir = path.join(outputDir, 'screens');
+  const handler = (key: string, seq: number) =>
+    captureBestEffort(async p => void (await page.screenshot({ path: p })), screensDir, seq, key, label);
+  try {
+    await page.exposeFunction('__e2eScreenChanged', handler);
+  } catch {
+    // Already exposed on this page instance (e.g. the binding survived a
+    // soft reload) -- nothing to do.
+  }
+}
+
 // Chromium launch args, shared by the initial wallet launch and reopen()'s
 // crash-recovery relaunch so the two can never drift.
 function chromeLaunchArgs(extensionPath: string): string[] {
@@ -277,7 +297,12 @@ async function relaunchContext(userDataDir: string, extensionPath: string) {
   return { context, page, faults };
 }
 
-async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, timeline: TimelineRecorder) {
+async function launchWalletInstance(
+  label: 'A' | 'B',
+  extensionPath: string,
+  timeline: TimelineRecorder,
+  outputDir: string
+) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), `miden-wallet-${label}-`));
 
   // `let` (not `const`): reopen()'s relaunch swaps these in place after a
@@ -474,6 +499,8 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
       // Wait before reload to give the service worker more time to finish WASM init
       await new Promise(resolve => setTimeout(resolve, 3_000));
       await page.reload({ waitUntil: 'load' });
+      // A reload can drop the exposed __e2eScreenChanged binding; re-install it.
+      await installScreenCapture(page, label, outputDir);
       // Wait for React to at least mount something before checking again
       await page.waitForSelector('#root > *', { timeout: 15_000 }).catch(() => {});
     }
@@ -517,6 +544,8 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
     context = next.context;
     page = next.page;
     faults = next.faults;
+    // Fresh Page instance -- re-install the screen-change capture binding.
+    await installScreenCapture(page, label, outputDir);
     return page;
   };
 
@@ -740,8 +769,9 @@ export const test = base.extend<TwoWalletFixtures>({
 
   walletA: async ({ timeline, steps, failureSnapshots }, use, testInfo) => {
     const extensionPath = getExtensionPath();
-    const instance = await launchWalletInstance('A', extensionPath, timeline);
+    const instance = await launchWalletInstance('A', extensionPath, timeline, steps.outputDir);
     steps.registerSnapshotCaps('A', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
+    await installScreenCapture(instance.page, 'A', steps.outputDir);
 
     await use(instance.walletPage);
 
@@ -782,8 +812,9 @@ export const test = base.extend<TwoWalletFixtures>({
 
   walletB: async ({ timeline, steps, walletA, midenCli, failureSnapshots }, use, testInfo) => {
     const extensionPath = getExtensionPath();
-    const instance = await launchWalletInstance('B', extensionPath, timeline);
+    const instance = await launchWalletInstance('B', extensionPath, timeline, steps.outputDir);
     steps.registerSnapshotCaps('B', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
+    await installScreenCapture(instance.page, 'B', steps.outputDir);
 
     await use(instance.walletPage);
 
