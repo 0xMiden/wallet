@@ -917,5 +917,12 @@
   "fiatRampTitleBuy": "Buy crypto",
   "fiatRampNoEvmAddress": "This account has no EVM address for fiat ramps.",
   "fiatRampLoading": "Loading checkout…",
-  "fiatRampWidgetError": "The checkout failed to load. Check that the MoonPay sign server is running and try again."
+  "fiatRampWidgetError": "The checkout failed to load. Check that the MoonPay sign server is running and try again.",
+  "buyInfoTitle": "Before you buy",
+  "buyInfoRedirectTitle": "You'll be redirected to MoonPay",
+  "buyInfoRedirectBody": "Your wallet address is already filled in — just pick an amount and pay.",
+  "buyInfoEvmTitle": "Funds arrive on your EVM address",
+  "buyInfoEvmBody": "Your purchase arrives as MPT — MoonPay's testnet token — credited to an EVM address derived from your wallet. It's created fully client-side — your keys never leave this device.",
+  "buyInfoBridgeTitle": "Bridged to Miden via Agglayer",
+  "buyInfoBridgeBody": "The wallet then automatically bridges the funds to your Miden account via Agglayer. No action needed from you."
 }
