@@ -3,7 +3,10 @@ import i18n from 'i18next';
 
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 
+import { getAdaptiveDecimalPlaces } from './adaptive-precision';
 import { getCurrentLocale, getNumberSymbols } from './core';
+
+export { getAdaptiveDecimalPlaces, toAdaptiveFixed, MAX_DISPLAY_DECIMAL_PLACES } from './adaptive-precision';
 
 /**
  * Tiny single-argument memoizer — was `micro-memoize` until we removed
@@ -28,8 +31,6 @@ type FormatParams = {
   roundingMode?: BigNumber.RoundingMode;
   format?: BigNumber.Format;
 };
-
-const SMALL_AMOUNT_SIGNIFICANT_PLACES = 2;
 
 function localizeDefaultFormattedNumber(formattedNumber: string) {
   const numberSymbols = getNumberSymbols();
@@ -74,38 +75,6 @@ const makePluralRules = memoize1((locale: string) => new Intl.PluralRules(locale
 export function getPluralKey(keyPrefix: string, amount: number) {
   const rules = makePluralRules(getCurrentLocale());
   return `${keyPrefix}_${rules.select(amount)}`;
-}
-
-/**
- * Keep the normal display precision unless it would hide a small non-zero
- * value. In that case, include the first non-zero fractional digit and one
- * more significant place (for example, 0.001234 at 2dp uses 4dp).
- */
-export function getAdaptiveDecimalPlaces(value: BigNumber.Value, minimumDecimalPlaces: number = 2): number {
-  const bn = new BigNumber(value);
-
-  if (!bn.isFinite() || bn.isZero()) {
-    return minimumDecimalPlaces;
-  }
-
-  const fractionalPart = bn.abs().toFixed().split('.')[1] ?? '';
-  const firstNonZeroIndex = fractionalPart.search(/[1-9]/);
-
-  if (firstNonZeroIndex < minimumDecimalPlaces) {
-    return minimumDecimalPlaces;
-  }
-
-  return firstNonZeroIndex + SMALL_AMOUNT_SIGNIFICANT_PLACES;
-}
-
-export function toAdaptiveFixed(
-  value: BigNumber.Value,
-  minimumDecimalPlaces: number = 2,
-  roundingMode?: BigNumber.RoundingMode
-): string {
-  const bn = new BigNumber(value);
-  const decimalPlaces = getAdaptiveDecimalPlaces(bn, minimumDecimalPlaces);
-  return bn.toFixed(decimalPlaces, roundingMode);
 }
 
 export function formatUsd(value: number): string {

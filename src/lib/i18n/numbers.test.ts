@@ -11,7 +11,8 @@ import {
   toFixedRoundedDown,
   getAdaptiveDecimalPlaces,
   toAdaptiveFixed,
-  formatUsd
+  formatUsd,
+  MAX_DISPLAY_DECIMAL_PLACES
 } from './numbers';
 
 // `toShortened` delegates the thousand/million/billion labelling to i18next's
@@ -129,6 +130,22 @@ describe('adaptive amount formatting', () => {
   it('uses adaptive precision for small USD values while preserving grouping', () => {
     expect(formatUsd(1024.5)).toBe('$1,024.50');
     expect(formatUsd(0.001234)).toBe('$0.0012');
+  });
+
+  // `Intl.NumberFormat` throws `RangeError` above 20 fraction digits, so an
+  // unbounded expansion turned a dust balance (1 base unit of an 18-decimal
+  // token at a sub-cent price) into a render crash rather than a number.
+  it('clamps the expansion so far-below-cent values format instead of throwing', () => {
+    expect(getAdaptiveDecimalPlaces(1e-30)).toBe(MAX_DISPLAY_DECIMAL_PLACES);
+    expect(() => formatUsd(1e-30)).not.toThrow();
+    expect(formatUsd(1e-30)).toBe('$0.00000000000000000000');
+    expect(toAdaptiveFixed('0.000000000000000000000001')).toBe('0.00000000000000000000');
+  });
+
+  it('still expands fully for the deepest token precision we support', () => {
+    // 18 decimals is the deepest real token, so the clamp never truncates one.
+    expect(getAdaptiveDecimalPlaces('0.000000000000000001')).toBe(19);
+    expect(toAdaptiveFixed('0.000000000000000001')).toBe('0.0000000000000000010');
   });
 });
 

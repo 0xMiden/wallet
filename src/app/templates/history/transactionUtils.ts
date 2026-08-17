@@ -166,8 +166,8 @@ export const isEarnWithdrawEntry = (entry: IHistoryEntry): boolean => entry.txTy
 /** Trim a human decimal amount to 2 places, expanding when needed to preserve a small non-zero value. */
 export const formatEarnWithdrawAmount = (human: string): string => {
   const n = new BigNumber(human);
-  const decimalPlaces = getAdaptiveDecimalPlaces(n);
-  return n.isFinite() ? n.decimalPlaces(decimalPlaces, BigNumber.ROUND_DOWN).toFixed() : human;
+  if (!n.isFinite()) return human;
+  return n.decimalPlaces(getAdaptiveDecimalPlaces(n), BigNumber.ROUND_DOWN).toFixed();
 };
 
 /** Map each withdraw phase to the row status-chip tone (reuses the bridge tones). */

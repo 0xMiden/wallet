@@ -1,39 +1,13 @@
-import BigNumber from 'bignumber.js';
+// The adaptive-precision helpers are pure and i18n-free, so the mock re-exports
+// the REAL implementation rather than restating it. Copying the logic here once
+// let the mock drift from the code it stands in for; importing it cannot.
+import { getAdaptiveDecimalPlaces } from 'lib/i18n/adaptive-precision';
+
+export { getAdaptiveDecimalPlaces, toAdaptiveFixed, MAX_DISPLAY_DECIMAL_PLACES } from 'lib/i18n/adaptive-precision';
 
 export const formatNumber = (v: any) => String(v);
 export const formatFiat = (v: any) => String(v);
 export const formatPercentage = (v: any) => String(v);
-
-const SMALL_AMOUNT_SIGNIFICANT_PLACES = 2;
-
-// Mirrors the real getAdaptiveDecimalPlaces so small amounts keep the same
-// precision in tests as they do in the app.
-export const getAdaptiveDecimalPlaces = (value: BigNumber.Value, minimumDecimalPlaces: number = 2): number => {
-  const bn = new BigNumber(value);
-
-  if (!bn.isFinite() || bn.isZero()) {
-    return minimumDecimalPlaces;
-  }
-
-  const fractionalPart = bn.abs().toFixed().split('.')[1] ?? '';
-  const firstNonZeroIndex = fractionalPart.search(/[1-9]/);
-
-  if (firstNonZeroIndex < minimumDecimalPlaces) {
-    return minimumDecimalPlaces;
-  }
-
-  return firstNonZeroIndex + SMALL_AMOUNT_SIGNIFICANT_PLACES;
-};
-
-// Mirrors the real toAdaptiveFixed.
-export const toAdaptiveFixed = (
-  value: BigNumber.Value,
-  minimumDecimalPlaces: number = 2,
-  roundingMode?: BigNumber.RoundingMode
-): string => {
-  const bn = new BigNumber(value);
-  return bn.toFixed(getAdaptiveDecimalPlaces(bn, minimumDecimalPlaces), roundingMode);
-};
 
 // Mirrors the real formatUsd so USD strings keep their exact shape in tests.
 export const formatUsd = (v: number) => {
