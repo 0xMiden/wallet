@@ -439,6 +439,10 @@
     "message": "Positionen",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "Ihre Positionen konnten nicht geladen werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -1580,8 +1584,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "Wenn bis dahin kein Anspruch geltend gemacht wird, wird die $amount$ kehrt automatisch zu Ihrem Wallet zurück. Es gehen keine Gelder verloren.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "Wenn bis dahin kein Anspruch geltend gemacht wird, können Sie den Anspruch geltend machen $amount$ zurück in Ihr Portemonnaie. Es gehen keine Mittel verloren.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2334,6 +2338,18 @@
   "guardianLastSync": {
     "message": "Letzte Synchronisierung",
     "englishSource": "Last sync"
+  },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
   },
   "guardianRotationComplete": {
     "message": "Wächter aktualisiert!",
@@ -3376,6 +3392,14 @@
   "noteReceivedTitle": {
     "message": "Sie haben eine note erhalten",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "Die Transaktion ist fehlgeschlagen",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "Eine Transaktion konnte nicht abgeschlossen werden. Öffnen Sie die Brieftasche, um sie zu überprüfen.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "Tippen Sie hier, um es zu beanspruchen",

@@ -8,8 +8,10 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { getEnvironmentConfig } from '../../config/environments';
+import { testArtifactDirName } from '../../harness/artifact-path';
 import { CLIRunner } from '../../harness/cli-runner';
 import { buildFailureReport, saveFailureReport } from '../../harness/failure-report';
+import { startScreenPoll } from '../../harness/screen-capture';
 import { captureWalletSnapshot } from '../../harness/state-snapshot';
 import { TestStepRunner } from '../../harness/test-step';
 import { TimelineRecorder } from '../../harness/timeline-recorder';
@@ -207,7 +209,7 @@ export const test = base.extend<TwoEmulatorFixtures>({
   },
 
   timeline: async ({}, use, testInfo) => {
-    const outputDir = getRunOutputDir(testInfo.titlePath.join('-').replace(/\s+/g, '_'));
+    const outputDir = getRunOutputDir(testArtifactDirName(testInfo.titlePath));
     const timeline = new TimelineRecorder(outputDir);
 
     timeline.emit({
@@ -267,7 +269,30 @@ export const test = base.extend<TwoEmulatorFixtures>({
     steps.registerSnapshotCaps('A', buildAndroidSnapshotCaps(instanceA.walletPage, ''));
     steps.registerSnapshotCaps('B', buildAndroidSnapshotCaps(instanceB.walletPage, ''));
 
+    // Android has a real CDP connection to the WebView (unlike iOS's RWI
+    // bridge), so reads use AndroidWalletPage.evaluate directly — it goes
+    // through CdpSession.evaluate with returnByValue: true, so the plain
+    // object comes back as-is (no JSON.stringify round-trip needed).
+    const screensDir = path.join(steps.outputDir, 'screens');
+    const screenPolls = [
+      { label: 'A', walletPage: instanceA.walletPage },
+      { label: 'B', walletPage: instanceB.walletPage }
+    ].map(({ label, walletPage }) =>
+      startScreenPoll({
+        intervalMs: 250,
+        read: () =>
+          walletPage.evaluate(
+            () => (window as unknown as { __TEST_SCREEN__?: { key: string; seq: number } }).__TEST_SCREEN__ ?? null
+          ),
+        grab: p => walletPage.screenshot({ path: p }),
+        dir: screensDir,
+        label
+      })
+    );
+
     await use({ instanceA, instanceB, emuA, emuB });
+
+    screenPolls.forEach(p => p.stop());
 
     await Promise.allSettled([
       instanceA.cdp.close().catch(() => undefined),

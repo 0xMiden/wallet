@@ -1,5 +1,7 @@
 import { Runtime } from 'webextension-polyfill';
 
+import { queueNoteImport } from 'lib/miden/activity';
+import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import * as Actions from 'lib/miden/back/actions';
 import { intercom } from 'lib/miden/back/defaults';
 import { handleOffscreenSignRequest, markOpStarted, midenClientProxy } from 'lib/miden/back/miden-client-proxy';
@@ -149,12 +151,22 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       // route through the proxy (reusing its existing methods); flag-OFF each is a
       // pass-through to the same inline client under this lock, so the behavior is
       // byte-identical to before.
-      const noteId = await withWasmClientLock(async () => {
-        const id = await midenClientProxy.importNoteBytes(noteBytes);
-        await midenClientProxy.syncState();
-        return id;
-      });
-      return { type: WalletMessageType.ImportNoteBytesResponse, noteId };
+      try {
+        const noteId = await withWasmClientLock(async () => {
+          const id = await midenClientProxy.importNoteBytes(noteBytes);
+          await midenClientProxy.syncState();
+          return id;
+        });
+        return { type: WalletMessageType.ImportNoteBytesResponse, noteId };
+      } catch (e) {
+        // Don't lose the note on a transient blip (resilience gap 1): queue the
+        // bytes for the background import loop (wall-clock retry + dead-letter)
+        // before surfacing the error, so a manual import isn't lost to one blip.
+        if (isLikelyNetworkError(e)) {
+          await queueNoteImport(req.noteBytes).catch(() => {});
+        }
+        throw e;
+      }
     }
     case WalletMessageType.ExportNoteRequest: {
       const exportedBytes = await withWasmClientLock(async () =>

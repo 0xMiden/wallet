@@ -215,7 +215,29 @@ export async function deleteContact(wallet: ChromeWalletPageApi, address: string
         `so this address is probably one of this wallet's accounts rather than an external contact.`
     );
   }
-  await confirmButton.click();
+  // Bounded, and verified by its POSTCONDITION rather than by the click
+  // returning. Two things went wrong here before:
+  //   1. unbounded, so an unsettled actionability check hung for the whole test
+  //      budget and failed with a closed-context error naming nothing;
+  //   2. a blind `force: true` retry, which "succeeded" while the delete never
+  //      happened — the run then failed 30s later with the row still present.
+  // The modal DISAPPEARING is the proof the click was handled (`useConfirm`
+  // unmounts it in the same tick it resolves), so retry against that rather
+  // than against the click resolving.
+  const confirmClickLanded = async (opts: { force: boolean }): Promise<boolean> => {
+    await confirmButton.click({ timeout: 15_000, force: opts.force }).catch(() => {});
+    return confirmButton
+      .waitFor({ state: 'detached', timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false);
+  };
+  if (!(await confirmClickLanded({ force: false })) && !(await confirmClickLanded({ force: true }))) {
+    throw new Error(
+      `deleteContact(${address}): clicked the confirmation modal's Confirm button but the modal stayed ` +
+        `open, so the delete was never dispatched. The button is present and visible — something is ` +
+        `swallowing the click (an overlay, or a modal still animating in).`
+    );
+  }
 
   try {
     await row.waitFor({ state: 'detached', timeout: timeoutMs });

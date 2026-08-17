@@ -2,7 +2,11 @@ import React from 'react';
 
 import { render, screen, act } from '@testing-library/react';
 
+import { getCurrentScreen, setRoutePart, __resetScreenKeyForTest } from 'lib/e2e/screen-key';
+
 import CustomModal from './CustomModal';
+
+const ORIGINAL_E2E = process.env.MIDEN_E2E_TEST;
 
 // `lib/platform` drives two branches in CustomModal:
 //   - `isExtension()` selects the `closeTimeoutMS` (0 for extension, 200 else)
@@ -102,7 +106,9 @@ describe('CustomModal', () => {
     );
 
     const content = document.getElementById('custom-modal') as HTMLElement;
-    expect(content).toHaveClass('bg-surface-solid', 'rounded', 'z-30', 'shadow-2xl', 'my-custom-class');
+    // z-80, not z-30: this dialog is opened from inside drawers (z-50), and at
+    // z-30 it was painted underneath them — invisible and unclickable.
+    expect(content).toHaveClass('bg-surface-solid', 'rounded', 'z-80', 'shadow-2xl', 'my-custom-class');
   });
 
   it('merges a custom overlayClassName onto the overlay', () => {
@@ -116,7 +122,20 @@ describe('CustomModal', () => {
 
     const overlay = document.querySelector('.my-overlay-class') as HTMLElement;
     expect(overlay).not.toBeNull();
-    expect(overlay).toHaveClass('fixed', 'inset-0', 'z-30', 'flex', 'items-center', 'justify-center', 'p-6');
+    // `pointer-events-auto` is load-bearing, not decoration: a vaul drawer is a
+    // modal Radix dialog, and Radix sets `pointer-events: none` on <body> while
+    // one is open. This overlay is portaled to <body>, so without it the dialog
+    // is inert no matter how high it sits.
+    expect(overlay).toHaveClass(
+      'fixed',
+      'inset-0',
+      'z-80',
+      'pointer-events-auto',
+      'flex',
+      'items-center',
+      'justify-center',
+      'p-6'
+    );
   });
 
   it('flags the body via onAfterOpen when the modal opens', () => {
@@ -210,5 +229,66 @@ describe('CustomModal', () => {
 
     const content = document.getElementById('custom-modal') as HTMLElement;
     expect(content.getAttribute('aria-label')).toBe('my-dialog');
+  });
+
+  describe('screen-key overlay integration', () => {
+    beforeEach(() => {
+      process.env.MIDEN_E2E_TEST = 'true';
+      __resetScreenKeyForTest();
+      setRoutePart('/x');
+      mountRoot();
+    });
+
+    afterEach(() => {
+      if (ORIGINAL_E2E === undefined) delete process.env.MIDEN_E2E_TEST;
+      else process.env.MIDEN_E2E_TEST = ORIGINAL_E2E;
+    });
+
+    it('publishes the generic "modal" overlay id while open when no screenKey is given', () => {
+      render(
+        <CustomModal isOpen>
+          <div>body</div>
+        </CustomModal>
+      );
+
+      expect(getCurrentScreen().key).toBe('/x > modal');
+    });
+
+    it('publishes a namespaced overlay id when screenKey is provided', () => {
+      render(
+        <CustomModal isOpen screenKey="confirm-delete">
+          <div>body</div>
+        </CustomModal>
+      );
+
+      expect(getCurrentScreen().key).toBe('/x > modal:confirm-delete');
+    });
+
+    it('pops the overlay id when isOpen flips to false', () => {
+      const { rerender } = render(
+        <CustomModal isOpen screenKey="confirm-delete">
+          <div>body</div>
+        </CustomModal>
+      );
+      expect(getCurrentScreen().key).toBe('/x > modal:confirm-delete');
+
+      rerender(
+        <CustomModal isOpen={false} screenKey="confirm-delete">
+          <div>body</div>
+        </CustomModal>
+      );
+      expect(getCurrentScreen().key).toBe('/x');
+    });
+
+    it('does not forward screenKey to the underlying react-modal element', () => {
+      render(
+        <CustomModal isOpen screenKey="confirm-delete">
+          <div>body</div>
+        </CustomModal>
+      );
+
+      const content = document.getElementById('custom-modal') as HTMLElement;
+      expect(content.getAttribute('screenkey')).toBeNull();
+    });
   });
 });

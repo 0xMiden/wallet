@@ -5,6 +5,10 @@ import { isTransactionStuck } from './cancel';
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({ InputNoteState: {} }));
 jest.mock('lib/miden/repo', () => ({ transactions: {} }));
 jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }));
+jest.mock('../back/background-notification', () => ({
+  notifyBackgroundTransactionFailed: jest.fn(),
+  showBackgroundNotification: jest.fn()
+}));
 jest.mock('lib/platform', () => ({ isMobile: jest.fn(() => true) }));
 jest.mock('lib/mobile/background-time', () => ({ hiddenSecondsSince: jest.fn(() => 0) }));
 jest.mock('./get', () => ({ getTransactionsInProgress: jest.fn() }));

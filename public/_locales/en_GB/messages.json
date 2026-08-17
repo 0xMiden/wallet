@@ -439,6 +439,10 @@
     "message": "Positions",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "Couldn't load your positions. Check your connection and try again.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -1580,8 +1584,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "If unclaimed by then, the  $amount$  returns to your wallet automatically. No funds are lost.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "If unclaimed by then, you can claim the  $amount$  back into your wallet. No funds are lost.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -3389,6 +3393,14 @@
   "noteReceivedTitle": {
     "message": "You have received a note",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "Transaction failed",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "A transaction couldn't be completed. Open the wallet to review.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "Tap here to claim it",

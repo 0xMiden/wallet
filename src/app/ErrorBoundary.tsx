@@ -1,4 +1,4 @@
-import React, { Component, ErrorInfo, FC } from 'react';
+import React, { Component, ErrorInfo, FC, useEffect, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -65,8 +65,25 @@ interface ErrorDisplayProps {
 
 const ErrorDisplay: FC<ErrorDisplayProps> = ({ className, whileMessage, windowType }) => {
   const { t } = useTranslation();
-  const online = getOnlineStatus();
+  // Subscribe to connectivity so the offline hint updates live if the user
+  // reconnects while on the crash screen (resilience gap 11 — was a one-shot read).
+  const [online, setOnline] = useState(getOnlineStatus());
   const fullPage = windowType === WindowType.FullPage;
+
+  useEffect(() => {
+    const update = () => setOnline(getOnlineStatus());
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, []);
+
+  // Try Again was a dead control (no onClick). Fire the reset channel the boundary
+  // already listens for: it clears the error and re-mounts the children, which
+  // re-initialise (the client singleton self-heals — see gap 7). (resilience gap 11)
+  const handleTryAgain = () => window.dispatchEvent(new Event('reseterrorboundary'));
 
   return (
     <div
@@ -92,7 +109,12 @@ const ErrorDisplay: FC<ErrorDisplayProps> = ({ className, whileMessage, windowTy
           )}
         </p>
 
-        <Button variant={ButtonVariant.Primary} title={t('tryAgain')} className="w-full mt-4" />
+        <Button
+          variant={ButtonVariant.Primary}
+          title={t('tryAgain')}
+          className="w-full mt-4"
+          onClick={handleTryAgain}
+        />
       </div>
     </div>
   );

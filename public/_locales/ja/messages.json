@@ -439,6 +439,10 @@
     "message": "ポジション",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "ポジションを読み込めませんでした。接続を確認して、もう一度試してください。",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -1580,8 +1584,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "それまでに請求されなかった場合、 $amount$ 自動的にウォレットに戻ります。資金が失われることはありません。",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "それまでに請求されていない場合は、請求することができます $amount$ 財布に戻します。資金が失われることはありません。",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2334,6 +2338,18 @@
   "guardianLastSync": {
     "message": "最終同期",
     "englishSource": "Last sync"
+  },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
   },
   "guardianRotationComplete": {
     "message": "ガーディアンが更新されました！",
@@ -3376,6 +3392,14 @@
   "noteReceivedTitle": {
     "message": "note を受け取りました",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "トランザクションが失敗しました",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "トランザクションを完了できませんでした。ウォレットを開いて確認してください。",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "ここをタップして申請してください",

@@ -1,11 +1,11 @@
 {
   "name": "miden-wallet",
-  "version": "1.15.19",
+  "version": "1.15.21",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
   },
-  "midenClientCliVersion": "0.14.8",
+  "midenClientCliVersion": "0.15.0",
   "midenClientCliGit": {
     "url": "https://github.com/0xMiden/miden-client",
     "rev": "733720a7ce5886a390c848402b61079be1e6aa38"
@@ -75,6 +75,8 @@
     "test:e2e:bridge:testnet": "cross-env E2E_NETWORK=testnet yarn test:e2e:bridge",
     "test:e2e:earn:run": "playwright test --config playwright.earn.config.ts",
     "test:e2e:earn": "cross-env EPOCH_ALLOCATOR_URL=http://127.0.0.1:8548 EPOCH_POSITIONS_URL=http://127.0.0.1:8549 E2E_EVM_RPC_URL=http://127.0.0.1:8545 E2E_NETWORK=localhost yarn test:e2e:blockchain:build && cross-env EPOCH_ALLOCATOR_URL=http://127.0.0.1:8548 EPOCH_POSITIONS_URL=http://127.0.0.1:8549 E2E_EVM_RPC_URL=http://127.0.0.1:8545 yarn test:e2e:earn:run",
+    "test:e2e:resilience:run": "playwright test --config playwright.resilience.config.ts",
+    "test:e2e:resilience": "cross-env E2E_NETWORK=localhost yarn test:e2e:blockchain:build && yarn test:e2e:resilience:run",
     "test:e2e:stress:build": "yarn install && yarn test:e2e:blockchain:build",
     "test:e2e:stress": "yarn test:e2e:stress:build && playwright test --config playwright.stress.config.ts",
     "test:e2e:stress:run": "yarn test:e2e:stress:build && playwright test --config playwright.stress.config.ts",

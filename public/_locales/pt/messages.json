@@ -439,6 +439,10 @@
     "message": "Posições",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "Não foi possível carregar suas posições. Verifique sua conexão e tente novamente.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$APY",
     "englishSource": "$apy$ APY",
@@ -1580,8 +1584,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "Se não for reclamado até então, o $amount$ retorna para sua carteira automaticamente. Nenhum dinheiro é perdido.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "Se não for reclamado até então, você pode reivindicar o $amount$ de volta para sua carteira. Nenhum dinheiro é perdido.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2332,6 +2336,18 @@
   "guardianLastSync": {
     "message": "Última sincronização",
     "englishSource": "Last sync"
+  },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
   },
   "guardianRotationComplete": {
     "message": "Guardião atualizado!",
@@ -3374,6 +3390,14 @@
   "noteReceivedTitle": {
     "message": "Você recebeu um note",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "Falha na transação",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "Não foi possível concluir uma transação. Abra a carteira para revisar.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "Toque aqui para reivindicá-lo",

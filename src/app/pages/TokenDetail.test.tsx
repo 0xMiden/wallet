@@ -235,9 +235,19 @@ describe('TokenDetail', () => {
     expect(screen.getByTestId('nav-title')).toHaveTextContent('ETH');
     expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'ETH');
     expect(screen.getByTestId('token-logo')).toHaveAttribute('data-size', 'xl');
-    // balance.toFixed(2) and fiatValue = 12.5 * 2000.
+    // Standard 2dp balance formatting and fiatValue = 12.5 * 2000.
     expect(screen.getByText('12.50')).toBeInTheDocument();
     expect(screen.getByText('$25000.00')).toBeInTheDocument();
+  });
+
+  it('expands precision for a small non-zero hero balance and fiat value', () => {
+    renderPage({
+      balances: [{ tokenId: TOKEN_ID, balance: 0.001234, metadata: { symbol: 'ETH' } }],
+      priceInfo: { price: 2, change24h: 0 }
+    });
+
+    expect(screen.getByText('0.0012')).toBeInTheDocument();
+    expect(screen.getByText('$0.0025')).toBeInTheDocument();
   });
 
   it('forwards account address, tokenId and fullHistory to the History template', () => {

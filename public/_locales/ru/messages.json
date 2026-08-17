@@ -439,6 +439,10 @@
     "message": "Позиции",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "Не удалось загрузить ваши позиции. Проверьте подключение и повторите попытку.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -1580,8 +1584,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "Если к тому времени он не будет востребован, $amount$ возвращается в ваш кошелек автоматически. Никакие средства не теряются.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "Если к тому времени вы не будете востребованы, вы можете претендовать на $amount$ обратно в свой кошелек. Никакие средства не теряются.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2335,6 +2339,18 @@
   "guardianLastSync": {
     "message": "Последняя синхронизация",
     "englishSource": "Last sync"
+  },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
   },
   "guardianRotationComplete": {
     "message": "Опекун обновлен!",
@@ -3377,6 +3393,14 @@
   "noteReceivedTitle": {
     "message": "Вы получили note",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "Транзакция не удалась",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "Транзакция не может быть завершена. Откройте кошелек для проверки.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "Нажмите здесь, чтобы потребовать это",

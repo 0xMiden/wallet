@@ -19,10 +19,18 @@ const FAULTED_SEND_AMOUNT = '1'; // TST, sent A -> B with guardian A faulted
 // containers on localhost, real operators on testnet (OpenZeppelin A -> Koda B).
 const envConfig = getEnvironmentConfig();
 const A = envConfig.guardianUrl;
-if (!envConfig.guardianUrlB) {
-  throw new Error(`E2E_NETWORK=${envConfig.name} has no second guardian (guardianUrlB) configured for switch tests`);
-}
-const B = envConfig.guardianUrlB;
+// SKIP, not throw. A second operator is a property of the NETWORK, not a defect
+// in this spec: devnet has one guardian, so `guardianUrlB` is legitimately
+// absent there. Throwing at module scope aborts COLLECTION, which takes down
+// every other spec in the same run — on `next` that is exactly what happened,
+// and the entire devnet guardian job died at setup reporting only
+// "E2E_NETWORK=devnet has no second guardian", with none of the specs that
+// would have passed ever getting to run. Skipping states the reason and costs
+// only the tests that genuinely cannot run.
+// `?? ''` rather than a non-null assertion at each call site: the describes
+// below skip on the empty string, so every use downstream is a plain string.
+const B = envConfig.guardianUrlB ?? '';
+const NO_SECOND_GUARDIAN = `E2E_NETWORK=${envConfig.name} has no second guardian (guardianUrlB) — switch tests need two operators`;
 
 /**
  * Guardian commitment (the on-chain `GUARDIAN_SLOT_NAMES.PUBLIC_KEY` value)
@@ -67,6 +75,7 @@ async function guardianCommitment(endpoint: string): Promise<string> {
  * round-trip.
  */
 test.describe('Guardian switch - happy path + usability', () => {
+  test.skip(() => !B, NO_SECOND_GUARDIAN);
   test('switch A to B completes, usable on B, survives reopen', async ({ walletA, walletB, midenCli, steps }) => {
     // Guardian round-trips (create, switch, consume, send) each carry their
     // own multi-second canonicalization wait against the local guardian --
@@ -229,6 +238,7 @@ test.describe('Guardian switch - happy path + usability', () => {
  * server-side as `OpenZeppelin/guardian#369` and is out of scope here.
  */
 test.describe('Guardian switch - cross-guardian correctness', () => {
+  test.skip(() => !B, NO_SECOND_GUARDIAN);
   test('after switch, wallet co-signs only with B (A no longer authoritative for new txs)', async ({
     walletA,
     walletB,

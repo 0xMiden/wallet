@@ -8,8 +8,10 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { getEnvironmentConfig } from '../../config/environments';
+import { testArtifactDirName } from '../../harness/artifact-path';
 import { CLIRunner } from '../../harness/cli-runner';
 import { buildFailureReport, saveFailureReport } from '../../harness/failure-report';
+import { startScreenPoll } from '../../harness/screen-capture';
 import { captureWalletSnapshot } from '../../harness/state-snapshot';
 import { TestStepRunner } from '../../harness/test-step';
 import { TimelineRecorder } from '../../harness/timeline-recorder';
@@ -312,7 +314,7 @@ export const test = base.extend<TwoSimulatorFixtures>({
   },
 
   timeline: async ({}, use, testInfo) => {
-    const outputDir = getRunOutputDir(testInfo.titlePath.join('-').replace(/\s+/g, '_'));
+    const outputDir = getRunOutputDir(testArtifactDirName(testInfo.titlePath));
     const timeline = new TimelineRecorder(outputDir);
 
     timeline.emit({
@@ -392,7 +394,37 @@ export const test = base.extend<TwoSimulatorFixtures>({
     steps.registerSnapshotCaps('A', buildIosSnapshotCaps(instanceA.walletPage, ''));
     steps.registerSnapshotCaps('B', buildIosSnapshotCaps(instanceB.walletPage, ''));
 
+    // Reactive capture (Chrome's installScreenCapture) isn't available here —
+    // Playwright doesn't own the WebView on iOS, so there's no page instance
+    // to `exposeFunction` into. Poll the app's screen-key over CDP instead:
+    // cheap, tiny reads (a single JSON string) sharing the same serial RWI
+    // socket as the rest of the spec's traffic.
+    const screensDir = path.join(steps.outputDir, 'screens');
+    const screenPolls = [
+      { label: 'A', walletPage: instanceA.walletPage, cdp: instanceA.cdp },
+      { label: 'B', walletPage: instanceB.walletPage, cdp: instanceB.cdp }
+    ].map(({ label, walletPage, cdp }) =>
+      startScreenPoll({
+        intervalMs: 250,
+        read: async () => {
+          // Sync `eval`, not `evalAsync` — the latter is broken on this iOS
+          // RWI bridge (see CdpSession.evalAsync). A plain-object read of
+          // window.__TEST_SCREEN__ touches no WASM, so it's safe from the
+          // single-threaded client's lock contention.
+          const raw = await cdp.eval<string>('return JSON.stringify(window.__TEST_SCREEN__ || null);', {
+            timeoutMs: 5_000
+          });
+          return raw ? (JSON.parse(raw) as { key: string; seq: number }) : null;
+        },
+        grab: p => walletPage.screenshot({ path: p }),
+        dir: screensDir,
+        label
+      })
+    );
+
     await use({ instanceA, instanceB, simA, simB });
+
+    screenPolls.forEach(p => p.stop());
 
     // Parallel teardown is safe — close is a CDP socket close, terminate is
     // just `simctl terminate` which doesn't contend.

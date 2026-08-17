@@ -428,10 +428,20 @@ export class Vault {
         // makeColdSeedDeriver pays the 2048-round PBKDF2 once across the whole
         // 20-index scan; a per-index deriveClientSeed closure would re-run it
         // for every index.
-        const recovered = await midenClient.recoverGuardianAccountsBySeed(
-          makeColdSeedDeriver(mnemonic!, WalletType.Guardian),
-          resolvedGuardianEndpoint
-        );
+        // Promote the lookup's own reason to a PublicError so it survives the
+        // `withError` wrapper. Everything else spawn can throw is an internal
+        // detail the generic 'Failed to create wallet' is the right cover for —
+        // but this branch is reached from the forgot-password reset, where
+        // Step 3 has ALREADY wiped the wallet, so the surfaced string is the
+        // only thing the user has left. "No Guardian accounts found at this
+        // guardian endpoint for this seed" is actionable (wrong seed, or the
+        // wrong operator); "Failed to create wallet" is not (#630).
+        const recovered = await midenClient
+          .recoverGuardianAccountsBySeed(makeColdSeedDeriver(mnemonic!, WalletType.Guardian), resolvedGuardianEndpoint)
+          .catch((err: unknown) => {
+            if (err instanceof PublicError) throw err;
+            throw new PublicError(err instanceof Error ? err.message : String(err));
+          });
         createdAccounts = recovered.map(r => ({
           accountId: r.accountId,
           hdIndex: r.hdIndex,
@@ -797,7 +807,20 @@ export class Vault {
               console.log('[Vault.createHDAccount] Step 8a: importPublicMidenWalletFromSeed');
               return { accountId: await midenClient.importPublicMidenWalletFromSeed(walletSeed, newScheme) };
             } catch (e) {
-              console.warn('Failed to import wallet from seed, creating new wallet instead', e);
+              // A network-unreachable import and a genuine "not on chain" miss are
+              // different answers; swallowing both creates a fresh EMPTY wallet on a
+              // transient node blip, hiding the user's real (correctly-seeded)
+              // account — a fund-loss shape. Mirror the Vault.spawn guard: only a
+              // definitive miss may fall through to create-fresh; connectivity
+              // aborts so the user can retry against a reachable node (resilience gap 13).
+              if (isLikelyNetworkError(e)) {
+                console.error('[Vault.createHDAccount] import could not reach the node', e);
+                throw new PublicError(
+                  'Could not reach the Miden network to look up your account. Your seed phrase is fine — ' +
+                    'please check your connection and try again.'
+                );
+              }
+              console.warn('Seed not found on chain; creating a new wallet instead', e);
               return { accountId: await midenClient.createMidenWallet(walletType, walletSeed, newScheme) };
             }
           }

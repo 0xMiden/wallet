@@ -47,7 +47,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
   );
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} screenKey="token">
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{t('selectAToken')}</DrawerTitle>

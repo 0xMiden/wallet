@@ -25,7 +25,7 @@ jobs:
             specs: ""
           - name_suffix: " [fast blocks]"
             block_interval: "500ms"
-            specs: "playwright/e2e/tests/send-private.spec.ts"
+            specs: "playwright/e2e/tests/send-private.spec.ts playwright/e2e/tests/recall-reclaim.spec.ts"
     name: local-e2e (chrome)${{ matrix.name_suffix }}
     runs-on: ubuntu-latest
     # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m);

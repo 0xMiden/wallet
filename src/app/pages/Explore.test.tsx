@@ -261,6 +261,8 @@ describe('Explore', () => {
         makeToken('t-btc', 'BTC', 'Bitcoin'),
         makeToken('t-eth', 'ETH')
       ];
+      // Prices loaded → the real total renders (the mocked Balance hands 0).
+      mockTokenPrices = { MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 } };
 
       await renderExplore();
 
@@ -276,6 +278,15 @@ describe('Explore', () => {
       const rows = screen.getAllByTestId('asset-row');
       expect(rows).toHaveLength(3);
       expect(rows[0]).toHaveAttribute('data-token', 'faucet-native');
+    });
+
+    it('shows the portfolio total as "$—" when no prices have loaded, not a fabricated $1-based figure (gap 16)', async () => {
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden', 100)];
+      mockTokenPrices = {}; // price feed unavailable / not yet loaded
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent('$—');
     });
 
     it('keeps the native asset first and orders the remaining assets by descending fiat value', async () => {

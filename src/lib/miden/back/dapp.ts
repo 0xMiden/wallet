@@ -71,6 +71,7 @@ import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
+import { isLikelyNetworkError } from '../activity/connectivity-classify';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
@@ -415,12 +416,13 @@ export async function requestSign(origin: string, req: MidenDAppSignRequest): Pr
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  return new Promise((resolve, reject) => generatePromisifySign(resolve, reject, dApp, req));
+  return new Promise((resolve, reject) => generatePromisifySign(resolve, reject, origin, dApp, req));
 }
 
 const generatePromisifySign = async (
   resolve: (value: MidenDAppSignResponse | PromiseLike<MidenDAppSignResponse>) => void,
   reject: (reason?: any) => void,
+  origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppSignRequest
 ) => {
@@ -488,12 +490,13 @@ export async function requestPrivateNotes(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  return new Promise((resolve, reject) => generatePromisifyRequestPrivateNotes(resolve, reject, dApp, req));
+  return new Promise((resolve, reject) => generatePromisifyRequestPrivateNotes(resolve, reject, origin, dApp, req));
 }
 
 const generatePromisifyRequestPrivateNotes = async (
   resolve: (value: MidenDAppPrivateNotesResponse | PromiseLike<MidenDAppPrivateNotesResponse>) => void,
   reject: (reason?: any) => void,
+  origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppPrivateNotesRequest
 ) => {
@@ -604,12 +607,13 @@ export async function requestConsumableNotes(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  return new Promise((resolve, reject) => generatePromisifyRequestConsumableNotes(resolve, reject, dApp, req));
+  return new Promise((resolve, reject) => generatePromisifyRequestConsumableNotes(resolve, reject, origin, dApp, req));
 }
 
 export const generatePromisifyRequestConsumableNotes = async (
   resolve: (value: MidenDAppConsumableNotesResponse | PromiseLike<MidenDAppConsumableNotesResponse>) => void,
   reject: (reason?: any) => void,
+  origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppConsumableNotesRequest
 ) => {
@@ -724,12 +728,13 @@ export async function requestAssets(origin: string, req: MidenDAppAssetsRequest)
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  return new Promise((resolve, reject) => generatePromisifyRequestAssets(resolve, reject, dApp, req));
+  return new Promise((resolve, reject) => generatePromisifyRequestAssets(resolve, reject, origin, dApp, req));
 }
 
 export const generatePromisifyRequestAssets = async (
   resolve: (value: MidenDAppAssetsResponse | PromiseLike<MidenDAppAssetsResponse>) => void,
   reject: (reason?: any) => void,
+  origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppAssetsRequest
 ) => {
@@ -882,12 +887,13 @@ export async function requestImportPrivateNote(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  return new Promise((resolve, reject) => generatePromisifyImportPrivateNote(resolve, reject, dApp, req));
+  return new Promise((resolve, reject) => generatePromisifyImportPrivateNote(resolve, reject, origin, dApp, req));
 }
 
 export const generatePromisifyImportPrivateNote = async (
   resolve: (value: MidenDAppImportPrivateNoteResponse | PromiseLike<MidenDAppImportPrivateNoteResponse>) => void,
   reject: (reason?: any) => void,
+  origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppImportPrivateNoteRequest
 ) => {
@@ -936,6 +942,14 @@ export const generatePromisifyImportPrivateNote = async (
               noteId
             });
           } catch (e) {
+            // Don't lose the note on a transient blip (resilience gap 1): a
+            // private note's bytes can be its only copy. Queue it for the
+            // background import loop (wall-clock retry + backoff, dead-letter on
+            // give-up) before surfacing the error. Only transient failures are
+            // re-queued — a genuinely malformed note would just dead-letter.
+            if (isLikelyNetworkError(e)) {
+              await queueNoteImport(req.note).catch(() => {});
+            }
             reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
           }
         } else {
@@ -968,7 +982,7 @@ export async function requestTransaction(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  return new Promise((resolve, reject) => generatePromisifyTransaction(resolve, reject, dApp, req, sessionId));
+  return new Promise((resolve, reject) => generatePromisifyTransaction(resolve, reject, origin, dApp, req, sessionId));
 }
 
 export function buildCustomTxConfirmPayload(args: {
@@ -1017,6 +1031,7 @@ export function makeSimulateHandler(id: string, tx: MidenCustomTransaction) {
 const generatePromisifyTransaction = async (
   resolve: (value: MidenDAppTransactionResponse | PromiseLike<MidenDAppTransactionResponse>) => void,
   reject: (reason?: any) => void,
+  origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppTransactionRequest,
   sessionId?: string
@@ -1042,6 +1057,7 @@ const generatePromisifyTransaction = async (
           transactionId: (value as MidenDAppSendTransactionResponse).transactionId
         }),
       reject,
+      origin,
       dApp,
       { ...req, transaction: req.transaction.payload } as unknown as MidenDAppSendTransactionRequest,
       sessionId
@@ -1055,6 +1071,7 @@ const generatePromisifyTransaction = async (
           transactionId: (value as MidenDAppConsumeResponse).transactionId
         }),
       reject,
+      origin,
       dApp,
       { ...req, transaction: req.transaction.payload } as unknown as MidenDAppConsumeRequest,
       sessionId
@@ -1088,7 +1105,7 @@ const generatePromisifyTransaction = async (
       id,
       sessionId,
       type: 'transaction',
-      origin: dApp.appMeta.name,
+      origin,
       appMeta: dApp.appMeta,
       network: dApp.network,
       networkRpc,
@@ -1206,12 +1223,15 @@ export async function requestSendTransaction(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  return new Promise((resolve, reject) => generatePromisifySendTransaction(resolve, reject, dApp, req, sessionId));
+  return new Promise((resolve, reject) =>
+    generatePromisifySendTransaction(resolve, reject, origin, dApp, req, sessionId)
+  );
 }
 
 const generatePromisifySendTransaction = async (
   resolve: (value: MidenDAppSendTransactionResponse | PromiseLike<MidenDAppSendTransactionResponse>) => void,
   reject: (reason?: any) => void,
+  origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppSendTransactionRequest,
   sessionId?: string
@@ -1222,7 +1242,7 @@ const generatePromisifySendTransaction = async (
   let transactionMessages: string[] = [];
   try {
     transactionMessages = await withUnlocked(async () => {
-      return formatSendTransactionPreview(req.transaction);
+      return await formatSendTransactionPreview(req.transaction);
     });
   } catch (e) {
     reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
@@ -1237,7 +1257,7 @@ const generatePromisifySendTransaction = async (
       id,
       sessionId,
       type: 'transaction',
-      origin: dApp.appMeta.name,
+      origin,
       appMeta: dApp.appMeta,
       network: dApp.network,
       networkRpc,
@@ -1345,12 +1365,15 @@ export async function requestConsumeTransaction(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  return new Promise((resolve, reject) => generatePromisifyConsumeTransaction(resolve, reject, dApp, req, sessionId));
+  return new Promise((resolve, reject) =>
+    generatePromisifyConsumeTransaction(resolve, reject, origin, dApp, req, sessionId)
+  );
 }
 
 const generatePromisifyConsumeTransaction = async (
   resolve: (value: MidenDAppConsumeResponse | PromiseLike<MidenDAppConsumeResponse>) => void,
   reject: (reason?: any) => void,
+  origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppConsumeRequest,
   sessionId?: string
@@ -1376,7 +1399,7 @@ const generatePromisifyConsumeTransaction = async (
       id,
       sessionId,
       type: 'consume',
-      origin: dApp.appMeta.name,
+      origin,
       appMeta: dApp.appMeta,
       network: dApp.network,
       networkRpc,
@@ -1666,11 +1689,25 @@ function isAllowedNetwork() {
   //return NETWORKS.some(n => !n.disabled && n.id === net.toString());
 }
 
-function formatSendTransactionPreview(transaction: SendTransaction): string[] {
+/**
+ * Renders the approval-screen rows for a dApp `requestSend`.
+ *
+ * The amount is formatted HERE, from the faucet's own decimals, exactly like
+ * `formatConsumeTransactionPreview` does. It used to be emitted raw (base
+ * units) and divided by a hardcoded `10 ** 6` in the extension's ConfirmPage
+ * — which showed the wrong number for any faucet that isn't 6-decimal, showed
+ * raw base units on mobile/desktop (whose renderers print the row verbatim),
+ * and lost precision above 2^53 because the division went through `Number()`.
+ * `formatBigInt` stays in bigint until the last step, so large amounts render
+ * exactly.
+ */
+async function formatSendTransactionPreview(transaction: SendTransaction): Promise<string[]> {
+  const tokenMetadata = await getTokenMetadata(transaction.faucetId);
+  const amount = formatAmountSafe(BigInt(transaction.amount), 'send', tokenMetadata?.decimals);
   const tsTexts = [
     'Transfer note from faucet:',
     transaction.faucetId,
-    `Amount, ${transaction.amount}`,
+    `Amount, ${amount}`,
     `Recipient, ${transaction.recipientAddress}`,
     `Note Type, ${capitalizeFirstLetter(transaction.noteType)}`
   ];

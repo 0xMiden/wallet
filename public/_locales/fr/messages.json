@@ -439,6 +439,10 @@
     "message": "Postes",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "Impossible de charger vos positions. Vérifiez votre connexion et réessayez.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$APY",
     "englishSource": "$apy$ APY",
@@ -1580,8 +1584,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "S'il n'est pas réclamé d'ici là, le $amount$ revient automatiquement dans votre portefeuille. Aucun fonds n'est perdu.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "Si vous n'êtes pas réclamé d'ici là, vous pouvez réclamer le $amount$ retournez dans votre portefeuille. Aucun fonds n'est perdu.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2333,6 +2337,18 @@
   "guardianLastSync": {
     "message": "Dernière synchronisation",
     "englishSource": "Last sync"
+  },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
   },
   "guardianRotationComplete": {
     "message": "Gardien mis à jour !",
@@ -3375,6 +3391,14 @@
   "noteReceivedTitle": {
     "message": "Vous avez reçu un note",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "La transaction a échoué",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "Une transaction n'a pas pu être finalisée. Ouvrez le portefeuille pour vérifier.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "Appuyez ici pour le réclamer",

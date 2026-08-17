@@ -439,6 +439,10 @@
     "message": "Pozycje",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "Nie udało się wczytać Twoich pozycji. Sprawdź połączenie i spróbuj ponownie.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ RRSO",
     "englishSource": "$apy$ APY",
@@ -1563,8 +1567,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "Jeśli do tego czasu nie zostanie odebrane, $amount$ automatycznie wraca do Twojego portfela. Żadne środki nie zostaną utracone.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "Jeśli do tego czasu nie zostanie odebrany, możesz ubiegać się o $amount$ z powrotem do portfela. Żadne środki nie zostaną utracone.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2286,6 +2290,18 @@
   "guardianLastSync": {
     "message": "Ostatnia synchronizacja",
     "englishSource": "Last sync"
+  },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
   },
   "guardianRotationComplete": {
     "message": "Strażnik zaktualizowany!",
@@ -3323,6 +3339,14 @@
   "noteReceivedTitle": {
     "message": "Otrzymałeś note",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "Transakcja nie powiodła się",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "Nie udało się sfinalizować transakcji. Otwórz portfel, aby przejrzeć.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "Kliknij tutaj, aby to odebrać",

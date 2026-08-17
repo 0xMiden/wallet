@@ -8,17 +8,26 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { getEnvironmentConfig } from '../config/environments';
+import { testArtifactDirName } from '../harness/artifact-path';
 import { attachConsoleCapture } from '../harness/browser-capture';
 import { CLIRunner } from '../harness/cli-runner';
 import { assertExtensionNetworkMatches } from '../harness/extension-network';
 import { buildFailureReport, saveFailureReport } from '../harness/failure-report';
-import { installGuardianFaults, type GuardianFaultPolicy, type GuardianOrigins } from '../harness/guardian-fault';
+import { installFetchFaultControls, isFetchFaultTarget, toFetchWire } from '../harness/fetch-faults';
+import { type GuardianFaultPolicy, type GuardianOrigins } from '../harness/guardian-fault';
 import {
   SW_FETCH_LOG_PREFIX,
   attachNetworkCapture,
   attachPageWorkersCapture,
   attachServiceWorkerFetchCapture
 } from '../harness/network-capture';
+import {
+  installNetworkFaults,
+  LOCAL_NETWORK_ORIGINS,
+  type NetworkFaultPolicy,
+  type NetworkOrigins
+} from '../harness/network-faults';
+import { captureBestEffort } from '../harness/screen-capture';
 import { captureWalletSnapshot } from '../harness/state-snapshot';
 import { TestStepRunner } from '../harness/test-step';
 import { TimelineRecorder } from '../harness/timeline-recorder';
@@ -36,12 +45,28 @@ import { ChromeWalletPage, type ChromeWalletPageApi } from '../helpers/wallet-pa
 
 /**
  * Test-only controls layered onto the wallet page object so specs can arm/
- * clear guardian HTTP faults (see harness/guardian-fault.ts) without reaching
- * into the BrowserContext directly.
+ * clear infra faults (guardian HTTP via harness/guardian-fault.ts; the whole
+ * infra surface via harness/network-faults.ts) without reaching into the
+ * BrowserContext directly. Both route through the single combined handler
+ * installed by `installNetworkFaults`.
  */
 export interface GuardianFaultTestApi {
   armGuardianFault(policy: GuardianFaultPolicy): void;
-  clearFaults(): void;
+  /**
+   * Arm one or more whole-infra faults (node/prover/transport/positions/…).
+   * Pass an array to fault several dependencies at once. node/prover/transport
+   * are applied at the fetch layer (async — they're gRPC-web inside the SW /
+   * SDK worker), so this returns a promise; await it before driving the action.
+   * See harness/network-faults.ts for targets and modes.
+   */
+  armNetworkFault(policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]): Promise<void>;
+  /**
+   * How many guardian requests the currently-armed guardian fault has faulted.
+   * Lets a spec prove the fault actually fired (0 hits ⇒ the fault never reached
+   * the op, i.e. a false green). See `NetworkFaultControls.guardianFaultHits`.
+   */
+  guardianFaultHits(): number;
+  clearFaults(): Promise<void>;
 }
 
 export type GuardianAwareWalletPage = ChromeWalletPageApi & GuardianFaultTestApi;
@@ -78,6 +103,34 @@ type TwoWalletFixtures = {
 const guardianOrigins = (): GuardianOrigins => {
   const cfg = getEnvironmentConfig();
   return { a: cfg.guardianUrl, b: cfg.guardianUrlB };
+};
+
+// Origin (protocol//host:port) of a URL, or undefined if unparseable.
+const toOrigin = (u?: string): string | undefined => {
+  if (!u) return undefined;
+  try {
+    return new URL(u).origin;
+  } catch {
+    return undefined;
+  }
+};
+
+// Whole-infra fault origins for the resilience suite. Node/prover/transport/
+// guardian come from the active environment (so localhost matches the harness's
+// own endpoints); positions/allocator/anvil/agglayer/binance/faucet keep the
+// localnet defaults (they're localhost-only). The network policy set is only
+// consulted when a spec calls armNetworkFault (resilience specs on localhost),
+// so this is inert for the guardian/blockchain suites that share this fixture.
+const networkOrigins = (): NetworkOrigins => {
+  const cfg = getEnvironmentConfig();
+  return {
+    ...LOCAL_NETWORK_ORIGINS,
+    node: toOrigin(cfg.rpcUrl) ?? LOCAL_NETWORK_ORIGINS.node,
+    prover: toOrigin(cfg.provingUrl) ?? LOCAL_NETWORK_ORIGINS.prover,
+    transport: toOrigin(cfg.transportUrl) ?? LOCAL_NETWORK_ORIGINS.transport,
+    guardianA: toOrigin(cfg.guardianUrl) ?? LOCAL_NETWORK_ORIGINS.guardianA,
+    guardianB: toOrigin(cfg.guardianUrlB) ?? LOCAL_NETWORK_ORIGINS.guardianB
+  };
 };
 
 const ROOT_DIR = path.resolve(__dirname, '../../..');
@@ -139,6 +192,25 @@ function buildChromeSnapshotCaps(page: Page, context: BrowserContext, extensionI
     },
     currentUrl: async () => page.url()
   };
+}
+
+/**
+ * Bind the app's reactive screen-change signal (`window.__e2eScreenChanged`,
+ * emitted when `MIDEN_E2E_TEST=true`) to a best-effort screenshot capture.
+ * Must be re-installed whenever the page's JS realm is torn down and rebuilt
+ * -- a fresh `Page` (relaunch()) or a reload that drops the exposed binding
+ * -- since `exposeFunction` is scoped to the current page instance.
+ */
+export async function installScreenCapture(page: Page, label: string, outputDir: string): Promise<void> {
+  const screensDir = path.join(outputDir, 'screens');
+  const handler = (key: string, seq: number) =>
+    captureBestEffort(async p => void (await page.screenshot({ path: p })), screensDir, seq, key, label);
+  try {
+    await page.exposeFunction('__e2eScreenChanged', handler);
+  } catch {
+    // Already exposed on this page instance (e.g. the binding survived a
+    // soft reload) -- nothing to do.
+  }
 }
 
 // Chromium launch args, shared by the initial wallet launch and reopen()'s
@@ -221,11 +293,16 @@ async function relaunchContext(userDataDir: string, extensionPath: string) {
   for (const p of context.pages()) {
     if (p !== page) await p.close().catch(() => {});
   }
-  const faults = installGuardianFaults(context, guardianOrigins());
+  const faults = installNetworkFaults(context, { network: networkOrigins(), guardian: guardianOrigins() });
   return { context, page, faults };
 }
 
-async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, timeline: TimelineRecorder) {
+async function launchWalletInstance(
+  label: 'A' | 'B',
+  extensionPath: string,
+  timeline: TimelineRecorder,
+  outputDir: string
+) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), `miden-wallet-${label}-`));
 
   // `let` (not `const`): reopen()'s relaunch swaps these in place after a
@@ -249,6 +326,10 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
   serviceWorker.on('console', (msg: any) => {
     const text = msg.text();
     if (text.startsWith(SW_FETCH_LOG_PREFIX)) return;
+    if (process.env.SW_DEBUG && /SyncManager|connectivity|onnectivity|syncState/.test(text)) {
+      // eslint-disable-next-line no-console
+      console.log(`[SW-DBG ${label}] ${text}`);
+    }
     timeline.emit({
       category: 'browser_console',
       severity: msg.type() === 'error' ? 'error' : msg.type() === 'warning' ? 'warn' : 'info',
@@ -418,6 +499,8 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
       // Wait before reload to give the service worker more time to finish WASM init
       await new Promise(resolve => setTimeout(resolve, 3_000));
       await page.reload({ waitUntil: 'load' });
+      // A reload can drop the exposed __e2eScreenChanged binding; re-install it.
+      await installScreenCapture(page, label, outputDir);
       // Wait for React to at least mount something before checking again
       await page.waitForSelector('#root > *', { timeout: 15_000 }).catch(() => {});
     }
@@ -436,7 +519,13 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
   // GuardianFaultPolicy the spec arms via the wallet page object below.
   // `let`: relaunch swaps in the new context's faults so armGuardianFault()/
   // clearFaults() (captured by reference below) keep targeting the live context.
-  let faults = installGuardianFaults(context, guardianOrigins());
+  let faults = installNetworkFaults(context, { network: networkOrigins(), guardian: guardianOrigins() });
+
+  // Fetch-layer faults for node/prover/transport (gRPC-web inside the SW / SDK
+  // worker — context.route can't reach it). Live SW via the context thunk so it
+  // follows a relaunch; the worker hook re-applies to the SDK's lazily-spawned
+  // worker. See harness/fetch-faults.ts.
+  const fetchFaults = installFetchFaultControls(() => context.serviceWorkers()[0], page);
 
   // Passed to ChromeWalletPage.reopen(): when the browser PROCESS has died (not
   // just the page), relaunch a fresh context on this same userDataDir and swap
@@ -455,14 +544,27 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
     context = next.context;
     page = next.page;
     faults = next.faults;
+    // Fresh Page instance -- re-install the screen-change capture binding.
+    await installScreenCapture(page, label, outputDir);
     return page;
   };
 
   const walletPage: GuardianAwareWalletPage = Object.assign(
     new ChromeWalletPage(page, extensionId, userDataDir, relaunch),
     {
-      armGuardianFault: (policy: GuardianFaultPolicy) => faults.arm(policy),
-      clearFaults: () => faults.clear()
+      armGuardianFault: (policy: GuardianFaultPolicy) => faults.armGuardian(policy),
+      guardianFaultHits: () => faults.guardianFaultHits(),
+      armNetworkFault: async (policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]) => {
+        const list = Array.isArray(policyOrPolicies) ? policyOrPolicies : [policyOrPolicies];
+        // context.route serves guardian + HTTP services; the fetch layer serves
+        // node/prover/transport gRPC-web.
+        faults.armNetwork(list.filter(p => !isFetchFaultTarget(p.target)));
+        await fetchFaults.arm(toFetchWire(list, networkOrigins()));
+      },
+      clearFaults: async () => {
+        faults.clear();
+        await fetchFaults.clear();
+      }
     }
   );
 
@@ -575,7 +677,7 @@ export const test = base.extend<TwoWalletFixtures>({
   },
 
   timeline: async ({}, use, testInfo) => {
-    const outputDir = getRunOutputDir(testInfo.titlePath.join('-').replace(/\s+/g, '_'));
+    const outputDir = getRunOutputDir(testArtifactDirName(testInfo.titlePath));
     const timeline = new TimelineRecorder(outputDir);
 
     timeline.emit({
@@ -667,8 +769,9 @@ export const test = base.extend<TwoWalletFixtures>({
 
   walletA: async ({ timeline, steps, failureSnapshots }, use, testInfo) => {
     const extensionPath = getExtensionPath();
-    const instance = await launchWalletInstance('A', extensionPath, timeline);
+    const instance = await launchWalletInstance('A', extensionPath, timeline, steps.outputDir);
     steps.registerSnapshotCaps('A', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
+    await installScreenCapture(instance.page, 'A', steps.outputDir);
 
     await use(instance.walletPage);
 
@@ -709,8 +812,9 @@ export const test = base.extend<TwoWalletFixtures>({
 
   walletB: async ({ timeline, steps, walletA, midenCli, failureSnapshots }, use, testInfo) => {
     const extensionPath = getExtensionPath();
-    const instance = await launchWalletInstance('B', extensionPath, timeline);
+    const instance = await launchWalletInstance('B', extensionPath, timeline, steps.outputDir);
     steps.registerSnapshotCaps('B', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
+    await installScreenCapture(instance.page, 'B', steps.outputDir);
 
     await use(instance.walletPage);
 

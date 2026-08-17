@@ -68,6 +68,12 @@ describe('ActivityRow', () => {
       expect(screen.getByText('MIDEN')).toBeTruthy();
     });
 
+    it('expands precision instead of truncating a small non-zero amount to zero', () => {
+      renderRow({ amount: { value: '0.00012345', symbol: 'MIDEN' } });
+
+      expect(screen.getByText('0.00012')).toBeTruthy();
+    });
+
     it('preserves a leading + sign and formats the remainder', () => {
       renderRow({ amount: { value: '+50.5', direction: 'positive' } });
 
@@ -126,6 +132,24 @@ describe('ActivityRow', () => {
       // status label span carries the text tone class
       expect(screen.getByText(tone).className).toContain(textClass);
     });
+
+    it('greys out a cancelled row', () => {
+      const { container } = renderRow({ status: { label: 'Cancelled', tone: 'cancelled' } });
+
+      expect(container.querySelector('.bg-gray-400')).not.toBeNull();
+      expect(screen.getByText('Cancelled').className).toContain('text-gray-500');
+    });
+
+    it('omits the status line entirely when no status is passed', () => {
+      render(<ActivityRow icon={<svg />} title="Sent MIDEN" />);
+
+      expect(screen.queryByText('Confirmed')).toBeNull();
+    });
+  });
+
+  it('renders the timestamp when provided', () => {
+    renderRow({ timestamp: '2:14 PM' });
+    expect(screen.getByText('2:14 PM')).toBeInTheDocument();
   });
 
   describe('onClick / interaction', () => {

@@ -1,40 +1,61 @@
 name: E2E Blockchain
 
 # Runs the blockchain-backed E2E suites (Chrome extension + iOS simulator)
-# against public networks (devnet + testnet) on every push to main.
+# against the public network that matches the BRANCH'S PROTOCOL LINE.
 #
-# Devnet is currently on the 0.16 protocol line while wallet@main is on 0.15,
-# so the devnet suites are EXPECTED to fail on a protocol mismatch. We still run
-# them (for visibility, and so they go green automatically once the wallet
-# catches up), but each devnet job runs its test step with `continue-on-error`
-# so a devnet failure does NOT turn the overall workflow — or main — red. The
-# devnet job's true pass/fail is surfaced via `outputs.passed` (from the run
-# step's `outcome`) so the per-platform gate can still enforce its rule.
+#   push to main  ->  testnet   (main is on @miden-sdk/miden-sdk 0.15.x)
+#   push to next  ->  devnet    (next is on 0.16.x-alpha)
 #
-# The per-platform gate jobs require AT LEAST ONE network (devnet OR testnet)
-# to have passed for that platform. Because devnet's real result reaches the
-# gate via `outputs.passed` (not the continue-on-error-masked job result), the
-# gate still fails — and reds main — if BOTH networks genuinely fail. Testnet
-# jobs stay hard-fail, so a testnet regression reds main on its own.
+# Devnet and testnet run different protocol versions, so a wallet built for one
+# genuinely cannot pass against the other. This used to be handled by running
+# BOTH on every main push, marking devnet `continue-on-error`, and having each
+# per-platform gate pass if EITHER network succeeded.
 #
-# Once the wallet is on devnet's protocol line, drop the `continue-on-error`
-# from the devnet run steps to make devnet failures fatal again.
+# That gate could not fail for the case it mattered most: a real testnet
+# regression on main was masked by devnet passing. "At least one network passed"
+# is not the property anyone wants — the property is "the network this branch
+# targets passed".
+#
+# Measured, not asserted: over the last 14 pushes to main, `Chrome Guardian E2E
+# (testnet)` concluded failure 7 times, success once, and was cancelled 3 times —
+# while the Chrome Guardian gate reported green throughout, because devnet passed
+# alongside it.
+#
+# Splitting by branch gives each line a hard gate. Nothing is `continue-on-error`
+# any more: on main a testnet failure is fatal, and on next a devnet failure is
+# fatal, because in each case that network IS the branch's line.
+#
+# `workflow_dispatch` still takes a network argument for ad-hoc runs, so either
+# network can be exercised from either branch by hand.
+#
+# NOTE ON ROLLOUT: GitHub runs the workflow file FROM THE PUSHED REF. Adding
+# `next` to the trigger list here does not make anything run on `next` — pushes
+# to `next` keep using `next`'s own copy of this file until this change is merged
+# there too. Until then the effect of this PR is main-only: testnet becomes a hard
+# gate and devnet stops running on main.
 
 on:
   push:
     branches:
       - main
+      - next
   workflow_dispatch:
     inputs:
       network:
-        description: 'Network(s) to test against'
+        # Defaults to the main line. NOT 'both': the gates now require every
+        # network that ran to pass, and a wallet built for one protocol line
+        # cannot pass against the other — so a 'both' default would fail by
+        # construction. Dispatching from `next` should select devnet.
+        description: 'Network to test against'
         required: false
-        default: 'both'
+        default: 'testnet'
         type: choice
         options:
-          - both
-          - devnet
+          # No 'both': the gates require every network that ran to succeed, and a
+          # wallet built for one protocol line cannot pass against the other, so
+          # 'both' is unpassable by construction rather than merely slow.
           - testnet
+          - devnet
 
 permissions:
   contents: read
@@ -48,9 +69,9 @@ jobs:
 
   chrome-devnet:
     name: Chrome E2E (devnet)
-    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
-    outputs:
-      passed: ${{ steps.e2e.outcome }}
+    if: >-
+      ${{ (github.event_name == 'push' && github.ref == 'refs/heads/next')
+      || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -118,9 +139,9 @@ jobs:
 
       - name: Run blockchain E2E (devnet)
         id: e2e
-        # devnet is protocol-ahead (0.16 vs wallet 0.15) and expected to fail;
-        # keep it non-fatal. True result is exposed via outputs.passed for the gate.
-        continue-on-error: true
+        # Fatal, deliberately. This job only runs on `next`, whose SDK line IS
+        # devnet's — so a failure here is a real failure of the branch, not the
+        # protocol mismatch that made this non-fatal when it also ran on main.
         run: xvfb-run -a yarn test:e2e:blockchain:devnet
 
       - name: Upload artifacts
@@ -134,7 +155,9 @@ jobs:
 
   chrome-testnet:
     name: Chrome E2E (testnet)
-    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'testnet'
+    if: >-
+      ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'testnet')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -207,37 +230,66 @@ jobs:
   chrome-gate:
     name: Chrome E2E Gate
     needs: [chrome-devnet, chrome-testnet]
-    if: always()
+    # `!cancelled()` rather than `always()`: the concurrency group supersedes
+    # in-progress runs constantly, and the whitelist below correctly treats a
+    # cancelled network as not-a-pass. Combined with `always()` that would paint a
+    # red gate on every superseded run — noise that trains people to ignore it. A
+    # cancelled run should report cancelled, not failed; a genuinely failed job
+    # still runs this gate and still fails it.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
-      - name: Require at least one network to pass
+      - name: Require the branch's network to pass
         shell: bash
         env:
-          DEVNET_RESULT: ${{ needs.chrome-devnet.outputs.passed }}
+          DEVNET_RESULT: ${{ needs.chrome-devnet.result }}
           TESTNET_RESULT: ${{ needs.chrome-testnet.result }}
         run: |
           echo "devnet=$DEVNET_RESULT  testnet=$TESTNET_RESULT"
-          if [[ "$DEVNET_RESULT" == "success" || "$TESTNET_RESULT" == "success" ]]; then
-            echo "Chrome E2E: at least one network passed."
-            exit 0
+          # WHITELIST, not blacklist. `needs.<job>.result` is one of
+          # success/failure/cancelled/skipped, and `cancelled` is routine here
+          # because the concurrency group cancels in-progress runs. An earlier
+          # version of this gate failed only on "failure", so a cancelled suite
+          # reported GREEN — the identical hole this split exists to close.
+          # Exactly one network runs per push (devnet on next, testnet on main);
+          # the other is skipped. So: require that the one which ran SUCCEEDED.
+          ran=0
+          for result in "$DEVNET_RESULT" "$TESTNET_RESULT"; do
+            if [[ "$result" != "skipped" ]]; then
+              ran=$((ran + 1))
+              if [[ "$result" != "success" ]]; then
+                echo "Chrome E2E: the network for this branch did not pass (result=$result)."
+                exit 1
+              fi
+            fi
+          done
+          if [[ "$ran" -eq 0 ]]; then
+            echo "Chrome E2E: neither network ran — check the branch gating on the jobs."
+            exit 1
           fi
-          echo "Chrome E2E: both networks failed or were skipped."
-          exit 1
+          echo "Chrome E2E: passed."
 
-  # --- Guardian (Chrome, devnet + testnet against OZ's hosted guardian) ------
-  # The published ghcr guardian image is 0.14.x and ABI-incompatible with the
-  # 0.15 multisig client the wallet ships, so these jobs run against OZ's hosted
-  # guardian endpoints instead of a locally-spawned container. Devnet
-  # (guardian-stg, the 0.15 server) is expected green; testnet
-  # (guardian.openzeppelin.com, still the 0.14 server) is expected red until
-  # testnet upgrades — mirroring the non-guardian devnet/testnet split. The gate
-  # below passes as long as at least one network succeeds.
+  # --- Guardian (Chrome, against OZ's hosted guardian) ----------------------
+  # The published ghcr guardian image is ABI-incompatible with the multisig
+  # client the wallet ships, so these jobs run against OZ's hosted guardian
+  # endpoints rather than a locally-spawned container.
+  #
+  # TESTNET GUARDIAN WORKS. An earlier version of this comment claimed the
+  # opposite — that testnet was "expected red until testnet upgrades" — and that
+  # was wrong. It mattered: paired with a gate that passed if EITHER network
+  # succeeded, it turned real testnet guardian failures on main into something
+  # the workflow described as normal. Over the last 14 pushes to main this job
+  # concluded failure 7 times against 1 success, and the gate stayed green.
+  #
+  # The direction of the version risk is the other way round: DEVNET guardian is
+  # the one expected to break, until guardian packages are published for the
+  # 0.16 line that `next` targets. That is a known gap on `next`, not on main.
 
   chrome-guardian-devnet:
     name: Chrome Guardian E2E (devnet)
-    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
-    outputs:
-      passed: ${{ steps.e2e.outcome }}
+    if: >-
+      ${{ (github.event_name == 'push' && github.ref == 'refs/heads/next')
+      || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -294,9 +346,9 @@ jobs:
 
       - name: Run Guardian E2E (devnet)
         id: e2e
-        # devnet is protocol-ahead (0.16 vs wallet 0.15) and expected to fail;
-        # keep it non-fatal. True result is exposed via outputs.passed for the gate.
-        continue-on-error: true
+        # Fatal, deliberately. This job only runs on `next`, whose SDK line IS
+        # devnet's — so a failure here is a real failure of the branch, not the
+        # protocol mismatch that made this non-fatal when it also ran on main.
         run: xvfb-run -a yarn test:e2e:guardian:run
 
       - name: Upload artifacts
@@ -310,7 +362,9 @@ jobs:
 
   chrome-guardian-testnet:
     name: Chrome Guardian E2E (testnet)
-    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'testnet'
+    if: >-
+      ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'testnet')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -380,30 +434,52 @@ jobs:
   chrome-guardian-gate:
     name: Chrome Guardian E2E Gate
     needs: [chrome-guardian-devnet, chrome-guardian-testnet]
-    if: always()
+    # `!cancelled()` rather than `always()`: the concurrency group supersedes
+    # in-progress runs constantly, and the whitelist below correctly treats a
+    # cancelled network as not-a-pass. Combined with `always()` that would paint a
+    # red gate on every superseded run — noise that trains people to ignore it. A
+    # cancelled run should report cancelled, not failed; a genuinely failed job
+    # still runs this gate and still fails it.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
-      - name: Require at least one network to pass
+      - name: Require the branch's network to pass
         shell: bash
         env:
-          DEVNET_RESULT: ${{ needs.chrome-guardian-devnet.outputs.passed }}
+          DEVNET_RESULT: ${{ needs.chrome-guardian-devnet.result }}
           TESTNET_RESULT: ${{ needs.chrome-guardian-testnet.result }}
         run: |
           echo "devnet=$DEVNET_RESULT  testnet=$TESTNET_RESULT"
-          if [[ "$DEVNET_RESULT" == "success" || "$TESTNET_RESULT" == "success" ]]; then
-            echo "Chrome Guardian E2E: at least one network passed."
-            exit 0
+          # WHITELIST, not blacklist. `needs.<job>.result` is one of
+          # success/failure/cancelled/skipped, and `cancelled` is routine here
+          # because the concurrency group cancels in-progress runs. An earlier
+          # version of this gate failed only on "failure", so a cancelled suite
+          # reported GREEN — the identical hole this split exists to close.
+          # Exactly one network runs per push (devnet on next, testnet on main);
+          # the other is skipped. So: require that the one which ran SUCCEEDED.
+          ran=0
+          for result in "$DEVNET_RESULT" "$TESTNET_RESULT"; do
+            if [[ "$result" != "skipped" ]]; then
+              ran=$((ran + 1))
+              if [[ "$result" != "success" ]]; then
+                echo "Chrome Guardian E2E: the network for this branch did not pass (result=$result)."
+                exit 1
+              fi
+            fi
+          done
+          if [[ "$ran" -eq 0 ]]; then
+            echo "Chrome Guardian E2E: neither network ran — check the branch gating on the jobs."
+            exit 1
           fi
-          echo "Chrome Guardian E2E: both networks failed or were skipped."
-          exit 1
+          echo "Chrome Guardian E2E: passed."
 
   # --- iOS Simulator --------------------------------------------------------
 
   mobile-devnet:
     name: Mobile E2E (devnet)
-    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
-    outputs:
-      passed: ${{ steps.e2e.outcome }}
+    if: >-
+      ${{ (github.event_name == 'push' && github.ref == 'refs/heads/next')
+      || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')) }}
     # macos-26 matches build-mobile.yml — required for iOS 26 SDK symbols
     # used by dapp-browser's WKWebViewController. The -xlarge size is the
     # DEDICATED Apple-Silicon larger runner (2x vCPU/RAM, no noisy-neighbour
@@ -576,9 +652,9 @@ jobs:
 
       - name: Run blockchain E2E (mobile, devnet)
         id: e2e
-        # devnet is protocol-ahead (0.16 vs wallet 0.15) and expected to fail;
-        # keep it non-fatal. True result is exposed via outputs.passed for the gate.
-        continue-on-error: true
+        # Fatal, deliberately. This job only runs on `next`, whose SDK line IS
+        # devnet's — so a failure here is a real failure of the branch, not the
+        # protocol mismatch that made this non-fatal when it also ran on main.
         # --retries=2 absorbs flaky CDP "no pages found" errors and degraded-
         # CoreSimulator sim-setup failures on macos-26 runners. Each fixture
         # retries install → launch → CDP connect from scratch (and restarts the
@@ -598,7 +674,9 @@ jobs:
 
   mobile-testnet:
     name: Mobile E2E (testnet)
-    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'testnet'
+    if: >-
+      ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'testnet')) }}
     runs-on: macos-26-xlarge
     # Observed worst case: ~40 min setup (CLI compile on cache miss + iOS
     # build + simulator cold boot overlap) + ~55 min suite with one retry.
@@ -778,22 +856,44 @@ jobs:
   mobile-gate:
     name: Mobile E2E Gate
     needs: [mobile-devnet, mobile-testnet]
-    if: always()
+    # `!cancelled()` rather than `always()`: the concurrency group supersedes
+    # in-progress runs constantly, and the whitelist below correctly treats a
+    # cancelled network as not-a-pass. Combined with `always()` that would paint a
+    # red gate on every superseded run — noise that trains people to ignore it. A
+    # cancelled run should report cancelled, not failed; a genuinely failed job
+    # still runs this gate and still fails it.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
-      - name: Require at least one network to pass
+      - name: Require the branch's network to pass
         shell: bash
         env:
-          DEVNET_RESULT: ${{ needs.mobile-devnet.outputs.passed }}
+          DEVNET_RESULT: ${{ needs.mobile-devnet.result }}
           TESTNET_RESULT: ${{ needs.mobile-testnet.result }}
         run: |
           echo "devnet=$DEVNET_RESULT  testnet=$TESTNET_RESULT"
-          if [[ "$DEVNET_RESULT" == "success" || "$TESTNET_RESULT" == "success" ]]; then
-            echo "Mobile E2E: at least one network passed."
-            exit 0
+          # WHITELIST, not blacklist. `needs.<job>.result` is one of
+          # success/failure/cancelled/skipped, and `cancelled` is routine here
+          # because the concurrency group cancels in-progress runs. An earlier
+          # version of this gate failed only on "failure", so a cancelled suite
+          # reported GREEN — the identical hole this split exists to close.
+          # Exactly one network runs per push (devnet on next, testnet on main);
+          # the other is skipped. So: require that the one which ran SUCCEEDED.
+          ran=0
+          for result in "$DEVNET_RESULT" "$TESTNET_RESULT"; do
+            if [[ "$result" != "skipped" ]]; then
+              ran=$((ran + 1))
+              if [[ "$result" != "success" ]]; then
+                echo "Mobile E2E: the network for this branch did not pass (result=$result)."
+                exit 1
+              fi
+            fi
+          done
+          if [[ "$ran" -eq 0 ]]; then
+            echo "Mobile E2E: neither network ran — check the branch gating on the jobs."
+            exit 1
           fi
-          echo "Mobile E2E: both networks failed or were skipped."
-          exit 1
+          echo "Mobile E2E: passed."
 
   # --- iOS Simulator: Guardian --------------------------------------------
   # Same iOS harness as mobile-{devnet,testnet} but runs ONLY the guardian spec
@@ -804,9 +904,9 @@ jobs:
   # gate) so a guardian outage never blocks the standard mobile gate.
   mobile-guardian-devnet:
     name: Mobile Guardian E2E (devnet)
-    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
-    outputs:
-      passed: ${{ steps.e2e.outcome }}
+    if: >-
+      ${{ (github.event_name == 'push' && github.ref == 'refs/heads/next')
+      || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')) }}
     # macos-26 matches build-mobile.yml — required for iOS 26 SDK symbols
     # used by dapp-browser's WKWebViewController. The -xlarge size is the
     # DEDICATED Apple-Silicon larger runner (2x vCPU/RAM, no noisy-neighbour
@@ -979,9 +1079,9 @@ jobs:
 
       - name: Run Guardian E2E (mobile, devnet)
         id: e2e
-        # devnet is protocol-ahead (0.16 vs wallet 0.15) and expected to fail;
-        # keep it non-fatal. True result is exposed via outputs.passed for the gate.
-        continue-on-error: true
+        # Fatal, deliberately. This job only runs on `next`, whose SDK line IS
+        # devnet's — so a failure here is a real failure of the branch, not the
+        # protocol mismatch that made this non-fatal when it also ran on main.
         # --retries=2 absorbs the residual onboarding flake + flaky CDP on macos-26
         # runners. Each fixture retries install → launch → CDP connect from
         # scratch, so a transient webinspectord hiccup doesn't fail the run.
@@ -999,7 +1099,9 @@ jobs:
 
   mobile-guardian-testnet:
     name: Mobile Guardian E2E (testnet)
-    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'testnet'
+    if: >-
+      ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'testnet')) }}
     runs-on: macos-26-xlarge
     # ~40 min setup (CLI compile on cache miss + iOS build + sim cold boot)
     # plus a single guardian spec with up to 2 retries. Generous ceiling that
@@ -1177,19 +1279,41 @@ jobs:
   mobile-guardian-gate:
     name: Mobile Guardian E2E Gate
     needs: [mobile-guardian-devnet, mobile-guardian-testnet]
-    if: always()
+    # `!cancelled()` rather than `always()`: the concurrency group supersedes
+    # in-progress runs constantly, and the whitelist below correctly treats a
+    # cancelled network as not-a-pass. Combined with `always()` that would paint a
+    # red gate on every superseded run — noise that trains people to ignore it. A
+    # cancelled run should report cancelled, not failed; a genuinely failed job
+    # still runs this gate and still fails it.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
-      - name: Require at least one network to pass
+      - name: Require the branch's network to pass
         shell: bash
         env:
-          DEVNET_RESULT: ${{ needs.mobile-guardian-devnet.outputs.passed }}
+          DEVNET_RESULT: ${{ needs.mobile-guardian-devnet.result }}
           TESTNET_RESULT: ${{ needs.mobile-guardian-testnet.result }}
         run: |
           echo "devnet=$DEVNET_RESULT  testnet=$TESTNET_RESULT"
-          if [[ "$DEVNET_RESULT" == "success" || "$TESTNET_RESULT" == "success" ]]; then
-            echo "Mobile Guardian E2E: at least one network passed."
-            exit 0
+          # WHITELIST, not blacklist. `needs.<job>.result` is one of
+          # success/failure/cancelled/skipped, and `cancelled` is routine here
+          # because the concurrency group cancels in-progress runs. An earlier
+          # version of this gate failed only on "failure", so a cancelled suite
+          # reported GREEN — the identical hole this split exists to close.
+          # Exactly one network runs per push (devnet on next, testnet on main);
+          # the other is skipped. So: require that the one which ran SUCCEEDED.
+          ran=0
+          for result in "$DEVNET_RESULT" "$TESTNET_RESULT"; do
+            if [[ "$result" != "skipped" ]]; then
+              ran=$((ran + 1))
+              if [[ "$result" != "success" ]]; then
+                echo "Mobile Guardian E2E: the network for this branch did not pass (result=$result)."
+                exit 1
+              fi
+            fi
+          done
+          if [[ "$ran" -eq 0 ]]; then
+            echo "Mobile Guardian E2E: neither network ran — check the branch gating on the jobs."
+            exit 1
           fi
-          echo "Mobile Guardian E2E: both networks failed or were skipped."
-          exit 1
+          echo "Mobile Guardian E2E: passed."

@@ -439,6 +439,10 @@
     "message": "Pozisyonlar",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "Pozisyonlarınız yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -1580,8 +1584,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "O zamana kadar talepte bulunulmaması durumunda, $amount$ otomatik olarak cüzdanınıza geri döner. Hiçbir fon kaybolmaz.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "O zamana kadar talepte bulunulmazsa, hak talebinde bulunabilirsiniz. $amount$ cüzdanınıza geri dönün. Hiçbir fon kaybı olmaz.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2334,6 +2338,18 @@
   "guardianLastSync": {
     "message": "Son senkronizasyon",
     "englishSource": "Last sync"
+  },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
   },
   "guardianRotationComplete": {
     "message": "Muhafız Güncellendi!",
@@ -3376,6 +3392,14 @@
   "noteReceivedTitle": {
     "message": "Bir note aldınız",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "İşlem başarısız oldu",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "Bir işlem tamamlanamadı. İncelemek için cüzdanı açın.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "Hak talebinde bulunmak için buraya dokunun",

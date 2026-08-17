@@ -439,6 +439,10 @@
     "message": "직위",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "위치를 로드할 수 없습니다. 연결을 확인하고 다시 시도하세요.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -1580,8 +1584,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "그 때까지 청구되지 않은 경우, $amount$ 자동으로 지갑으로 돌아갑니다. 자금은 손실되지 않습니다.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "그 때까지 청구하지 않으면 청구할 수 있습니다. $amount$ 다시 지갑으로. 자금은 손실되지 않습니다.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2334,6 +2338,18 @@
   "guardianLastSync": {
     "message": "마지막 동기화",
     "englishSource": "Last sync"
+  },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
   },
   "guardianRotationComplete": {
     "message": "가디언이 업데이트되었습니다!",
@@ -3376,6 +3392,14 @@
   "noteReceivedTitle": {
     "message": "note을(를) 받았습니다.",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "거래 실패",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "거래를 완료할 수 없습니다. 지갑을 열어 검토해 보세요.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "여기를 탭하여 신청하세요.",
