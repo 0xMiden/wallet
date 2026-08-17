@@ -145,7 +145,13 @@ export default {
   // this only matters for local runs.
   modulePathIgnorePatterns: ['<rootDir>/sdk-debug/', '<rootDir>/.worktrees/', '<rootDir>/.claude/'],
   testPathIgnorePatterns: [
-    '<rootDir>/playwright/',
+    // Playwright's own *.spec.ts e2e suites (and every other file under
+    // playwright/) stay out of the Jest run — only pure-unit *.test.ts files
+    // living under playwright/ (e.g. playwright/e2e/harness/*.test.ts) are
+    // let through, via the negative lookahead, so harness helpers can get
+    // ordinary Jest unit-test coverage without dragging live-network e2e
+    // specs (which use Playwright's own `test`/`expect` globals) into Jest.
+    '<rootDir>/playwright/(?!.*\\.test\\.ts$)',
     '<rootDir>/mobile-e2e/',
     '<rootDir>/ios/App/build/',
     '<rootDir>/.worktrees/',
