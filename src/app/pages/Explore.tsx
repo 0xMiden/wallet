@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import Balance from 'app/templates/Balance';
+import { FiatRampActions } from 'app/templates/FiatRampActions';
 import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
@@ -351,6 +352,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
       </Balance>
 
       <AccountsDrawer open={accountsOpen} onOpenChange={setAccountsOpen} />
+
+      <FiatRampActions />
 
       <HomePrompts
         account={account}

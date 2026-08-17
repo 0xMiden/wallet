@@ -26,7 +26,8 @@ export type ITransactionType =
   | 'switch-guardian'
   | 'replace-hot-key'
   | 'swap'
-  | 'update-procedure-threshold';
+  | 'update-procedure-threshold'
+  | 'buy';
 
 /** Which cross-chain bridge route a `bridged-send` used. */
 export type IBridgeProvider = 'epoch' | 'agglayer';
@@ -304,6 +305,35 @@ export interface ITransaction {
    * `MAX_QUEUED_AGE` remains the terminal cap.
    */
   nextEligibleAt?: number;
+}
+
+/**
+ * Agglayer hand-off state of a fiat buy: the purchased token lands on the
+ * account's derived EVM address, and the wallet then bridges it to Miden.
+ *   - not-initiated : purchase completed on MoonPay; bridge not started yet
+ *   - initiated     : Agglayer bridge transaction broadcast on the EVM side
+ *   - processed     : the bridge deposit is indexed/ready on the Miden side
+ *   - failed        : initiation errored or the bridge tx reverted (`error` has the reason)
+ */
+export type IBuyBridgeProgress = 'not-initiated' | 'initiated' | 'processed' | 'failed';
+
+/**
+ * `extraInputs` shape for a `BuyTransaction`. `uuid` is the wallet-generated
+ * `externalTransactionId` carried in the MoonPay widget URL (session slot in
+ * `lib/fiat-ramp/buy-session.ts`); the buy watcher matches MoonPay
+ * transactions on it, and `bridgeProgress` drives the post-purchase Agglayer
+ * bridge to Miden.
+ */
+export interface IBuyExtraInputs {
+  uuid: string;
+  bridgeProgress: IBuyBridgeProgress;
+  /** Human-readable amount of the delivered token that was bridged. */
+  sourceAmount?: string;
+  sourceSymbol?: string;
+  /** Sepolia `bridgeAsset` tx hash, once broadcast. */
+  evmTxHash?: string;
+  /** Failure reason, set alongside `bridgeProgress === 'failed'`. */
+  error?: string;
 }
 
 export interface ISuccessTransactionOutput {
@@ -766,6 +796,39 @@ export class BridgedReceiveTransaction implements ITransaction {
       outputSymbol,
       phase: 'submitting'
     };
+  }
+}
+
+/**
+ * Tracking-only fiat on-ramp purchase row. Born Completed so the Miden
+ * prove/submit FIFO never sees it; `extraInputs.bridgeProgress` owns its live
+ * state (the buy watcher advances it as the Agglayer bridge is initiated).
+ */
+export class BuyTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount?: bigint;
+  faucetId: string;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  completedAt: number;
+  displayMessage: string;
+  displayIcon: ITransactionIcon;
+  extraInputs: IBuyExtraInputs;
+
+  constructor(accountId: string, uuid_: string, sourceSymbol?: string) {
+    const now = Math.floor(Date.now() / 1000);
+    this.id = uuid();
+    this.type = 'buy';
+    this.accountId = accountId;
+    this.faucetId = '';
+    this.status = ITransactionStatus.Completed;
+    this.initiatedAt = now;
+    this.completedAt = now;
+    this.displayMessage = 'Buy';
+    this.displayIcon = 'RECEIVE';
+    this.extraInputs = { uuid: uuid_, bridgeProgress: 'not-initiated', sourceSymbol };
   }
 }
 

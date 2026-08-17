@@ -2,6 +2,7 @@ import { getConnection, getWalletClient } from '@wagmi/core';
 import { type Chain, type WalletClient, createWalletClient, custom, http } from 'viem';
 import { sepolia } from 'viem/chains';
 
+import { SEPOLIA_RPC_URL } from 'lib/agglayer/constant';
 import { wagmiConfig } from 'lib/walletconnect/appkit';
 import { buildNativeReownProvider, isNativeReownAvailable, NativeReown } from 'lib/walletconnect/native';
 
@@ -16,8 +17,10 @@ import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 const E2E_EVM_RPC_URL = process.env.MIDEN_E2E_TEST === 'true' ? (process.env.E2E_EVM_RPC_URL ?? '').trim() : '';
 
 function withE2eRpc(chain: Chain): Chain {
-  if (!E2E_EVM_RPC_URL) return chain;
-  return { ...chain, rpcUrls: { ...chain.rpcUrls, default: { http: [E2E_EVM_RPC_URL] } } };
+  // Without an override, still replace the chain default: viem's sepolia
+  // default RPC is thirdweb's rate-limited endpoint (429s under light load).
+  const rpc = E2E_EVM_RPC_URL || SEPOLIA_RPC_URL;
+  return { ...chain, rpcUrls: { ...chain.rpcUrls, default: { http: [rpc] } } };
 }
 
 export interface EvmConnection {

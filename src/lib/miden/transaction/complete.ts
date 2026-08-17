@@ -15,6 +15,8 @@ import {
   EarnDepositTransaction,
   IBridgeClaimStatus,
   IBridgedReceiveExtraInputs,
+  IBuyBridgeProgress,
+  IBuyExtraInputs,
   IBridgedReceivePhase,
   IBridgedSendExtraInputs,
   IConsumeSwapSettleExtraInputs,
@@ -657,6 +659,21 @@ export const updateEarnWithdrawPhase = async (
     tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
     if (amount !== undefined) tx.amount = amount;
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
+  });
+};
+
+/** Advance a tracking-only fiat `buy` row's bridge progress (never touches its terminal DB status). */
+export const updateBuyBridgeProgress = async (
+  id: string,
+  bridgeProgress: IBuyBridgeProgress,
+  extra?: Partial<Pick<IBuyExtraInputs, 'evmTxHash' | 'sourceAmount' | 'error'>>,
+  amount?: bigint
+) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const inputs = tx.extraInputs as IBuyExtraInputs;
+    tx.extraInputs = { ...inputs, bridgeProgress, ...(extra ?? {}) };
+    if (amount !== undefined) tx.amount = amount;
+    if (bridgeProgress === 'failed' && extra?.error) tx.error = extra.error;
   });
 };
 

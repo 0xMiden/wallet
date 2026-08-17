@@ -10,7 +10,7 @@ import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
-import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
+import { isBridgeDepositEnabled, isFiatRampEnabled, isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import * as Woozie from 'lib/woozie';
 import DeveloperSettings from 'screens/developer-settings/DeveloperSettings';
@@ -21,6 +21,7 @@ import EarnPositions from 'screens/earn-flow/EarnPositions';
 import EarnVaultDetail from 'screens/earn-flow/EarnVaultDetail';
 import EarnWithdrawReview from 'screens/earn-flow/EarnWithdrawReview';
 import EarnWithdrawStatus from 'screens/earn-flow/EarnWithdrawStatus';
+import FiatRampScreen from 'screens/fiat-ramp/FiatRampScreen';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
 import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
@@ -222,6 +223,20 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
         </FullScreenPage>
       ) : (
         <Woozie.Redirect to="/receive" />
+      )
+    )
+  ],
+  // Fiat on-ramp (MoonPay). The widget is a plain remote iframe, so the same
+  // routed screen serves every platform.
+  [
+    '/buy',
+    onlyReady(() =>
+      isFiatRampEnabled() ? (
+        <FullScreenPage>
+          <FiatRampScreen />
+        </FullScreenPage>
+      ) : (
+        <Woozie.Redirect to="/" />
       )
     )
   ],

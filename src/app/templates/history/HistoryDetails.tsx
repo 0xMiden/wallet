@@ -29,6 +29,8 @@ import {
 import {
   IBridgedReceiveExtraInputs,
   IBridgedSendExtraInputs,
+  IBuyBridgeProgress,
+  IBuyExtraInputs,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
   ITransaction,
@@ -131,6 +133,24 @@ const BridgeStatusPill: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
     <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', tone)}>
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
       <span className="text-xs font-medium">{t(BRIDGE_STATUS_LABEL_KEY[status])}</span>
+    </div>
+  );
+};
+
+/** Pending/Confirmed/Failed pill for a fiat buy's Agglayer bridge hand-off (`bridgeProgress`). */
+const BuyStatusPill: FC<{ progress: IBuyBridgeProgress }> = ({ progress }) => {
+  const { t } = useTranslation();
+  const tone = progress === 'processed' ? 'confirmed' : progress === 'failed' ? 'failed' : 'pending';
+  const toneClass =
+    tone === 'confirmed'
+      ? 'bg-status-positive/15 text-status-positive'
+      : tone === 'failed'
+        ? 'bg-status-negative/15 text-status-negative'
+        : 'bg-status-pending/15 text-status-pending';
+  return (
+    <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', toneClass)}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      <span className="text-xs font-medium">{t(tone)}</span>
     </div>
   );
 };
@@ -290,6 +310,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
       const guardianSwitchExtra: ISwitchGuardianExtraInputs | undefined =
         tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
+      const buyExtra: IBuyExtraInputs | undefined = tx.type === 'buy' ? tx.extraInputs : undefined;
       // Source side (USDC) while in flight, destination side once the bridged
       // note was consumed — identical rule to the activity row.
       const earnWithdrawFields = earnWithdrawExtra
@@ -302,12 +323,22 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         message: tx.displayMessage,
         status: tx.status,
         transactionIcon: tx.displayIcon,
-        amount: earnWithdrawFields
-          ? earnWithdrawFields.amount
-          : tx.amount
-            ? formatAmount(tx.amount, tokenMetadata?.decimals)
-            : undefined,
-        token: earnWithdrawFields ? earnWithdrawFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
+        // Buy rows have no faucet metadata (faucetId is empty) — the raw bigint
+        // would render unscaled, so show the human-formatted bridged amount.
+        amount: buyExtra
+          ? buyExtra.sourceAmount
+          : earnWithdrawFields
+            ? earnWithdrawFields.amount
+            : tx.amount
+              ? formatAmount(tx.amount, tokenMetadata?.decimals)
+              : undefined,
+        token: buyExtra
+          ? buyExtra.sourceSymbol
+          : earnWithdrawFields
+            ? earnWithdrawFields.token
+            : tokenMetadata
+              ? tokenMetadata.symbol
+              : undefined,
         earnWithdrawPhase: earnWithdrawExtra?.phase,
         earnDepositStatus: earnDepositExtra?.epochStatus,
         secondaryAddress: tx.secondaryAccountId,
@@ -341,7 +372,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         bridgeInPhase: bridgeReceive?.phase,
         bridgeInOutputAmount: bridgeReceive?.outputAmount,
         bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
-        bridgeInMidenNoteId: bridgeReceive?.midenNoteId
+        bridgeInMidenNoteId: bridgeReceive?.midenNoteId,
+        buyBridgeProgress: buyExtra?.bridgeProgress,
+        buySourceAmount: buyExtra?.sourceAmount,
+        buySourceSymbol: buyExtra?.sourceSymbol,
+        buyEvmTxHash: buyExtra?.evmTxHash
       } as IHistoryEntry;
 
       if (tx.type === 'swap') {
@@ -392,6 +427,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     const timer = setInterval(() => void loadTransaction(), 3000);
     return () => clearInterval(timer);
   }, [entry?.status, loadTransaction]);
+
+  // A buy's bridge advances out-of-band (buy watcher + Activity reconcile) —
+  // keep reloading the row while its hand-off is non-terminal so the pill and
+  // tx hash appear without leaving the page.
+  const buyProgress = entry?.txType === 'buy' ? (entry.buyBridgeProgress ?? 'not-initiated') : undefined;
+  useEffect(() => {
+    if (buyProgress !== 'not-initiated' && buyProgress !== 'initiated') return;
+    const timer = setInterval(() => void loadTransaction(), 3000);
+    return () => clearInterval(timer);
+  }, [buyProgress, loadTransaction]);
 
   const handleCancel = useCallback(async () => {
     setIsCancelling(true);
@@ -777,6 +822,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   <BridgeStatusPill entry={entry} />
                 ) : isEarnWithdraw && earnWithdraw ? (
                   <EarnWithdrawStatusPill phase={earnWithdraw.phase} />
+                ) : entry.txType === 'buy' ? (
+                  // Buy rows are database-Completed at insert — the pill tracks
+                  // the Agglayer bridge hand-off instead.
+                  <BuyStatusPill progress={entry.buyBridgeProgress ?? 'not-initiated'} />
                 ) : isEarnDeposit && earnDeposit && entry.status === ITransactionStatus.Completed ? (
                   // Miden note landed — the pill tracks the solver-fulfilled
                   // lending leg instead of the (long-settled) Miden tx status.
@@ -1089,6 +1138,54 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         )}
                       </span>
                     </DetailRow>
+                  </DetailCard>
+                </div>
+              </div>
+            )}
+
+            {/* Fiat buy details (route, bridged amount, Sepolia bridge tx) */}
+            {entry.txType === 'buy' && (
+              <div className="mt-6 mb-4">
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailCard title={t('buyDetailsTitle')}>
+                    <DetailRow label={t('route')}>
+                      <span className="text-sm text-heading-gray font-medium">{t('buyRouteValue')}</span>
+                    </DetailRow>
+                    {entry.buySourceAmount && (
+                      <DetailRow
+                        label={t('amount')}
+                        isLast={!entry.buyEvmTxHash && entry.buyBridgeProgress !== 'failed'}
+                      >
+                        <span className="text-sm text-heading-gray font-medium select-text">
+                          {entry.buySourceAmount}
+                          {entry.buySourceSymbol ? ` ${entry.buySourceSymbol}` : ''}
+                        </span>
+                      </DetailRow>
+                    )}
+                    {entry.buyEvmTxHash && (
+                      <DetailRow label={t('txIdLabel')} isLast={entry.buyBridgeProgress !== 'failed'}>
+                        <ExternalLinkValue
+                          displayValue={
+                            <HashChip
+                              hash={entry.buyEvmTxHash}
+                              trimHash
+                              fill="#9E9E9E"
+                              className="ml-2"
+                              copyIcon={false}
+                            />
+                          }
+                          href={SEPOLIA_TX_URL(entry.buyEvmTxHash)}
+                        />
+                      </DetailRow>
+                    )}
+                    {entry.buyBridgeProgress === 'failed' && entry.errorMessage && (
+                      <DetailRow label={t('error')} isLast>
+                        <span className="text-sm text-status-negative font-medium wrap-break-word select-text">
+                          {entry.errorMessage}
+                        </span>
+                      </DetailRow>
+                    )}
                   </DetailCard>
                 </div>
               </div>

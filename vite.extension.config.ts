@@ -241,6 +241,9 @@ const sharedDefine = {
     process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
   ),
   'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
+  'process.env.MOONPAY_API_KEY': JSON.stringify(process.env.MOONPAY_API_KEY ?? ''),
+  'process.env.MOONPAY_SIGN_SERVER_URL': JSON.stringify(process.env.MOONPAY_SIGN_SERVER_URL ?? 'http://localhost:5567'),
+  'process.env.MOONPAY_CURRENCY': JSON.stringify(process.env.MOONPAY_CURRENCY ?? 'usdc'),
   'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
   // Requires the explicit-prover fix from 0xMiden/web-sdk#182
   // (>= 0.15.0-alpha.6); see the rationale block in

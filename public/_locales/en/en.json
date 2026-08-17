@@ -850,6 +850,10 @@
   "slowRouteLabel": "Slow (Agglayer)",
   "bridgeRowTitle": "Bridge $from$ → $to$",
   "bridgeRowVia": "Via $provider$ → $network$",
+  "buyRowTitle": "Buy",
+  "buyRowVia": "Via MoonPay → Miden",
+  "buyDetailsTitle": "Buy Details",
+  "buyRouteValue": "MoonPay → Agglayer → Miden",
   "bridgeInProgress": "In progress",
   "bridgeFailed": "Failed",
   "reclaimFunds": "Reclaim funds",
@@ -908,5 +912,10 @@
   "devEndpointResetDefaults": "Reset to defaults",
   "devEndpointResetAndReonboard": "Reset to defaults & re-onboard",
   "devEndpointsRow": "Network endpoints",
-  "devEndpointResetConfirm": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  "devEndpointResetConfirm": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it.",
+  "buy": "Buy",
+  "fiatRampTitleBuy": "Buy crypto",
+  "fiatRampNoEvmAddress": "This account has no EVM address for fiat ramps.",
+  "fiatRampLoading": "Loading checkout…",
+  "fiatRampWidgetError": "The checkout failed to load. Check that the MoonPay sign server is running and try again."
 }

@@ -2,6 +2,7 @@ import {
   IBridgeClaimStatus,
   IBridgeProvider,
   IBridgedReceivePhase,
+  IBuyBridgeProgress,
   IEarnDepositExtraInputs,
   IEarnWithdrawPhase,
   ITransactionIcon,
@@ -88,6 +89,12 @@ export interface IHistoryEntry {
   bridgeInOutputAmount?: string;
   bridgeInOutputSymbol?: string;
   bridgeInMidenNoteId?: string;
+
+  // `buy` (fiat on-ramp) rows: Agglayer bridge hand-off state + display fields.
+  buyBridgeProgress?: IBuyBridgeProgress;
+  buySourceAmount?: string;
+  buySourceSymbol?: string;
+  buyEvmTxHash?: string;
 
   // `earn-withdraw` (Smart Withdraw) lifecycle phase, driving the row's status chip.
   earnWithdrawPhase?: IEarnWithdrawPhase;

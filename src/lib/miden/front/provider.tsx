@@ -20,6 +20,7 @@ import { mirrorBackgroundSettings } from 'lib/settings/helpers';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
 import { TokensMetadataProvider } from './assets';
+import { BuyBridgeManager } from './BuyBridgeManager';
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
 import { SwapSettlementManager } from './SwapSettlementManager';
 import { useForegroundRefresh } from './useForegroundRefresh';
@@ -166,6 +167,7 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
             {children}
             <SwapSettlementManager />
             <NativeNoteAutoConsumeManager />
+            <BuyBridgeManager />
             {/* NoteToastProvider monitors for new notes and shows toast on mobile */}
             <NoteToastProvider />
           </FiatCurrencyProvider>

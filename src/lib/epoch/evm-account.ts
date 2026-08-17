@@ -12,6 +12,7 @@ import { toAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
 import { hashAuthorization } from 'viem/utils';
 
+import { SEPOLIA_RPC_URL } from 'lib/agglayer/constant';
 import { SignEvmOperation } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 
@@ -79,14 +80,16 @@ export function buildVaultEvmWalletClient(midenAccountPublicKey: string, evmAddr
   // real Sepolia. Inert in production (E2E_EVM_RPC_URL is baked only by the e2e
   // build), where this resolves to the same default Sepolia RPC as before.
   const e2eRpc = process.env.MIDEN_E2E_TEST === 'true' ? (process.env.E2E_EVM_RPC_URL ?? '').trim() : '';
-  const evmRpcUrl = e2eRpc || (sepolia.rpcUrls.default.http[0] ?? '');
+  // viem's sepolia default RPC is thirdweb's rate-limited endpoint (429s under
+  // light write traffic) — always use our own default instead.
+  const evmRpcUrl = e2eRpc || SEPOLIA_RPC_URL;
 
   // Override the CHAIN's default rpcUrls too, not just the transport: the Epoch
   // SDK builds its OWN publicClients from `walletClient.chain.rpcUrls.default`
   // (e.g. getWalletGaslessStatus reads the 7702 delegation there), so the chain
-  // must point at the local Anvil or those reads hit real Sepolia. Mirrors
-  // `withE2eRpc` in client.ts (the deposit path).
-  const chain = e2eRpc ? { ...sepolia, rpcUrls: { ...sepolia.rpcUrls, default: { http: [e2eRpc] } } } : sepolia;
+  // must point at the same RPC as the transport or those reads hit viem's
+  // thirdweb default. Mirrors `withE2eRpc` in client.ts (the deposit path).
+  const chain = { ...sepolia, rpcUrls: { ...sepolia.rpcUrls, default: { http: [evmRpcUrl] } } };
 
   return createWalletClient({
     account,

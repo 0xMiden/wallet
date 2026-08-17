@@ -14,6 +14,7 @@ import {
   IBridgedReceiveExtraInputs,
   IBridgedSendExtraInputs,
   IBridgeInInfo,
+  IBuyExtraInputs,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
   ITransaction,
@@ -190,6 +191,7 @@ async function fetchTransactionsAsHistoryEntries(
       tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
     const earnWithdraw: IEarnWithdrawExtraInputs | undefined = tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
     const earnDeposit: IEarnDepositExtraInputs | undefined = tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
+    const buy: IBuyExtraInputs | undefined = tx.type === 'buy' ? tx.extraInputs : undefined;
     const guardianSwitch: ISwitchGuardianExtraInputs | undefined =
       tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
     // Source side (USDC) while in flight, destination side once the bridged note
@@ -259,7 +261,11 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeInPhase: bridgedReceive?.phase,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,
       bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
-      bridgeInMidenNoteId: bridgedReceive?.midenNoteId
+      bridgeInMidenNoteId: bridgedReceive?.midenNoteId,
+      buyBridgeProgress: buy?.bridgeProgress,
+      buySourceAmount: buy?.sourceAmount,
+      buySourceSymbol: buy?.sourceSymbol,
+      buyEvmTxHash: buy?.evmTxHash
     } as IHistoryEntry;
 
     return entry;
