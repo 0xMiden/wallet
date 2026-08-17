@@ -3,6 +3,10 @@
     "message": "有效载荷",
     "englishSource": "Payload"
   },
+  "bridgeDepositTitle": {
+    "message": "Miden Bridge",
+    "englishSource": "Miden Bridge"
+  },
   "bridgeDepositHeading": {
     "message": "确认您的存款",
     "englishSource": "Confirm your deposit"
@@ -14,6 +18,10 @@
   "bridgeDepositYouReceive": {
     "message": "您将收到",
     "englishSource": "You receive"
+  },
+  "bridgeDepositBridgeOption": {
+    "message": "桥接选项",
+    "englishSource": "Bridge option"
   },
   "bridgeDepositApprovingTitle": {
     "message": "您正在批准的内容",
@@ -282,9 +290,21 @@
     "message": "持仓",
     "englishSource": "Position"
   },
+  "withdraw": {
+    "message": "提现",
+    "englishSource": "Withdraw"
+  },
   "earnDepositMore": {
     "message": "存入更多",
     "englishSource": "Deposit more"
+  },
+  "earnWithdrawAmount": {
+    "message": "提现金额",
+    "englishSource": "Withdraw Amount"
+  },
+  "earnWithdrawalLabel": {
+    "message": "提现",
+    "englishSource": "Withdrawal"
   },
   "earnFullPositionGasless": {
     "message": "完整版本（免 gas 费）",
@@ -305,6 +325,10 @@
   "earnWithdrawNotOwned": {
     "message": "该头寸不属于当前由钱包派生的 EVM 账户所有。",
     "englishSource": "This position is not owned by the current wallet-derived EVM account."
+  },
+  "earnGaslessWithdrawalFailed": {
+    "message": "免Gas费提现失败。",
+    "englishSource": "Gasless withdrawal failed."
   },
   "earnCurrentApy": {
     "message": "当前年化收益率",
@@ -824,6 +848,10 @@
     "message": "生成互换",
     "englishSource": "Generating Swap"
   },
+  "transactionStepGuardianApproved": {
+    "message": "Guardian 已审核",
+    "englishSource": "Guardian approved"
+  },
   "transactionStepProofGenerated": {
     "message": "已生成证明",
     "englishSource": "Proof generated"
@@ -831,6 +859,10 @@
   "transactionStepSubmitting": {
     "message": "提交",
     "englishSource": "Submitting"
+  },
+  "transactionStepSyncingGuardian": {
+    "message": "与 Guardian 同步",
+    "englishSource": "Syncing with Guardian"
   },
   "transactionStepDurationSec": {
     "message": "$seconds$ 秒",
@@ -857,6 +889,10 @@
     "message": "构建并验证您的交易。",
     "englishSource": "Building and proving your transaction."
   },
+  "transactionStageClaiming": {
+    "message": "申领 note",
+    "englishSource": "Claiming note"
+  },
   "transactionStageExecuting": {
     "message": "执行事务",
     "englishSource": "Executing transaction"
@@ -873,6 +909,10 @@
     "message": "正在为您的交易生成证明。",
     "englishSource": "Creating the proof for your transaction."
   },
+  "transactionStageSwitching": {
+    "message": "切换 guardian",
+    "englishSource": "Switching guardian"
+  },
   "transactionStageSwapping": {
     "message": "代币交换",
     "englishSource": "Swapping tokens"
@@ -881,6 +921,18 @@
     "message": "创建提案",
     "englishSource": "Creating proposal"
   },
+  "transactionStageCreatingProposalDescription": {
+    "message": "正在为您的guardian构建交易提案。",
+    "englishSource": "Building the transaction proposal for your guardian."
+  },
+  "transactionStageSigningProposal": {
+    "message": "使用 guardian 签名",
+    "englishSource": "Signing with guardian"
+  },
+  "transactionStageSigningProposalDescription": {
+    "message": "您的guardian正在签署该提案。",
+    "englishSource": "Your guardian is signing the proposal."
+  },
   "transactionStageSubmitting": {
     "message": "提交交易",
     "englishSource": "Submitting transaction"
@@ -888,6 +940,14 @@
   "transactionStageSubmittingDescription": {
     "message": "将您已签名的交易发送至网络。",
     "englishSource": "Sending your signed transaction to the network."
+  },
+  "transactionStageGuardianSyncing": {
+    "message": "与 Guardian 同步",
+    "englishSource": "Syncing with Guardian"
+  },
+  "transactionStageGuardianSyncingDescription": {
+    "message": "将您更新的账户状态与您的 guardian 进行同步。",
+    "englishSource": "Syncing your updated account state with your guardian."
   },
   "transactionStageComplete": {
     "message": "交易已完成",
@@ -904,6 +964,14 @@
   "transactionStageConfirmingDescription": {
     "message": "正在等待网络确认。",
     "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageRegisteringGuardian": {
+    "message": "在 guardian 注册",
+    "englishSource": "Registering with guardian"
+  },
+  "transactionStageRegisteringGuardianDescription": {
+    "message": "将您的账户状态注册到新的guardian中。",
+    "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
     "message": "发布note",
@@ -1507,6 +1575,15 @@
     "message": "有效期",
     "englishSource": "Expiration Date"
   },
+  "recallReturnsNote": {
+    "message": "如果届时仍未领取，您可以将$amount$赎回至您的钱包。资金不会丢失。",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "recallTimeInPast": {
     "message": "该时间已过——请选择未来的时间",
     "englishSource": "This time has already passed — pick a future time"
@@ -1621,6 +1698,19 @@
     "message": "我们无法向您的钱包充值。请重试。",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "pendingNotesPromptTitle": {
+    "message": "您有待处理的 Notes",
+    "englishSource": "You have Pending Notes"
+  },
+  "pendingNotesPromptBody": {
+    "message": "您有价值为 $amount$ 的待处理 notes。",
+    "englishSource": "You have pending notes worth $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "pendingNotesPromptAction": {
     "message": "立即查看",
     "englishSource": "See Now"
@@ -1656,6 +1746,14 @@
   "hotKeyRotationPromptAction": {
     "message": "旋转键",
     "englishSource": "Rotate key"
+  },
+  "bridgePromptTitle": {
+    "message": "桥接进行中",
+    "englishSource": "Bridge in progress"
+  },
+  "bridgePromptBody": {
+    "message": "我们将持续在后台跟踪您的跨链转账。",
+    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "您需要将恢复短语记录下来，然后通过选择该短语的首尾两个词来验证您是否记住。请确保没有人能看到您的屏幕。",
@@ -1737,6 +1835,10 @@
   "external": {
     "message": "外部",
     "englishSource": "External"
+  },
+  "claim": {
+    "message": "申领",
+    "englishSource": "Claim"
   },
   "clear": {
     "message": "清除",
@@ -1842,9 +1944,17 @@
     "message": "此设备不支持生物识别解锁。",
     "englishSource": "Biometric unlock isn't available on this device."
   },
+  "chooseYourGuardian": {
+    "message": "选择您的Guardian",
+    "englishSource": "Choose your Guardian"
+  },
   "chooseGuardianDescription": {
     "message": "请从以下选项中选择一项",
     "englishSource": "Select an option below"
+  },
+  "learnMoreAboutGuardian": {
+    "message": "了解更多关于Guardian的信息",
+    "englishSource": "Learn more about the Guardian"
   },
   "guardianOperatedBy": {
     "message": "运营方：",
@@ -1854,9 +1964,21 @@
     "message": "地点：",
     "englishSource": "Location:"
   },
+  "whatIsAGuardian": {
+    "message": "什么是Guardian？",
+    "englishSource": "What is a Guardian?"
+  },
+  "guardianInfoDescription": {
+    "message": "Guardian 是一项独立服务，<b>对您钱包中的每笔交易</b>进行联署，在无需放弃自主托管的前提下提供安全保障。",
+    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+  },
   "guardianInfoWhatItDoesTitle": {
     "message": "功能说明",
     "englishSource": "What it does"
+  },
+  "guardianInfoWhatItDoesDescription": {
+    "message": "对每笔交易进行共同签名——无论是您的设备还是Guardian，均无法单独转移资金。若您丢失设备，可协助您找回账户。",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "它无法做什么",
@@ -1869,6 +1991,10 @@
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "切换很简单",
     "englishSource": "Switching is easy"
+  },
+  "guardianInfoSwitchingIsEasyDescription": {
+    "message": "您可以随时使用恢复短语切换至另一个Guardian。仅共同签名人会发生变更；您的账户和资金保持不变。",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "明白了",
@@ -2134,13 +2260,37 @@
     "message": "加密钱包文件",
     "englishSource": "Encrypted Wallet File"
   },
+  "guardianBadge": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "guardianSettings": {
+    "message": "Guardian 设置",
+    "englishSource": "Guardian Settings"
+  },
   "currentLabel": {
     "message": "当前",
     "englishSource": "Current"
   },
+  "newGuardianEndpoint": {
+    "message": "新的 Guardian 端点",
+    "englishSource": "New Guardian Endpoint"
+  },
+  "guardianEndpointUnchanged": {
+    "message": "这已经就是您当前的 guardian。",
+    "englishSource": "That's already your current guardian."
+  },
+  "rotateGuardian": {
+    "message": "轮换 Guardian",
+    "englishSource": "Rotate Guardian"
+  },
   "keys": {
     "message": "键",
     "englishSource": "Keys"
+  },
+  "customGuardian": {
+    "message": "自定义 Guardian",
+    "englishSource": "Custom Guardian"
   },
   "guardianProvider": {
     "message": "服务提供商",
@@ -2170,6 +2320,10 @@
       }
     }
   },
+  "guardianRotationComplete": {
+    "message": "Guardian 已更新！",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "在线",
     "englishSource": "Online"
@@ -2182,6 +2336,14 @@
     "message": "新",
     "englishSource": "New"
   },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "请进行身份验证以批准此 Guardian 切换操作。",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "无法进行身份验证。请在切换 Guardian 之前重试。",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
+  },
   "walletKeyHot": {
     "message": "钱包密钥（热钱包）",
     "englishSource": "Wallet key (hot)"
@@ -2189,6 +2351,14 @@
   "recoveryPhraseCold": {
     "message": "恢复短语（冷存储）",
     "englishSource": "Recovery phrase (cold)"
+  },
+  "oldGuardianCantBlockTitle": {
+    "message": "您的旧版Guardian无法阻止此操作",
+    "englishSource": "Your old Guardian can't block this"
+  },
+  "oldGuardianCantBlockBody": {
+    "message": "轮换需经您设备上的两把密钥批准。旧的Guardian仅会收到通知。",
+    "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
     "message": "旋转设备键",
@@ -2226,6 +2396,18 @@
     "message": "重试",
     "englishSource": "Retry"
   },
+  "guardianChangedTitle": {
+    "message": "Guardian 已修改",
+    "englishSource": "Guardian changed"
+  },
+  "guardianChangedBody": {
+    "message": "您的 guardian 已更换，且我们无法识别新运营商。请输入其 URL 以重新连接。",
+    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlMismatch": {
+    "message": "该操作者与您账户的链上guardian不匹配。",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "revealHotKey": {
     "message": "显示设备密钥",
     "englishSource": "Reveal device key"
@@ -2249,6 +2431,10 @@
   "coldPublicKeyLabel": {
     "message": "恢复（冷）公钥",
     "englishSource": "Recovery (Cold) Public Key"
+  },
+  "guardianKeysRevealDescription": {
+    "message": "您的 Guardian 账户由三把密钥保护：用于常规签名的设备（热）密钥、由您的 seed phrase 派生用于账户管理操作的恢复（冷）密钥，以及外部 guardian 共同签名人。以下是您的冷私钥以及两把公钥。要显示设备私钥，请使用“设置”→“显示设备密钥”。",
+    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
     "message": "在您透露设备密钥之前",
@@ -2309,6 +2495,10 @@
   "autoConsumeSettings": {
     "message": "Auto Consume MIDEN notes",
     "englishSource": "Auto Consume MIDEN notes"
+  },
+  "autoConsumeSettingsDescription": {
+    "message": "会自动将收到的 MIDEN notes 计入您的余额——这与点击“Claim”的效果相同。该操作不会消耗您的资金，也不会产生任何费用。",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "加密钱包文件",
@@ -2454,6 +2644,14 @@
     "message": "请选择在无法访问账户时希望采用的账户恢复方式。",
     "englishSource": "Choose how you want to recover your account if you lose access."
   },
+  "guardianRecovery": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "推荐使用 Guardian 基于密钥的账户恢复方案，但 guardian 操作员可以查看您的账户状态。",
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
+  },
   "fullyPrivateRecovery": {
     "message": "完全私密",
     "englishSource": "Fully Private"
@@ -2466,6 +2664,14 @@
     "message": "您想如何找回这个钱包？",
     "englishSource": "How would you like to recover this wallet?"
   },
+  "importViaGuardian": {
+    "message": "通过 Guardian 导入",
+    "englishSource": "Import via Guardian"
+  },
+  "importViaGuardianDescription": {
+    "message": "请使用guardian来恢复并为该账户进行共同签名。",
+    "englishSource": "Use a guardian to recover and co-sign for this account."
+  },
   "importPublicAccount": {
     "message": "导入公共账号",
     "englishSource": "Import public account"
@@ -2474,13 +2680,59 @@
     "message": "导入由您的seed phrase生成的公共账户。",
     "englishSource": "Import the public account derived from your seed phrase."
   },
+  "guardianEndpoint": {
+    "message": "Guardian URL",
+    "englishSource": "Guardian URL"
+  },
+  "useDifferentGuardian": {
+    "message": "请使用不同的 guardian",
+    "englishSource": "Use a different guardian"
+  },
+  "detectingGuardian": {
+    "message": "正在查找您的 guardian…",
+    "englishSource": "Looking for your guardian…"
+  },
+  "guardianDetectedTitle": {
+    "message": "已找到您的guardian：$name$",
+    "englishSource": "Found your guardian: $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianDetectedMultiple": {
+    "message": "有多个guardian知晓该账户。我们选择了存储您最新状态的那一个。",
+    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
+  },
   "useCustomGuardianInstead": {
     "message": "换一个试试？",
     "englishSource": "Use a different one instead?"
   },
+  "guardianNotDetected": {
+    "message": "我们无法自动检测到您的 guardian。请选择您使用的那个，或输入其 URL。",
+    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianProbePartialFailure": {
+    "message": "$count$ 无法访问 guardian(s)，因此检测结果可能不完整。",
+    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "retryGuardianDetection": {
     "message": "请尝试再次检测",
     "englishSource": "Try detecting again"
+  },
+  "guardianAccountNotFound": {
+    "message": "我们在 guardian 上找不到您的账户。请检查网址，或改用公共账户进行导入。",
+    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "useCustomGuardianUrl": {
+    "message": "请使用自定义的 Guardian 链接",
+    "englishSource": "Use a custom Guardian URL"
   },
   "default": {
     "message": "默认",
@@ -2658,6 +2910,22 @@
     "message": "发送付款",
     "englishSource": "Send Payment"
   },
+  "claimAll": {
+    "message": "全额申领",
+    "englishSource": "Claim All"
+  },
+  "claimAllProgress": {
+    "message": "“全额申领”？（$unclaimed$ / $total$）",
+    "englishSource": "Claim All? ($unclaimed$/$total$)",
+    "placeholders": {
+      "unclaimed": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "totalPending": {
     "message": "待处理总数",
     "englishSource": "Total Pending"
@@ -2678,6 +2946,10 @@
         "content": "$1"
       }
     }
+  },
+  "pendingNotesInfo": {
+    "message": "Miden 采用了一个名为“确认凭证”（notes）的独特系统。用户需要在此手动申领收到的款项。这是保护您的钱包免受恶意攻击者侵害的一种方式。",
+    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
   },
   "notesPendingAcrossAssets": {
     "message": "$notes$ notes $assets$旗下各资产中的待处理事项",
@@ -2709,9 +2981,21 @@
       }
     }
   },
+  "noteClaimFailedRetry": {
+    "message": "申领失败——点击“重试”再次尝试",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
   "noteUnavailable": {
     "message": "这款note已无货",
     "englishSource": "This note is no longer available"
+  },
+  "pendingNotes": {
+    "message": "待处理 notes",
+    "englishSource": "Pending notes"
+  },
+  "whatArePendingNotes": {
+    "message": "什么是待处理的notes？",
+    "englishSource": "What are pending notes?"
   },
   "consumeYourNotes": {
     "message": "请使用您的 notes",
@@ -3114,6 +3398,10 @@
     "message": "触觉反馈",
     "englishSource": "Haptic Feedback"
   },
+  "noNotesToClaim": {
+    "message": "您目前没有可申领的notes。",
+    "englishSource": "You don't currently have notes to claim."
+  },
   "noteReceivedTitle": {
     "message": "您已收到一封来自 note 的邮件",
     "englishSource": "You have received a note"
@@ -3125,6 +3413,23 @@
   "transactionFailedNotificationBody": {
     "message": "交易无法完成。请打开钱包进行查看。",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
+  "noteReceivedTapToClaim": {
+    "message": "点击此处领取",
+    "englishSource": "Tap here to claim it"
+  },
+  "noteReceivedClickToClaim": {
+    "message": "点击查看并申领",
+    "englishSource": "Click to view and claim it"
+  },
+  "noteReceivedMultiple": {
+    "message": "您有 $count$ 个新的 notes 可申领",
+    "englishSource": "You have $count$ new notes to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "passwordsCanBeInsecure": {
     "message": "密码可能不够安全。建议改用生物识别认证。",
@@ -3197,6 +3502,10 @@
   "enterAddress": {
     "message": "输入地址",
     "englishSource": "Enter Address"
+  },
+  "failedToClaimNote": {
+    "message": "无法领取 note",
+    "englishSource": "Failed to claim note"
   },
   "testnet": {
     "message": "测试网",
@@ -3350,13 +3659,29 @@
     "message": "连接另一个钱包",
     "englishSource": "Connect another wallet"
   },
+  "midenBridge": {
+    "message": "Miden Bridge",
+    "englishSource": "Miden Bridge"
+  },
   "connectEvmWallet": {
     "message": "连接一个 EVM 钱包",
     "englishSource": "Connect an EVM wallet"
   },
+  "connectEvmWalletDescription": {
+    "message": "连接钱包，即可在 Miden 与其他区块链之间进行资产桥接。",
+    "englishSource": "Connect a wallet to bridge assets to and from Miden."
+  },
   "onlyBridgeableTokenSupported": {
     "message": "“慢速（Agglayer）”通道仅支持可桥接代币。如需发送其他代币，请使用“快速”通道。",
     "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
+  },
+  "connectDestinationWalletToClaim": {
+    "message": "请连接目标钱包以申领代币。",
+    "englishSource": "Connect the destination wallet to claim."
+  },
+  "bridgeDetails": {
+    "message": "桥接详情",
+    "englishSource": "Bridge details"
   },
   "route": {
     "message": "路线",
@@ -3398,9 +3723,25 @@
     "message": "确认存款",
     "englishSource": "Confirm Deposit"
   },
+  "bridgeDepositProcessing": {
+    "message": "确认桥接存款",
+    "englishSource": "Confirming bridge deposit"
+  },
   "bridgeDepositProcessingDescription": {
     "message": "请在您的钱包中批准该请求，并在 Sepolia 确认期间保持此页面打开。",
     "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+  },
+  "bridgeDepositFailed": {
+    "message": "桥接存款失败",
+    "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositSubmitted": {
+    "message": "桥接已启动！",
+    "englishSource": "Bridge initiated!"
+  },
+  "bridgeDepositDeliveryDescription": {
+    "message": "Sepolia 交易已确认。待跨链转账完成后，您的资金将显示在 Miden 上。",
+    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "在 Etherscan 上查看",
@@ -3414,9 +3755,49 @@
     "message": "Slow（Agglayer）路线在测试网中仅支持原生 ETH。请选择 ETH 以使用该路线。",
     "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
+  "fastEthWrapNotice": {
+    "message": "通过“快速通道”进行 ETH 跨链时，会先将其包装为 WETH，再将 WETH 进行跨链转账。该通道目前尚未开放。",
+    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
   "destinationNetwork": {
     "message": "目的地网络",
     "englishSource": "Destination network"
+  },
+  "claimStatus": {
+    "message": "申领状态",
+    "englishSource": "Claim status"
+  },
+  "claimAsset": {
+    "message": "申领资产",
+    "englishSource": "Claim Asset"
+  },
+  "claimAssetSubmitted": {
+    "message": "索取请求已提交——资金已存入关联的 EVM 钱包。",
+    "englishSource": "Claim submitted — funds are on the connected EVM wallet."
+  },
+  "claimable": {
+    "message": "准备领取",
+    "englishSource": "Ready to claim"
+  },
+  "claiming": {
+    "message": "正在申领……",
+    "englishSource": "Claiming…"
+  },
+  "claimed": {
+    "message": "已申领",
+    "englishSource": "Claimed"
+  },
+  "claimPending": {
+    "message": "跨链转账 — 申领尚未准备就绪",
+    "englishSource": "Bridging — claim not ready yet"
+  },
+  "claimFailedStatus": {
+    "message": "申领失败",
+    "englishSource": "Claim failed"
+  },
+  "noManualClaimRequired": {
+    "message": "资金会自动到账——无需申领。",
+    "englishSource": "Funds arrive automatically — no claim needed."
   },
   "fastRouteLabel": {
     "message": "Fast（Epoch）",
@@ -3425,6 +3806,18 @@
   "slowRouteLabel": {
     "message": "慢速（Agglayer）",
     "englishSource": "Slow (Agglayer)"
+  },
+  "bridgeRowTitle": {
+    "message": "桥接 $from$ → $to$",
+    "englishSource": "Bridge $from$ → $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "to": {
+        "content": "$2"
+      }
+    }
   },
   "bridgeRowVia": {
     "message": "来源：$provider$ → $network$",
@@ -3514,6 +3907,10 @@
     "message": "存款详情",
     "englishSource": "Deposit details"
   },
+  "earnWithdrawDetailsTitle": {
+    "message": "提现详情",
+    "englishSource": "Withdrawal details"
+  },
   "depositIntentLabel": {
     "message": "存款意向",
     "englishSource": "Deposit intent"
@@ -3521,6 +3918,10 @@
   "redeemIntentLabel": {
     "message": "兑换意图",
     "englishSource": "Redeem intent"
+  },
+  "earnWithdrawRowTitle": {
+    "message": "从“Earn”中提现",
+    "englishSource": "Withdraw from Earn"
   },
   "earnWithdrawRowVia": {
     "message": "经由 Epoch → Miden",
@@ -3533,6 +3934,26 @@
   "earnWithdrawStatusDelivering": {
     "message": "交付",
     "englishSource": "Delivering"
+  },
+  "withdrawalStarted": {
+    "message": "提现已启动！",
+    "englishSource": "Withdrawal Started!"
+  },
+  "withdrawalStartedDescription": {
+    "message": "您的资金正在通过桥接转回 Miden。请在“活动”中跟踪转账进度。",
+    "englishSource": "Your funds are being bridged back to Miden. Track delivery in Activity."
+  },
+  "withdrawalProcessing": {
+    "message": "处理提现",
+    "englishSource": "Processing Withdrawal"
+  },
+  "withdrawalProcessingDescription": {
+    "message": "对无Gas费的提现意向进行签名并提交至Epoch。这通常只需几秒钟。",
+    "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
+  },
+  "withdrawalFailed": {
+    "message": "提现失败",
+    "englishSource": "Withdrawal Failed"
   },
   "transactionComplete": {
     "message": "交易完成！",
@@ -3605,6 +4026,10 @@
   "devEndpointExplorer": {
     "message": "资源管理器网址",
     "englishSource": "Explorer URL"
+  },
+  "devEndpointGuardian": {
+    "message": "自定义 guardian 网址",
+    "englishSource": "Custom guardian URL"
   },
   "devEndpointChecking": {
     "message": "正在检查……",

@@ -3,6 +3,10 @@
     "message": "Yük",
     "englishSource": "Payload"
   },
+  "bridgeDepositTitle": {
+    "message": "Miden Bridge",
+    "englishSource": "Miden Bridge"
+  },
   "bridgeDepositHeading": {
     "message": "Para yatırma işleminizi onaylayın",
     "englishSource": "Confirm your deposit"
@@ -14,6 +18,10 @@
   "bridgeDepositYouReceive": {
     "message": "Şunları alırsınız:",
     "englishSource": "You receive"
+  },
+  "bridgeDepositBridgeOption": {
+    "message": "Köprü seçeneği",
+    "englishSource": "Bridge option"
   },
   "bridgeDepositApprovingTitle": {
     "message": "Onayladığınız şey",
@@ -282,9 +290,21 @@
     "message": "Pozisyon",
     "englishSource": "Position"
   },
+  "withdraw": {
+    "message": "Para Çekme",
+    "englishSource": "Withdraw"
+  },
   "earnDepositMore": {
     "message": "Daha fazla para yatırın",
     "englishSource": "Deposit more"
+  },
+  "earnWithdrawAmount": {
+    "message": "Para Çekme Tutarı",
+    "englishSource": "Withdraw Amount"
+  },
+  "earnWithdrawalLabel": {
+    "message": "Para Çekme",
+    "englishSource": "Withdrawal"
   },
   "earnFullPositionGasless": {
     "message": "Tam pozisyon (gaz ücreti gerektirmez)",
@@ -305,6 +325,10 @@
   "earnWithdrawNotOwned": {
     "message": "Bu pozisyon, mevcut cüzdandan türetilen EVM hesabına ait değildir.",
     "englishSource": "This position is not owned by the current wallet-derived EVM account."
+  },
+  "earnGaslessWithdrawalFailed": {
+    "message": "Gaz ücreti gerektirmeyen para çekme işlemi başarısız oldu.",
+    "englishSource": "Gasless withdrawal failed."
   },
   "earnCurrentApy": {
     "message": "Güncel Yıllık Getiri Oranı (APY)",
@@ -824,6 +848,10 @@
     "message": "Takas Oluşturma",
     "englishSource": "Generating Swap"
   },
+  "transactionStepGuardianApproved": {
+    "message": "Guardian onaylandı",
+    "englishSource": "Guardian approved"
+  },
   "transactionStepProofGenerated": {
     "message": "Kanıt oluşturuldu",
     "englishSource": "Proof generated"
@@ -831,6 +859,10 @@
   "transactionStepSubmitting": {
     "message": "Gönderme",
     "englishSource": "Submitting"
+  },
+  "transactionStepSyncingGuardian": {
+    "message": "Guardian ile senkronizasyon",
+    "englishSource": "Syncing with Guardian"
   },
   "transactionStepDurationSec": {
     "message": "$seconds$ sn",
@@ -857,6 +889,10 @@
     "message": "İşleminizi oluşturma ve doğrulama.",
     "englishSource": "Building and proving your transaction."
   },
+  "transactionStageClaiming": {
+    "message": "note'i Talep Etme",
+    "englishSource": "Claiming note"
+  },
   "transactionStageExecuting": {
     "message": "İşlemin gerçekleştirilmesi",
     "englishSource": "Executing transaction"
@@ -873,6 +909,10 @@
     "message": "İşleminizin onay belgesi oluşturuluyor.",
     "englishSource": "Creating the proof for your transaction."
   },
+  "transactionStageSwitching": {
+    "message": "guardian'e geçiş",
+    "englishSource": "Switching guardian"
+  },
   "transactionStageSwapping": {
     "message": "Jetonların takası",
     "englishSource": "Swapping tokens"
@@ -881,6 +921,18 @@
     "message": "Teklif hazırlama",
     "englishSource": "Creating proposal"
   },
+  "transactionStageCreatingProposalDescription": {
+    "message": "guardian'ınız için işlem teklifini oluşturma.",
+    "englishSource": "Building the transaction proposal for your guardian."
+  },
+  "transactionStageSigningProposal": {
+    "message": "guardian ile İmza Atma",
+    "englishSource": "Signing with guardian"
+  },
+  "transactionStageSigningProposalDescription": {
+    "message": "guardian'ınız teklifi imzalamaktadır.",
+    "englishSource": "Your guardian is signing the proposal."
+  },
   "transactionStageSubmitting": {
     "message": "İşlemi gönderme",
     "englishSource": "Submitting transaction"
@@ -888,6 +940,14 @@
   "transactionStageSubmittingDescription": {
     "message": "İmzalanmış işleminizi ağa gönderiliyor.",
     "englishSource": "Sending your signed transaction to the network."
+  },
+  "transactionStageGuardianSyncing": {
+    "message": "Guardian ile senkronizasyon",
+    "englishSource": "Syncing with Guardian"
+  },
+  "transactionStageGuardianSyncingDescription": {
+    "message": "Güncellenmiş hesap durumunuzu guardian adresiyle senkronize edin.",
+    "englishSource": "Syncing your updated account state with your guardian."
   },
   "transactionStageComplete": {
     "message": "İşlem tamamlandı",
@@ -904,6 +964,14 @@
   "transactionStageConfirmingDescription": {
     "message": "Ağ onayı bekleniyor.",
     "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageRegisteringGuardian": {
+    "message": "guardian'a kayıt olma",
+    "englishSource": "Registering with guardian"
+  },
+  "transactionStageRegisteringGuardianDescription": {
+    "message": "Hesap durumunuzu yeni guardian adresine kaydedin.",
+    "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
     "message": "note’in Teslimatı",
@@ -1507,6 +1575,15 @@
     "message": "Son Kullanım Tarihi",
     "englishSource": "Expiration Date"
   },
+  "recallReturnsNote": {
+    "message": "O zamana kadar talep edilmezse, $amount$ adresinden cüzdanınıza geri alabilirsiniz. Hiçbir fon kaybolmaz.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "recallTimeInPast": {
     "message": "Bu zaman çoktan geçti — gelecekte bir zaman seçin",
     "englishSource": "This time has already passed — pick a future time"
@@ -1621,6 +1698,19 @@
     "message": "Cüzdanınıza para aktaramadık. Lütfen tekrar deneyin.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "pendingNotesPromptTitle": {
+    "message": "Bekleyen Notes'unuz var",
+    "englishSource": "You have Pending Notes"
+  },
+  "pendingNotesPromptBody": {
+    "message": "$amount$ değerinde bekleyen notes'nuz bulunmaktadır.",
+    "englishSource": "You have pending notes worth $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "pendingNotesPromptAction": {
     "message": "Şimdi Bak",
     "englishSource": "See Now"
@@ -1656,6 +1746,14 @@
   "hotKeyRotationPromptAction": {
     "message": "Döndür tuşu",
     "englishSource": "Rotate key"
+  },
+  "bridgePromptTitle": {
+    "message": "Köprü kuruluyor",
+    "englishSource": "Bridge in progress"
+  },
+  "bridgePromptBody": {
+    "message": "Köprünüzü arka planda takip etmeye devam edeceğiz.",
+    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "Geri alma ifadesini yazacaksınız, ardından ilk ve son kelimelerini seçerek bilgilerinizi doğrulayacaksınız. Ekranınızı kimsenin görememesine dikkat edin.",
@@ -1737,6 +1835,10 @@
   "external": {
     "message": "Dış",
     "englishSource": "External"
+  },
+  "claim": {
+    "message": "Talep",
+    "englishSource": "Claim"
   },
   "clear": {
     "message": "Temizle",
@@ -1842,9 +1944,17 @@
     "message": "Bu cihazda biyometrik kilit açma özelliği mevcut değildir.",
     "englishSource": "Biometric unlock isn't available on this device."
   },
+  "chooseYourGuardian": {
+    "message": "Guardian'ınızı seçin",
+    "englishSource": "Choose your Guardian"
+  },
   "chooseGuardianDescription": {
     "message": "Aşağıdaki seçeneklerden birini seçin",
     "englishSource": "Select an option below"
+  },
+  "learnMoreAboutGuardian": {
+    "message": "Guardian hakkında daha fazla bilgi edinin",
+    "englishSource": "Learn more about the Guardian"
   },
   "guardianOperatedBy": {
     "message": "İşletmeci:",
@@ -1854,9 +1964,21 @@
     "message": "Konum:",
     "englishSource": "Location:"
   },
+  "whatIsAGuardian": {
+    "message": "Guardian nedir?",
+    "englishSource": "What is a Guardian?"
+  },
+  "guardianInfoDescription": {
+    "message": "Guardian, cüzdanınızdan yapılan her işlemi <b>ortak olarak onaylayan</b> bağımsız bir hizmettir ve kendi varlıklarınızı kendiniz saklamaktan vazgeçmeden bir güvenlik ağı sağlar.",
+    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+  },
   "guardianInfoWhatItDoesTitle": {
     "message": "Ne işe yarar?",
     "englishSource": "What it does"
+  },
+  "guardianInfoWhatItDoesDescription": {
+    "message": "Her işlemi birlikte imzalar — ne cihazınız ne de Guardian tek başına fon transferi yapamaz. Cihazınızı kaybederseniz hesabınızı geri kazanmanıza yardımcı olur.",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "Neleri yapamaz?",
@@ -1869,6 +1991,10 @@
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "Geçiş yapmak çok kolay",
     "englishSource": "Switching is easy"
+  },
+  "guardianInfoSwitchingIsEasyDescription": {
+    "message": "Kurtarma ifadenizle istediğiniz zaman farklı bir Guardian adresine geçebilirsiniz. Yalnızca ortak imza sahibi değişir; hesabınız ve fonlarınız aynı kalır.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Anladım",
@@ -2134,13 +2260,37 @@
     "message": "Şifrelenmiş Cüzdan Dosyası",
     "englishSource": "Encrypted Wallet File"
   },
+  "guardianBadge": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "guardianSettings": {
+    "message": "Guardian Ayarlar",
+    "englishSource": "Guardian Settings"
+  },
   "currentLabel": {
     "message": "Mevcut",
     "englishSource": "Current"
   },
+  "newGuardianEndpoint": {
+    "message": "Yeni Guardian Uç Noktası",
+    "englishSource": "New Guardian Endpoint"
+  },
+  "guardianEndpointUnchanged": {
+    "message": "Bu zaten şu anki \"guardian\"unuzdur.",
+    "englishSource": "That's already your current guardian."
+  },
+  "rotateGuardian": {
+    "message": "Guardian'i Dönüştür",
+    "englishSource": "Rotate Guardian"
+  },
   "keys": {
     "message": "Anahtarlar",
     "englishSource": "Keys"
+  },
+  "customGuardian": {
+    "message": "Özel Guardian",
+    "englishSource": "Custom Guardian"
   },
   "guardianProvider": {
     "message": "Sağlayıcı",
@@ -2170,6 +2320,10 @@
       }
     }
   },
+  "guardianRotationComplete": {
+    "message": "Guardian Güncellendi!",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "Çevrimiçi",
     "englishSource": "Online"
@@ -2182,6 +2336,14 @@
     "message": "Yeni",
     "englishSource": "New"
   },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "Bu Guardian geçişini onaylamak için kimliğinizi doğrulayın.",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "Kimlik doğrulama kullanılamıyor. Guardian adresine geçmeden önce lütfen tekrar deneyin.",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
+  },
   "walletKeyHot": {
     "message": "Cüzdan anahtarı (aktif)",
     "englishSource": "Wallet key (hot)"
@@ -2189,6 +2351,14 @@
   "recoveryPhraseCold": {
     "message": "Geri yükleme ifadesi (soğuk)",
     "englishSource": "Recovery phrase (cold)"
+  },
+  "oldGuardianCantBlockTitle": {
+    "message": "Eski Guardian adresiniz bunu engelleyemez",
+    "englishSource": "Your old Guardian can't block this"
+  },
+  "oldGuardianCantBlockBody": {
+    "message": "Rotasyon, cihazınızdaki iki anahtar tarafından onaylanır. Eski Guardian adresine yalnızca bildirim gönderilir.",
+    "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
     "message": "Cihaz tuşunu döndür",
@@ -2226,6 +2396,18 @@
     "message": "Tekrar dene",
     "englishSource": "Retry"
   },
+  "guardianChangedTitle": {
+    "message": "Guardian değiştirildi",
+    "englishSource": "Guardian changed"
+  },
+  "guardianChangedBody": {
+    "message": "guardian'unuz değiştirildi ve yeni operatörü tanımlayamadık. Yeniden bağlanmak için URL'sini girin.",
+    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlMismatch": {
+    "message": "Bu operatör, hesabınızın zincir üzerindeki guardian adresiyle eşleşmiyor.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "revealHotKey": {
     "message": "Cihaz anahtarını göster",
     "englishSource": "Reveal device key"
@@ -2249,6 +2431,10 @@
   "coldPublicKeyLabel": {
     "message": "Kurtarma (Soğuk) Açık Anahtarı",
     "englishSource": "Recovery (Cold) Public Key"
+  },
+  "guardianKeysRevealDescription": {
+    "message": "Guardian hesabınız üç anahtarla korunmaktadır: rutin imzalamalar için bir cihaz (sıcak) anahtarı, hesap yönetimi işlemleri için seed phrase adresinizden türetilen bir kurtarma (soğuk) anahtarı ve harici bir guardian ortak imzalayıcısı. Aşağıda soğuk özel anahtarınız ve her iki açık anahtarınız yer almaktadır. Cihaz özel anahtarını görüntülemek için Ayarlar → Cihaz Anahtarını Göster seçeneğini kullanın.",
+    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
     "message": "Cihaz anahtarınızı açıklamadan önce",
@@ -2309,6 +2495,10 @@
   "autoConsumeSettings": {
     "message": "Auto Consume MIDEN notes",
     "englishSource": "Auto Consume MIDEN notes"
+  },
+  "autoConsumeSettingsDescription": {
+    "message": "Gelen MIDEN'leri notes otomatik olarak bakiyenize ekler — \"Talep Et\"e dokunmakla aynı işlevi görür. Bu işlem, paranızı harcamaz veya herhangi bir ücret eklemez.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "Şifrelenmiş Cüzdan Dosyası",
@@ -2454,6 +2644,14 @@
     "message": "Erişiminizi kaybederseniz, hesabınızı nasıl kurtarmak istediğinizi seçin.",
     "englishSource": "Choose how you want to recover your account if you lose access."
   },
+  "guardianRecovery": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "Önerilir. Hesabınız için Guardian tabanlı kurtarma işlemi, ancak guardian operatörü durumunuzu görebilir.",
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
+  },
   "fullyPrivateRecovery": {
     "message": "Tamamen Özel",
     "englishSource": "Fully Private"
@@ -2466,6 +2664,14 @@
     "message": "Bu cüzdanı geri almak ister misiniz?",
     "englishSource": "How would you like to recover this wallet?"
   },
+  "importViaGuardian": {
+    "message": "Guardian üzerinden içe aktarın",
+    "englishSource": "Import via Guardian"
+  },
+  "importViaGuardianDescription": {
+    "message": "Bu hesabı kurtarmak ve ortak imza atmak için guardian adresini kullanın.",
+    "englishSource": "Use a guardian to recover and co-sign for this account."
+  },
   "importPublicAccount": {
     "message": "Genel hesabı içe aktar",
     "englishSource": "Import public account"
@@ -2474,13 +2680,59 @@
     "message": "seed phrase'tan elde ettiğiniz genel hesabı içe aktarın.",
     "englishSource": "Import the public account derived from your seed phrase."
   },
+  "guardianEndpoint": {
+    "message": "Guardian URL",
+    "englishSource": "Guardian URL"
+  },
+  "useDifferentGuardian": {
+    "message": "Farklı bir guardian adresi kullanın",
+    "englishSource": "Use a different guardian"
+  },
+  "detectingGuardian": {
+    "message": "guardian'ınızı arıyoruz…",
+    "englishSource": "Looking for your guardian…"
+  },
+  "guardianDetectedTitle": {
+    "message": "guardian'ınızı buldunuz: $name$",
+    "englishSource": "Found your guardian: $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianDetectedMultiple": {
+    "message": "Bu hesabı birden fazla guardian adresi tanıyor. En son durumunuzu barındıran adresi seçtik.",
+    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
+  },
   "useCustomGuardianInstead": {
     "message": "Onun yerine başka bir tane mi kullanasın?",
     "englishSource": "Use a different one instead?"
   },
+  "guardianNotDetected": {
+    "message": "guardian'ınızı otomatik olarak algılayamadık. Kullandığınız adresi seçin veya URL'sini girin.",
+    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianProbePartialFailure": {
+    "message": "$count$ guardian(s) adreslerine ulaşılamadı, bu nedenle tespit işlemi eksik olabilir.",
+    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "retryGuardianDetection": {
     "message": "Tekrar algılamayı deneyin",
     "englishSource": "Try detecting again"
+  },
+  "guardianAccountNotFound": {
+    "message": "guardian adresinde hesabınızı bulamadık. URL'yi kontrol edin veya bunun yerine genel hesap olarak içe aktarın.",
+    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "useCustomGuardianUrl": {
+    "message": "Guardian'da özel bir URL kullanın",
+    "englishSource": "Use a custom Guardian URL"
   },
   "default": {
     "message": "Varsayılan",
@@ -2658,6 +2910,22 @@
     "message": "Ödemeyi Gönder",
     "englishSource": "Send Payment"
   },
+  "claimAll": {
+    "message": "Tümünü Talep Et",
+    "englishSource": "Claim All"
+  },
+  "claimAllProgress": {
+    "message": "Hepsini Talep Et? ($unclaimed$ / $total$)",
+    "englishSource": "Claim All? ($unclaimed$/$total$)",
+    "placeholders": {
+      "unclaimed": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "totalPending": {
     "message": "Toplam Beklemede Olan",
     "englishSource": "Total Pending"
@@ -2678,6 +2946,10 @@
         "content": "$1"
       }
     }
+  },
+  "pendingNotesInfo": {
+    "message": "Miden, \"notes\" (Gelen Ödemeleri Talep Etme) adlı benzersiz bir sistem kullanır. Bu sistemde, gelen parayı manuel olarak talep edersiniz. Bu, cüzdanınızı kötü niyetli kişilerden korumanın bir yoludur.",
+    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
   },
   "notesPendingAcrossAssets": {
     "message": "$notes$ notes $assets$’ın tüm varlıklarında beklemede olan",
@@ -2709,9 +2981,21 @@
       }
     }
   },
+  "noteClaimFailedRetry": {
+    "message": "Talep başarısız oldu — Yeniden Dene düğmesine dokunarak tekrar deneyin",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
   "noteUnavailable": {
     "message": "Bu note adresi artık kullanılamıyor",
     "englishSource": "This note is no longer available"
+  },
+  "pendingNotes": {
+    "message": "Bekleyen notes",
+    "englishSource": "Pending notes"
+  },
+  "whatArePendingNotes": {
+    "message": "Bekleyen \"notes\" nedir?",
+    "englishSource": "What are pending notes?"
   },
   "consumeYourNotes": {
     "message": "notes'ınızı kullanın",
@@ -3114,6 +3398,10 @@
     "message": "Dokunsal Geri Bildirim",
     "englishSource": "Haptic Feedback"
   },
+  "noNotesToClaim": {
+    "message": "Şu anda talep edebileceğiniz bir notes'ınız bulunmamaktadır.",
+    "englishSource": "You don't currently have notes to claim."
+  },
   "noteReceivedTitle": {
     "message": "note'i aldınız",
     "englishSource": "You have received a note"
@@ -3125,6 +3413,23 @@
   "transactionFailedNotificationBody": {
     "message": "Bir işlem tamamlanamadı. İncelemek için cüzdanı açın.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
+  "noteReceivedTapToClaim": {
+    "message": "Almak için buraya dokunun",
+    "englishSource": "Tap here to claim it"
+  },
+  "noteReceivedClickToClaim": {
+    "message": "Görüntülemek ve talepte bulunmak için tıklayın",
+    "englishSource": "Click to view and claim it"
+  },
+  "noteReceivedMultiple": {
+    "message": "$count$'dan yeni bir notes talebiniz var",
+    "englishSource": "You have $count$ new notes to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "passwordsCanBeInsecure": {
     "message": "Şifreler güvenli olmayabilir. Bunun yerine biyometrik kimlik doğrulamayı kullanın.",
@@ -3197,6 +3502,10 @@
   "enterAddress": {
     "message": "Adresi Girin",
     "englishSource": "Enter Address"
+  },
+  "failedToClaimNote": {
+    "message": "note'i talep edemedi",
+    "englishSource": "Failed to claim note"
   },
   "testnet": {
     "message": "Test ağı",
@@ -3350,13 +3659,29 @@
     "message": "Başka bir cüzdanı bağla",
     "englishSource": "Connect another wallet"
   },
+  "midenBridge": {
+    "message": "Miden Bridge",
+    "englishSource": "Miden Bridge"
+  },
   "connectEvmWallet": {
     "message": "Bir EVM cüzdanını bağlayın",
     "englishSource": "Connect an EVM wallet"
   },
+  "connectEvmWalletDescription": {
+    "message": "Miden'e ve Miden'den varlık aktarmak için bir cüzdan bağlayın.",
+    "englishSource": "Connect a wallet to bridge assets to and from Miden."
+  },
   "onlyBridgeableTokenSupported": {
     "message": "Yavaş (Agglayer) yolu yalnızca köprülenebilir token’ları destekler. Diğer token’ları göndermek için Hızlı seçeneğini kullanın.",
     "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
+  },
+  "connectDestinationWalletToClaim": {
+    "message": "Talep etmek için hedef cüzdanı bağlayın.",
+    "englishSource": "Connect the destination wallet to claim."
+  },
+  "bridgeDetails": {
+    "message": "Köprü ayrıntıları",
+    "englishSource": "Bridge details"
   },
   "route": {
     "message": "Güzergâh",
@@ -3398,9 +3723,25 @@
     "message": "Para Yatırma İşlemini Onayla",
     "englishSource": "Confirm Deposit"
   },
+  "bridgeDepositProcessing": {
+    "message": "Köprü yatırımı onayı",
+    "englishSource": "Confirming bridge deposit"
+  },
   "bridgeDepositProcessingDescription": {
     "message": "Cüzdanınızdaki talebi onaylayın ve Sepolia onaylayana kadar bu ekranı açık tutun.",
     "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+  },
+  "bridgeDepositFailed": {
+    "message": "Köprü yatırımı başarısız oldu",
+    "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositSubmitted": {
+    "message": "Köprü başlatıldı!",
+    "englishSource": "Bridge initiated!"
+  },
+  "bridgeDepositDeliveryDescription": {
+    "message": "Sepolia işlemi onaylandı. Köprü aktarımı tamamlandığında fonlarınız Miden'de görünecektir.",
+    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Etherscan'da görüntüle",
@@ -3414,9 +3755,49 @@
     "message": "Slow (Agglayer) rotası, test ağında yalnızca yerel ETH’yi desteklemektedir. Kullanmak için ETH’yi seçin.",
     "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
+  "fastEthWrapNotice": {
+    "message": "Hızlı yoldan ETH köprüleme işlemi, ETH’yi önce WETH’e dönüştürür, ardından WETH’i köprüler. Bu yol henüz kullanıma açık değildir.",
+    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
   "destinationNetwork": {
     "message": "Hedef ağ",
     "englishSource": "Destination network"
+  },
+  "claimStatus": {
+    "message": "Talep durumu",
+    "englishSource": "Claim status"
+  },
+  "claimAsset": {
+    "message": "Varlığı Talep Et",
+    "englishSource": "Claim Asset"
+  },
+  "claimAssetSubmitted": {
+    "message": "Talep gönderildi — fonlar bağlı EVM cüzdanında bulunmaktadır.",
+    "englishSource": "Claim submitted — funds are on the connected EVM wallet."
+  },
+  "claimable": {
+    "message": "Talep etmeye hazır mısınız?",
+    "englishSource": "Ready to claim"
+  },
+  "claiming": {
+    "message": "Talep ediliyor…",
+    "englishSource": "Claiming…"
+  },
+  "claimed": {
+    "message": "Talep Edildi",
+    "englishSource": "Claimed"
+  },
+  "claimPending": {
+    "message": "Köprüleme — talep henüz hazır değil",
+    "englishSource": "Bridging — claim not ready yet"
+  },
+  "claimFailedStatus": {
+    "message": "Talep başarısız oldu",
+    "englishSource": "Claim failed"
+  },
+  "noManualClaimRequired": {
+    "message": "Fonlar otomatik olarak gelir — talep edilmesine gerek yoktur.",
+    "englishSource": "Funds arrive automatically — no claim needed."
   },
   "fastRouteLabel": {
     "message": "Hızlı (Epoch)",
@@ -3425,6 +3806,18 @@
   "slowRouteLabel": {
     "message": "Yavaş (Agglayer)",
     "englishSource": "Slow (Agglayer)"
+  },
+  "bridgeRowTitle": {
+    "message": "Köprü $from$ → $to$",
+    "englishSource": "Bridge $from$ → $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "to": {
+        "content": "$2"
+      }
+    }
   },
   "bridgeRowVia": {
     "message": "$provider$ üzerinden → $network$",
@@ -3514,6 +3907,10 @@
     "message": "Para yatırma bilgileri",
     "englishSource": "Deposit details"
   },
+  "earnWithdrawDetailsTitle": {
+    "message": "Para çekme ayrıntıları",
+    "englishSource": "Withdrawal details"
+  },
   "depositIntentLabel": {
     "message": "Mevduat taahhüdü",
     "englishSource": "Deposit intent"
@@ -3521,6 +3918,10 @@
   "redeemIntentLabel": {
     "message": "Kullanım niyeti",
     "englishSource": "Redeem intent"
+  },
+  "earnWithdrawRowTitle": {
+    "message": "Earn'den Para Çekme",
+    "englishSource": "Withdraw from Earn"
   },
   "earnWithdrawRowVia": {
     "message": "Epoch üzerinden → Miden",
@@ -3533,6 +3934,26 @@
   "earnWithdrawStatusDelivering": {
     "message": "Teslimat",
     "englishSource": "Delivering"
+  },
+  "withdrawalStarted": {
+    "message": "Para Çekme İşlemi Başladı!",
+    "englishSource": "Withdrawal Started!"
+  },
+  "withdrawalStartedDescription": {
+    "message": "Fonlarınız Miden’e geri aktarılmaktadır. Aktarımı \"Etkinlik\" bölümünden takip edebilirsiniz.",
+    "englishSource": "Your funds are being bridged back to Miden. Track delivery in Activity."
+  },
+  "withdrawalProcessing": {
+    "message": "Para Çekme İşlemi",
+    "englishSource": "Processing Withdrawal"
+  },
+  "withdrawalProcessingDescription": {
+    "message": "Gaz ücreti gerektirmeyen para çekme niyetini imzalamak ve Epoch’a göndermek. Bu işlem genellikle birkaç saniye sürer.",
+    "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
+  },
+  "withdrawalFailed": {
+    "message": "Para Çekme İşlemi Başarısız",
+    "englishSource": "Withdrawal Failed"
   },
   "transactionComplete": {
     "message": "İşlem Tamamlandı!",
@@ -3605,6 +4026,10 @@
   "devEndpointExplorer": {
     "message": "Explorer URL'si",
     "englishSource": "Explorer URL"
+  },
+  "devEndpointGuardian": {
+    "message": "guardian'a özel URL",
+    "englishSource": "Custom guardian URL"
   },
   "devEndpointChecking": {
     "message": "Kontrol ediliyor…",
