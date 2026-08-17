@@ -4,7 +4,7 @@ import BigNumber from 'bignumber.js';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { toLocalFixed, toLocalFormat, toShortened } from 'lib/i18n/numbers';
+import { getAdaptiveDecimalPlaces, toAdaptiveFixed, toLocalFixed, toLocalFormat, toShortened } from 'lib/i18n/numbers';
 import { getNumberSymbols } from 'lib/i18n/react';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import useTippy, { TippyInstance, TippyProps } from 'lib/ui/useTippy';
@@ -40,11 +40,12 @@ const Money = memo<MoneyProps>(
     if (intLength >= ENOUGH_INT_LENGTH) {
       cryptoDecimals = Math.max(cryptoDecimals - 2, 1);
     }
+    cryptoDecimals = getAdaptiveDecimalPlaces(bn, cryptoDecimals);
     const { decimal } = getNumberSymbols();
 
     const deciamlsLimit = decimalsLength > cryptoDecimals ? cryptoDecimals : decimalsLength;
 
-    const decimals = fiat ? 2 : deciamlsLimit;
+    const decimals = fiat ? getAdaptiveDecimalPlaces(bn) : deciamlsLimit;
     let result = shortened ? toShortened(bn) : toLocalFormat(bn, { decimalPlaces: decimals, roundingMode });
     let indexOfDecimal = result.indexOf(decimal) === -1 ? result.indexOf('.') : result.indexOf(decimal);
 
@@ -165,7 +166,7 @@ const MoneyWithFormat: FC<MoneyWithFormatProps> = ({
   <FullAmountTippy
     isSpan={isSpan}
     enabled={tooltip}
-    fullAmount={isFiat ? new BigNumber(bn.toFixed(2)) : bn}
+    fullAmount={isFiat ? new BigNumber(toAdaptiveFixed(bn)) : bn}
     className={className}
   >
     {result.slice(0, indexOfDecimal + 1)}

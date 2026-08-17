@@ -2,6 +2,7 @@ import React, { FC } from 'react';
 
 import { TokenLogo } from 'components/TokenLogo';
 import { AssetListItem, Sparkline } from 'components/ui';
+import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { getTokenPrice, useTokenSparkline } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
@@ -41,9 +42,9 @@ export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data
     <AssetListItem
       icon={<TokenLogo symbol={metadata.symbol} />}
       name={metadata.name || metadata.symbol}
-      amount={`${balance.toFixed(2)} ${metadata.symbol}`}
+      amount={`${toAdaptiveFixed(balance)} ${metadata.symbol}`}
       chart={<Sparkline points={sparkPoints} color={sparkColor} width={120} height={32} />}
-      price={`$${(balance * priceInfo.price).toFixed(2)}`}
+      price={`$${toAdaptiveFixed(balance * priceInfo.price)}`}
       delta={{ value: deltaValue, direction }}
       onClick={onClick}
       data-testid={dataTestId}

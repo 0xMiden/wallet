@@ -1,6 +1,7 @@
 import { CollateralType } from '@epoch-protocol/epoch-intents-sdk';
 import { formatUnits } from 'viem';
 
+import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
 
 import { buildCrossChainIntent, getCrossChainQuote } from './bridge';
@@ -25,16 +26,14 @@ export interface EpochQuoteOutput {
 
 /**
  * Format an Epoch quote amount (18-decimal base units, or an already-human
- * decimal) to a display string rounded to 2 decimals. The raw `tokenOut` uses
- * the output token's full 18-decimal precision; we only ever surface 2 decimals
- * (USDC) in the send-quote preview and the activity row/detail.
+ * decimal) to a display string with the standard 2-decimal precision, expanding
+ * for small non-zero values that would otherwise appear as zero.
  */
 function formatQuoteAmount(raw: string, decimals: number): string {
   if (!raw || raw === '0') return '0.00';
   try {
     const human = /^\d+\.\d+$/.test(raw) ? raw : formatUnits(BigInt(raw), decimals);
-    const n = Number(human);
-    return Number.isFinite(n) ? n.toFixed(2) : human;
+    return toAdaptiveFixed(human);
   } catch {
     return raw;
   }

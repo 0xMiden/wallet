@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.15.21 (TBD)
+## 1.15.22 (TBD)
 
 ### Fixes
 
@@ -9,6 +9,16 @@
 ### Changes
 
 - [CHANGE][all] **Test-token funding now mints only native MIDEN.** The Fund action no longer also mints IMIDEN from the forkchoice faucet — the two-source funding is removed, which also retires 1.15.20's per-source retry bookkeeping (there is no second source left to double-mint). One faucet request runs per account at a time no matter how often the card is tapped or remounted, bounded by a 60s timeout that aborts the underlying work, and a failed request shows the faucet's actual error message on the card. The two funding drawers earlier iterations had left unwired (`WalletFundingDrawer`, `FundWalletDrawer`) are deleted along with their orphaned translation keys. The network-discovered native asset now also appears first in the swap token list ahead of the existing DEX test assets.
+## 1.15.21 (2026-08-17)
+
+### Fixes
+
+- [FIX][all] **Small non-zero balances and monetary amounts no longer display as zero.** Amount formatting keeps each surface's normal precision for ordinary values, but expands past leading fractional zeros to show the first two significant fractional places (for example, `0.001234` renders as `0.0012` instead of `0.00`). The adaptive rule is shared by asset balances, token details, send/review screens, activity/history, bridge and Earn amounts, and fiat values.
+
+### Changes
+
+- [CHANGE][ci] **E2E harnesses now capture a screenshot on every screen change (route/card/overlay), and four PR-only suites now also run on `main` with those screenshots uploaded as artifacts on green runs.** Capture is gated on `MIDEN_E2E_TEST` and tree-shaken out of production builds; no user-facing change.
+- [CHANGE][extension] **The Chrome extension download is about a third of the size it was.** Two separate problems each inflated it. The released build was being produced in development mode by mistake, so every install shipped unminified code plus a complete set of source maps — around 60 MB of debugging files users have no use for. On top of that, two parts of the build each wrote their own copy of the same 19.5 MB cryptography engine, so identical files were shipped twice. The release now builds in production mode and the engine is emitted once, taking the package from about 30 MB to about 10 MB. No functional change; the same build was smoke-tested end to end first.
 
 ## 1.15.20 (2026-08-17)
 
@@ -45,11 +55,6 @@
 - [FIX][extension] **Recurring stuck "Consuming" notes are fixed by moving the wallet's WASM engine off the extension service-worker thread.** Transaction execution, proving, syncing, and reads now run in a dedicated `chrome.offscreen` document, so a wedged operation can no longer freeze the service worker and strand notes mid-consume; each operation is bounded by its own deadline and a wedged one is torn down and safely retried. Behind `MIDEN_USE_OFFSCREEN_CLIENT` (extension only; mobile/desktop unaffected). (#260)
 
 ### Changes
-
-- [CHANGE][ci] **E2E harnesses now capture a screenshot on every screen change (route/card/overlay), and four PR-only suites now also run on `main` with those screenshots uploaded as artifacts on green runs.** Capture is gated on `MIDEN_E2E_TEST` and tree-shaken out of production builds; no user-facing change.
-- [CHANGE][extension] **The Chrome extension download is about half the size it was.** The released build was being produced in development mode by mistake, so every install shipped unminified code plus a complete set of source maps — around 60 MB of debugging files users have no use for, and 40% of the download. The release now builds in production mode, taking the package from roughly 30 MB to 15 MB. No functional change; the same build was smoke-tested end to end first.
-
-- [CHANGE][extension] **The Chrome extension download is a third of its previous size.** Two separate parts of the build each wrote their own copy of the same 19.5 MB cryptography engine into the package — identical files, both shipped. They now agree on one location, so it is included once. Combined with the production-build fix, the download goes from about 30 MB to about 10 MB.
 
 - [CHANGE][ci] **The Android test set-up no longer waits forever for software that isn't installed.** After the test devices were switched to a plain Android image, start-up still waited for a Google Play Services process to settle — on an image that has no Play Services, so it could never appear. Every run then spent its whole start-up budget waiting and failed with "did not stabilize". That wait is now skipped when the device has no Play Services, which is also the case where the problem it guards against cannot happen.
 

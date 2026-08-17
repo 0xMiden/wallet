@@ -3,7 +3,10 @@ import i18n from 'i18next';
 
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 
+import { getAdaptiveDecimalPlaces } from './adaptive-precision';
 import { getCurrentLocale, getNumberSymbols } from './core';
+
+export { getAdaptiveDecimalPlaces, toAdaptiveFixed, MAX_DISPLAY_DECIMAL_PLACES } from './adaptive-precision';
 
 /**
  * Tiny single-argument memoizer — was `micro-memoize` until we removed
@@ -75,7 +78,11 @@ export function getPluralKey(keyPrefix: string, amount: number) {
 }
 
 export function formatUsd(value: number): string {
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const decimalPlaces = getAdaptiveDecimalPlaces(value);
+  return `$${value.toLocaleString('en-US', {
+    minimumFractionDigits: decimalPlaces,
+    maximumFractionDigits: decimalPlaces
+  })}`;
 }
 
 export function formatBigInt(amount: bigint, decimals: number = MIDEN_METADATA.decimals): string {
