@@ -3423,8 +3423,8 @@
     "englishSource": "Click to view and claim it"
   },
   "noteReceivedMultiple": {
-    "message": "Tienes un nuevo notes en $count$ para reclamar.",
-    "englishSource": "You have $count$ new notes to claim",
+    "message": "$count$ nuevo notes para reclamar",
+    "englishSource": "$count$ new notes to claim",
     "placeholders": {
       "count": {
         "content": "$1"

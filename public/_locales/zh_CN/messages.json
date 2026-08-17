@@ -3423,8 +3423,8 @@
     "englishSource": "Click to view and claim it"
   },
   "noteReceivedMultiple": {
-    "message": "您有 $count$ 个新的 notes 可申领",
-    "englishSource": "You have $count$ new notes to claim",
+    "message": "$count$ 新链接 notes 用于申领",
+    "englishSource": "$count$ new notes to claim",
     "placeholders": {
       "count": {
         "content": "$1"

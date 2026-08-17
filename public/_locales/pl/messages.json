@@ -3423,8 +3423,8 @@
     "englishSource": "Click to view and claim it"
   },
   "noteReceivedMultiple": {
-    "message": "Masz nową notę „$count$” notes do odebrania",
-    "englishSource": "You have $count$ new notes to claim",
+    "message": "$count$ nowy adres notes do odebrania środków",
+    "englishSource": "$count$ new notes to claim",
     "placeholders": {
       "count": {
         "content": "$1"

@@ -3423,8 +3423,8 @@
     "englishSource": "Click to view and claim it"
   },
   "noteReceivedMultiple": {
-    "message": "Sie haben unter $count$ eine neue „notes“ zum Einlösen",
-    "englishSource": "You have $count$ new notes to claim",
+    "message": "$count$ Neuer Link notes zum Einlösen",
+    "englishSource": "$count$ new notes to claim",
     "placeholders": {
       "count": {
         "content": "$1"

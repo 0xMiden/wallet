@@ -3423,8 +3423,8 @@
     "englishSource": "Click to view and claim it"
   },
   "noteReceivedMultiple": {
-    "message": "У вас є $count$ новий notes, який можна отримати",
-    "englishSource": "You have $count$ new notes to claim",
+    "message": "$count$ Нова сторінка notes для отримання коштів",
+    "englishSource": "$count$ new notes to claim",
     "placeholders": {
       "count": {
         "content": "$1"
