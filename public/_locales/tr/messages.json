@@ -505,6 +505,10 @@
     "message": "Ekmek",
     "englishSource": "Bread"
   },
+  "appDesc": {
+    "message": "Miden için bir tarayıcı cüzdanı blockchain",
+    "englishSource": "A browser wallet for the Miden blockchain"
+  },
   "createAccount": {
     "message": "Hesap Oluştur",
     "englishSource": "Create Account"

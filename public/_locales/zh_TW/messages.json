@@ -505,6 +505,10 @@
     "message": "麵包",
     "englishSource": "Bread"
   },
+  "appDesc": {
+    "message": "Miden 的瀏覽器錢包 blockchain",
+    "englishSource": "A browser wallet for the Miden blockchain"
+  },
   "createAccount": {
     "message": "建立帳戶",
     "englishSource": "Create Account"
