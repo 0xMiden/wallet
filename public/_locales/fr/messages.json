@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "Si non réclamé par $date$, le message sera renvoyé à l'expéditeur.",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$",
     "englishSource": "$change$%",
@@ -217,6 +226,18 @@
     "message": "Pain",
     "englishSource": "Bread"
   },
+  "earnPositionHeaderTitle": {
+    "message": "Mon compte $protocol$ • Position $asset$",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
+  },
   "earnAssetOnNetwork": {
     "message": "$asset$ sur $network$",
     "englishSource": "$asset$ on $network$",
@@ -265,6 +286,10 @@
     "message": "Protocole",
     "englishSource": "Protocol"
   },
+  "position": {
+    "message": "Position",
+    "englishSource": "Position"
+  },
   "withdraw": {
     "message": "Retrait",
     "englishSource": "Withdraw"
@@ -281,6 +306,10 @@
     "message": "Retrait",
     "englishSource": "Withdrawal"
   },
+  "earnFullPositionGasless": {
+    "message": "Position complète (sans frais de gaz)",
+    "englishSource": "Full position (gasless)"
+  },
   "earnEstimatedTimeLabel": {
     "message": "Durée estimée",
     "englishSource": "Estimated time"
@@ -292,6 +321,10 @@
   "withdrawing": {
     "message": "Retrait…",
     "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "Cette position n'appartient pas au compte EVM actuel dérivé du portefeuille.",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "L'extraction sans gaz a échoué.",
@@ -320,6 +353,10 @@
   "earnDepositAmountTitle": {
     "message": "Montant du dépôt",
     "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "Position ouverte",
+    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1 mois",
@@ -378,6 +415,10 @@
     "message": "Aucune adresse EVM n'est disponible pour ce compte.",
     "englishSource": "No EVM address available for this account."
   },
+  "earnFailedToOpenPosition": {
+    "message": "Échec de l'ouverture de la position",
+    "englishSource": "Failed to open position"
+  },
   "earnTotalEarnedRewards": {
     "message": "Total des récompenses accumulées",
     "englishSource": "Total Earned Rewards"
@@ -398,6 +439,18 @@
   "earnEstimatedRewards": {
     "message": "Récompenses estimées",
     "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "Mes positions",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "Positions",
+    "englishSource": "Positions"
+  },
+  "earnPositionsLoadError": {
+    "message": "Impossible de charger vos positions. Vérifiez votre connexion et réessayez.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -439,6 +492,10 @@
         "content": "$2"
       }
     }
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "Positions actuelles",
+    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "Avancé",
@@ -1564,6 +1621,14 @@
   "addContact": {
     "message": "Ajouter un contact",
     "englishSource": "Add Contact"
+  },
+  "addToContactsPrompt": {
+    "message": "Ajouter aux contacts ?",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "Récents",
+    "englishSource": "Recent"
   },
   "newContactPlaceholder": {
     "message": "par exemple : Alice, Bob",
@@ -2928,6 +2993,55 @@
     "message": "notes en attente",
     "englishSource": "Pending notes"
   },
+  "whatArePendingNotes": {
+    "message": "Qu’est-ce qu’une «notes en attente » ?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "Consultez l’notes",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "Ajoutez ces fonds en attente à votre solde pour commencer à dépenser.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "Lorsqu’une personne vous envoie des fonds, ceux-ci arrivent sous forme de",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— des paquets scellés que vous seul pouvez ouvrir.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "Consommation",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "Un «note» (transfert) débloque les fonds sur votre solde disponible. Tant que vous n’effectuez pas cette opération, les fonds vous appartiennent mais ne peuvent pas encore être dépensés.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "Vous avez",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "En attente. Utilisez-les quand vous le souhaitez : rien ne presse, et vos fonds ne courent aucun risque.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+  },
   "getTokens": {
     "message": "Obtenir des jetons",
     "englishSource": "Get tokens"
@@ -3784,6 +3898,10 @@
   "earnMarketLabel": {
     "message": "Marché",
     "englishSource": "Market"
+  },
+  "positionOwnerLabel": {
+    "message": "Titulaire de la position",
+    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "Informations relatives au virement",

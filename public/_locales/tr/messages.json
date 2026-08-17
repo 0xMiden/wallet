@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "$date$ tarafından talep edilmezse gönderene iade edilir.",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$",
     "englishSource": "$change$%",
@@ -217,6 +226,18 @@
     "message": "Ekmek",
     "englishSource": "Bread"
   },
+  "earnPositionHeaderTitle": {
+    "message": "$protocol$'im • $asset$ pozisyonum",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
+  },
   "earnAssetOnNetwork": {
     "message": "$asset$ $network$ adresinde",
     "englishSource": "$asset$ on $network$",
@@ -265,6 +286,10 @@
     "message": "Protokol",
     "englishSource": "Protocol"
   },
+  "position": {
+    "message": "Pozisyon",
+    "englishSource": "Position"
+  },
   "withdraw": {
     "message": "Para Çekme",
     "englishSource": "Withdraw"
@@ -281,6 +306,10 @@
     "message": "Para Çekme",
     "englishSource": "Withdrawal"
   },
+  "earnFullPositionGasless": {
+    "message": "Tam pozisyon (gaz ücreti gerektirmez)",
+    "englishSource": "Full position (gasless)"
+  },
   "earnEstimatedTimeLabel": {
     "message": "Tahmini süre",
     "englishSource": "Estimated time"
@@ -292,6 +321,10 @@
   "withdrawing": {
     "message": "Geri çekiliyor…",
     "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "Bu pozisyon, mevcut cüzdandan türetilen EVM hesabına ait değildir.",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "Gazsız çekme işlemi başarısız oldu.",
@@ -320,6 +353,10 @@
   "earnDepositAmountTitle": {
     "message": "Para Yatırma Tutarı",
     "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "Açık pozisyon",
+    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1 Ay",
@@ -378,6 +415,10 @@
     "message": "Bu hesap için EVM adresi mevcut değil.",
     "englishSource": "No EVM address available for this account."
   },
+  "earnFailedToOpenPosition": {
+    "message": "Pozisyon açılamadı",
+    "englishSource": "Failed to open position"
+  },
   "earnTotalEarnedRewards": {
     "message": "Toplam Kazanılan Ödüller",
     "englishSource": "Total Earned Rewards"
@@ -398,6 +439,18 @@
   "earnEstimatedRewards": {
     "message": "Tahmini Ödüller",
     "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "Pozisyonlarım",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "Pozisyonlar",
+    "englishSource": "Positions"
+  },
+  "earnPositionsLoadError": {
+    "message": "Pozisyonlarınız yüklenemedi. Bağlantınızı kontrol edin ve tekrar deneyin.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -439,6 +492,10 @@
         "content": "$2"
       }
     }
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "Mevcut Pozisyonlar",
+    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "İleri Düzey",
@@ -1564,6 +1621,14 @@
   "addContact": {
     "message": "Kişi Ekle",
     "englishSource": "Add Contact"
+  },
+  "addToContactsPrompt": {
+    "message": "Kişilere eklemek ister misiniz?",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "Son",
+    "englishSource": "Recent"
   },
   "newContactPlaceholder": {
     "message": "örn. Alice Bob",
@@ -2928,6 +2993,55 @@
     "message": "notes'da beklemede",
     "englishSource": "Pending notes"
   },
+  "whatArePendingNotes": {
+    "message": "Bekleyen \"notes\" nedir?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "notes'ınızı kullanın",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "Harcamaya başlamak için bu bekleyen fonları bakiyenize ekleyin.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "Birisi size para gönderdiğinde, bu para \"private\" olarak gelir",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— Yalnızca sizin açabileceğiniz mühürlü paketler.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "Tüketim",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "Bir \"note\" işlemi, bu tutarı harcayabileceğiniz bakiyenize aktarır. Bu işlemi gerçekleştirene kadar fonlar size aittir ancak henüz harcanamaz.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "Elinizde",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "Bekliyor. Bunları istediğiniz zaman kullanabilirsiniz — aceleye gerek yok ve hiçbir zaman fonlarınız risk altında olmaz.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+  },
   "getTokens": {
     "message": "Jetonları al",
     "englishSource": "Get tokens"
@@ -3784,6 +3898,10 @@
   "earnMarketLabel": {
     "message": "Pazar",
     "englishSource": "Market"
+  },
+  "positionOwnerLabel": {
+    "message": "Pozisyon sahibi",
+    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "Para yatırma bilgileri",

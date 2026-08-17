@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "$date$에서 청구하지 않을 경우 발신자에게 반환됩니다.",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$",
     "englishSource": "$change$%",
@@ -217,6 +226,18 @@
     "message": "빵",
     "englishSource": "Bread"
   },
+  "earnPositionHeaderTitle": {
+    "message": "제 '$protocol$' • $asset$ 포지션",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
+  },
   "earnAssetOnNetwork": {
     "message": "$asset$ $network$에서",
     "englishSource": "$asset$ on $network$",
@@ -265,6 +286,10 @@
     "message": "의전",
     "englishSource": "Protocol"
   },
+  "position": {
+    "message": "Position",
+    "englishSource": "Position"
+  },
   "withdraw": {
     "message": "취소",
     "englishSource": "Withdraw"
@@ -281,6 +306,10 @@
     "message": "인출",
     "englishSource": "Withdrawal"
   },
+  "earnFullPositionGasless": {
+    "message": "전체 포지션 (가스비 없음)",
+    "englishSource": "Full position (gasless)"
+  },
   "earnEstimatedTimeLabel": {
     "message": "예상 소요 시간",
     "englishSource": "Estimated time"
@@ -292,6 +321,10 @@
   "withdrawing": {
     "message": "중단 중…",
     "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "이 포지션은 현재 지갑에서 파생된 EVM 계정이 소유하고 있지 않습니다.",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "가스 없는 인출에 실패했습니다.",
@@ -320,6 +353,10 @@
   "earnDepositAmountTitle": {
     "message": "입금액",
     "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "포지션 개설",
+    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1개월",
@@ -378,6 +415,10 @@
     "message": "이 계정에는 사용 가능한 EVM 주소가 없습니다.",
     "englishSource": "No EVM address available for this account."
   },
+  "earnFailedToOpenPosition": {
+    "message": "포지션을 개설하지 못했습니다",
+    "englishSource": "Failed to open position"
+  },
   "earnTotalEarnedRewards": {
     "message": "총 적립 포인트",
     "englishSource": "Total Earned Rewards"
@@ -398,6 +439,18 @@
   "earnEstimatedRewards": {
     "message": "예상 보상",
     "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "내 포지션",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "포지션",
+    "englishSource": "Positions"
+  },
+  "earnPositionsLoadError": {
+    "message": "포지션을 불러올 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -439,6 +492,10 @@
         "content": "$2"
       }
     }
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "현재 포지션",
+    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "고급",
@@ -1564,6 +1621,14 @@
   "addContact": {
     "message": "연락처 추가",
     "englishSource": "Add Contact"
+  },
+  "addToContactsPrompt": {
+    "message": "연락처에 추가하시겠습니까?",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "최근",
+    "englishSource": "Recent"
   },
   "newContactPlaceholder": {
     "message": "예: 앨리스, 밥",
@@ -2928,6 +2993,55 @@
     "message": "notes 처리 중",
     "englishSource": "Pending notes"
   },
+  "whatArePendingNotes": {
+    "message": "보류 중인 'notes'란 무엇인가요?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "notes를 참고하세요.",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "이 보류 중인 자금을 잔액에 추가하면 사용을 시작할 수 있습니다.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "누군가 자금을 보내면, 해당 자금은 비공개 상태로 도착합니다.",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— 오직 본인만이 열 수 있는 봉인된 패키지입니다.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "사용",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "note를 통해 자금이 사용 가능한 잔액으로 이체됩니다. 이체되기 전까지는 자금이 귀하의 소유이지만 아직 사용할 수는 없습니다.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "다음과 같이 작성해 주세요:",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "기다려 주세요. 서두를 필요는 없으며, 자금이 위험에 노출될 일도 없으니 언제든지 이용하시면 됩니다.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+  },
   "getTokens": {
     "message": "토큰 받기",
     "englishSource": "Get tokens"
@@ -3784,6 +3898,10 @@
   "earnMarketLabel": {
     "message": "시장",
     "englishSource": "Market"
+  },
+  "positionOwnerLabel": {
+    "message": "포지션 소유자",
+    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "입금 내역",

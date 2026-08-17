@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "Если не будет востребовано, возвращается отправителю по адресу $date$",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$",
     "englishSource": "$change$%",
@@ -217,6 +226,18 @@
     "message": "Хлеб",
     "englishSource": "Bread"
   },
+  "earnPositionHeaderTitle": {
+    "message": "Моя позиция в $protocol$ • $asset$",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
+  },
   "earnAssetOnNetwork": {
     "message": "$asset$ на сайте $network$",
     "englishSource": "$asset$ on $network$",
@@ -265,6 +286,10 @@
     "message": "Протокол",
     "englishSource": "Protocol"
   },
+  "position": {
+    "message": "Position",
+    "englishSource": "Position"
+  },
   "withdraw": {
     "message": "Отменить",
     "englishSource": "Withdraw"
@@ -281,6 +306,10 @@
     "message": "Вывод средств",
     "englishSource": "Withdrawal"
   },
+  "earnFullPositionGasless": {
+    "message": "Полная версия (без комиссии за газ)",
+    "englishSource": "Full position (gasless)"
+  },
   "earnEstimatedTimeLabel": {
     "message": "Предполагаемое время",
     "englishSource": "Estimated time"
@@ -292,6 +321,10 @@
   "withdrawing": {
     "message": "Ожидается отключение…",
     "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "Эта позиция не принадлежит текущему счету EVM, созданному на основе кошелька.",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "Отказ при извлечении без газа.",
@@ -320,6 +353,10 @@
   "earnDepositAmountTitle": {
     "message": "Сумма депозита",
     "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "Открыть позицию",
+    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1 месяц",
@@ -378,6 +415,10 @@
     "message": "Для этого счета отсутствует адрес EVM.",
     "englishSource": "No EVM address available for this account."
   },
+  "earnFailedToOpenPosition": {
+    "message": "Не удалось открыть позицию",
+    "englishSource": "Failed to open position"
+  },
   "earnTotalEarnedRewards": {
     "message": "Общая сумма начисленных бонусов",
     "englishSource": "Total Earned Rewards"
@@ -398,6 +439,18 @@
   "earnEstimatedRewards": {
     "message": "Предполагаемые вознаграждения",
     "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "Мои позиции",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "Позиции",
+    "englishSource": "Positions"
+  },
+  "earnPositionsLoadError": {
+    "message": "Не удалось загрузить ваши позиции. Проверьте подключение и попробуйте ещё раз.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -439,6 +492,10 @@
         "content": "$2"
       }
     }
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "Текущие позиции",
+    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "Для опытных пользователей",
@@ -1564,6 +1621,14 @@
   "addContact": {
     "message": "Добавить контакт",
     "englishSource": "Add Contact"
+  },
+  "addToContactsPrompt": {
+    "message": "Добавить в контакты?",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "Последние",
+    "englishSource": "Recent"
   },
   "newContactPlaceholder": {
     "message": "например, Алиса Боб",
@@ -2928,6 +2993,55 @@
     "message": "В ожидании notes",
     "englishSource": "Pending notes"
   },
+  "whatArePendingNotes": {
+    "message": "Что такое ожидающие «notes»?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "Используйте свои «notes»",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "Добавьте эти средства в ожидании зачисления на свой баланс, чтобы начать расходовать их.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "Когда кто-то отправляет вам средства, они поступают в виде конфиденциальных",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— запечатанные пакеты, которые можете открыть только вы.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "Использование",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "note» переводит их в ваш доступный для расходования баланс. До тех пор, пока вы этого не сделаете, средства принадлежат вам, но их пока нельзя потратить.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "У вас есть",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "В ожидании. Используйте их в любое время — спешить не нужно, и ваши средства никогда не подвергаются риску.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+  },
   "getTokens": {
     "message": "Получить токены",
     "englishSource": "Get tokens"
@@ -3784,6 +3898,10 @@
   "earnMarketLabel": {
     "message": "Рынок",
     "englishSource": "Market"
+  },
+  "positionOwnerLabel": {
+    "message": "Владелец позиции",
+    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "Реквизиты счета",

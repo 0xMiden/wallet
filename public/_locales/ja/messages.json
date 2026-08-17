@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "$date$ によって請求されない場合は、差出人に返送されます。",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$",
     "englishSource": "$change$%",
@@ -217,6 +226,18 @@
     "message": "パン",
     "englishSource": "Bread"
   },
+  "earnPositionHeaderTitle": {
+    "message": "私の$protocol$ • $asset$ position",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
+  },
   "earnAssetOnNetwork": {
     "message": "$asset$ $network$ にて",
     "englishSource": "$asset$ on $network$",
@@ -265,6 +286,10 @@
     "message": "プロトコル",
     "englishSource": "Protocol"
   },
+  "position": {
+    "message": "Position",
+    "englishSource": "Position"
+  },
   "withdraw": {
     "message": "引き出し",
     "englishSource": "Withdraw"
@@ -281,6 +306,10 @@
     "message": "引き出し",
     "englishSource": "Withdrawal"
   },
+  "earnFullPositionGasless": {
+    "message": "完全なポジション（ガス代不要）",
+    "englishSource": "Full position (gasless)"
+  },
   "earnEstimatedTimeLabel": {
     "message": "所要時間の目安",
     "englishSource": "Estimated time"
@@ -292,6 +321,10 @@
   "withdrawing": {
     "message": "引き出し中…",
     "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "このポジションは、現在のウォレット由来のEVMアカウントが所有しているものではありません。",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "ガスレス引き出しに失敗しました。",
@@ -320,6 +353,10 @@
   "earnDepositAmountTitle": {
     "message": "預入金額",
     "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "ポジションを開く",
+    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1か月",
@@ -378,6 +415,10 @@
     "message": "このアカウントにはEVMアドレスがありません。",
     "englishSource": "No EVM address available for this account."
   },
+  "earnFailedToOpenPosition": {
+    "message": "ポジションを開くことに失敗しました",
+    "englishSource": "Failed to open position"
+  },
   "earnTotalEarnedRewards": {
     "message": "獲得したリワードの合計",
     "englishSource": "Total Earned Rewards"
@@ -398,6 +439,18 @@
   "earnEstimatedRewards": {
     "message": "予想報酬",
     "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "マイポジション",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "ポジション",
+    "englishSource": "Positions"
+  },
+  "earnPositionsLoadError": {
+    "message": "ポジションを読み込めませんでした。接続状態を確認して、もう一度お試しください。",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -439,6 +492,10 @@
         "content": "$2"
       }
     }
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "現在のポジション",
+    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "上級",
@@ -1564,6 +1621,14 @@
   "addContact": {
     "message": "連絡先を追加",
     "englishSource": "Add Contact"
+  },
+  "addToContactsPrompt": {
+    "message": "連絡先に追加しますか？",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "最新情報",
+    "englishSource": "Recent"
   },
   "newContactPlaceholder": {
     "message": "例：アリス、ボブ",
@@ -2928,6 +2993,55 @@
     "message": "notes が保留中",
     "englishSource": "Pending notes"
   },
+  "whatArePendingNotes": {
+    "message": "「保留中のnotes」とは何ですか？",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "notes を活用してください。",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "これらの保留中の資金を残高に追加して、利用を開始してください。",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "誰かから資金が送金されると、それは非公開の状態で届きます",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— あなただけが開封できる封印されたパッケージ。",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "使用上の注意点",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "noteを実行すると、資金が利用可能な残高として反映されます。それまでは、資金はあなたの所有物ですが、まだ使用することはできません。",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "以下の要件に従ってください：",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "待機中。いつでもご利用いただけます。急ぐ必要はなく、資金が危険にさらされることも一切ありません。",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+  },
   "getTokens": {
     "message": "トークンを取得する",
     "englishSource": "Get tokens"
@@ -3784,6 +3898,10 @@
   "earnMarketLabel": {
     "message": "市場",
     "englishSource": "Market"
+  },
+  "positionOwnerLabel": {
+    "message": "ポジション所有者",
+    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "入金に関する詳細",

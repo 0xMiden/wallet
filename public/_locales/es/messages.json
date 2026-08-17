@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "Se devolverá al remitente si no es reclamado por $date$",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$",
     "englishSource": "$change$%",
@@ -217,6 +226,18 @@
     "message": "Pan",
     "englishSource": "Bread"
   },
+  "earnPositionHeaderTitle": {
+    "message": "Mi posición en $protocol$ • $asset$",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
+  },
   "earnAssetOnNetwork": {
     "message": "$asset$ en $network$",
     "englishSource": "$asset$ on $network$",
@@ -265,6 +286,10 @@
     "message": "Protocolo",
     "englishSource": "Protocol"
   },
+  "position": {
+    "message": "Posición",
+    "englishSource": "Position"
+  },
   "withdraw": {
     "message": "Retirar",
     "englishSource": "Withdraw"
@@ -281,6 +306,10 @@
     "message": "Retirada",
     "englishSource": "Withdrawal"
   },
+  "earnFullPositionGasless": {
+    "message": "Posición completa (sin gas)",
+    "englishSource": "Full position (gasless)"
+  },
   "earnEstimatedTimeLabel": {
     "message": "Tiempo estimado",
     "englishSource": "Estimated time"
@@ -292,6 +321,10 @@
   "withdrawing": {
     "message": "Retirando…",
     "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "Esta posición no es propiedad de la cuenta EVM derivada de la cartera actual.",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "El retiro sin gas ha fallado.",
@@ -320,6 +353,10 @@
   "earnDepositAmountTitle": {
     "message": "Importe del depósito",
     "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "Posición abierta",
+    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1 mes",
@@ -378,6 +415,10 @@
     "message": "No hay ninguna dirección EVM disponible para esta cuenta.",
     "englishSource": "No EVM address available for this account."
   },
+  "earnFailedToOpenPosition": {
+    "message": "No se ha podido abrir la posición",
+    "englishSource": "Failed to open position"
+  },
   "earnTotalEarnedRewards": {
     "message": "Total de recompensas obtenidas",
     "englishSource": "Total Earned Rewards"
@@ -398,6 +439,18 @@
   "earnEstimatedRewards": {
     "message": "Recompensas estimadas",
     "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "Mis posiciones",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "Posiciones",
+    "englishSource": "Positions"
+  },
+  "earnPositionsLoadError": {
+    "message": "No se han podido cargar tus posiciones. Comprueba tu conexión e inténtalo de nuevo.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -439,6 +492,10 @@
         "content": "$2"
       }
     }
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "Posiciones actuales",
+    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "Avanzado",
@@ -1564,6 +1621,14 @@
   "addContact": {
     "message": "Añadir contacto",
     "englishSource": "Add Contact"
+  },
+  "addToContactsPrompt": {
+    "message": "¿Añadir a los contactos?",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "Reciente",
+    "englishSource": "Recent"
   },
   "newContactPlaceholder": {
     "message": "p. ej., Alice Bob",
@@ -2928,6 +2993,55 @@
     "message": "Pendiente notes",
     "englishSource": "Pending notes"
   },
+  "whatArePendingNotes": {
+    "message": "¿Qué son las «notes» pendientes?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "Consulta tu «notes»",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "Añade estos fondos pendientes a tu saldo para empezar a gastarlos.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "Cuando alguien te envía fondos, estos llegan como privados",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— Paquetes sellados que solo tú puedes abrir.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "Consumo",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "Un «note» lo transfiere a tu saldo disponible. Hasta que lo hagas, los fondos son tuyos, pero aún no puedes gastarlos.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "Tienes",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "A la espera. Úsalas cuando quieras: no hay prisa y tus fondos nunca corren ningún riesgo.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+  },
   "getTokens": {
     "message": "Consigue fichas",
     "englishSource": "Get tokens"
@@ -3784,6 +3898,10 @@
   "earnMarketLabel": {
     "message": "Mercado",
     "englishSource": "Market"
+  },
+  "positionOwnerLabel": {
+    "message": "Titular de la posición",
+    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "Datos del ingreso",

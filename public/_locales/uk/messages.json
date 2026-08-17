@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "Якщо не буде заявлено права на них, повертається відправнику на адресу $date$",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$",
     "englishSource": "$change$%",
@@ -217,6 +226,18 @@
     "message": "Хліб",
     "englishSource": "Bread"
   },
+  "earnPositionHeaderTitle": {
+    "message": "Моя позиція щодо $protocol$ • $asset$",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
+  },
   "earnAssetOnNetwork": {
     "message": "$asset$ на сайті $network$",
     "englishSource": "$asset$ on $network$",
@@ -265,6 +286,10 @@
     "message": "Протокол",
     "englishSource": "Protocol"
   },
+  "position": {
+    "message": "Position",
+    "englishSource": "Position"
+  },
   "withdraw": {
     "message": "Вивести кошти",
     "englishSource": "Withdraw"
@@ -281,6 +306,10 @@
     "message": "Виведення коштів",
     "englishSource": "Withdrawal"
   },
+  "earnFullPositionGasless": {
+    "message": "Повна позиція (без комісії за газ)",
+    "englishSource": "Full position (gasless)"
+  },
   "earnEstimatedTimeLabel": {
     "message": "Орієнтовний час",
     "englishSource": "Estimated time"
@@ -292,6 +321,10 @@
   "withdrawing": {
     "message": "Виведення коштів…",
     "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "Ця позиція не належить поточному обліковому запису EVM, пов’язаному з гаманцем.",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "Виведення коштів без використання газу не вдалося.",
@@ -320,6 +353,10 @@
   "earnDepositAmountTitle": {
     "message": "Сума депозиту",
     "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "Відкрита позиція",
+    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1 місяць",
@@ -378,6 +415,10 @@
     "message": "Для цього рахунку немає доступної адреси EVM.",
     "englishSource": "No EVM address available for this account."
   },
+  "earnFailedToOpenPosition": {
+    "message": "Не вдалося відкрити позицію",
+    "englishSource": "Failed to open position"
+  },
   "earnTotalEarnedRewards": {
     "message": "Загальна сума зароблених винагород",
     "englishSource": "Total Earned Rewards"
@@ -398,6 +439,18 @@
   "earnEstimatedRewards": {
     "message": "Орієнтовні винагороди",
     "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "Мої позиції",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "Позиції",
+    "englishSource": "Positions"
+  },
+  "earnPositionsLoadError": {
+    "message": "Не вдалося завантажити ваші позиції. Перевірте з’єднання та спробуйте ще раз.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -439,6 +492,10 @@
         "content": "$2"
       }
     }
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "Поточні позиції",
+    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "Для досвідчених користувачів",
@@ -1564,6 +1621,14 @@
   "addContact": {
     "message": "Додати контакт",
     "englishSource": "Add Contact"
+  },
+  "addToContactsPrompt": {
+    "message": "Додати до контактів?",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "Останні",
+    "englishSource": "Recent"
   },
   "newContactPlaceholder": {
     "message": "наприклад, Аліса Боб",
@@ -2928,6 +2993,55 @@
     "message": "Очікується notes",
     "englishSource": "Pending notes"
   },
+  "whatArePendingNotes": {
+    "message": "Що таке «notes» (заявки на виведення), що знаходяться в стані очікування?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "Використовуйте свої «notes»",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "Додайте ці кошти, що очікують на зарахування, до свого балансу, щоб почати ними користуватися.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "Коли хтось надсилає вам кошти, вони надходять як приватні",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— запечатані пакети, які можете відкрити лише ви.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "Використання",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "note розпаковує їх у ваш баланс, доступний для витрат. Доки ви цього не зробите, кошти належать вам, але їх ще не можна витратити.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "У вас є",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "Очікування. Використовуйте їх у будь-який час — поспішати не потрібно, і ваші кошти ніколи не наражаються на ризик.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+  },
   "getTokens": {
     "message": "Отримати токени",
     "englishSource": "Get tokens"
@@ -3784,6 +3898,10 @@
   "earnMarketLabel": {
     "message": "Ринок",
     "englishSource": "Market"
+  },
+  "positionOwnerLabel": {
+    "message": "Власник позиції",
+    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "Реквізити рахунку для внесення депозиту",

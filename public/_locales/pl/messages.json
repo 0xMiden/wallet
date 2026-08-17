@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "Jeśli nie zostaną odebrane przez $date$, zostaną zwrócone nadawcy.",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$",
     "englishSource": "$change$%",
@@ -217,6 +226,18 @@
     "message": "Chleb",
     "englishSource": "Bread"
   },
+  "earnPositionHeaderTitle": {
+    "message": "Moja pozycja w $protocol$ • $asset$",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
+  },
   "earnAssetOnNetwork": {
     "message": "$asset$ na stronie $network$",
     "englishSource": "$asset$ on $network$",
@@ -265,6 +286,10 @@
     "message": "Protokół",
     "englishSource": "Protocol"
   },
+  "position": {
+    "message": "Pozycja",
+    "englishSource": "Position"
+  },
   "withdraw": {
     "message": "Wypłata",
     "englishSource": "Withdraw"
@@ -281,6 +306,10 @@
     "message": "Wypłata",
     "englishSource": "Withdrawal"
   },
+  "earnFullPositionGasless": {
+    "message": "Pełna pozycja (bez opłat za gaz)",
+    "englishSource": "Full position (gasless)"
+  },
   "earnEstimatedTimeLabel": {
     "message": "Szacowany czas",
     "englishSource": "Estimated time"
@@ -292,6 +321,10 @@
   "withdrawing": {
     "message": "Wycofywanie…",
     "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "Ta pozycja nie jest własnością obecnego konta EVM powiązanego z portfelem.",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "Nie udało się przeprowadzić wypłaty bez użycia gazu.",
@@ -320,6 +353,10 @@
   "earnDepositAmountTitle": {
     "message": "Kwota wpłaty",
     "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "Otwórz pozycję",
+    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1 miesiąc",
@@ -378,6 +415,10 @@
     "message": "Dla tego konta nie jest dostępny żaden adres EVM.",
     "englishSource": "No EVM address available for this account."
   },
+  "earnFailedToOpenPosition": {
+    "message": "Nie udało się otworzyć pozycji",
+    "englishSource": "Failed to open position"
+  },
   "earnTotalEarnedRewards": {
     "message": "Łączna liczba zdobytych nagród",
     "englishSource": "Total Earned Rewards"
@@ -398,6 +439,18 @@
   "earnEstimatedRewards": {
     "message": "Szacowane nagrody",
     "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "Moje pozycje",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "Pozycje",
+    "englishSource": "Positions"
+  },
+  "earnPositionsLoadError": {
+    "message": "Nie udało się załadować Twoich pozycji. Sprawdź połączenie i spróbuj ponownie.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -439,6 +492,10 @@
         "content": "$2"
       }
     }
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "Aktualne pozycje",
+    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "Zaawansowane",
@@ -1564,6 +1621,14 @@
   "addContact": {
     "message": "Dodaj kontakt",
     "englishSource": "Add Contact"
+  },
+  "addToContactsPrompt": {
+    "message": "Dodaj do kontaktów?",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "Najnowsze",
+    "englishSource": "Recent"
   },
   "newContactPlaceholder": {
     "message": "np. Alicja Bob",
@@ -2928,6 +2993,55 @@
     "message": "W trakcie rozpatrywania notes",
     "englishSource": "Pending notes"
   },
+  "whatArePendingNotes": {
+    "message": "Czym są oczekujące „notes”?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "Skorzystaj z przewodnika „notes”",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "Dodaj te środki oczekujące do swojego salda, aby rozpocząć wydawanie.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "Gdy ktoś wysyła Ci środki, trafiają one jako prywatne",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— zapieczętowane pakiety, które tylko Ty możesz otworzyć.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "Korzystanie",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "note” (przelew) rozpakowuje je do salda, którym można dysponować. Dopóki tego nie zrobisz, środki należą do Ciebie, ale nie można ich jeszcze wydać.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "Masz",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "Czekaj. Skorzystaj z nich w dowolnym momencie — nie ma pośpiechu, a Twoje środki nigdy nie są narażone na ryzyko.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+  },
   "getTokens": {
     "message": "Zdobądź tokeny",
     "englishSource": "Get tokens"
@@ -3784,6 +3898,10 @@
   "earnMarketLabel": {
     "message": "Rynek",
     "englishSource": "Market"
+  },
+  "positionOwnerLabel": {
+    "message": "Właściciel pozycji",
+    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "Szczegóły dotyczące wpłaty",

@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "若未經 $date$ 領取，將退回寄件人。",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$",
     "englishSource": "$change$%",
@@ -217,6 +226,18 @@
     "message": "麵包",
     "englishSource": "Bread"
   },
+  "earnPositionHeaderTitle": {
+    "message": "我的 $protocol$ • $asset$ 持倉狀況",
+    "englishSource": "My $protocol$ • $asset$ position",
+    "placeholders": {
+      "protocol": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
+  },
   "earnAssetOnNetwork": {
     "message": "$asset$ 網址：$network$",
     "englishSource": "$asset$ on $network$",
@@ -265,6 +286,10 @@
     "message": "議程",
     "englishSource": "Protocol"
   },
+  "position": {
+    "message": "持倉",
+    "englishSource": "Position"
+  },
   "withdraw": {
     "message": "提款",
     "englishSource": "Withdraw"
@@ -281,6 +306,10 @@
     "message": "撤回",
     "englishSource": "Withdrawal"
   },
+  "earnFullPositionGasless": {
+    "message": "完整版本（免手續費）",
+    "englishSource": "Full position (gasless)"
+  },
   "earnEstimatedTimeLabel": {
     "message": "預計時間",
     "englishSource": "Estimated time"
@@ -292,6 +321,10 @@
   "withdrawing": {
     "message": "正在撤回……",
     "englishSource": "Withdrawing…"
+  },
+  "earnWithdrawNotOwned": {
+    "message": "此持倉並非由當前從錢包衍生的 EVM 帳戶所持有。",
+    "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
     "message": "無氣體提取失敗。",
@@ -320,6 +353,10 @@
   "earnDepositAmountTitle": {
     "message": "存款金額",
     "englishSource": "Deposit Amount"
+  },
+  "earnOpenPosition": {
+    "message": "開倉",
+    "englishSource": "Open position"
   },
   "earnProjection1Month": {
     "message": "1 個月",
@@ -378,6 +415,10 @@
     "message": "此帳戶沒有可用的 EVM 位址。",
     "englishSource": "No EVM address available for this account."
   },
+  "earnFailedToOpenPosition": {
+    "message": "無法建立倉位",
+    "englishSource": "Failed to open position"
+  },
   "earnTotalEarnedRewards": {
     "message": "已賺取的獎勵總額",
     "englishSource": "Total Earned Rewards"
@@ -398,6 +439,18 @@
   "earnEstimatedRewards": {
     "message": "預估獎勵",
     "englishSource": "Estimated Rewards"
+  },
+  "earnPositionsTitle": {
+    "message": "我的持倉",
+    "englishSource": "My positions"
+  },
+  "earnPositionsRegionLabel": {
+    "message": "持倉",
+    "englishSource": "Positions"
+  },
+  "earnPositionsLoadError": {
+    "message": "無法載入您的持倉。請檢查網路連線並重新嘗試。",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -439,6 +492,10 @@
         "content": "$2"
       }
     }
+  },
+  "earnCurrentPositionsTitle": {
+    "message": "當前持倉",
+    "englishSource": "Current Positions"
   },
   "advanced": {
     "message": "進階",
@@ -1564,6 +1621,14 @@
   "addContact": {
     "message": "新增聯絡人",
     "englishSource": "Add Contact"
+  },
+  "addToContactsPrompt": {
+    "message": "要加入聯絡人嗎？",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "近期",
+    "englishSource": "Recent"
   },
   "newContactPlaceholder": {
     "message": "例如：愛麗絲、鮑伯",
@@ -2928,6 +2993,55 @@
     "message": "待定 notes",
     "englishSource": "Pending notes"
   },
+  "whatArePendingNotes": {
+    "message": "什麼是待處理的「notes」？",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "請參閱您的 notes",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "將這些待處理資金加入您的餘額中，即可開始消費。",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "當有人向您轉帳時，資金會以私有形式到達",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— 僅您本人能開啟的密封包。",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "使用說明",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "note會將其解鎖至您的可用餘額中。在此之前，資金雖屬於您，但尚無法動用。",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "您有",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "請稍候。您可隨時使用這些功能——無需急於行事，且資金絕不會面臨任何風險。",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+  },
   "getTokens": {
     "message": "取得代幣",
     "englishSource": "Get tokens"
@@ -3784,6 +3898,10 @@
   "earnMarketLabel": {
     "message": "市場",
     "englishSource": "Market"
+  },
+  "positionOwnerLabel": {
+    "message": "持倉持有者",
+    "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
     "message": "存款詳情",
