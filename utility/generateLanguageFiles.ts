@@ -1,51 +1,50 @@
 const fs = require('fs');
-const translate = require('translate').default;
+const deepl = require('deepl-node');
 const path = require('path');
 
-// Translation engine: DeepL (replaces the free, unofficial Google web endpoint).
+// Translation engine: DeepL, via the official deepl-node SDK.
+//
 // The key comes from the DEEPL_API_KEY env var. In practice this only runs in the
 // CI "translations" job (pr.yml), which supplies it from the repo secret of the
 // same name — so that secret is the single home for the key. For a rare manual run,
 // prefix the command with the var: `DEEPL_API_KEY=… yarn createTranslationFile`.
-// Free-tier keys end in ":fx"; the translate package auto-routes those to
-// api-free.deepl.com, and paid keys to api.deepl.com.
-if (process.env.DEEPL_API_KEY) {
-  translate.engine = 'deepl';
-  translate.key = process.env.DEEPL_API_KEY;
-}
+// deepl-node auto-selects the free (api-free.deepl.com, keys ending ":fx") or paid
+// endpoint from the key, and retries on rate limits / transient errors.
+const translator = process.env.DEEPL_API_KEY ? new deepl.Translator(process.env.DEEPL_API_KEY) : null;
 
 // Map each locale directory to its DeepL target-language code. DeepL rejects or
 // deprecates bare codes for regional variants, so this is NOT `dir.split('_')[0]`:
-//   - en_GB → EN-GB   (bare EN is deprecated as a DeepL *target*)
-//   - pt    → PT-BR   (existing pt corpus is Brazilian; switch to PT-PT for European)
-//   - zh_CN → ZH-HANS / zh_TW → ZH-HANT  (bare ZH would make zh_TW Simplified!)
+//   - en_GB → en-GB   (bare EN is deprecated as a DeepL *target*)
+//   - pt    → pt-BR   (existing pt corpus is Brazilian; switch to pt-PT for European)
+//   - zh_CN → zh-HANS / zh_TW → zh-HANT  (bare zh would make zh_TW Simplified!)
+// Codes match deepl-node's TargetLanguageCode; the API is case-insensitive.
 const LOCALE_TO_DEEPL: Record<string, string> = {
-  de: 'DE',
-  en_GB: 'EN-GB',
-  es: 'ES',
-  fr: 'FR',
-  ja: 'JA',
-  ko: 'KO',
-  pl: 'PL',
-  pt: 'PT-BR',
-  ru: 'RU',
-  tr: 'TR',
-  uk: 'UK',
-  zh_CN: 'ZH-HANS',
-  zh_TW: 'ZH-HANT',
+  de: 'de',
+  en_GB: 'en-GB',
+  es: 'es',
+  fr: 'fr',
+  ja: 'ja',
+  ko: 'ko',
+  pl: 'pl',
+  pt: 'pt-BR',
+  ru: 'ru',
+  tr: 'tr',
+  uk: 'uk',
+  zh_CN: 'zh-HANS',
+  zh_TW: 'zh-HANT',
 };
+
+// DeepL allows up to 50 texts per translate request; batching cuts a full rebuild
+// from ~11k sequential calls to a few hundred.
+const DEEPL_BATCH_SIZE = 50;
 
 const root = path.resolve(__dirname, '..');
 // Use en.json as source of truth (flat format), not messages.json (Chrome extension format)
 const englishFilePath = path.join(root, 'public/_locales/en/en.json');
 const englishFile = require(englishFilePath);
 
-// Technical terms that should NOT be translated - kept in English across all languages
-// These are the canonical forms that will be preserved
-const TECHNICAL_TERMS = ['Seed Phrase', 'Faucet', 'Note'] as const;
-
-// All case variations of technical terms for matching
-// Order matters: longer phrases should come first to avoid partial matches
+// Product terms that must stay in English across every language (brand consistency).
+// All case variations we protect; order longest-first so e.g. "Notes" wins over "Note".
 const TECHNICAL_TERM_VARIANTS = [
   'Seed Phrase',
   'Seed phrase',
@@ -62,359 +61,62 @@ const TECHNICAL_TERM_VARIANTS = [
   'NOTE',
 ];
 
-// Map from any variant to canonical form (for post-processing restoration)
-const TERM_CANONICAL_MAP: Record<string, string> = {
-  'seed phrase': 'Seed Phrase',
-  'Seed phrase': 'Seed Phrase',
-  'SEED PHRASE': 'Seed Phrase',
-  faucet: 'Faucet',
-  FAUCET: 'Faucet',
-  note: 'Note',
-  notes: 'Notes',
-  NOTE: 'Note',
-  NOTES: 'Notes',
-};
+// A single regex that matches anything DeepL must NOT translate: the technical terms
+// above (word-bounded) and Chrome i18n `$placeholder$` variables.
+const PROTECT_REGEX = new RegExp(
+  '(' +
+    TECHNICAL_TERM_VARIANTS.map(t => `\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).join('|') +
+    '|\\$[a-zA-Z_][a-zA-Z0-9_]*\\$' +
+    ')',
+  'g',
+);
 
-// Special term translations per language (e.g., "Tokens" -> "Tokeny" in Polish)
-const SPECIAL_TERM_TRANSLATIONS: Record<string, Record<string, string>> = {
-  pl: {
-    Tokens: 'Tokeny',
-    tokens: 'tokeny',
-  },
-};
-
-// Protect technical terms before translation by replacing with XML-style placeholders
-// XML tags are typically preserved by translation APIs
-function protectTerms(text: string): { protected: string; replacements: Map<string, string> } {
-  const replacements = new Map<string, string>();
-  let protected_ = text;
-  let placeholderIdx = 0;
-
-  for (const term of TECHNICAL_TERM_VARIANTS) {
-    // Use word boundaries to avoid partial matches within words
-    // Escape special regex characters in the term
-    const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`\\b${escapedTerm}\\b`, 'g');
-
-    // Check if term exists in the text
-    if (protected_.match(regex)) {
-      // Use XML-style placeholder that translation APIs typically preserve
-      const placeholder = `<x id="${placeholderIdx}"/>`;
-      replacements.set(placeholder, term);
-      protected_ = protected_.replace(regex, placeholder);
-      placeholderIdx++;
-    }
-  }
-
-  return { protected: protected_, replacements };
+function xmlEscape(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Restore technical terms after translation
-function restoreTerms(text: string, replacements: Map<string, string>, languageCode: string): string {
-  let restored = text;
-
-  for (const [placeholder, originalTerm] of replacements) {
-    // Check if there's a special translation for this term in this language.
-    // languageCode is now a DeepL target (e.g. "PT-BR", "ZH-HANT"); reduce it to
-    // the short key SPECIAL_TERM_TRANSLATIONS is keyed by (e.g. "pt", "zh", "pl").
-    const langKey = languageCode.split('-')[0].toLowerCase();
-    const specialTranslations = SPECIAL_TERM_TRANSLATIONS[langKey];
-    const replacement = specialTranslations?.[originalTerm] ?? originalTerm;
-
-    // Escape the placeholder for regex (handle special chars in XML tags)
-    const escapedPlaceholder = placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-    // Also match variations that translation APIs might produce (with spaces, different quotes, etc.)
-    // e.g., <x id="0"/> might become <x id="0" /> or <x id = "0"/>
-    const flexiblePattern = escapedPlaceholder
-      .replace(/id="(\d+)"/, 'id\\s*=\\s*["\']?$1["\']?')
-      .replace(/\/>/, '\\s*\\/?\\s*>');
-
-    restored = restored.replace(new RegExp(flexiblePattern, 'g'), replacement);
-  }
-
-  return restored;
+function xmlUnescape(s: string): string {
+  return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 }
 
-// Known translations of technical terms in various languages that should be reverted to English
-// This catches cases where the placeholder protection failed
-const KNOWN_TRANSLATIONS: Record<string, string> = {
-  // German
-  'Seed-Phrase': 'Seed Phrase',
-  'Seed-Phrasen': 'Seed Phrases',
-  'Startphrase': 'Seed Phrase',
-  'Seed-phrase': 'Seed Phrase',
-  'Wasserhahn': 'Faucet',
-  'Notiz': 'Note',
-  'Notizen': 'Notes',
-  'Hinweis': 'Note',
-  'Hinweise': 'Notes',
-  'Noten': 'Notes',
-  'Note-': 'Note ',
-  'Notetyp': 'Note Type',
-  'Notedaten': 'Note Data',
-  // Spanish
-  'Frase semilla': 'Seed Phrase',
-  'frase semilla': 'Seed Phrase',
-  'Grifo': 'Faucet',
-  'grifo': 'Faucet',
-  'Nota': 'Note',
-  'Notas': 'Notes',
-  'nota': 'Note',
-  'notas': 'Notes',
-  // French
-  'Phrase de récupération': 'Seed Phrase',
-  'phrase de récupération': 'Seed Phrase',
-  'Phrase secrète': 'Seed Phrase',
-  'Robinet': 'Faucet',
-  'robinet': 'Faucet',
-  // Polish (note: Polish has grammatical cases that modify word endings)
-  'Fraza odzyskiwania': 'Seed Phrase',
-  'fraza odzyskiwania': 'Seed Phrase',
-  'Fraza ziarna': 'Seed Phrase',
-  'Fraza nasion': 'Seed Phrase',
-  'fraza nasion': 'Seed Phrase',
-  'Kran': 'Faucet',
-  'kran': 'Faucet',
-  'Notatka': 'Note',
-  'Notatki': 'Notes',
-  'notatka': 'Note',
-  'notatki': 'Notes',
-  'notatek': 'Notes',
-  'notatkę': 'Note',
-  'notatkom': 'Notes',
-  // Portuguese
-  'Frase semente': 'Seed Phrase',
-  'frase semente': 'Seed Phrase',
-  'Torneira': 'Faucet',
-  'torneira': 'Faucet',
-  // Italian
-  'Frase seme': 'Seed Phrase',
-  'frase seme': 'Seed Phrase',
-  'Frase seed': 'Seed Phrase',
-  'Rubinetto': 'Faucet',
-  'rubinetto': 'Faucet',
-  // Russian
-  'Сид-фраза': 'Seed Phrase',
-  'сид-фраза': 'Seed Phrase',
-  'Сид фраза': 'Seed Phrase',
-  'Мнемоническая фраза': 'Seed Phrase',
-  'Кран': 'Faucet',
-  'кран': 'Faucet',
-  'Заметка': 'Note',
-  'Заметки': 'Notes',
-  // Chinese
-  '助记词': 'Seed Phrase',
-  '水龙头': 'Faucet',
-  '笔记': 'Note',
-  '备注': 'Note',
-  // Japanese
-  'シードフレーズ': 'Seed Phrase',
-  'シード・フレーズ': 'Seed Phrase',
-  'フォーセット': 'Faucet',
-  '蛇口': 'Faucet',
-  'ノート': 'Note',
-  'メモ': 'Note',
-  // Korean
-  '시드문구': 'Seed Phrase',
-  '시드 문구': 'Seed Phrase',
-  '시드구문': 'Seed Phrase',
-  '수도꼭지': 'Faucet',
-  '노트': 'Note',
-  '메모': 'Note',
-  // Dutch
-  'Zaadzin': 'Seed Phrase',
-  'zaadzin': 'Seed Phrase',
-  'Kraan': 'Faucet',
-  'kraan': 'Faucet',
-  // Turkish
-  'Tohum ifadesi': 'Seed Phrase',
-  'tohum ifadesi': 'Seed Phrase',
-  'Musluk': 'Faucet',
-  'musluk': 'Faucet',
-  // Ukrainian
-  'Сід-фраза': 'Seed Phrase',
-  'сід-фраза': 'Seed Phrase',
-  'Мнемонічна фраза': 'Seed Phrase',
-};
-
-// Post-process translated text to fix any technical terms that escaped the placeholder protection
-// Also takes englishSource to ensure correct singular/plural matching
-function fixEscapedTerms(text: string, englishSource?: string): string {
-  let fixed = text;
-
-  // Determine if English source uses singular or plural forms
-  const sourceHasNote = englishSource && /\bNote\b/i.test(englishSource) && !/\bNotes\b/i.test(englishSource);
-  const sourceHasNotes = englishSource && /\bNotes\b/i.test(englishSource);
-
-  // Replace known translations back to English
-  for (const [translated, english] of Object.entries(KNOWN_TRANSLATIONS)) {
-    // Skip singular/plural mismatch fixes when we know the correct form
-    if (sourceHasNote && english === 'Notes') continue;
-    if (sourceHasNotes && english === 'Note') continue;
-
-    // Use word boundaries where possible, but be careful with non-ASCII characters
-    const escapedTranslated = translated.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // For non-ASCII, don't use word boundaries as they don't work well
-    const hasNonAscii = /[^\x00-\x7F]/.test(translated);
-    const regex = hasNonAscii
-      ? new RegExp(escapedTranslated, 'g')
-      : new RegExp(`\\b${escapedTranslated}\\b`, 'g');
-    fixed = fixed.replace(regex, english);
+// Wrap every protected span in an <x>…</x> tag and XML-escape the rest, producing valid
+// XML for DeepL's tagHandling='xml' + ignoreTags=['x']: DeepL translates only the text
+// outside <x>, leaving terms and placeholders verbatim. Replaces the old placeholder /
+// known-mistranslation dictionary workaround, which existed only because the free Google
+// endpoint mangled these — DeepL's native tag handling makes it reliable.
+function toDeepLXml(source: string): string {
+  let out = '';
+  let last = 0;
+  for (const m of source.matchAll(PROTECT_REGEX)) {
+    const idx = m.index as number;
+    out += xmlEscape(source.slice(last, idx));
+    out += `<x>${xmlEscape(m[0])}</x>`;
+    last = idx + m[0].length;
   }
-
-  // If source is singular but we replaced with plural, fix it
-  if (sourceHasNote && /\bNotes\b/.test(fixed)) {
-    fixed = fixed.replace(/\bNotes\b/g, 'Note');
-  }
-
-  return fixed;
+  out += xmlEscape(source.slice(last));
+  return out;
 }
 
-async function translateFile(code: string) {
-  let newFile: any = {};
-  for (const key in englishFile) {
-    const englishMessage = englishFile[key]; // en.json is flat: "key": "value"
-    const newMessage = await translateSegment(englishMessage, code);
-    const entry: any = {
-      message: newMessage,
-      englishSource: englishMessage
-    };
-
-    // Add Chrome i18n placeholders if the message contains $placeholder$ patterns
-    const placeholders = generateChromePlaceholders(englishMessage);
-    if (placeholders) {
-      entry.placeholders = placeholders;
-    }
-
-    newFile[key] = entry;
-  }
-
-  // Post-process ALL entries to fix any technical terms that escaped protection
-  for (const key in newFile) {
-    if (newFile[key]?.message) {
-      const fixedMessage = fixEscapedTerms(newFile[key].message, newFile[key].englishSource);
-      if (fixedMessage !== newFile[key].message) {
-        console.log(`Fixing escaped terms in "${key}"`);
-        newFile[key].message = fixedMessage;
-      }
-    }
-  }
-
-  const filePath = path.join(root, 'utility/tmp-messages.json');
-  fs.writeFileSync(filePath, JSON.stringify(newFile, null, 2));
+// Inverse of toDeepLXml: strip the <x> wrappers DeepL preserved and unescape entities.
+function fromDeepLXml(translated: string): string {
+  return xmlUnescape(translated.replace(/<\/?x\s*>/g, ''));
 }
 
-async function translateWithDiff(fileName: string, code: string, replaceFile: boolean) {
-  const existingFile = require(fileName);
-  let newFile: any = {}; // Start fresh - only include keys that exist in englishFile
-
-  // Count removed keys for logging
-  const removedKeys = Object.keys(existingFile).filter(k => !englishFile[k]);
-  if (removedKeys.length > 0) {
-    console.log(`Removing ${removedKeys.length} stale keys`);
+// Translate an array of English source strings into `targetCode`, preserving technical
+// terms and $placeholder$ variables. Order of the returned array matches the input.
+async function translateBatch(sources: string[], targetCode: string): Promise<string[]> {
+  if (sources.length === 0) return [];
+  const out: string[] = [];
+  for (let i = 0; i < sources.length; i += DEEPL_BATCH_SIZE) {
+    const chunk = sources.slice(i, i + DEEPL_BATCH_SIZE).map(toDeepLXml);
+    const results = await translator.translateText(chunk, 'en', targetCode, {
+      tagHandling: 'xml',
+      ignoreTags: ['x'],
+      outlineDetection: false,
+    });
+    for (const r of results) out.push(fromDeepLXml(r.text));
   }
-
-  for (const key in englishFile) {
-    const englishMessage = englishFile[key]; // en.json is flat: "key": "value"
-    const existingItem = existingFile[key];
-
-    // Generate Chrome i18n placeholders if needed
-    const placeholders = generateChromePlaceholders(englishMessage);
-
-    if (!existingItem) {
-      // Missing translation - translate it
-      console.log(`Translating "${key}" (missing)`);
-      const newMessage = await translateSegment(englishMessage, code);
-      const entry: any = {
-        message: newMessage,
-        englishSource: englishMessage
-      };
-      if (placeholders) entry.placeholders = placeholders;
-      newFile[key] = entry;
-    } else if (!existingItem.englishSource) {
-      // Existing translation without englishSource - add it without re-translating
-      // (one-time migration for existing translations)
-      const entry: any = { ...existingItem, englishSource: englishMessage };
-      if (placeholders) entry.placeholders = placeholders;
-      newFile[key] = entry;
-    } else if (existingItem.englishSource !== englishMessage) {
-      // English source has changed - re-translate
-      console.log(`Translating "${key}" (English changed)`);
-      const newMessage = await translateSegment(englishMessage, code);
-      const entry: any = {
-        message: newMessage,
-        englishSource: englishMessage
-      };
-      if (placeholders) entry.placeholders = placeholders;
-      newFile[key] = entry;
-    } else {
-      // Translation is up to date - but ensure placeholders are present
-      const entry: any = { ...existingItem };
-      if (placeholders) entry.placeholders = placeholders;
-      newFile[key] = entry;
-    }
-  }
-
-  // Post-process ALL entries to fix any technical terms that escaped protection
-  // (including existing translations that weren't re-translated)
-  for (const key in newFile) {
-    if (newFile[key]?.message) {
-      const fixedMessage = fixEscapedTerms(newFile[key].message, newFile[key].englishSource);
-      if (fixedMessage !== newFile[key].message) {
-        console.log(`Fixing escaped terms in "${key}"`);
-        newFile[key].message = fixedMessage;
-      }
-    }
-  }
-
-  const filePath = replaceFile ? fileName : path.join(root, 'utility/tmp-messages.json');
-  fs.writeFileSync(filePath, JSON.stringify(newFile, null, 2));
-}
-
-async function translateSegment(segment: string, code: string) {
-  try {
-    // Step 1: Protect technical terms before any translation
-    const { protected: protectedSegment, replacements: termReplacements } = protectTerms(segment);
-
-    let translated: string;
-
-    if (protectedSegment.indexOf('$') > 0) {
-      // Handle $placeholder$ variables
-      const formattedSegments = [...protectedSegment.matchAll(/\'?\$(.*?)\$\'?/g)];
-      const formattedReplacements = formattedSegments.map(seg => seg[0]);
-      const replacements = formattedSegments.map(seg => seg[1]);
-      const splits = protectedSegment.split(/\'?\$(.*?)\$\'?/g);
-      let replacementIdx = 0;
-      translated = '';
-      for (let i = 0; i < splits.length; i++) {
-        const split = splits[i];
-        if (split == replacements[replacementIdx]) {
-          translated = translated.concat(` ${formattedReplacements[replacementIdx]} `);
-          replacementIdx += 1;
-        } else {
-          if (!/[\w]+/g.test(split)) {
-            translated = translated.concat(split);
-          } else {
-            const text = await translate(split, code);
-            translated = translated.concat(text);
-          }
-        }
-      }
-    } else {
-      translated = (await translate(protectedSegment, code)) as string;
-    }
-
-    // Step 2: Restore technical terms after translation
-    translated = restoreTerms(translated, termReplacements, code);
-
-    // Step 3: Fix any technical terms that escaped the placeholder protection
-    translated = fixEscapedTerms(translated, segment);
-
-    return translated;
-  } catch {
-    return segment;
-  }
+  return out;
 }
 
 // Extract $placeholder$ patterns from a message and generate Chrome i18n placeholders object
@@ -436,23 +138,95 @@ function generateChromePlaceholders(message: string): Record<string, { content: 
   return placeholders;
 }
 
+function buildEntry(message: string, englishMessage: string): any {
+  const entry: any = { message, englishSource: englishMessage };
+  const placeholders = generateChromePlaceholders(englishMessage);
+  if (placeholders) entry.placeholders = placeholders;
+  return entry;
+}
+
+// Translate every key of en.json into `code`, writing a throwaway tmp file (does not
+// touch the real locale). Used by the `-c <code>` mode.
+async function translateFile(code: string) {
+  const keys = Object.keys(englishFile);
+  const translations = await translateBatch(
+    keys.map(k => englishFile[k]),
+    code,
+  );
+
+  const newFile: any = {};
+  keys.forEach((key, i) => {
+    newFile[key] = buildEntry(translations[i], englishFile[key]);
+  });
+
+  fs.writeFileSync(path.join(root, 'utility/tmp-messages.json'), JSON.stringify(newFile, null, 2));
+}
+
+// Regenerate a locale's messages.json from en.json, translating only what changed:
+// missing keys and keys whose English source moved. Untouched keys are copied as-is,
+// stale keys (no longer in en.json) are dropped.
+async function translateWithDiff(fileName: string, code: string, replaceFile: boolean) {
+  const existingFile = require(fileName);
+  const newFile: any = {}; // Start fresh - only include keys that exist in englishFile
+
+  const removedKeys = Object.keys(existingFile).filter(k => !englishFile[k]);
+  if (removedKeys.length > 0) {
+    console.log(`Removing ${removedKeys.length} stale keys`);
+  }
+
+  // First pass: keep up-to-date entries, collect the ones that need (re)translation.
+  const toTranslate: { key: string; english: string }[] = [];
+  for (const key in englishFile) {
+    const englishMessage = englishFile[key]; // en.json is flat: "key": "value"
+    const existingItem = existingFile[key];
+    const placeholders = generateChromePlaceholders(englishMessage);
+
+    if (!existingItem) {
+      // Missing translation - queue it
+      toTranslate.push({ key, english: englishMessage });
+    } else if (!existingItem.englishSource) {
+      // Existing translation without englishSource - keep it, add the source (one-time migration)
+      const entry: any = { ...existingItem, englishSource: englishMessage };
+      if (placeholders) entry.placeholders = placeholders;
+      newFile[key] = entry;
+    } else if (existingItem.englishSource !== englishMessage) {
+      // English source has changed - queue a re-translation
+      toTranslate.push({ key, english: englishMessage });
+    } else {
+      // Up to date - copy through, refreshing placeholders
+      const entry: any = { ...existingItem };
+      if (placeholders) entry.placeholders = placeholders;
+      newFile[key] = entry;
+    }
+  }
+
+  // Second pass: translate the queued keys in batches, then slot them in.
+  if (toTranslate.length > 0) {
+    console.log(`Translating ${toTranslate.length} key(s) to ${code}...`);
+    const translations = await translateBatch(
+      toTranslate.map(t => t.english),
+      code,
+    );
+    toTranslate.forEach((t, i) => {
+      newFile[t.key] = buildEntry(translations[i], t.english);
+    });
+  }
+
+  // Re-emit in en.json key order so unchanged files stay diff-stable.
+  const ordered: any = {};
+  for (const key in englishFile) {
+    if (newFile[key]) ordered[key] = newFile[key];
+  }
+
+  const filePath = replaceFile ? fileName : path.join(root, 'utility/tmp-messages.json');
+  fs.writeFileSync(filePath, JSON.stringify(ordered, null, 2));
+}
+
 // Generate en/messages.json directly from en.json (no translation needed)
 function generateEnglishMessages() {
   const newFile: any = {};
   for (const key in englishFile) {
-    const message = englishFile[key];
-    const entry: any = {
-      message: message,
-      englishSource: message
-    };
-
-    // Add Chrome i18n placeholders if the message contains $placeholder$ patterns
-    const placeholders = generateChromePlaceholders(message);
-    if (placeholders) {
-      entry.placeholders = placeholders;
-    }
-
-    newFile[key] = entry;
+    newFile[key] = buildEntry(englishFile[key], englishFile[key]);
   }
   const filePath = path.join(root, 'public/_locales/en/messages.json');
   fs.writeFileSync(filePath, JSON.stringify(newFile, null, 2));
@@ -479,6 +253,9 @@ async function updateAllLanguages() {
   }
 }
 
+// Validate that every locale's $placeholder$ set matches en.json, dropping any key whose
+// placeholders drifted. Makes no API calls (the `-e` mode); a safety net independent of
+// the translation engine.
 async function fixErrorsForLanguage(fileName: string, code: string, replaceFile: boolean) {
   const existingFile = require(fileName);
   let newFile: any = Object.assign({}, existingFile);
@@ -526,31 +303,37 @@ async function fixAllPotentialErrors() {
   }
 }
 
-// eslint-disable-next-line import/order
-const argv = require('minimist')(process.argv.slice(2));
+// Export the pure, side-effect-free helpers for unit testing (no API calls).
+module.exports = { toDeepLXml, fromDeepLXml, PROTECT_REGEX, generateChromePlaceholders, LOCALE_TO_DEEPL };
 
-// Every mode except -e (which only validates $placeholder$ counts) calls the DeepL
-// API. Without a key, skip gracefully instead of failing: this keeps fork PRs green
-// (forks don't receive the DEEPL_API_KEY secret — they check out and generate but
-// never push the diff back anyway) and gives local runs a clear, actionable message.
-const needsDeepLKey = !argv['e'];
-if (needsDeepLKey && !process.env.DEEPL_API_KEY) {
-  console.warn('⚠️  DEEPL_API_KEY not set — skipping translation generation (locale files unchanged).');
-  console.warn('    CI:     set the repo secret DEEPL_API_KEY (consumed by the "translations" job).');
-  console.warn('    Manual: prefix the command, e.g.  DEEPL_API_KEY=<your key> yarn createTranslationFile');
-  process.exit(0);
-}
+// CLI entry point — only when run directly (`ts-node generateLanguageFiles.ts`), never
+// when required by a test.
+if (require.main === module) {
+  // eslint-disable-next-line import/order
+  const argv = require('minimist')(process.argv.slice(2));
 
-const code = argv['_'][0];
-if (argv['c'] && argv['f']) {
-  // yarn createTranslationFile -f public/_locales/ru/messages.json -c ru
-  translateWithDiff(argv['f'], argv['c'], false);
-} else if (argv['c']) {
-  // yarn createTranslationFile -c ru
-  translateFile(argv['c']);
-} else if (argv['e']) {
-  fixAllPotentialErrors();
-} else {
-  // yarn createTranslationFile
-  updateAllLanguages();
+  // Every mode except -e (which only validates $placeholder$ counts) calls the DeepL
+  // API. Without a key, skip gracefully instead of failing: this keeps fork PRs green
+  // (forks don't receive the DEEPL_API_KEY secret — they check out and generate but
+  // never push the diff back anyway) and gives local runs a clear, actionable message.
+  const needsDeepLKey = !argv['e'];
+  if (needsDeepLKey && !process.env.DEEPL_API_KEY) {
+    console.warn('⚠️  DEEPL_API_KEY not set — skipping translation generation (locale files unchanged).');
+    console.warn('    CI:     set the repo secret DEEPL_API_KEY (consumed by the "translations" job).');
+    console.warn('    Manual: prefix the command, e.g.  DEEPL_API_KEY=<your key> yarn createTranslationFile');
+    process.exit(0);
+  }
+
+  if (argv['c'] && argv['f']) {
+    // yarn createTranslationFile -f public/_locales/ru/messages.json -c ru
+    translateWithDiff(argv['f'], argv['c'], false);
+  } else if (argv['c']) {
+    // yarn createTranslationFile -c ru
+    translateFile(argv['c']);
+  } else if (argv['e']) {
+    fixAllPotentialErrors();
+  } else {
+    // yarn createTranslationFile
+    updateAllLanguages();
+  }
 }
