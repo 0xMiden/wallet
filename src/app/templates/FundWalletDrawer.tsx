@@ -42,7 +42,7 @@ export const FundWalletDrawer: React.FC<FundWalletDrawerProps> = ({
         : t('fundWalletErrorTitle');
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} screenKey="fund">
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{title}</DrawerTitle>

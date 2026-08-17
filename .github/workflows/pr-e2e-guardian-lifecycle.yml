@@ -1,6 +1,8 @@
 name: Guardian Lifecycle E2E (Chrome)
 on:
   pull_request:
+  push:
+    branches: [main]
   workflow_dispatch: {}
 concurrency:
   group: guardian-lifecycle-e2e-${{ github.ref }}
@@ -192,10 +194,13 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian --profile guardian-switch -f docker-compose.local.yml logs --no-color | tail -400
       - uses: actions/upload-artifact@v4
-        if: failure()
+        # Keep the screenshot filmstrip only on main-push runs (the record);
+        # on PRs, upload only when the run failed (debug artifact, as before).
+        if: ${{ github.event_name == 'push' || failure() }}
         with:
           name: guardian-lifecycle-e2e-report
           path: test-results/
+          retention-days: 7
       - name: Tear down
         if: always()
         working-directory: playwright/e2e/local-stack

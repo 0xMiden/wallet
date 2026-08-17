@@ -137,10 +137,11 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color | tail -400
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
           name: e2e-resilience-report
           path: test-results/
+          retention-days: 7
       - name: Tear down
         if: always()
         working-directory: playwright/e2e/local-stack

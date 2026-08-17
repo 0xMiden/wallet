@@ -2,7 +2,11 @@ import React from 'react';
 
 import { render, screen, act } from '@testing-library/react';
 
+import { getCurrentScreen, setRoutePart, __resetScreenKeyForTest } from 'lib/e2e/screen-key';
+
 import CustomModal from './CustomModal';
+
+const ORIGINAL_E2E = process.env.MIDEN_E2E_TEST;
 
 // `lib/platform` drives two branches in CustomModal:
 //   - `isExtension()` selects the `closeTimeoutMS` (0 for extension, 200 else)
@@ -225,5 +229,66 @@ describe('CustomModal', () => {
 
     const content = document.getElementById('custom-modal') as HTMLElement;
     expect(content.getAttribute('aria-label')).toBe('my-dialog');
+  });
+
+  describe('screen-key overlay integration', () => {
+    beforeEach(() => {
+      process.env.MIDEN_E2E_TEST = 'true';
+      __resetScreenKeyForTest();
+      setRoutePart('/x');
+      mountRoot();
+    });
+
+    afterEach(() => {
+      if (ORIGINAL_E2E === undefined) delete process.env.MIDEN_E2E_TEST;
+      else process.env.MIDEN_E2E_TEST = ORIGINAL_E2E;
+    });
+
+    it('publishes the generic "modal" overlay id while open when no screenKey is given', () => {
+      render(
+        <CustomModal isOpen>
+          <div>body</div>
+        </CustomModal>
+      );
+
+      expect(getCurrentScreen().key).toBe('/x > modal');
+    });
+
+    it('publishes a namespaced overlay id when screenKey is provided', () => {
+      render(
+        <CustomModal isOpen screenKey="confirm-delete">
+          <div>body</div>
+        </CustomModal>
+      );
+
+      expect(getCurrentScreen().key).toBe('/x > modal:confirm-delete');
+    });
+
+    it('pops the overlay id when isOpen flips to false', () => {
+      const { rerender } = render(
+        <CustomModal isOpen screenKey="confirm-delete">
+          <div>body</div>
+        </CustomModal>
+      );
+      expect(getCurrentScreen().key).toBe('/x > modal:confirm-delete');
+
+      rerender(
+        <CustomModal isOpen={false} screenKey="confirm-delete">
+          <div>body</div>
+        </CustomModal>
+      );
+      expect(getCurrentScreen().key).toBe('/x');
+    });
+
+    it('does not forward screenKey to the underlying react-modal element', () => {
+      render(
+        <CustomModal isOpen screenKey="confirm-delete">
+          <div>body</div>
+        </CustomModal>
+      );
+
+      const content = document.getElementById('custom-modal') as HTMLElement;
+      expect(content.getAttribute('screenkey')).toBeNull();
+    });
   });
 });

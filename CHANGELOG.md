@@ -36,6 +36,7 @@
 
 ### Changes
 
+- [CHANGE][ci] **E2E harnesses now capture a screenshot on every screen change (route/card/overlay), and four PR-only suites now also run on `main` with those screenshots uploaded as artifacts on green runs.** Capture is gated on `MIDEN_E2E_TEST` and tree-shaken out of production builds; no user-facing change.
 - [CHANGE][extension] **The Chrome extension download is about half the size it was.** The released build was being produced in development mode by mistake, so every install shipped unminified code plus a complete set of source maps — around 60 MB of debugging files users have no use for, and 40% of the download. The release now builds in production mode, taking the package from roughly 30 MB to 15 MB. No functional change; the same build was smoke-tested end to end first.
 
 - [CHANGE][extension] **The Chrome extension download is a third of its previous size.** Two separate parts of the build each wrote their own copy of the same 19.5 MB cryptography engine into the package — identical files, both shipped. They now agree on one location, so it is included once. Combined with the production-build fix, the download goes from about 30 MB to about 10 MB.

@@ -55,7 +55,7 @@ export class TestStepRunner {
 
   constructor(
     private timeline: TimelineRecorder,
-    private outputDir: string,
+    readonly outputDir: string,
     walletCaps: SnapshotCapsMap = {}
   ) {
     this.walletCaps = walletCaps;
