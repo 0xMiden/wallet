@@ -505,10 +505,6 @@
     "message": "Pan",
     "englishSource": "Bread"
   },
-  "appDesc": {
-    "message": "Un monedero de navegador para la cadena de bloques Miden",
-    "englishSource": "A browser wallet for the Miden blockchain"
-  },
   "createAccount": {
     "message": "Crear cuenta",
     "englishSource": "Create Account"

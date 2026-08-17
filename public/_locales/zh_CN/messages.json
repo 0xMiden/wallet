@@ -505,10 +505,6 @@
     "message": "面包",
     "englishSource": "Bread"
   },
-  "appDesc": {
-    "message": "一款支持Miden区块链的浏览器钱包",
-    "englishSource": "A browser wallet for the Miden blockchain"
-  },
   "createAccount": {
     "message": "创建账户",
     "englishSource": "Create Account"

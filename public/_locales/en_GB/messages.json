@@ -505,10 +505,6 @@
     "message": "Bread",
     "englishSource": "Bread"
   },
-  "appDesc": {
-    "message": "A browser wallet for the Miden blockchain",
-    "englishSource": "A browser wallet for the Miden blockchain"
-  },
   "createAccount": {
     "message": "Create Account",
     "englishSource": "Create Account"

@@ -505,10 +505,6 @@
     "message": "Хлеб",
     "englishSource": "Bread"
   },
-  "appDesc": {
-    "message": "Браузерный кошелек для блокчейна Miden",
-    "englishSource": "A browser wallet for the Miden blockchain"
-  },
   "createAccount": {
     "message": "Создать аккаунт",
     "englishSource": "Create Account"

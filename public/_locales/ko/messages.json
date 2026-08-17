@@ -505,10 +505,6 @@
     "message": "빵",
     "englishSource": "Bread"
   },
-  "appDesc": {
-    "message": "Miden 블록체인을 위한 브라우저 지갑",
-    "englishSource": "A browser wallet for the Miden blockchain"
-  },
   "createAccount": {
     "message": "계정 만들기",
     "englishSource": "Create Account"

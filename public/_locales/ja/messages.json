@@ -505,10 +505,6 @@
     "message": "パン",
     "englishSource": "Bread"
   },
-  "appDesc": {
-    "message": "Midenブロックチェーン用のブラウザウォレット",
-    "englishSource": "A browser wallet for the Miden blockchain"
-  },
   "createAccount": {
     "message": "アカウントを作成する",
     "englishSource": "Create Account"

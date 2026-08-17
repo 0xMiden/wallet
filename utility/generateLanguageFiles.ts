@@ -80,6 +80,11 @@ const TECHNICAL_TERM_VARIANTS = [
   'guardian',
   'GUARDIANS',
   'GUARDIAN',
+  // "Blockchain" — kept English/consistent (some langs were rendering it "chain of
+  // blocks", e.g. pl "łańcuch bloków", es "cadena de bloques").
+  'Blockchain',
+  'blockchain',
+  'BLOCKCHAIN',
 ];
 
 // A single regex that matches anything DeepL must NOT translate: the technical terms

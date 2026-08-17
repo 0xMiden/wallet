@@ -505,10 +505,6 @@
     "message": "Chleb",
     "englishSource": "Bread"
   },
-  "appDesc": {
-    "message": "Portfel przeglądarkowy dla łańcucha bloków Miden",
-    "englishSource": "A browser wallet for the Miden blockchain"
-  },
   "createAccount": {
     "message": "Załóż konto",
     "englishSource": "Create Account"
