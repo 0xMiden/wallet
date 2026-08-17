@@ -6,11 +6,14 @@ import { useTranslation } from 'react-i18next';
 import { ReactComponent as ScanFrameIcon } from 'app/icons/scan-frame.svg';
 import { ReactComponent as SendAddressBookIcon } from 'app/icons/send-address-book.svg';
 import { Icon, IconName } from 'app/icons/v2';
+import { Avatar } from 'components/Avatar';
 import { Button, ButtonVariant } from 'components/Button';
 import { hapticLight } from 'lib/mobile/haptics';
 import { AddressChain } from 'utils/miden';
+import { truncateAddress } from 'utils/string';
 
 import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
+import { RecentRecipient } from './types';
 
 export interface SelectRecipientProps {
   address: string;
@@ -25,8 +28,19 @@ export interface SelectRecipientProps {
   network?: SendNetworkId;
   /** Name of a saved contact matching the entered address. */
   recipientName?: string;
+  /** Most recent distinct send recipients. Shown only while the address field is empty. */
+  recents?: RecentRecipient[];
+  /**
+   * True when the entered address is valid but isn't saved yet — the Address
+   * Book pill becomes "Add to contacts?" and opens the add-contact sheet.
+   */
+  canAddContact?: boolean;
   onAddressChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
   onAddressBook: () => void;
+  /** Opens the add-contact sheet pre-filled with the entered address. */
+  onAddContact?: () => void;
+  /** Fills the recipient from a "Recent" row. */
+  onSelectRecent?: (recipient: RecentRecipient) => void;
   onSelectNetwork: () => void;
   /** Scan a recipient address from a QR code. Omitted where scanning is unavailable (desktop/extension). */
   onScan?: () => void;
@@ -40,8 +54,12 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   chain,
   network,
   recipientName,
+  recents,
+  canAddContact = false,
   onAddressChange,
   onAddressBook,
+  onAddContact,
+  onSelectRecent,
   onSelectNetwork,
   onScan,
   onConfirm
@@ -52,6 +70,8 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   const isEthereum = chain === 'ethereum';
   const hasAddress = address.trim().length > 0;
   const canConfirm = isValidAddress && (!isEthereum || !!selectedNetwork);
+  const showAddContact = canAddContact && !!onAddContact;
+  const recentRecipients = hasAddress ? [] : (recents ?? []);
   // eslint-disable-next-line i18next/no-literal-string -- Product-specified recipient placeholder copy.
   const addressPlaceholder = 'Enter Miden or Ethereum Address';
   // eslint-disable-next-line i18next/no-literal-string -- Product-specified scanner copy.
@@ -151,14 +171,22 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
           </div>
         )}
 
-        <div className="mt-auto flex flex-col items-start gap-3 pt-12 pb-10">
+        <div className={clsx('mt-2 flex items-start gap-1', recentRecipients.length > 0 && 'pb-6')}>
           <Button
             variant={ButtonVariant.Secondary}
-            onClick={onAddressBook}
+            onClick={() => {
+              hapticLight();
+              if (showAddContact && onAddContact) {
+                onAddContact();
+                return;
+              }
+              onAddressBook();
+            }}
+            data-testid="send-address-book"
             className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
           >
             <SendAddressBookIcon data-testid="send-address-book-icon" className="h-4 w-4 shrink-0" />
-            <span>{t('addressBook')}</span>
+            <span>{showAddContact ? t('addToContactsPrompt') : t('addressBook')}</span>
           </Button>
           {onScan && !hasAddress && (
             <Button
@@ -171,9 +199,59 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             </Button>
           )}
         </div>
+
+        {recentRecipients.length > 0 && (
+          <section className="flex flex-col pb-10" data-testid="send-recent-recipients">
+            <h2 className="text-gray text-xl font-heading font-bold">{t('recent')}</h2>
+            <ul className="mt-1 flex flex-col">
+              {recentRecipients.map((recipient, index) => (
+                <li key={recipient.address}>
+                  <button
+                    type="button"
+                    data-testid="send-recent-recipient"
+                    onClick={() => {
+                      hapticLight();
+                      onSelectRecent?.(recipient);
+                    }}
+                    className={clsx(
+                      'flex w-full items-center gap-3 py-3 text-left',
+                      index > 0 && 'border-t border-rule-default'
+                    )}
+                  >
+                    <Avatar image="/misc/avatars/miden-orange.png" size="lg" className="shrink-0" />
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="truncate text-base font-bold text-black">
+                        {recipient.name ?? truncateAddress(recipient.address)}
+                      </span>
+                      <span className="flex items-center gap-2 text-xs text-text-muted">
+                        {recipient.chain === 'miden' ? (
+                          <span className="rounded-full bg-accent-primary px-2 py-0.5 font-semibold text-pure-white">
+                            {t('miden')}
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1">
+                            <span className="h-2 w-2 shrink-0 rounded-full bg-primary-500" aria-hidden="true" />
+                            <span>{recipient.networkName ?? t('ethereum')}</span>
+                          </span>
+                        )}
+                        <span className="truncate">{truncateAddress(recipient.address)}</span>
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
 
-      <div className="shrink-0 pb-24" data-navbar-cushion="true">
+      {/* pb-24 clears the floating navbar; while the soft keyboard is up the
+          body's --keyboard-height padding already lifts the layout to the
+          keyboard's top edge, so the cushion collapses to keep the CTA snug. */}
+      <div
+        className="shrink-0 pb-[max(0px,calc(6rem-var(--keyboard-height,0px)))] transition-[padding-bottom] duration-[250ms] ease-out"
+        data-navbar-cushion="true"
+      >
         <Button
           title={t('confirm')}
           variant={ButtonVariant.Primary}

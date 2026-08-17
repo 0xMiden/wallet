@@ -225,13 +225,14 @@ describe('SelectAmount', () => {
       expect(container.firstChild).toHaveClass('px-6');
     });
 
-    it('uses the default footer padding and honors a footerClassName override', () => {
+    it('uses the default keyboard-aware footer padding and honors a footerClassName override', () => {
+      const defaultFooterPb = 'pb-[max(0px,calc(6rem-var(--keyboard-height,0px)))]';
       const { container: def } = renderComponent();
-      expect(def.querySelector('.pb-24')).not.toBeNull();
+      expect(def.innerHTML).toContain(defaultFooterPb);
 
       const { container: override } = renderComponent({ footerClassName: 'pt-2' });
       expect(override.querySelector('.pt-2')).not.toBeNull();
-      expect(override.querySelector('.pb-24')).toBeNull();
+      expect(override.innerHTML).not.toContain(defaultFooterPb);
     });
   });
 

@@ -525,7 +525,8 @@ export class MidenClientInterface {
    */
   async getConsumableNoteDtos(accountId: string): Promise<ConsumableNoteDto[]> {
     const records = await this.getConsumableNotes(accountId);
-    return reduceConsumableNoteRecords(records);
+    const syncHeight = await this.client.getSyncHeight();
+    return reduceConsumableNoteRecords(records, syncHeight);
   }
 
   async getConsumableNotes(accountId: string): Promise<InputNoteRecord[]> {

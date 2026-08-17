@@ -26,6 +26,7 @@
 
 import type { InputNoteRecord, InputNoteState, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
+import { getNoteRecallableAtMs } from '../helpers';
 import { getBech32AddressFromAccountId } from './helpers';
 
 /** One fungible asset locked by a note, JSON-safe (base-unit amount as a string,
@@ -65,6 +66,8 @@ export type ConsumableNoteDto = {
   state: InputNoteState;
   assets: ConsumableNoteAsset[];
   swapAttachment: { orderId: string; depth: number } | null;
+  /** Estimated epoch ms when the sender can reclaim this P2IDE note. */
+  recallableAtMs?: number;
 };
 
 /**
@@ -104,7 +107,7 @@ export function attachmentOrderAndDepth(record: InputNoteRecord): { orderId: str
  * means a pathological note is skipped instead of failing the entire request,
  * which is strictly safer for funds visibility (a real note never throws here).
  */
-export function reduceConsumableNoteRecord(record: InputNoteRecord): ConsumableNoteDto | null {
+export function reduceConsumableNoteRecord(record: InputNoteRecord, syncHeight?: number): ConsumableNoteDto | null {
   // Captured as soon as the id is read so the catch can name the offending note
   // WITHOUT re-calling `record.id()` (the first call, and itself a throw candidate —
   // re-calling it in the catch could throw again and mask the original error). Stays
@@ -128,7 +131,12 @@ export function reduceConsumableNoteRecord(record: InputNoteRecord): ConsumableN
         faucetId: getBech32AddressFromAccountId(asset.faucetId())
       }));
     const swapAttachment = attachmentOrderAndDepth(record);
-    return { noteId, nullifier, noteType, senderAccountId, state, assets, swapAttachment };
+    const dto: ConsumableNoteDto = { noteId, nullifier, noteType, senderAccountId, state, assets, swapAttachment };
+    if (syncHeight !== undefined) {
+      const recallableAtMs = getNoteRecallableAtMs(record, syncHeight);
+      if (recallableAtMs !== undefined) dto.recallableAtMs = recallableAtMs;
+    }
+    return dto;
   } catch (err) {
     console.warn(`[consumable-notes] skipping un-reducible note ${noteIdForLog ?? '<unknown id>'}`, err);
     return null;
@@ -137,6 +145,8 @@ export function reduceConsumableNoteRecord(record: InputNoteRecord): ConsumableN
 
 /** Reduce a list of records, dropping the un-reducible ones (see the per-note
  * rationale on {@link reduceConsumableNoteRecord}). */
-export function reduceConsumableNoteRecords(records: InputNoteRecord[]): ConsumableNoteDto[] {
-  return records.map(reduceConsumableNoteRecord).filter((dto): dto is ConsumableNoteDto => dto !== null);
+export function reduceConsumableNoteRecords(records: InputNoteRecord[], syncHeight?: number): ConsumableNoteDto[] {
+  return records
+    .map(record => reduceConsumableNoteRecord(record, syncHeight))
+    .filter((dto): dto is ConsumableNoteDto => dto !== null);
 }
