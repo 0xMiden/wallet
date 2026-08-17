@@ -767,7 +767,7 @@
   "transactionFailedNotificationBody": "A transaction couldn't be completed. Open the wallet to review.",
   "noteReceivedTapToClaim": "Tap here to claim it",
   "noteReceivedClickToClaim": "Click to view and claim it",
-  "noteReceivedMultiple": "$count$ new notes to claim",
+  "noteReceivedMultiple": "$count$ notes to claim",
   "passwordsCanBeInsecure": "Passwords can be insecure. Use biometric authentication instead.",
   "unlockWallet": "Unlock Wallet",
   "unlockWalletDescription": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet.",
