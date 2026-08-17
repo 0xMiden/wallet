@@ -168,3 +168,15 @@ Empirical proof before "done" (the feature IS test infra, so verification = demo
 ## 9. Open questions
 
 None blocking. Optional future work: raise retention / add durable sink; add per-drawer names for the long tail; consider an index.html filmstrip viewer generated per run.
+
+## Verification results (2026-08-17)
+
+Implemented on branch `feat/e2e-screenshot-on-screen-change` (cut from `origin/main` da219e470) as 9 tasks, each TDD + independently reviewed.
+
+- **Unit suite:** 544 suites / 7520 tests green (full `yarn test`).
+- **Coverage:** all new/changed product files 100%; full-repo gate cleared (95.16% branches). New screen-key branches closed by root-cause elimination (no coverage-config exclusions or ignores added).
+- **Prod tree-shaking (empirical):** `yarn build` succeeds; `__TEST_SCREEN__`, `__e2eScreenChanged`, and the overlay hook are ABSENT from all built `.js` (present only in sourcemaps). `MIDEN_E2E_TEST` is `define`-replaced to `'false'` in the extension/mobile/background configs, making every gated guard dead code.
+- **Known-inert nuance:** the desktop (Tauri) `vite.desktop.config.ts` uses a runtime `process` polyfill (not `define`), so the gated code ships present-but-inert there — identical to the repo's existing `__TEST_STORE__`/`__TEST_INTERCOM__` hooks; desktop is not a target platform for this feature.
+- **Deferred to CI (env-limited locally):** the real localnet Chrome filmstrip (needs docker/cargo/miden-client stack) and the CI `workflow_dispatch` dry-run (needs a push). Verified statically via `playwright --list` on every affected config.
+
+**Follow-ups for the human:** (1) to make the 4 promoted suites *merge-blocking*, mark their `*-e2e-gate` checks as required in `main` branch protection (a repo-settings change, not a workflow edit); (2) add one feature-level `CHANGELOG.md` entry at PR time.
