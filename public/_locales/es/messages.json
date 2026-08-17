@@ -3029,6 +3029,15 @@
     "message": "Tienes",
     "englishSource": "You have"
   },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "pendingNotesDrawerP3b": {
     "message": "espera. Consúmelos en cualquier momento: no hay prisa y nunca hay fondos en riesgo.",
     "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
