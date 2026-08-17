@@ -3,6 +3,7 @@ import React, { useMemo } from 'react';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -27,7 +28,7 @@ export const PriceChangeBadge = ({ account }: { account: WalletAccount }) => {
   }, [allTokenBalances, tokenPrices]);
   const isPositive = portfolioChange > 0;
   const isNeutral = portfolioChange === 0;
-  const amount = Math.abs(portfolioChange).toFixed(2);
+  const amount = toAdaptiveFixed(Math.abs(portfolioChange));
 
   return (
     <div className="flex items-center gap-1">

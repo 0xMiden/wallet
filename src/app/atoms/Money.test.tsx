@@ -128,6 +128,19 @@ describe('Money', () => {
       expect(screen.getByDisplayValue('1.23456789')).toBeInTheDocument();
     });
 
+    it('expands crypto precision instead of displaying a small non-zero value as zero', () => {
+      const { container } = render(<Money>0.00000001234</Money>);
+
+      expect(container).toHaveTextContent('0.000000012');
+    });
+
+    it('expands fiat precision instead of displaying a small non-zero value as zero', () => {
+      const { container } = render(<Money fiat>0.001234</Money>);
+
+      expect(container).toHaveTextContent('0.0012');
+      expect(screen.getByDisplayValue('0.0012')).toBeInTheDocument();
+    });
+
     it('omits the shrink font on the fraction when smallFractionFont is false', () => {
       const { container } = render(<Money smallFractionFont={false}>1.23</Money>);
 
