@@ -114,7 +114,7 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
   }, [session, close, onReopen]);
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} screenKey="dapp-actions">
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{t('dappActionsSheet')}</DrawerTitle>

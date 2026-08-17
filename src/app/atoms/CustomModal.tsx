@@ -3,16 +3,26 @@ import React, { FC } from 'react';
 import classNames from 'clsx';
 import Modal from 'react-modal';
 
+import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isExtension } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 
-export type CustomModalProps = Modal.Props & Partial<PropsWithChildren>;
+export type CustomModalProps = Modal.Props &
+  Partial<PropsWithChildren> & {
+    /**
+     * Names this modal's overlay screen-key segment (`modal:<screenKey>`).
+     * Omit to fall back to the generic `modal` id — open/close is still
+     * captured, just without a per-modal label. E2E-only; no visual effect.
+     */
+    screenKey?: string;
+  };
 
 const CustomModal: FC<CustomModalProps> = props => {
-  const { className, overlayClassName, isOpen, ...restProps } = props;
+  const { className, overlayClassName, isOpen, screenKey, ...restProps } = props;
 
   useHideDappBubblesWhileOpen(!!isOpen);
+  useOverlayScreenKey(!!isOpen, screenKey ? `modal:${screenKey}` : 'modal');
 
   const rootElement = document.getElementById('root');
 
