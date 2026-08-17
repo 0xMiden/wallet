@@ -601,7 +601,7 @@ export const generateTransaction = async (
       // `requestBytes`); Agglayer bridged-send carries a pre-built request. Route the
       // leaf through the proxy so it runs offscreen flag-on, inline flag-off — same
       // args the former inline `getMidenClient(options)` block passed.
-      if (transaction.type === 'bridged-send' && transaction.requestBytes) {
+      if (transaction.type !== 'earn-deposit' && transaction.requestBytes) {
         result = await midenClientProxy.newTransaction(
           transaction.accountId,
           transaction.requestBytes,

@@ -1,3 +1,5 @@
+import { MOONPAY_API_KEY } from 'lib/fiat-ramp/moonpay';
+
 /**
  * In-app swap (the In-Protocol DEX / PSWAP flow) availability.
  *
@@ -31,4 +33,18 @@ export function isSwapEnabled(): boolean {
  */
 export function isBridgeDepositEnabled(): boolean {
   return true;
+}
+
+/**
+ * Fiat on-ramp (Buy) availability.
+ *
+ * Enabled only when a MoonPay API key is baked into the build
+ * (`MOONPAY_API_KEY`) — builds without one hide the feature entirely. This is
+ * the single source of truth for the ramp entry points — the home-screen Buy
+ * button and the `/buy` route both read it. Note the button additionally
+ * requires the current account to have a derived `evmAddress` (imported
+ * accounts don't).
+ */
+export function isFiatRampEnabled(): boolean {
+  return MOONPAY_API_KEY.length > 0;
 }

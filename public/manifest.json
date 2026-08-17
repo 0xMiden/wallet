@@ -13,12 +13,14 @@
   "__chrome|firefox|opera__homepage_url": "https://miden.fi",
   "short_name": "Bread",
 
-  "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "notifications", "alarms", "sidePanel", "offscreen"],
+  "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "notifications", "alarms", "sidePanel", "offscreen", "declarativeNetRequest"],
   "host_permissions": [
     "http://localhost/*",
     "https://faucet-api.forkchoice.xyz/*",
     "https://*.miden.fi/*",
-    "https://*.miden.io/*"
+    "https://*.miden.io/*",
+    "https://buy.moonpay.com/*",
+    "https://buy-sandbox.moonpay.com/*"
   ],
 
   "content_security_policy": {

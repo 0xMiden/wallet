@@ -16,6 +16,7 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import {
   BridgedReceiveTransaction,
   BridgedSendTransaction,
+  BuyTransaction,
   ConsumeTransaction,
   EarnDepositTransaction,
   EarnWithdrawTransaction,
@@ -426,6 +427,17 @@ export const initiateBridgedReceiveTransaction = async (args: {
     args.outputAmount,
     args.outputSymbol
   );
+  await Repo.transactions.add(dbTransaction);
+  return dbTransaction.id;
+};
+
+/** Insert a tracking-only fiat on-ramp purchase row (born Completed). */
+export const initiateBuyTransaction = async (args: {
+  accountId: string;
+  uuid: string;
+  sourceSymbol?: string;
+}): Promise<string> => {
+  const dbTransaction = new BuyTransaction(args.accountId, args.uuid, args.sourceSymbol);
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;
 };

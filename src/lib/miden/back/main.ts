@@ -1,5 +1,6 @@
 import { Runtime } from 'webextension-polyfill';
 
+import { installMoonPayFrameRules } from 'lib/fiat-ramp/moonpay-frame-rules';
 import { queueNoteImport } from 'lib/miden/activity';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import * as Actions from 'lib/miden/back/actions';
@@ -31,6 +32,12 @@ export async function start() {
   console.log('Miden background script started');
   intercom.onRequest(processRequest);
   registerOffscreenSignHandler();
+
+  // MoonPay's `frame-ancestors *` never matches chrome-extension:// origins;
+  // strip it (extension-initiated sub_frames only) so /buy can iframe the
+  // widget. Fire-and-forget — the ramp UI degrades to its error state if this
+  // ever fails.
+  installMoonPayFrameRules();
 
   // NOTE: The Vite sw-patches plugin injects await init_*() calls here
   // (between intercom registration and Actions.init)

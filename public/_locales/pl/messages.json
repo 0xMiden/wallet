@@ -3765,6 +3765,22 @@
       }
     }
   },
+  "buyRowTitle": {
+    "message": "Kupić",
+    "englishSource": "Buy"
+  },
+  "buyRowVia": {
+    "message": "Przez MoonPay → Miden",
+    "englishSource": "Via MoonPay → Miden"
+  },
+  "buyDetailsTitle": {
+    "message": "Kup szczegóły",
+    "englishSource": "Buy Details"
+  },
+  "buyRouteValue": {
+    "message": "MoonPay → Agglayer → Miden",
+    "englishSource": "MoonPay → Agglayer → Miden"
+  },
   "bridgeInProgress": {
     "message": "W toku",
     "englishSource": "In progress"
@@ -3996,5 +4012,53 @@
   "devEndpointResetConfirm": {
     "message": "Spowoduje to trwałe usunięcie tego portfela, w tym kluczy i historii transakcji. Aby je przywrócić, będziesz potrzebować frazy odzyskiwania.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "buy": {
+    "message": "Kupić",
+    "englishSource": "Buy"
+  },
+  "fiatRampTitleBuy": {
+    "message": "Kup kryptowalutę",
+    "englishSource": "Buy crypto"
+  },
+  "fiatRampNoEvmAddress": {
+    "message": "To konto nie ma adresu EVM dla ramp fiat.",
+    "englishSource": "This account has no EVM address for fiat ramps."
+  },
+  "fiatRampLoading": {
+    "message": "Ładowanie kasy…",
+    "englishSource": "Loading checkout…"
+  },
+  "fiatRampWidgetError": {
+    "message": "Nie udało się załadować kasy. Sprawdź, czy serwer podpisów MoonPay działa i spróbuj ponownie.",
+    "englishSource": "The checkout failed to load. Check that the MoonPay sign server is running and try again."
+  },
+  "buyInfoTitle": {
+    "message": "Zanim kupisz",
+    "englishSource": "Before you buy"
+  },
+  "buyInfoRedirectTitle": {
+    "message": "Zostaniesz przekierowany do MoonPay",
+    "englishSource": "You'll be redirected to MoonPay"
+  },
+  "buyInfoRedirectBody": {
+    "message": "Twój adres portfela jest już wpisany — po prostu wybierz kwotę i zapłać.",
+    "englishSource": "Your wallet address is already filled in — just pick an amount and pay."
+  },
+  "buyInfoEvmTitle": {
+    "message": "Środki docierają na Twój adres EVM",
+    "englishSource": "Funds arrive on your EVM address"
+  },
+  "buyInfoEvmBody": {
+    "message": "Twój zakup zostanie dostarczony jako MPT — token sieci testowej MoonPay — przypisany do adresu EVM pochodzącego z Twojego portfela. Jest tworzony w pełni po stronie klienta — Twoje klucze nigdy nie opuszczają tego urządzenia.",
+    "englishSource": "Your purchase arrives as MPT — MoonPay's testnet token — credited to an EVM address derived from your wallet. It's created fully client-side — your keys never leave this device."
+  },
+  "buyInfoBridgeTitle": {
+    "message": "Połączony z Miden przez Agglayer",
+    "englishSource": "Bridged to Miden via Agglayer"
+  },
+  "buyInfoBridgeBody": {
+    "message": "Następnie portfel automatycznie łączy środki z Twoim kontem Miden za pośrednictwem Agglayer. Nie musisz nic robić.",
+    "englishSource": "The wallet then automatically bridges the funds to your Miden account via Agglayer. No action needed from you."
   }
 }

@@ -7,6 +7,7 @@ import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import History from 'app/templates/history/History';
 import { SearchInput, TabHeader } from 'components/ui';
+import { reconcileBuyBridges } from 'lib/fiat-ramp/buy-watcher';
 import { reconcileAgglayerBridgedReceives } from 'lib/miden/activity';
 import { useAccount } from 'lib/miden/front';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
@@ -35,6 +36,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
       running = true;
       try {
         await reconcileAgglayerBridgedReceives();
+        await reconcileBuyBridges();
       } catch (error) {
         console.warn('[activity] AggLayer bridge poll failed', error);
       } finally {

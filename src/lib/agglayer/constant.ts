@@ -17,6 +17,13 @@ export const AGGLAYER_CONTRACT_ADDRESS = new Map<string, string>([
 // track when a (slow) bridge becomes claimable on the Miden side.
 export const AGGLAYER_BRIDGE_API = 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api/bridges';
 
+/**
+ * Sepolia RPC for every vault-signed EVM path. viem's `sepolia` chain default
+ * is thirdweb's public endpoint, which 429s after a handful of requests —
+ * PublicNode is keyless and doesn't rate-limit at our volumes.
+ */
+export const SEPOLIA_RPC_URL = 'https://ethereum-sepolia-rpc.publicnode.com';
+
 export const AGGLAYER_BRIDGE_ABI = [
   {
     inputs: [],

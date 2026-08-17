@@ -97,6 +97,33 @@ function buildRowProps(
     };
   }
 
+  // Fiat buy row: "Buy" / "Via MoonPay → Miden" with the bridged amount and a
+  // bridgeProgress-driven status dot (not-initiated → pending, initiated →
+  // confirmed, failed → failed). Reuses the bridge status tones.
+  if (entry.txType === 'buy') {
+    const progress = entry.buyBridgeProgress ?? 'not-initiated';
+    const failed = progress === 'failed';
+    const tone: ActivityStatusTone = progress === 'processed' ? 'confirmed' : failed ? 'failed' : 'pending';
+    return {
+      icon: failed ? (
+        <FailedCrossIcon className="w-3.5 h-3.5" />
+      ) : (
+        <Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />
+      ),
+      iconBg: failed ? 'bg-status-negative' : 'bg-tx-received',
+      title: t('buyRowTitle'),
+      subtitle: t('buyRowVia'),
+      amount: entry.buySourceAmount
+        ? {
+            value: `+${entry.buySourceAmount}`,
+            symbol: entry.buySourceSymbol,
+            direction: 'positive' as const
+          }
+        : undefined,
+      status: { label: t(tone), tone }
+    };
+  }
+
   // Smart Withdraw row: "Withdraw from Earn" / "Via Epoch → Miden" with a
   // positive incoming amount and a phase-driven status dot (Redeeming →
   // Delivering → Received, or Failed). Reuses the bridge status tones.

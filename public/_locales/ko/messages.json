@@ -3818,6 +3818,22 @@
       }
     }
   },
+  "buyRowTitle": {
+    "message": "구입하다",
+    "englishSource": "Buy"
+  },
+  "buyRowVia": {
+    "message": "MoonPay → 미덴 이용",
+    "englishSource": "Via MoonPay → Miden"
+  },
+  "buyDetailsTitle": {
+    "message": "구매 세부정보",
+    "englishSource": "Buy Details"
+  },
+  "buyRouteValue": {
+    "message": "MoonPay → Agglayer → Miden",
+    "englishSource": "MoonPay → Agglayer → Miden"
+  },
   "bridgeInProgress": {
     "message": "진행 중",
     "englishSource": "In progress"
@@ -4049,5 +4065,53 @@
   "devEndpointResetConfirm": {
     "message": "이렇게 하면 귀하의 키와 거래 내역을 포함하여 이 지갑이 영구적으로 삭제됩니다. 복원하려면 복구 문구가 필요합니다.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "buy": {
+    "message": "구입하다",
+    "englishSource": "Buy"
+  },
+  "fiatRampTitleBuy": {
+    "message": "암호화폐 구매",
+    "englishSource": "Buy crypto"
+  },
+  "fiatRampNoEvmAddress": {
+    "message": "이 계정에는 법정화폐 램프에 대한 EVM 주소가 없습니다.",
+    "englishSource": "This account has no EVM address for fiat ramps."
+  },
+  "fiatRampLoading": {
+    "message": "결제 로드 중…",
+    "englishSource": "Loading checkout…"
+  },
+  "fiatRampWidgetError": {
+    "message": "결제를 로드하지 못했습니다. MoonPay 사인 서버가 실행 중인지 확인하고 다시 시도하십시오.",
+    "englishSource": "The checkout failed to load. Check that the MoonPay sign server is running and try again."
+  },
+  "buyInfoTitle": {
+    "message": "구매하기 전에",
+    "englishSource": "Before you buy"
+  },
+  "buyInfoRedirectTitle": {
+    "message": "MoonPay로 리디렉션됩니다.",
+    "englishSource": "You'll be redirected to MoonPay"
+  },
+  "buyInfoRedirectBody": {
+    "message": "지갑 주소는 이미 입력되어 있습니다. 금액을 선택하고 결제하시면 됩니다.",
+    "englishSource": "Your wallet address is already filled in — just pick an amount and pay."
+  },
+  "buyInfoEvmTitle": {
+    "message": "귀하의 EVM 주소로 자금이 도착합니다",
+    "englishSource": "Funds arrive on your EVM address"
+  },
+  "buyInfoEvmBody": {
+    "message": "귀하의 구매는 귀하의 지갑에서 파생된 EVM 주소에 적립된 MPT(MoonPay의 테스트넷 토큰)로 도착합니다. 완전히 클라이언트 측에서 생성되므로 키가 이 장치를 떠나지 않습니다.",
+    "englishSource": "Your purchase arrives as MPT — MoonPay's testnet token — credited to an EVM address derived from your wallet. It's created fully client-side — your keys never leave this device."
+  },
+  "buyInfoBridgeTitle": {
+    "message": "Agglayer를 통해 Miden에 연결됨",
+    "englishSource": "Bridged to Miden via Agglayer"
+  },
+  "buyInfoBridgeBody": {
+    "message": "그런 다음 지갑은 Agglayer를 통해 자금을 Miden 계정에 자동으로 연결합니다. 귀하가 취해야 할 조치는 없습니다.",
+    "englishSource": "The wallet then automatically bridges the funds to your Miden account via Agglayer. No action needed from you."
   }
 }

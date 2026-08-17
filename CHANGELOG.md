@@ -1,8 +1,13 @@
 # Changelog
 
-## 1.15.20 (2026-08-17)
+## 1.15.21 (TBD)
 
 ### Features
+
+- [FEAT][all] **Buy crypto with fiat via MoonPay, bridged automatically to Miden.** A Buy button opens `/buy`, embedding the MoonPay Buy widget as a plain signed-URL iframe (no SDK) with the account's derived EVM address pre-filled. Purchases are tracked as `buy` activity rows via a wallet-generated `externalTransactionId`, and a background watcher polls the purchase status, gasses the address via a local paymaster, and bridges the delivered token to the user's Miden account over Agglayer (`approve` + `bridgeAsset`, vault-signed), with delivery reconciled against the bridge indexer. Hidden unless the build sets `MOONPAY_API_KEY`; URL signing and status polling run through a local sign server (`../moonpay-sign-server.mjs`).
+
+## 1.15.20 (2026-08-17)
+
 ### Fixes
 
 - [FIX][all] **The portfolio total no longer shows a fabricated dollar figure while prices are unavailable.** Every token defaults to $1 until real prices load, so before the price feed responds (or while it's down) the "USD total" on the home screen was effectively the raw token count dressed up as dollars. It now shows "$—" until real prices are available — stale-but-real prices still count — and switches to the true total once they load. (UX-review: a dash is the conservative choice; a skeleton or explicit "prices unavailable" affordance is a possible refinement.)

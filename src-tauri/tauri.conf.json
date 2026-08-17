@@ -11,7 +11,7 @@
   "app": {
     "withGlobalTauri": true,
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https: http:; font-src 'self' data:"
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; frame-src https://buy.moonpay.com https://buy-sandbox.moonpay.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https: http:; font-src 'self' data:"
     },
     "windows": [
       {

@@ -3818,6 +3818,22 @@
       }
     }
   },
+  "buyRowTitle": {
+    "message": "Satın almak",
+    "englishSource": "Buy"
+  },
+  "buyRowVia": {
+    "message": "MoonPay aracılığıyla → Miden",
+    "englishSource": "Via MoonPay → Miden"
+  },
+  "buyDetailsTitle": {
+    "message": "Satın Alma Ayrıntıları",
+    "englishSource": "Buy Details"
+  },
+  "buyRouteValue": {
+    "message": "MoonPay → Agglayer → Miden",
+    "englishSource": "MoonPay → Agglayer → Miden"
+  },
   "bridgeInProgress": {
     "message": "Devam etmekte",
     "englishSource": "In progress"
@@ -4049,5 +4065,53 @@
   "devEndpointResetConfirm": {
     "message": "Bu işlem, anahtarlarınız ve işlem geçmişiniz de dahil olmak üzere bu cüzdanı kalıcı olarak siler. Geri yüklemek için kurtarma ifadenize ihtiyacınız olacak.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "buy": {
+    "message": "Satın almak",
+    "englishSource": "Buy"
+  },
+  "fiatRampTitleBuy": {
+    "message": "Kripto satın al",
+    "englishSource": "Buy crypto"
+  },
+  "fiatRampNoEvmAddress": {
+    "message": "Bu hesabın fiat rampaları için EVM adresi yok.",
+    "englishSource": "This account has no EVM address for fiat ramps."
+  },
+  "fiatRampLoading": {
+    "message": "Ödeme yükleniyor…",
+    "englishSource": "Loading checkout…"
+  },
+  "fiatRampWidgetError": {
+    "message": "Ödeme yüklenemedi. MoonPay işaret sunucusunun çalışıp çalışmadığını kontrol edin ve tekrar deneyin.",
+    "englishSource": "The checkout failed to load. Check that the MoonPay sign server is running and try again."
+  },
+  "buyInfoTitle": {
+    "message": "Satın almadan önce",
+    "englishSource": "Before you buy"
+  },
+  "buyInfoRedirectTitle": {
+    "message": "MoonPay'e yönlendirileceksiniz",
+    "englishSource": "You'll be redirected to MoonPay"
+  },
+  "buyInfoRedirectBody": {
+    "message": "Cüzdan adresiniz zaten doldurulmuş; sadece bir miktar seçin ve ödeyin.",
+    "englishSource": "Your wallet address is already filled in — just pick an amount and pay."
+  },
+  "buyInfoEvmTitle": {
+    "message": "Para EVM adresinize ulaşır",
+    "englishSource": "Funds arrive on your EVM address"
+  },
+  "buyInfoEvmBody": {
+    "message": "Satın alma işleminiz, cüzdanınızdan türetilen bir EVM adresine aktarılan MPT (MoonPay'in test ağı jetonu) olarak gelir. Tamamen istemci tarafında oluşturulmuştur; anahtarlarınız bu cihazdan asla ayrılmaz.",
+    "englishSource": "Your purchase arrives as MPT — MoonPay's testnet token — credited to an EVM address derived from your wallet. It's created fully client-side — your keys never leave this device."
+  },
+  "buyInfoBridgeTitle": {
+    "message": "Agglayer aracılığıyla Miden'e köprü kuruldu",
+    "englishSource": "Bridged to Miden via Agglayer"
+  },
+  "buyInfoBridgeBody": {
+    "message": "Cüzdan daha sonra parayı Agglayer aracılığıyla otomatik olarak Miden hesabınıza aktarır. Hiçbir işlem yapmanıza gerek yok.",
+    "englishSource": "The wallet then automatically bridges the funds to your Miden account via Agglayer. No action needed from you."
   }
 }

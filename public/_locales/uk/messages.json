@@ -3819,6 +3819,22 @@
       }
     }
   },
+  "buyRowTitle": {
+    "message": "купити",
+    "englishSource": "Buy"
+  },
+  "buyRowVia": {
+    "message": "Через MoonPay → Miden",
+    "englishSource": "Via MoonPay → Miden"
+  },
+  "buyDetailsTitle": {
+    "message": "Купити Деталі",
+    "englishSource": "Buy Details"
+  },
+  "buyRouteValue": {
+    "message": "MoonPay → Agglayer → Miden",
+    "englishSource": "MoonPay → Agglayer → Miden"
+  },
   "bridgeInProgress": {
     "message": "В роботі",
     "englishSource": "In progress"
@@ -4050,5 +4066,53 @@
   "devEndpointResetConfirm": {
     "message": "Це назавжди видаляє цей гаманець, включаючи ваші ключі та історію транзакцій. Щоб відновити його, вам знадобиться ваша фраза відновлення.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "buy": {
+    "message": "купити",
+    "englishSource": "Buy"
+  },
+  "fiatRampTitleBuy": {
+    "message": "Купуйте криптовалюту",
+    "englishSource": "Buy crypto"
+  },
+  "fiatRampNoEvmAddress": {
+    "message": "Цей обліковий запис не має адреси EVM для фіатних рамп.",
+    "englishSource": "This account has no EVM address for fiat ramps."
+  },
+  "fiatRampLoading": {
+    "message": "Завантаження замовлення…",
+    "englishSource": "Loading checkout…"
+  },
+  "fiatRampWidgetError": {
+    "message": "Не вдалося завантажити касу. Перевірте, чи запущений сервер підписів MoonPay, і повторіть спробу.",
+    "englishSource": "The checkout failed to load. Check that the MoonPay sign server is running and try again."
+  },
+  "buyInfoTitle": {
+    "message": "Перед покупкою",
+    "englishSource": "Before you buy"
+  },
+  "buyInfoRedirectTitle": {
+    "message": "Ви будете перенаправлені на MoonPay",
+    "englishSource": "You'll be redirected to MoonPay"
+  },
+  "buyInfoRedirectBody": {
+    "message": "Адресу вашого гаманця вже вказано — просто виберіть суму та сплатіть.",
+    "englishSource": "Your wallet address is already filled in — just pick an amount and pay."
+  },
+  "buyInfoEvmTitle": {
+    "message": "Кошти надходять на вашу адресу EVM",
+    "englishSource": "Funds arrive on your EVM address"
+  },
+  "buyInfoEvmBody": {
+    "message": "Ваша покупка надходить як MPT — маркер тестової мережі MoonPay — зарахований на адресу EVM, отриману з вашого гаманця. Його створено повністю на стороні клієнта — ваші ключі ніколи не залишають цей пристрій.",
+    "englishSource": "Your purchase arrives as MPT — MoonPay's testnet token — credited to an EVM address derived from your wallet. It's created fully client-side — your keys never leave this device."
+  },
+  "buyInfoBridgeTitle": {
+    "message": "Міст до Мідена через Agglayer",
+    "englishSource": "Bridged to Miden via Agglayer"
+  },
+  "buyInfoBridgeBody": {
+    "message": "Потім гаманець автоматично передає кошти на ваш рахунок Miden через Agglayer. Вам не потрібно нічого робити.",
+    "englishSource": "The wallet then automatically bridges the funds to your Miden account via Agglayer. No action needed from you."
   }
 }
