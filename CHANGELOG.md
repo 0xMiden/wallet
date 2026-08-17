@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.21 (TBD)
+
+### Changes
+
+- [CHANGE][ci] **E2E harnesses now capture a screenshot on every screen change (route/card/overlay), and four PR-only suites now also run on `main` with those screenshots uploaded as artifacts on green runs.** Capture is gated on `MIDEN_E2E_TEST` and tree-shaken out of production builds; no user-facing change.
+
 ## 1.15.20 (2026-08-17)
 
 ### Features
