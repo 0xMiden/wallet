@@ -2,6 +2,39 @@ const fs = require('fs');
 const translate = require('translate').default;
 const path = require('path');
 
+// Translation engine: DeepL (replaces the free, unofficial Google web endpoint).
+// The key comes from the DEEPL_API_KEY env var. In practice this only runs in the
+// CI "translations" job (pr.yml), which supplies it from the repo secret of the
+// same name — so that secret is the single home for the key. For a rare manual run,
+// prefix the command with the var: `DEEPL_API_KEY=… yarn createTranslationFile`.
+// Free-tier keys end in ":fx"; the translate package auto-routes those to
+// api-free.deepl.com, and paid keys to api.deepl.com.
+if (process.env.DEEPL_API_KEY) {
+  translate.engine = 'deepl';
+  translate.key = process.env.DEEPL_API_KEY;
+}
+
+// Map each locale directory to its DeepL target-language code. DeepL rejects or
+// deprecates bare codes for regional variants, so this is NOT `dir.split('_')[0]`:
+//   - en_GB → EN-GB   (bare EN is deprecated as a DeepL *target*)
+//   - pt    → PT-BR   (existing pt corpus is Brazilian; switch to PT-PT for European)
+//   - zh_CN → ZH-HANS / zh_TW → ZH-HANT  (bare ZH would make zh_TW Simplified!)
+const LOCALE_TO_DEEPL: Record<string, string> = {
+  de: 'DE',
+  en_GB: 'EN-GB',
+  es: 'ES',
+  fr: 'FR',
+  ja: 'JA',
+  ko: 'KO',
+  pl: 'PL',
+  pt: 'PT-BR',
+  ru: 'RU',
+  tr: 'TR',
+  uk: 'UK',
+  zh_CN: 'ZH-HANS',
+  zh_TW: 'ZH-HANT',
+};
+
 const root = path.resolve(__dirname, '..');
 // Use en.json as source of truth (flat format), not messages.json (Chrome extension format)
 const englishFilePath = path.join(root, 'public/_locales/en/en.json');
@@ -81,8 +114,11 @@ function restoreTerms(text: string, replacements: Map<string, string>, languageC
   let restored = text;
 
   for (const [placeholder, originalTerm] of replacements) {
-    // Check if there's a special translation for this term in this language
-    const specialTranslations = SPECIAL_TERM_TRANSLATIONS[languageCode];
+    // Check if there's a special translation for this term in this language.
+    // languageCode is now a DeepL target (e.g. "PT-BR", "ZH-HANT"); reduce it to
+    // the short key SPECIAL_TERM_TRANSLATIONS is keyed by (e.g. "pt", "zh", "pl").
+    const langKey = languageCode.split('-')[0].toLowerCase();
+    const specialTranslations = SPECIAL_TERM_TRANSLATIONS[langKey];
     const replacement = specialTranslations?.[originalTerm] ?? originalTerm;
 
     // Escape the placeholder for regex (handle special chars in XML tags)
@@ -434,7 +470,11 @@ async function updateAllLanguages() {
       continue;
     }
     const filePath = path.join(root, `public/_locales/${languageDir}/messages.json`);
-    const languageCode = languageDir.split('_')[0];
+    const languageCode = LOCALE_TO_DEEPL[languageDir];
+    if (!languageCode) {
+      console.warn(`⚠️  No DeepL target mapping for locale "${languageDir}" — skipping (add it to LOCALE_TO_DEEPL).`);
+      continue;
+    }
     await translateWithDiff(filePath, languageCode, true);
   }
 }
@@ -488,6 +528,19 @@ async function fixAllPotentialErrors() {
 
 // eslint-disable-next-line import/order
 const argv = require('minimist')(process.argv.slice(2));
+
+// Every mode except -e (which only validates $placeholder$ counts) calls the DeepL
+// API. Without a key, skip gracefully instead of failing: this keeps fork PRs green
+// (forks don't receive the DEEPL_API_KEY secret — they check out and generate but
+// never push the diff back anyway) and gives local runs a clear, actionable message.
+const needsDeepLKey = !argv['e'];
+if (needsDeepLKey && !process.env.DEEPL_API_KEY) {
+  console.warn('⚠️  DEEPL_API_KEY not set — skipping translation generation (locale files unchanged).');
+  console.warn('    CI:     set the repo secret DEEPL_API_KEY (consumed by the "translations" job).');
+  console.warn('    Manual: prefix the command, e.g.  DEEPL_API_KEY=<your key> yarn createTranslationFile');
+  process.exit(0);
+}
+
 const code = argv['_'][0];
 if (argv['c'] && argv['f']) {
   // yarn createTranslationFile -f public/_locales/ru/messages.json -c ru
