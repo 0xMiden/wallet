@@ -25,8 +25,9 @@ function scheduleChromePush(): void {
   if (pushTimer) clearTimeout(pushTimer);
   pushTimer = setTimeout(() => {
     pushTimer = null;
-    const w = (typeof window !== 'undefined' ? window : undefined) as WindowWithPush | undefined;
-    w?.__e2eScreenChanged?.(current.key, current.seq);
+    /* istanbul ignore next -- SW realm has no window */
+    if (typeof window === 'undefined') return;
+    (window as WindowWithPush).__e2eScreenChanged?.(current.key, current.seq);
   }, SCREEN_PUSH_DEBOUNCE_MS);
 }
 
