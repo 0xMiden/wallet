@@ -53,7 +53,7 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Адрес: $number$",
+    "message": "Адрес: $number$ ",
     "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
@@ -447,6 +447,10 @@
   "earnPositionsRegionLabel": {
     "message": "Позиции",
     "englishSource": "Positions"
+  },
+  "earnPositionsLoadError": {
+    "message": "Не удалось загрузить ваши позиции. Проверьте подключение и повторите попытку.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -1077,6 +1081,10 @@
     "message": "Условия использования",
     "englishSource": "Terms of Service"
   },
+  "sendFeedback": {
+    "message": "Отправить отзыв",
+    "englishSource": "Send feedback"
+  },
   "termsOfUse": {
     "message": "Условия эксплуатации",
     "englishSource": "Terms of Use"
@@ -1347,6 +1355,10 @@
     "message": "Делегирование генерации доказательств",
     "englishSource": "Delegate Proof Generation"
   },
+  "delegateProofSettingsDescription": {
+    "message": "Если этот параметр включен, доказательства транзакций создаются на удаленных серверах — быстрее, без необходимости загрузки больших объемов данных на ваше устройство, и ваши ключи никогда не покидают его. В выключенном состоянии или если услуга недоступна, кошелек работает локально: более приватно, но медленнее и требует большой однократной загрузки.",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+  },
   "transfer": {
     "message": "Передача",
     "englishSource": "Transfer"
@@ -1581,8 +1593,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "Если к тому времени он не будет востребован, $amount$ возвращается в ваш кошелек автоматически. Никакие средства не теряются.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "Если к тому времени вы не будете востребованы, вы можете претендовать на $amount$ обратно в свой кошелек. Никакие средства не теряются.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1679,6 +1691,30 @@
     "message": "Фонд сейчас",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "Пополнение вашего кошелька",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "Запрос токенов у faucet…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "Кошелек финансируется",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "Ваши токены уже в пути и появятся в ближайшее время.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "Финансирование не удалось",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "Мы не смогли пополнить ваш кошелек. Пожалуйста, попробуйте еще раз.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "У вас есть ожидающие Notes",
     "englishSource": "You have Pending Notes"
@@ -1709,12 +1745,24 @@
     "englishSource": "Secure signing unavailable"
   },
   "hotKeyHardwareErrorPromptBody": {
-    "message": "Это устройство не могло использовать свое защищенное оборудование для подписи транзакций. Скопируйте ошибку и отправьте ее команде Miden.",
-    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+    "message": "Защищенное оборудование этого устройства сообщило об ошибке при настройке подписи транзакции. Скопируйте ошибку и отправьте ее команде Miden.",
+    "englishSource": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team."
   },
   "hotKeyHardwareErrorPromptAction": {
     "message": "Ошибка копирования",
     "englishSource": "Copy error"
+  },
+  "hotKeyRotationPromptTitle": {
+    "message": "Ключ устройства требует ротации",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "Это устройство больше не может использовать (горячую) клавишу вашего устройства. Поверните его, чтобы восстановить подпись — ваши средства не пострадают.",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "Поворот клавиши",
+    "englishSource": "Rotate key"
   },
   "bridgePromptTitle": {
     "message": "Мост в процессе",
@@ -1808,6 +1856,10 @@
   "claim": {
     "message": "Требовать",
     "englishSource": "Claim"
+  },
+  "clear": {
+    "message": "Прозрачный",
+    "englishSource": "Clear"
   },
   "midenWallet": {
     "message": "Хлеб!",
@@ -1942,8 +1994,8 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Утверждает или отклоняет транзакции на основе вашей политики безопасности. Поможет вам восстановиться, если вы потеряете устройство.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "Подписывает каждую транзакцию — ни ваше устройство, ни Guardian не могут переводить средства в одиночку. Поможет вам восстановить учетную запись, если вы потеряете устройство.",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "Чего он не может сделать",
@@ -1958,8 +2010,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Вы можете в любой момент перейти к другому Стражу или полностью удалить его, используя фразу восстановления.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "Вы можете в любой момент переключиться на другого Стража с помощью фразы восстановления. Меняется только тот, кто подписывает документы; ваш счет и средства останутся прежними.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Понятно",
@@ -2305,6 +2357,22 @@
     "message": "Последняя синхронизация",
     "englishSource": "Last sync"
   },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianRotationComplete": {
+    "message": "Опекун обновлен!",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "Онлайн",
     "englishSource": "Online"
@@ -2478,8 +2546,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Автоматически использовать notes из Miden Faucet",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "Автоматически зачисляет входящие MIDEN notes на ваш баланс — то же самое, что нажать «Заявить». Он не тратит ваши средства и не взимает никаких комиссий.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "Зашифрованный файл кошелька",
@@ -2563,12 +2631,12 @@
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
-    "message": "Не закрывайте это окно. После создания транзакции вы вернетесь на домашнюю страницу.",
-    "englishSource": "Do not close this window. You will be navigated back to the home page after the transaction is generated"
+    "message": "Не закрывайте это окно, пока транзакция не будет сгенерирована.",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "doNotCloseWindowAutoClose": {
-    "message": "Не закрывайте это окно. Окно автоматически закроется после создания транзакции.",
-    "englishSource": "Do not close this window. Window will auto-close after the transaction is generated"
+    "message": "Не закрывайте это окно, пока транзакция не будет сгенерирована.",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "transactionSuccessDescription": {
     "message": "Ваша транзакция была успешно обработана и подтверждена в сети.",
@@ -2613,6 +2681,10 @@
   "viewInActivities": {
     "message": "Посмотреть в разделе «Действия»",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "Посмотреть активность",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Посмотреть детали",
@@ -2953,6 +3025,23 @@
         "content": "$1"
       }
     }
+  },
+  "notesUnresolved": {
+    "message": "$count$ не решено",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Заявка не удалась. Нажмите «Повторить», чтобы повторить попытку.",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "Этот note больше недоступен.",
+    "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
     "message": "Ожидание notes",
@@ -3323,6 +3412,22 @@
     "message": "Сканирование отменено",
     "englishSource": "Scan cancelled"
   },
+  "scanQrTitle": {
+    "message": "Сканировать QR-код",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Наведите камеру на QR-код",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "Камера не найдена",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Запрос доступа к камере…",
+    "englishSource": "Requesting camera access…"
+  },
   "scan": {
     "message": "Сканировать",
     "englishSource": "Scan"
@@ -3354,6 +3459,14 @@
   "noteReceivedTitle": {
     "message": "Вы получили note",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "Транзакция не удалась",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "Транзакция не может быть завершена. Откройте кошелек для проверки.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "Нажмите здесь, чтобы потребовать это",
@@ -3904,9 +4017,21 @@
     "message": "Total Paid",
     "englishSource": "Total Paid"
   },
+  "totalConsumed": {
+    "message": "Всего потреблено",
+    "englishSource": "Total Consumed"
+  },
+  "notesConsumed": {
+    "message": "Notes Израсходовано",
+    "englishSource": "Notes Consumed"
+  },
+  "consumed": {
+    "message": "Потреблено",
+    "englishSource": "Consumed"
+  },
   "sourceTx": {
-    "message": "Source TX",
-    "englishSource": "Source TX"
+    "message": "Идентификатор транзакции",
+    "englishSource": "Transaction ID"
   },
   "developerSettingsTitle": {
     "message": "Настройки разработчика",

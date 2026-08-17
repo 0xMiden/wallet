@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
-import { type InputNoteRecord } from '@miden-sdk/miden-sdk/lazy';
-
 import { getUncompletedTransactions } from 'lib/miden/activity';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import { isExtension, isIOS } from 'lib/platform';
@@ -10,10 +8,12 @@ import { getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 
 import { isMidenFaucet } from '../assets';
-import { getNoteRecallableAtMs, toNoteTypeString } from '../helpers';
+import { midenClientProxy } from '../back/miden-client-proxy';
+import { toNoteTypeString } from '../helpers';
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { getMidenClient, runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
+import { onNotesRefresh } from './note-refresh';
+import type { ConsumableNoteDto } from '../sdk/consumable-notes';
+import { runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
 import { classifySwapOrderNotes } from '../swap/classification';
 import { ConsumableNote, NoteTypeEnum, SwapOrderNoteMetadata } from '../types';
 import { useTokensMetadata } from './assets';
@@ -46,48 +46,37 @@ type ParsedNote = {
 // -------------------- Pure helpers (no side effects) --------------------
 
 function parseNotes(
-  rawNotes: InputNoteRecord[],
+  rawNotes: ConsumableNoteDto[],
   notesBeingClaimed: Set<string>,
-  swapOrders: Map<string, SwapOrderNoteMetadata> = new Map(),
-  syncHeight?: number
+  swapOrders: Map<string, SwapOrderNoteMetadata> = new Map()
 ): ParsedNote[] {
   const parsed: ParsedNote[] = [];
 
+  // Notes now arrive as reduced DTOs (issue #260, slice 4): the reach-through to
+  // `.id()/.metadata()/.details()` — and the per-note try/catch that guarded it —
+  // now live in the shared reducer, which already dropped any un-reducible note.
   for (const note of rawNotes) {
-    try {
-      // Partial (metadata-less) notes have no ID yet and cannot be
-      // claimed — skip until sync completes them.
-      const noteId = note.id()?.toString();
-      if (!noteId) continue;
-      const noteMeta = note.metadata();
-      const details = note.details();
+    // Partial (metadata-less) notes have no ID yet and cannot be claimed — skip
+    // until sync completes them.
+    const noteId = note.noteId;
+    if (!noteId) continue;
 
-      const assetSet = details.assets();
-      const fungibleAssets = assetSet.fungibleAssets();
+    // Only the first fungible asset is surfaced (unchanged); an empty asset set
+    // means the note can't be displayed — skip it.
+    const firstAsset = note.assets[0];
+    if (!firstAsset) continue;
 
-      // Safety checks
-      if (!fungibleAssets || fungibleAssets.length === 0) continue;
-
-      const firstAsset = fungibleAssets[0];
-      if (!firstAsset) continue;
-
-      const faucetId = getBech32AddressFromAccountId(firstAsset.faucetId());
-      const amountBaseUnits = firstAsset.amount().toString();
-      const senderAddress = noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : '';
-      const kind = noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown';
-      parsed.push({
-        id: noteId,
-        faucetId,
-        amountBaseUnits,
-        senderAddress,
-        isBeingClaimed: notesBeingClaimed.has(noteId),
-        type: kind,
-        swapOrder: swapOrders.get(noteId),
-        recallableAtMs: syncHeight !== undefined ? getNoteRecallableAtMs(note, syncHeight) : undefined
-      });
-    } catch (err) {
-      console.error('Error processing note:', err);
-    }
+    const kind = note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown';
+    parsed.push({
+      id: noteId,
+      faucetId: firstAsset.faucetId,
+      amountBaseUnits: firstAsset.amount,
+      senderAddress: note.senderAccountId ?? '',
+      isBeingClaimed: notesBeingClaimed.has(noteId),
+      type: kind,
+      swapOrder: swapOrders.get(noteId),
+      recallableAtMs: note.recallableAtMs
+    });
   }
 
   return parsed;
@@ -161,14 +150,11 @@ async function fetchNotesFromLocalClient(
   publicAddress: string,
   debugInfoRef: React.MutableRefObject<ClaimableNotesDebugInfo>
 ): Promise<ParsedNote[]> {
-  let rawNotes: any[] = [];
-  let syncHeight: number | undefined;
+  let rawNotes: ConsumableNoteDto[] = [];
   try {
-    ({ rawNotes, syncHeight } = await withWasmClientLock(async () => {
-      const midenClient = await getMidenClient();
-      const notes = await midenClient.getConsumableNotes(publicAddress);
-      return { rawNotes: notes, syncHeight: await midenClient.client.getSyncHeight() };
-    }));
+    // DTOs via the proxy (issue #260, slice 4): flag-off falls through to the
+    // same inline client, so on mobile/desktop this is behavior-identical.
+    rawNotes = await withWasmClientLock(async () => midenClientProxy.getConsumableNotes(publicAddress));
   } catch (e) {
     debugInfoRef.current = {
       ...debugInfoRef.current,
@@ -185,10 +171,10 @@ async function fetchNotesFromLocalClient(
       .flatMap(tx => tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []))
   );
 
-  const swapOrders = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
-    return classifySwapOrderNotes(rawNotes, publicAddress, midenClient);
-  });
+  // Per-order PSWAP lineage inside classifySwapOrderNotes routes through the proxy
+  // (issue #260, slice 7a); the caller lock still serializes the flag-OFF inline
+  // lineage reads (byte-identical), and flag-ON they hit the offscreen client.
+  const swapOrders = await withWasmClientLock(async () => classifySwapOrderNotes(rawNotes, publicAddress));
 
   // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
   // custom transaction — hidden from the claimable UI until the user
@@ -200,7 +186,7 @@ async function fetchNotesFromLocalClient(
   // parsed result by id (parseNotes derives ids the same way, via
   // `note.id()?.toString()`, so the ids match exactly).
   const quarantined = await getQuarantinedNoteIds();
-  const parsed = parseNotes(rawNotes, notesBeingClaimed, swapOrders, syncHeight);
+  const parsed = parseNotes(rawNotes, notesBeingClaimed, swapOrders);
   return quarantined.size === 0 ? parsed : parsed.filter(n => !quarantined.has(n.id));
 }
 
@@ -273,7 +259,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   const mutate = useCallback(() => {
     // Trigger a SyncRequest to get fresh data
     const intercom = getIntercom();
-    intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => { });
+    intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => {});
     return Promise.resolve(undefined);
   }, []);
 
@@ -362,6 +348,16 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
       };
     }
   });
+
+  // Revalidate immediately when a sync completes or the app foregrounds, so a
+  // just-imported note surfaces without waiting out the 5s SWR interval (#462).
+  const { mutate } = swrResult;
+  useEffect(() => {
+    if (!enabled) return;
+    return onNotesRefresh(() => {
+      void mutate();
+    });
+  }, [enabled, mutate]);
 
   return {
     ...swrResult,

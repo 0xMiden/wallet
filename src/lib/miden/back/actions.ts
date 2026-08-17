@@ -134,7 +134,13 @@ export async function isDAppEnabled() {
   return bools.every(Boolean);
 }
 
-export function registerNewWallet(walletType: WalletType, password?: string, mnemonic?: string, ownMnemonic?: boolean) {
+export function registerNewWallet(
+  walletType: WalletType,
+  password?: string,
+  mnemonic?: string,
+  ownMnemonic?: boolean,
+  guardianEndpoint?: string
+) {
   console.log(
     '[Actions.registerNewWallet] Called with walletType:',
     walletType,
@@ -146,7 +152,7 @@ export function registerNewWallet(walletType: WalletType, password?: string, mne
   return withInited(async () => {
     console.log('[Actions.registerNewWallet] Starting...');
     try {
-      const vault = await Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic);
+      const vault = await Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic, guardianEndpoint);
       console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
       const accounts = await vault.fetchAccounts();
       const settings = await vault.fetchSettings();
@@ -204,6 +210,16 @@ export function unlock(password?: string) {
       const currentAccount = await vault.getCurrentAccount();
       const ownMnemonic = await vault.isOwnMnemonic();
       unlocked({ vault, accounts, settings, currentAccount, ownMnemonic });
+      // Stamp a per-account guardianEndpoint onto legacy Guardian accounts that
+      // predate the field, by resolving their on-chain guardian commitment to a
+      // built-in operator (#408 stage 2). Fired detached AFTER unlocked() —
+      // unlike the local-only migrations above it makes external guardian HTTP,
+      // which must never gate the unlock UI transition. Best-effort +
+      // idempotent; resolveGuardianDrift and the next unlock reconcile anything
+      // left unresolved.
+      void vault
+        .backfillGuardianEndpoints()
+        .catch(e => console.warn('[unlock] guardian-endpoint backfill failed (non-fatal):', e));
     })
   );
 }
@@ -261,7 +277,7 @@ export function revealGuardianKeys(accountPublicKey: string, password?: string) 
 
 export function revealPublicKey(_accPublicKey: string) {}
 
-// NOTE: account removal is not implemented (no-op since the aleo port). The
+// NOTE: account removal is not implemented (no-op). The
 // "Remove Account" UI therefore currently does nothing. When this is wired up,
 // it MUST, for Guardian accounts, release the hardware-backed hot key via
 // `secureHotKey.deleteHotKey(<hot ciphertext>)` and remove the cold-key blob

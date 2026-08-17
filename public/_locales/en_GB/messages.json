@@ -53,7 +53,7 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Address: $number$",
+    "message": "Address:  $number$ ",
     "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
@@ -447,6 +447,10 @@
   "earnPositionsRegionLabel": {
     "message": "Positions",
     "englishSource": "Positions"
+  },
+  "earnPositionsLoadError": {
+    "message": "Couldn't load your positions. Check your connection and try again.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -1077,6 +1081,10 @@
     "message": "Terms of Service",
     "englishSource": "Terms of Service"
   },
+  "sendFeedback": {
+    "message": "Send feedback",
+    "englishSource": "Send feedback"
+  },
   "termsOfUse": {
     "message": "Terms of Use",
     "englishSource": "Terms of Use"
@@ -1347,6 +1355,10 @@
     "message": "Delegate Proof Generation",
     "englishSource": "Delegate Proof Generation"
   },
+  "delegateProofSettingsDescription": {
+    "message": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download.",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+  },
   "transfer": {
     "message": "Transfer",
     "englishSource": "Transfer"
@@ -1581,8 +1593,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "If unclaimed by then, the  $amount$  returns to your wallet automatically. No funds are lost.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "If unclaimed by then, you can claim the  $amount$  back into your wallet. No funds are lost.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1679,6 +1691,30 @@
     "message": "Fund now",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "Funding your wallet",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "Requesting tokens from the faucet…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "Wallet funded",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "Your tokens are on the way and will appear shortly.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "Funding failed",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "We couldn't fund your wallet. Please try again.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "You have Pending Notes",
     "englishSource": "You have Pending Notes"
@@ -1709,12 +1745,24 @@
     "englishSource": "Secure signing unavailable"
   },
   "hotKeyHardwareErrorPromptBody": {
-    "message": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team.",
-    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+    "message": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team.",
+    "englishSource": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team."
   },
   "hotKeyHardwareErrorPromptAction": {
     "message": "Copy error",
     "englishSource": "Copy error"
+  },
+  "hotKeyRotationPromptTitle": {
+    "message": "Device key needs rotation",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected.",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "Rotate key",
+    "englishSource": "Rotate key"
   },
   "bridgePromptTitle": {
     "message": "Bridge in progress",
@@ -1808,6 +1856,10 @@
   "claim": {
     "message": "Claim",
     "englishSource": "Claim"
+  },
+  "clear": {
+    "message": "Clear",
+    "englishSource": "Clear"
   },
   "midenWallet": {
     "message": "Bread!",
@@ -1942,8 +1994,8 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device.",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "What it cannot do",
@@ -1958,8 +2010,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Got it",
@@ -2317,6 +2369,10 @@
       }
     }
   },
+  "guardianRotationComplete": {
+    "message": "Guardian Updated!",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "Online",
     "englishSource": "Online"
@@ -2490,8 +2546,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Automatically consume notes from Miden Faucet",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "Encrypted Wallet File",
@@ -2575,12 +2631,12 @@
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
-    "message": "Do not close this window. You will be navigated back to the home page after the transaction is generated",
-    "englishSource": "Do not close this window. You will be navigated back to the home page after the transaction is generated"
+    "message": "Do not close this window until the transaction is generated",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "doNotCloseWindowAutoClose": {
-    "message": "Do not close this window. Window will auto-close after the transaction is generated",
-    "englishSource": "Do not close this window. Window will auto-close after the transaction is generated"
+    "message": "Do not close this window until the transaction is generated",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "transactionSuccessDescription": {
     "message": "Your transaction was successfully processed and confirmed on the network.",
@@ -2625,6 +2681,10 @@
   "viewInActivities": {
     "message": "View in Activities",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "View activity",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "View Details",
@@ -2965,6 +3025,23 @@
         "content": "$1"
       }
     }
+  },
+  "notesUnresolved": {
+    "message": "$count$ unresolved",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Claim failed — tap Retry to try again",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "This note is no longer available",
+    "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
     "message": "Pending notes",
@@ -3335,6 +3412,22 @@
     "message": "Scan cancelled",
     "englishSource": "Scan cancelled"
   },
+  "scanQrTitle": {
+    "message": "Scan QR code",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Point your camera at a QR code",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "No camera found",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Requesting camera access…",
+    "englishSource": "Requesting camera access…"
+  },
   "scan": {
     "message": "Scan",
     "englishSource": "Scan"
@@ -3366,6 +3459,14 @@
   "noteReceivedTitle": {
     "message": "You have received a note",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "Transaction failed",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "A transaction couldn't be completed. Open the wallet to review.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "Tap here to claim it",
@@ -3916,9 +4017,21 @@
     "message": "Total Paid",
     "englishSource": "Total Paid"
   },
+  "totalConsumed": {
+    "message": "Total Consumed",
+    "englishSource": "Total Consumed"
+  },
+  "notesConsumed": {
+    "message": "Notes Consumed",
+    "englishSource": "Notes Consumed"
+  },
+  "consumed": {
+    "message": "Consumed",
+    "englishSource": "Consumed"
+  },
   "sourceTx": {
-    "message": "Source TX",
-    "englishSource": "Source TX"
+    "message": "Transaction ID",
+    "englishSource": "Transaction ID"
   },
   "developerSettingsTitle": {
     "message": "Developer Settings",

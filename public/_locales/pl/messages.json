@@ -53,7 +53,7 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Adres: $number$",
+    "message": "Adres: $number$ ",
     "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
@@ -447,6 +447,10 @@
   "earnPositionsRegionLabel": {
     "message": "Pozycje",
     "englishSource": "Positions"
+  },
+  "earnPositionsLoadError": {
+    "message": "Nie udało się wczytać Twoich pozycji. Sprawdź połączenie i spróbuj ponownie.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ RRSO",
@@ -1061,6 +1065,10 @@
     "message": "Warunki świadczenia usług",
     "englishSource": "Terms of Service"
   },
+  "sendFeedback": {
+    "message": "Wyślij opinię",
+    "englishSource": "Send feedback"
+  },
   "termsOfUse": {
     "message": "Warunki użytkowania",
     "englishSource": "Terms of Use"
@@ -1331,6 +1339,10 @@
     "message": "Deleguj generowanie dowodu",
     "englishSource": "Delegate Proof Generation"
   },
+  "delegateProofSettingsDescription": {
+    "message": "Gdy ta opcja jest włączona, dowody transakcji są generowane na zdalnych serwerach — szybciej, bez konieczności pobierania dużych ilości danych na urządzenie, a Twoje klucze nigdy go nie opuszczają. Gdy jest wyłączony lub gdy usługa jest niedostępna, portfel okazuje się lokalnie: bardziej prywatny, ale wolniejszy i wymaga jednorazowego pobrania dużej ilości danych.",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+  },
   "transfer": {
     "message": "Przenosić",
     "englishSource": "Transfer"
@@ -1564,8 +1576,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "Jeśli do tego czasu nie zostanie odebrane, $amount$ automatycznie wraca do Twojego portfela. Żadne środki nie zostaną utracone.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "Jeśli do tego czasu nie zostanie odebrany, możesz ubiegać się o $amount$ z powrotem do portfela. Żadne środki nie zostaną utracone.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1662,6 +1674,30 @@
     "message": "Fundusz teraz",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "Zasilenie Twojego portfela",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "Żądanie tokenów od faucet…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "Zasilony portfelem",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "Twoje tokeny są w drodze i wkrótce się pojawią.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "Finansowanie nie powiodło się",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "Nie mogliśmy zasilić Twojego portfela. Spróbuj ponownie.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "Masz oczekujące Notes",
     "englishSource": "You have Pending Notes"
@@ -1692,12 +1728,24 @@
     "englishSource": "Secure signing unavailable"
   },
   "hotKeyHardwareErrorPromptBody": {
-    "message": "To urządzenie nie mogło używać bezpiecznego sprzętu do podpisywania transakcji. Skopiuj błąd i wyślij go do zespołu Miden.",
-    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+    "message": "Bezpieczny sprzęt tego urządzenia zgłosił błąd podczas konfigurowania podpisywania transakcji. Skopiuj błąd i wyślij go do zespołu Miden.",
+    "englishSource": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team."
   },
   "hotKeyHardwareErrorPromptAction": {
     "message": "Kopiuj błąd",
     "englishSource": "Copy error"
+  },
+  "hotKeyRotationPromptTitle": {
+    "message": "Klucz urządzenia wymaga rotacji",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "To urządzenie nie może już używać Twojego (gorącego) klawisza urządzenia. Obróć go, aby przywrócić podpisywanie – nie ma to wpływu na Twoje środki.",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "Obróć klucz",
+    "englishSource": "Rotate key"
   },
   "bridgePromptTitle": {
     "message": "Most w trakcie",
@@ -1791,6 +1839,10 @@
   "claim": {
     "message": "Prawo",
     "englishSource": "Claim"
+  },
+  "clear": {
+    "message": "Jasne",
+    "englishSource": "Clear"
   },
   "midenWallet": {
     "message": "Chleb!",
@@ -1925,8 +1977,8 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Zatwierdza lub odrzuca transakcje w oparciu o Twoją politykę bezpieczeństwa. Pomaga odzyskać siły w przypadku utraty urządzenia.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "Podpisuje każdą transakcję — ani Twoje urządzenie, ani Guardian nie mogą samodzielnie przesyłać środków. Pomaga odzyskać konto w przypadku utraty urządzenia.",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "Czego nie może zrobić",
@@ -1941,8 +1993,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Możesz przejść do innego Strażnika — lub całkowicie go usunąć — w dowolnym momencie, używając frazy odzyskiwania.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "W dowolnym momencie możesz przełączyć się na innego Opiekuna, podając frazę odzyskiwania. Zmienia się tylko to, kto jest współsygnatariuszem; Twoje konto i środki pozostają takie same.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Rozumiem",
@@ -2256,6 +2308,22 @@
     "message": "Ostatnia synchronizacja",
     "englishSource": "Last sync"
   },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianRotationComplete": {
+    "message": "Strażnik zaktualizowany!",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "W Internecie",
     "englishSource": "Online"
@@ -2429,8 +2497,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Automatycznie pobierz notes z Miden Faucet",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "Automatycznie przejmuje przychodzące MIDEN notes na Twoje saldo — tak samo, jak naciśnięcie przycisku Odbierz. Nie wydaje Twoich środków ani nie dodaje żadnych opłat.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "Zaszyfrowany plik portfela",
@@ -2509,12 +2577,12 @@
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
-    "message": "Nie zamykaj tego okna. Po wygenerowaniu transakcji nastąpi powrót do strony głównej",
-    "englishSource": "Do not close this window. You will be navigated back to the home page after the transaction is generated"
+    "message": "Nie zamykaj tego okna do czasu wygenerowania transakcji",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "doNotCloseWindowAutoClose": {
-    "message": "Nie zamykaj tego okna. Okno zamknie się automatycznie po wygenerowaniu transakcji",
-    "englishSource": "Do not close this window. Window will auto-close after the transaction is generated"
+    "message": "Nie zamykaj tego okna do czasu wygenerowania transakcji",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "transactionSuccessDescription": {
     "message": "Twoja transakcja została pomyślnie przetworzona i potwierdzona w sieci.",
@@ -2559,6 +2627,10 @@
   "viewInActivities": {
     "message": "Zobacz w Aktywności",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "Zobacz aktywność",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Zobacz szczegóły",
@@ -2899,6 +2971,23 @@
         "content": "$1"
       }
     }
+  },
+  "notesUnresolved": {
+    "message": "$count$ nierozwiązany",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Roszczenie nie powiodło się — kliknij Spróbuj ponownie, aby spróbować ponownie",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "To note nie jest już dostępne",
+    "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
     "message": "Oczekuje notes",
@@ -3260,6 +3349,22 @@
     "message": "Skanowanie anulowane",
     "englishSource": "Scan cancelled"
   },
+  "scanQrTitle": {
+    "message": "Zeskanuj kod QR",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Skieruj aparat na kod QR",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "Nie znaleziono aparatu",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Prośba o dostęp do kamery…",
+    "englishSource": "Requesting camera access…"
+  },
   "scan": {
     "message": "Skandować",
     "englishSource": "Scan"
@@ -3291,6 +3396,14 @@
   "noteReceivedTitle": {
     "message": "Otrzymałeś note",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "Transakcja nie powiodła się",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "Nie udało się sfinalizować transakcji. Otwórz portfel, aby przejrzeć.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "Kliknij tutaj, aby to odebrać",
@@ -3841,9 +3954,21 @@
     "message": "Total Paid",
     "englishSource": "Total Paid"
   },
+  "totalConsumed": {
+    "message": "Całkowite zużycie",
+    "englishSource": "Total Consumed"
+  },
+  "notesConsumed": {
+    "message": "Notes Zużyte",
+    "englishSource": "Notes Consumed"
+  },
+  "consumed": {
+    "message": "Strawiony",
+    "englishSource": "Consumed"
+  },
   "sourceTx": {
-    "message": "Source TX",
-    "englishSource": "Source TX"
+    "message": "Identyfikator transakcji",
+    "englishSource": "Transaction ID"
   },
   "developerSettingsTitle": {
     "message": "Ustawienia programisty",

@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
+import { REMOTE_PROVER_FAILED_ERROR } from 'lib/miden/transaction/constants';
+
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
 
@@ -407,9 +409,10 @@ describe('HistoryDetails', () => {
       expect(toChip.textContent).toBe('stranger');
     });
 
-    it('swaps from/to for a non-Sent message and hides optional rows when data is absent', async () => {
+    it('swaps from/to for an inbound transaction and hides optional rows when data is absent', async () => {
       mockGetTransactionById.mockResolvedValue({
         ...baseSendTx,
+        type: 'consume',
         displayMessage: 'Received',
         transactionId: undefined, // no external tx id row
         amount: 0n, // falsy → amount undefined → no amount span / no fiat
@@ -418,7 +421,7 @@ describe('HistoryDetails', () => {
       });
       await renderAndLoad();
 
-      // 'Received': from = secondaryAccountId (acct-B), to = accountId (acct-A).
+      // Inbound: from = secondaryAccountId (acct-B, the note sender), to = accountId (acct-A).
       expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute(
         'data-address',
         'acct-B'
@@ -429,6 +432,23 @@ describe('HistoryDetails', () => {
       expect(rowByLabel('txIdLabel')).toBeUndefined();
       // No amount span (amount undefined) → fiat also absent.
       expect(screen.queryByText('historyDetailsFiatApprox_$2000.00')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['queued', 'Sending'],
+      ['cancelled', 'Failed']
+    ])('keeps From/To pointing outward on a %s send', async (_label, displayMessage) => {
+      // `cancelTransaction` overwrites `displayMessage` with 'Failed', and a send
+      // reads 'Sending' until it completes. Direction must come from the type, or
+      // both of those render "From: <recipient> / To: <your own account>".
+      mockGetTransactionById.mockResolvedValue({ ...baseSendTx, displayMessage });
+      await renderAndLoad();
+
+      expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute(
+        'data-address',
+        'acct-A'
+      );
+      expect(rowByLabel('to')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-B');
     });
 
     it('hides the notes section entirely when there is no note data', async () => {
@@ -575,7 +595,7 @@ describe('HistoryDetails', () => {
       expect(screen.queryByTestId('swap-order-status')).not.toBeInTheDocument();
     });
 
-    it('shows a polling indicator while refreshing an active order', async () => {
+    it('shows a steady tracking indicator while the order is active', async () => {
       let resolveRefresh!: (tracking: {
         orderId: string;
         state: string;
@@ -601,13 +621,15 @@ describe('HistoryDetails', () => {
       );
       await renderAndLoad();
 
-      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+      // The order is active, so the tracking indicator shows steadily — not only
+      // while a poll is momentarily in flight (that per-poll flicker was #486).
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusActive');
+      expect(screen.getByTestId('swap-order-polling')).toHaveTextContent('loading');
 
+      // It stays put across the next background poll rather than blinking off/on.
       await act(async () => {
         jest.advanceTimersByTime(2000);
       });
-
-      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusActive');
       expect(screen.getByTestId('swap-order-polling')).toHaveTextContent('loading');
 
       await act(async () => {
@@ -623,6 +645,73 @@ describe('HistoryDetails', () => {
 
       expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
       expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
+    });
+
+    it('reconciles to Filled once settlement notes are seen locally, even if the lineage still reports active (#486)', async () => {
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      // The on-chain lineage lags — it keeps reporting the order as still active...
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '10',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 0n,
+        remainingRequested: 700n
+      });
+      // ...but this wallet has already observed the settlement consume note.
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-x'], reclaimed: [] });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 10n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      // Local settlement is the source of truth: show Filled and drop the spinner
+      // instead of sitting on "Active" with a flickering loader.
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
+      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+    });
+
+    it('reconciles to Reclaimed when the local settlement is a reclaim (#486)', async () => {
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '11',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 0n,
+        remainingRequested: 700n
+      });
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: [], reclaimed: ['note-r'] });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 11n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusReclaimed');
+      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+    });
+
+    it('treats a mixed settle+reclaim order as Filled — a settle consume outranks a reclaim (#486)', async () => {
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '12',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 0n,
+        remainingRequested: 700n
+      });
+      // Paybacks settled in one consume tick, the tip reclaimed in another — both
+      // buckets are non-empty. The swap-row chip stamps "Settled" (funds received),
+      // so this row must agree rather than showing "Reclaimed".
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-s'], reclaimed: ['note-r'] });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 12n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
+      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
     });
 
     it('backs off on unresolved polls and gives up after the cap', async () => {
@@ -781,7 +870,7 @@ describe('HistoryDetails', () => {
       status: STATUS_FAILED,
       displayMessage: 'Failed',
       displayIcon: 'FAILED',
-      error: 'Remote prover failed — this is most often caused by a timeout. Please try again.',
+      error: REMOTE_PROVER_FAILED_ERROR,
       rawError: 'Error: fetch timeout after 30000ms',
       ...overrides
     });
@@ -794,7 +883,7 @@ describe('HistoryDetails', () => {
         el => el.getAttribute('data-title') === 'error'
       )!;
       expect(errorCard).toBeTruthy();
-      expect(errorCard.textContent).toContain('Remote prover failed');
+      expect(errorCard.textContent).toContain(REMOTE_PROVER_FAILED_ERROR);
 
       // Raw error hidden until the disclosure is toggled.
       expect(errorCard.textContent).not.toContain('fetch timeout');

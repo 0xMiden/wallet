@@ -198,9 +198,20 @@ export default defineConfig({
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.MIDEN_PLATFORM': JSON.stringify('mobile'),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
+    // Issue #260: hardcoded OFF on mobile — Capacitor / WKWebView / Android
+    // WebView have no chrome.offscreen document to rehost the client into.
+    'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify('false'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    // E2E behaviour opt-outs — see vite.extension.config.ts. Default 'false'.
+    // (The side-panel one is inert on mobile — no chrome.sidePanel — but it is
+    // still defined so the read folds to a constant like every other flag here;
+    // the shared onboarding code that reads it is in this bundle too.)
+    'process.env.MIDEN_E2E_DISABLE_SIDEPANEL': JSON.stringify(process.env.MIDEN_E2E_DISABLE_SIDEPANEL ?? 'false'),
+    'process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES': JSON.stringify(
+      process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES ?? 'false'
+    ),
     'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
     'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
     'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(

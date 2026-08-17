@@ -10,7 +10,7 @@ import type { AssetMetadata } from 'lib/miden/metadata';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
 import type { ConsumableNote } from 'lib/miden/types';
-import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
+import { faucetFetch, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 
@@ -19,10 +19,18 @@ export enum WalletPromptType {
   Faucet = 'faucet',
   PendingNotes = 'pendingNotes',
   VerifySeedPhrase = 'verifySeedPhrase',
-  // Mobile-only: the native hot-key plugin could not use the device's secure
-  // hardware (TEE / Secure Enclave), so transactions can't be signed. Surfaced
-  // so the user can copy the raw native error and report it to us.
-  HotKeyHardwareUnavailable = 'hotKeyHardwareUnavailable'
+  // Mobile-only: the native hot-key plugin hit a secure-hardware error —
+  // either it couldn't use the TEE / Secure Enclave at all (signing falls back
+  // to the software key), or a present StrongBox failed and the key degraded
+  // to TEE (Android, signing still hardware-backed). Surfaced so the user can
+  // copy the raw native error and report it to us.
+  HotKeyHardwareUnavailable = 'hotKeyHardwareUnavailable',
+  // Mobile-only: the native hot-key plugin rejected with UNWRAP_FAILED /
+  // KEY_INVALIDATED — the hardware-wrapped key blob can no longer be
+  // decrypted (e.g. an OS upgrade dropped an OAEP authorization, or the OS
+  // invalidated a legacy auth-bound key). The remedy is a hot-key rotation,
+  // so the prompt's action initiates a replace-hot-key transaction.
+  HotKeyRotationNeeded = 'hotKeyRotationNeeded'
 }
 
 export enum WalletPromptStatus {
@@ -227,6 +235,22 @@ export async function reportHotKeyHardwareFailure(message: string): Promise<void
   await seedWalletPrompt(WalletPromptType.HotKeyHardwareUnavailable);
 }
 
+/**
+ * Surface the "rotate your device key" prompt. Called (via a lazy import)
+ * from the secure-hot-key facade when a native op rejects with UNWRAP_FAILED
+ * or KEY_INVALIDATED. Unlike `seedWalletPrompt`, a COMPLETED status re-arms:
+ * a fresh unwrap failure after a successful rotation is a new incident, not
+ * the one the user already resolved. An explicit dismiss stays sticky, and an
+ * already-pending prompt skips the write — guardian autosync retries signing
+ * every few seconds, so this is called in a tight loop while the key is broken.
+ */
+export async function reportHotKeyRotationNeeded(): Promise<void> {
+  const storage = await fetchWalletPromptStorage();
+  const status = storage.prompts[WalletPromptType.HotKeyRotationNeeded];
+  if (status === WalletPromptStatus.Dismissed || status === WalletPromptStatus.Pending) return;
+  await setWalletPromptStatus(WalletPromptType.HotKeyRotationNeeded, WalletPromptStatus.Pending);
+}
+
 const FAUCET_API_URL = 'https://faucet-api.forkchoice.xyz/api/mint';
 // 10 IMIDEN in base units (8 decimals).
 const IMIDEN_FAUCET_AMOUNT = 1_000_000_000;
@@ -234,7 +258,10 @@ const IMIDEN_FAUCET_AMOUNT = 1_000_000_000;
 const MIDEN_FAUCET_AMOUNT = 100_000_000n;
 
 async function mintFromForkchoice(address: string): Promise<void> {
-  const response = await fetch(FAUCET_API_URL, {
+  // `faucetFetch` bounds the request with a timeout and honors a 429 Retry-After,
+  // so a wedged or rate-limited forkchoice faucet fails cleanly instead of
+  // hanging the funding flow.
+  const response = await faucetFetch(FAUCET_API_URL, {
     method: 'POST',
     headers: {
       'content-type': 'application/json'
@@ -252,8 +279,79 @@ async function mintFromForkchoice(address: string): Promise<void> {
   }
 }
 
+/**
+ * Aggregated faucet failure. `faucet()` fans out to two independent sources
+ * (forkchoice IMIDEN + official MIDEN); ANY rejection surfaces here with a
+ * message that names which source(s) failed and their underlying error text,
+ * so the funding drawer can show the real reason rather than a generic string.
+ */
+export class FaucetError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FaucetError';
+  }
+}
+
+function reasonMessage(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}
+
+type FaucetSource = 'forkchoice' | 'miden';
+
+/**
+ * Per-address record of which faucet SOURCES have already paid out, so a Retry
+ * after a partial failure re-mints ONLY the source that actually failed.
+ *
+ * Without this, `faucet()` re-ran BOTH sources on every call: if forkchoice
+ * succeeded but MIDEN failed, tapping Retry minted forkchoice a SECOND time
+ * (double-funding the source that already worked) while retrying MIDEN. The memo
+ * is cleared once BOTH sources have succeeded, so a genuine later re-fund starts
+ * fresh rather than being skipped forever.
+ */
+const succeededFaucetSources = new Map<string, Set<FaucetSource>>();
+
+/** Test-only: clear the per-address faucet-source progress between cases. */
+export function __resetFaucetProgressForTest(): void {
+  succeededFaucetSources.clear();
+}
+
 export async function faucet(address: string): Promise<void> {
-  await Promise.all([mintFromForkchoice(address), mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT)]);
+  const done = succeededFaucetSources.get(address) ?? new Set<FaucetSource>();
+
+  const sources: Array<{ source: FaucetSource; label: string; run: () => Promise<unknown> }> = [
+    { source: 'forkchoice', label: 'IMIDEN', run: () => mintFromForkchoice(address) },
+    { source: 'miden', label: 'MIDEN', run: () => mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT) }
+  ];
+  const pending = sources.filter(source => !done.has(source.source));
+
+  // Both sources already funded this address in a prior (partial) attempt —
+  // nothing to re-mint. Clear the memo and report success.
+  if (pending.length === 0) {
+    succeededFaucetSources.delete(address);
+    return;
+  }
+
+  const results = await Promise.allSettled(pending.map(source => source.run()));
+
+  const failures: string[] = [];
+  pending.forEach((source, i) => {
+    const result = results[i];
+    if (!result) return;
+    if (result.status === 'fulfilled') {
+      done.add(source.source);
+    } else {
+      failures.push(`${source.label}: ${reasonMessage(result.reason)}`);
+    }
+  });
+
+  if (failures.length > 0) {
+    // Remember the sources that DID pay out, so Retry skips them.
+    succeededFaucetSources.set(address, done);
+    throw new FaucetError(failures.join('; '));
+  }
+
+  // Fully funded — forget the address so a future re-fund isn't skipped.
+  succeededFaucetSources.delete(address);
 }
 
 export function useWalletPromptStorage() {

@@ -40,7 +40,7 @@ const AddressBook: React.FC = () => {
   }, [allContacts, searchQuery]);
 
   return (
-    <div className="w-full mx-auto">
+    <div className="w-full mx-auto" data-testid="address-book">
       <AddNewContactForm />
 
       <hr className="border-border-light my-8" />
@@ -69,6 +69,7 @@ const AddressBook: React.FC = () => {
           filteredContacts.map(contact => (
             <CardItem
               key={contact.address}
+              data-testid={`address-book-contact-${contact.address}`}
               title={contact.name}
               subtitle={`${contact.accountInWallet ? (contact.isPublic ? t('public') : t('private')) : t('external')} · ${truncateAddress(contact.address, true, 12)}`}
               iconLeft={<Avatar image="/misc/avatars/miden-orange.png" size="lg" />}

@@ -267,7 +267,9 @@ const VerifySeedPhraseFlow: FC = () => {
                   {words.map((word, idx) => (
                     <div key={idx} className="flex items-center gap-2 min-w-0">
                       <span className="text-xs text-text-muted w-5 text-right">{idx + 1}.</span>
-                      <span className="text-sm font-medium text-heading-gray">{word}</span>
+                      <span data-testid={`seed-word-${idx}`} className="text-sm font-medium text-heading-gray">
+                        {word}
+                      </span>
                     </div>
                   ))}
                 </div>

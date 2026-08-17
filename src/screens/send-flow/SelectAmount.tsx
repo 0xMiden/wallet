@@ -36,10 +36,11 @@ export interface SelectAmountProps {
   /** Required in the default (page) variant, which renders its own Confirm CTA. */
   onConfirm?: () => void;
   /**
-   * `embedded` strips the full-screen chrome (network pill, balance helper,
-   * scroll container, Confirm button) so the field can be stacked — the swap
-   * screen renders two of these (You Pay / You Receive) under one shared
-   * Confirm. Defaults to the standalone page layout used by the send flow.
+   * `embedded` strips the full-screen chrome (network pill, scroll container,
+   * Confirm button) so the field can be stacked — the swap screen renders two of
+   * these (You Pay / You Receive) under one shared Confirm. The available-balance
+   * helper is NOT stripped by `embedded`; it's controlled by `showBalanceHelper`
+   * (#461). Defaults to the standalone page layout used by the send flow.
    */
   embedded?: boolean;
   /** Token-logo symbol override (e.g. the DEX `logoSymbol`); defaults to `token.name`. */
@@ -183,9 +184,13 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         <span className="font-heading text-gray text-base font-bold">
           {t('available')} {formatBalance(token.balance)} {token.name}
         </span>
-        <span className="font-heading text-gray text-base font-bold">
-          {t('approxFiatValue', { value: `$${availableFiat.toFixed(2)}` })}
-        </span>
+        {/* Only show the fiat approximation when we actually have a price — swap
+            DEX tokens carry no fiatPrice, so a "$0.00" line would be misleading. */}
+        {token.fiatPrice > 0 && (
+          <span className="font-heading text-gray text-base font-bold">
+            {t('approxFiatValue', { value: `$${availableFiat.toFixed(2)}` })}
+          </span>
+        )}
       </>
     ) : null;
 
@@ -194,7 +199,11 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       label={label ?? (title ? undefined : t('selectAmount'))}
       value={amount}
       error={error ? t(error) : undefined}
-      helper={embedded ? undefined : helper}
+      // The helper (available balance) is controlled by `showBalanceHelper`, not
+      // by `embedded`: the swap "You Pay" field is embedded but must still show
+      // how much is spendable (#461). Embedded callers that don't want it (e.g.
+      // the swap "You Receive" field) pass showBalanceHelper={false}.
+      helper={helper}
       tokenSelector={isBridge ? bridgeSelector : tokenSelector}
       showDivider={!!amount && !!token}
       data-testid="send-amount-input"

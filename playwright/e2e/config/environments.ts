@@ -19,7 +19,7 @@ const ENVIRONMENTS: Record<string, EnvironmentConfig> = {
     // GUARDIAN_OPTIONS). OpenZeppelin is the default/primary; Koda is a distinct
     // second operator for switch tests.
     guardianUrl: 'https://guardian.openzeppelin.com',
-    guardianUrlB: 'https://guardian-testnet.kodax.com',
+    guardianUrlB: 'https://guardian-testnet.kodax.com'
   },
   devnet: {
     name: 'devnet',
@@ -33,7 +33,7 @@ const ENVIRONMENTS: Record<string, EnvironmentConfig> = {
     delegateProving: true,
     // OpenZeppelin runs on devnet too; the other operators are testnet-only, so
     // there is no distinct second guardian for switch tests here.
-    guardianUrl: 'https://guardian-stg.openzeppelin.com',
+    guardianUrl: 'https://guardian-stg.openzeppelin.com'
   },
   localhost: {
     name: 'localhost',
@@ -47,8 +47,8 @@ const ENVIRONMENTS: Record<string, EnvironmentConfig> = {
     delegateProving: false,
     // The two local guardian containers (guardian on :3000, guardian-b on :3001).
     guardianUrl: 'http://localhost:3000',
-    guardianUrlB: 'http://localhost:3001',
-  },
+    guardianUrlB: 'http://localhost:3001'
+  }
 };
 
 /**
@@ -59,9 +59,7 @@ export function getEnvironmentConfig(): EnvironmentConfig {
   const envName = process.env.E2E_NETWORK ?? 'testnet';
   const config = ENVIRONMENTS[envName];
   if (!config) {
-    throw new Error(
-      `Unknown E2E_NETWORK="${envName}". Valid options: ${Object.keys(ENVIRONMENTS).join(', ')}`
-    );
+    throw new Error(`Unknown E2E_NETWORK="${envName}". Valid options: ${Object.keys(ENVIRONMENTS).join(', ')}`);
   }
   return config;
 }

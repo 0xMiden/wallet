@@ -210,7 +210,6 @@
   "popupSettings": "Tryb wyskakujący",
   "popupSettingsDescription": "Tutaj możesz skonfigurować wyskakujące okienko pojawiające się po kliknięciu ikony wtyczki w panelu rozszerzeń.",
   "delegateProofSettings": "Deleguj generowanie dowodu",
-  "delegateProofSettingsDescription": "Tutaj możesz skonfigurować delegowanie generowania dowodu do zdalnego serwera. Przyspieszy to generowanie dowodu, ale ujawni szczegóły transakcji zaufanemu serwerowi.",
   "autoCloseSettings": "Automatyczne zamykanie generującej stronę transakcji",
   "autoCloseSettingsDescription": "Tutaj możesz skonfigurować automatyczne zamykanie strony transakcji generującej po wygenerowaniu transakcji.",
   "analyticsSettings": "Anonimowe analizy",

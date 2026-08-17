@@ -353,9 +353,18 @@ export default defineConfig({
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
+    // Issue #260 slice 1: route flag-gated WASM-client reads (getAccount)
+    // through the chrome.offscreen document. DEFAULT OFF — off is a strict
+    // no-op vs. the inline client. See lib/miden/back/miden-client-proxy.ts.
+    'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'true'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    // E2E behaviour opt-outs — see vite.extension.config.ts. Default 'false'.
+    'process.env.MIDEN_E2E_DISABLE_SIDEPANEL': JSON.stringify(process.env.MIDEN_E2E_DISABLE_SIDEPANEL ?? 'false'),
+    'process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES': JSON.stringify(
+      process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES ?? 'false'
+    ),
     'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
     'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
       process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'

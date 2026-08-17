@@ -106,11 +106,6 @@ export function stringToBigInt(str: string, decimals: number) {
   return BigInt(num);
 }
 
-export const ALEO_MICROCREDITS_TO_CREDITS = 1_000_000;
-
-export const stringToAleoMicrocredits = (value: string) =>
-  BigInt(Math.floor(Number(value) * ALEO_MICROCREDITS_TO_CREDITS));
-
 export function toLocalFixed(value: BigNumber.Value, decimalPlaces?: number, roundingMode?: BigNumber.RoundingMode) {
   const bn = new BigNumber(value);
   const numberSymbols = getNumberSymbols();

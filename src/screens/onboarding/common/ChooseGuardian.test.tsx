@@ -108,8 +108,8 @@ const GATEWAY = {
 };
 const LAMBDA = {
   id: 'lambda-class',
-  name: 'Lambda Class',
-  operatedBy: 'Lambda Class',
+  name: 'LambdaClass',
+  operatedBy: 'LambdaClass',
   location: 'EU-WEST',
   endpoint: 'https://lc.example.com'
 };

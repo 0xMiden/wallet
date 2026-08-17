@@ -1,0 +1,223 @@
+name: E2E Android
+
+# Android is the third shipped surface and had NO per-PR or per-push signal at
+# all: a complete ~1300-line harness, one spec, and no workflow to run it. A
+# regression that only reproduced on Android could ship without anything going
+# red.
+#
+# This runs the Android emulator suite on every push to main, mirroring what
+# e2e-blockchain.yml does for Chrome and iOS.
+#
+# Why ubuntu and NOT macOS: the emulator needs hardware acceleration, and on
+# GitHub-hosted runners only Linux can give it. macos-26-xlarge was tried and the
+# emulator died on the spot:
+#
+#   HVF error: HV_UNSUPPORTED
+#   qemu-system-aarch64-headless: failed to initialize HVF: Invalid argument
+#   QEMU main loop exits abnormally with code 1
+#
+# GitHub's macOS runners are themselves VMs and do not expose the Hypervisor
+# framework, so there is no acceleration to be had there at any runner size. KVM
+# on Linux is the only option — which is also why Android CI conventionally runs
+# on Linux. The contention that made this flaky is addressed by sizing the
+# emulators to the host instead (see EMULATOR_CORES in emulator-control.ts).
+#
+# The system image is `default` (AOSP), NOT `google_apis`: the wallet has no
+# dependency on Play Services — no firebase, no push-notifications plugin, no
+# google-services.json — so GMS is pure overhead, and on a runner hosting two
+# emulators it is overhead that costs a test. With google_apis the failing run
+# showed Play Services itself falling over under the load:
+#
+#   ANR in com.google.android.partnersetup      latency 31943ms
+#   ANR in com.google.android.gms.persistent    latency 26613ms
+#   Zygote: Process ... exited due to signal 9 (Killed)   (x4)
+#   emulator-5556 — app process: NO MIDEN PROCESS (app not running)
+#
+# i.e. the wallet under test was killed while GMS thrashed. AOSP still ships a
+# WebView, which is all a Capacitor app needs.
+#
+# The harness boots TWO emulators (the two-wallet fixture needs a sender and a
+# recipient), cloning the base AVD into `miden_e2e_A`/`miden_e2e_B` on first run
+# — see playwright/e2e/android/helpers/emulator-control.ts. So this job only has
+# to provide the SDK, a system image, and the BASE AVD; global-setup does the
+# rest and reuses an already-booted pair if one is present.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      network:
+        description: 'Network to test against'
+        required: false
+        default: 'testnet'
+        type: choice
+        options:
+          - testnet
+          - devnet
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-e2e:
+    name: Android E2E (${{ github.event.inputs.network || 'testnet' }})
+    runs-on: ubuntu-latest
+    # Two emulator boots + an APK assemble + a live-chain spec.
+    timeout-minutes: 60
+    env:
+      E2E_NETWORK: ${{ github.event.inputs.network || 'testnet' }}
+      MIDEN_E2E_TEST: 'true'
+      # Pin ONE avd directory for all three tools. `avdmanager` writes where its
+      # own home resolution lands, `emulator -list-avds` scans where ITS home
+      # resolution lands, and the harness reads
+      # `ANDROID_AVD_HOME ?? $HOME/.android/avd` — on the runner those did not
+      # agree, so the base AVD was created successfully, listed as nothing, and
+      # the run died in global setup with `Base AVD "Pixel_API_34" not found`
+      # after paying for the SDK install and the APK build. Setting this makes
+      # all three read the same path.
+      ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
+    steps:
+      - uses: actions/checkout@v4
+
+      # KVM is what makes the emulator usable rather than merely present. Without
+      # this the boot either fails outright or is slow enough to blow every wait.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: yarn }
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: |
+          sdkmanager --install "platform-tools" "emulator" \
+            "platforms;android-34" "system-images;android-34;default;x86_64"
+
+      # The AVD pair is derived from this base by the harness, so its name has to
+      # match BASE_AVD in emulator-control.ts. Kept in one place there; if it is
+      # ever renamed, this step fails loudly rather than silently booting nothing.
+      - name: Create base AVD
+        run: |
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo no | avdmanager create avd \
+            --name Pixel_API_34 \
+            --package "system-images;android-34;default;x86_64" \
+            --device pixel_6 \
+            --force
+          # Fail HERE if the emulator can't see what avdmanager just wrote,
+          # rather than 5 minutes later in Playwright's global setup with the
+          # SDK install and the APK build already paid for.
+          echo "AVDs visible to the emulator (ANDROID_AVD_HOME=$ANDROID_AVD_HOME):"
+          "$ANDROID_HOME/emulator/emulator" -list-avds
+          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx 'Pixel_API_34' || {
+            echo "::error::avdmanager created Pixel_API_34 but 'emulator -list-avds' does not list it" >&2
+            ls -la "$ANDROID_AVD_HOME" || true
+            exit 1
+          }
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      # Same shared cache + pre-install every other E2E workflow uses. Without
+      # it the harness compiles miden-client-cli lazily on FIRST USE — i.e.
+      # inside the test — and the ~9 minutes of cargo build ate the 15-minute
+      # per-test budget: `mint-and-balance.android` failed with "Test timeout of
+      # 900000ms exceeded" having spent most of it in `Compiling thiserror`.
+      # Keyed on what actually determines the binaries (rustc pin, the
+      # note-transport ref, the pinned CLI rev), so it hits the entry warmed on
+      # main rather than rebuilding per run.
+      - name: Compute shared cargo cache key
+        id: cargo_cache_key
+        run: |
+          rev=$(node -p "require('./package.json').midenClientCliGit.rev")
+          url=$(node -p "require('./package.json').midenClientCliGit.url")
+          ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
+          pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
+          echo "key=miden-e2e-cargo-v1-rust1.96.1-${{ hashFiles('playwright/e2e/local-stack/versions.env') }}-$pins" >> "$GITHUB_OUTPUT"
+
+      - name: Cache cargo (cli + note-transport)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ${{ runner.temp }}/note-transport/target
+          key: ${{ steps.cargo_cache_key.outputs.key }}
+
+      - name: Pre-install miden-client-cli (off the per-test clock)
+        run: |
+          # Skip when the cargo cache already restored it (else `cargo install`
+          # errors "binary already exists"); the key pins the rev, so a present
+          # binary is guaranteed to be the right one.
+          if ! command -v miden-client >/dev/null 2>&1; then
+            url=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.url)")
+            rev=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.rev)")
+            cargo install miden-client-cli --git "$url" --rev "$rev" --locked
+          fi
+          miden-client --version
+
+      - name: Build debug APK
+        run: yarn test:e2e:android:build
+
+      # Reclaim the Gradle daemon's heap before two emulators start competing
+      # for the runner's 16 GB. The daemon lingers after `assembleDebug` holding
+      # a GB or two it will never use again in this job.
+      - name: Stop the Gradle daemon
+        run: cd android && ./gradlew --stop || true
+
+      - name: Run Android E2E
+        run: yarn test:e2e:android:run
+
+      # This step produced NOTHING on the failure it exists for: `-t 400` reads
+      # only the last 400 lines of the ring buffer, and after a 30-minute hang
+      # those are idle system chatter that the grep then discarded entirely. So
+      # the one run where the wallet never started left no evidence of whether it
+      # had crashed, been killed, or simply never been driven. Read the WHOLE
+      # buffer for the filtered pass, check liveness explicitly, and always print
+      # a raw tail so the step can never come back empty again.
+      - name: Collect emulator logs on failure
+        if: failure()
+        run: |
+          adb devices || true
+          for serial in emulator-5554 emulator-5556; do
+            echo "::group::$serial — app process"
+            adb -s "$serial" shell ps -A 2>/dev/null | grep -i miden || echo "  NO MIDEN PROCESS (app not running)"
+            echo "::endgroup::"
+            echo "::group::$serial — crash buffer"
+            adb -s "$serial" logcat -b crash -d -t 200 2>/dev/null || true
+            echo "::endgroup::"
+            echo "::group::$serial — wallet/chromium/OOM lines (whole buffer)"
+            adb -s "$serial" logcat -d 2>/dev/null \
+              | grep -iE "miden|chromium|console|fatal|ANR|lowmemorykiller|Killed" | tail -300 || true
+            echo "::endgroup::"
+            echo "::group::$serial — raw tail (fallback, never filtered)"
+            adb -s "$serial" logcat -d -t 150 2>/dev/null || true
+            echo "::endgroup::"
+          done
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-e2e-${{ github.run_id }}
+          path: |
+            test-results-android/
+          retention-days: 7
+          if-no-files-found: ignore

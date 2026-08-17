@@ -37,9 +37,11 @@ import type { AuthScheme } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { NoteExportType } from './constants';
+import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
 import { getBech32AddressFromAccountId } from './helpers';
 import { yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
+import { recordProveTelemetry } from './prove-telemetry';
 import { ConsumeTransaction, SendTransaction, SwapTransaction } from '../db/types';
 // Guardian helpers are dynamic-imported inside the methods that use them to avoid
 // a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
@@ -124,7 +126,21 @@ export type MidenClientCreateOptions = {
   getKeyCallback?: (key: Uint8Array) => Promise<Uint8Array>;
   signCallback?: (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;
   onConnectivityIssue?: () => void;
+  /**
+   * Override the SDK's Web-Worker shim (issue #260, slice 5, design §5.2).
+   * Defaults to `!isMobile()` (the historical behavior). The offscreen document
+   * passes `false` so its client runs on the doc's own multi-threaded main-thread
+   * WASM instance (rayon pool) instead of a method-worker with an un-pooled
+   * single-threaded instance — required for MT proving in-realm AND for the
+   * keystore sign callback / `lastAuthError` to be reachable (both are
+   * "meaningful only with `useWorker:false`" per the SDK).
+   */
+  useWorker?: boolean;
 };
+
+// Re-export the slice-4 consumable-note DTO from the interface too, so callers
+// that already import note types from here get it in one place.
+export type { ConsumableNoteAsset, ConsumableNoteDto } from './consumable-notes';
 
 export type InputNoteDetails = {
   noteId: string;
@@ -231,8 +247,10 @@ export class MidenClientInterface {
       //    bypassing the native bridge. Opt out so the callback survives.
       //
       // The `useWorker` option lands in `@miden-sdk/miden-sdk@0.14.9`
-      // (web-sdk PR #149).
-      useWorker: !isMobile()
+      // (web-sdk PR #149). Default `!isMobile()`; the offscreen document
+      // overrides to `false` (issue #260, slice 5, design §5.2 — see
+      // MidenClientCreateOptions.useWorker).
+      useWorker: options.useWorker ?? !isMobile()
     });
 
     return new MidenClientInterface(midenClient, network);
@@ -248,6 +266,13 @@ export class MidenClientInterface {
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array, auth?: AuthScheme): Promise<string> {
     if (walletType === WalletType.Guardian) {
+      // NOTE: Guardian creation never reaches here — Vault.spawn and
+      // createHDAccount always route Guardian to createGuardianMidenWallet
+      // (which threads the picked endpoint). This branch passes no endpoint
+      // override, so createGuardianAccount binds to the network default (the
+      // frozen global key is no longer consulted for NEW accounts — #408
+      // stage 3). If anything ever routes Guardian through createMidenWallet for
+      // a non-default operator, thread the per-account endpoint here.
       const { createGuardianAccount } = await import('../guardian/account');
       const { account } = await createGuardianAccount(this.client, seed);
       return getBech32AddressFromAccountId(account.id());
@@ -270,10 +295,21 @@ export class MidenClientInterface {
    * ciphertext + cold secret-key bytes the wallet must persist (vault wraps
    * both before writing them to storage).
    */
-  async createGuardianMidenWallet(coldSeed?: Uint8Array): Promise<GuardianAccountCreationResult> {
+  async createGuardianMidenWallet(
+    coldSeed?: Uint8Array,
+    guardianEndpoint?: string
+  ): Promise<GuardianAccountCreationResult> {
     const { createGuardianAccount } = await import('../guardian/account');
-    const { account, keys, guardianEndpoint } = await createGuardianAccount(this.client, coldSeed);
-    return { accountId: getBech32AddressFromAccountId(account.id()), keys, guardianEndpoint };
+    // Forward the caller's picked endpoint as the override so the account binds
+    // to it (stage 1 of #408). When undefined, createGuardianAccount binds to
+    // the network default (the frozen global key is no longer consulted for NEW
+    // accounts — #408 stage 3).
+    const {
+      account,
+      keys,
+      guardianEndpoint: usedEndpoint
+    } = await createGuardianAccount(this.client, coldSeed, false, guardianEndpoint);
+    return { accountId: getBech32AddressFromAccountId(account.id()), keys, guardianEndpoint: usedEndpoint };
   }
 
   async importMidenWallet(accountBytes: Uint8Array): Promise<string> {
@@ -473,6 +509,24 @@ export class MidenClientInterface {
 
   async sendPrivateNote(note: Note, to: string): Promise<void> {
     await this.client.notes.sendPrivate({ note, to });
+  }
+
+  /**
+   * Consumable notes reduced to plain, JSON-safe {@link ConsumableNoteDto}s
+   * (issue #260, slice 4).
+   *
+   * This is the DTO-returning form the offscreen proxy routes through. Its whole
+   * point is that the reclaim gate inside {@link getConsumableNotes}
+   * (`consumableAfterBlock() <= getSyncHeight()`) AND the per-note reduction run
+   * in the SAME realm — so when the flag is on and `syncState` ran offscreen, the
+   * gate uses the offscreen (sync-running) realm's height rather than a stale
+   * SW-inline height. The reduction is behavior-preserving: it relocates the exact
+   * reach-through the callers used into one shared reducer.
+   */
+  async getConsumableNoteDtos(accountId: string): Promise<ConsumableNoteDto[]> {
+    const records = await this.getConsumableNotes(accountId);
+    const syncHeight = await this.client.getSyncHeight();
+    return reduceConsumableNoteRecords(records, syncHeight);
   }
 
   async getConsumableNotes(accountId: string): Promise<InputNoteRecord[]> {
@@ -884,6 +938,29 @@ export class MidenClientInterface {
     return transactions.filter(tx => getBech32AddressFromAccountId(tx.accountId()) === accountId);
   }
 
+  /**
+   * Node-authoritative commit state of a specific transaction (by hex id).
+   *
+   *   - `'committed'` the tx is on chain (TransactionStatus has a block number).
+   *   - `'pending'`   the tx is locally known but not yet committed (still in
+   *                   the mempool / awaiting a block) — it was submitted.
+   *   - `'not-found'` no local record — INDETERMINATE. The tx may have landed on
+   *                   chain without this client recording it (e.g. an offscreen
+   *                   write killed after submit but before apply), so a caller
+   *                   MUST NOT treat this as "definitely didn't land".
+   *
+   * Used by the send/swap idempotent-retry guard (transaction/cancel.ts
+   * `verifySendLanded`) so a Failed row whose original submit actually landed is
+   * never blindly resubmitted (double-send). Mirrors the note-state authority of
+   * `verifyConsumeLanded` but for the OUTPUT side, keyed on the tx id.
+   */
+  async getTransactionCommitState(txId: string): Promise<'committed' | 'pending' | 'not-found'> {
+    const transactions = await this.client.transactions.list();
+    const record = transactions.find(tx => tx.id().toHex() === txId);
+    if (!record) return 'not-found';
+    return record.transactionStatus().getBlockNum() !== undefined ? 'committed' : 'pending';
+  }
+
   async waitForTransactionCommit(
     transactionId: string,
     maxWaitMs: number = 60_000,
@@ -931,12 +1008,16 @@ export async function proveWithFallback<T>(
     return TransactionProver.newLocalProver();
   };
 
+  const startedAt = performance.now();
   try {
-    const t0 = performance.now();
     const result = !shouldDelegate ? await fn(localProverFactory()) : await fn();
     const pathLabel = shouldDelegate ? 'delegate' : isMobile() ? 'native-mobile' : 'local';
-    const durationMs = (performance.now() - t0).toFixed(1);
-    recordProveTiming(`path=${pathLabel} duration_ms=${durationMs} platform=${isMobile() ? 'mobile' : 'desktop'}`);
+    const durationMs = performance.now() - startedAt;
+    recordProveTiming(
+      `path=${pathLabel} duration_ms=${durationMs.toFixed(1)} platform=${isMobile() ? 'mobile' : 'desktop'}`
+    );
+    // #466: always-on structured timing so an occasional 20s+ prove is visible.
+    recordProveTelemetry({ path: pathLabel, durationMs, fellBack: false });
     // A successful prover call (whether local or remote) means the prover
     // pathway the wallet actually uses is healthy. If we'd previously
     // marked the prover as down, clear it now — the old design never
@@ -945,6 +1026,7 @@ export async function proveWithFallback<T>(
     return result;
   } catch (err) {
     if (shouldDelegate) {
+      const remoteDurationMs = performance.now() - startedAt;
       // The remote prover path failed. Whether or not we can fall back
       // locally, the user-facing surface should know remote proving is
       // unavailable. Only categorize transport-shaped errors so we
@@ -956,14 +1038,35 @@ export async function proveWithFallback<T>(
       // Fall back to the local path. On mobile this is the native
       // Rust prover; on desktop / extension it's the WASM local prover.
       recordProveTiming('delegate failed, retrying with local prover');
-      const t0 = performance.now();
-      const result = await fn(localProverFactory());
-      recordProveTiming(
-        `path=${isMobile() ? 'native-mobile-fallback' : 'local-fallback'} duration_ms=${(
-          performance.now() - t0
-        ).toFixed(1)}`
-      );
-      return result;
+      const fallbackStartedAt = performance.now();
+      const fallbackPath = isMobile() ? 'native-mobile' : 'local';
+      try {
+        const result = await fn(localProverFactory());
+        recordProveTiming(
+          `path=${fallbackPath}-fallback duration_ms=${(performance.now() - fallbackStartedAt).toFixed(1)}`
+        );
+        // #466: the user waited for the stalled remote attempt AND the local
+        // re-prove — record the total wall time + the remote portion, since this
+        // remote→local doubling is the prime 20s+ suspect.
+        recordProveTelemetry({
+          path: fallbackPath,
+          durationMs: performance.now() - startedAt,
+          fellBack: true,
+          remoteDurationMs
+        });
+        return result;
+      } catch (fallbackErr) {
+        // Both remote and local proving failed — a 20s+ that ends in failure is
+        // exactly the worst #466 case, so record it before the error propagates.
+        recordProveTelemetry({
+          path: fallbackPath,
+          durationMs: performance.now() - startedAt,
+          fellBack: true,
+          remoteDurationMs,
+          failed: true
+        });
+        throw fallbackErr;
+      }
     }
     throw err;
   }

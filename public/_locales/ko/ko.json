@@ -269,7 +269,6 @@
   "fastTransactionDescription": "거래는 자동으로 방송되고 완료됩니다.",
   "fastTransaction": "거래 속도",
   "delegateProofSettings": "위임 증명 생성",
-  "delegateProofSettingsDescription": "여기에서 원격 서버에 대한 증명 생성 위임을 구성할 수 있습니다. 이렇게 하면 증명 생성 속도가 빨라지지만 거래 세부 정보는 신뢰할 수 있는 서버에 공개됩니다.",
   "mainAssetBalanceIsZero": "귀하의 알레오 크레딧(주 자산) 잔액이 0입니다. 수수료를 지불하려면 Aleo 크레딧이 필요합니다.",
   "claim": "주장하다",
   "availableToClaim": "청구 가능",

@@ -368,17 +368,19 @@ describe('Vault.spawnFromMidenClient: error branches', () => {
   });
 });
 
-describe('Vault.spawn: preserved guardian URL', () => {
-  it('restores GUARDIAN_URL_STORAGE_KEY across the storage wipe', async () => {
+describe('Vault.spawn: frozen guardian URL (no writer remains)', () => {
+  it('does NOT restore GUARDIAN_URL_STORAGE_KEY across the storage wipe — the key is frozen/never-written (#408 stage 3)', async () => {
     const { putToStorage, fetchFromStorage } = await import('../front/storage');
     const { GUARDIAN_URL_STORAGE_KEY } = await import('lib/settings/constants');
     await putToStorage(GUARDIAN_URL_STORAGE_KEY, 'https://my-guardian.example');
 
     await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC);
 
-    // The clearStorage wipe would normally drop everything; the spawn() guard
-    // explicitly re-puts GUARDIAN_URL_STORAGE_KEY when it was set before the wipe.
-    expect(await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)).toBe('https://my-guardian.example');
+    // Stage 3 removed the snapshot/restore write: spawn wipes the key and never
+    // writes it back (the last global-key writer is gone). Nothing is stranded —
+    // a spawn re-creates every account with a per-account guardianEndpoint. This
+    // guards against the write being reintroduced.
+    expect(await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)).toBeNull();
   });
 });
 
@@ -391,15 +393,19 @@ describe('Vault.spawn: Guardian recovery (lookup + adopt)', () => {
     // requiresHotKeyRotation so the banner picks it up.
     const sdk = require('../sdk/miden-client');
     const origGetClient = sdk.getMidenClient;
+    let recoveredWithEndpoint: string | undefined;
     sdk.getMidenClient = jest.fn(async (_options: any) => ({
-      recoverGuardianAccountsBySeed: async (_deriveColdSeed: any, _endpoint: string) => [
-        {
-          accountId: 'guardian-pk',
-          hdIndex: 0,
-          coldPublicKey: 'bb'.repeat(33),
-          coldSecretKeyHex: 'dd'.repeat(32)
-        }
-      ],
+      recoverGuardianAccountsBySeed: async (_deriveColdSeed: any, endpoint: string) => {
+        recoveredWithEndpoint = endpoint;
+        return [
+          {
+            accountId: 'guardian-pk',
+            hdIndex: 0,
+            coldPublicKey: 'bb'.repeat(33),
+            coldSecretKeyHex: 'dd'.repeat(32)
+          }
+        ];
+      },
       createGuardianMidenWallet: async (_seed: Uint8Array) => ({
         accountId: 'guardian-pk',
         keys: {
@@ -417,15 +423,24 @@ describe('Vault.spawn: Guardian recovery (lookup + adopt)', () => {
     }));
 
     try {
-      // Guardian recovery now reads the endpoint from storage and throws if
-      // missing (DEFAULT_GUARDIAN_ENDPOINT is gone), so seed it like the
-      // onboarding flow does before calling spawn.
-      const { putToStorage } = await import('../front/storage');
+      // No guardianEndpoint arg is passed here (the operator probe detected
+      // nothing). Recovery must still fall back to the legacy global key. Stage 3
+      // froze that key: spawn snapshots its pre-wipe value in-memory and feeds it
+      // to the recovery branch WITHOUT writing it back. Seed it like a pre-stage-1
+      // install would have.
+      const { putToStorage, fetchFromStorage } = await import('../front/storage');
       const { GUARDIAN_URL_STORAGE_KEY } = await import('lib/settings/constants');
       await putToStorage(GUARDIAN_URL_STORAGE_KEY, 'https://my-guardian.example');
 
       const vault = await Vault.spawn(WalletType.Guardian, 'pw', VALID_MNEMONIC, true);
       expect(vault).toBeInstanceOf(Vault);
+      // The retained frozen fallback: recovery used the pre-wipe global key even
+      // though it was never restored to storage. This guards against over-deletion
+      // of the recovery fallback (a custom-guardian recovery must not silently
+      // bind to the network default).
+      expect(recoveredWithEndpoint).toBe('https://my-guardian.example');
+      // ...and the key was NOT written back — it stays wiped after the spawn.
+      expect(await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)).toBeNull();
     } finally {
       sdk.getMidenClient = origGetClient;
     }

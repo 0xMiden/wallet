@@ -1,11 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { computeDiagnosticHints } from './diagnostic-hints';
 import type { TestStepRunner } from './test-step';
 import type { TimelineRecorder } from './timeline-recorder';
 import type { CLIInvocation, FailureCategory, TestFailureReport, WalletSnapshot } from './types';
-
-import { computeDiagnosticHints } from './diagnostic-hints';
 
 /**
  * Build a comprehensive failure report from all captured data.
@@ -51,7 +50,7 @@ export function buildFailureReport(opts: {
     status: c.status,
     durationMs: c.durationMs,
     assertionsPassed: c.assertions.filter(a => a.passed).length,
-    assertionsFailed: c.assertions.filter(a => !a.passed).length,
+    assertionsFailed: c.assertions.filter(a => !a.passed).length
   }));
 
   // Find slowest steps
@@ -67,7 +66,7 @@ export function buildFailureReport(opts: {
       wallet: e.wallet as 'A' | 'B',
       message: (e.data?.message as string) ?? e.message,
       stack: e.data?.stack as string | undefined,
-      timestamp: e.timestamp,
+      timestamp: e.timestamp
     }));
 
   // Collect failed network requests
@@ -78,7 +77,7 @@ export function buildFailureReport(opts: {
       url: (e.data?.url as string) ?? '',
       status: (e.data?.status as number) ?? 0,
       failureText: e.data?.failureText as string | undefined,
-      timestamp: e.timestamp,
+      timestamp: e.timestamp
     }));
 
   // Collect recent CLI commands
@@ -88,9 +87,7 @@ export function buildFailureReport(opts: {
     .map(e => e.data as unknown as CLIInvocation);
 
   // Determine last action
-  const lastActionEvent = allEvents
-    .filter(e => e.category !== 'test_lifecycle')
-    .slice(-1)[0];
+  const lastActionEvent = allEvents.filter(e => e.category !== 'test_lifecycle').slice(-1)[0];
 
   const report: TestFailureReport = {
     testName,
@@ -102,14 +99,14 @@ export function buildFailureReport(opts: {
       message: error.message,
       stack: error.stack ?? '',
       expected: (error as any).expected,
-      actual: (error as any).actual,
+      actual: (error as any).actual
     },
 
     failedAtStep: {
       index: failedCheckpoint?.index ?? lastCheckpoint?.index ?? 0,
       name: failedCheckpoint?.name ?? lastCheckpoint?.name ?? 'unknown',
       durationMs: failedCheckpoint?.durationMs ?? lastCheckpoint?.durationMs ?? 0,
-      lastAction: lastActionEvent?.message ?? 'unknown',
+      lastAction: lastActionEvent?.message ?? 'unknown'
     },
 
     stepSummary,
@@ -117,7 +114,7 @@ export function buildFailureReport(opts: {
     timing: {
       totalDurationMs,
       wasTimeout,
-      slowestSteps,
+      slowestSteps
     },
 
     recentEvents: timeline.getRecentEvents(50),
@@ -129,10 +126,10 @@ export function buildFailureReport(opts: {
     artifacts: {
       fullTimeline: 'timeline.ndjson',
       checkpoints: 'checkpoints.json',
-      traces: [],
+      traces: []
     },
 
-    diagnosticHints: [], // filled below
+    diagnosticHints: [] // filled below
   };
 
   report.diagnosticHints = computeDiagnosticHints(report);

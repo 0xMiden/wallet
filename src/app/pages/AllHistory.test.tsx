@@ -2,8 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
+import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 
 import AllHistory from './AllHistory';

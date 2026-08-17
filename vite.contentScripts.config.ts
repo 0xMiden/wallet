@@ -94,9 +94,17 @@ export default defineConfig({
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
+    // Issue #260: offscreen client rehost is Chrome-MV3 only; keep the flag
+    // defined (default OFF) so shared code that reads it resolves cleanly.
+    'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'false'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    // E2E behaviour opt-outs — see vite.extension.config.ts. Default 'false'.
+    'process.env.MIDEN_E2E_DISABLE_SIDEPANEL': JSON.stringify(process.env.MIDEN_E2E_DISABLE_SIDEPANEL ?? 'false'),
+    'process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES': JSON.stringify(
+      process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES ?? 'false'
+    ),
     'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
     'process.env.EPOCH_POSITIONS_URL': JSON.stringify(
       process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'

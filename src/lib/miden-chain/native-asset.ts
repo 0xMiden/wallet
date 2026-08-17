@@ -5,6 +5,7 @@ import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
 import { ensureSdkWasmReady, getRpcEndpoint } from './constants';
+import { withRpcTimeout } from './rpc-timeout';
 
 // `v2` segment: account IDs renumbered under the 0.15 protocol's ID
 // version 1, so values cached by 0.14 builds must not be reused.
@@ -56,7 +57,7 @@ async function hydrateFromStorage(): Promise<void> {
 async function discover(): Promise<string> {
   await ensureSdkWasmReady();
   const rpc = new RpcClient(getRpcEndpoint());
-  const header = await rpc.getBlockHeaderByNumber(undefined);
+  const header = await withRpcTimeout(() => rpc.getBlockHeaderByNumber(undefined), 'native-asset-discover');
   const accountId = header.feeFaucetId();
   const bech32 = getBech32AddressFromAccountId(accountId);
   memCache = bech32;

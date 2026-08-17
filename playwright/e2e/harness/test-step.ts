@@ -85,7 +85,7 @@ export class TestStepRunner {
       startedAt: new Date().toISOString(),
       completedAt: '',
       durationMs: 0,
-      assertions: [],
+      assertions: []
     };
 
     try {
@@ -136,7 +136,7 @@ export class TestStepRunner {
       checkpoint.error = {
         message: error.message,
         stack: error.stack ?? '',
-        category: classifyError(error),
+        category: classifyError(error)
       };
 
       this.timeline.emit({
@@ -146,8 +146,8 @@ export class TestStepRunner {
         data: {
           errorName: error.name,
           errorMessage: error.message,
-          category: checkpoint.error.category,
-        },
+          category: checkpoint.error.category
+        }
       });
 
       // Capture failure screenshots

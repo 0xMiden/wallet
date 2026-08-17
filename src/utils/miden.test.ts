@@ -15,6 +15,9 @@ const TESTNET_ADDRESS = 'mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
 const TESTNET_ADDRESS_WITH_ROUTING = 'mtst1ap2autzy2mgkuqt6hx3qscrkd5hsxefv_qr7qqq9wr6w';
 const MAINNET_ADDRESS = 'mm1qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 const DEVNET_ADDRESS = 'mdev1qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+// A localnet address uses the SDK's 'mlcl' HRP (#599). It must decode and be
+// treated as wrong-network on a testnet build, not rejected at the prefix gate.
+const LOCALNET_ADDRESS = 'mlcl1qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 
 const reasonOf = (address: string): string => {
   try {
@@ -36,6 +39,9 @@ describe('Miden and Ethereum address utilities', () => {
   it('throws wrong-network for a well-formed address of another Miden network', () => {
     expect(reasonOf(MAINNET_ADDRESS)).toBe('wrong-network');
     expect(reasonOf(DEVNET_ADDRESS)).toBe('wrong-network');
+    // Localnet ('mlcl1') is a real, decodable Miden address — wrong-network on a
+    // testnet build, NOT 'invalid' at the prefix gate (#599).
+    expect(reasonOf(LOCALNET_ADDRESS)).toBe('wrong-network');
   });
 
   it('throws invalid for addresses that fail the SDK bech32 decode', () => {

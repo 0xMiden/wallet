@@ -210,7 +210,6 @@
   "popupSettings": "Modo emergente",
   "popupSettingsDescription": "Aquí puede configurar la ventana emergente que aparece en el icono del complemento, haga clic en el panel de extensiones.",
   "delegateProofSettings": "Generación de pruebas delegada",
-  "delegateProofSettingsDescription": "Aquí puede configurar la delegación de generación de pruebas a un servidor remoto. Esto acelerará la generación de pruebas pero revelará los detalles de la transacción a un servidor confiable.",
   "autoCloseSettings": "Página de generación de transacciones de cierre automático",
   "autoCloseSettingsDescription": "Aquí puede configurar el cierre automático de la página de generación de transacciones después de que se genere la transacción.",
   "analyticsSettings": "Análisis anónimo",

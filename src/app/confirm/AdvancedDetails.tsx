@@ -21,12 +21,16 @@ export const AdvancedDetails: React.FC<AdvancedDetailsProps> = ({ label, childre
         aria-expanded={open}
         className="flex w-full items-center justify-between text-sm text-text-muted py-2"
         onClick={() => setOpen(o => !o)}
+        data-testid="advanced-details-toggle"
       >
         <span>{label ?? t('advancedDetails')}</span>
         <span aria-hidden>{open ? CARET_EXPANDED : CARET_COLLAPSED}</span>
       </button>
       {open && (
-        <div className="text-xs font-mono bg-gray-50 rounded-lg p-2 overflow-x-auto break-words whitespace-pre-wrap">
+        <div
+          className="text-xs font-mono bg-gray-50 rounded-lg p-2 overflow-x-auto break-words whitespace-pre-wrap"
+          data-testid="advanced-details-content"
+        >
           {children}
         </div>
       )}

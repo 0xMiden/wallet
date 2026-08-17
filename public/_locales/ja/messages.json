@@ -53,7 +53,7 @@
     }
   },
   "balanceCardAccount": {
-    "message": "アドレス：$number$",
+    "message": "住所： $number$ ",
     "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
@@ -447,6 +447,10 @@
   "earnPositionsRegionLabel": {
     "message": "ポジション",
     "englishSource": "Positions"
+  },
+  "earnPositionsLoadError": {
+    "message": "ポジションを読み込めませんでした。接続を確認して、もう一度試してください。",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -1077,6 +1081,10 @@
     "message": "利用規約",
     "englishSource": "Terms of Service"
   },
+  "sendFeedback": {
+    "message": "フィードバックを送信する",
+    "englishSource": "Send feedback"
+  },
   "termsOfUse": {
     "message": "利用規約",
     "englishSource": "Terms of Use"
@@ -1347,6 +1355,10 @@
     "message": "代理証明の生成",
     "englishSource": "Delegate Proof Generation"
   },
+  "delegateProofSettingsDescription": {
+    "message": "オンにすると、トランザクション証明がリモート サーバー上で生成されます。デバイスへの大規模なダウンロードを必要とせず、より高速に生成され、キーがデバイスから離れることはありません。オフの場合、またはサービスが利用できない場合、ウォレットはローカルで証明されます。プライベート性は高くなりますが、速度が遅くなり、一度に大量のダウンロードが必要になります。",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+  },
   "transfer": {
     "message": "送金",
     "englishSource": "Transfer"
@@ -1581,8 +1593,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "それまでに請求されなかった場合、 $amount$ 自動的にウォレットに戻ります。資金が失われることはありません。",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "それまでに請求されていない場合は、請求することができます $amount$ 財布に戻します。資金が失われることはありません。",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1679,6 +1691,30 @@
     "message": "今すぐ資金を投入",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "ウォレットに資金を供給する",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "faucet からトークンをリクエストしています…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "ウォレットに資金が投入されました",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "トークンは現在準備中であり、間もなく表示されます。",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "資金調達に失敗しました",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "あなたのウォレットに資金を投入できませんでした。もう一度試してください。",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "保留中Notesがあります",
     "englishSource": "You have Pending Notes"
@@ -1709,12 +1745,24 @@
     "englishSource": "Secure signing unavailable"
   },
   "hotKeyHardwareErrorPromptBody": {
-    "message": "このデバイスは、安全なハードウェアを使用してトランザクションに署名できませんでした。エラーをコピーして、Miden チームに送信します。",
-    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+    "message": "このデバイスの安全なハードウェアは、トランザクション署名の設定中にエラーを報告しました。エラーをコピーして、Miden チームに送信します。",
+    "englishSource": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team."
   },
   "hotKeyHardwareErrorPromptAction": {
     "message": "コピーエラー",
     "englishSource": "Copy error"
+  },
+  "hotKeyRotationPromptTitle": {
+    "message": "デバイスキーのローテーションが必要です",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "このデバイスでは、デバイス (ホット) キーを使用できなくなりました。回転して署名を復元します。資金には影響しません。",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "回転キー",
+    "englishSource": "Rotate key"
   },
   "bridgePromptTitle": {
     "message": "橋が進行中",
@@ -1808,6 +1856,10 @@
   "claim": {
     "message": "請求",
     "englishSource": "Claim"
+  },
+  "clear": {
+    "message": "クリア",
+    "englishSource": "Clear"
   },
   "midenWallet": {
     "message": "パン！",
@@ -1942,8 +1994,8 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "セキュリティ ポリシーに基づいてトランザクションを承認または拒否します。デバイスを紛失した場合の回復に役立ちます。",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "すべての取引に連署します。デバイスもガーディアンも単独で資金を移動することはできません。デバイスを紛失した場合にアカウントを回復するのに役立ちます。",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "できないこと",
@@ -1958,8 +2010,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "回復フレーズを使用していつでも別のガーディアンにローテーションしたり、ガーディアンを完全に削除したりできます。",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "回復フレーズを使用していつでも別のガーディアンに切り替えることができます。変更には誰が共同署名するかのみです。アカウントと資金はそのまま残ります。",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "わかった",
@@ -2304,6 +2356,22 @@
     "message": "最終同期",
     "englishSource": "Last sync"
   },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianRotationComplete": {
+    "message": "ガーディアンが更新されました！",
+    "englishSource": "Guardian Updated!"
+  },
   "online": {
     "message": "オンライン",
     "englishSource": "Online"
@@ -2477,8 +2545,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "ミデン Faucet から notes を自​​動的に消費します",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "受信した MIDEN notes を残高に自動的に請求します。「請求」をタップするのと同じです。資金を費やしたり、手数料を追加したりすることはありません。",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "暗号化されたウォレットファイル",
@@ -2562,12 +2630,12 @@
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
-    "message": "このウィンドウを閉じないでください。トランザクションが生成されると、ホームページに戻ります。",
-    "englishSource": "Do not close this window. You will be navigated back to the home page after the transaction is generated"
+    "message": "トランザクションが生成されるまでこのウィンドウを閉じないでください",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "doNotCloseWindowAutoClose": {
-    "message": "このウィンドウを閉じないでください。トランザクションが生成されるとウィンドウは自動的に閉じます",
-    "englishSource": "Do not close this window. Window will auto-close after the transaction is generated"
+    "message": "トランザクションが生成されるまでこのウィンドウを閉じないでください",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "transactionSuccessDescription": {
     "message": "あなたのトランザクションは正常に処理され、ネットワーク上で確認されました。",
@@ -2612,6 +2680,10 @@
   "viewInActivities": {
     "message": "アクティビティで見る",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "アクティビティの表示",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "詳細を見る",
@@ -2952,6 +3024,23 @@
         "content": "$1"
       }
     }
+  },
+  "notesUnresolved": {
+    "message": "$count$ 個が未解決",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "申請に失敗しました — [再試行] をタップして再試行します",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "この note は利用できなくなりました",
+    "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
     "message": "保留中 notes",
@@ -3322,6 +3411,22 @@
     "message": "スキャンがキャンセルされました",
     "englishSource": "Scan cancelled"
   },
+  "scanQrTitle": {
+    "message": "QRコードをスキャンします",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "QRコードにカメラを向けます",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "カメラが見つかりません",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "カメラへのアクセスをリクエストしています…",
+    "englishSource": "Requesting camera access…"
+  },
   "scan": {
     "message": "スキャン",
     "englishSource": "Scan"
@@ -3353,6 +3458,14 @@
   "noteReceivedTitle": {
     "message": "note を受け取りました",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "トランザクションが失敗しました",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "トランザクションを完了できませんでした。ウォレットを開いて確認してください。",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "ここをタップして申請してください",
@@ -3903,9 +4016,21 @@
     "message": "Total Paid",
     "englishSource": "Total Paid"
   },
+  "totalConsumed": {
+    "message": "総消費量",
+    "englishSource": "Total Consumed"
+  },
+  "notesConsumed": {
+    "message": "Notes 消費",
+    "englishSource": "Notes Consumed"
+  },
+  "consumed": {
+    "message": "消費された",
+    "englishSource": "Consumed"
+  },
   "sourceTx": {
-    "message": "Source TX",
-    "englishSource": "Source TX"
+    "message": "トランザクションID",
+    "englishSource": "Transaction ID"
   },
   "developerSettingsTitle": {
     "message": "開発者設定",
