@@ -4085,5 +4085,33 @@
   "fiatRampWidgetError": {
     "message": "Ödeme yüklenemedi. MoonPay işaret sunucusunun çalışıp çalışmadığını kontrol edin ve tekrar deneyin.",
     "englishSource": "The checkout failed to load. Check that the MoonPay sign server is running and try again."
+  },
+  "buyInfoTitle": {
+    "message": "Satın almadan önce",
+    "englishSource": "Before you buy"
+  },
+  "buyInfoRedirectTitle": {
+    "message": "MoonPay'e yönlendirileceksiniz",
+    "englishSource": "You'll be redirected to MoonPay"
+  },
+  "buyInfoRedirectBody": {
+    "message": "Cüzdan adresiniz zaten doldurulmuş; sadece bir miktar seçin ve ödeyin.",
+    "englishSource": "Your wallet address is already filled in — just pick an amount and pay."
+  },
+  "buyInfoEvmTitle": {
+    "message": "Para EVM adresinize ulaşır",
+    "englishSource": "Funds arrive on your EVM address"
+  },
+  "buyInfoEvmBody": {
+    "message": "Satın alma işleminiz, cüzdanınızdan türetilen bir EVM adresine aktarılan MPT (MoonPay'in test ağı jetonu) olarak gelir. Tamamen istemci tarafında oluşturulmuştur; anahtarlarınız bu cihazdan asla ayrılmaz.",
+    "englishSource": "Your purchase arrives as MPT — MoonPay's testnet token — credited to an EVM address derived from your wallet. It's created fully client-side — your keys never leave this device."
+  },
+  "buyInfoBridgeTitle": {
+    "message": "Agglayer aracılığıyla Miden'e köprü kuruldu",
+    "englishSource": "Bridged to Miden via Agglayer"
+  },
+  "buyInfoBridgeBody": {
+    "message": "Cüzdan daha sonra parayı Agglayer aracılığıyla otomatik olarak Miden hesabınıza aktarır. Hiçbir işlem yapmanıza gerek yok.",
+    "englishSource": "The wallet then automatically bridges the funds to your Miden account via Agglayer. No action needed from you."
   }
 }

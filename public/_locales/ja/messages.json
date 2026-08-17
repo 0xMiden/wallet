@@ -4085,5 +4085,33 @@
   "fiatRampWidgetError": {
     "message": "チェックアウトをロードできませんでした。 MoonPay 署名サーバーが実行されていることを確認して、再試行してください。",
     "englishSource": "The checkout failed to load. Check that the MoonPay sign server is running and try again."
+  },
+  "buyInfoTitle": {
+    "message": "購入する前に",
+    "englishSource": "Before you buy"
+  },
+  "buyInfoRedirectTitle": {
+    "message": "MoonPay にリダイレクトされます",
+    "englishSource": "You'll be redirected to MoonPay"
+  },
+  "buyInfoRedirectBody": {
+    "message": "ウォレットアドレスはすでに入力されています。金額を選択して支払うだけです。",
+    "englishSource": "Your wallet address is already filled in — just pick an amount and pay."
+  },
+  "buyInfoEvmTitle": {
+    "message": "資金はEVMアドレスに到着します",
+    "englishSource": "Funds arrive on your EVM address"
+  },
+  "buyInfoEvmBody": {
+    "message": "購入した商品は、ウォレットから取得された EVM アドレスにクレジットされる MPT (MoonPay のテストネット トークン) として届きます。これは完全にクライアント側で作成されます。キーがこのデバイスから離れることはありません。",
+    "englishSource": "Your purchase arrives as MPT — MoonPay's testnet token — credited to an EVM address derived from your wallet. It's created fully client-side — your keys never leave this device."
+  },
+  "buyInfoBridgeTitle": {
+    "message": "アグラー経由でミデンに橋渡し",
+    "englishSource": "Bridged to Miden via Agglayer"
+  },
+  "buyInfoBridgeBody": {
+    "message": "その後、ウォレットは Agglayer 経由で資金を Miden アカウントに自動的にブリッジします。あなたからのアクションは必要ありません。",
+    "englishSource": "The wallet then automatically bridges the funds to your Miden account via Agglayer. No action needed from you."
   }
 }
