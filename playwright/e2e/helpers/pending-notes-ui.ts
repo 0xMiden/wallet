@@ -101,12 +101,14 @@ export async function openPendingNotesFromHomePrompt(
     )
     .toBeGreaterThan(MIN_ON_SCREEN_FRACTION);
 
-  await wallet.page.getByTestId(`${PENDING_NOTES_PROMPT_TESTID}-action`).click({ timeout: 10_000 });
+  // The whole card is the tap target — the prompt has no separate CTA button
+  // (its "See Now" was folded into a card-wide click).
+  await prompt.click({ timeout: 10_000 });
 
   await expect
     .poll(() => wallet.page.url(), {
       timeout: 10_000,
-      message: "the pending-notes prompt's CTA must navigate to /pending-notes"
+      message: 'tapping the pending-notes prompt card must navigate to /pending-notes'
     })
     .toContain('#/pending-notes');
 }
