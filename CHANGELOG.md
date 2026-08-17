@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.15.20 (TBD)
+## 1.15.20 (2026-08-17)
 
 ### Features
 ### Fixes
