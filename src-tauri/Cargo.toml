@@ -1,6 +1,6 @@
 [package]
 name = "miden-wallet"
-version = "1.15.20"
+version = "1.15.21"
 description = "Bread Desktop Application"
 authors = ["Demox Labs"]
 license = "MIT"
