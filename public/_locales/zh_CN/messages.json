@@ -3818,6 +3818,22 @@
       }
     }
   },
+  "buyRowTitle": {
+    "message": "买",
+    "englishSource": "Buy"
+  },
+  "buyRowVia": {
+    "message": "通过 MoonPay → 米登",
+    "englishSource": "Via MoonPay → Miden"
+  },
+  "buyDetailsTitle": {
+    "message": "购买详情",
+    "englishSource": "Buy Details"
+  },
+  "buyRouteValue": {
+    "message": "MoonPay → Agglayer → Miden",
+    "englishSource": "MoonPay → Agglayer → Miden"
+  },
   "bridgeInProgress": {
     "message": "进行中",
     "englishSource": "In progress"
@@ -4049,5 +4065,25 @@
   "devEndpointResetConfirm": {
     "message": "这将永久删除该钱包，包括您的密钥和交易历史记录。您需要恢复短语来恢复它。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "buy": {
+    "message": "买",
+    "englishSource": "Buy"
+  },
+  "fiatRampTitleBuy": {
+    "message": "购买加密货币",
+    "englishSource": "Buy crypto"
+  },
+  "fiatRampNoEvmAddress": {
+    "message": "该账户没有用于法定斜坡的 EVM 地址。",
+    "englishSource": "This account has no EVM address for fiat ramps."
+  },
+  "fiatRampLoading": {
+    "message": "正在加载结帐...",
+    "englishSource": "Loading checkout…"
+  },
+  "fiatRampWidgetError": {
+    "message": "结帐加载失败。检查 MoonPay 标志服务器是否正在运行，然后重试。",
+    "englishSource": "The checkout failed to load. Check that the MoonPay sign server is running and try again."
   }
 }

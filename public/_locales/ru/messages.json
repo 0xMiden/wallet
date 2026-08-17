@@ -3819,6 +3819,22 @@
       }
     }
   },
+  "buyRowTitle": {
+    "message": "Купить",
+    "englishSource": "Buy"
+  },
+  "buyRowVia": {
+    "message": "Через MoonPay → Миден",
+    "englishSource": "Via MoonPay → Miden"
+  },
+  "buyDetailsTitle": {
+    "message": "Купить Подробности",
+    "englishSource": "Buy Details"
+  },
+  "buyRouteValue": {
+    "message": "MoonPay → Agglayer → Miden",
+    "englishSource": "MoonPay → Agglayer → Miden"
+  },
   "bridgeInProgress": {
     "message": "В ходе выполнения",
     "englishSource": "In progress"
@@ -4050,5 +4066,25 @@
   "devEndpointResetConfirm": {
     "message": "При этом этот кошелек будет удален без возможности восстановления, включая ваши ключи и историю транзакций. Чтобы восстановить его, вам понадобится фраза восстановления.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "buy": {
+    "message": "Купить",
+    "englishSource": "Buy"
+  },
+  "fiatRampTitleBuy": {
+    "message": "Купить криптовалюту",
+    "englishSource": "Buy crypto"
+  },
+  "fiatRampNoEvmAddress": {
+    "message": "У этой учетной записи нет адреса EVM для фиатных пандусов.",
+    "englishSource": "This account has no EVM address for fiat ramps."
+  },
+  "fiatRampLoading": {
+    "message": "Загрузка оформления заказа…",
+    "englishSource": "Loading checkout…"
+  },
+  "fiatRampWidgetError": {
+    "message": "Не удалось загрузить кассу. Убедитесь, что сервер знаков MoonPay работает, и повторите попытку.",
+    "englishSource": "The checkout failed to load. Check that the MoonPay sign server is running and try again."
   }
 }

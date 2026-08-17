@@ -3818,6 +3818,22 @@
       }
     }
   },
+  "buyRowTitle": {
+    "message": "買う",
+    "englishSource": "Buy"
+  },
+  "buyRowVia": {
+    "message": "MoonPay経由 → ミデン",
+    "englishSource": "Via MoonPay → Miden"
+  },
+  "buyDetailsTitle": {
+    "message": "購入の詳細",
+    "englishSource": "Buy Details"
+  },
+  "buyRouteValue": {
+    "message": "MoonPay → アグラー → ミデン",
+    "englishSource": "MoonPay → Agglayer → Miden"
+  },
   "bridgeInProgress": {
     "message": "進行中",
     "englishSource": "In progress"
@@ -4049,5 +4065,25 @@
   "devEndpointResetConfirm": {
     "message": "これにより、キーと取引履歴を含むこのウォレットが永久に消去されます。復元するにはリカバリフレーズが必要です。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "buy": {
+    "message": "買う",
+    "englishSource": "Buy"
+  },
+  "fiatRampTitleBuy": {
+    "message": "暗号通貨を購入する",
+    "englishSource": "Buy crypto"
+  },
+  "fiatRampNoEvmAddress": {
+    "message": "このアカウントには法定ランプ用の EVM アドレスがありません。",
+    "englishSource": "This account has no EVM address for fiat ramps."
+  },
+  "fiatRampLoading": {
+    "message": "チェックアウトを読み込み中…",
+    "englishSource": "Loading checkout…"
+  },
+  "fiatRampWidgetError": {
+    "message": "チェックアウトをロードできませんでした。 MoonPay 署名サーバーが実行されていることを確認して、再試行してください。",
+    "englishSource": "The checkout failed to load. Check that the MoonPay sign server is running and try again."
   }
 }

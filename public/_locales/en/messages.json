@@ -3765,6 +3765,22 @@
       }
     }
   },
+  "buyRowTitle": {
+    "message": "Buy",
+    "englishSource": "Buy"
+  },
+  "buyRowVia": {
+    "message": "Via MoonPay → Miden",
+    "englishSource": "Via MoonPay → Miden"
+  },
+  "buyDetailsTitle": {
+    "message": "Buy Details",
+    "englishSource": "Buy Details"
+  },
+  "buyRouteValue": {
+    "message": "MoonPay → Agglayer → Miden",
+    "englishSource": "MoonPay → Agglayer → Miden"
+  },
   "bridgeInProgress": {
     "message": "In progress",
     "englishSource": "In progress"
@@ -3996,5 +4012,25 @@
   "devEndpointResetConfirm": {
     "message": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "buy": {
+    "message": "Buy",
+    "englishSource": "Buy"
+  },
+  "fiatRampTitleBuy": {
+    "message": "Buy crypto",
+    "englishSource": "Buy crypto"
+  },
+  "fiatRampNoEvmAddress": {
+    "message": "This account has no EVM address for fiat ramps.",
+    "englishSource": "This account has no EVM address for fiat ramps."
+  },
+  "fiatRampLoading": {
+    "message": "Loading checkout…",
+    "englishSource": "Loading checkout…"
+  },
+  "fiatRampWidgetError": {
+    "message": "The checkout failed to load. Check that the MoonPay sign server is running and try again.",
+    "englishSource": "The checkout failed to load. Check that the MoonPay sign server is running and try again."
   }
 }

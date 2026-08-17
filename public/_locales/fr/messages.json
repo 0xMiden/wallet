@@ -3817,6 +3817,22 @@
       }
     }
   },
+  "buyRowTitle": {
+    "message": "Acheter",
+    "englishSource": "Buy"
+  },
+  "buyRowVia": {
+    "message": "Via MoonPay → Miden",
+    "englishSource": "Via MoonPay → Miden"
+  },
+  "buyDetailsTitle": {
+    "message": "Détails de l'achat",
+    "englishSource": "Buy Details"
+  },
+  "buyRouteValue": {
+    "message": "MoonPay → Agglayer → Miden",
+    "englishSource": "MoonPay → Agglayer → Miden"
+  },
   "bridgeInProgress": {
     "message": "En cours",
     "englishSource": "In progress"
@@ -4048,5 +4064,25 @@
   "devEndpointResetConfirm": {
     "message": "Cela efface définitivement ce portefeuille, y compris vos clés et l'historique des transactions. Vous aurez besoin de votre Seed Phrase pour le restaurer.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "buy": {
+    "message": "Acheter",
+    "englishSource": "Buy"
+  },
+  "fiatRampTitleBuy": {
+    "message": "Acheter des cryptomonnaies",
+    "englishSource": "Buy crypto"
+  },
+  "fiatRampNoEvmAddress": {
+    "message": "Ce compte n'a pas d'adresse EVM pour les rampes fiat.",
+    "englishSource": "This account has no EVM address for fiat ramps."
+  },
+  "fiatRampLoading": {
+    "message": "Chargement du paiement…",
+    "englishSource": "Loading checkout…"
+  },
+  "fiatRampWidgetError": {
+    "message": "La caisse n'a pas pu être chargée. Vérifiez que le serveur de signatures MoonPay est en cours d'exécution et réessayez.",
+    "englishSource": "The checkout failed to load. Check that the MoonPay sign server is running and try again."
   }
 }
