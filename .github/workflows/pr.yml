@@ -100,6 +100,12 @@ jobs:
 
       - name: Generate Translation Files
         uses: borales/actions-yarn@v4
+        env:
+          # DeepL API key for the translation engine (utility/generateLanguageFiles.ts).
+          # Add it under repo Settings → Secrets and variables → Actions → DEEPL_API_KEY.
+          # Absent on fork PRs (secrets aren't shared to forks); the utility then skips
+          # translation and this job still runs (it also posts the linked-web-sdk comment).
+          DEEPL_API_KEY: ${{ secrets.DEEPL_API_KEY }}
         with:
           cmd: createTranslationFile
 

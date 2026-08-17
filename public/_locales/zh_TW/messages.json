@@ -1,34 +1,34 @@
 {
   "payload": {
-    "message": "有效载荷",
+    "message": "有效載荷",
     "englishSource": "Payload"
   },
   "bridgeDepositTitle": {
-    "message": "米登桥",
+    "message": "Miden Bridge",
     "englishSource": "Miden Bridge"
   },
   "bridgeDepositHeading": {
-    "message": "确认您的存款",
+    "message": "請確認您的存款",
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "您的钱包将打开以批准确切的金额并在 Sepolia 上签名。",
+    "message": "您的錢包將會開啟，以便核准確切金額並在 Sepolia 上簽名。",
     "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
   },
   "bridgeDepositYouReceive": {
-    "message": "您收到",
+    "message": "您將收到",
     "englishSource": "You receive"
   },
   "bridgeDepositBridgeOption": {
-    "message": "桥接选项",
+    "message": "橋接選項",
     "englishSource": "Bridge option"
   },
   "bridgeDepositApprovingTitle": {
-    "message": "您批准的内容",
+    "message": "您正在核准的內容",
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "您的钱包将要求批准 $tokenSymbol$ 并在Sepolia 上签署存款。确认后资金到达Miden。",
+    "message": "您的錢包將要求您核准 $tokenSymbol$，並在 Sepolia 上簽署存款交易。確認後，資金將匯入 Miden。",
     "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
@@ -37,7 +37,7 @@
     }
   },
   "balanceCardTotalBalance": {
-    "message": "总余额",
+    "message": "總餘額",
     "englishSource": "Total Balance"
   },
   "balanceCardDeltaPill": {
@@ -53,7 +53,7 @@
     }
   },
   "balanceCardAccount": {
-    "message": "地址： $number$ ",
+    "message": "地址：$number$",
     "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
@@ -62,15 +62,15 @@
     }
   },
   "balanceCardAccountOptions": {
-    "message": "账户选项",
+    "message": "帳戶選項",
     "englishSource": "Account options"
   },
   "dappSwitcherLoading": {
-    "message": "加载中…",
+    "message": "載入中……",
     "englishSource": "Loading…"
   },
   "dappSwitcherCardActivate": {
-    "message": "$name$. Activate to switch to this dApp.",
+    "message": "$name$。啟用此功能即可切換至此 dApp。",
     "englishSource": "$name$. Activate to switch to this dApp.",
     "placeholders": {
       "name": {
@@ -79,7 +79,7 @@
     }
   },
   "dappSwitcherCloseCard": {
-    "message": "关闭 $name$ ",
+    "message": "關閉 $name$",
     "englishSource": "Close $name$",
     "placeholders": {
       "name": {
@@ -88,11 +88,11 @@
     }
   },
   "promptCardDismiss": {
-    "message": "解雇",
+    "message": "關閉",
     "englishSource": "Dismiss"
   },
   "promptCardLoading": {
-    "message": "加载中",
+    "message": "載入中",
     "englishSource": "Loading"
   },
   "priceChangeAmountNeutral": {
@@ -105,7 +105,7 @@
     }
   },
   "priceChangeAmountPositive": {
-    "message": "+ $amount$ ",
+    "message": "+$amount$",
     "englishSource": "+$amount$",
     "placeholders": {
       "amount": {
@@ -114,7 +114,7 @@
     }
   },
   "priceChangeAmountNegative": {
-    "message": "- $amount$ ",
+    "message": "-$amount$",
     "englishSource": "-$amount$",
     "placeholders": {
       "amount": {
@@ -123,7 +123,7 @@
     }
   },
   "priceChangePercent": {
-    "message": "$value$%",
+    "message": "$value$",
     "englishSource": "$value$%",
     "placeholders": {
       "value": {
@@ -132,7 +132,7 @@
     }
   },
   "pendingTabApproxUsd": {
-    "message": "≈  $value$ ",
+    "message": "≈ $value$",
     "englishSource": "≈ $value$",
     "placeholders": {
       "value": {
@@ -141,7 +141,7 @@
     }
   },
   "noteReturnsToSenderBy": {
-    "message": "如果无人认领，则返回发件人 $date$ ",
+    "message": "若未經 $date$ 領取，將退回寄件人。",
     "englishSource": "Returns to the sender if unclaimed by $date$",
     "placeholders": {
       "date": {
@@ -150,7 +150,7 @@
     }
   },
   "tokenDetailChange24h": {
-    "message": "$change$%",
+    "message": "$change$",
     "englishSource": "$change$%",
     "placeholders": {
       "change": {
@@ -159,7 +159,7 @@
     }
   },
   "historyDetailsIdLabel": {
-    "message": "ID： $id$ ",
+    "message": "ID：$id$",
     "englishSource": "ID: $id$",
     "placeholders": {
       "id": {
@@ -183,11 +183,11 @@
     }
   },
   "historyDetailsLoadError": {
-    "message": "加载交易失败",
+    "message": "無法載入交易",
     "englishSource": "Failed to load transaction"
   },
   "historyDetailsFiatApprox": {
-    "message": "≈  $amount$ 美元",
+    "message": "≈ $amount$ 美元",
     "englishSource": "≈ $amount$ USD",
     "placeholders": {
       "amount": {
@@ -196,7 +196,7 @@
     }
   },
   "dappTileVerifiedLabel": {
-    "message": "$name$，已验证的 dApp",
+    "message": "$name$，已驗證的 dApp",
     "englishSource": "$name$, verified dApp",
     "placeholders": {
       "name": {
@@ -205,7 +205,7 @@
     }
   },
   "dappPeekCardOverflowBadge": {
-    "message": "+ $count$ ",
+    "message": "+$count$",
     "englishSource": "+$count$",
     "placeholders": {
       "count": {
@@ -214,7 +214,7 @@
     }
   },
   "settingsVersion": {
-    "message": "版本 $version$ ",
+    "message": "版本$version$",
     "englishSource": "Version $version$",
     "placeholders": {
       "version": {
@@ -223,11 +223,11 @@
     }
   },
   "unlockBrandName": {
-    "message": "面包",
+    "message": "麵包",
     "englishSource": "Bread"
   },
   "earnPositionHeaderTitle": {
-    "message": "我的 $protocol$  •  $asset$ 位置",
+    "message": "我的 $protocol$ • $asset$ 持倉狀況",
     "englishSource": "My $protocol$ • $asset$ position",
     "placeholders": {
       "protocol": {
@@ -239,7 +239,7 @@
     }
   },
   "earnAssetOnNetwork": {
-    "message": "$network$上的$asset$",
+    "message": "$asset$ 網址：$network$",
     "englishSource": "$asset$ on $network$",
     "placeholders": {
       "asset": {
@@ -255,23 +255,23 @@
     "englishSource": "Deposited"
   },
   "earnMetricTotalEarned": {
-    "message": "总收入",
+    "message": "總應得金額",
     "englishSource": "Total Earned"
   },
   "earnMetricDailyAvg": {
-    "message": "每日平均",
+    "message": "每日平均值",
     "englishSource": "Daily Avg"
   },
   "earnMetricTimeActive": {
-    "message": "活跃时间",
+    "message": "活躍時間",
     "englishSource": "Time Active"
   },
   "earnMetricStarted": {
-    "message": "开始",
+    "message": "開始",
     "englishSource": "Started"
   },
   "earnProjectedEarnings": {
-    "message": "~  $estimate$ · 在 $apy$ 平均年产量",
+    "message": "~ $estimate$ · 於 $apy$ APY",
     "englishSource": "~ $estimate$ · at $apy$ APY",
     "placeholders": {
       "estimate": {
@@ -283,59 +283,59 @@
     }
   },
   "protocol": {
-    "message": "协议",
+    "message": "議程",
     "englishSource": "Protocol"
   },
   "position": {
-    "message": "位置",
+    "message": "持倉",
     "englishSource": "Position"
   },
   "withdraw": {
-    "message": "提取",
+    "message": "提領",
     "englishSource": "Withdraw"
   },
   "earnDepositMore": {
-    "message": "存入更多",
+    "message": "存入更多款項",
     "englishSource": "Deposit more"
   },
   "earnWithdrawAmount": {
-    "message": "提款金额",
+    "message": "提領金額",
     "englishSource": "Withdraw Amount"
   },
   "earnWithdrawalLabel": {
-    "message": "提款",
+    "message": "提領",
     "englishSource": "Withdrawal"
   },
   "earnFullPositionGasless": {
-    "message": "全位（无气）",
+    "message": "完整版本（免手續費）",
     "englishSource": "Full position (gasless)"
   },
   "earnEstimatedTimeLabel": {
-    "message": "预计时间",
+    "message": "預計時間",
     "englishSource": "Estimated time"
   },
   "earnEstimatedTimeOneMinute": {
-    "message": "〜1分钟",
+    "message": "約 1 分鐘",
     "englishSource": "~1 minute"
   },
   "withdrawing": {
-    "message": "撤回…",
+    "message": "正在撤回……",
     "englishSource": "Withdrawing…"
   },
   "earnWithdrawNotOwned": {
-    "message": "该头寸不属于当前钱包衍生的 EVM 账户。",
+    "message": "此持倉並非由當前從錢包衍生的 EVM 帳戶所持有。",
     "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
-    "message": "无气提款失败。",
+    "message": "免手續費提領失敗。",
     "englishSource": "Gasless withdrawal failed."
   },
   "earnCurrentApy": {
-    "message": "当前年利率",
+    "message": "當前年化收益率 (APY)",
     "englishSource": "Current APY"
   },
   "earnDeposit": {
-    "message": "订金",
+    "message": "押金",
     "englishSource": "Deposit"
   },
   "earnTvlLabel": {
@@ -343,39 +343,39 @@
     "englishSource": "TVL"
   },
   "earnRiskLabel": {
-    "message": "风险",
+    "message": "風險",
     "englishSource": "Risk"
   },
   "earnAuditedLabel": {
-    "message": "已审核",
+    "message": "經審計",
     "englishSource": "Audited"
   },
   "earnDepositAmountTitle": {
-    "message": "存款金额",
+    "message": "存款金額",
     "englishSource": "Deposit Amount"
   },
   "earnOpenPosition": {
-    "message": "持仓",
+    "message": "開倉",
     "englishSource": "Open position"
   },
   "earnProjection1Month": {
-    "message": "1个月",
+    "message": "1 個月",
     "englishSource": "1 Month"
   },
   "earnProjection6Months": {
-    "message": "6个月",
+    "message": "6 個月",
     "englishSource": "6 Months"
   },
   "earnProjection1Year": {
-    "message": "1年",
+    "message": "1 年",
     "englishSource": "1 Year"
   },
   "earnProjectionNow": {
-    "message": "现在",
+    "message": "現在",
     "englishSource": "Now"
   },
   "earnProjectedRewardAmount": {
-    "message": "+ $amount$ ",
+    "message": "+$amount$",
     "englishSource": "+$amount$",
     "placeholders": {
       "amount": {
@@ -384,15 +384,15 @@
     }
   },
   "earnCollateralLabel": {
-    "message": "抵押品",
+    "message": "擔保品",
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE（无气）",
+    "message": "Miden P2IDE（無氣體）",
     "englishSource": "Miden P2IDE (gasless)"
   },
   "earnDepositRoute": {
-    "message": "米登-> $protocol$  ( $network$ )",
+    "message": "Miden -> $protocol$ ($network$)",
     "englishSource": "Miden -> $protocol$ ($network$)",
     "placeholders": {
       "protocol": {
@@ -404,27 +404,27 @@
     }
   },
   "earnEstimatedTime": {
-    "message": "预计时间",
+    "message": "預計時間",
     "englishSource": "Estimated time"
   },
   "earnEstimatedTimeValue": {
-    "message": "〜30秒",
+    "message": "約 30 秒",
     "englishSource": "~30 seconds"
   },
   "earnNoEvmAddress": {
-    "message": "此帐户没有可用的 EVM 地址。",
+    "message": "此帳戶沒有可用的 EVM 位址。",
     "englishSource": "No EVM address available for this account."
   },
   "earnFailedToOpenPosition": {
-    "message": "建仓失败",
+    "message": "無法建立倉位",
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "获得的总奖励",
+    "message": "已賺取的獎勵總額",
     "englishSource": "Total Earned Rewards"
   },
   "earnEarningBlendedApy": {
-    "message": "收益 $apy$ 混合APY",
+    "message": "賺取$apy$的綜合年化收益率（APY）",
     "englishSource": "Earning $apy$ blended APY",
     "placeholders": {
       "apy": {
@@ -433,23 +433,23 @@
     }
   },
   "earnTotalDeposited": {
-    "message": "存入总额",
+    "message": "總存款額",
     "englishSource": "Total Deposited"
   },
   "earnEstimatedRewards": {
-    "message": "预计奖励",
+    "message": "預估獎勵",
     "englishSource": "Estimated Rewards"
   },
   "earnPositionsTitle": {
-    "message": "我的职位",
+    "message": "我的持倉",
     "englishSource": "My positions"
   },
   "earnPositionsRegionLabel": {
-    "message": "职位",
+    "message": "持倉",
     "englishSource": "Positions"
   },
   "earnPositionsLoadError": {
-    "message": "无法加载您的职位。检查您的连接并重试。",
+    "message": "無法載入您的持倉。請檢查網路連線並重新嘗試。",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
@@ -466,7 +466,7 @@
     "englishSource": "Deposited"
   },
   "earnDepositAmountLabel": {
-    "message": "存款金额",
+    "message": "存款金額",
     "englishSource": "Deposit Amount"
   },
   "earnSeeAll": {
@@ -474,15 +474,15 @@
     "englishSource": "See All"
   },
   "earnVaultsTitle": {
-    "message": "特色金库",
+    "message": "精選保險庫",
     "englishSource": "Featured Vaults"
   },
   "earnApyLabel": {
-    "message": "平均年产量",
+    "message": "APY",
     "englishSource": "APY"
   },
   "earnVaultAssetOnNetwork": {
-    "message": "$network$上的$asset$",
+    "message": "$asset$ 網址：$network$",
     "englishSource": "$asset$ on $network$",
     "placeholders": {
       "asset": {
@@ -494,23 +494,23 @@
     }
   },
   "earnCurrentPositionsTitle": {
-    "message": "目前职位",
+    "message": "當前持倉",
     "englishSource": "Current Positions"
   },
   "advanced": {
-    "message": "先进的",
+    "message": "進階",
     "englishSource": "Advanced"
   },
   "appName": {
-    "message": "Miden - Miden 錢包",
+    "message": "麵包",
     "englishSource": "Bread"
   },
   "appDesc": {
-    "message": "Miden 区块链的浏览器钱包",
+    "message": "Miden 的瀏覽器錢包 blockchain",
     "englishSource": "A browser wallet for the Miden blockchain"
   },
   "createAccount": {
-    "message": "创建账户",
+    "message": "建立帳戶",
     "englishSource": "Create Account"
   },
   "importAccount": {
@@ -522,12 +522,11 @@
     "englishSource": "Settings"
   },
   "authorizedDApps": {
-    "message": "授權的分散式應用程式",
-    "description": "DApps = Decentralized Applications",
+    "message": "經授權的去中心化應用程式 (DApps)",
     "englishSource": "Authorized DApps"
   },
   "versionLabel": {
-    "message": "版本： $version$ ",
+    "message": "版本：$version$",
     "englishSource": "version: $version$",
     "placeholders": {
       "version": {
@@ -536,7 +535,7 @@
     }
   },
   "resetPermissionsConfirmation": {
-    "message": "您确定要重置权限吗 $origin$ ?",
+    "message": "您確定要重設\n $origin$的權限嗎？",
     "englishSource": "Are you sure you want to reset permissions for\n $origin$?",
     "placeholders": {
       "origin": {
@@ -545,11 +544,11 @@
     }
   },
   "clickToRevealField": {
-    "message": "单击以显示此字段",
+    "message": "點擊以顯示此欄位",
     "englishSource": "Click to reveal this field"
   },
   "clickToReveal": {
-    "message": "点击揭示",
+    "message": "點擊以顯示內容",
     "englishSource": "Click to reveal"
   },
   "copiedHash": {
@@ -565,15 +564,15 @@
     "englishSource": "Accounts"
   },
   "cardColor": {
-    "message": "卡牌颜色",
+    "message": "卡片顏色",
     "englishSource": "Card Color"
   },
   "lock": {
-    "message": "堵塞",
+    "message": "鎖",
     "englishSource": "Lock"
   },
   "importedAccount": {
-    "message": "已匯入",
+    "message": "進口",
     "englishSource": "Imported"
   },
   "networks": {
@@ -585,15 +584,15 @@
     "englishSource": "Back"
   },
   "skip": {
-    "message": "跳过",
+    "message": "跳過",
     "englishSource": "Skip"
   },
   "okGotIt": {
-    "message": "知道了",
+    "message": "明白了",
     "englishSource": "Got it"
   },
   "changelogTitle": {
-    "message": "Miden 钱包更新",
+    "message": "麵包已更新",
     "englishSource": "Bread updated"
   },
   "update": {
@@ -601,30 +600,15 @@
     "englishSource": "Update"
   },
   "originLabel": {
-    "message": "來源：$origin$",
-    "placeholders": {
-      "origin": {
-        "content": "$1"
-      }
-    },
+    "message": "來源：",
     "englishSource": "Origin:"
   },
   "networkLabel": {
-    "message": "網路：$network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    },
+    "message": "網路：",
     "englishSource": "Network:"
   },
   "pkhLabel": {
-    "message": "帳戶：$pkh$",
-    "placeholders": {
-      "pkh": {
-        "content": "$1"
-      }
-    },
+    "message": "帳戶：",
     "englishSource": "Account:"
   },
   "analytics": {
@@ -636,19 +620,19 @@
     "englishSource": "Cancel"
   },
   "cancelled": {
-    "message": "取消",
+    "message": "已取消",
     "englishSource": "Cancelled"
   },
   "showFullError": {
-    "message": "显示完整错误",
+    "message": "顯示完整錯誤訊息",
     "englishSource": "Show full error"
   },
   "hideFullError": {
-    "message": "隐藏完整错误",
+    "message": "隱藏完整錯誤訊息",
     "englishSource": "Hide full error"
   },
   "faucet": {
-    "message": "龙头",
+    "message": "Faucet",
     "englishSource": "Faucet"
   },
   "error": {
@@ -656,7 +640,7 @@
     "englishSource": "Error"
   },
   "required": {
-    "message": "必要",
+    "message": "必填",
     "englishSource": "Required"
   },
   "address": {
@@ -664,19 +648,19 @@
     "englishSource": "Address"
   },
   "name": {
-    "message": "名稱",
+    "message": "姓名",
     "englishSource": "Name"
   },
   "invalidAddress": {
-    "message": "無效的地址",
+    "message": "地址無效",
     "englishSource": "Invalid address"
   },
   "alert": {
-    "message": "警告",
+    "message": "警示",
     "englishSource": "Alert"
   },
   "defaultAccountName": {
-    "message": "帐户 $accountNumber$ ",
+    "message": "帳號 $accountNumber$",
     "englishSource": "Account $accountNumber$",
     "placeholders": {
       "accountnumber": {
@@ -685,11 +669,11 @@
     }
   },
   "doNotSharePrivateKey1": {
-    "message": "不要与任何人分享！",
+    "message": "請絕對不要與任何人分享！",
     "englishSource": "DO NOT share with anyone!"
   },
   "doNotSharePrivateKey2": {
-    "message": "它可以用来窃取您的当前帐户。",
+    "message": "這可能被用來盜取您的活期存款帳戶。",
     "englishSource": "It can be used to steal your current account."
   },
   "transactionAction": {
@@ -701,19 +685,19 @@
     "englishSource": "Account"
   },
   "noPreview": {
-    "message": "没有可用的预览",
+    "message": "目前沒有預覽",
     "englishSource": "No preview is available"
   },
   "mnemonicWordsAmountConstraint": {
-    "message": "12、15、18 、21 或 24 個英文字",
+    "message": "12、15、18、21 或 24 個英文單字",
     "englishSource": "12, 15, 18, 21 or 24 words in English"
   },
   "mnemonicSpacingConstraint": {
-    "message": "每個字皆以一個空格隔開",
+    "message": "每個單詞之間以一個空格分隔",
     "englishSource": "Each word separated with a single space"
   },
   "seedInputNumberOfWords": {
-    "message": "我的 Seed phrase 是 $num$ 字",
+    "message": "我的《Seed phrase》一書共有 $num$ 個單字",
     "englishSource": "My Seed phrase is $num$ words",
     "placeholders": {
       "num": {
@@ -722,23 +706,23 @@
     }
   },
   "justValidPreGeneratedMnemonic": {
-    "message": "僅為有效的預先生成Seed Phrase",
+    "message": "僅限有效的預先產生之助記詞",
     "englishSource": "Just valid pre-generated mnemonic"
   },
   "seedPasteFailedTooManyWords": {
-    "message": "粘贴失败，因为它包含超过 24 个单词。",
+    "message": "貼上操作失敗，因為內容超過 24 個單字。",
     "englishSource": "Paste failed because it contained over 24 words."
   },
   "seedPhraseTip": {
-    "message": "您可以将整个秘密Seed Phrase粘贴到任何字段中",
+    "message": "您可以將完整的密鑰 Seed phrase 貼到任何欄位中",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
   "oops": {
-    "message": "糟糕！",
+    "message": "哎呀！",
     "englishSource": "Oops!"
   },
   "smthWentWrongWhile": {
-    "message": "期间出了点问题 $action$ ",
+    "message": "$action$ 執行期間發生錯誤",
     "englishSource": "Something went wrong while $action$",
     "placeholders": {
       "action": {
@@ -747,11 +731,11 @@
     }
   },
   "mayHappenBecauseYouAreOffline": {
-    "message": "可能因為您目前為離線狀態",
+    "message": "這可能是因為您目前處於離線狀態",
     "englishSource": "This may happen because you are currently offline"
   },
   "tryAgain": {
-    "message": "再試一次",
+    "message": "請再試一次",
     "englishSource": "Try again"
   },
   "resetExtension": {
@@ -759,15 +743,15 @@
     "englishSource": "Reset Extension"
   },
   "resetExtensionConfirmation": {
-    "message": "您确定要重置 Miden 钱包吗？\n结果，您的所有数据都将被删除。",
+    "message": "您確定要重置 Bread 嗎？\n這樣一來，您的所有資料都將被刪除。",
     "englishSource": "Are you sure you want to reset the Bread?\nAs a result, all your data will be deleted."
   },
   "retry": {
-    "message": "再試一次",
+    "message": "重試",
     "englishSource": "Retry"
   },
   "maximalAmount": {
-    "message": "最大： $amount$ ",
+    "message": "Maximal：$amount$",
     "englishSource": "Maximal: $amount$",
     "placeholders": {
       "amount": {
@@ -776,19 +760,19 @@
     }
   },
   "privateKeyRevealWarningTitle": {
-    "message": "在继续之前",
+    "message": "在繼續之前",
     "englishSource": "Before you continue"
   },
   "privateKeyRevealWarningBody": {
-    "message": "您的私钥可以让持有该账户的人完全控制该账户。 Miden 帐户无法轮换密钥，因此泄露的密钥会永久危害该帐户。",
+    "message": "您的私鑰賦予持有者對此帳戶的完全控制權。Miden 帳戶無法輪替私鑰，因此一旦私鑰外洩，該帳戶將永久遭到入侵。",
     "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
   },
   "privateKeyRevealAcknowledge": {
-    "message": "我了解此密钥无法轮换或撤销。",
+    "message": "我明白這把金鑰無法被旋轉或撤銷。",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
   "encryptedFileImportedAccountsOmitted": {
-    "message": "导入账户（ $importedCount$ ) 不会包含在此文件中。要备份它们，请从“设置”→“显示私钥”单独导出每个私钥。",
+    "message": "匯入的帳戶（$importedCount$）將不會包含在此檔案中。若要備份這些帳戶，請從「設定」→「顯示私密金鑰」中，分別匯出每個私密金鑰。",
     "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
     "placeholders": {
       "importedcount": {
@@ -797,15 +781,15 @@
     }
   },
   "editAccountName": {
-    "message": "编辑账户名称",
+    "message": "編輯帳號名稱",
     "englishSource": "Edit Account Name"
   },
   "delegate": {
-    "message": "委託",
+    "message": "代表",
     "englishSource": "Delegate"
   },
   "receive": {
-    "message": "收取",
+    "message": "接收",
     "englishSource": "Receive"
   },
   "send": {
@@ -813,31 +797,31 @@
     "englishSource": "Send"
   },
   "searchByNameOrSymbol": {
-    "message": "按名称或符号搜索",
+    "message": "依名稱或代號搜尋",
     "englishSource": "Search by name or symbol"
   },
   "transactionInitiated": {
-    "message": "交易发起",
+    "message": "交易已啟動",
     "englishSource": "Transaction initiated"
   },
   "transactionBackground": {
-    "message": "交易将在后台进行。",
+    "message": "交易將在背景中進行。",
     "englishSource": "Transaction will proceed in the background."
   },
   "transactionDelegated": {
-    "message": "交易已发送以生成证明。",
+    "message": "該交易已送交以進行證明生成。",
     "englishSource": "Transaction has been sent for proof generation."
   },
   "openedNewTab": {
-    "message": "钱包打开一个新标签以加快交易速度。该选项卡将自动关闭。",
+    "message": "錢包開啟了一個新分頁以加快交易速度。該分頁將會自動關閉。",
     "englishSource": "The wallet opened a new tab to speed up the transaction. That tab will auto-close."
   },
   "fastTransactionDescription": {
-    "message": "交易将自动广播并最终确定。",
+    "message": "該筆交易將自動廣播並完成。",
     "englishSource": "The transaction will automatically be broadcasted and finalized."
   },
   "speedUpTransaction": {
-    "message": "加快交易。",
+    "message": "加快交易速度。",
     "englishSource": "Speed Up Transaction."
   },
   "fastTransaction": {
@@ -845,39 +829,39 @@
     "englishSource": "Transaction Speed"
   },
   "generatingTransaction": {
-    "message": "生成交易",
+    "message": "產生交易",
     "englishSource": "Generating Transaction"
   },
   "generatingTransactionDescription": {
-    "message": "这可能需要一些时间，具体取决于网络流量。您可以关闭它 - 完成后我们会通知您。",
+    "message": "根據網路流量狀況，此過程可能需要片刻時間。您可以先關閉此視窗——完成後我們會通知您。",
     "englishSource": "This may take a moment depending on network traffic. You can close this — we'll notify you when it's done."
   },
   "transactionProcessingHeader": {
-    "message": "加工",
+    "message": "處理",
     "englishSource": "Processing"
   },
   "transactionTitleSend": {
-    "message": "发送付款",
+    "message": "付款",
     "englishSource": "Sending Payment"
   },
   "transactionTitleSwap": {
-    "message": "生成互换",
+    "message": "產生掉期合約",
     "englishSource": "Generating Swap"
   },
   "transactionStepGuardianApproved": {
-    "message": "监护人批准",
+    "message": "Guardian 已核准",
     "englishSource": "Guardian approved"
   },
   "transactionStepProofGenerated": {
-    "message": "生成证明",
+    "message": "已產生證明",
     "englishSource": "Proof generated"
   },
   "transactionStepSubmitting": {
-    "message": "正在提交",
+    "message": "提交",
     "englishSource": "Submitting"
   },
   "transactionStepSyncingGuardian": {
-    "message": "与监护人同步",
+    "message": "與 Guardian 同步",
     "englishSource": "Syncing with Guardian"
   },
   "transactionStepDurationSec": {
@@ -890,63 +874,63 @@
     }
   },
   "transactionStageSyncing": {
-    "message": "正在同步帐户",
+    "message": "同步帳戶",
     "englishSource": "Syncing account"
   },
   "transactionStageSyncingDescription": {
-    "message": "正在获取您最新的帐户状态。",
+    "message": "正在擷取您的最新帳戶狀態。",
     "englishSource": "Fetching your latest account state."
   },
   "transactionStageSending": {
-    "message": "发送交易",
+    "message": "發送交易",
     "englishSource": "Sending transaction"
   },
   "transactionStageSendingDescription": {
-    "message": "构建并证明您的交易。",
+    "message": "建立並驗證您的交易。",
     "englishSource": "Building and proving your transaction."
   },
   "transactionStageClaiming": {
-    "message": "声明note",
+    "message": "領取 note",
     "englishSource": "Claiming note"
   },
   "transactionStageExecuting": {
-    "message": "执行交易",
+    "message": "執行交易",
     "englishSource": "Executing transaction"
   },
   "transactionStageExecutingDescription": {
-    "message": "准备交易以进行证明。",
+    "message": "正在準備交易以供驗證。",
     "englishSource": "Preparing the transaction for proving."
   },
   "transactionStageProving": {
-    "message": "生成证明",
+    "message": "產生證明",
     "englishSource": "Generating proof"
   },
   "transactionStageProvingDescription": {
-    "message": "为您的交易创建证明。",
+    "message": "正在為您的交易建立證明。",
     "englishSource": "Creating the proof for your transaction."
   },
   "transactionStageSwitching": {
-    "message": "切换监护人",
+    "message": "切換 guardian",
     "englishSource": "Switching guardian"
   },
   "transactionStageSwapping": {
-    "message": "交换代币",
+    "message": "代幣兌換",
     "englishSource": "Swapping tokens"
   },
   "transactionStageCreatingProposal": {
-    "message": "创建提案",
+    "message": "撰寫提案",
     "englishSource": "Creating proposal"
   },
   "transactionStageCreatingProposalDescription": {
-    "message": "为您的监护人制定交易建议。",
+    "message": "為您的 guardian 建立交易提案。",
     "englishSource": "Building the transaction proposal for your guardian."
   },
   "transactionStageSigningProposal": {
-    "message": "与监护人签字",
+    "message": "使用 guardian 簽署",
     "englishSource": "Signing with guardian"
   },
   "transactionStageSigningProposalDescription": {
-    "message": "您的监护人正在签署该提案。",
+    "message": "您的 guardian 正在簽署此提案。",
     "englishSource": "Your guardian is signing the proposal."
   },
   "transactionStageSubmitting": {
@@ -954,59 +938,59 @@
     "englishSource": "Submitting transaction"
   },
   "transactionStageSubmittingDescription": {
-    "message": "将您签名的交易发送到网络。",
+    "message": "將您已簽署的交易傳送至網路。",
     "englishSource": "Sending your signed transaction to the network."
   },
   "transactionStageGuardianSyncing": {
-    "message": "与监护人同步",
+    "message": "與 Guardian 同步",
     "englishSource": "Syncing with Guardian"
   },
   "transactionStageGuardianSyncingDescription": {
-    "message": "将您更新的帐户状态与您的监护人同步。",
+    "message": "將您更新後的帳戶狀態與您的 guardian 進行同步。",
     "englishSource": "Syncing your updated account state with your guardian."
   },
   "transactionStageComplete": {
-    "message": "交易完成",
+    "message": "交易已完成",
     "englishSource": "Transaction complete"
   },
   "transactionStageCompleteDescription": {
-    "message": "最终确定交易细节。",
+    "message": "正在確認交易細節。",
     "englishSource": "Finalizing transaction details."
   },
   "transactionStageConfirming": {
-    "message": "链上确认",
+    "message": "在鏈上確認",
     "englishSource": "Confirming on chain"
   },
   "transactionStageConfirmingDescription": {
-    "message": "等待网络确认。",
+    "message": "正在等待網路確認。",
     "englishSource": "Waiting for network confirmation."
   },
   "transactionStageRegisteringGuardian": {
-    "message": "与监护人一起登记",
+    "message": "在 guardian 註冊",
     "englishSource": "Registering with guardian"
   },
   "transactionStageRegisteringGuardianDescription": {
-    "message": "向新监护人注册您的帐户状态。",
+    "message": "將您的帳戶狀態註冊至新的 guardian。",
     "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
-    "message": "正在传送note",
+    "message": "推出「note」",
     "englishSource": "Delivering note"
   },
   "transactionStageDeliveringDescription": {
-    "message": "将 note 安全地发送给收件人。",
+    "message": "將 note 安全地傳送給收件者。",
     "englishSource": "Securely sending the note to the recipient."
   },
   "status": {
-    "message": "地位",
+    "message": "狀態",
     "englishSource": "Status"
   },
   "privateKey": {
-    "message": "私密金鑰",
+    "message": "私鑰",
     "englishSource": "Private Key"
   },
   "mnemonic": {
-    "message": "Seed Phrase",
+    "message": "助記法",
     "englishSource": "Mnemonic"
   },
   "password": {
@@ -1018,15 +1002,15 @@
     "englishSource": "Success"
   },
   "smthWentWrong": {
-    "message": "發生錯誤",
+    "message": "發生了錯誤",
     "englishSource": "Something went wrong"
   },
   "processing": {
-    "message": "正在處理……",
+    "message": "處理中...",
     "englishSource": "Processing..."
   },
   "importWallet": {
-    "message": "导入您的钱包",
+    "message": "匯入錢包",
     "englishSource": "Import Wallet"
   },
   "revealPrivateKey": {
@@ -1034,7 +1018,7 @@
     "englishSource": "Reveal Private Key"
   },
   "advancedSettings": {
-    "message": "高级设置",
+    "message": "進階設定",
     "englishSource": "Advanced Settings"
   },
   "resync": {
@@ -1042,11 +1026,11 @@
     "englishSource": "Resync"
   },
   "about": {
-    "message": "关于",
+    "message": "關於",
     "englishSource": "About"
   },
   "preferences": {
-    "message": "偏好设置",
+    "message": "偏好設定",
     "englishSource": "Preferences"
   },
   "security": {
@@ -1054,19 +1038,19 @@
     "englishSource": "Security"
   },
   "developer": {
-    "message": "开发商",
+    "message": "開發者",
     "englishSource": "Developer"
   },
   "info": {
-    "message": "信息",
+    "message": "資訊",
     "englishSource": "Info"
   },
   "unlockPasswordErrorDelay": {
-    "message": "您已经输入了 3 次错误的密码。你的钱包被冻结了",
+    "message": "您已連續三次輸入錯誤的密碼。您的錢包將被鎖定，為期",
     "englishSource": "You have entered the wrong password three times. Your wallet is being blocked for"
   },
   "unlock": {
-    "message": "解鎖錢包",
+    "message": "解鎖",
     "englishSource": "Unlock"
   },
   "website": {
@@ -1074,15 +1058,15 @@
     "englishSource": "Website"
   },
   "privacyPolicy": {
-    "message": "隱私政策",
+    "message": "隱私權政策",
     "englishSource": "Privacy Policy"
   },
   "termsOfService": {
-    "message": "服务条款",
+    "message": "服務條款",
     "englishSource": "Terms of Service"
   },
   "sendFeedback": {
-    "message": "发送反馈",
+    "message": "傳送意見回饋",
     "englishSource": "Send feedback"
   },
   "termsOfUse": {
@@ -1090,35 +1074,35 @@
     "englishSource": "Terms of Use"
   },
   "recoveryPhrase": {
-    "message": "恢复短语",
+    "message": "恢復短語",
     "englishSource": "Recovery Phrase"
   },
   "viewThisInPrivatePlace": {
-    "message": "在私人地方查看此内容",
+    "message": "請在私密處查看此內容",
     "englishSource": "View this in a private place"
   },
   "anyoneWithRecoveryPhrase": {
-    "message": "任何知道您的恢复短语的人都可以访问您的钱包和资金。",
+    "message": "任何知道您的恢復短語的人，都能存取您的錢包和資金。",
     "englishSource": "Anyone who knows your recovery phrase can access your wallet and funds."
   },
   "pleaseWriteDownRecoveryPhrase": {
-    "message": "请写下您的秘密恢复短语并将其保存在安全的地方。",
+    "message": "請將您的秘密恢復短語寫下來，並妥善保管。",
     "englishSource": "Please write down your secret recovery phrase and keep it in a safe place."
   },
   "view": {
-    "message": "看法",
+    "message": "檢視",
     "englishSource": "View"
   },
   "hideRecoveryPhrase": {
-    "message": "隐藏恢复短语",
+    "message": "隱藏恢復短語",
     "englishSource": "Hide Recovery Phrase"
   },
   "dAppsInteraction": {
-    "message": "DApps互动",
+    "message": "DApps 互動",
     "englishSource": "DApps Interaction"
   },
   "none": {
-    "message": "没有任何",
+    "message": "無",
     "englishSource": "None"
   },
   "popupEnabled": {
@@ -1134,7 +1118,7 @@
     "englishSource": "Not enough funds"
   },
   "notEnoughCurrencyFunds": {
-    "message": "不够 $currency$ 资金",
+    "message": "$currency$ 資金不足",
     "englishSource": "Not enough $currency$ funds",
     "placeholders": {
       "currency": {
@@ -1151,11 +1135,11 @@
     "englishSource": "Your Balance is zero."
   },
   "thisMayHappenBecause": {
-    "message": "可能發生的原因為：",
+    "message": "這可能是由於以下原因所致：",
     "englishSource": "This may happen because:"
   },
   "minimalFeeGreaterThanBalanceVerbose": {
-    "message": "此交易的最低费用大于您的余额。由于您将资金转入空的经理账户，因此可能需要支付大笔费用。这需要一次性 0.06425 $gasTokenSymbol$ 燃烧费；",
+    "message": "此筆交易的最低手續費高於您的餘額。由於您將資金匯入一個空的經理帳戶，因此可能需要支付高額手續費。這將產生一筆 0.06425 $gasTokenSymbol$ 的一次性銷毀手續費；",
     "englishSource": "Minimal fee for this transaction is greater than your balance. A large fee may be required because of you sending funds to an empty Manager account. That requires a one-time 0.06425 $gasTokenSymbol$ burn fee;",
     "placeholders": {
       "gastokensymbol": {
@@ -1168,7 +1152,7 @@
     "englishSource": "Network or other technical issue."
   },
   "confirmAction": {
-    "message": "确认 $action$ ",
+    "message": "請確認 $action$",
     "englishSource": "Confirm $action$",
     "placeholders": {
       "action": {
@@ -1181,11 +1165,11 @@
     "englishSource": "Confirm"
   },
   "confirmRisk": {
-    "message": "我了解風險並希望繼續。",
+    "message": "我已了解相關風險，並希望繼續進行。",
     "englishSource": "I understand the risk and wish to proceed."
   },
   "confirmError": {
-    "message": "未經確認無法繼續。",
+    "message": "若未確認，將無法繼續。",
     "englishSource": "Unable to continue without confirming."
   },
   "termsOfUsage": {
@@ -1193,11 +1177,11 @@
     "englishSource": "Terms of Usage"
   },
   "file": {
-    "message": "文件",
+    "message": "檔案",
     "englishSource": "File"
   },
   "filePassword": {
-    "message": "文件密码",
+    "message": "檔案密碼",
     "englishSource": "File Password"
   },
   "create": {
@@ -1205,19 +1189,19 @@
     "englishSource": "Create"
   },
   "import": {
-    "message": "进口",
+    "message": "匯入",
     "englishSource": "Import"
   },
   "seedPhraseDescription": {
-    "message": "请写下您的秘密恢复短语并将其保存在安全的地方。此短语是恢复您帐户的唯一方法。",
+    "message": "請將您的秘密恢復短語寫下來，並將其妥善保管於安全之處。這組短語是恢復您帳戶的唯一方式。",
     "englishSource": "Please write down your secret recovery phrase and keep it in a safe place. This phrase is the only way to recover your account."
   },
   "doNotShareWithAnyone": {
-    "message": "不要与任何人分享。",
+    "message": "請勿將此資訊透露給任何人。",
     "englishSource": "Do not share it with anyone."
   },
   "anyoneCanTakeAssets": {
-    "message": "任何拥有这句话的人都可以永远拿走你的资产。",
+    "message": "只要有人掌握這句話，就能永遠佔有你的資產。",
     "englishSource": "Anyone with this phrase can take your assets forever."
   },
   "continue": {
@@ -1225,7 +1209,7 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "您当前没有任何交易。",
+    "message": "您目前沒有任何交易紀錄。",
     "englishSource": "You don't currently have any transactions."
   },
   "remove": {
@@ -1233,23 +1217,23 @@
     "englishSource": "Remove"
   },
   "ifYouWantToRevealPrivateKeyFromOtherAccount": {
-    "message": "如果您想顯示另一個帳戶的私密金鑰，您應在右上角下拉選單選取該帳戶。",
+    "message": "若要顯示來自另一個帳戶的檢視金鑰，請在右上角的下拉式選單中選取該帳戶。",
     "englishSource": "If you want to reveal a view key from another account - you should select it in the top-right dropdown."
   },
   "privateKeyFieldDescription": {
-    "message": "此為目前的帳戶金鑰。請小心保管。",
+    "message": "當前帳戶金鑰。請務必保密。",
     "englishSource": "Current account key. Keep it in secret."
   },
   "seedPhrase": {
-    "message": "<xid=\"0\"/>",
+    "message": "Seed Phrase",
     "englishSource": "Seed Phrase"
   },
   "keepSeedPhraseSecret": {
-    "message": "保密。",
+    "message": "請保密。",
     "englishSource": "Keep it in secret."
   },
   "revealSecretPasswordInputDescription": {
-    "message": "输入密码即可显示 $secretName$ .",
+    "message": "請輸入密碼以顯示「$secretName$」。",
     "englishSource": "Enter password to reveal the $secretName$.",
     "placeholders": {
       "secretname": {
@@ -1258,7 +1242,7 @@
     }
   },
   "revealSecretPasscodeInputDescription": {
-    "message": "輸入您的密碼以顯示 $secretName$ .",
+    "message": "請輸入您的密碼，以解鎖$secretName$。",
     "englishSource": "Enter your passcode to reveal the $secretName$.",
     "placeholders": {
       "secretname": {
@@ -1267,7 +1251,7 @@
     }
   },
   "revealSecretUnlockDescription": {
-    "message": "使用您的密码解锁以显示 $secretName$ .",
+    "message": "輸入您的密碼解鎖，即可窺見$secretName$的風采。",
     "englishSource": "Unlock with your passcode to reveal the $secretName$.",
     "placeholders": {
       "secretname": {
@@ -1280,7 +1264,7 @@
     "englishSource": "Transaction"
   },
   "recipient": {
-    "message": "收受者",
+    "message": "收件人",
     "englishSource": "Recipient"
   },
   "amount": {
@@ -1288,15 +1272,15 @@
     "englishSource": "Amount"
   },
   "mainAssetBalanceIsZero": {
-    "message": "您的 Miden 积分（主要资产）余额为零。费用需要 Miden 积分。",
+    "message": "您的 Miden 點數（主要資產）餘額為零。支付手續費需使用 Miden 點數。",
     "englishSource": "Your Miden credits (main asset) balance is zero. Miden credits are required for the fee."
   },
   "unableToSendTransactionAction": {
-    "message": "無法向所提供的收受者傳送交易。",
+    "message": "無法將交易發送至指定的收件人。",
     "englishSource": "Unable to send transaction to provided Recipient."
   },
   "unableToEstimateTransactionAction": {
-    "message": "無法估計對所提供的收受者進行的交易。",
+    "message": "無法估算發送至指定收件人的交易金額。",
     "englishSource": "Unable to estimate transaction to provided Recipient."
   },
   "raw": {
@@ -1304,7 +1288,7 @@
     "englishSource": "Raw"
   },
   "fetchingConfirmationDetails": {
-    "message": "正在擷取確認的詳細資料",
+    "message": "正在擷取確認詳情",
     "englishSource": "fetching confirmation details"
   },
   "notIdentified": {
@@ -1312,15 +1296,15 @@
     "englishSource": "Not identified"
   },
   "connect": {
-    "message": "連結",
+    "message": "連線",
     "englishSource": "Connect"
   },
   "generalSettings": {
-    "message": "一般",
+    "message": "概述",
     "englishSource": "General"
   },
   "language": {
-    "message": "语言",
+    "message": "語言",
     "englishSource": "Language"
   },
   "add": {
@@ -1332,19 +1316,19 @@
     "englishSource": "Assets"
   },
   "tokens": {
-    "message": "探索代币",
+    "message": "探索代幣",
     "englishSource": "Explore tokens"
   },
   "history": {
-    "message": "历史",
+    "message": "歷史",
     "englishSource": "History"
   },
   "proofGenerationTab": {
-    "message": "需要打开标签才能高效生成交易证明",
+    "message": "必須開啟一個分頁，才能有效率地產生交易證明",
     "englishSource": "An open tab is required to efficiently generate transaction proofs"
   },
   "searchAssets": {
-    "message": "搜尋資產…",
+    "message": "搜尋資產...",
     "englishSource": "Search assets..."
   },
   "contract": {
@@ -1352,11 +1336,11 @@
     "englishSource": "Contract"
   },
   "delegateProofSettings": {
-    "message": "委托证明生成",
+    "message": "代表證明生成",
     "englishSource": "Delegate Proof Generation"
   },
   "delegateProofSettingsDescription": {
-    "message": "启用后，交易证明将在远程服务器上生成 - 速度更快，无需大量下载到您的设备，并且您的密钥永远不会离开它。当关闭时，或者如果服务不可用，钱包会在本地证明：更私密，但速度较慢，并且需要大量的一次性下载。",
+    "message": "開啟時，交易證明會在遠端伺服器上產生——速度更快，無需在您的裝置上下載大量資料，且您的金鑰絕不會離開裝置。關閉時，或當服務不可用時，錢包會進行本地驗證：隱私性更高，但速度較慢，且需要進行一次大量資料的下載。",
     "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
   },
   "transfer": {
@@ -1364,23 +1348,23 @@
     "englishSource": "Transfer"
   },
   "clean": {
-    "message": "清除",
+    "message": "清理",
     "englishSource": "Clean"
   },
   "ok": {
-    "message": "確定",
+    "message": "好",
     "englishSource": "OK"
   },
   "yes": {
-    "message": "是",
+    "message": "是的",
     "englishSource": "Yes"
   },
   "no": {
-    "message": "否",
+    "message": "不",
     "englishSource": "No"
   },
   "actionConfirmation": {
-    "message": "確認動作",
+    "message": "確認此操作",
     "englishSource": "Confirm the action"
   },
   "submit": {
@@ -1388,15 +1372,15 @@
     "englishSource": "Submit"
   },
   "max": {
-    "message": "最大限度",
+    "message": "麥克斯",
     "englishSource": "Max"
   },
   "from": {
-    "message": "从",
+    "message": "來自",
     "englishSource": "From"
   },
   "to": {
-    "message": "到",
+    "message": "致",
     "englishSource": "To"
   },
   "received": {
@@ -1408,7 +1392,7 @@
     "englishSource": "Other"
   },
   "thousandFormat": {
-    "message": "$thousand$k",
+    "message": "$thousand$ k",
     "englishSource": "$thousand$k",
     "placeholders": {
       "thousand": {
@@ -1417,7 +1401,7 @@
     }
   },
   "millionFormat": {
-    "message": "$million$M",
+    "message": "$million$ M",
     "englishSource": "$million$M",
     "placeholders": {
       "million": {
@@ -1426,7 +1410,7 @@
     }
   },
   "billionFormat": {
-    "message": "$billion$B",
+    "message": "$billion$ B",
     "englishSource": "$billion$B",
     "placeholders": {
       "billion": {
@@ -1435,40 +1419,39 @@
     }
   },
   "download": {
-    "message": "下载",
+    "message": "下載",
     "englishSource": "Download"
   },
   "more": {
-    "message": "更多的",
-    "description": "Show more",
+    "message": "更多",
     "englishSource": "more"
   },
   "addressBook": {
-    "message": "地址簿",
+    "message": "通訊錄",
     "englishSource": "Address Book"
   },
   "chooseRecipient": {
-    "message": "选择收件人",
+    "message": "選擇收件人",
     "englishSource": "Choose recipient"
   },
   "selectAmount": {
-    "message": "选择金额",
+    "message": "選擇金額",
     "englishSource": "Select Amount"
   },
   "selectAToken": {
-    "message": "选择一个代币",
+    "message": "選擇一個代幣",
     "englishSource": "Select a token"
   },
   "searchForTokens": {
-    "message": "搜索代币",
+    "message": "搜尋代幣",
     "englishSource": "Search for tokens"
   },
   "available": {
-    "message": "可用的",
+    "message": "有貨",
     "englishSource": "Available"
   },
   "approxFiatValue": {
-    "message": "≈  $value$ 美元",
+    "message": "≈ $value$ 美元",
     "englishSource": "≈ $value$ USD",
     "placeholders": {
       "value": {
@@ -1477,47 +1460,47 @@
     }
   },
   "reviewDetails": {
-    "message": "评论详情",
+    "message": "評論詳情",
     "englishSource": "Review Details"
   },
   "swap": {
-    "message": "交换",
+    "message": "交換",
     "englishSource": "Swap"
   },
   "viaInProtocolDex": {
-    "message": "通过 Dex 协议",
+    "message": "透過 In Protocol Dex",
     "englishSource": "Via In Protocol Dex"
   },
   "reviewSwap": {
-    "message": "评论交换",
+    "message": "評論交換",
     "englishSource": "Review Swap"
   },
   "youPay": {
-    "message": "你付钱",
+    "message": "由您支付",
     "englishSource": "You Pay"
   },
   "youReceive": {
-    "message": "您收到",
+    "message": "您將收到",
     "englishSource": "You Receive"
   },
   "youSend": {
-    "message": "你发送",
+    "message": "您發送",
     "englishSource": "You Send"
   },
   "youAreSending": {
-    "message": "您正在发送",
+    "message": "您正在發送",
     "englishSource": "You are sending"
   },
   "swapDirection": {
-    "message": "交换方向",
+    "message": "切換方向",
     "englishSource": "Swap direction"
   },
   "rate": {
-    "message": "速度",
+    "message": "評分",
     "englishSource": "Rate"
   },
   "swapSolverFeeNote": {
-    "message": "您的收到金额已包含 $percent$ 求解器费用。",
+    "message": "您的收款金額已包含$percent$的解算費。",
     "englishSource": "Your receive amount already includes a $percent$ solver fee.",
     "placeholders": {
       "percent": {
@@ -1526,11 +1509,11 @@
     }
   },
   "usuallyFillsIn": {
-    "message": "通常填写",
+    "message": "通常會填入",
     "englishSource": "Usually fills in"
   },
   "swapEtaSeconds": {
-    "message": "~ $seconds$ s",
+    "message": "~$seconds$ s",
     "englishSource": "~$seconds$s",
     "placeholders": {
       "seconds": {
@@ -1539,7 +1522,7 @@
     }
   },
   "swapEtaMinutes": {
-    "message": "~ $minutes$ 分钟",
+    "message": "~$minutes$ 分鐘",
     "englishSource": "~$minutes$ min",
     "placeholders": {
       "minutes": {
@@ -1548,31 +1531,31 @@
     }
   },
   "swapEtaFallback": {
-    "message": "〜30秒",
+    "message": "約30秒",
     "englishSource": "~30s"
   },
   "expires": {
-    "message": "过期",
+    "message": "有效期至",
     "englishSource": "Expires"
   },
   "swapAutoConsume": {
-    "message": "自动消耗",
+    "message": "自動消耗",
     "englishSource": "Auto consume"
   },
   "swapSameToken": {
-    "message": "选择两个不同的代币进行交换。",
+    "message": "請選擇兩個不同的代幣來交換。",
     "englishSource": "Pick two different tokens to swap."
   },
   "swapInvalidAmounts": {
-    "message": "输入有效的交换金额。",
+    "message": "請輸入有效的兌換金額。",
     "englishSource": "Enter a valid amount to swap."
   },
   "swapPriceUnavailable": {
-    "message": "价格不详。稍后再试。",
+    "message": "價格暫未提供。請稍後再試。",
     "englishSource": "Price unavailable. Try again shortly."
   },
   "swapOrderReservedNote": {
-    "message": "你的 $amount$ 保留该订单直至其被填满。",
+    "message": "您的「$amount$」將持續為此訂單保留，直至訂單完成為止。",
     "englishSource": "Your $amount$ stays reserved for this order until it's filled.",
     "placeholders": {
       "amount": {
@@ -1581,19 +1564,19 @@
     }
   },
   "swapSuccessSourcingLiquidity": {
-    "message": "我们正在为您的互换寻找流动性。通常大约 30 秒即可充满。",
+    "message": "我們正在為您的掉期交易籌措流動性。通常約 30 秒內即可成交。",
     "englishSource": "We're sourcing liquidity for your swap. It usually fills in about 30 seconds."
   },
   "swapSuccessTrackProgress": {
-    "message": "您可以在“活动”中跟踪其进度。",
+    "message": "您可以在「活動」中追蹤其進度。",
     "englishSource": "You can track its progress in Activities."
   },
   "expirationDate": {
-    "message": "截止日期",
+    "message": "有效期限",
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "如果届时无人认领，您可以认领 $amount$ 放回你的钱包里。没有资金损失。",
+    "message": "若屆時仍未領取，您可以將$amount$領回您的錢包。資金不會遺失。",
     "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
@@ -1602,11 +1585,11 @@
     }
   },
   "recallTimeInPast": {
-    "message": "这个时间已经过去了——选择一个未来的时间",
+    "message": "這個時間已經過去了 — 請選擇未來的時間",
     "englishSource": "This time has already passed — pick a future time"
   },
   "expiresInSeconds": {
-    "message": "在 $seconds$ 秒",
+    "message": "$seconds$ 秒內",
     "englishSource": "In $seconds$ seconds",
     "placeholders": {
       "seconds": {
@@ -1615,7 +1598,7 @@
     }
   },
   "expiresInMinutes": {
-    "message": "在 $minutes$ 分钟",
+    "message": "在 $minutes$ 分鐘內",
     "englishSource": "In $minutes$ minutes",
     "placeholders": {
       "minutes": {
@@ -1624,7 +1607,7 @@
     }
   },
   "edit": {
-    "message": "编辑",
+    "message": "編輯",
     "englishSource": "Edit"
   },
   "miden": {
@@ -1632,95 +1615,95 @@
     "englishSource": "Miden"
   },
   "addNewContact": {
-    "message": "新联系人",
+    "message": "新聯絡人",
     "englishSource": "New contact"
   },
   "addContact": {
-    "message": "添加联系人",
+    "message": "新增聯絡人",
     "englishSource": "Add Contact"
   },
   "addToContactsPrompt": {
-    "message": "添加到联系人？",
+    "message": "要加入聯絡人嗎？",
     "englishSource": "Add to contacts?"
   },
   "recent": {
-    "message": "最近的",
+    "message": "近期",
     "englishSource": "Recent"
   },
   "newContactPlaceholder": {
-    "message": "例如爱丽丝鲍勃",
+    "message": "例如：愛麗絲、鮑伯",
     "englishSource": "e.g. Alice Bob"
   },
   "contactWithTheSameAddressAlreadyExists": {
-    "message": "已存在相同地址的联系人",
+    "message": "系統中已存在與此地址相同的聯絡人",
     "englishSource": "Contact with the same address already exists"
   },
   "currentContacts": {
-    "message": "当前联系人",
+    "message": "目前聯絡人",
     "englishSource": "Current Contacts"
   },
   "searchContacts": {
-    "message": "搜索",
+    "message": "搜尋",
     "englishSource": "Search"
   },
   "deleteContactConfirm": {
-    "message": "您确定要删除此联系人吗？",
+    "message": "您確定要刪除此聯絡人嗎？",
     "englishSource": "Are you sure you want to delete this contact?"
   },
   "ownAccount": {
-    "message": "自己的",
+    "message": "擁有",
     "englishSource": "Own"
   },
   "noContactsFound": {
-    "message": "未找到联系人",
+    "message": "未找到任何聯絡人",
     "englishSource": "No contacts found"
   },
   "verifySeedPhrase": {
-    "message": "验证Seed Phrase",
+    "message": "驗證 Seed Phrase",
     "englishSource": "Verify Seed Phrase"
   },
   "faucetPromptTitle": {
-    "message": "为你的钱包充值",
+    "message": "為您的錢包充值",
     "englishSource": "Fund your wallet"
   },
   "faucetPromptBody": {
-    "message": "将代币添加到您的钱包即可开始。",
+    "message": "請將代幣加入您的錢包，即可開始使用。",
     "englishSource": "Add tokens to your wallet to get started."
   },
   "faucetPromptAction": {
-    "message": "立即基金",
+    "message": "立即捐款",
     "englishSource": "Fund now"
   },
   "fundWalletLoadingTitle": {
-    "message": "为你的钱包提供资金",
+    "message": "為您的錢包儲值",
     "englishSource": "Funding your wallet"
   },
   "fundWalletLoadingBody": {
-    "message": "正在从 faucet 请求令牌...",
+    "message": "正在向 faucet 請求憑證……",
     "englishSource": "Requesting tokens from the faucet…"
   },
   "fundWalletSuccessTitle": {
-    "message": "钱包资助",
+    "message": "錢包已充值",
     "englishSource": "Wallet funded"
   },
   "fundWalletSuccessBody": {
-    "message": "您的代币正在路上，很快就会出现。",
+    "message": "您的代幣正在送來的路上，稍後就會顯示。",
     "englishSource": "Your tokens are on the way and will appear shortly."
   },
   "fundWalletErrorTitle": {
-    "message": "资金失败",
+    "message": "資金籌措失敗",
     "englishSource": "Funding failed"
   },
   "fundWalletErrorBody": {
-    "message": "我们无法为您的钱包提供资金。请再试一次。",
+    "message": "我們無法為您的錢包充值。請重新嘗試。",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
   "pendingNotesPromptTitle": {
-    "message": "您有待处理的 Notes",
+    "message": "您有待處理的 Notes",
     "englishSource": "You have Pending Notes"
   },
   "pendingNotesPromptBody": {
-    "message": "您还有待处理的 notes 价值 $amount$ .",
+    "message": "您目前持有價值 $amount$ 的待處理 notes。",
     "englishSource": "You have pending notes worth $amount$.",
     "placeholders": {
       "amount": {
@@ -1733,59 +1716,59 @@
     "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "验证您的恢复短语",
+    "message": "驗證您的恢復短語",
     "englishSource": "Verify your recovery phrase"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "写下您的恢复短语并验证您对其第一个和最后一个单词的了解，以便您稍后可以恢复此钱包。",
+    "message": "請將您的恢復短語記錄下來，並確認您是否記得該短語的第一個和最後一個詞，以便日後能還原此錢包。",
     "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
   },
   "hotKeyHardwareErrorPromptTitle": {
-    "message": "安全签名不可用",
+    "message": "無法進行安全簽署",
     "englishSource": "Secure signing unavailable"
   },
   "hotKeyHardwareErrorPromptBody": {
-    "message": "此设备的安全硬件在设置交易签名时报告错误。复制错误并将其发送给 Miden 团队。",
+    "message": "此裝置的安全硬體在設定交易簽名時發生錯誤。請複製錯誤訊息並將其發送給 Miden 團隊。",
     "englishSource": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team."
   },
   "hotKeyHardwareErrorPromptAction": {
-    "message": "复制错误",
+    "message": "複製錯誤",
     "englishSource": "Copy error"
   },
   "hotKeyRotationPromptTitle": {
-    "message": "设备密钥需要轮换",
+    "message": "裝置金鑰需要輪替",
     "englishSource": "Device key needs rotation"
   },
   "hotKeyRotationPromptBody": {
-    "message": "该设备无法再使用您的设备（热）密钥。旋转它即可恢复签名——您的资金不受影响。",
+    "message": "此裝置無法再使用您的裝置（熱）鍵。請將其旋轉以恢復簽署功能——您的資金不會受到影響。",
     "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
   },
   "hotKeyRotationPromptAction": {
-    "message": "旋转钥匙",
+    "message": "旋轉鑰匙",
     "englishSource": "Rotate key"
   },
   "bridgePromptTitle": {
-    "message": "桥梁建设中",
+    "message": "橋接進行中",
     "englishSource": "Bridge in progress"
   },
   "bridgePromptBody": {
-    "message": "我们将在后台继续跟踪您的桥梁。",
+    "message": "我們將在後台持續追蹤您的跨鏈轉移進度。",
     "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
-    "message": "您将写下您的恢复短语，然后通过选择其第一个和最后一个单词来验证您的知识。确保没有人可以看到您的屏幕。",
+    "message": "您將寫下您的恢復短語，然後透過選取該短語的第一個和最後一個單字來驗證您是否確實記住。請確保沒有人能看到您的螢幕。",
     "englishSource": "You will write down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
   },
   "verifySeedPhrasePasswordBody": {
-    "message": "解锁您的钱包以显示您的恢复短语并开始验证。",
+    "message": "解鎖您的錢包以顯示您的恢復短語，並開始驗證程序。",
     "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
   },
   "verifySeedPhraseReviewBody": {
-    "message": "按顺序写下这些单词。",
+    "message": "請按順序寫下這些單字。",
     "englishSource": "Write down these words in order."
   },
   "word": {
-    "message": "单词 $number$ ",
+    "message": "Word $number$",
     "englishSource": "Word $number$",
     "placeholders": {
       "number": {
@@ -1794,39 +1777,39 @@
     }
   },
   "finish": {
-    "message": "结束",
+    "message": "完成",
     "englishSource": "Finish"
   },
   "onboarding": {
-    "message": "入职",
+    "message": "入職流程",
     "englishSource": "Onboarding"
   },
   "next": {
-    "message": "下一个",
+    "message": "下一頁",
     "englishSource": "Next"
   },
   "done": {
-    "message": "完毕！",
+    "message": "完成",
     "englishSource": "Done"
   },
   "start": {
-    "message": "开始",
+    "message": "開始",
     "englishSource": "Start"
   },
   "transactionId": {
-    "message": "交易编号：",
+    "message": "交易編號：",
     "englishSource": "Transaction ID:"
   },
   "recipientAddress": {
-    "message": "收件人地址：",
+    "message": "收件人地址",
     "englishSource": "Recipient address"
   },
   "completed": {
-    "message": "完全的",
+    "message": "已完成",
     "englishSource": "Completed"
   },
   "confirmation": {
-    "message": "确认",
+    "message": "確認",
     "englishSource": "Confirmation"
   },
   "collectibles": {
@@ -1838,11 +1821,11 @@
     "englishSource": "ID"
   },
   "convert": {
-    "message": "转变",
+    "message": "轉換",
     "englishSource": "Convert"
   },
   "public": {
-    "message": "民众",
+    "message": "公開",
     "englishSource": "Public"
   },
   "private": {
@@ -1850,11 +1833,11 @@
     "englishSource": "Private"
   },
   "external": {
-    "message": "外部的",
+    "message": "外部",
     "englishSource": "External"
   },
   "claim": {
-    "message": "宣称",
+    "message": "申領",
     "englishSource": "Claim"
   },
   "clear": {
@@ -1862,7 +1845,7 @@
     "englishSource": "Clear"
   },
   "midenWallet": {
-    "message": "面包！",
+    "message": "麵包！",
     "englishSource": "Bread!"
   },
   "anywhere": {
@@ -1870,430 +1853,399 @@
     "englishSource": "Anywhere."
   },
   "welcome": {
-    "message": "欢迎",
+    "message": "歡迎",
     "englishSource": "Welcome"
   },
   "toLowercase": {
-    "message": "到",
+    "message": "至",
     "englishSource": "to"
   },
   "breadWalletDescription": {
-    "message": "Bread Wallet 是一种简单、安全的方式来私下管理您的数字货币。",
+    "message": "Bread Wallet 是一種簡單且安全的解決方案，讓您能私密地管理您的數位貨幣。",
     "englishSource": "Bread Wallet is a simple and secure way to manage your digital money privately."
   },
   "recoverYourAccount": {
-    "message": "恢复您的帐户",
+    "message": "取回您的帳戶",
     "englishSource": "Recover your account"
   },
   "chooseHowToProtect": {
-    "message": "选择您想要如何保护您的钱包",
+    "message": "選擇您希望如何保護您的錢包",
     "englishSource": "Choose how you want to protect your wallet"
   },
   "useFaceIdOrBiometric": {
-    "message": "使用 FaceID 或生物识别",
+    "message": "使用 Face ID 或生物識別功能",
     "englishSource": "Use FaceID or Biometric"
   },
   "setUpYourPasscode": {
-    "message": "设置您的密码",
+    "message": "設定您的通行碼",
     "englishSource": "Set up your passcode"
   },
   "confirmYourPasscode": {
-    "message": "确认您的密码",
+    "message": "請確認您的通行碼",
     "englishSource": "Confirm your passcode"
   },
   "enterYourPasscode": {
-    "message": "输入您的密码",
+    "message": "請輸入您的密碼",
     "englishSource": "Enter your passcode"
   },
   "enterYour6DigitCode": {
-    "message": "输入您的 6 位数代码",
+    "message": "請輸入您的 6 位數代碼",
     "englishSource": "Enter your 6-digit code"
   },
   "incorrectPasscode": {
-    "message": "密码不正确。再试一次。",
+    "message": "密碼錯誤。請重新嘗試。",
     "englishSource": "Incorrect passcode. Try again."
   },
   "forgotPasscode": {
-    "message": "忘记密码？",
+    "message": "忘記密碼了嗎？",
     "englishSource": "Forgot passcode?"
   },
   "enterYourPassword": {
-    "message": "輸入您的密碼",
+    "message": "請輸入您的密碼",
     "englishSource": "Enter your password"
   },
   "incorrectPassword": {
-    "message": "密碼不正確。再試一次。",
+    "message": "密碼錯誤。請重新嘗試。",
     "englishSource": "Incorrect password. Try again."
   },
   "createA6DigitCode": {
-    "message": "创建 6 位数字代码",
+    "message": "建立一個 6 位數的代碼",
     "englishSource": "Create a 6 digit code"
   },
   "reEnterTheSame6Digits": {
-    "message": "重新输入相同的 6 位数字",
+    "message": "請再次輸入相同的 6 位數字",
     "englishSource": "Re-enter the same 6 digits"
   },
   "faceIdSetUp": {
-    "message": "面容 ID 设置",
+    "message": "Face ID 設定",
     "englishSource": "Face ID set up"
   },
   "biometricSetUp": {
-    "message": "生物识别设置",
+    "message": "生物特徵設定",
     "englishSource": "Biometric set up"
   },
   "usePasscodeInstead": {
-    "message": "请改用密码",
+    "message": "改用通行碼",
     "englishSource": "Use passcode instead"
   },
   "biometricConfirmed": {
-    "message": "确认的！",
+    "message": "已確認！",
     "englishSource": "Confirmed!"
   },
   "onlyOneMoreStep": {
-    "message": "只需要多一步！",
+    "message": "只剩最後一步了！",
     "englishSource": "Only one more step!"
   },
   "biometricSetupReason": {
-    "message": "为您的钱包设置生物识别解锁",
+    "message": "為您的錢包設定生物辨識解鎖功能",
     "englishSource": "Set up biometric unlock for your wallet"
   },
   "biometricUnavailable": {
-    "message": "此设备不支持生物识别解锁。",
+    "message": "此裝置不支援生物辨識解鎖功能。",
     "englishSource": "Biometric unlock isn't available on this device."
   },
   "chooseYourGuardian": {
-    "message": "选择您的监护人",
+    "message": "選擇您的Guardian",
     "englishSource": "Choose your Guardian"
   },
   "chooseGuardianDescription": {
-    "message": "选择下面的一个选项",
+    "message": "請從以下選項中選擇一項",
     "englishSource": "Select an option below"
   },
   "learnMoreAboutGuardian": {
-    "message": "了解有关卫报的更多信息",
+    "message": "進一步了解Guardian",
     "englishSource": "Learn more about the Guardian"
   },
   "guardianOperatedBy": {
-    "message": "经营者：",
+    "message": "營運單位：",
     "englishSource": "Operated by:"
   },
   "guardianLocation": {
-    "message": "地点：",
+    "message": "地點：",
     "englishSource": "Location:"
   },
   "whatIsAGuardian": {
-    "message": "什么是监护人？",
+    "message": "什麼是「Guardian」？",
     "englishSource": "What is a Guardian?"
   },
   "guardianInfoDescription": {
-    "message": "Guardian 是一项独立服务，可以从您的钱包中<b>共同签署每笔交易</b>，在不放弃自我保管的情况下添加安全网。",
+    "message": "Guardian 是一項獨立服務，<b>會為您錢包中的每筆交易</b>進行共同簽署，在無需放棄自主保管的前提下，為您增添一道安全保障。",
     "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
   },
   "guardianInfoWhatItDoesTitle": {
-    "message": "它的作用",
+    "message": "功能說明",
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "共同签署每笔交易——您的设备和监护人都无法单独转移资金。如果您丢失设备，可帮助您恢复帐户。",
+    "message": "每筆交易均需共同簽署——無論是您的裝置還是 Guardian 均無法單獨轉移資金。若您遺失裝置，此機制可協助您取回帳戶。",
     "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
-    "message": "它不能做什么",
+    "message": "它無法做到什麼",
     "englishSource": "What it cannot do"
   },
   "guardianInfoWhatItCannotDoDescription": {
-    "message": "自行转移资金。访问您的私有状态。除非您分享，否则请查看您的余额。",
+    "message": "自主調度您的資金。查看您的私人帳戶狀態。除非您選擇分享，否則僅您本人能查看帳戶餘額。",
     "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
   },
   "guardianInfoSwitchingIsEasyTitle": {
-    "message": "切换很容易",
+    "message": "轉換非常簡單",
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "您可以随时使用恢复短语切换到不同的监护人。只有谁共同签署才会发生变化；您的帐户和资金保持不变。",
+    "message": "您可隨時使用恢復短語切換至不同的 Guardian 帳戶。僅共同簽署人會變更；您的帳戶與資金將保持不變。",
     "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
-    "message": "知道了",
+    "message": "明白了",
     "englishSource": "Got it"
   },
   "backUpYourWallet": {
     "message": "備份您的錢包",
-    "note": "Onboarding",
     "englishSource": "Back up your wallet"
   },
   "show": {
     "message": "顯示",
-    "note": "Onboarding",
     "englishSource": "Show"
   },
   "hide": {
     "message": "隱藏",
-    "note": "Onboarding",
     "englishSource": "Hide"
   },
   "copied": {
     "message": "已複製",
-    "note": "Onboarding",
     "englishSource": "Copied"
   },
   "copyToClipboard": {
-    "message": "复制",
+    "message": "複製",
     "englishSource": "Copy"
   },
   "createsProofsOnYourComputer": {
-    "message": "在您的電腦上創建證明",
-    "note": "Onboarding",
+    "message": "在您的電腦上建立證明",
     "englishSource": "Creates proofs on your computer"
   },
   "yourKeysStayPrivate": {
-    "message": "您的密鑰保持私密",
-    "note": "Onboarding",
+    "message": "您的金鑰將保持私密",
     "englishSource": "Your keys stay private"
   },
   "selectTheDefaultTransactionType": {
-    "message": "選擇默認交易類型",
-    "note": "Onboarding",
+    "message": "選擇預設交易類型",
     "englishSource": "Select the Default Transaction Type"
   },
   "popular": {
-    "message": "流行",
-    "note": "Onboarding",
+    "message": "熱門",
     "englishSource": "Popular"
   },
   "verifyMessagePrefix": {
-    "message": "确认您已保存恢复短语。",
+    "message": "請確認您已儲存復原短語。",
     "englishSource": "Confirm you've saved your recovery phrase."
   },
   "verifyMessageSuffix": {
-    "message": "从短语中选择<b>第一个</b>和<b>最后一个</b>单词",
+    "message": "請從您的短語中選取<b>第一個</b>和<b>最後一個</b>單字",
     "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
   "verifyStepSelectFirst": {
-    "message": "点按恢复短语的<b>第一个</b>单词",
+    "message": "點選您的恢復短語中的 <b>第一個</b>單字",
     "englishSource": "Tap the <b>first</b> word of your recovery phrase"
   },
   "verifyStepSelectLast": {
-    "message": "现在点击恢复短语的<b>最后</b>字",
+    "message": "現在請點擊您的恢復短語中最後一個 <b>last</b> 單字",
     "englishSource": "Now tap the <b>last</b> word of your recovery phrase"
   },
   "verifyStepCorrect": {
-    "message": "这是第一个也是最后一个词 - 点击“继续”",
+    "message": "這就是全部了——點選「繼續」",
     "englishSource": "That's the first and last word — tap Continue"
   },
   "verifyStepWrong": {
-    "message": "这不是第一个和最后一个词 - 再次点击它们",
+    "message": "這還不是最終定論——再點一下它們",
     "englishSource": "That's not the first and last word — tap them again"
   },
   "enterYourWalletSeedPhrase": {
-    "message": "输入您钱包的 12 字Seed Phrase。",
+    "message": "請輸入您的錢包的 12 個單詞的「Seed phrase」。",
     "englishSource": "Enter your wallet's 12-word Seed phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
-    "message": "仅支持 Miden Seed Phrase。",
+    "message": "僅支援 Miden Seed 的短語。",
     "englishSource": "Only Miden Seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "您的<highlight>钱包</highlight>已准备就绪！",
+    "message": "您的 <highlight>錢包</highlight> 已準備就緒！",
     "englishSource": "Your <highlight>Wallet</highlight> is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
-    "message": "在 7 天内记下您的恢复短语，以充分保护您的钱包。",
+    "message": "請在 7 天內將您的恢復短語記錄下來，以確保錢包的安全無虞。",
     "englishSource": "Write down your recovery phrase within 7 days to fully secure your wallet."
   },
   "recoveryPhraseDailyReminder": {
-    "message": "我们每天都会在主屏幕上提醒您。",
+    "message": "我們會每天在主畫面提醒您。",
     "englishSource": "We'll remind you daily on the home screen."
   },
   "openWallet": {
-    "message": "打开钱包",
+    "message": "打開錢包",
     "englishSource": "Open wallet"
   },
   "getStarted": {
-    "message": "開始",
-    "note": "Onboarding",
+    "message": "開始使用",
     "englishSource": "Get started"
   },
   "creatingYourWallet": {
-    "message": "创建你的钱包...",
+    "message": "正在建立您的錢包……",
     "englishSource": "Creating your wallet…"
   },
   "enterPassword": {
     "message": "輸入密碼",
-    "note": "Onboarding",
     "englishSource": "Enter password"
   },
   "verifyPassword": {
-    "message": "驗證密碼",
-    "note": "Onboarding",
+    "message": "確認密碼",
     "englishSource": "Verify password"
   },
   "enterPasswordAgain": {
-    "message": "再次輸入密碼",
-    "note": "Onboarding",
+    "message": "請再次輸入密碼",
     "englishSource": "Enter password again"
   },
   "itsAMatch": {
-    "message": "匹配成功！",
-    "note": "Onboarding",
+    "message": "配對成功！",
     "englishSource": "It's a match!"
   },
   "passwordsDoNotMatch": {
-    "message": "密码不匹配",
+    "message": "密碼不符",
     "englishSource": "Passwords do not match"
   },
   "passcodesDoNotMatch": {
-    "message": "密码不匹配。再试一次。",
+    "message": "密碼不符。請重新嘗試。",
     "englishSource": "Passcodes don't match. Try again."
   },
   "createPassword": {
-    "message": "創建密碼",
-    "note": "Onboarding",
+    "message": "建立密碼",
     "englishSource": "Create password"
   },
   "createPasswordDescription": {
-    "message": "设置密码以解锁您的钱包",
+    "message": "設定密碼以解鎖您的錢包",
     "englishSource": "Set a password to unlock your wallet"
   },
   "veryStrong": {
-    "message": "非常強！",
-    "note": "Onboarding",
+    "message": "非常強勁！",
     "englishSource": "Very strong!"
   },
   "medium": {
-    "message": "中等",
-    "note": "Onboarding",
+    "message": "中",
     "englishSource": "Medium"
   },
   "low": {
     "message": "低",
-    "note": "Onboarding",
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8個字符，1個數字",
-    "note": "Onboarding",
+    "message": "8 個字元、1 個數字",
     "englishSource": "8 characters, 1 number"
   },
   "minimumCharsWithAtLeast": {
-    "message": "至少8個字符，其中至少1個數字",
-    "note": "Onboarding",
+    "message": "至少 8 個字元，其中須包含至少 1 個數字",
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
   "backUpWalletInstructions": {
-    "message": "保存这 12 个单词并存放在安全的地方。",
+    "message": "請將這 12 個單字保存下來，並存放在安全的地方。",
     "englishSource": "Save these 12 words and store in a secure place."
   },
   "doNotShareWithAnywone": {
-    "message": "不要与任何人分享。",
+    "message": "請勿與任何人分享。",
     "englishSource": "Do not share with anyone."
   },
   "seedPhraseRecoveryCaption": {
-    "message": "您的 seed phrase 是您的恢复密钥 — 用于轮换设备密钥，而不是用于日常交易。",
+    "message": "您的「seed phrase」即是您的恢復金鑰——用於輪替裝置金鑰，而非用於日常交易。",
     "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
   },
   "select": {
     "message": "選擇",
-    "note": "Onboarding",
     "englishSource": "Select"
   },
   "selected": {
-    "message": "已選擇",
-    "note": "Onboarding",
+    "message": "已選取",
     "englishSource": "Selected"
   },
   "additionalDownloads": {
-    "message": "額外下載",
-    "note": "Onboarding",
+    "message": "其他下載項目",
     "englishSource": "Additional Downloads"
   },
   "600megabytes": {
-    "message": "600+兆字節",
-    "note": "Onboarding",
+    "message": "600 多兆位元組",
     "englishSource": "600+ megabytes"
   },
   "transactionSpeed": {
     "message": "交易速度",
-    "note": "Onboarding",
     "englishSource": "Transaction Speed"
   },
   "transactionSpeedMins": {
-    "message": "1-10分鐘",
-    "note": "Onboarding",
+    "message": "1 至 10 分鐘",
     "englishSource": "1-10 minutes"
   },
   "maximumPrivacy": {
-    "message": "最大隱私",
-    "note": "Onboarding",
+    "message": "最高程度的隱私",
     "englishSource": "Maximum Privacy"
   },
   "vpnLevelPrivacy": {
-    "message": "VPN級別的隱私",
-    "note": "Onboarding",
+    "message": "VPN 級別的隱私保護",
     "englishSource": "VPN level privacy"
   },
   "transactionSpeed2Sec": {
-    "message": "2秒",
-    "note": "Onboarding",
+    "message": "2 秒",
     "englishSource": "2 seconds"
   },
   "additionalDownloads0mb": {
-    "message": "0MB",
+    "message": "0 MB",
     "englishSource": "0 MB"
   },
   "delegateProofsToSecureServers": {
-    "message": "將證明委託給安全服務器",
-    "note": "Onboarding",
+    "message": "將證明委派至安全伺服器",
     "englishSource": "Delegate proofs to secure servers"
   },
   "delegateTransactions": {
-    "message": "委託\n交易",
-    "note": "Onboarding",
+    "message": "委派\n交易",
     "englishSource": "Delegate\nTransactions"
   },
   "generateTransactionsLocally": {
-    "message": "本地生成交易",
-    "note": "Onboarding",
+    "message": "產生交易\n在本地端",
     "englishSource": "Generate Transactions\nLocally"
   },
   "resetRequired": {
-    "message": "需要重置钱包",
+    "message": "需要重設錢包",
     "englishSource": "Wallet Reset Required"
   },
   "resetRequiredDescription": {
-    "message": "Miden 测试网已升级至 bech32 帐户 ID，以改善您的体验。要继续使用您的钱包，请从备份文件或Seed Phrase恢复，或创建一个新的。",
+    "message": "Miden 測試網已升級至 bech32 帳戶 ID，以提升您的使用體驗。若要繼續使用您的錢包，請從備份檔案或 seed phrase 還原，或建立一個新的錢包。",
     "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or seed phrase, or create a new one."
   },
   "resetRequiredSecondDescription": {
-    "message": "对于给您带来的不便，我们深表歉意。",
+    "message": "對於造成的不便，我們深感抱歉。",
     "englishSource": "We’re sorry for the inconvenience."
   },
   "reset": {
-    "message": "重置钱包",
+    "message": "重設錢包",
     "englishSource": "Reset Wallet"
   },
   "forgotPassword": {
-    "message": "忘记密码？",
+    "message": "忘記密碼了嗎？",
     "englishSource": "Forgot Password?"
   },
   "forgotPasswordDescription": {
-    "message": "如果您忘记了密码，则需要退出并重新导入您的帐户。之后，您可以创建一个新密码。",
+    "message": "如果您忘記了密碼，請先登出並重新匯入您的帳戶。之後，您即可設定新密碼。",
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "除非您知道 12 字Seed Phrase或拥有加密备份文件，否则请勿注销。",
+    "message": "除非您知道自己的 12 字密鑰（Seed phrase），或擁有加密的備份檔案，否則請勿登出。",
     "englishSource": "Do not sign out unless you know your 12-word Seed phrase or have an encrypted backup file."
   },
   "biometricUnlockRequired": {
-    "message": "需要生物识别解锁",
+    "message": "需要透過生物辨識解鎖",
     "englishSource": "Biometric Unlock Required"
   },
   "biometricUnlockRequiredDescription": {
-    "message": "该钱包仅使用生物识别身份验证。使用面容 ID、触摸 ID 或设备密码进行解锁。要在其他设备上访问您的钱包，请使用 12 个单词的 Seed phrase。",
+    "message": "此錢包僅支援生物辨識驗證。請使用 Face ID、Touch ID 或裝置密碼來解鎖。若要在其他裝置上存取您的錢包，請使用 12 字的「Seed phrase」。",
     "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word Seed phrase."
   },
   "resetWallet": {
-    "message": "重置钱包",
+    "message": "重設錢包",
     "englishSource": "Reset Wallet"
   },
   "signOut": {
@@ -2301,55 +2253,55 @@
     "englishSource": "Sign Out"
   },
   "twitter": {
-    "message": "X（推特）",
+    "message": "X（Twitter）",
     "englishSource": "X (Twitter)"
   },
   "encryptedWalletFile": {
-    "message": "加密钱包文件",
+    "message": "加密錢包檔案",
     "englishSource": "Encrypted Wallet File"
   },
   "guardianBadge": {
-    "message": "监护人",
+    "message": "Guardian",
     "englishSource": "Guardian"
   },
   "guardianSettings": {
-    "message": "监护人设置",
+    "message": "Guardian 設定",
     "englishSource": "Guardian Settings"
   },
   "currentLabel": {
-    "message": "当前的",
+    "message": "當前",
     "englishSource": "Current"
   },
   "newGuardianEndpoint": {
-    "message": "新的守护者端点",
+    "message": "新的 Guardian 端點",
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "那已经是你现在的监护人了。",
+    "message": "這正是您當前的 guardian。",
     "englishSource": "That's already your current guardian."
   },
   "rotateGuardian": {
-    "message": "轮换守护者",
+    "message": "輪替 Guardian",
     "englishSource": "Rotate Guardian"
   },
   "keys": {
-    "message": "按键",
+    "message": "關鍵字",
     "englishSource": "Keys"
   },
   "customGuardian": {
-    "message": "定制守护者",
+    "message": "自訂 Guardian",
     "englishSource": "Custom Guardian"
   },
   "guardianProvider": {
-    "message": "提供者",
+    "message": "供應商",
     "englishSource": "Provider"
   },
   "guardianEndpointLabel": {
-    "message": "端点",
+    "message": "終點",
     "englishSource": "Endpoint"
   },
   "guardianRegion": {
-    "message": "地区",
+    "message": "地區",
     "englishSource": "Region"
   },
   "guardianLastSync": {
@@ -2369,384 +2321,379 @@
     }
   },
   "guardianRotationComplete": {
-    "message": "守护者更新了！",
+    "message": "Guardian 已更新！",
     "englishSource": "Guardian Updated!"
   },
   "online": {
-    "message": "在线的",
+    "message": "線上",
     "englishSource": "Online"
   },
   "reviewRotation": {
-    "message": "审查轮换",
+    "message": "審查輪替",
     "englishSource": "Review rotation"
   },
   "newLabel": {
-    "message": "新的",
+    "message": "新",
     "englishSource": "New"
   },
   "guardianSwitchAuthenticationDescription": {
-    "message": "进行身份验证以批准此 Guardian 切换。",
+    "message": "請進行驗證以批准此 Guardian 切換。",
     "englishSource": "Authenticate to approve this Guardian switch."
   },
   "guardianAuthenticationUnavailable": {
-    "message": "身份验证不可用。在切换监护人之前重试。",
+    "message": "無法進行驗證。請在切換 Guardian 之前再次嘗試。",
     "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
-    "message": "钱包钥匙（热门）",
+    "message": "錢包金鑰（熱）",
     "englishSource": "Wallet key (hot)"
   },
   "recoveryPhraseCold": {
-    "message": "恢复短语（冷）",
+    "message": "恢復短語（冷儲存）",
     "englishSource": "Recovery phrase (cold)"
   },
   "oldGuardianCantBlockTitle": {
-    "message": "你的旧监护人无法阻止这个",
+    "message": "您的舊版 Guardian 無法阻止此事",
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "旋转由您的两个设备上的密钥批准。老守护者只得到通知。",
+    "message": "輪替操作須經您裝置上的兩把金鑰批准。舊的 Guardian 僅會收到通知。",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
-    "message": "旋转设备密钥",
+    "message": "裝置旋轉鍵",
     "englishSource": "Rotate device key"
   },
   "replaceHotKeyDescription": {
-    "message": "生成一个新的设备（热）密钥并替换链上当前的设备密钥。如果您怀疑您的设备受到威胁，这很有用。",
+    "message": "產生一個新的裝置（熱）鍵，並在區塊鏈上取代目前的裝置鍵。若您懷疑裝置已遭入侵，此功能將十分實用。",
     "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
   },
   "replaceHotKeyConfirmation": {
-    "message": "这是用您的恢复（冷）密钥签名的。您的 seed phrase 不是必需的，您的资金和帐户保持不变。继续？",
+    "message": "此操作將使用您的恢復（冷）金鑰進行簽名。無需提供您的 seed phrase，您的資金和帳戶將保持不變。要繼續嗎？",
     "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
   },
   "confirmReplaceHotKey": {
-    "message": "确认轮换",
+    "message": "確認旋轉方向",
     "englishSource": "Confirm rotation"
   },
   "hotKeyRotationOverlayTitle": {
-    "message": "轮换您的设备密钥",
+    "message": "旋轉裝置的鑰匙",
     "englishSource": "Rotating your device key"
   },
   "hotKeyRotationOverlayBody": {
-    "message": "您的设备（热）键正在轮换。设置恢复的帐户时需要这样做，以便它可以同步并进行交易。",
+    "message": "您的裝置（熱）鍵正在進行輪替。這是設定已恢復帳戶時所需的步驟，以便該帳戶能進行同步與交易。",
     "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
   "hotKeyRotationFailedTitle": {
-    "message": "设备密钥轮换失败",
+    "message": "裝置金鑰輪替失敗",
     "englishSource": "Device key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "旋转设备密钥时出现问题。",
+    "message": "在旋轉裝置金鑰時發生了錯誤。",
     "englishSource": "Something went wrong while rotating your device key."
   },
   "hotKeyRotationRetry": {
-    "message": "重试",
+    "message": "重試",
     "englishSource": "Retry"
   },
   "guardianChangedTitle": {
-    "message": "监护人变更",
+    "message": "Guardian 已修改",
     "englishSource": "Guardian changed"
   },
   "guardianChangedBody": {
-    "message": "您的监护人已更换，我们无法识别新的操作员。输入其 URL 以重新连接。",
+    "message": "您的 guardian 已變更，且我們無法識別新營運商。請輸入其網址以重新連線。",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
   "guardianUrlMismatch": {
-    "message": "该运营商与您账户的链上监护人不匹配。",
+    "message": "該操作者與您帳戶的鏈上guardian不符。",
     "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "revealHotKey": {
-    "message": "显示设备密钥",
+    "message": "顯示裝置金鑰",
     "englishSource": "Reveal device key"
   },
   "revealHotKeyDescription": {
-    "message": "您的设备（热）密钥可通过“设置”→“旋转设备密钥”进行旋转，因此暴露它的风险比您的 seed phrase 低 - 但持有它的任何人都可以签署交易，直到您旋转为止。",
+    "message": "您可透過「設定」→「旋轉裝置金鑰」來旋轉裝置（熱）金鑰，因此與您的「seed phrase」相比，揭露此金鑰的風險較低——但只要有人持有該金鑰，便能在您進行旋轉之前簽署交易。",
     "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
   },
   "hotPrivateKey": {
-    "message": "设备私钥",
+    "message": "裝置私密金鑰",
     "englishSource": "Device Private Key"
   },
   "hotPublicKeyLabel": {
-    "message": "设备公钥",
+    "message": "裝置公開金鑰",
     "englishSource": "Device Public Key"
   },
   "coldPrivateKey": {
-    "message": "恢复（冷）私钥",
+    "message": "復原（冷儲存）私鑰",
     "englishSource": "Recovery (Cold) Private Key"
   },
   "coldPublicKeyLabel": {
-    "message": "恢复（冷）公钥",
+    "message": "復原（冷）公鑰",
     "englishSource": "Recovery (Cold) Public Key"
   },
   "guardianKeysRevealDescription": {
-    "message": "您的监护人帐户受到三个密钥的保护：用于例行签名的设备（热）密钥、从您的 seed phrase 派生的用于帐户管理操作的恢复（冷）密钥，以及外部监护人共同签名者。下面是您的冷私钥和两个公钥。要显示设备私钥，请使用“设置”→“显示设备密钥”。",
+    "message": "您的 Guardian 帳戶由三把金鑰保護：用於日常簽名的裝置（熱）金鑰、由您的 seed phrase 衍生出的用於帳戶管理操作的恢復（冷）金鑰，以及外部 guardian 共同簽署者。以下是您的冷私鑰以及兩把公鑰。若要顯示裝置私鑰，請使用「設定」→「顯示裝置金鑰」。",
     "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
-    "message": "在透露您的设备密钥之前",
+    "message": "在您揭露裝置金鑰之前",
     "englishSource": "Before you reveal your device key"
   },
   "hotKeyRevealWarningBody": {
-    "message": "拥有此密钥的任何人都可以签署交易，直到您轮换它为止。如果密钥泄漏，请通过“设置”→“轮换设备密钥”进行轮换。",
+    "message": "在您進行金鑰輪替之前，任何持有此金鑰的人都能簽署交易。若金鑰外洩，請透過「設定」→「輪替裝置金鑰」進行金鑰輪替。",
     "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
   },
   "invalidUrl": {
-    "message": "输入以 http:// 或 https:// 开头的有效 URL",
+    "message": "請輸入以 http:// 或 https:// 開頭的有效網址",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
   "encryptedWalletFileDescription": {
-    "message": "输入您的密码以访问您的加密钱包文件。",
+    "message": "請輸入密碼以存取您的加密錢包檔案。",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
   },
   "encryptedWalletFileDescriptionHardware": {
-    "message": "使用您的密码解锁以访问您的加密钱包文件。",
+    "message": "請輸入您的通行碼進行解鎖，以存取您的加密錢包檔案。",
     "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
-    "message": "我不会与任何人分享我的加密钱包文件，包括 Bread。",
+    "message": "我不會將我的加密錢包檔案分享給任何人，包括 Bread 在內。",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
   "enterPasswordToEncrypt": {
-    "message": "输入密码以加密您的钱包文件。",
+    "message": "請輸入密碼以加密您的錢包檔案。",
     "englishSource": "Enter a password to encrypt your wallet file."
   },
   "contacts": {
-    "message": "联系方式",
+    "message": "聯絡方式",
     "englishSource": "Contacts"
   },
   "noOtherAccounts": {
-    "message": "没有其他账户",
+    "message": "沒有其他帳戶",
     "englishSource": "No other accounts"
   },
   "noOtherAccountsDescription": {
-    "message": "您还没有创建任何其他帐户",
+    "message": "您尚未建立任何其他帳號",
     "englishSource": "You have not created any other accounts yet"
   },
   "invalidMidenAccountId": {
-    "message": "Miden 帐户 ID 无效",
+    "message": "Miden 帳號 ID 無效",
     "englishSource": "Invalid Miden account ID"
   },
   "midenAddressWrongNetwork": {
-    "message": "该地址属于不同的 Miden 网络",
+    "message": "此地址屬於另一個 Miden 網路",
     "englishSource": "This address belongs to a different Miden network"
   },
   "cannotSendToSelf": {
-    "message": "您无法发送至您自己的地址",
+    "message": "您無法寄送至您自己的地址",
     "englishSource": "You can't send to your own address"
   },
   "amountMustBeLessThanBalance": {
-    "message": "金额必须小于余额",
+    "message": "金額必須小於餘額",
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "自动使用 MIDEN 笔记",
+    "message": "Auto Consume MIDEN notes",
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "自动将传入的 MIDEN notes 认领到您的余额中 — 与点击认领相同。它不会花费您的资金或增加任何费用。",
+    "message": "會自動將收到的 MIDEN notes 計入您的餘額中 —— 效果等同於點擊「領取」。此過程不會消耗您的資金，也不會產生任何手續費。",
     "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
-    "message": "加密钱包文件",
+    "message": "加密錢包檔案",
     "englishSource": "Encrypted Wallet File"
   },
   "encryptedWalletFileExportedTitle2": {
-    "message": "出口了！",
+    "message": "已匯出！",
     "englishSource": "Exported!"
   },
   "encryptedWalletFileExportedDesc1": {
-    "message": "您的加密钱包文件已下载。",
+    "message": "您的加密錢包檔案已下載完成。",
     "englishSource": "Your encrypted wallet file has been downloaded."
   },
   "encryptedWalletFileExportedDesc2": {
-    "message": "请妥善保管它和您的密码。",
+    "message": "請妥善保管此資訊及您的密碼。",
     "englishSource": "Keep it and your password safe."
   },
   "encryptedWalletFileExportedDesc3": {
-    "message": "如果您丢失了它们，您将面临失去钱包访问权限的风险",
+    "message": "若您遺失了它們，您可能會因此無法存取您的錢包",
     "englishSource": "If you lose them you risk losing access to your wallet"
   },
   "saveEncryptedWalletFile": {
-    "message": "保存加密的钱包文件",
+    "message": "儲存加密的錢包檔案",
     "englishSource": "Save Encrypted Wallet File"
   },
   "permissionLabel": {
-    "message": "解密权限： $decryptPermission$ ",
-    "placeholders": {
-      "decryptPermission": {
-        "content": "$1"
-      }
-    },
+    "message": "個人資料權限",
     "englishSource": "Private Data Permission"
   },
   "confirmPrivateDataPermissionDescription": {
-    "message": "这将授予您对帐户数据的永久访问权限，并且无法撤销。",
+    "message": "此舉將授予永久存取您帳戶資料的權限，且無法撤銷。",
     "englishSource": "This will give permanent access to your account data and cannot be revoked."
   },
   "privateAccountAccessRequest": {
-    "message": "该网站正在请求访问您的私人帐户。",
+    "message": "此網站正在請求存取您的私人帳戶。",
     "englishSource": "This site is requesting access to your private account."
   },
   "publicAccountAccessRequest": {
-    "message": "该网站正在请求访问您的公共帐户。",
+    "message": "此網站正在請求存取您的公開帳戶。",
     "englishSource": "This site is requesting access to your public account."
   },
   "balanceAccess": {
-    "message": "让它查看您的钱包余额和历史记录",
+    "message": "允許它查看您的錢包餘額和交易紀錄",
     "englishSource": "Let it see your wallet balance and history"
   },
   "sendTransactionRequests": {
-    "message": "让它向您发送交易请求",
+    "message": "讓它向您發送交易請求",
     "englishSource": "Let it send you requests for transactions"
   },
   "fundsStayInWallet": {
-    "message": "在您执行交易之前，资金不会离开您的钱包",
+    "message": "在您執行交易之前，資金不會從您的錢包中移出",
     "englishSource": "Funds will not leave your wallet until you execute a transaction"
   },
   "privateDataAccessAuto": {
-    "message": "私人数据访问：自动",
+    "message": "私人資料存取：自動",
     "englishSource": "Private Data Access: Automatic"
   },
   "privateDataAccessUponRequest": {
-    "message": "私人数据访问：根据要求",
+    "message": "私人資料存取：應要求提供",
     "englishSource": "Private Data Access: Upon Request"
   },
   "accessWillBeGranted": {
-    "message": "将被授予访问以下数据的权限",
+    "message": "將授予存取以下資料的權限",
     "englishSource": "Access to the following data will be granted"
   },
   "confirmationRequired": {
-    "message": "每次请求帐户数据时都需要确认",
+    "message": "每次查詢帳戶資料時，均須進行確認",
     "englishSource": "Confirmation is required every time account data is requested"
   },
   "transactionCompleted": {
-    "message": "交易完成",
+    "message": "交易已完成",
     "englishSource": "Transaction Completed"
   },
   "transactionFailed": {
-    "message": "交易失败",
+    "message": "交易失敗",
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
-    "message": "在交易生成之前不要关闭此窗口",
+    "message": "在交易生成之前，請勿關閉此視窗",
     "englishSource": "Do not close this window until the transaction is generated"
   },
   "doNotCloseWindowAutoClose": {
-    "message": "在交易生成之前不要关闭此窗口",
+    "message": "在交易生成之前，請勿關閉此視窗",
     "englishSource": "Do not close this window until the transaction is generated"
   },
   "transactionSuccessDescription": {
-    "message": "您的交易已在网络上成功处理并确认。",
+    "message": "您的交易已成功處理，並在網路上獲得確認。",
     "englishSource": "Your transaction was successfully processed and confirmed on the network."
   },
   "transactionErrorDescription": {
-    "message": "处理您的交易时出错。请再试一次。",
+    "message": "處理您的交易時發生錯誤。請重新嘗試。",
     "englishSource": "There was an error processing your transaction. Please try again."
   },
   "transactionRoute": {
-    "message": "路线",
+    "message": "路線",
     "englishSource": "Route"
   },
   "paymentSent": {
-    "message": "付款已发送！",
+    "message": "付款已發送！",
     "englishSource": "Payment Sent!"
   },
   "bridgeRouteViaEpoch": {
-    "message": "通过纪元",
+    "message": "經由 Epoch",
     "englishSource": "Via Epoch"
   },
   "bridgeRouteViaAgglayer": {
-    "message": "通过阿格莱尔",
+    "message": "經由 Agglayer",
     "englishSource": "Via Agglayer"
   },
   "bridgeSpeedFast": {
-    "message": "快速地",
+    "message": "快速",
     "englishSource": "Fast"
   },
   "bridgeSpeedSlow": {
-    "message": "慢的",
+    "message": "緩慢",
     "englishSource": "Slow"
   },
   "swapOrderCreated": {
-    "message": "互换订单已创建！",
+    "message": "掉期訂單已建立！",
     "englishSource": "Swap Order Created!"
   },
   "youreEarning": {
-    "message": "你赚了！",
+    "message": "您正在賺錢！",
     "englishSource": "You're Earning!"
   },
   "viewInActivities": {
-    "message": "在活动中查看",
+    "message": "在「活動」中檢視",
     "englishSource": "View in Activities"
   },
   "viewActivity": {
-    "message": "查看活动",
+    "message": "檢視活動",
     "englishSource": "View activity"
   },
   "viewDetails": {
-    "message": "查看详情",
+    "message": "查看詳情",
     "englishSource": "View Details"
   },
   "chooseRecoveryMethod": {
-    "message": "设置帐户恢复",
+    "message": "設定帳戶復原功能",
     "englishSource": "Set Up Account Recovery"
   },
   "chooseRecoveryMethodDescription": {
-    "message": "选择在失去访问权限时恢复帐户的方式。",
+    "message": "請選擇若您無法登入帳戶時，希望如何取回帳戶。",
     "englishSource": "Choose how you want to recover your account if you lose access."
   },
   "guardianRecovery": {
-    "message": "监护人",
+    "message": "Guardian",
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "受到推崇的。基于监护人的帐户恢复，但监护人操作员可以看到您的状态。",
+    "message": "建議使用基於 Guardian 的帳戶恢復機制，但 guardian 操作員可查看您的帳戶狀態。",
     "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
-    "message": "完全私人",
+    "message": "完全私密",
     "englishSource": "Fully Private"
   },
   "fullyPrivateRecoveryDescription": {
-    "message": "仅限本地，除了您之外没有人看到您的状态，但无法恢复，丢失您的设备将导致您的资金永久丢失。",
+    "message": "僅限本地使用，除了您自己之外，無人能查看您的狀態，但無法恢復資料；若遺失裝置，您的資金將永久遺失。",
     "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
   },
   "importRecoveryMethodTitle": {
-    "message": "您想如何找回这个钱包？",
+    "message": "您想如何取回這個錢包呢？",
     "englishSource": "How would you like to recover this wallet?"
   },
   "importViaGuardian": {
-    "message": "通过 Guardian 导入",
+    "message": "透過 Guardian 匯入",
     "englishSource": "Import via Guardian"
   },
   "importViaGuardianDescription": {
-    "message": "使用监护人来恢复并共同签署此帐户。",
+    "message": "請使用「guardian」來恢復並為此帳戶進行共同簽署。",
     "englishSource": "Use a guardian to recover and co-sign for this account."
   },
   "importPublicAccount": {
-    "message": "导入公众号",
+    "message": "匯入公眾帳號",
     "englishSource": "Import public account"
   },
   "importPublicAccountDescription": {
-    "message": "导入从您的 seed phrase 派生的公共帐户。",
+    "message": "匯入由您的 seed phrase 衍生的公開帳號。",
     "englishSource": "Import the public account derived from your seed phrase."
   },
   "guardianEndpoint": {
-    "message": "监护人网址",
+    "message": "Guardian URL",
     "englishSource": "Guardian URL"
   },
   "useDifferentGuardian": {
-    "message": "使用不同的监护人",
+    "message": "請使用不同的 guardian",
     "englishSource": "Use a different guardian"
   },
   "detectingGuardian": {
-    "message": "寻找你的监护人...",
+    "message": "正在尋找您的 guardian…",
     "englishSource": "Looking for your guardian…"
   },
   "guardianDetectedTitle": {
-    "message": "已找到您的监护人： $name$ ",
+    "message": "已找到您的 guardian：$name$",
     "englishSource": "Found your guardian: $name$",
     "placeholders": {
       "name": {
@@ -2755,19 +2702,19 @@
     }
   },
   "guardianDetectedMultiple": {
-    "message": "不止一位监护人知道该账户。我们选择了保存您最近状态的那个。",
+    "message": "有多個guardian知曉此帳戶。我們選取了存有您最新狀態的那一個。",
     "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
   },
   "useCustomGuardianInstead": {
-    "message": "使用不同的代替吗？",
+    "message": "改用另一個的嗎？",
     "englishSource": "Use a different one instead?"
   },
   "guardianNotDetected": {
-    "message": "我们无法自动检测您的监护人。选择您使用的那个，或输入其 URL。",
+    "message": "我們無法自動偵測您的 guardian。請選擇您所使用的網址，或手動輸入其網址。",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
   },
   "guardianProbePartialFailure": {
-    "message": "无法联系到 $count$ 个监护人，因此检测可能不完整。",
+    "message": "$count$ 無法連線至 guardian(s)，因此偵測結果可能不完整。",
     "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
     "placeholders": {
       "count": {
@@ -2776,27 +2723,27 @@
     }
   },
   "retryGuardianDetection": {
-    "message": "再次尝试检测",
+    "message": "請嘗試再次偵測",
     "englishSource": "Try detecting again"
   },
   "guardianAccountNotFound": {
-    "message": "我们在该监护人上找不到您的帐户。请检查 URL 或导入为公共帐户。",
+    "message": "我們無法在 guardian 上找到您的帳戶。請檢查網址，或改為以公開帳戶形式匯入。",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
   },
   "useCustomGuardianUrl": {
-    "message": "使用自定义 Guardian URL",
+    "message": "請使用自訂的 Guardian 網址",
     "englishSource": "Use a custom Guardian URL"
   },
   "default": {
-    "message": "默认",
+    "message": "預設",
     "englishSource": "Default"
   },
   "home": {
-    "message": "家",
+    "message": "首頁",
     "englishSource": "Home"
   },
   "noteId": {
-    "message": "注释ID",
+    "message": "Note ID",
     "englishSource": "Note ID"
   },
   "viewOnMidenscan": {
@@ -2804,7 +2751,7 @@
     "englishSource": "View on Midenscan"
   },
   "inProgress": {
-    "message": "进行中",
+    "message": "進行中",
     "englishSource": "In Progress"
   },
   "you": {
@@ -2812,23 +2759,23 @@
     "englishSource": "You"
   },
   "invalidPayload": {
-    "message": "（有效负载无效）",
+    "message": "(無效的載荷)",
     "englishSource": "(invalid payload)"
   },
   "sharePrivateNoteDataForAccount": {
-    "message": "共享帐户的所有私人note数据",
+    "message": "分享該帳戶的所有私人 note 資料",
     "englishSource": "Share all private note data for account"
   },
   "downloadPrivateNoteData": {
-    "message": "下载私人note数据",
+    "message": "下載「Note」的私人資料",
     "englishSource": "Download Private Note Data"
   },
   "failedToParseSigningPayload": {
-    "message": "无法解析签名有效负载",
+    "message": "無法解析簽名資料包",
     "englishSource": "Failed to parse signing payload"
   },
   "assetChanges": {
-    "message": "资产变动",
+    "message": "資產變動",
     "englishSource": "Asset changes"
   },
   "unknown": {
@@ -2836,103 +2783,103 @@
     "englishSource": "Unknown"
   },
   "inputNotesConsumed": {
-    "message": "消耗的输入笔记",
+    "message": "已消耗的輸入notes",
     "englishSource": "Input notes consumed"
   },
   "outputNotesCreated": {
-    "message": "创建的输出注释",
+    "message": "輸出：已建立 notes",
     "englishSource": "Output notes created"
   },
   "storageChanged": {
-    "message": "存储已更改",
+    "message": "儲存方式已變更",
     "englishSource": "Storage changed"
   },
   "downloadFullSummary": {
-    "message": "下载完整摘要（字节）",
+    "message": "下載完整摘要（位元組）",
     "englishSource": "Download full summary (bytes)"
   },
   "signArbitraryPayload": {
-    "message": "签署任意有效负载？",
+    "message": "簽署任意的載荷嗎？",
     "englishSource": "Sign the Arbitrary payload?"
   },
   "signBlindCommitment": {
-    "message": "签署盲目承诺？",
+    "message": "簽署《盲人承諾書》嗎？",
     "englishSource": "Sign the Blind commitment?"
   },
   "connectToWebsite": {
-    "message": "连接到网站",
+    "message": "連至網站",
     "englishSource": "Connect to website"
   },
   "deny": {
-    "message": "否定",
+    "message": "拒絕",
     "englishSource": "Deny"
   },
   "requestsATransaction": {
-    "message": "请求交易",
+    "message": "請求一筆交易",
     "englishSource": "Requests a transaction"
   },
   "requestsToConsumeNote": {
-    "message": "请求使用note",
+    "message": "note 的存取請求",
     "englishSource": "Requests to consume a note"
   },
   "requestPrivateNotes": {
-    "message": "请求私人note",
+    "message": "索取私人版《Notes》",
     "englishSource": "Request Private Notes"
   },
   "requestsPrivateNotes": {
-    "message": "请求私人笔记",
+    "message": "請求私有 notes",
     "englishSource": "Requests private notes"
   },
   "confirmSignature": {
-    "message": "确认签名",
+    "message": "確認簽名",
     "englishSource": "Confirm Signature"
   },
   "requestsYourSignature": {
-    "message": "要求您签名",
+    "message": "請您簽名",
     "englishSource": "Requests your signature"
   },
   "requestAssets": {
-    "message": "请求资产",
+    "message": "請求資產",
     "englishSource": "Request Assets"
   },
   "requestsAssets": {
-    "message": "请求资产",
+    "message": "請求資產",
     "englishSource": "Requests assets"
   },
   "requestImportPrivateNote": {
-    "message": "请求导入私人票据",
+    "message": "請求匯入私人 Note",
     "englishSource": "Request Import Private Note"
   },
   "importPrivateNote": {
-    "message": "导入私人note",
+    "message": "導入私有note",
     "englishSource": "Import private note"
   },
   "requestConsumableNotes": {
-    "message": "索取消耗品备注",
+    "message": "申請耗材 Notes",
     "englishSource": "Request Consumable Notes"
   },
   "requestsConsumableNotes": {
-    "message": "索取消耗品备注",
+    "message": "申請耗材 notes",
     "englishSource": "Request consumable notes"
   },
   "review": {
-    "message": "审查",
+    "message": "評論",
     "englishSource": "Review"
   },
   "close": {
-    "message": "关闭",
+    "message": "關閉",
     "englishSource": "Close"
   },
   "recallBlocks": {
-    "message": "召回块",
+    "message": "回顧區塊",
     "englishSource": "Recall blocks"
   },
   "delegateTransaction": {
-    "message": "委托交易",
+    "message": "委派交易",
     "englishSource": "Delegate transaction"
   },
   "arrives": {
-    "message": "到达",
+    "message": "抵達",
     "englishSource": "Arrives"
   },
   "ethereum": {
@@ -2940,35 +2887,35 @@
     "englishSource": "Ethereum"
   },
   "fast": {
-    "message": "快速地",
+    "message": "快速",
     "englishSource": "Fast"
   },
   "slow": {
-    "message": "慢的",
+    "message": "緩慢",
     "englishSource": "Slow"
   },
   "seconds": {
-    "message": "秒数",
+    "message": "秒",
     "englishSource": "Seconds"
   },
   "minutes": {
-    "message": "分钟",
+    "message": "會議紀錄",
     "englishSource": "Minutes"
   },
   "invalidEthereumAddress": {
-    "message": "以太坊地址无效",
+    "message": "以太坊地址無效",
     "englishSource": "Invalid Ethereum address"
   },
   "sendPayment": {
-    "message": "发送付款",
+    "message": "付款",
     "englishSource": "Send Payment"
   },
   "claimAll": {
-    "message": "索取全部",
+    "message": "全數申領",
     "englishSource": "Claim All"
   },
   "claimAllProgress": {
-    "message": "索取全部？ （ $unclaimed$ / $total$ )",
+    "message": "「全數申領？」（$unclaimed$ / $total$）",
     "englishSource": "Claim All? ($unclaimed$/$total$)",
     "placeholders": {
       "unclaimed": {
@@ -2980,19 +2927,19 @@
     }
   },
   "totalPending": {
-    "message": "待处理总数",
+    "message": "待處理總數",
     "englishSource": "Total Pending"
   },
   "pendingNotesCount": {
-    "message": "notes 待处理",
+    "message": "notes 待定",
     "englishSource": "notes pending"
   },
   "pendingAssetsCount": {
-    "message": "资产",
+    "message": "資產",
     "englishSource": "assets"
   },
   "incomingCount": {
-    "message": "$count$ 传入",
+    "message": "$count$ 即將到來",
     "englishSource": "$count$ Incoming",
     "placeholders": {
       "count": {
@@ -3001,11 +2948,11 @@
     }
   },
   "pendingNotesInfo": {
-    "message": "Miden 使用名为 notes 的独特系统。您可以在此处手动领取收入。这是保护您的钱包免受恶意行为者侵害的一种方法",
+    "message": "Miden 採用一套名為「notes」的獨特系統。這是您手動申領入帳款項的介面，也是讓您能保護錢包免受惡意行為者侵害的一種方式",
     "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
   },
   "notesPendingAcrossAssets": {
-    "message": "$notes$ notes 跨 $assets$ 资产待处理",
+    "message": "$notes$ notes $assets$ 旗下各項資產中尚待處理的事項",
     "englishSource": "$notes$ notes pending across $assets$ assets",
     "placeholders": {
       "notes": {
@@ -3017,7 +2964,7 @@
     }
   },
   "incomingTransfersCount": {
-    "message": "$count$ 传入转账",
+    "message": "$count$ 入帳轉帳",
     "englishSource": "$count$ incoming transfers",
     "placeholders": {
       "count": {
@@ -3026,7 +2973,7 @@
     }
   },
   "notesUnresolved": {
-    "message": "$count$ 未解决",
+    "message": "$count$ 未解決",
     "englishSource": "$count$ unresolved",
     "placeholders": {
       "count": {
@@ -3035,51 +2982,51 @@
     }
   },
   "noteClaimFailedRetry": {
-    "message": "申领失败 — 点击“重试”重试",
+    "message": "領取失敗 — 點擊「重試」再次嘗試",
     "englishSource": "Claim failed — tap Retry to try again"
   },
   "noteUnavailable": {
-    "message": "此 note 不再可用",
+    "message": "這款 note 已不再供應",
     "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
-    "message": "待处理 notes",
+    "message": "待處理 notes",
     "englishSource": "Pending notes"
   },
   "whatArePendingNotes": {
-    "message": "什么是待处理的notes？",
+    "message": "什麼是待處理的「notes」？",
     "englishSource": "What are pending notes?"
   },
   "consumeYourNotes": {
-    "message": "消耗你的notes",
+    "message": "請參閱您的 notes",
     "englishSource": "Consume your notes"
   },
   "consumeYourNotesDescription": {
-    "message": "将这些待处理资金添加到您的余额中以开始支出。",
+    "message": "將這些待處理資金加入您的餘額中，即可開始消費。",
     "englishSource": "Add these pending funds to your balance to start spending."
   },
   "pendingNotesDrawerP1a": {
-    "message": "当有人向您发送资金时，这些资金将以私人方式到达",
+    "message": "當有人向您轉帳時，資金會以私有形式到達",
     "englishSource": "When someone sends you funds, they arrive as private"
   },
   "pendingNotesDrawerP1Bold": {
-    "message": "<xid=\"0\"/>",
+    "message": "notes",
     "englishSource": "notes"
   },
   "pendingNotesDrawerP1b": {
-    "message": "— 密封的包裹只有您才能打开。",
+    "message": "— 僅您本人能開啟的密封包。",
     "englishSource": "— sealed packages only you can open."
   },
   "pendingNotesDrawerP2Bold": {
-    "message": "消费",
+    "message": "使用說明",
     "englishSource": "Consuming"
   },
   "pendingNotesDrawerP2": {
-    "message": "a note 将其解压到您的可支出余额中。在您这样做之前，资金是您的，但还不能花掉。",
+    "message": "note會將其解鎖至您的可用餘額中。在此之前，資金雖屬於您，但尚無法動用。",
     "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
   },
   "pendingNotesDrawerP3a": {
-    "message": "你有",
+    "message": "您有",
     "englishSource": "You have"
   },
   "pendingNotesDrawerP3Bold": {
@@ -3092,43 +3039,43 @@
     }
   },
   "pendingNotesDrawerP3b": {
-    "message": "等待。随时使用它们——不着急，而且资金不会面临风险。",
+    "message": "請稍候。您可隨時使用這些功能——無需急於行事，且資金絕不會面臨任何風險。",
     "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
   },
   "getTokens": {
-    "message": "获取代币",
+    "message": "取得代幣",
     "englishSource": "Get tokens"
   },
   "midenFaucet": {
-    "message": "米登 Faucet",
+    "message": "Miden Faucet",
     "englishSource": "Miden Faucet"
   },
   "accountPublicKey": {
-    "message": "账户公钥",
+    "message": "帳戶公鑰",
     "englishSource": "Account Public Key"
   },
   "editMidenFaucetId": {
-    "message": "编辑 Miden Faucet ID",
+    "message": "編輯 Miden Faucet ID",
     "englishSource": "Edit Miden Faucet ID"
   },
   "faucetId": {
-    "message": "FaucetID",
+    "message": "Faucet ID",
     "englishSource": "Faucet ID"
   },
   "setNewFaucetId": {
-    "message": "设置新的Faucet ID",
+    "message": "設定新的Faucet識別碼",
     "englishSource": "Set new Faucet ID"
   },
   "setNewFaucetIdDescription": {
-    "message": "输入midenFaucet的ID",
+    "message": "請輸入「miden」的 ID：faucet",
     "englishSource": "Enter the ID of a miden faucet"
   },
   "addAccount": {
-    "message": "添加账户",
+    "message": "新增帳戶",
     "englishSource": "Add Account"
   },
   "addAccountComingSoon": {
-    "message": "添加帐户（即将推出）",
+    "message": "新增帳戶（即將推出）",
     "englishSource": "Add Account (Coming Soon)"
   },
   "faucetIdUpdated": {
@@ -3136,43 +3083,43 @@
     "englishSource": "Faucet ID Updated"
   },
   "connectivityNetworkTitle": {
-    "message": "您似乎处于离线状态",
+    "message": "您似乎處於離線狀態",
     "englishSource": "You appear to be offline"
   },
   "connectivityNetworkBody": {
-    "message": "检查您的互联网连接，然后重试。",
+    "message": "請檢查您的網路連線，然後再試一次。",
     "englishSource": "Check your internet connection and try again."
   },
   "connectivityNodeTitle": {
-    "message": "无法到达 Miden 节点",
+    "message": "無法連線至 Miden 節點",
     "englishSource": "Cannot reach the Miden node"
   },
   "connectivityNodeBody": {
-    "message": "该节点可能已关闭或负载过重。您的余额可能已过期。",
+    "message": "該節點可能已離線或正承受高負載。您的餘額資料可能已過時。",
     "englishSource": "The node may be down or under heavy load. Your balance may be out of date."
   },
   "connectivityProverTitle": {
-    "message": "证明服务不可用",
+    "message": "證明服務無法使用",
     "englishSource": "Proving service unavailable"
   },
   "connectivityProverBody": {
-    "message": "交易将使用本地证明，直到服务恢复。",
+    "message": "在服務恢復之前，交易將採用本地驗證機制。",
     "englishSource": "Transactions will use local proving until the service is back."
   },
   "connectivityResolvingTitle": {
-    "message": "重新连接",
+    "message": "重新建立聯繫",
     "englishSource": "Reconnecting"
   },
   "connectivityResolvingBody": {
-    "message": "正在尝试恢复您的连接。",
+    "message": "正在嘗試恢復您的連線。",
     "englishSource": "Trying to restore your connection."
   },
   "connectivityRetry": {
-    "message": "再试一次",
+    "message": "請再試一次",
     "englishSource": "Try again"
   },
   "connectivityRetrySync": {
-    "message": "重试同步",
+    "message": "重新嘗試同步",
     "englishSource": "Retry sync"
   },
   "tomorrow": {
@@ -3180,55 +3127,55 @@
     "englishSource": "Tomorrow"
   },
   "inAWeek": {
-    "message": "一周内",
+    "message": "一週內",
     "englishSource": "In a week"
   },
   "in2Weeks": {
-    "message": "2周内",
+    "message": "兩週後",
     "englishSource": "In 2 weeks"
   },
   "never": {
-    "message": "绝不",
+    "message": "絕不",
     "englishSource": "Never"
   },
   "30mins": {
-    "message": "30分钟",
+    "message": "30 分鐘",
     "englishSource": "30 mins"
   },
   "1hour": {
-    "message": "1小时",
+    "message": "1 小時",
     "englishSource": "1 hour"
   },
   "5hours": {
-    "message": "5小时",
+    "message": "5 小時",
     "englishSource": "5 hours"
   },
   "time": {
-    "message": "时间",
+    "message": "時間",
     "englishSource": "Time"
   },
   "avatar": {
-    "message": "头像",
+    "message": "頭像",
     "englishSource": "avatar"
   },
   "byProceeding": {
-    "message": "继续操作即表示您同意",
+    "message": "繼續操作即表示您同意",
     "englishSource": "By proceeding, you agree to the"
   },
   "andWord": {
-    "message": "和",
+    "message": "以及",
     "englishSource": "and"
   },
   "first": {
-    "message": "第一的",
+    "message": "首先",
     "englishSource": "First"
   },
   "last": {
-    "message": "最后的",
+    "message": "最後",
     "englishSource": "Last"
   },
   "dappBrowser": {
-    "message": "DApp浏览器",
+    "message": "DApp 瀏覽器",
     "englishSource": "DApp Browser"
   },
   "go": {
@@ -3236,19 +3183,19 @@
     "englishSource": "Go"
   },
   "loading": {
-    "message": "加载中...",
+    "message": "載入中...",
     "englishSource": "Loading..."
   },
   "searchDapps": {
-    "message": "搜索 dApp 或粘贴 URL",
+    "message": "搜尋 dApp 或貼上網址",
     "englishSource": "Search dApps or paste URL"
   },
   "recents": {
-    "message": "最近的内容",
+    "message": "最近動態",
     "englishSource": "Recents"
   },
   "categoryDefi": {
-    "message": "去中心化金融",
+    "message": "DeFi",
     "englishSource": "DeFi"
   },
   "categoryNft": {
@@ -3260,7 +3207,7 @@
     "englishSource": "Tools"
   },
   "categorySocial": {
-    "message": "社会的",
+    "message": "社群",
     "englishSource": "Social"
   },
   "minimize": {
@@ -3268,11 +3215,11 @@
     "englishSource": "Minimize"
   },
   "switchDapps": {
-    "message": "切换 dApp",
+    "message": "切換 dApps",
     "englishSource": "Switch dApps"
   },
   "reload": {
-    "message": "重新加载",
+    "message": "重新載入",
     "englishSource": "Reload"
   },
   "dappActionsSheet": {
@@ -3280,23 +3227,23 @@
     "englishSource": "dApp actions"
   },
   "dappActionCopyLink": {
-    "message": "复制链接",
+    "message": "複製連結",
     "englishSource": "Copy link"
   },
   "dappActionAddToMyDapps": {
-    "message": "添加到我的 Dapp",
+    "message": "新增至「我的 Dapps」",
     "englishSource": "Add to My Dapps"
   },
   "dappActionRemoveFromMyDapps": {
-    "message": "从我的 Dapp 中删除",
+    "message": "從「我的 Dapps」中移除",
     "englishSource": "Remove from My Dapps"
   },
   "dappActionReopen": {
-    "message": "重新开放",
+    "message": "重新開放",
     "englishSource": "Reopen"
   },
   "restoreDappCard": {
-    "message": "恢复 $name$ ",
+    "message": "還原 $name$",
     "englishSource": "Restore $name$",
     "placeholders": {
       "name": {
@@ -3305,7 +3252,7 @@
     }
   },
   "closeDappCard": {
-    "message": "关闭 $name$ ",
+    "message": "關閉 $name$",
     "englishSource": "Close $name$",
     "placeholders": {
       "name": {
@@ -3314,7 +3261,7 @@
     }
   },
   "showAllDapps": {
-    "message": "+ $count$ 更多停放的 dApp",
+    "message": "+ $count$ 更多已上架的 dApp",
     "englishSource": "+$count$ more parked dApps",
     "placeholders": {
       "count": {
@@ -3323,35 +3270,35 @@
     }
   },
   "dappLoadFailed": {
-    "message": "无法加载此 dApp",
+    "message": "無法載入此 dApp",
     "englishSource": "Can't load this dApp"
   },
   "dappLoadFailedHint": {
-    "message": "检查您的连接并重试。",
+    "message": "請檢查您的連線狀態，然後再試一次。",
     "englishSource": "Check your connection and try again."
   },
   "dappBrowserCapsule": {
-    "message": "dApp 浏览器标头",
+    "message": "dApp 瀏覽器頁首",
     "englishSource": "dApp browser header"
   },
   "dragToMinimize": {
-    "message": "向下拖动以最小化",
+    "message": "向下拖動以最小化",
     "englishSource": "Drag down to minimize"
   },
   "dappSwitcher": {
-    "message": "dApp 切换器",
+    "message": "dApp 切換器",
     "englishSource": "dApp switcher"
   },
   "closeDappSwitcher": {
-    "message": "关闭 dApp 切换器",
+    "message": "關閉 dApp 切換器",
     "englishSource": "Close dApp switcher"
   },
   "openDappCountOne": {
-    "message": "1个开放的dApp",
+    "message": "1 個已開啟的 dApp",
     "englishSource": "1 open dApp"
   },
   "openDappCountPlural": {
-    "message": "{count} 个打开的 dApp",
+    "message": "{count} 個開放式去中心化應用程式 (dApps)",
     "englishSource": "{count} open dApps"
   },
   "approve": {
@@ -3359,23 +3306,23 @@
     "englishSource": "Approve"
   },
   "dappConnectionRequest": {
-    "message": "此应用程序想要连接到您的钱包",
+    "message": "此應用程式想要連線至您的錢包",
     "englishSource": "This app wants to connect to your wallet"
   },
   "dappTransactionRequest": {
-    "message": "此应用程序正在请求交易",
+    "message": "此應用程式正在請求一筆交易",
     "englishSource": "This app is requesting a transaction"
   },
   "noAccountSelected": {
-    "message": "未选择账户",
+    "message": "尚未選取任何帳戶",
     "englishSource": "No account selected"
   },
   "biometricFailed": {
-    "message": "生物特征认证失败",
+    "message": "生物特徵驗證失敗",
     "englishSource": "Biometric authentication failed"
   },
   "biometricAttemptsRemaining": {
-    "message": "剩余 $count$ 次尝试",
+    "message": "$count$ 剩餘嘗試次數",
     "englishSource": "$count$ attempt(s) remaining",
     "placeholders": {
       "count": {
@@ -3384,59 +3331,59 @@
     }
   },
   "continueWithPassword": {
-    "message": "使用密码继续",
+    "message": "繼續（輸入密碼）",
     "englishSource": "Continue with Password"
   },
   "tryBiometricAgain": {
-    "message": "再次尝试生物识别",
+    "message": "請再次嘗試生物辨識",
     "englishSource": "Try Biometric Again"
   },
   "fingerprint": {
-    "message": "指纹",
+    "message": "指紋",
     "englishSource": "Fingerprint"
   },
   "cameraPermissionDenied": {
-    "message": "相机权限被拒绝",
+    "message": "相機權限遭拒絕",
     "englishSource": "Camera permission denied"
   },
   "noQrCodeFound": {
-    "message": "未找到二维码",
+    "message": "未找到 QR 碼",
     "englishSource": "No QR code found"
   },
   "invalidMidenAddress": {
-    "message": "米登地址无效",
+    "message": "Miden 地址無效",
     "englishSource": "Invalid Miden address"
   },
   "scanCancelled": {
-    "message": "扫描已取消",
+    "message": "掃描已取消",
     "englishSource": "Scan cancelled"
   },
   "scanQrTitle": {
-    "message": "扫描二维码",
+    "message": "掃描 QR 碼",
     "englishSource": "Scan QR code"
   },
   "pointCameraAtQr": {
-    "message": "将相机对准二维码",
+    "message": "將相機對準 QR 碼",
     "englishSource": "Point your camera at a QR code"
   },
   "noCameraFound": {
-    "message": "No camera found",
+    "message": "未找到相機",
     "englishSource": "No camera found"
   },
   "requestingCamera": {
-    "message": "请求相机访问权限...",
+    "message": "正在請求相機存取權限……",
     "englishSource": "Requesting camera access…"
   },
   "scan": {
-    "message": "扫描",
+    "message": "掃描",
     "englishSource": "Scan"
   },
   "theme": {
-    "message": "主题",
+    "message": "主題",
     "englishSource": "Theme"
   },
   "themeSystem": {
-    "message": "系统",
+    "message": "系統",
     "englishSource": "System"
   },
   "themeLight": {
@@ -3444,40 +3391,40 @@
     "englishSource": "Light"
   },
   "themeDark": {
-    "message": "黑暗的",
+    "message": "黑暗",
     "englishSource": "Dark"
   },
   "hapticFeedback": {
-    "message": "触觉反馈",
+    "message": "觸覺回饋",
     "englishSource": "Haptic Feedback"
   },
   "noNotesToClaim": {
-    "message": "您目前没有notes 可以领取。",
+    "message": "您目前沒有可申領的 notes。",
     "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
-    "message": "您已收到note",
+    "message": "您已收到一封來自 note 的電子郵件",
     "englishSource": "You have received a note"
   },
   "transactionFailedNotificationTitle": {
-    "message": "交易失败",
+    "message": "交易失敗",
     "englishSource": "Transaction failed"
   },
   "transactionFailedNotificationBody": {
-    "message": "交易无法完成。打开钱包查看。",
+    "message": "交易無法完成。請開啟錢包進行檢視。",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
-    "message": "点击此处领取它",
+    "message": "點擊此處領取",
     "englishSource": "Tap here to claim it"
   },
   "noteReceivedClickToClaim": {
-    "message": "Click to view and claim it",
+    "message": "點擊查看並領取",
     "englishSource": "Click to view and claim it"
   },
   "noteReceivedMultiple": {
-    "message": "You have $count$ new notes to claim",
-    "englishSource": "You have $count$ new notes to claim",
+    "message": "$count$ notes 申領",
+    "englishSource": "$count$ notes to claim",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3485,23 +3432,23 @@
     }
   },
   "passwordsCanBeInsecure": {
-    "message": "密码可能不安全。请改用生物识别身份验证。",
+    "message": "密碼可能不夠安全。建議改用生物特徵認證。",
     "englishSource": "Passwords can be insecure. Use biometric authentication instead."
   },
   "unlockWallet": {
-    "message": "解锁钱包",
+    "message": "解鎖錢包",
     "englishSource": "Unlock Wallet"
   },
   "unlockWalletDescription": {
-    "message": "通过seed phrase，您可以随时恢复您的公共帐户。下面选择如何快速解锁您的钱包。",
+    "message": "透過「seed phrase」，您隨時都能還原您的公開帳戶。請從以下選項中選擇，快速解鎖您的錢包。",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
   "faucetRequest": {
-    "message": "Faucet 请求",
+    "message": "Faucet 請求",
     "englishSource": "Faucet Request"
   },
   "activity": {
-    "message": "活动",
+    "message": "活動",
     "englishSource": "Activity"
   },
   "explore": {
@@ -3509,139 +3456,139 @@
     "englishSource": "Explore"
   },
   "permissions": {
-    "message": "权限",
+    "message": "權限",
     "englishSource": "Permissions"
   },
   "permissionUponRequest": {
-    "message": "根据要求",
+    "message": "應要求",
     "englishSource": "Upon Request"
   },
   "permissionAutomatic": {
-    "message": "自动的",
+    "message": "自動",
     "englishSource": "Automatic"
   },
   "dAppsToggleDescription": {
-    "message": "切换以启用或禁用 DApp 连接并平衡可见性。",
+    "message": "切換以啟用或停用 DApp 連線及餘額顯示功能。",
     "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
   },
   "seeConnected": {
-    "message": "查看已连接",
+    "message": "參見相關內容",
     "englishSource": "See connected"
   },
   "transferDetails": {
-    "message": "转账详情",
+    "message": "轉帳詳情",
     "englishSource": "Transfer Details"
   },
   "advancedDetails": {
-    "message": "高级细节",
+    "message": "進階詳情",
     "englishSource": "Advanced details"
   },
   "options": {
-    "message": "选项",
+    "message": "選項",
     "englishSource": "Options"
   },
   "on": {
-    "message": "在",
+    "message": "於",
     "englishSource": "On"
   },
   "off": {
-    "message": "离开",
+    "message": "關閉",
     "englishSource": "Off"
   },
   "enterUsername": {
-    "message": "输入用户名",
+    "message": "請輸入使用者名稱",
     "englishSource": "Enter username"
   },
   "enterAddress": {
-    "message": "输入地址",
+    "message": "輸入地址",
     "englishSource": "Enter Address"
   },
   "failedToClaimNote": {
-    "message": "领取note失败",
+    "message": "無法領取 note",
     "englishSource": "Failed to claim note"
   },
   "testnet": {
-    "message": "测试网",
+    "message": "測試網",
     "englishSource": "Testnet"
   },
   "browser": {
-    "message": "浏览器",
+    "message": "瀏覽器",
     "englishSource": "Browser"
   },
   "invalidAmount": {
-    "message": "金额无效",
+    "message": "金額無效",
     "englishSource": "Invalid amount"
   },
   "tokenPrice": {
-    "message": "代币价格",
+    "message": "代幣價格",
     "englishSource": "Token Price"
   },
   "tokenInfo": {
-    "message": "代币信息",
+    "message": "代幣資訊",
     "englishSource": "Token Info"
   },
   "fungible": {
-    "message": "可替代的",
+    "message": "可互換的",
     "englishSource": "Fungible"
   },
   "network": {
-    "message": "网络",
+    "message": "網路",
     "englishSource": "Network"
   },
   "recentActivity": {
-    "message": "最近的活动",
+    "message": "近期活動",
     "englishSource": "Recent Activity"
   },
   "type": {
-    "message": "类型",
+    "message": "類型",
     "englishSource": "Type"
   },
   "txIdLabel": {
-    "message": "发送 ID",
+    "message": "Tx ID",
     "englishSource": "Tx ID"
   },
   "notesSection": {
-    "message": "<xid=\"0\"/>",
+    "message": "Notes",
     "englishSource": "Notes"
   },
   "orderTracking": {
-    "message": "订单追踪",
+    "message": "訂單追蹤",
     "englishSource": "Order Tracking"
   },
   "orderStatus": {
-    "message": "地位",
+    "message": "狀態",
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "打开",
+    "message": "開啟",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "充满",
+    "message": "已填滿",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "回收",
+    "message": "重獲",
     "englishSource": "Reclaimed"
   },
   "fillRounds": {
-    "message": "填充回合",
+    "message": "填裝子彈",
     "englishSource": "Fill rounds"
   },
   "amountFilled": {
-    "message": "充满",
+    "message": "已填滿",
     "englishSource": "Filled"
   },
   "trackingUnavailable": {
-    "message": "无法使用",
+    "message": "暫無",
     "englishSource": "Not available"
   },
   "created": {
-    "message": "已创建",
+    "message": "建立於",
     "englishSource": "Created"
   },
   "confirmed": {
-    "message": "确认的",
+    "message": "已確認",
     "englishSource": "Confirmed"
   },
   "date": {
@@ -3649,15 +3596,15 @@
     "englishSource": "Date"
   },
   "details": {
-    "message": "细节",
+    "message": "詳細資訊",
     "englishSource": "Details"
   },
   "pinExtensionTitle": {
-    "message": "Pin Miden 钱包",
+    "message": "釘麵包",
     "englishSource": "Pin Bread"
   },
   "pinExtensionDescription": {
-    "message": "单击拼图图标并固定 Bread，以便从工具栏快速访问。",
+    "message": "點擊拼圖圖示，並將「Bread」釘選至工具列，以便快速存取。",
     "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
   "all": {
@@ -3665,19 +3612,19 @@
     "englishSource": "All"
   },
   "sent": {
-    "message": "发送",
+    "message": "已傳送",
     "englishSource": "Sent"
   },
   "pending": {
-    "message": "待办的",
+    "message": "待定",
     "englishSource": "Pending"
   },
   "reclaimed": {
-    "message": "回收",
+    "message": "重獲",
     "englishSource": "Reclaimed"
   },
   "faucetRequestTitle": {
-    "message": "Faucet 请求",
+    "message": "Faucet 請求",
     "englishSource": "Faucet Request"
   },
   "share": {
@@ -3685,67 +3632,67 @@
     "englishSource": "Share"
   },
   "copy": {
-    "message": "复制",
+    "message": "複製",
     "englishSource": "Copy"
   },
   "crossChain": {
-    "message": "跨链",
+    "message": "跨鏈",
     "englishSource": "Cross-chain"
   },
   "evmWalletConnected": {
-    "message": "EVM钱包已连接",
+    "message": "已連線至 EVM 錢包",
     "englishSource": "EVM wallet connected"
   },
   "connectedWallet": {
-    "message": "连接钱包",
+    "message": "連網錢包",
     "englishSource": "Connected wallet"
   },
   "switchWallet": {
-    "message": "切换钱包",
+    "message": "切換錢包",
     "englishSource": "Switch wallet"
   },
   "current": {
-    "message": "当前的",
+    "message": "當前",
     "englishSource": "Current"
   },
   "connectAnotherWallet": {
-    "message": "连接另一个钱包",
+    "message": "連接另一個錢包",
     "englishSource": "Connect another wallet"
   },
   "midenBridge": {
-    "message": "米登桥",
+    "message": "Miden Bridge",
     "englishSource": "Miden Bridge"
   },
   "connectEvmWallet": {
-    "message": "连接 EVM 钱包",
+    "message": "連接 EVM 錢包",
     "englishSource": "Connect an EVM wallet"
   },
   "connectEvmWalletDescription": {
-    "message": "连接钱包以桥接资产进出 Miden。",
+    "message": "將錢包連接至 Miden，以便在 Miden 與其他區塊鏈之間進行資產橋接。",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
   "onlyBridgeableTokenSupported": {
-    "message": "Slow (Agglayer) 路由仅支持可桥接令牌。使用 Fast 发送其他令牌。",
+    "message": "「慢速（Agglayer）」路線僅支援可橋接的代幣。若要傳送其他代幣，請使用「快速」路線。",
     "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
   },
   "connectDestinationWalletToClaim": {
-    "message": "连接目标钱包进行领取。",
+    "message": "請將目標錢包連接至該處以領取代幣。",
     "englishSource": "Connect the destination wallet to claim."
   },
   "bridgeDetails": {
-    "message": "桥梁细节",
+    "message": "橋接詳情",
     "englishSource": "Bridge details"
   },
   "route": {
-    "message": "路线",
+    "message": "路線",
     "englishSource": "Route"
   },
   "selectNetwork": {
-    "message": "选择网络",
+    "message": "選擇網路",
     "englishSource": "Select network"
   },
   "receiveOnArrivesAs": {
-    "message": "接收时间 $network$ · 到达时为 $symbol$ ",
+    "message": "在 $network$ 上接收 · 收件網址為 $symbol$",
     "englishSource": "Receive on $network$ · arrives as $symbol$",
     "placeholders": {
       "network": {
@@ -3757,43 +3704,43 @@
     }
   },
   "noFee": {
-    "message": "不收费",
+    "message": "免收費用",
     "englishSource": "No fee"
   },
   "fastArrival": {
-    "message": "〜30秒",
+    "message": "約 30 秒",
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "〜6小时",
+    "message": "約 6 小時",
     "englishSource": "~6 hours"
   },
   "youAreDepositing": {
-    "message": "您正在存款",
+    "message": "您正在存入款項",
     "englishSource": "You are depositing"
   },
   "confirmDeposit": {
-    "message": "确认存款",
+    "message": "確認存款",
     "englishSource": "Confirm Deposit"
   },
   "bridgeDepositProcessing": {
-    "message": "确认过桥存款",
+    "message": "確認跨鏈存入",
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "在您的钱包中批准该请求，并在 Sepolia 确认时保持此屏幕打开。",
+    "message": "請在您的錢包中核准此請求，並在 Sepolia 確認期間保持此畫面開啟。",
     "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
   },
   "bridgeDepositFailed": {
-    "message": "过桥存款失败",
+    "message": "跨鏈存入失敗",
     "englishSource": "Bridge deposit failed"
   },
   "bridgeDepositSubmitted": {
-    "message": "大桥启动！",
+    "message": "橋接已啟動！",
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "Sepolia 交易已确认。桥梁交付完成后，您的资金将出现在 Miden 上。",
+    "message": "Sepolia 交易已確認。待跨鏈轉移完成後，您的資金將顯示於 Miden 上。",
     "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
@@ -3805,63 +3752,63 @@
     "englishSource": "Delivering"
   },
   "slowNeedsNativeEth": {
-    "message": "Slow (Agglayer) 路由仅支持测试网上的原生 ETH。选择 ETH 来使用它。",
+    "message": "Slow（Agglayer）路線在測試網僅支援原生 ETH。請選擇 ETH 以使用此路線。",
     "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
-    "message": "在 Fast 路由上桥接 ETH 会先将其包装到 WETH，然后桥接 WETH。该路线尚不可用。",
+    "message": "透過「快速路徑」進行 ETH 跨鏈轉移時，會先將 ETH 封裝為 WETH，再將 WETH 進行跨鏈轉移。此路徑目前尚未開放。",
     "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
   },
   "destinationNetwork": {
-    "message": "目的地网络",
+    "message": "目的地網路",
     "englishSource": "Destination network"
   },
   "claimStatus": {
-    "message": "索赔状态",
+    "message": "申領狀態",
     "englishSource": "Claim status"
   },
   "claimAsset": {
-    "message": "索取资产",
+    "message": "申領資產",
     "englishSource": "Claim Asset"
   },
   "claimAssetSubmitted": {
-    "message": "已提交索赔 — 资金位于连接的 EVM 钱包中。",
+    "message": "索取已提交 — 資金已存入連結的 EVM 錢包中。",
     "englishSource": "Claim submitted — funds are on the connected EVM wallet."
   },
   "claimable": {
-    "message": "准备索赔",
+    "message": "準備領取",
     "englishSource": "Ready to claim"
   },
   "claiming": {
-    "message": "声称…",
+    "message": "正在申領中……",
     "englishSource": "Claiming…"
   },
   "claimed": {
-    "message": "声称",
+    "message": "已申領",
     "englishSource": "Claimed"
   },
   "claimPending": {
-    "message": "桥接——索赔尚未准备好",
+    "message": "跨鏈轉移 — 申領尚未準備就緒",
     "englishSource": "Bridging — claim not ready yet"
   },
   "claimFailedStatus": {
-    "message": "索赔失败",
+    "message": "領取失敗",
     "englishSource": "Claim failed"
   },
   "noManualClaimRequired": {
-    "message": "资金自动到达——无需索赔。",
+    "message": "資金會自動到帳——無需提出索賠。",
     "englishSource": "Funds arrive automatically — no claim needed."
   },
   "fastRouteLabel": {
-    "message": "快（纪元）",
+    "message": "Fast（Epoch）",
     "englishSource": "Fast (Epoch)"
   },
   "slowRouteLabel": {
-    "message": "缓慢（聚集者）",
+    "message": "緩慢（Agglayer）",
     "englishSource": "Slow (Agglayer)"
   },
   "bridgeRowTitle": {
-    "message": "桥 $from$  →  $to$ ",
+    "message": "橋接 $from$ → $to$",
     "englishSource": "Bridge $from$ → $to$",
     "placeholders": {
       "from": {
@@ -3873,7 +3820,7 @@
     }
   },
   "bridgeRowVia": {
-    "message": "通过 $provider$  →  $network$ ",
+    "message": "來源：$provider$ → $network$",
     "englishSource": "Via $provider$ → $network$",
     "placeholders": {
       "provider": {
@@ -3885,51 +3832,51 @@
     }
   },
   "bridgeInProgress": {
-    "message": "进行中",
+    "message": "進行中",
     "englishSource": "In progress"
   },
   "bridgeFailed": {
-    "message": "失败的",
+    "message": "失敗",
     "englishSource": "Failed"
   },
   "reclaimFunds": {
-    "message": "收回资金",
+    "message": "追回資金",
     "englishSource": "Reclaim funds"
   },
   "reclaiming": {
-    "message": "回收…",
+    "message": "重新奪回……",
     "englishSource": "Reclaiming…"
   },
   "reclaimableAfterBlock": {
-    "message": "区块后可收回资金",
+    "message": "區塊生成後可取回的資金",
     "englishSource": "Funds reclaimable after block"
   },
   "receivingTx": {
-    "message": "接收发送",
+    "message": "接收 Tx",
     "englishSource": "Receiving Tx"
   },
   "preparing": {
-    "message": "正在准备连接...",
+    "message": "正在建立連線……",
     "englishSource": "Preparing connection…"
   },
   "disconnect": {
-    "message": "断开",
+    "message": "斷開連接",
     "englishSource": "Disconnect"
   },
   "declaredBySiteVerifying": {
-    "message": "由现场声明——通过模拟验证……",
+    "message": "由現場宣告 — 透過模擬進行驗證……",
     "englishSource": "Declared by site — verifying by simulation…"
   },
   "unverified": {
-    "message": "未经验证",
+    "message": "未經核實",
     "englishSource": "unverified"
   },
   "couldNotVerifyBySimulation": {
-    "message": "无法通过模拟验证。以下金额由网站公布。",
+    "message": "無法透過模擬進行驗證。以下數值均為該網站所聲明者。",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
   },
   "couldNotDecodeTransaction": {
-    "message": "该 dApp 正在请求自定义交易。钱包无法解码其详细信息 - 只有在您确切知道它的用途时才能继续。",
+    "message": "此 dApp 正在請求一筆自訂交易。錢包無法解碼其詳細資訊——請僅在您確切了解其運作方式的情況下繼續。",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
   "rawValue": {
@@ -3937,11 +3884,11 @@
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "不透明的签名请求",
+    "message": "不透明簽名請求",
     "englishSource": "Opaque signature request"
   },
   "opaqueSignatureWarning": {
-    "message": "该网站要求您签署原始值。钱包无法显示其授权内容。仅当您完全信任该网站时才继续。",
+    "message": "此網站要求您簽署一個原始值。錢包無法顯示其授權的內容。請僅在您完全信任此網站的情況下繼續。",
     "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
   },
   "note": {
@@ -3949,127 +3896,127 @@
     "englishSource": "Note"
   },
   "earnMarketLabel": {
-    "message": "Market",
+    "message": "市場",
     "englishSource": "Market"
   },
   "positionOwnerLabel": {
-    "message": "Position owner",
+    "message": "持倉持有者",
     "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
-    "message": "Deposit details",
+    "message": "存款詳情",
     "englishSource": "Deposit details"
   },
   "earnWithdrawDetailsTitle": {
-    "message": "Withdrawal details",
+    "message": "提領詳情",
     "englishSource": "Withdrawal details"
   },
   "depositIntentLabel": {
-    "message": "Deposit intent",
+    "message": "存款意向",
     "englishSource": "Deposit intent"
   },
   "redeemIntentLabel": {
-    "message": "Redeem intent",
+    "message": "兌換意圖",
     "englishSource": "Redeem intent"
   },
   "earnWithdrawRowTitle": {
-    "message": "Withdraw from Earn",
+    "message": "從「Earn」提領",
     "englishSource": "Withdraw from Earn"
   },
   "earnWithdrawRowVia": {
-    "message": "Via Epoch → Miden",
+    "message": "經由 Epoch → Miden",
     "englishSource": "Via Epoch → Miden"
   },
   "earnWithdrawStatusRedeeming": {
-    "message": "Redeeming",
+    "message": "贖回",
     "englishSource": "Redeeming"
   },
   "earnWithdrawStatusDelivering": {
-    "message": "Delivering",
+    "message": "交付",
     "englishSource": "Delivering"
   },
   "withdrawalStarted": {
-    "message": "Withdrawal Started!",
+    "message": "提領已啟動！",
     "englishSource": "Withdrawal Started!"
   },
   "withdrawalStartedDescription": {
-    "message": "Your funds are being bridged back to Miden. Track delivery in Activity.",
+    "message": "您的資金正透過橋接轉回 Miden。請於「活動」頁面追蹤資金傳輸狀況。",
     "englishSource": "Your funds are being bridged back to Miden. Track delivery in Activity."
   },
   "withdrawalProcessing": {
-    "message": "Processing Withdrawal",
+    "message": "處理提領",
     "englishSource": "Processing Withdrawal"
   },
   "withdrawalProcessingDescription": {
-    "message": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds.",
+    "message": "簽署並將免手續費的提領意向提交至 Epoch。此過程通常只需幾秒鐘。",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
   },
   "withdrawalFailed": {
-    "message": "Withdrawal Failed",
+    "message": "提領失敗",
     "englishSource": "Withdrawal Failed"
   },
   "transactionComplete": {
-    "message": "Transaction Complete!",
+    "message": "交易完成！",
     "englishSource": "Transaction Complete!"
   },
   "totalPaid": {
-    "message": "Total Paid",
+    "message": "已支付總額",
     "englishSource": "Total Paid"
   },
   "totalConsumed": {
-    "message": "总消耗量",
+    "message": "總消耗量",
     "englishSource": "Total Consumed"
   },
   "notesConsumed": {
-    "message": "Notes 已消耗",
+    "message": "Notes 消耗",
     "englishSource": "Notes Consumed"
   },
   "consumed": {
-    "message": "已消耗",
+    "message": "消耗",
     "englishSource": "Consumed"
   },
   "sourceTx": {
-    "message": "交易ID",
+    "message": "交易編號",
     "englishSource": "Transaction ID"
   },
   "developerSettingsTitle": {
-    "message": "开发者设置",
+    "message": "開發者設定",
     "englishSource": "Developer Settings"
   },
   "developerSettingsWarningTitle": {
-    "message": "对于高级用户",
+    "message": "適用於進階使用者",
     "englishSource": "For advanced users"
   },
   "developerSettingsWarning": {
-    "message": "大多数人永远不应该改变这些。错误的价值观会打破你的钱包。",
+    "message": "大多數人絕對不該更改這些設定。錯誤的數值會讓你的錢包大失血。",
     "englishSource": "Most people should never change these. Wrong values will break your wallet."
   },
   "devEndpointPreset": {
-    "message": "网络预设",
+    "message": "網路預設",
     "englishSource": "Network preset"
   },
   "devEndpointCustom": {
-    "message": "风俗",
+    "message": "自訂",
     "englishSource": "Custom"
   },
   "devEndpointNetworkId": {
-    "message": "网络号",
+    "message": "網路識別碼",
     "englishSource": "Network ID"
   },
   "devEndpointRpc": {
-    "message": "RPC 节点 URL",
+    "message": "RPC 節點 URL",
     "englishSource": "RPC node URL"
   },
   "devEndpointProver": {
-    "message": "交易证明 URL",
+    "message": "交易驗證器網址",
     "englishSource": "Transaction prover URL"
   },
   "devEndpointNoteTransport": {
-    "message": "Note 传输 URL",
+    "message": "Note 傳輸 URL",
     "englishSource": "Note transport URL"
   },
   "devEndpointFaucet": {
-    "message": "Faucet 网站网址",
+    "message": "Faucet 網站網址",
     "englishSource": "Faucet website URL"
   },
   "devEndpointFaucetApi": {
@@ -4077,43 +4024,43 @@
     "englishSource": "Faucet API URL"
   },
   "devEndpointExplorer": {
-    "message": "资源管理器网址",
+    "message": "資源管理員網址",
     "englishSource": "Explorer URL"
   },
   "devEndpointGuardian": {
-    "message": "自定义监护人 URL",
+    "message": "自訂 guardian 網址",
     "englishSource": "Custom guardian URL"
   },
   "devEndpointChecking": {
-    "message": "检查…",
+    "message": "正在檢查……",
     "englishSource": "Checking…"
   },
   "devEndpointReachable": {
-    "message": "主机可达",
+    "message": "主機可連線",
     "englishSource": "Host reachable"
   },
   "devEndpointNoResponse": {
-    "message": "没有回应",
+    "message": "沒有回應",
     "englishSource": "No response"
   },
   "devEndpointSaveContinue": {
-    "message": "保存并继续",
+    "message": "儲存並繼續",
     "englishSource": "Save & continue"
   },
   "devEndpointResetDefaults": {
-    "message": "重置为默认值",
+    "message": "重設為預設值",
     "englishSource": "Reset to defaults"
   },
   "devEndpointResetAndReonboard": {
-    "message": "重置为默认值并重新启动",
+    "message": "重設為預設值並重新完成註冊流程",
     "englishSource": "Reset to defaults & re-onboard"
   },
   "devEndpointsRow": {
-    "message": "网络端点",
+    "message": "網路端點",
     "englishSource": "Network endpoints"
   },
   "devEndpointResetConfirm": {
-    "message": "这将永久删除该钱包，包括您的密钥和交易历史记录。您需要恢复短语来恢复它。",
+    "message": "此操作將永久刪除此錢包，包括您的金鑰和交易紀錄。若要還原錢包，您需要使用您的恢復短語。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   }
 }

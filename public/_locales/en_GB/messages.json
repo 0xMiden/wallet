@@ -28,7 +28,7 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Your wallet will ask to approve  $tokenSymbol$  and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
     "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
@@ -53,7 +53,7 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Address:  $number$ ",
+    "message": "Address: $number$",
     "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
@@ -79,7 +79,7 @@
     }
   },
   "dappSwitcherCloseCard": {
-    "message": "Close  $name$ ",
+    "message": "Close $name$",
     "englishSource": "Close $name$",
     "placeholders": {
       "name": {
@@ -105,7 +105,7 @@
     }
   },
   "priceChangeAmountPositive": {
-    "message": "+ $amount$ ",
+    "message": "+$amount$",
     "englishSource": "+$amount$",
     "placeholders": {
       "amount": {
@@ -114,7 +114,7 @@
     }
   },
   "priceChangeAmountNegative": {
-    "message": "- $amount$ ",
+    "message": "-$amount$",
     "englishSource": "-$amount$",
     "placeholders": {
       "amount": {
@@ -123,7 +123,7 @@
     }
   },
   "priceChangePercent": {
-    "message": "$value$%",
+    "message": "$value$",
     "englishSource": "$value$%",
     "placeholders": {
       "value": {
@@ -132,7 +132,7 @@
     }
   },
   "pendingTabApproxUsd": {
-    "message": "≈  $value$ ",
+    "message": "≈ $value$",
     "englishSource": "≈ $value$",
     "placeholders": {
       "value": {
@@ -141,7 +141,7 @@
     }
   },
   "noteReturnsToSenderBy": {
-    "message": "Returns to the sender if unclaimed by  $date$ ",
+    "message": "Returns to the sender if unclaimed by $date$",
     "englishSource": "Returns to the sender if unclaimed by $date$",
     "placeholders": {
       "date": {
@@ -150,7 +150,7 @@
     }
   },
   "tokenDetailChange24h": {
-    "message": "$change$%",
+    "message": "$change$",
     "englishSource": "$change$%",
     "placeholders": {
       "change": {
@@ -159,7 +159,7 @@
     }
   },
   "historyDetailsIdLabel": {
-    "message": "ID:  $id$ ",
+    "message": "ID: $id$",
     "englishSource": "ID: $id$",
     "placeholders": {
       "id": {
@@ -187,7 +187,7 @@
     "englishSource": "Failed to load transaction"
   },
   "historyDetailsFiatApprox": {
-    "message": "≈  $amount$  USD",
+    "message": "≈ $amount$ USD",
     "englishSource": "≈ $amount$ USD",
     "placeholders": {
       "amount": {
@@ -205,7 +205,7 @@
     }
   },
   "dappPeekCardOverflowBadge": {
-    "message": "+ $count$ ",
+    "message": "+$count$",
     "englishSource": "+$count$",
     "placeholders": {
       "count": {
@@ -214,7 +214,7 @@
     }
   },
   "settingsVersion": {
-    "message": "Version  $version$ ",
+    "message": "Version $version$",
     "englishSource": "Version $version$",
     "placeholders": {
       "version": {
@@ -227,7 +227,7 @@
     "englishSource": "Bread"
   },
   "earnPositionHeaderTitle": {
-    "message": "My  $protocol$  •  $asset$  position",
+    "message": "My $protocol$ • $asset$ position",
     "englishSource": "My $protocol$ • $asset$ position",
     "placeholders": {
       "protocol": {
@@ -271,7 +271,7 @@
     "englishSource": "Started"
   },
   "earnProjectedEarnings": {
-    "message": "~  $estimate$  · at  $apy$  APY",
+    "message": "~ $estimate$ · at $apy$ APY",
     "englishSource": "~ $estimate$ · at $apy$ APY",
     "placeholders": {
       "estimate": {
@@ -375,7 +375,7 @@
     "englishSource": "Now"
   },
   "earnProjectedRewardAmount": {
-    "message": "+ $amount$ ",
+    "message": "+$amount$",
     "englishSource": "+$amount$",
     "placeholders": {
       "amount": {
@@ -392,7 +392,7 @@
     "englishSource": "Miden P2IDE (gasless)"
   },
   "earnDepositRoute": {
-    "message": "Miden ->  $protocol$  ( $network$ )",
+    "message": "Miden -> $protocol$ ($network$)",
     "englishSource": "Miden -> $protocol$ ($network$)",
     "placeholders": {
       "protocol": {
@@ -424,7 +424,7 @@
     "englishSource": "Total Earned Rewards"
   },
   "earnEarningBlendedApy": {
-    "message": "Earning  $apy$  blended APY",
+    "message": "Earning $apy$ blended APY",
     "englishSource": "Earning $apy$ blended APY",
     "placeholders": {
       "apy": {
@@ -502,7 +502,7 @@
     "englishSource": "Advanced"
   },
   "appName": {
-    "message": "Miden - Bread",
+    "message": "Bread",
     "englishSource": "Bread"
   },
   "appDesc": {
@@ -523,11 +523,10 @@
   },
   "authorizedDApps": {
     "message": "Authorized DApps",
-    "description": "DApps = Decentralized Applications",
     "englishSource": "Authorized DApps"
   },
   "versionLabel": {
-    "message": "version:  $version$ ",
+    "message": "version: $version$",
     "englishSource": "version: $version$",
     "placeholders": {
       "version": {
@@ -536,7 +535,7 @@
     }
   },
   "resetPermissionsConfirmation": {
-    "message": "Are you sure you want to reset permissions for\n  $origin$ ?",
+    "message": "Are you sure you want to reset permissions for\n $origin$?",
     "englishSource": "Are you sure you want to reset permissions for\n $origin$?",
     "placeholders": {
       "origin": {
@@ -601,30 +600,15 @@
     "englishSource": "Update"
   },
   "originLabel": {
-    "message": "Origin: $origin$",
-    "placeholders": {
-      "origin": {
-        "content": "$1"
-      }
-    },
+    "message": "Origin:",
     "englishSource": "Origin:"
   },
   "networkLabel": {
-    "message": "Network: $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    },
+    "message": "Network:",
     "englishSource": "Network:"
   },
   "pkhLabel": {
-    "message": "Account: $pkh$",
-    "placeholders": {
-      "pkh": {
-        "content": "$1"
-      }
-    },
+    "message": "Account:",
     "englishSource": "Account:"
   },
   "analytics": {
@@ -676,7 +660,7 @@
     "englishSource": "Alert"
   },
   "defaultAccountName": {
-    "message": "Account  $accountNumber$ ",
+    "message": "Account $accountNumber$",
     "englishSource": "Account $accountNumber$",
     "placeholders": {
       "accountnumber": {
@@ -713,7 +697,7 @@
     "englishSource": "Each word separated with a single space"
   },
   "seedInputNumberOfWords": {
-    "message": "My Seed phrase is  $num$  words",
+    "message": "My Seed phrase is $num$ words",
     "englishSource": "My Seed phrase is $num$ words",
     "placeholders": {
       "num": {
@@ -738,7 +722,7 @@
     "englishSource": "Oops!"
   },
   "smthWentWrongWhile": {
-    "message": "Something went wrong while  $action$ ",
+    "message": "Something went wrong while $action$",
     "englishSource": "Something went wrong while $action$",
     "placeholders": {
       "action": {
@@ -767,7 +751,7 @@
     "englishSource": "Retry"
   },
   "maximalAmount": {
-    "message": "Maximal:  $amount$ ",
+    "message": "Maximal: $amount$",
     "englishSource": "Maximal: $amount$",
     "placeholders": {
       "amount": {
@@ -788,7 +772,7 @@
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
   "encryptedFileImportedAccountsOmitted": {
-    "message": "Imported accounts ( $importedCount$ ) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "message": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
     "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
     "placeholders": {
       "importedcount": {
@@ -1026,7 +1010,7 @@
     "englishSource": "Processing..."
   },
   "importWallet": {
-    "message": "Import Your Wallet",
+    "message": "Import Wallet",
     "englishSource": "Import Wallet"
   },
   "revealPrivateKey": {
@@ -1134,7 +1118,7 @@
     "englishSource": "Not enough funds"
   },
   "notEnoughCurrencyFunds": {
-    "message": "Not enough  $currency$  funds",
+    "message": "Not enough $currency$ funds",
     "englishSource": "Not enough $currency$ funds",
     "placeholders": {
       "currency": {
@@ -1155,7 +1139,7 @@
     "englishSource": "This may happen because:"
   },
   "minimalFeeGreaterThanBalanceVerbose": {
-    "message": "Minimal fee for this transaction is greater than your balance. A large fee may be required because of you sending funds to an empty Manager account. That requires a one-time 0.06425  $gasTokenSymbol$  burn fee;",
+    "message": "Minimal fee for this transaction is greater than your balance. A large fee may be required because of you sending funds to an empty Manager account. That requires a one-time 0.06425 $gasTokenSymbol$ burn fee;",
     "englishSource": "Minimal fee for this transaction is greater than your balance. A large fee may be required because of you sending funds to an empty Manager account. That requires a one-time 0.06425 $gasTokenSymbol$ burn fee;",
     "placeholders": {
       "gastokensymbol": {
@@ -1168,7 +1152,7 @@
     "englishSource": "Network or other technical issue."
   },
   "confirmAction": {
-    "message": "Confirm  $action$ ",
+    "message": "Confirm $action$",
     "englishSource": "Confirm $action$",
     "placeholders": {
       "action": {
@@ -1233,7 +1217,7 @@
     "englishSource": "Remove"
   },
   "ifYouWantToRevealPrivateKeyFromOtherAccount": {
-    "message": "If you want to reveal a private key from another account - you should select it in the top-right dropdown.",
+    "message": "If you want to reveal a view key from another account - you should select it in the top-right dropdown.",
     "englishSource": "If you want to reveal a view key from another account - you should select it in the top-right dropdown."
   },
   "privateKeyFieldDescription": {
@@ -1249,7 +1233,7 @@
     "englishSource": "Keep it in secret."
   },
   "revealSecretPasswordInputDescription": {
-    "message": "Enter password to reveal the  $secretName$ .",
+    "message": "Enter password to reveal the $secretName$.",
     "englishSource": "Enter password to reveal the $secretName$.",
     "placeholders": {
       "secretname": {
@@ -1267,7 +1251,7 @@
     }
   },
   "revealSecretUnlockDescription": {
-    "message": "Unlock with your passcode to reveal the  $secretName$ .",
+    "message": "Unlock with your passcode to reveal the $secretName$.",
     "englishSource": "Unlock with your passcode to reveal the $secretName$.",
     "placeholders": {
       "secretname": {
@@ -1408,7 +1392,7 @@
     "englishSource": "Other"
   },
   "thousandFormat": {
-    "message": "$thousand$k",
+    "message": "$thousand$ k",
     "englishSource": "$thousand$k",
     "placeholders": {
       "thousand": {
@@ -1417,7 +1401,7 @@
     }
   },
   "millionFormat": {
-    "message": "$million$M",
+    "message": "$million$ M",
     "englishSource": "$million$M",
     "placeholders": {
       "million": {
@@ -1426,7 +1410,7 @@
     }
   },
   "billionFormat": {
-    "message": "$billion$B",
+    "message": "$billion$ B",
     "englishSource": "$billion$B",
     "placeholders": {
       "billion": {
@@ -1440,7 +1424,6 @@
   },
   "more": {
     "message": "more",
-    "description": "Show more",
     "englishSource": "more"
   },
   "addressBook": {
@@ -1468,7 +1451,7 @@
     "englishSource": "Available"
   },
   "approxFiatValue": {
-    "message": "≈  $value$  USD",
+    "message": "≈ $value$ USD",
     "englishSource": "≈ $value$ USD",
     "placeholders": {
       "value": {
@@ -1517,7 +1500,7 @@
     "englishSource": "Rate"
   },
   "swapSolverFeeNote": {
-    "message": "Your receive amount already includes a  $percent$  solver fee.",
+    "message": "Your receive amount already includes a $percent$ solver fee.",
     "englishSource": "Your receive amount already includes a $percent$ solver fee.",
     "placeholders": {
       "percent": {
@@ -1530,7 +1513,7 @@
     "englishSource": "Usually fills in"
   },
   "swapEtaSeconds": {
-    "message": "~ $seconds$ s",
+    "message": "~$seconds$ s",
     "englishSource": "~$seconds$s",
     "placeholders": {
       "seconds": {
@@ -1539,7 +1522,7 @@
     }
   },
   "swapEtaMinutes": {
-    "message": "~ $minutes$  min",
+    "message": "~$minutes$ min",
     "englishSource": "~$minutes$ min",
     "placeholders": {
       "minutes": {
@@ -1572,7 +1555,7 @@
     "englishSource": "Price unavailable. Try again shortly."
   },
   "swapOrderReservedNote": {
-    "message": "Your  $amount$  stays reserved for this order until it's filled.",
+    "message": "Your $amount$ stays reserved for this order until it's filled.",
     "englishSource": "Your $amount$ stays reserved for this order until it's filled.",
     "placeholders": {
       "amount": {
@@ -1593,7 +1576,7 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "If unclaimed by then, you can claim the  $amount$  back into your wallet. No funds are lost.",
+    "message": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
@@ -1606,7 +1589,7 @@
     "englishSource": "This time has already passed — pick a future time"
   },
   "expiresInSeconds": {
-    "message": "In  $seconds$  seconds",
+    "message": "In $seconds$ seconds",
     "englishSource": "In $seconds$ seconds",
     "placeholders": {
       "seconds": {
@@ -1615,7 +1598,7 @@
     }
   },
   "expiresInMinutes": {
-    "message": "In  $minutes$  minutes",
+    "message": "In $minutes$ minutes",
     "englishSource": "In $minutes$ minutes",
     "placeholders": {
       "minutes": {
@@ -1720,7 +1703,7 @@
     "englishSource": "You have Pending Notes"
   },
   "pendingNotesPromptBody": {
-    "message": "You have pending notes worth  $amount$ .",
+    "message": "You have pending notes worth $amount$.",
     "englishSource": "You have pending notes worth $amount$.",
     "placeholders": {
       "amount": {
@@ -1785,7 +1768,7 @@
     "englishSource": "Write down these words in order."
   },
   "word": {
-    "message": "Word  $number$ ",
+    "message": "Word $number$",
     "englishSource": "Word $number$",
     "placeholders": {
       "number": {
@@ -1806,7 +1789,7 @@
     "englishSource": "Next"
   },
   "done": {
-    "message": "Done!",
+    "message": "Done",
     "englishSource": "Done"
   },
   "start": {
@@ -1818,7 +1801,7 @@
     "englishSource": "Transaction ID:"
   },
   "recipientAddress": {
-    "message": "Recipient address:",
+    "message": "Recipient address",
     "englishSource": "Recipient address"
   },
   "completed": {
@@ -2019,22 +2002,18 @@
   },
   "backUpYourWallet": {
     "message": "Back up your wallet",
-    "note": "Onboarding",
     "englishSource": "Back up your wallet"
   },
   "show": {
     "message": "Show",
-    "note": "Onboarding",
     "englishSource": "Show"
   },
   "hide": {
     "message": "Hide",
-    "note": "Onboarding",
     "englishSource": "Hide"
   },
   "copied": {
     "message": "Copied",
-    "note": "Onboarding",
     "englishSource": "Copied"
   },
   "copyToClipboard": {
@@ -2043,22 +2022,18 @@
   },
   "createsProofsOnYourComputer": {
     "message": "Creates proofs on your computer",
-    "note": "Onboarding",
     "englishSource": "Creates proofs on your computer"
   },
   "yourKeysStayPrivate": {
     "message": "Your keys stay private",
-    "note": "Onboarding",
     "englishSource": "Your keys stay private"
   },
   "selectTheDefaultTransactionType": {
     "message": "Select the Default Transaction Type",
-    "note": "Onboarding",
     "englishSource": "Select the Default Transaction Type"
   },
   "popular": {
     "message": "Popular",
-    "note": "Onboarding",
     "englishSource": "Popular"
   },
   "verifyMessagePrefix": {
@@ -2111,7 +2086,6 @@
   },
   "getStarted": {
     "message": "Get started",
-    "note": "Onboarding",
     "englishSource": "Get started"
   },
   "creatingYourWallet": {
@@ -2120,22 +2094,18 @@
   },
   "enterPassword": {
     "message": "Enter password",
-    "note": "Onboarding",
     "englishSource": "Enter password"
   },
   "verifyPassword": {
     "message": "Verify password",
-    "note": "Onboarding",
     "englishSource": "Verify password"
   },
   "enterPasswordAgain": {
     "message": "Enter password again",
-    "note": "Onboarding",
     "englishSource": "Enter password again"
   },
   "itsAMatch": {
     "message": "It's a match!",
-    "note": "Onboarding",
     "englishSource": "It's a match!"
   },
   "passwordsDoNotMatch": {
@@ -2148,7 +2118,6 @@
   },
   "createPassword": {
     "message": "Create password",
-    "note": "Onboarding",
     "englishSource": "Create password"
   },
   "createPasswordDescription": {
@@ -2157,27 +2126,22 @@
   },
   "veryStrong": {
     "message": "Very strong!",
-    "note": "Onboarding",
     "englishSource": "Very strong!"
   },
   "medium": {
     "message": "Medium",
-    "note": "Onboarding",
     "englishSource": "Medium"
   },
   "low": {
     "message": "Low",
-    "note": "Onboarding",
     "englishSource": "Low"
   },
   "8chars1number": {
     "message": "8 characters, 1 number",
-    "note": "Onboarding",
     "englishSource": "8 characters, 1 number"
   },
   "minimumCharsWithAtLeast": {
     "message": "Minimum 8 characters with at least 1 number",
-    "note": "Onboarding",
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
   "backUpWalletInstructions": {
@@ -2194,67 +2158,54 @@
   },
   "select": {
     "message": "Select",
-    "note": "Onboarding",
     "englishSource": "Select"
   },
   "selected": {
     "message": "Selected",
-    "note": "Onboarding",
     "englishSource": "Selected"
   },
   "additionalDownloads": {
     "message": "Additional Downloads",
-    "note": "Onboarding",
     "englishSource": "Additional Downloads"
   },
   "600megabytes": {
     "message": "600+ megabytes",
-    "note": "Onboarding",
     "englishSource": "600+ megabytes"
   },
   "transactionSpeed": {
     "message": "Transaction Speed",
-    "note": "Onboarding",
     "englishSource": "Transaction Speed"
   },
   "transactionSpeedMins": {
     "message": "1-10 minutes",
-    "note": "Onboarding",
     "englishSource": "1-10 minutes"
   },
   "maximumPrivacy": {
     "message": "Maximum Privacy",
-    "note": "Onboarding",
     "englishSource": "Maximum Privacy"
   },
   "vpnLevelPrivacy": {
     "message": "VPN level privacy",
-    "note": "Onboarding",
     "englishSource": "VPN level privacy"
   },
   "transactionSpeed2Sec": {
     "message": "2 seconds",
-    "note": "Onboarding",
     "englishSource": "2 seconds"
   },
   "additionalDownloads0mb": {
     "message": "0 MB",
-    "note": "Onboarding",
     "englishSource": "0 MB"
   },
   "delegateProofsToSecureServers": {
     "message": "Delegate proofs to secure servers",
-    "note": "Onboarding",
     "englishSource": "Delegate proofs to secure servers"
   },
   "delegateTransactions": {
     "message": "Delegate\nTransactions",
-    "note": "Onboarding",
     "englishSource": "Delegate\nTransactions"
   },
   "generateTransactionsLocally": {
     "message": "Generate Transactions\nLocally",
-    "note": "Onboarding",
     "englishSource": "Generate Transactions\nLocally"
   },
   "resetRequired": {
@@ -2574,12 +2525,7 @@
     "englishSource": "Save Encrypted Wallet File"
   },
   "permissionLabel": {
-    "message": "Decrypt Permission:  $decryptPermission$ ",
-    "placeholders": {
-      "decryptPermission": {
-        "content": "$1"
-      }
-    },
+    "message": "Private Data Permission",
     "englishSource": "Private Data Permission"
   },
   "confirmPrivateDataPermissionDescription": {
@@ -2703,7 +2649,7 @@
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state.",
+    "message": "Recommended. Guardian -based recovery for your account, but the guardian operator can see your state.",
     "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
@@ -2747,7 +2693,7 @@
     "englishSource": "Looking for your guardian…"
   },
   "guardianDetectedTitle": {
-    "message": "Found your guardian:  $name$ ",
+    "message": "Found your guardian: $name$",
     "englishSource": "Found your guardian: $name$",
     "placeholders": {
       "name": {
@@ -2969,7 +2915,7 @@
     "englishSource": "Claim All"
   },
   "claimAllProgress": {
-    "message": "Claim All? ( $unclaimed$ / $total$ )",
+    "message": "Claim All? ($unclaimed$ / $total$)",
     "englishSource": "Claim All? ($unclaimed$/$total$)",
     "placeholders": {
       "unclaimed": {
@@ -3297,7 +3243,7 @@
     "englishSource": "Reopen"
   },
   "restoreDappCard": {
-    "message": "Restore  $name$ ",
+    "message": "Restore $name$",
     "englishSource": "Restore $name$",
     "placeholders": {
       "name": {
@@ -3306,7 +3252,7 @@
     }
   },
   "closeDappCard": {
-    "message": "Close  $name$ ",
+    "message": "Close $name$",
     "englishSource": "Close $name$",
     "placeholders": {
       "name": {
@@ -3315,7 +3261,7 @@
     }
   },
   "showAllDapps": {
-    "message": "+ $count$  more parked dApps",
+    "message": "+$count$ more parked dApps",
     "englishSource": "+$count$ more parked dApps",
     "placeholders": {
       "count": {
@@ -3477,8 +3423,8 @@
     "englishSource": "Click to view and claim it"
   },
   "noteReceivedMultiple": {
-    "message": "You have $count$ new notes to claim",
-    "englishSource": "You have $count$ new notes to claim",
+    "message": "$count$ notes to claim",
+    "englishSource": "$count$ notes to claim",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3746,7 +3692,7 @@
     "englishSource": "Select network"
   },
   "receiveOnArrivesAs": {
-    "message": "Receive on  $network$  · arrives as  $symbol$ ",
+    "message": "Receive on $network$ · arrives as $symbol$",
     "englishSource": "Receive on $network$ · arrives as $symbol$",
     "placeholders": {
       "network": {
@@ -3862,7 +3808,7 @@
     "englishSource": "Slow (Agglayer)"
   },
   "bridgeRowTitle": {
-    "message": "Bridge  $from$  →  $to$ ",
+    "message": "Bridge $from$ → $to$",
     "englishSource": "Bridge $from$ → $to$",
     "placeholders": {
       "from": {
@@ -3874,7 +3820,7 @@
     }
   },
   "bridgeRowVia": {
-    "message": "Via  $provider$  →  $network$ ",
+    "message": "Via $provider$ → $network$",
     "englishSource": "Via $provider$ → $network$",
     "placeholders": {
       "provider": {
