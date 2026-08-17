@@ -3,10 +3,6 @@
     "message": "有效載荷",
     "englishSource": "Payload"
   },
-  "bridgeDepositTitle": {
-    "message": "米登橋",
-    "englishSource": "Miden Bridge"
-  },
   "bridgeDepositHeading": {
     "message": "請確認您的存款",
     "englishSource": "Confirm your deposit"
@@ -18,10 +14,6 @@
   "bridgeDepositYouReceive": {
     "message": "您將收到",
     "englishSource": "You receive"
-  },
-  "bridgeDepositBridgeOption": {
-    "message": "橋接選項",
-    "englishSource": "Bridge option"
   },
   "bridgeDepositApprovingTitle": {
     "message": "您正在核准的內容",
@@ -290,21 +282,9 @@
     "message": "持倉",
     "englishSource": "Position"
   },
-  "withdraw": {
-    "message": "提款",
-    "englishSource": "Withdraw"
-  },
   "earnDepositMore": {
     "message": "存入更多款項",
     "englishSource": "Deposit more"
-  },
-  "earnWithdrawAmount": {
-    "message": "提款金額",
-    "englishSource": "Withdraw Amount"
-  },
-  "earnWithdrawalLabel": {
-    "message": "撤回",
-    "englishSource": "Withdrawal"
   },
   "earnFullPositionGasless": {
     "message": "完整版本（免手續費）",
@@ -325,10 +305,6 @@
   "earnWithdrawNotOwned": {
     "message": "此持倉並非由當前從錢包衍生的 EVM 帳戶所持有。",
     "englishSource": "This position is not owned by the current wallet-derived EVM account."
-  },
-  "earnGaslessWithdrawalFailed": {
-    "message": "無氣體提取失敗。",
-    "englishSource": "Gasless withdrawal failed."
   },
   "earnCurrentApy": {
     "message": "當前年化收益率 (APY)",
@@ -848,10 +824,6 @@
     "message": "產生掉期合約",
     "englishSource": "Generating Swap"
   },
-  "transactionStepGuardianApproved": {
-    "message": "經《衛報》核准",
-    "englishSource": "Guardian approved"
-  },
   "transactionStepProofGenerated": {
     "message": "已產生證明",
     "englishSource": "Proof generated"
@@ -859,10 +831,6 @@
   "transactionStepSubmitting": {
     "message": "提交",
     "englishSource": "Submitting"
-  },
-  "transactionStepSyncingGuardian": {
-    "message": "與 Guardian 同步",
-    "englishSource": "Syncing with Guardian"
   },
   "transactionStepDurationSec": {
     "message": "$seconds$ sec",
@@ -889,10 +857,6 @@
     "message": "建立並驗證您的交易。",
     "englishSource": "Building and proving your transaction."
   },
-  "transactionStageClaiming": {
-    "message": "領取 note",
-    "englishSource": "Claiming note"
-  },
   "transactionStageExecuting": {
     "message": "執行交易",
     "englishSource": "Executing transaction"
@@ -909,10 +873,6 @@
     "message": "正在為您的交易建立證明。",
     "englishSource": "Creating the proof for your transaction."
   },
-  "transactionStageSwitching": {
-    "message": "更換監護人",
-    "englishSource": "Switching guardian"
-  },
   "transactionStageSwapping": {
     "message": "代幣兌換",
     "englishSource": "Swapping tokens"
@@ -921,18 +881,6 @@
     "message": "撰寫提案",
     "englishSource": "Creating proposal"
   },
-  "transactionStageCreatingProposalDescription": {
-    "message": "為您的監護人建立交易提案。",
-    "englishSource": "Building the transaction proposal for your guardian."
-  },
-  "transactionStageSigningProposal": {
-    "message": "與監護人簽署",
-    "englishSource": "Signing with guardian"
-  },
-  "transactionStageSigningProposalDescription": {
-    "message": "您的監護人正在簽署這份提案。",
-    "englishSource": "Your guardian is signing the proposal."
-  },
   "transactionStageSubmitting": {
     "message": "提交交易",
     "englishSource": "Submitting transaction"
@@ -940,14 +888,6 @@
   "transactionStageSubmittingDescription": {
     "message": "將您已簽署的交易傳送至網路。",
     "englishSource": "Sending your signed transaction to the network."
-  },
-  "transactionStageGuardianSyncing": {
-    "message": "與 Guardian 同步",
-    "englishSource": "Syncing with Guardian"
-  },
-  "transactionStageGuardianSyncingDescription": {
-    "message": "正在將您更新的帳戶狀態與您的監護人同步。",
-    "englishSource": "Syncing your updated account state with your guardian."
   },
   "transactionStageComplete": {
     "message": "交易已完成",
@@ -964,14 +904,6 @@
   "transactionStageConfirmingDescription": {
     "message": "正在等待網路確認。",
     "englishSource": "Waiting for network confirmation."
-  },
-  "transactionStageRegisteringGuardian": {
-    "message": "向監護人登記",
-    "englishSource": "Registering with guardian"
-  },
-  "transactionStageRegisteringGuardianDescription": {
-    "message": "向新監護人登記您的帳戶狀態。",
-    "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
     "message": "推出「note」",
@@ -1575,15 +1507,6 @@
     "message": "有效期限",
     "englishSource": "Expiration Date"
   },
-  "recallReturnsNote": {
-    "message": "若屆時仍無人領取，您可以將$amount$ 退回您的錢包。資金不會遺失。",
-    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
   "recallTimeInPast": {
     "message": "這個時間已經過去了 — 請選擇未來的時間",
     "englishSource": "This time has already passed — pick a future time"
@@ -1698,19 +1621,6 @@
     "message": "我們無法為您的錢包充值。請重新嘗試。",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
-  "pendingNotesPromptTitle": {
-    "message": "您有待處理的 Notes",
-    "englishSource": "You have Pending Notes"
-  },
-  "pendingNotesPromptBody": {
-    "message": "您有待處理的notes，總價值為$amount$。",
-    "englishSource": "You have pending notes worth $amount$.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
   "pendingNotesPromptAction": {
     "message": "立即查看",
     "englishSource": "See Now"
@@ -1746,14 +1656,6 @@
   "hotKeyRotationPromptAction": {
     "message": "旋轉鑰匙",
     "englishSource": "Rotate key"
-  },
-  "bridgePromptTitle": {
-    "message": "橋樑正在施工中",
-    "englishSource": "Bridge in progress"
-  },
-  "bridgePromptBody": {
-    "message": "我們將在後台持續追蹤您的橋樑。",
-    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "您將寫下您的恢復短語，然後透過選取該短語的第一個和最後一個單字來驗證您是否確實記住。請確保沒有人能看到您的螢幕。",
@@ -1835,10 +1737,6 @@
   "external": {
     "message": "外部",
     "englishSource": "External"
-  },
-  "claim": {
-    "message": "主張",
-    "englishSource": "Claim"
   },
   "clear": {
     "message": "清除",
@@ -1944,17 +1842,9 @@
     "message": "此裝置不支援生物辨識解鎖功能。",
     "englishSource": "Biometric unlock isn't available on this device."
   },
-  "chooseYourGuardian": {
-    "message": "選擇您的守護者",
-    "englishSource": "Choose your Guardian"
-  },
   "chooseGuardianDescription": {
     "message": "請從以下選項中選擇一項",
     "englishSource": "Select an option below"
-  },
-  "learnMoreAboutGuardian": {
-    "message": "進一步了解《衛報》",
-    "englishSource": "Learn more about the Guardian"
   },
   "guardianOperatedBy": {
     "message": "營運單位：",
@@ -1964,21 +1854,9 @@
     "message": "地點：",
     "englishSource": "Location:"
   },
-  "whatIsAGuardian": {
-    "message": "什麼是「監護人」？",
-    "englishSource": "What is a Guardian?"
-  },
-  "guardianInfoDescription": {
-    "message": "Guardian 是一項獨立服務，會 <b>共同簽署您錢包中的每筆交易</b>，在無需放棄自主保管的前提下，為您增添一層安全保障。",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
-  },
   "guardianInfoWhatItDoesTitle": {
     "message": "功能說明",
     "englishSource": "What it does"
-  },
-  "guardianInfoWhatItDoesDescription": {
-    "message": "每筆交易均需共同簽署 — 無論是您的裝置還是「守護者」，均無法單獨進行資金轉移。若您遺失裝置，此功能可協助您取回帳戶。",
-    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "它無法做到什麼",
@@ -1991,10 +1869,6 @@
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "轉換非常簡單",
     "englishSource": "Switching is easy"
-  },
-  "guardianInfoSwitchingIsEasyDescription": {
-    "message": "您隨時都可以使用您的恢復短語切換至另一位守護者。只有共同簽署人會發生變更；您的帳戶和資金則維持不變。",
-    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "明白了",
@@ -2260,37 +2134,13 @@
     "message": "加密錢包檔案",
     "englishSource": "Encrypted Wallet File"
   },
-  "guardianBadge": {
-    "message": "《衛報》",
-    "englishSource": "Guardian"
-  },
-  "guardianSettings": {
-    "message": "守護者設定",
-    "englishSource": "Guardian Settings"
-  },
   "currentLabel": {
     "message": "當前",
     "englishSource": "Current"
   },
-  "newGuardianEndpoint": {
-    "message": "新的 Guardian 端點",
-    "englishSource": "New Guardian Endpoint"
-  },
-  "guardianEndpointUnchanged": {
-    "message": "那已經是你的現任監護人了。",
-    "englishSource": "That's already your current guardian."
-  },
-  "rotateGuardian": {
-    "message": "旋轉守護者",
-    "englishSource": "Rotate Guardian"
-  },
   "keys": {
     "message": "關鍵字",
     "englishSource": "Keys"
-  },
-  "customGuardian": {
-    "message": "自訂守護者",
-    "englishSource": "Custom Guardian"
   },
   "guardianProvider": {
     "message": "供應商",
@@ -2320,10 +2170,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "《衛報》已更新！",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "線上",
     "englishSource": "Online"
@@ -2336,14 +2182,6 @@
     "message": "新",
     "englishSource": "New"
   },
-  "guardianSwitchAuthenticationDescription": {
-    "message": "請進行驗證以批准此「Guardian」切換。",
-    "englishSource": "Authenticate to approve this Guardian switch."
-  },
-  "guardianAuthenticationUnavailable": {
-    "message": "無法進行驗證。請在切換 Guardian 之前重新嘗試。",
-    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
-  },
   "walletKeyHot": {
     "message": "錢包金鑰（熱）",
     "englishSource": "Wallet key (hot)"
@@ -2351,14 +2189,6 @@
   "recoveryPhraseCold": {
     "message": "恢復短語（冷儲存）",
     "englishSource": "Recovery phrase (cold)"
-  },
-  "oldGuardianCantBlockTitle": {
-    "message": "你那位老《衛報》可擋不住這招",
-    "englishSource": "Your old Guardian can't block this"
-  },
-  "oldGuardianCantBlockBody": {
-    "message": "輪替需經由裝置上的兩把金鑰核准。舊版 Guardian 僅會接獲通知。",
-    "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
     "message": "裝置旋轉鍵",
@@ -2396,18 +2226,6 @@
     "message": "重試",
     "englishSource": "Retry"
   },
-  "guardianChangedTitle": {
-    "message": "《衛報》已更名",
-    "englishSource": "Guardian changed"
-  },
-  "guardianChangedBody": {
-    "message": "您的守護者已被更換，且我們無法識別新營運商。請輸入其網址以重新連線。",
-    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
-  },
-  "guardianUrlMismatch": {
-    "message": "該操作者與您帳戶的鏈上監護人不符。",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
-  },
   "revealHotKey": {
     "message": "顯示裝置金鑰",
     "englishSource": "Reveal device key"
@@ -2431,10 +2249,6 @@
   "coldPublicKeyLabel": {
     "message": "復原（冷）公鑰",
     "englishSource": "Recovery (Cold) Public Key"
-  },
-  "guardianKeysRevealDescription": {
-    "message": "您的 Guardian 帳戶由三把金鑰保護：用於常規簽署的裝置（熱）金鑰、由您的 seed phrase 衍生而來且用於帳戶管理操作的恢復（冷）金鑰，以及一名外部監護人共同簽署者。以下是您的冷私鑰以及兩組公鑰。若要顯示裝置私鑰，請前往「設定」→「顯示裝置金鑰」。",
-    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
     "message": "在您揭露裝置金鑰之前",
@@ -2495,10 +2309,6 @@
   "autoConsumeSettings": {
     "message": "Auto Consume MIDEN notes",
     "englishSource": "Auto Consume MIDEN notes"
-  },
-  "autoConsumeSettingsDescription": {
-    "message": "自動將收到的 MIDEN notes 計入您的餘額——效果與點擊「領取」相同。此操作不會消耗您的資金，也不會產生任何手續費。",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "加密錢包檔案",
@@ -2644,14 +2454,6 @@
     "message": "請選擇若您無法登入帳戶時，希望如何取回帳戶。",
     "englishSource": "Choose how you want to recover your account if you lose access."
   },
-  "guardianRecovery": {
-    "message": "《衛報》",
-    "englishSource": "Guardian"
-  },
-  "guardianRecoveryDescription": {
-    "message": "推薦。此為基於「守護者」的帳戶恢復機制，但守護者操作者將能查看您的狀態。",
-    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
-  },
   "fullyPrivateRecovery": {
     "message": "完全私密",
     "englishSource": "Fully Private"
@@ -2664,14 +2466,6 @@
     "message": "您想如何取回這個錢包呢？",
     "englishSource": "How would you like to recover this wallet?"
   },
-  "importViaGuardian": {
-    "message": "透過《衛報》匯入",
-    "englishSource": "Import via Guardian"
-  },
-  "importViaGuardianDescription": {
-    "message": "請透過監護人來恢復此帳戶並共同簽署。",
-    "englishSource": "Use a guardian to recover and co-sign for this account."
-  },
   "importPublicAccount": {
     "message": "匯入公眾帳號",
     "englishSource": "Import public account"
@@ -2680,59 +2474,13 @@
     "message": "匯入由您的 seed phrase 衍生的公開帳號。",
     "englishSource": "Import the public account derived from your seed phrase."
   },
-  "guardianEndpoint": {
-    "message": "《衛報》網址",
-    "englishSource": "Guardian URL"
-  },
-  "useDifferentGuardian": {
-    "message": "指定另一位監護人",
-    "englishSource": "Use a different guardian"
-  },
-  "detectingGuardian": {
-    "message": "尋找你的守護者……",
-    "englishSource": "Looking for your guardian…"
-  },
-  "guardianDetectedTitle": {
-    "message": "找到你的守護者：$name$",
-    "englishSource": "Found your guardian: $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "guardianDetectedMultiple": {
-    "message": "有多位監護人知曉此帳戶。我們選擇了掌握您最新狀態的那一位。",
-    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
-  },
   "useCustomGuardianInstead": {
     "message": "改用另一個的嗎？",
     "englishSource": "Use a different one instead?"
   },
-  "guardianNotDetected": {
-    "message": "我們無法自動偵測到您的守護者。請選擇您使用的守護者，或輸入其網址。",
-    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
-  },
-  "guardianProbePartialFailure": {
-    "message": "$count$ 無法聯絡到監護人，因此偵測結果可能不完整。",
-    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
   "retryGuardianDetection": {
     "message": "請嘗試再次偵測",
     "englishSource": "Try detecting again"
-  },
-  "guardianAccountNotFound": {
-    "message": "我們無法在此守護者中找到您的帳戶。請檢查網址，或改為以公開帳戶的方式匯入。",
-    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
-  },
-  "useCustomGuardianUrl": {
-    "message": "使用自訂的 Guardian URL",
-    "englishSource": "Use a custom Guardian URL"
   },
   "default": {
     "message": "預設",
@@ -2910,22 +2658,6 @@
     "message": "付款",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "領取所有",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "「全數領取？」（$unclaimed$ / $total$）",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
   "totalPending": {
     "message": "待處理總數",
     "englishSource": "Total Pending"
@@ -2946,10 +2678,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden 採用了一套名為「notes」的獨特系統。您需透過此系統手動領取收到的款項。這是一種讓您能保護錢包免受惡意行為者侵害的方式",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
   },
   "notesPendingAcrossAssets": {
     "message": "$notes$ notes $assets$ 旗下各項資產中尚待處理的事項",
@@ -2981,21 +2709,9 @@
       }
     }
   },
-  "noteClaimFailedRetry": {
-    "message": "索取失敗 — 點擊「重試」以再次嘗試",
-    "englishSource": "Claim failed — tap Retry to try again"
-  },
   "noteUnavailable": {
     "message": "這款 note 已不再供應",
     "englishSource": "This note is no longer available"
-  },
-  "pendingNotes": {
-    "message": "待定 notes",
-    "englishSource": "Pending notes"
-  },
-  "whatArePendingNotes": {
-    "message": "什麼是待處理的「notes」？",
-    "englishSource": "What are pending notes?"
   },
   "consumeYourNotes": {
     "message": "請參閱您的 notes",
@@ -3398,10 +3114,6 @@
     "message": "觸覺回饋",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "您目前沒有可領取的「notes」。",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
     "message": "您已收到一封來自 note 的電子郵件",
     "englishSource": "You have received a note"
@@ -3413,23 +3125,6 @@
   "transactionFailedNotificationBody": {
     "message": "交易無法完成。請開啟錢包進行檢視。",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
-  },
-  "noteReceivedTapToClaim": {
-    "message": "點擊此處領取",
-    "englishSource": "Tap here to claim it"
-  },
-  "noteReceivedClickToClaim": {
-    "message": "點擊查看並領取",
-    "englishSource": "Click to view and claim it"
-  },
-  "noteReceivedMultiple": {
-    "message": "您有 $count$ 則新的 notes 待領取",
-    "englishSource": "You have $count$ new notes to claim",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
   },
   "passwordsCanBeInsecure": {
     "message": "密碼可能不夠安全。建議改用生物特徵認證。",
@@ -3502,10 +3197,6 @@
   "enterAddress": {
     "message": "輸入地址",
     "englishSource": "Enter Address"
-  },
-  "failedToClaimNote": {
-    "message": "無法領取 note",
-    "englishSource": "Failed to claim note"
   },
   "testnet": {
     "message": "測試網",
@@ -3659,29 +3350,13 @@
     "message": "連接另一個錢包",
     "englishSource": "Connect another wallet"
   },
-  "midenBridge": {
-    "message": "米登橋",
-    "englishSource": "Miden Bridge"
-  },
   "connectEvmWallet": {
     "message": "連接 EVM 錢包",
     "englishSource": "Connect an EVM wallet"
   },
-  "connectEvmWalletDescription": {
-    "message": "將錢包連接至 Miden，以便在 Miden 與其他平台之間轉移資產。",
-    "englishSource": "Connect a wallet to bridge assets to and from Miden."
-  },
   "onlyBridgeableTokenSupported": {
     "message": "「慢速（Agglayer）」路線僅支援可橋接的代幣。若要傳送其他代幣，請使用「快速」路線。",
     "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
-  "connectDestinationWalletToClaim": {
-    "message": "請將目標錢包連線，以便領取。",
-    "englishSource": "Connect the destination wallet to claim."
-  },
-  "bridgeDetails": {
-    "message": "橋樑詳情",
-    "englishSource": "Bridge details"
   },
   "route": {
     "message": "路線",
@@ -3723,25 +3398,9 @@
     "message": "確認存款",
     "englishSource": "Confirm Deposit"
   },
-  "bridgeDepositProcessing": {
-    "message": "確認過渡性存款",
-    "englishSource": "Confirming bridge deposit"
-  },
   "bridgeDepositProcessingDescription": {
     "message": "請在您的錢包中核准此請求，並在 Sepolia 確認期間保持此畫面開啟。",
     "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
-  },
-  "bridgeDepositFailed": {
-    "message": "過橋存款失敗",
-    "englishSource": "Bridge deposit failed"
-  },
-  "bridgeDepositSubmitted": {
-    "message": "橋接已啟動！",
-    "englishSource": "Bridge initiated!"
-  },
-  "bridgeDepositDeliveryDescription": {
-    "message": "Sepolia 的交易已確認。當跨鏈轉帳完成後，您的資金將會顯示在 Miden 上。",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "在 Etherscan 上查看",
@@ -3755,49 +3414,9 @@
     "message": "Slow（Agglayer）路線在測試網僅支援原生 ETH。請選擇 ETH 以使用此路線。",
     "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
-  "fastEthWrapNotice": {
-    "message": "透過「快速路線」將 ETH 跨鏈轉移時，會先將其包裝成 WETH，再將 WETH 跨鏈轉移。此路線目前尚不可用。",
-    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
-  },
   "destinationNetwork": {
     "message": "目的地網路",
     "englishSource": "Destination network"
-  },
-  "claimStatus": {
-    "message": "理賠狀態",
-    "englishSource": "Claim status"
-  },
-  "claimAsset": {
-    "message": "申領資產",
-    "englishSource": "Claim Asset"
-  },
-  "claimAssetSubmitted": {
-    "message": "索賠已提交 — 資金已存入連結的 EVM 錢包中。",
-    "englishSource": "Claim submitted — funds are on the connected EVM wallet."
-  },
-  "claimable": {
-    "message": "準備好領取了嗎",
-    "englishSource": "Ready to claim"
-  },
-  "claiming": {
-    "message": "聲稱……",
-    "englishSource": "Claiming…"
-  },
-  "claimed": {
-    "message": "聲稱",
-    "englishSource": "Claimed"
-  },
-  "claimPending": {
-    "message": "過渡期 — 索賠尚未準備就緒",
-    "englishSource": "Bridging — claim not ready yet"
-  },
-  "claimFailedStatus": {
-    "message": "索賠失敗",
-    "englishSource": "Claim failed"
-  },
-  "noManualClaimRequired": {
-    "message": "款項將自動入帳——無需申請。",
-    "englishSource": "Funds arrive automatically — no claim needed."
   },
   "fastRouteLabel": {
     "message": "Fast（Epoch）",
@@ -3806,18 +3425,6 @@
   "slowRouteLabel": {
     "message": "緩慢（Agglayer）",
     "englishSource": "Slow (Agglayer)"
-  },
-  "bridgeRowTitle": {
-    "message": "連結 $from$ → $to$",
-    "englishSource": "Bridge $from$ → $to$",
-    "placeholders": {
-      "from": {
-        "content": "$1"
-      },
-      "to": {
-        "content": "$2"
-      }
-    }
   },
   "bridgeRowVia": {
     "message": "來源：$provider$ → $network$",
@@ -3907,10 +3514,6 @@
     "message": "存款詳情",
     "englishSource": "Deposit details"
   },
-  "earnWithdrawDetailsTitle": {
-    "message": "提款詳情",
-    "englishSource": "Withdrawal details"
-  },
   "depositIntentLabel": {
     "message": "存款意向",
     "englishSource": "Deposit intent"
@@ -3918,10 +3521,6 @@
   "redeemIntentLabel": {
     "message": "兌換意圖",
     "englishSource": "Redeem intent"
-  },
-  "earnWithdrawRowTitle": {
-    "message": "從「Earn」提領",
-    "englishSource": "Withdraw from Earn"
   },
   "earnWithdrawRowVia": {
     "message": "經由 Epoch → Miden",
@@ -3934,26 +3533,6 @@
   "earnWithdrawStatusDelivering": {
     "message": "交付",
     "englishSource": "Delivering"
-  },
-  "withdrawalStarted": {
-    "message": "提款已開始！",
-    "englishSource": "Withdrawal Started!"
-  },
-  "withdrawalStartedDescription": {
-    "message": "您的資金正在轉回 Miden。請在「活動」中追蹤轉帳進度。",
-    "englishSource": "Your funds are being bridged back to Miden. Track delivery in Activity."
-  },
-  "withdrawalProcessing": {
-    "message": "處理提款",
-    "englishSource": "Processing Withdrawal"
-  },
-  "withdrawalProcessingDescription": {
-    "message": "簽署並將「無氣體提領意向書」提交給 Epoch。此過程通常只需幾秒鐘。",
-    "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
-  },
-  "withdrawalFailed": {
-    "message": "提款失敗",
-    "englishSource": "Withdrawal Failed"
   },
   "transactionComplete": {
     "message": "交易完成！",
@@ -4026,10 +3605,6 @@
   "devEndpointExplorer": {
     "message": "資源管理員網址",
     "englishSource": "Explorer URL"
-  },
-  "devEndpointGuardian": {
-    "message": "自訂守護者網址",
-    "englishSource": "Custom guardian URL"
   },
   "devEndpointChecking": {
     "message": "正在檢查……",

@@ -3,10 +3,6 @@
     "message": "Carga útil",
     "englishSource": "Payload"
   },
-  "bridgeDepositTitle": {
-    "message": "Ponte de Miden",
-    "englishSource": "Miden Bridge"
-  },
   "bridgeDepositHeading": {
     "message": "Confirme seu depósito",
     "englishSource": "Confirm your deposit"
@@ -18,10 +14,6 @@
   "bridgeDepositYouReceive": {
     "message": "Você recebe",
     "englishSource": "You receive"
-  },
-  "bridgeDepositBridgeOption": {
-    "message": "Opção de ponte",
-    "englishSource": "Bridge option"
   },
   "bridgeDepositApprovingTitle": {
     "message": "O que você está aprovando",
@@ -290,21 +282,9 @@
     "message": "Posição",
     "englishSource": "Position"
   },
-  "withdraw": {
-    "message": "Retirar",
-    "englishSource": "Withdraw"
-  },
   "earnDepositMore": {
     "message": "Deposite mais",
     "englishSource": "Deposit more"
-  },
-  "earnWithdrawAmount": {
-    "message": "Valor da retirada",
-    "englishSource": "Withdraw Amount"
-  },
-  "earnWithdrawalLabel": {
-    "message": "Retirada",
-    "englishSource": "Withdrawal"
   },
   "earnFullPositionGasless": {
     "message": "Posição completa (sem gas)",
@@ -325,10 +305,6 @@
   "earnWithdrawNotOwned": {
     "message": "Esta posição não pertence à conta EVM derivada da carteira atual.",
     "englishSource": "This position is not owned by the current wallet-derived EVM account."
-  },
-  "earnGaslessWithdrawalFailed": {
-    "message": "A retirada sem gás falhou.",
-    "englishSource": "Gasless withdrawal failed."
   },
   "earnCurrentApy": {
     "message": "Taxa de rendimento anual (APY) atual",
@@ -848,10 +824,6 @@
     "message": "Geração de swap",
     "englishSource": "Generating Swap"
   },
-  "transactionStepGuardianApproved": {
-    "message": "Aprovado pelo Guardian",
-    "englishSource": "Guardian approved"
-  },
   "transactionStepProofGenerated": {
     "message": "Prova gerada",
     "englishSource": "Proof generated"
@@ -859,10 +831,6 @@
   "transactionStepSubmitting": {
     "message": "Enviando",
     "englishSource": "Submitting"
-  },
-  "transactionStepSyncingGuardian": {
-    "message": "Sincronização com o Guardian",
-    "englishSource": "Syncing with Guardian"
   },
   "transactionStepDurationSec": {
     "message": "$seconds$ seg",
@@ -889,10 +857,6 @@
     "message": "Criando e validando sua transação.",
     "englishSource": "Building and proving your transaction."
   },
-  "transactionStageClaiming": {
-    "message": "Como reivindicar o domínio note",
-    "englishSource": "Claiming note"
-  },
   "transactionStageExecuting": {
     "message": "Executando a transação",
     "englishSource": "Executing transaction"
@@ -909,10 +873,6 @@
     "message": "Criando o comprovante da sua transação.",
     "englishSource": "Creating the proof for your transaction."
   },
-  "transactionStageSwitching": {
-    "message": "Troca de responsável",
-    "englishSource": "Switching guardian"
-  },
   "transactionStageSwapping": {
     "message": "Troca de tokens",
     "englishSource": "Swapping tokens"
@@ -921,18 +881,6 @@
     "message": "Elaboração de proposta",
     "englishSource": "Creating proposal"
   },
-  "transactionStageCreatingProposalDescription": {
-    "message": "Elaboração da proposta de transação para o seu responsável.",
-    "englishSource": "Building the transaction proposal for your guardian."
-  },
-  "transactionStageSigningProposal": {
-    "message": "Assinatura com o responsável legal",
-    "englishSource": "Signing with guardian"
-  },
-  "transactionStageSigningProposalDescription": {
-    "message": "Seu responsável está assinando a proposta.",
-    "englishSource": "Your guardian is signing the proposal."
-  },
   "transactionStageSubmitting": {
     "message": "Enviando transação",
     "englishSource": "Submitting transaction"
@@ -940,14 +888,6 @@
   "transactionStageSubmittingDescription": {
     "message": "Enviando sua transação assinada para a rede.",
     "englishSource": "Sending your signed transaction to the network."
-  },
-  "transactionStageGuardianSyncing": {
-    "message": "Sincronização com o Guardian",
-    "englishSource": "Syncing with Guardian"
-  },
-  "transactionStageGuardianSyncingDescription": {
-    "message": "Sincronizando o estado atualizado da sua conta com o seu responsável.",
-    "englishSource": "Syncing your updated account state with your guardian."
   },
   "transactionStageComplete": {
     "message": "Transação concluída",
@@ -964,14 +904,6 @@
   "transactionStageConfirmingDescription": {
     "message": "Aguardando confirmação da rede.",
     "englishSource": "Waiting for network confirmation."
-  },
-  "transactionStageRegisteringGuardian": {
-    "message": "Cadastro no Guardian",
-    "englishSource": "Registering with guardian"
-  },
-  "transactionStageRegisteringGuardianDescription": {
-    "message": "Registrar a situação da sua conta junto ao novo responsável.",
-    "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
     "message": "Apresentação de “note”",
@@ -1575,15 +1507,6 @@
     "message": "Data de validade",
     "englishSource": "Expiration Date"
   },
-  "recallReturnsNote": {
-    "message": "Se não forem reclamados até essa data, você poderá solicitar que os $amount$ sejam devolvidos à sua carteira. Nenhum valor será perdido.",
-    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
   "recallTimeInPast": {
     "message": "Esse momento já passou — escolha um momento futuro",
     "englishSource": "This time has already passed — pick a future time"
@@ -1698,19 +1621,6 @@
     "message": "Não foi possível recarregar sua carteira. Por favor, tente novamente.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
-  "pendingNotesPromptTitle": {
-    "message": "Você tem Notes pendente",
-    "englishSource": "You have Pending Notes"
-  },
-  "pendingNotesPromptBody": {
-    "message": "Você tem uma transação “notes” pendente no valor de $amount$.",
-    "englishSource": "You have pending notes worth $amount$.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
   "pendingNotesPromptAction": {
     "message": "Veja agora",
     "englishSource": "See Now"
@@ -1746,14 +1656,6 @@
   "hotKeyRotationPromptAction": {
     "message": "Tecla Girar",
     "englishSource": "Rotate key"
-  },
-  "bridgePromptTitle": {
-    "message": "Ponte em construção",
-    "englishSource": "Bridge in progress"
-  },
-  "bridgePromptBody": {
-    "message": "Continuaremos monitorando sua ponte em segundo plano.",
-    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "Você vai anotar sua frase de recuperação e, em seguida, confirmar se a memorizou corretamente, selecionando a primeira e a última palavras dela. Certifique-se de que ninguém possa ver sua tela.",
@@ -1835,10 +1737,6 @@
   "external": {
     "message": "Externo",
     "englishSource": "External"
-  },
-  "claim": {
-    "message": "Reivindicação",
-    "englishSource": "Claim"
   },
   "clear": {
     "message": "Limpar",
@@ -1944,17 +1842,9 @@
     "message": "O desbloqueio biométrico não está disponível neste aparelho.",
     "englishSource": "Biometric unlock isn't available on this device."
   },
-  "chooseYourGuardian": {
-    "message": "Escolha seu Guardião",
-    "englishSource": "Choose your Guardian"
-  },
   "chooseGuardianDescription": {
     "message": "Selecione uma das opções abaixo",
     "englishSource": "Select an option below"
-  },
-  "learnMoreAboutGuardian": {
-    "message": "Saiba mais sobre o Guardian",
-    "englishSource": "Learn more about the Guardian"
   },
   "guardianOperatedBy": {
     "message": "Operado por:",
@@ -1964,21 +1854,9 @@
     "message": "Localização:",
     "englishSource": "Location:"
   },
-  "whatIsAGuardian": {
-    "message": "O que é um guardião?",
-    "englishSource": "What is a Guardian?"
-  },
-  "guardianInfoDescription": {
-    "message": "O Guardian é um serviço independente que <b>endossa todas as transações</b> da sua carteira, oferecendo uma rede de segurança sem que você precise abrir mão da autocustódia.",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
-  },
   "guardianInfoWhatItDoesTitle": {
     "message": "O que ele faz",
     "englishSource": "What it does"
-  },
-  "guardianInfoWhatItDoesDescription": {
-    "message": "Aprova todas as transações — nem o seu dispositivo nem o Guardian podem movimentar fundos sozinhos. Ajuda você a recuperar sua conta caso perca seu dispositivo.",
-    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "O que ele não pode fazer",
@@ -1991,10 +1869,6 @@
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "Mudar é fácil",
     "englishSource": "Switching is easy"
-  },
-  "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Você pode mudar para um Guardião diferente a qualquer momento usando sua frase de recuperação. Apenas a pessoa que atua como co-signatário é alterada; sua conta e seus fundos permanecem os mesmos.",
-    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Entendi",
@@ -2260,37 +2134,13 @@
     "message": "Arquivo de carteira criptografado",
     "englishSource": "Encrypted Wallet File"
   },
-  "guardianBadge": {
-    "message": "Guardião",
-    "englishSource": "Guardian"
-  },
-  "guardianSettings": {
-    "message": "Configurações do Guardian",
-    "englishSource": "Guardian Settings"
-  },
   "currentLabel": {
     "message": "Atual",
     "englishSource": "Current"
   },
-  "newGuardianEndpoint": {
-    "message": "Novo Endpoint do Guardian",
-    "englishSource": "New Guardian Endpoint"
-  },
-  "guardianEndpointUnchanged": {
-    "message": "Esse já é o seu tutor atual.",
-    "englishSource": "That's already your current guardian."
-  },
-  "rotateGuardian": {
-    "message": "Girar o Guardião",
-    "englishSource": "Rotate Guardian"
-  },
   "keys": {
     "message": "Chaves",
     "englishSource": "Keys"
-  },
-  "customGuardian": {
-    "message": "Guardião Personalizado",
-    "englishSource": "Custom Guardian"
   },
   "guardianProvider": {
     "message": "Provedor",
@@ -2320,10 +2170,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian atualizado!",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "Online",
     "englishSource": "Online"
@@ -2336,14 +2182,6 @@
     "message": "Novo",
     "englishSource": "New"
   },
-  "guardianSwitchAuthenticationDescription": {
-    "message": "Faça a autenticação para aprovar essa mudança no Guardian.",
-    "englishSource": "Authenticate to approve this Guardian switch."
-  },
-  "guardianAuthenticationUnavailable": {
-    "message": "A autenticação não está disponível. Tente novamente antes de trocar de Guardian.",
-    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
-  },
   "walletKeyHot": {
     "message": "Chave da carteira (ativa)",
     "englishSource": "Wallet key (hot)"
@@ -2351,14 +2189,6 @@
   "recoveryPhraseCold": {
     "message": "Frase de recuperação (offline)",
     "englishSource": "Recovery phrase (cold)"
-  },
-  "oldGuardianCantBlockTitle": {
-    "message": "Seu velho Guardião não consegue bloquear isso",
-    "englishSource": "Your old Guardian can't block this"
-  },
-  "oldGuardianCantBlockBody": {
-    "message": "A rotação é aprovada pelas duas chaves do dispositivo. O Guardian antigo é apenas notificado.",
-    "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
     "message": "Tecla para girar o dispositivo",
@@ -2396,18 +2226,6 @@
     "message": "Tentar novamente",
     "englishSource": "Retry"
   },
-  "guardianChangedTitle": {
-    "message": "O guardião foi substituído",
-    "englishSource": "Guardian changed"
-  },
-  "guardianChangedBody": {
-    "message": "Seu guardião foi alterado e não foi possível identificar o novo operador. Digite a URL dele para se reconectar.",
-    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
-  },
-  "guardianUrlMismatch": {
-    "message": "Essa operadora não corresponde ao guardião na cadeia de blocos da sua conta.",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
-  },
   "revealHotKey": {
     "message": "Revelar a chave do dispositivo",
     "englishSource": "Reveal device key"
@@ -2431,10 +2249,6 @@
   "coldPublicKeyLabel": {
     "message": "Chave pública de recuperação (fria)",
     "englishSource": "Recovery (Cold) Public Key"
-  },
-  "guardianKeysRevealDescription": {
-    "message": "Sua conta do Guardian é protegida por três chaves: uma chave de dispositivo (ativa) para assinaturas de rotina, uma chave de recuperação (inativa) derivada do seu seed phrase para operações de gerenciamento da conta e um co-signatário externo. Abaixo estão sua chave privada inativa e ambas as chaves públicas. Para revelar a chave privada do dispositivo, use Configurações → Revelar chave do dispositivo.",
-    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
     "message": "Antes de revelar a chave do seu dispositivo",
@@ -2495,10 +2309,6 @@
   "autoConsumeSettings": {
     "message": "Auto Consume MIDEN notes",
     "englishSource": "Auto Consume MIDEN notes"
-  },
-  "autoConsumeSettingsDescription": {
-    "message": "Incorpora automaticamente os créditos MIDEN recebidos notes ao seu saldo — da mesma forma que ao tocar em “Resgatar”. Isso não gasta seus fundos nem acrescenta nenhuma taxa.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "Arquivo de carteira criptografado",
@@ -2644,14 +2454,6 @@
     "message": "Escolha como deseja recuperar sua conta caso perca o acesso.",
     "englishSource": "Choose how you want to recover your account if you lose access."
   },
-  "guardianRecovery": {
-    "message": "Guardião",
-    "englishSource": "Guardian"
-  },
-  "guardianRecoveryDescription": {
-    "message": "Recomendado. Recuperação da sua conta por meio de um guardião, mas o operador do guardião pode ver seu estado.",
-    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
-  },
   "fullyPrivateRecovery": {
     "message": "Totalmente privado",
     "englishSource": "Fully Private"
@@ -2664,14 +2466,6 @@
     "message": "O que você acha de recuperar essa carteira?",
     "englishSource": "How would you like to recover this wallet?"
   },
-  "importViaGuardian": {
-    "message": "Importar via Guardian",
-    "englishSource": "Import via Guardian"
-  },
-  "importViaGuardianDescription": {
-    "message": "Recorra a um responsável para recuperar o acesso a esta conta e para atuar como co-signatário.",
-    "englishSource": "Use a guardian to recover and co-sign for this account."
-  },
   "importPublicAccount": {
     "message": "Importar conta pública",
     "englishSource": "Import public account"
@@ -2680,59 +2474,13 @@
     "message": "Importe a conta pública derivada do seu seed phrase.",
     "englishSource": "Import the public account derived from your seed phrase."
   },
-  "guardianEndpoint": {
-    "message": "URL do Guardian",
-    "englishSource": "Guardian URL"
-  },
-  "useDifferentGuardian": {
-    "message": "Escolha outro responsável",
-    "englishSource": "Use a different guardian"
-  },
-  "detectingGuardian": {
-    "message": "Procurando seu responsável…",
-    "englishSource": "Looking for your guardian…"
-  },
-  "guardianDetectedTitle": {
-    "message": "Encontrei seu tutor: $name$",
-    "englishSource": "Found your guardian: $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "guardianDetectedMultiple": {
-    "message": "Mais de um responsável conhece essa conta. Escolhemos aquela que contém seu estado mais recente.",
-    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
-  },
   "useCustomGuardianInstead": {
     "message": "Que tal usar outro?",
     "englishSource": "Use a different one instead?"
   },
-  "guardianNotDetected": {
-    "message": "Não foi possível identificar automaticamente o seu guardião. Escolha aquele que você usou ou insira o URL dele.",
-    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
-  },
-  "guardianProbePartialFailure": {
-    "message": "$count$ Não foi possível entrar em contato com o(s) responsável(is), portanto, a detecção pode estar incompleta.",
-    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
   "retryGuardianDetection": {
     "message": "Tente fazer a detecção novamente",
     "englishSource": "Try detecting again"
-  },
-  "guardianAccountNotFound": {
-    "message": "Não conseguimos encontrar sua conta neste Guardian. Verifique o URL ou importe-a como uma conta pública.",
-    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
-  },
-  "useCustomGuardianUrl": {
-    "message": "Use uma URL personalizada do Guardian",
-    "englishSource": "Use a custom Guardian URL"
   },
   "default": {
     "message": "Padrão",
@@ -2910,22 +2658,6 @@
     "message": "Enviar pagamento",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "Resgatar tudo",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "Resgatar tudo? ($unclaimed$ / $total$)",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
   "totalPending": {
     "message": "Total pendente",
     "englishSource": "Total Pending"
@@ -2946,10 +2678,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesInfo": {
-    "message": "A Miden utiliza um sistema exclusivo chamado “notes”. É nele que você confirma manualmente o recebimento de dinheiro. É uma forma de manter sua carteira protegida contra agentes mal-intencionados",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
   },
   "notesPendingAcrossAssets": {
     "message": "$notes$ notes pendentes em todos os ativos d$assets$",
@@ -2981,21 +2709,9 @@
       }
     }
   },
-  "noteClaimFailedRetry": {
-    "message": "A solicitação falhou — toque em “Tentar novamente” para tentar mais uma vez",
-    "englishSource": "Claim failed — tap Retry to try again"
-  },
   "noteUnavailable": {
     "message": "Este note não está mais disponível",
     "englishSource": "This note is no longer available"
-  },
-  "pendingNotes": {
-    "message": "Em esperanotes",
-    "englishSource": "Pending notes"
-  },
-  "whatArePendingNotes": {
-    "message": "O que são “notes” pendentes?",
-    "englishSource": "What are pending notes?"
   },
   "consumeYourNotes": {
     "message": "Consulte o seu guia de terminologia do Miden em notes",
@@ -3398,10 +3114,6 @@
     "message": "Retroalimentação tátil",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "No momento, você não tem nenhum “notes” para reivindicar.",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
     "message": "Você recebeu um e-mail de note",
     "englishSource": "You have received a note"
@@ -3413,23 +3125,6 @@
   "transactionFailedNotificationBody": {
     "message": "Não foi possível concluir uma transação. Abra a carteira para verificar.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
-  },
-  "noteReceivedTapToClaim": {
-    "message": "Toque aqui para resgatar",
-    "englishSource": "Tap here to claim it"
-  },
-  "noteReceivedClickToClaim": {
-    "message": "Clique para ver e resgatar",
-    "englishSource": "Click to view and claim it"
-  },
-  "noteReceivedMultiple": {
-    "message": "Você tem um nov$count$, notes, para resgatar",
-    "englishSource": "You have $count$ new notes to claim",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
   },
   "passwordsCanBeInsecure": {
     "message": "Senhas podem não ser seguras. Em vez disso, use autenticação biométrica.",
@@ -3502,10 +3197,6 @@
   "enterAddress": {
     "message": "Digite o endereço",
     "englishSource": "Enter Address"
-  },
-  "failedToClaimNote": {
-    "message": "Não foi possível reivindicar note",
-    "englishSource": "Failed to claim note"
   },
   "testnet": {
     "message": "Rede de teste",
@@ -3659,29 +3350,13 @@
     "message": "Conectar outra carteira",
     "englishSource": "Connect another wallet"
   },
-  "midenBridge": {
-    "message": "Ponte de Miden",
-    "englishSource": "Miden Bridge"
-  },
   "connectEvmWallet": {
     "message": "Conecte uma carteira EVM",
     "englishSource": "Connect an EVM wallet"
   },
-  "connectEvmWalletDescription": {
-    "message": "Conecte uma carteira para transferir ativos de e para o Miden.",
-    "englishSource": "Connect a wallet to bridge assets to and from Miden."
-  },
   "onlyBridgeableTokenSupported": {
     "message": "A rota Lenta (Agglayer) suporta apenas o token “bridgeable”. Use a rota Rápida para enviar outros tokens.",
     "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
-  "connectDestinationWalletToClaim": {
-    "message": "Conecte a carteira de destino para receber o pagamento.",
-    "englishSource": "Connect the destination wallet to claim."
-  },
-  "bridgeDetails": {
-    "message": "Detalhes da ponte",
-    "englishSource": "Bridge details"
   },
   "route": {
     "message": "Rota",
@@ -3723,25 +3398,9 @@
     "message": "Confirmar depósito",
     "englishSource": "Confirm Deposit"
   },
-  "bridgeDepositProcessing": {
-    "message": "Confirmação do depósito provisório",
-    "englishSource": "Confirming bridge deposit"
-  },
   "bridgeDepositProcessingDescription": {
     "message": "Aprovar a solicitação na sua carteira e manter esta tela aberta enquanto a Sepolia a confirma.",
     "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
-  },
-  "bridgeDepositFailed": {
-    "message": "Falha no depósito de garantia",
-    "englishSource": "Bridge deposit failed"
-  },
-  "bridgeDepositSubmitted": {
-    "message": "A ponte foi iniciada!",
-    "englishSource": "Bridge initiated!"
-  },
-  "bridgeDepositDeliveryDescription": {
-    "message": "A transação da Sepolia está confirmada. Seus fundos aparecerão no Miden assim que a transferência for concluída.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Ver no Etherscan",
@@ -3755,49 +3414,9 @@
     "message": "A rota Slow (Agglayer) suporta apenas ETH nativo na testnet. Escolha ETH para usá-la.",
     "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
-  "fastEthWrapNotice": {
-    "message": "A transferência de ETH pela rota rápida envolve primeiro a conversão para WETH e, em seguida, a transferência do WETH. Essa rota ainda não está disponível.",
-    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
-  },
   "destinationNetwork": {
     "message": "Rede de destino",
     "englishSource": "Destination network"
-  },
-  "claimStatus": {
-    "message": "Status do pedido de indenização",
-    "englishSource": "Claim status"
-  },
-  "claimAsset": {
-    "message": "Reivindicar ativo",
-    "englishSource": "Claim Asset"
-  },
-  "claimAssetSubmitted": {
-    "message": "Reivindicação enviada — os fundos estão na carteira EVM vinculada.",
-    "englishSource": "Claim submitted — funds are on the connected EVM wallet."
-  },
-  "claimable": {
-    "message": "Pronto para resgatar",
-    "englishSource": "Ready to claim"
-  },
-  "claiming": {
-    "message": "Afirmando que…",
-    "englishSource": "Claiming…"
-  },
-  "claimed": {
-    "message": "Alegado",
-    "englishSource": "Claimed"
-  },
-  "claimPending": {
-    "message": "Transição — solicitação ainda não está pronta",
-    "englishSource": "Bridging — claim not ready yet"
-  },
-  "claimFailedStatus": {
-    "message": "A solicitação falhou",
-    "englishSource": "Claim failed"
-  },
-  "noManualClaimRequired": {
-    "message": "Os recursos são creditados automaticamente — não é necessário solicitar o pagamento.",
-    "englishSource": "Funds arrive automatically — no claim needed."
   },
   "fastRouteLabel": {
     "message": "Rápido (Época)",
@@ -3806,18 +3425,6 @@
   "slowRouteLabel": {
     "message": "Lento (Agglayer)",
     "englishSource": "Slow (Agglayer)"
-  },
-  "bridgeRowTitle": {
-    "message": "Bridge $from$ → $to$",
-    "englishSource": "Bridge $from$ → $to$",
-    "placeholders": {
-      "from": {
-        "content": "$1"
-      },
-      "to": {
-        "content": "$2"
-      }
-    }
   },
   "bridgeRowVia": {
     "message": "Via $provider$ → $network$",
@@ -3907,10 +3514,6 @@
     "message": "Detalhes do depósito",
     "englishSource": "Deposit details"
   },
-  "earnWithdrawDetailsTitle": {
-    "message": "Detalhes do saque",
-    "englishSource": "Withdrawal details"
-  },
   "depositIntentLabel": {
     "message": "Declaração de intenção de depósito",
     "englishSource": "Deposit intent"
@@ -3918,10 +3521,6 @@
   "redeemIntentLabel": {
     "message": "Intenção de resgate",
     "englishSource": "Redeem intent"
-  },
-  "earnWithdrawRowTitle": {
-    "message": "Retirar do Earn",
-    "englishSource": "Withdraw from Earn"
   },
   "earnWithdrawRowVia": {
     "message": "Via Epoch → Miden",
@@ -3934,26 +3533,6 @@
   "earnWithdrawStatusDelivering": {
     "message": "Entrega",
     "englishSource": "Delivering"
-  },
-  "withdrawalStarted": {
-    "message": "A retirada já começou!",
-    "englishSource": "Withdrawal Started!"
-  },
-  "withdrawalStartedDescription": {
-    "message": "Seus fundos estão sendo transferidos de volta para a Miden. Acompanhe a entrega na seção “Atividades”.",
-    "englishSource": "Your funds are being bridged back to Miden. Track delivery in Activity."
-  },
-  "withdrawalProcessing": {
-    "message": "Processamento de saque",
-    "englishSource": "Processing Withdrawal"
-  },
-  "withdrawalProcessingDescription": {
-    "message": "Assinar e enviar a declaração de intenção de saque sem uso de gás à Epoch. Isso geralmente leva alguns segundos.",
-    "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
-  },
-  "withdrawalFailed": {
-    "message": "Falha na retirada",
-    "englishSource": "Withdrawal Failed"
   },
   "transactionComplete": {
     "message": "Transação concluída!",
@@ -4026,10 +3605,6 @@
   "devEndpointExplorer": {
     "message": "URL do Explorer",
     "englishSource": "Explorer URL"
-  },
-  "devEndpointGuardian": {
-    "message": "URL personalizada do Guardian",
-    "englishSource": "Custom guardian URL"
   },
   "devEndpointChecking": {
     "message": "Verificando…",

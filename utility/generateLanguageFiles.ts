@@ -45,8 +45,11 @@ const DEEPL_BATCH_SIZE = 50;
 const DEEPL_CONTEXT =
   'These are short UI labels for Miden, a self-custody cryptocurrency wallet with DeFi ' +
   'earning, lending, bridging and token swaps. Use finance/crypto word senses: "Position" ' +
-  'means an investment/holding position, never a job; "Claim" means collecting tokens; ' +
-  '"Bridge" means moving assets between blockchains; "Vault" is a secure asset store.';
+  'means an investment/holding position, never a job; "Claim" means to collect or receive ' +
+  'tokens owed to you, never a legal claim or assertion; "Bridge" means moving assets ' +
+  'between blockchains, never a physical bridge ("bridge in progress" = a transfer is ' +
+  'underway, not construction); "Withdraw" means taking funds out, never cancel; "Vault" ' +
+  'is a secure asset store; "pending notes" are payment notes awaiting collection.';
 
 const root = path.resolve(__dirname, '..');
 // Use en.json as source of truth (flat format), not messages.json (Chrome extension format)
@@ -69,6 +72,14 @@ const TECHNICAL_TERM_VARIANTS = [
   'note',
   'NOTES',
   'NOTE',
+  // "Guardian" is the co-signer feature name — kept English so it stops coming out as
+  // "the newspaper", "maintenance officer" or "legal guardian" across languages.
+  'Guardians',
+  'Guardian',
+  'guardians',
+  'guardian',
+  'GUARDIANS',
+  'GUARDIAN',
 ];
 
 // A single regex that matches anything DeepL must NOT translate: the technical terms

@@ -3,10 +3,6 @@
     "message": "ペイロード",
     "englishSource": "Payload"
   },
-  "bridgeDepositTitle": {
-    "message": "ミデン橋",
-    "englishSource": "Miden Bridge"
-  },
   "bridgeDepositHeading": {
     "message": "入金を確認してください",
     "englishSource": "Confirm your deposit"
@@ -18,10 +14,6 @@
   "bridgeDepositYouReceive": {
     "message": "受け取る",
     "englishSource": "You receive"
-  },
-  "bridgeDepositBridgeOption": {
-    "message": "ブリッジオプション",
-    "englishSource": "Bridge option"
   },
   "bridgeDepositApprovingTitle": {
     "message": "承認する内容",
@@ -290,21 +282,9 @@
     "message": "Position",
     "englishSource": "Position"
   },
-  "withdraw": {
-    "message": "引き出し",
-    "englishSource": "Withdraw"
-  },
   "earnDepositMore": {
     "message": "さらに預け入れる",
     "englishSource": "Deposit more"
-  },
-  "earnWithdrawAmount": {
-    "message": "出金額",
-    "englishSource": "Withdraw Amount"
-  },
-  "earnWithdrawalLabel": {
-    "message": "引き出し",
-    "englishSource": "Withdrawal"
   },
   "earnFullPositionGasless": {
     "message": "完全なポジション（ガス代不要）",
@@ -325,10 +305,6 @@
   "earnWithdrawNotOwned": {
     "message": "このポジションは、現在のウォレット由来のEVMアカウントが所有しているものではありません。",
     "englishSource": "This position is not owned by the current wallet-derived EVM account."
-  },
-  "earnGaslessWithdrawalFailed": {
-    "message": "ガスレス引き出しに失敗しました。",
-    "englishSource": "Gasless withdrawal failed."
   },
   "earnCurrentApy": {
     "message": "現在の年利（APY）",
@@ -848,10 +824,6 @@
     "message": "スワップの生成",
     "englishSource": "Generating Swap"
   },
-  "transactionStepGuardianApproved": {
-    "message": "ガーディアン認定",
-    "englishSource": "Guardian approved"
-  },
   "transactionStepProofGenerated": {
     "message": "証明が生成されました",
     "englishSource": "Proof generated"
@@ -859,10 +831,6 @@
   "transactionStepSubmitting": {
     "message": "送信",
     "englishSource": "Submitting"
-  },
-  "transactionStepSyncingGuardian": {
-    "message": "Guardianとの同期",
-    "englishSource": "Syncing with Guardian"
   },
   "transactionStepDurationSec": {
     "message": "$seconds$ 秒",
@@ -889,10 +857,6 @@
     "message": "トランザクションの構築と検証。",
     "englishSource": "Building and proving your transaction."
   },
-  "transactionStageClaiming": {
-    "message": "noteの取得",
-    "englishSource": "Claiming note"
-  },
   "transactionStageExecuting": {
     "message": "トランザクションの実行",
     "englishSource": "Executing transaction"
@@ -909,10 +873,6 @@
     "message": "取引の証明を作成しています。",
     "englishSource": "Creating the proof for your transaction."
   },
-  "transactionStageSwitching": {
-    "message": "守護者の切り替え",
-    "englishSource": "Switching guardian"
-  },
   "transactionStageSwapping": {
     "message": "トークンの交換",
     "englishSource": "Swapping tokens"
@@ -921,18 +881,6 @@
     "message": "提案書の作成",
     "englishSource": "Creating proposal"
   },
-  "transactionStageCreatingProposalDescription": {
-    "message": "後見人向けの取引提案書を作成します。",
-    "englishSource": "Building the transaction proposal for your guardian."
-  },
-  "transactionStageSigningProposal": {
-    "message": "保護者との署名",
-    "englishSource": "Signing with guardian"
-  },
-  "transactionStageSigningProposalDescription": {
-    "message": "あなたの保護者がその提案書に署名しています。",
-    "englishSource": "Your guardian is signing the proposal."
-  },
   "transactionStageSubmitting": {
     "message": "取引の送信",
     "englishSource": "Submitting transaction"
@@ -940,14 +888,6 @@
   "transactionStageSubmittingDescription": {
     "message": "署名済みのトランザクションをネットワークに送信しています。",
     "englishSource": "Sending your signed transaction to the network."
-  },
-  "transactionStageGuardianSyncing": {
-    "message": "Guardianとの同期",
-    "englishSource": "Syncing with Guardian"
-  },
-  "transactionStageGuardianSyncingDescription": {
-    "message": "更新されたアカウントの状態を保護者と同期しています。",
-    "englishSource": "Syncing your updated account state with your guardian."
   },
   "transactionStageComplete": {
     "message": "取引が完了しました",
@@ -964,14 +904,6 @@
   "transactionStageConfirmingDescription": {
     "message": "ネットワークからの確認を待っています。",
     "englishSource": "Waiting for network confirmation."
-  },
-  "transactionStageRegisteringGuardian": {
-    "message": "ガーディアンへの登録",
-    "englishSource": "Registering with guardian"
-  },
-  "transactionStageRegisteringGuardianDescription": {
-    "message": "新しい後見人に対して、アカウントの状態を登録する。",
-    "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
     "message": "noteの提供",
@@ -1575,15 +1507,6 @@
     "message": "有効期限",
     "englishSource": "Expiration Date"
   },
-  "recallReturnsNote": {
-    "message": "その時点までに引き出しが行われていない場合は、$amount$をウォレットに戻すことができます。資金が失われることはありません。",
-    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
   "recallTimeInPast": {
     "message": "この時間はすでに過ぎています — 別の時間を選んでください",
     "englishSource": "This time has already passed — pick a future time"
@@ -1698,19 +1621,6 @@
     "message": "お持ちのウォレットへの入金に失敗しました。もう一度お試しください。",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
-  "pendingNotesPromptTitle": {
-    "message": "「Notes」が保留中です",
-    "englishSource": "You have Pending Notes"
-  },
-  "pendingNotesPromptBody": {
-    "message": "notesの未決済分が$amount$あります。",
-    "englishSource": "You have pending notes worth $amount$.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
   "pendingNotesPromptAction": {
     "message": "今すぐ見る",
     "englishSource": "See Now"
@@ -1746,14 +1656,6 @@
   "hotKeyRotationPromptAction": {
     "message": "キーを回転させる",
     "englishSource": "Rotate key"
-  },
-  "bridgePromptTitle": {
-    "message": "建設中の橋",
-    "englishSource": "Bridge in progress"
-  },
-  "bridgePromptBody": {
-    "message": "バックグラウンドでお客様のブリッジの追跡を継続します。",
-    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "リカバリーフレーズを書き留めた後、その最初の単語と最後の単語を選択して、記憶を確認してください。画面が他人に見られないように注意してください。",
@@ -1835,10 +1737,6 @@
   "external": {
     "message": "外部",
     "englishSource": "External"
-  },
-  "claim": {
-    "message": "主張",
-    "englishSource": "Claim"
   },
   "clear": {
     "message": "クリア",
@@ -1944,17 +1842,9 @@
     "message": "この端末では、生体認証によるロック解除はご利用いただけません。",
     "englishSource": "Biometric unlock isn't available on this device."
   },
-  "chooseYourGuardian": {
-    "message": "ガーディアンを選んでください",
-    "englishSource": "Choose your Guardian"
-  },
   "chooseGuardianDescription": {
     "message": "以下のオプションから選択してください",
     "englishSource": "Select an option below"
-  },
-  "learnMoreAboutGuardian": {
-    "message": "ガーディアンについて詳しく知る",
-    "englishSource": "Learn more about the Guardian"
   },
   "guardianOperatedBy": {
     "message": "運営：",
@@ -1964,21 +1854,9 @@
     "message": "場所：",
     "englishSource": "Location:"
   },
-  "whatIsAGuardian": {
-    "message": "「ガーディアン」とは何ですか？",
-    "englishSource": "What is a Guardian?"
-  },
-  "guardianInfoDescription": {
-    "message": "Guardianは、<b>ウォレットからのすべての取引</b>に共同署名を行う独立したサービスであり、自己管理を犠牲にすることなく、安全策を提供します。",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
-  },
   "guardianInfoWhatItDoesTitle": {
     "message": "機能の説明",
     "englishSource": "What it does"
-  },
-  "guardianInfoWhatItDoesDescription": {
-    "message": "すべての取引に共同承認が必要です。ご自身のデバイスも「ガーディアン」も、単独で資金を移動させることはできません。デバイスを紛失した場合でも、アカウントの復旧をサポートします。",
-    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "できないこと",
@@ -1991,10 +1869,6 @@
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "切り替えは簡単です",
     "englishSource": "Switching is easy"
-  },
-  "guardianInfoSwitchingIsEasyDescription": {
-    "message": "リカバリーフレーズを使えば、いつでも別のガーディアンに切り替えることができます。変更されるのは共同署名者だけであり、アカウントや資金はそのまま維持されます。",
-    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "了解しました",
@@ -2260,37 +2134,13 @@
     "message": "暗号化されたウォレットファイル",
     "englishSource": "Encrypted Wallet File"
   },
-  "guardianBadge": {
-    "message": "ガーディアン",
-    "englishSource": "Guardian"
-  },
-  "guardianSettings": {
-    "message": "ガーディアンの設定",
-    "englishSource": "Guardian Settings"
-  },
   "currentLabel": {
     "message": "現在",
     "englishSource": "Current"
   },
-  "newGuardianEndpoint": {
-    "message": "新しいGuardianエンドポイント",
-    "englishSource": "New Guardian Endpoint"
-  },
-  "guardianEndpointUnchanged": {
-    "message": "それはすでにあなたの現在の保護者です。",
-    "englishSource": "That's already your current guardian."
-  },
-  "rotateGuardian": {
-    "message": "ガーディアンの向きを変える",
-    "englishSource": "Rotate Guardian"
-  },
   "keys": {
     "message": "キー",
     "englishSource": "Keys"
-  },
-  "customGuardian": {
-    "message": "カスタムガーディアン",
-    "englishSource": "Custom Guardian"
   },
   "guardianProvider": {
     "message": "プロバイダー",
@@ -2320,10 +2170,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "ガーディアンが更新されました！",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "オンライン",
     "englishSource": "Online"
@@ -2336,14 +2182,6 @@
     "message": "新着",
     "englishSource": "New"
   },
-  "guardianSwitchAuthenticationDescription": {
-    "message": "このガーディアンスイッチを承認するには、認証を行ってください。",
-    "englishSource": "Authenticate to approve this Guardian switch."
-  },
-  "guardianAuthenticationUnavailable": {
-    "message": "認証が利用できません。ガーディアンを切り替える前に、もう一度お試しください。",
-    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
-  },
   "walletKeyHot": {
     "message": "ウォレットキー（ホット）",
     "englishSource": "Wallet key (hot)"
@@ -2351,14 +2189,6 @@
   "recoveryPhraseCold": {
     "message": "リカバリーフレーズ（コールド）",
     "englishSource": "Recovery phrase (cold)"
-  },
-  "oldGuardianCantBlockTitle": {
-    "message": "かつてのガーディアンでは、これを防ぐことはできない",
-    "englishSource": "Your old Guardian can't block this"
-  },
-  "oldGuardianCantBlockBody": {
-    "message": "ローテーションは、端末上の2つのキーによる承認が必要です。旧型ガーディアンには通知されるのみです。",
-    "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
     "message": "デバイスのキーを回転させる",
@@ -2396,18 +2226,6 @@
     "message": "再試行",
     "englishSource": "Retry"
   },
-  "guardianChangedTitle": {
-    "message": "ガーディアンが変更されました",
-    "englishSource": "Guardian changed"
-  },
-  "guardianChangedBody": {
-    "message": "保護者が変更され、新しい運営者を特定できませんでした。再接続するには、そのURLを入力してください。",
-    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
-  },
-  "guardianUrlMismatch": {
-    "message": "そのオペレーターは、お客様のアカウントのオンチェーン・ガーディアンと一致しません。",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
-  },
   "revealHotKey": {
     "message": "デバイスの鍵を表示する",
     "englishSource": "Reveal device key"
@@ -2431,10 +2249,6 @@
   "coldPublicKeyLabel": {
     "message": "復旧用（コールド）公開鍵",
     "englishSource": "Recovery (Cold) Public Key"
-  },
-  "guardianKeysRevealDescription": {
-    "message": "Guardianアカウントは、3つの鍵によって保護されています。日常的な署名に使用するデバイス（ホット）鍵、アカウント管理操作に使用するseed phraseから生成されたリカバリー（コールド）鍵、そして外部のガーディアン共同署名者です。以下に、コールド秘密鍵と、両方の公開鍵を記載します。デバイスの秘密鍵を表示するには、「設定」→「デバイス鍵の表示」を選択してください。",
-    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
     "message": "デバイスのキーを公開する前に",
@@ -2495,10 +2309,6 @@
   "autoConsumeSettings": {
     "message": "Auto Consume MIDEN notes",
     "englishSource": "Auto Consume MIDEN notes"
-  },
-  "autoConsumeSettingsDescription": {
-    "message": "受信したMIDEN（notes）を自動的に残高に反映します。「Claim」をタップした場合と同じです。資金が消費されたり、手数料が発生したりすることはありません。",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "暗号化されたウォレットファイル",
@@ -2644,14 +2454,6 @@
     "message": "アカウントにアクセスできなくなった場合に備え、アカウントの復旧方法を選択してください。",
     "englishSource": "Choose how you want to recover your account if you lose access."
   },
-  "guardianRecovery": {
-    "message": "ガーディアン",
-    "englishSource": "Guardian"
-  },
-  "guardianRecoveryDescription": {
-    "message": "おすすめ。アカウントの復旧にはガーディアン機能を利用しますが、ガーディアンを管理するユーザーにはあなたの状態が表示されます。",
-    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
-  },
   "fullyPrivateRecovery": {
     "message": "完全非公開",
     "englishSource": "Fully Private"
@@ -2664,14 +2466,6 @@
     "message": "この財布を取り戻したいと思いませんか？",
     "englishSource": "How would you like to recover this wallet?"
   },
-  "importViaGuardian": {
-    "message": "Guardian経由でインポート",
-    "englishSource": "Import via Guardian"
-  },
-  "importViaGuardianDescription": {
-    "message": "このアカウントの復旧および連帯保証人となるには、後見人を利用してください。",
-    "englishSource": "Use a guardian to recover and co-sign for this account."
-  },
   "importPublicAccount": {
     "message": "公開アカウントをインポートする",
     "englishSource": "Import public account"
@@ -2680,59 +2474,13 @@
     "message": "seed phrase から派生したパブリックアカウントをインポートします。",
     "englishSource": "Import the public account derived from your seed phrase."
   },
-  "guardianEndpoint": {
-    "message": "ガーディアンのURL",
-    "englishSource": "Guardian URL"
-  },
-  "useDifferentGuardian": {
-    "message": "別の保護者を選ぶ",
-    "englishSource": "Use a different guardian"
-  },
-  "detectingGuardian": {
-    "message": "あなたの守護者を探しています…",
-    "englishSource": "Looking for your guardian…"
-  },
-  "guardianDetectedTitle": {
-    "message": "あなたのガーディアンが見つかりました：$name$",
-    "englishSource": "Found your guardian: $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "guardianDetectedMultiple": {
-    "message": "このアカウントを知っている保護者は複数います。その中で、あなたの最新の状態を反映しているものを選びました。",
-    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
-  },
   "useCustomGuardianInstead": {
     "message": "代わりに別のものを使ってみたらどうですか？",
     "englishSource": "Use a different one instead?"
   },
-  "guardianNotDetected": {
-    "message": "お使いのガーディアンを自動的に検出できませんでした。使用したガーディアンを選択するか、そのURLを入力してください。",
-    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
-  },
-  "guardianProbePartialFailure": {
-    "message": "$count$ 保護者との連絡が取れなかったため、検知が不完全である可能性があります。",
-    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
   "retryGuardianDetection": {
     "message": "もう一度検出してみてください",
     "englishSource": "Try detecting again"
-  },
-  "guardianAccountNotFound": {
-    "message": "このガーディアンでは、お探しのアカウントが見つかりませんでした。URLを確認するか、代わりに公開アカウントとしてインポートしてください。",
-    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
-  },
-  "useCustomGuardianUrl": {
-    "message": "カスタムガーディアンURLを使用する",
-    "englishSource": "Use a custom Guardian URL"
   },
   "default": {
     "message": "デフォルト",
@@ -2910,22 +2658,6 @@
     "message": "支払いを行う",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "すべて受け取る",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "「すべてを請求？」（$unclaimed$ / $total$）",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
   "totalPending": {
     "message": "未処理の合計",
     "englishSource": "Total Pending"
@@ -2946,10 +2678,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesInfo": {
-    "message": "Midenでは、「notes」と呼ばれる独自のシステムを採用しています。これは、入金された資金を手動で受け取る仕組みです。これにより、悪意のある攻撃者からウォレットを安全に守ることができます。",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
   },
   "notesPendingAcrossAssets": {
     "message": "$notes$ notes $assets$の全資産において保留中",
@@ -2981,21 +2709,9 @@
       }
     }
   },
-  "noteClaimFailedRetry": {
-    "message": "リクエストが失敗しました — 「再試行」をタップして、もう一度お試しください",
-    "englishSource": "Claim failed — tap Retry to try again"
-  },
   "noteUnavailable": {
     "message": "この「note」は、現在販売終了しております。",
     "englishSource": "This note is no longer available"
-  },
-  "pendingNotes": {
-    "message": "notes が保留中",
-    "englishSource": "Pending notes"
-  },
-  "whatArePendingNotes": {
-    "message": "「保留中のnotes」とは何ですか？",
-    "englishSource": "What are pending notes?"
   },
   "consumeYourNotes": {
     "message": "notes を活用してください。",
@@ -3398,10 +3114,6 @@
     "message": "ハプティックフィードバック",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "現在、受け取れる「notes」はありません。",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
     "message": "note を受信しました",
     "englishSource": "You have received a note"
@@ -3413,23 +3125,6 @@
   "transactionFailedNotificationBody": {
     "message": "取引を完了できませんでした。ウォレットを開いて確認してください。",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
-  },
-  "noteReceivedTapToClaim": {
-    "message": "ここをタップして受け取る",
-    "englishSource": "Tap here to claim it"
-  },
-  "noteReceivedClickToClaim": {
-    "message": "クリックして確認・受け取る",
-    "englishSource": "Click to view and claim it"
-  },
-  "noteReceivedMultiple": {
-    "message": "$count$の新しいnotesが1件届いています。受け取ってください。",
-    "englishSource": "You have $count$ new notes to claim",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
   },
   "passwordsCanBeInsecure": {
     "message": "パスワードは安全性が低い場合があります。その代わりに、生体認証を利用しましょう。",
@@ -3502,10 +3197,6 @@
   "enterAddress": {
     "message": "住所を入力してください",
     "englishSource": "Enter Address"
-  },
-  "failedToClaimNote": {
-    "message": "note の取得に失敗しました",
-    "englishSource": "Failed to claim note"
   },
   "testnet": {
     "message": "テストネット",
@@ -3659,29 +3350,13 @@
     "message": "別のウォレットを接続する",
     "englishSource": "Connect another wallet"
   },
-  "midenBridge": {
-    "message": "ミデン橋",
-    "englishSource": "Miden Bridge"
-  },
   "connectEvmWallet": {
     "message": "EVMウォレットを接続する",
     "englishSource": "Connect an EVM wallet"
   },
-  "connectEvmWalletDescription": {
-    "message": "ウォレットを接続して、Midenとの間で資産を移動させることができます。",
-    "englishSource": "Connect a wallet to bridge assets to and from Miden."
-  },
   "onlyBridgeableTokenSupported": {
     "message": "「スロー（アグレイヤー）」ルートでは、ブリッジ可能なトークンのみがサポートされています。その他のトークンを送信するには、「ファスト」をご利用ください。",
     "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
-  "connectDestinationWalletToClaim": {
-    "message": "受け取りを行うには、受け取り先のウォレットを接続してください。",
-    "englishSource": "Connect the destination wallet to claim."
-  },
-  "bridgeDetails": {
-    "message": "橋の詳細",
-    "englishSource": "Bridge details"
   },
   "route": {
     "message": "ルート",
@@ -3723,25 +3398,9 @@
     "message": "入金確認",
     "englishSource": "Confirm Deposit"
   },
-  "bridgeDepositProcessing": {
-    "message": "ブリッジの預け入れの確認",
-    "englishSource": "Confirming bridge deposit"
-  },
   "bridgeDepositProcessingDescription": {
     "message": "ウォレットでリクエストを承認し、Sepoliaによる確認が完了するまでこの画面を開いたままにしておいてください。",
     "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
-  },
-  "bridgeDepositFailed": {
-    "message": "ブリッジの入金が失敗しました",
-    "englishSource": "Bridge deposit failed"
-  },
-  "bridgeDepositSubmitted": {
-    "message": "ブリッジが開始されました！",
-    "englishSource": "Bridge initiated!"
-  },
-  "bridgeDepositDeliveryDescription": {
-    "message": "セポリアとの取引が確定しました。ブリッジによる送金が完了次第、Midenに資金が反映されます。",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Etherscanで表示",
@@ -3755,49 +3414,9 @@
     "message": "「Slow（Agglayer）」ルートは、テストネットではネイティブETHのみに対応しています。これを利用するには、ETHを選択してください。",
     "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
-  "fastEthWrapNotice": {
-    "message": "「Fast」ルートでETHをブリッジする場合、まずETHをWETHにラップしてから、そのWETHをブリッジします。このルートは現在利用できません。",
-    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
-  },
   "destinationNetwork": {
     "message": "接続先ネットワーク",
     "englishSource": "Destination network"
-  },
-  "claimStatus": {
-    "message": "請求状況",
-    "englishSource": "Claim status"
-  },
-  "claimAsset": {
-    "message": "資産の請求",
-    "englishSource": "Claim Asset"
-  },
-  "claimAssetSubmitted": {
-    "message": "請求が提出されました。資金は連携済みのEVMウォレットに入金されています。",
-    "englishSource": "Claim submitted — funds are on the connected EVM wallet."
-  },
-  "claimable": {
-    "message": "受け取る準備はできましたか",
-    "englishSource": "Ready to claim"
-  },
-  "claiming": {
-    "message": "主張している…",
-    "englishSource": "Claiming…"
-  },
-  "claimed": {
-    "message": "主張された",
-    "englishSource": "Claimed"
-  },
-  "claimPending": {
-    "message": "ブリッジング — 請求はまだ準備できていません",
-    "englishSource": "Bridging — claim not ready yet"
-  },
-  "claimFailedStatus": {
-    "message": "請求に失敗しました",
-    "englishSource": "Claim failed"
-  },
-  "noManualClaimRequired": {
-    "message": "資金は自動的に振り込まれます。申請は必要ありません。",
-    "englishSource": "Funds arrive automatically — no claim needed."
   },
   "fastRouteLabel": {
     "message": "高速（エポック）",
@@ -3806,18 +3425,6 @@
   "slowRouteLabel": {
     "message": "スロー（アグレイヤー）",
     "englishSource": "Slow (Agglayer)"
-  },
-  "bridgeRowTitle": {
-    "message": "$from$ から $to$ へのリダイレクト",
-    "englishSource": "Bridge $from$ → $to$",
-    "placeholders": {
-      "from": {
-        "content": "$1"
-      },
-      "to": {
-        "content": "$2"
-      }
-    }
   },
   "bridgeRowVia": {
     "message": "$provider$ 経由 → $network$",
@@ -3907,10 +3514,6 @@
     "message": "入金に関する詳細",
     "englishSource": "Deposit details"
   },
-  "earnWithdrawDetailsTitle": {
-    "message": "出金詳細",
-    "englishSource": "Withdrawal details"
-  },
   "depositIntentLabel": {
     "message": "預入の意思",
     "englishSource": "Deposit intent"
@@ -3918,10 +3521,6 @@
   "redeemIntentLabel": {
     "message": "利用の意思",
     "englishSource": "Redeem intent"
-  },
-  "earnWithdrawRowTitle": {
-    "message": "「Earn」から出金する",
-    "englishSource": "Withdraw from Earn"
   },
   "earnWithdrawRowVia": {
     "message": "Epoch経由 → Miden",
@@ -3934,26 +3533,6 @@
   "earnWithdrawStatusDelivering": {
     "message": "配送",
     "englishSource": "Delivering"
-  },
-  "withdrawalStarted": {
-    "message": "引き出しが開始されました！",
-    "englishSource": "Withdrawal Started!"
-  },
-  "withdrawalStartedDescription": {
-    "message": "お客様の資金はMidenへ送金処理中です。「アクティビティ」で送金状況をご確認いただけます。",
-    "englishSource": "Your funds are being bridged back to Miden. Track delivery in Activity."
-  },
-  "withdrawalProcessing": {
-    "message": "出金処理",
-    "englishSource": "Processing Withdrawal"
-  },
-  "withdrawalProcessingDescription": {
-    "message": "「ガスレス引き出し意向書」に署名し、Epochに提出します。通常、この作業には数秒かかります。",
-    "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
-  },
-  "withdrawalFailed": {
-    "message": "引き出しに失敗しました",
-    "englishSource": "Withdrawal Failed"
   },
   "transactionComplete": {
     "message": "取引が完了しました！",
@@ -4026,10 +3605,6 @@
   "devEndpointExplorer": {
     "message": "エクスプローラーのURL",
     "englishSource": "Explorer URL"
-  },
-  "devEndpointGuardian": {
-    "message": "カスタムガーディアンURL",
-    "englishSource": "Custom guardian URL"
   },
   "devEndpointChecking": {
     "message": "確認中…",

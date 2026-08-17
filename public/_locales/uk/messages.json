@@ -3,10 +3,6 @@
     "message": "Корисне навантаження",
     "englishSource": "Payload"
   },
-  "bridgeDepositTitle": {
-    "message": "Міст Міден",
-    "englishSource": "Miden Bridge"
-  },
   "bridgeDepositHeading": {
     "message": "Підтвердьте свій депозит",
     "englishSource": "Confirm your deposit"
@@ -18,10 +14,6 @@
   "bridgeDepositYouReceive": {
     "message": "Ви отримуєте",
     "englishSource": "You receive"
-  },
-  "bridgeDepositBridgeOption": {
-    "message": "Варіант «Міст»",
-    "englishSource": "Bridge option"
   },
   "bridgeDepositApprovingTitle": {
     "message": "Що саме ви затверджуєте",
@@ -290,21 +282,9 @@
     "message": "Position",
     "englishSource": "Position"
   },
-  "withdraw": {
-    "message": "Вивести кошти",
-    "englishSource": "Withdraw"
-  },
   "earnDepositMore": {
     "message": "Поповнити рахунок",
     "englishSource": "Deposit more"
-  },
-  "earnWithdrawAmount": {
-    "message": "Сума зняття коштів",
-    "englishSource": "Withdraw Amount"
-  },
-  "earnWithdrawalLabel": {
-    "message": "Виведення коштів",
-    "englishSource": "Withdrawal"
   },
   "earnFullPositionGasless": {
     "message": "Повна позиція (без комісії за газ)",
@@ -325,10 +305,6 @@
   "earnWithdrawNotOwned": {
     "message": "Ця позиція не належить поточному обліковому запису EVM, пов’язаному з гаманцем.",
     "englishSource": "This position is not owned by the current wallet-derived EVM account."
-  },
-  "earnGaslessWithdrawalFailed": {
-    "message": "Виведення коштів без використання газу не вдалося.",
-    "englishSource": "Gasless withdrawal failed."
   },
   "earnCurrentApy": {
     "message": "Поточна річна дохідність (APY)",
@@ -848,10 +824,6 @@
     "message": "Створення свопу",
     "englishSource": "Generating Swap"
   },
-  "transactionStepGuardianApproved": {
-    "message": "Затверджено «Guardian»",
-    "englishSource": "Guardian approved"
-  },
   "transactionStepProofGenerated": {
     "message": "Створено доказ",
     "englishSource": "Proof generated"
@@ -859,10 +831,6 @@
   "transactionStepSubmitting": {
     "message": "Відправлення",
     "englishSource": "Submitting"
-  },
-  "transactionStepSyncingGuardian": {
-    "message": "Синхронізація з Guardian",
-    "englishSource": "Syncing with Guardian"
   },
   "transactionStepDurationSec": {
     "message": "$seconds$ сек",
@@ -889,10 +857,6 @@
     "message": "Створення та підтвердження транзакції.",
     "englishSource": "Building and proving your transaction."
   },
-  "transactionStageClaiming": {
-    "message": "Отримання доступу до «note»",
-    "englishSource": "Claiming note"
-  },
   "transactionStageExecuting": {
     "message": "Виконання транзакції",
     "englishSource": "Executing transaction"
@@ -909,10 +873,6 @@
     "message": "Створення підтвердження вашої транзакції.",
     "englishSource": "Creating the proof for your transaction."
   },
-  "transactionStageSwitching": {
-    "message": "Зміна опікуна",
-    "englishSource": "Switching guardian"
-  },
   "transactionStageSwapping": {
     "message": "Обмін токенами",
     "englishSource": "Swapping tokens"
@@ -921,18 +881,6 @@
     "message": "Створення пропозиції",
     "englishSource": "Creating proposal"
   },
-  "transactionStageCreatingProposalDescription": {
-    "message": "Створення пропозиції щодо угоди для вашого опікуна.",
-    "englishSource": "Building the transaction proposal for your guardian."
-  },
-  "transactionStageSigningProposal": {
-    "message": "Підписання договору з опікуном",
-    "englishSource": "Signing with guardian"
-  },
-  "transactionStageSigningProposalDescription": {
-    "message": "Ваш опікун підписує пропозицію.",
-    "englishSource": "Your guardian is signing the proposal."
-  },
   "transactionStageSubmitting": {
     "message": "Відправлення транзакції",
     "englishSource": "Submitting transaction"
@@ -940,14 +888,6 @@
   "transactionStageSubmittingDescription": {
     "message": "Відправлення підписаної транзакції в мережу.",
     "englishSource": "Sending your signed transaction to the network."
-  },
-  "transactionStageGuardianSyncing": {
-    "message": "Синхронізація з Guardian",
-    "englishSource": "Syncing with Guardian"
-  },
-  "transactionStageGuardianSyncingDescription": {
-    "message": "Синхронізація оновленого стану вашого облікового запису з вашим опікуном.",
-    "englishSource": "Syncing your updated account state with your guardian."
   },
   "transactionStageComplete": {
     "message": "Операція завершена",
@@ -964,14 +904,6 @@
   "transactionStageConfirmingDescription": {
     "message": "Очікування підтвердження від мережі.",
     "englishSource": "Waiting for network confirmation."
-  },
-  "transactionStageRegisteringGuardian": {
-    "message": "Реєстрація в Guardian",
-    "englishSource": "Registering with guardian"
-  },
-  "transactionStageRegisteringGuardianDescription": {
-    "message": "Реєстрація стану вашого облікового запису у нового опікуна.",
-    "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
     "message": "Виконання «note»",
@@ -1575,15 +1507,6 @@
     "message": "Термін придатності",
     "englishSource": "Expiration Date"
   },
-  "recallReturnsNote": {
-    "message": "Якщо до того часу кошти не будуть зняті, ви зможете повернути $amount$ у свій гаманець. Жодні кошти не будуть втрачені.",
-    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
   "recallTimeInPast": {
     "message": "Цей час уже минув — оберіть інший час у майбутньому",
     "englishSource": "This time has already passed — pick a future time"
@@ -1698,19 +1621,6 @@
     "message": "Нам не вдалося поповнити ваш гаманець. Спробуйте ще раз.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
-  "pendingNotesPromptTitle": {
-    "message": "У вас є незавершені запити на «Notes»",
-    "englishSource": "You have Pending Notes"
-  },
-  "pendingNotesPromptBody": {
-    "message": "У вас є незавершені операції з notes на суму $amount$.",
-    "englishSource": "You have pending notes worth $amount$.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
   "pendingNotesPromptAction": {
     "message": "Переглянути зараз",
     "englishSource": "See Now"
@@ -1746,14 +1656,6 @@
   "hotKeyRotationPromptAction": {
     "message": "Клавіша «Повернути»",
     "englishSource": "Rotate key"
-  },
-  "bridgePromptTitle": {
-    "message": "Міст у процесі будівництва",
-    "englishSource": "Bridge in progress"
-  },
-  "bridgePromptBody": {
-    "message": "Ми продовжимо відстежувати ваш міст у фоновому режимі.",
-    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "Ви запишете свою фразу відновлення, а потім підтвердите, що ви її запам’ятали, вибравши перше та останнє слова. Переконайтеся, що ніхто не бачить ваш екран.",
@@ -1835,10 +1737,6 @@
   "external": {
     "message": "Зовнішній",
     "englishSource": "External"
-  },
-  "claim": {
-    "message": "Претензія",
-    "englishSource": "Claim"
   },
   "clear": {
     "message": "Очистити",
@@ -1944,17 +1842,9 @@
     "message": "На цьому пристрої функція розблокування за допомогою біометричних даних недоступна.",
     "englishSource": "Biometric unlock isn't available on this device."
   },
-  "chooseYourGuardian": {
-    "message": "Оберіть свого Опікуна",
-    "englishSource": "Choose your Guardian"
-  },
   "chooseGuardianDescription": {
     "message": "Виберіть один із варіантів нижче",
     "englishSource": "Select an option below"
-  },
-  "learnMoreAboutGuardian": {
-    "message": "Дізнайтеся більше про «Guardian»",
-    "englishSource": "Learn more about the Guardian"
   },
   "guardianOperatedBy": {
     "message": "Оператор:",
@@ -1964,21 +1854,9 @@
     "message": "Місцезнаходження:",
     "englishSource": "Location:"
   },
-  "whatIsAGuardian": {
-    "message": "Що таке «Опікун»?",
-    "englishSource": "What is a Guardian?"
-  },
-  "guardianInfoDescription": {
-    "message": "Guardian — це незалежний сервіс, який <b>підписує кожну транзакцію</b> з вашого гаманця, забезпечуючи додатковий захист без відмови від самостійного зберігання активів.",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
-  },
   "guardianInfoWhatItDoesTitle": {
     "message": "Як це працює",
     "englishSource": "What it does"
-  },
-  "guardianInfoWhatItDoesDescription": {
-    "message": "Підтверджує кожну операцію — ані ваш пристрій, ані «Опікун» не можуть самостійно переказувати кошти. Допомагає відновити доступ до вашого облікового запису у разі втрати пристрою.",
-    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "Чого воно не може зробити",
@@ -1991,10 +1869,6 @@
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "Перехід на нову систему — це просто",
     "englishSource": "Switching is easy"
-  },
-  "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Ви можете у будь-який час перейти до іншого «Опікуна», скориставшись своєю фразою відновлення. Змінюється лише особа, яка виступає співпідписантом; ваш обліковий запис та кошти залишаються без змін.",
-    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Зрозуміло",
@@ -2260,37 +2134,13 @@
     "message": "Зашифрований файл гаманця",
     "englishSource": "Encrypted Wallet File"
   },
-  "guardianBadge": {
-    "message": "«Гардіан»",
-    "englishSource": "Guardian"
-  },
-  "guardianSettings": {
-    "message": "Налаштування Guardian",
-    "englishSource": "Guardian Settings"
-  },
   "currentLabel": {
     "message": "Поточний",
     "englishSource": "Current"
   },
-  "newGuardianEndpoint": {
-    "message": "Новий кінцевий пристрій Guardian",
-    "englishSource": "New Guardian Endpoint"
-  },
-  "guardianEndpointUnchanged": {
-    "message": "Це вже твій нинішній опікун.",
-    "englishSource": "That's already your current guardian."
-  },
-  "rotateGuardian": {
-    "message": "Повернути «Охоронця»",
-    "englishSource": "Rotate Guardian"
-  },
   "keys": {
     "message": "Ключі",
     "englishSource": "Keys"
-  },
-  "customGuardian": {
-    "message": "Індивідуальний опікун",
-    "englishSource": "Custom Guardian"
   },
   "guardianProvider": {
     "message": "Постачальник",
@@ -2320,10 +2170,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Оновлення «Guardian»!",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "Онлайн",
     "englishSource": "Online"
@@ -2336,14 +2182,6 @@
     "message": "Нове",
     "englishSource": "New"
   },
-  "guardianSwitchAuthenticationDescription": {
-    "message": "Пройдіть аутентифікацію, щоб затвердити це перемикання «Опікуна».",
-    "englishSource": "Authenticate to approve this Guardian switch."
-  },
-  "guardianAuthenticationUnavailable": {
-    "message": "Аутентифікація недоступна. Спробуйте ще раз, перш ніж змінити Guardian.",
-    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
-  },
   "walletKeyHot": {
     "message": "Ключ гаманця (активний)",
     "englishSource": "Wallet key (hot)"
@@ -2351,14 +2189,6 @@
   "recoveryPhraseCold": {
     "message": "Фраза відновлення (холодне зберігання)",
     "englishSource": "Recovery phrase (cold)"
-  },
-  "oldGuardianCantBlockTitle": {
-    "message": "Ваш старий «Гардіан» не зможе це заблокувати",
-    "englishSource": "Your old Guardian can't block this"
-  },
-  "oldGuardianCantBlockBody": {
-    "message": "Зміна затверджується двома ключами, що знаходяться на вашому пристрої. Старий «Guardian» лише отримує відповідне повідомлення.",
-    "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
     "message": "Повернути клавішу пристрою",
@@ -2396,18 +2226,6 @@
     "message": "Спробувати ще раз",
     "englishSource": "Retry"
   },
-  "guardianChangedTitle": {
-    "message": "Змінено «Guardian»",
-    "englishSource": "Guardian changed"
-  },
-  "guardianChangedBody": {
-    "message": "Ваш сервер-хост було змінено, і нам не вдалося ідентифікувати нового оператора. Введіть його URL-адресу, щоб відновити з'єднання.",
-    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
-  },
-  "guardianUrlMismatch": {
-    "message": "Цей оператор не збігається з опікуном вашого облікового запису в ланцюгу.",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
-  },
   "revealHotKey": {
     "message": "Відкрити ключ пристрою",
     "englishSource": "Reveal device key"
@@ -2431,10 +2249,6 @@
   "coldPublicKeyLabel": {
     "message": "Відновлення (холодного) відкритого ключа",
     "englishSource": "Recovery (Cold) Public Key"
-  },
-  "guardianKeysRevealDescription": {
-    "message": "Ваш обліковий запис у Guardian захищений трьома ключами: ключем пристрою (активним) для повсякденного підписання, ключем відновлення (пасивним), отриманим з вашого гаманця «seed phrase» для операцій з управління обліковим записом, а також зовнішнім співпідписувачем-опікуном. Нижче наведено ваш пасивний приватний ключ та обидва відкриті ключі. Щоб відобразити приватний ключ пристрою, скористайтеся меню «Налаштування» → «Відобразити ключ пристрою».",
-    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
     "message": "Перш ніж розкрити ключ вашого пристрою",
@@ -2495,10 +2309,6 @@
   "autoConsumeSettings": {
     "message": "Auto Consume MIDEN notes",
     "englishSource": "Auto Consume MIDEN notes"
-  },
-  "autoConsumeSettingsDescription": {
-    "message": "Автоматично зараховує отримані MIDEN notes на ваш баланс — так само, як і при натисканні кнопки «Отримати». Це не витрачає ваші кошти і не передбачає жодних комісій.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "Зашифрований файл гаманця",
@@ -2644,14 +2454,6 @@
     "message": "Виберіть спосіб відновлення доступу до облікового запису на випадок, якщо ви його втратите.",
     "englishSource": "Choose how you want to recover your account if you lose access."
   },
-  "guardianRecovery": {
-    "message": "«Гардіан»",
-    "englishSource": "Guardian"
-  },
-  "guardianRecoveryDescription": {
-    "message": "Рекомендується. Відновлення доступу до вашого облікового запису за допомогою опікуна, але оператор-опікун зможе бачити ваш статус.",
-    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
-  },
   "fullyPrivateRecovery": {
     "message": "Повністю приватний",
     "englishSource": "Fully Private"
@@ -2664,14 +2466,6 @@
     "message": "Як би ви хотіли повернути цей гаманець?",
     "englishSource": "How would you like to recover this wallet?"
   },
-  "importViaGuardian": {
-    "message": "Імпорт через Guardian",
-    "englishSource": "Import via Guardian"
-  },
-  "importViaGuardianDescription": {
-    "message": "Зверніться до опікуна, щоб відновити доступ до цього облікового запису та отримати його співпідпис.",
-    "englishSource": "Use a guardian to recover and co-sign for this account."
-  },
   "importPublicAccount": {
     "message": "Імпортувати публічний обліковий запис",
     "englishSource": "Import public account"
@@ -2680,59 +2474,13 @@
     "message": "Імпортуйте публічний обліковий запис, створений на основі вашого облікового запису seed phrase.",
     "englishSource": "Import the public account derived from your seed phrase."
   },
-  "guardianEndpoint": {
-    "message": "URL-адреса «Guardian»",
-    "englishSource": "Guardian URL"
-  },
-  "useDifferentGuardian": {
-    "message": "Виберіть іншого опікуна",
-    "englishSource": "Use a different guardian"
-  },
-  "detectingGuardian": {
-    "message": "Шукаю твого опікуна…",
-    "englishSource": "Looking for your guardian…"
-  },
-  "guardianDetectedTitle": {
-    "message": "Знайшов свого опікуна: $name$",
-    "englishSource": "Found your guardian: $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "guardianDetectedMultiple": {
-    "message": "Цей обліковий запис знають кілька опікунів. Ми вибрали того, у якого збережено твої найсвіжіші дані.",
-    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
-  },
   "useCustomGuardianInstead": {
     "message": "Може, краще скористатися іншим?",
     "englishSource": "Use a different one instead?"
   },
-  "guardianNotDetected": {
-    "message": "Нам не вдалося автоматично визначити ваш сервіс. Оберіть той, яким ви користувалися, або введіть його URL-адресу.",
-    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
-  },
-  "guardianProbePartialFailure": {
-    "message": "$count$ З опікуном (опікунами) не вдалося зв’язатися, тому виявлення може бути неповним.",
-    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
   "retryGuardianDetection": {
     "message": "Спробуйте виконати виявлення ще раз",
     "englishSource": "Try detecting again"
-  },
-  "guardianAccountNotFound": {
-    "message": "Нам не вдалося знайти ваш обліковий запис на цьому ресурсі Guardian. Перевірте URL-адресу або спробуйте імпортувати його як публічний обліковий запис.",
-    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
-  },
-  "useCustomGuardianUrl": {
-    "message": "Використовуйте власний URL-адресу Guardian",
-    "englishSource": "Use a custom Guardian URL"
   },
   "default": {
     "message": "За замовчуванням",
@@ -2910,22 +2658,6 @@
     "message": "Відправити платіж",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "Отримати все",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "«Отримати все?» ($unclaimed$ / $total$)",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
   "totalPending": {
     "message": "Загальна кількість справ, що перебувають на розгляді",
     "englishSource": "Total Pending"
@@ -2946,10 +2678,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden використовує унікальну систему під назвою «notes». Саме тут ви вручну підтверджуєте надходження коштів. Це спосіб захистити свій гаманець від зловмисників",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
   },
   "notesPendingAcrossAssets": {
     "message": "$notes$ notes у процесі обробки по всіх ресурсах $assets$",
@@ -2981,21 +2709,9 @@
       }
     }
   },
-  "noteClaimFailedRetry": {
-    "message": "Помилка під час подання заявки — натисніть «Спробувати ще раз», щоб повторити спробу",
-    "englishSource": "Claim failed — tap Retry to try again"
-  },
   "noteUnavailable": {
     "message": "Цей товар «note» більше не доступний",
     "englishSource": "This note is no longer available"
-  },
-  "pendingNotes": {
-    "message": "Очікується notes",
-    "englishSource": "Pending notes"
-  },
-  "whatArePendingNotes": {
-    "message": "Що таке «notes» (заявки на виведення), що знаходяться в стані очікування?",
-    "englishSource": "What are pending notes?"
   },
   "consumeYourNotes": {
     "message": "Використовуйте свої «notes»",
@@ -3398,10 +3114,6 @@
     "message": "Тактильний зворотний зв'язок",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "Наразі у вас немає нагород «notes», які можна отримати.",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
     "message": "Ви отримали повідомлення «note»",
     "englishSource": "You have received a note"
@@ -3413,23 +3125,6 @@
   "transactionFailedNotificationBody": {
     "message": "Операцію не вдалося завершити. Відкрийте гаманець, щоб перевірити.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
-  },
-  "noteReceivedTapToClaim": {
-    "message": "Натисніть тут, щоб отримати його",
-    "englishSource": "Tap here to claim it"
-  },
-  "noteReceivedClickToClaim": {
-    "message": "Натисніть, щоб переглянути та отримати його",
-    "englishSource": "Click to view and claim it"
-  },
-  "noteReceivedMultiple": {
-    "message": "У вас є $count$ новий notes, який можна отримати",
-    "englishSource": "You have $count$ new notes to claim",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
   },
   "passwordsCanBeInsecure": {
     "message": "Паролі можуть бути небезпечними. Замість цього використовуйте біометричну автентифікацію.",
@@ -3502,10 +3197,6 @@
   "enterAddress": {
     "message": "Введіть адресу",
     "englishSource": "Enter Address"
-  },
-  "failedToClaimNote": {
-    "message": "Не вдалося зареєструвати домен note",
-    "englishSource": "Failed to claim note"
   },
   "testnet": {
     "message": "Тестова мережа",
@@ -3659,29 +3350,13 @@
     "message": "Підключити інший гаманець",
     "englishSource": "Connect another wallet"
   },
-  "midenBridge": {
-    "message": "Міст Міден",
-    "englishSource": "Miden Bridge"
-  },
   "connectEvmWallet": {
     "message": "Підключити гаманець EVM",
     "englishSource": "Connect an EVM wallet"
   },
-  "connectEvmWalletDescription": {
-    "message": "Підключіть гаманець, щоб переносити активи в Miden і з нього.",
-    "englishSource": "Connect a wallet to bridge assets to and from Miden."
-  },
   "onlyBridgeableTokenSupported": {
     "message": "Маршрут «Повільний» (Agglayer) підтримує лише токени, які можна переносити через міст. Для надсилання інших токенів використовуйте маршрут «Швидкий».",
     "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
-  "connectDestinationWalletToClaim": {
-    "message": "Підключіть гаманець-отримувач, щоб отримати кошти.",
-    "englishSource": "Connect the destination wallet to claim."
-  },
-  "bridgeDetails": {
-    "message": "Деталі мосту",
-    "englishSource": "Bridge details"
   },
   "route": {
     "message": "Маршрут",
@@ -3723,25 +3398,9 @@
     "message": "Підтвердити депозит",
     "englishSource": "Confirm Deposit"
   },
-  "bridgeDepositProcessing": {
-    "message": "Підтвердження депозиту на перехідний рахунок",
-    "englishSource": "Confirming bridge deposit"
-  },
   "bridgeDepositProcessingDescription": {
     "message": "Підтвердьте запит у своєму гаманці та залиште цей екран відкритим, поки Sepolia його підтверджує.",
     "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
-  },
-  "bridgeDepositFailed": {
-    "message": "Не вдалося внести заставу за «Брідж»",
-    "englishSource": "Bridge deposit failed"
-  },
-  "bridgeDepositSubmitted": {
-    "message": "Початок переговорів!",
-    "englishSource": "Bridge initiated!"
-  },
-  "bridgeDepositDeliveryDescription": {
-    "message": "Транзакція з Sepolia підтверджена. Ваші кошти з’являться на Miden після завершення переказу через міст.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Переглянути на Etherscan",
@@ -3755,49 +3414,9 @@
     "message": "Маршрут Slow (Agglayer) у тестовій мережі підтримує лише нативну ETH. Щоб скористатися ним, оберіть ETH.",
     "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
-  "fastEthWrapNotice": {
-    "message": "Переказ ETH за «швидким» маршрутом спочатку перетворює його на WETH, а потім здійснює переказ WETH. Цей маршрут поки що недоступний.",
-    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
-  },
   "destinationNetwork": {
     "message": "Мережа пунктів призначення",
     "englishSource": "Destination network"
-  },
-  "claimStatus": {
-    "message": "Статус заяви",
-    "englishSource": "Claim status"
-  },
-  "claimAsset": {
-    "message": "Оформити заявку на отримання активу",
-    "englishSource": "Claim Asset"
-  },
-  "claimAssetSubmitted": {
-    "message": "Заявка подана — кошти знаходяться на підключеному гаманці EVM.",
-    "englishSource": "Claim submitted — funds are on the connected EVM wallet."
-  },
-  "claimable": {
-    "message": "Готові подати заявку",
-    "englishSource": "Ready to claim"
-  },
-  "claiming": {
-    "message": "Стверджуючи, що…",
-    "englishSource": "Claiming…"
-  },
-  "claimed": {
-    "message": "Заявлено",
-    "englishSource": "Claimed"
-  },
-  "claimPending": {
-    "message": "«Bridging» — заявка ще не готова",
-    "englishSource": "Bridging — claim not ready yet"
-  },
-  "claimFailedStatus": {
-    "message": "Помилка під час обробки запиту",
-    "englishSource": "Claim failed"
-  },
-  "noManualClaimRequired": {
-    "message": "Кошти надходять автоматично — подавати заявку не потрібно.",
-    "englishSource": "Funds arrive automatically — no claim needed."
   },
   "fastRouteLabel": {
     "message": "Швидкий (Епоха)",
@@ -3806,18 +3425,6 @@
   "slowRouteLabel": {
     "message": "Повільний (Agglayer)",
     "englishSource": "Slow (Agglayer)"
-  },
-  "bridgeRowTitle": {
-    "message": "Посилання $from$ → $to$",
-    "englishSource": "Bridge $from$ → $to$",
-    "placeholders": {
-      "from": {
-        "content": "$1"
-      },
-      "to": {
-        "content": "$2"
-      }
-    }
   },
   "bridgeRowVia": {
     "message": "Джерело: $provider$ → $network$",
@@ -3907,10 +3514,6 @@
     "message": "Реквізити рахунку для внесення депозиту",
     "englishSource": "Deposit details"
   },
-  "earnWithdrawDetailsTitle": {
-    "message": "Інформація про зняття коштів",
-    "englishSource": "Withdrawal details"
-  },
   "depositIntentLabel": {
     "message": "Намір внести депозит",
     "englishSource": "Deposit intent"
@@ -3918,10 +3521,6 @@
   "redeemIntentLabel": {
     "message": "Намір погашення",
     "englishSource": "Redeem intent"
-  },
-  "earnWithdrawRowTitle": {
-    "message": "Зняти кошти з Earn",
-    "englishSource": "Withdraw from Earn"
   },
   "earnWithdrawRowVia": {
     "message": "Через Epoch → Miden",
@@ -3934,26 +3533,6 @@
   "earnWithdrawStatusDelivering": {
     "message": "Доставка",
     "englishSource": "Delivering"
-  },
-  "withdrawalStarted": {
-    "message": "Виведення коштів розпочато!",
-    "englishSource": "Withdrawal Started!"
-  },
-  "withdrawalStartedDescription": {
-    "message": "Ваші кошти перераховуються назад до Miden. Відстежуйте переказ у розділі «Активність».",
-    "englishSource": "Your funds are being bridged back to Miden. Track delivery in Activity."
-  },
-  "withdrawalProcessing": {
-    "message": "Обробка запиту на зняття коштів",
-    "englishSource": "Processing Withdrawal"
-  },
-  "withdrawalProcessingDescription": {
-    "message": "Підписання та надсилання компанії Epoch повідомлення про намір здійснити безгазовий вивід коштів. Зазвичай це займає кілька секунд.",
-    "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
-  },
-  "withdrawalFailed": {
-    "message": "Помилка під час зняття коштів",
-    "englishSource": "Withdrawal Failed"
   },
   "transactionComplete": {
     "message": "Транзакція завершена!",
@@ -4026,10 +3605,6 @@
   "devEndpointExplorer": {
     "message": "URL-адреса браузера Explorer",
     "englishSource": "Explorer URL"
-  },
-  "devEndpointGuardian": {
-    "message": "Налаштована URL-адреса опікуна",
-    "englishSource": "Custom guardian URL"
   },
   "devEndpointChecking": {
     "message": "Перевірка…",

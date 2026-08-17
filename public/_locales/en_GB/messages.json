@@ -3,10 +3,6 @@
     "message": "Payload",
     "englishSource": "Payload"
   },
-  "bridgeDepositTitle": {
-    "message": "Miden Bridge",
-    "englishSource": "Miden Bridge"
-  },
   "bridgeDepositHeading": {
     "message": "Confirm your deposit",
     "englishSource": "Confirm your deposit"
@@ -18,10 +14,6 @@
   "bridgeDepositYouReceive": {
     "message": "You receive",
     "englishSource": "You receive"
-  },
-  "bridgeDepositBridgeOption": {
-    "message": "Bridge option",
-    "englishSource": "Bridge option"
   },
   "bridgeDepositApprovingTitle": {
     "message": "What you're approving",
@@ -290,21 +282,9 @@
     "message": "Position",
     "englishSource": "Position"
   },
-  "withdraw": {
-    "message": "Withdraw",
-    "englishSource": "Withdraw"
-  },
   "earnDepositMore": {
     "message": "Deposit more",
     "englishSource": "Deposit more"
-  },
-  "earnWithdrawAmount": {
-    "message": "Withdraw Amount",
-    "englishSource": "Withdraw Amount"
-  },
-  "earnWithdrawalLabel": {
-    "message": "Withdrawal",
-    "englishSource": "Withdrawal"
   },
   "earnFullPositionGasless": {
     "message": "Full position (gasless)",
@@ -325,10 +305,6 @@
   "earnWithdrawNotOwned": {
     "message": "This position is not owned by the current wallet-derived EVM account.",
     "englishSource": "This position is not owned by the current wallet-derived EVM account."
-  },
-  "earnGaslessWithdrawalFailed": {
-    "message": "Gasless withdrawal failed.",
-    "englishSource": "Gasless withdrawal failed."
   },
   "earnCurrentApy": {
     "message": "Current APY",
@@ -848,10 +824,6 @@
     "message": "Generating Swap",
     "englishSource": "Generating Swap"
   },
-  "transactionStepGuardianApproved": {
-    "message": "Guardian approved",
-    "englishSource": "Guardian approved"
-  },
   "transactionStepProofGenerated": {
     "message": "Proof generated",
     "englishSource": "Proof generated"
@@ -859,10 +831,6 @@
   "transactionStepSubmitting": {
     "message": "Submitting",
     "englishSource": "Submitting"
-  },
-  "transactionStepSyncingGuardian": {
-    "message": "Syncing with Guardian",
-    "englishSource": "Syncing with Guardian"
   },
   "transactionStepDurationSec": {
     "message": "$seconds$ sec",
@@ -889,10 +857,6 @@
     "message": "Building and proving your transaction.",
     "englishSource": "Building and proving your transaction."
   },
-  "transactionStageClaiming": {
-    "message": "Claiming note",
-    "englishSource": "Claiming note"
-  },
   "transactionStageExecuting": {
     "message": "Executing transaction",
     "englishSource": "Executing transaction"
@@ -909,10 +873,6 @@
     "message": "Creating the proof for your transaction.",
     "englishSource": "Creating the proof for your transaction."
   },
-  "transactionStageSwitching": {
-    "message": "Switching guardian",
-    "englishSource": "Switching guardian"
-  },
   "transactionStageSwapping": {
     "message": "Swapping tokens",
     "englishSource": "Swapping tokens"
@@ -921,18 +881,6 @@
     "message": "Creating proposal",
     "englishSource": "Creating proposal"
   },
-  "transactionStageCreatingProposalDescription": {
-    "message": "Building the transaction proposal for your guardian.",
-    "englishSource": "Building the transaction proposal for your guardian."
-  },
-  "transactionStageSigningProposal": {
-    "message": "Signing with guardian",
-    "englishSource": "Signing with guardian"
-  },
-  "transactionStageSigningProposalDescription": {
-    "message": "Your guardian is signing the proposal.",
-    "englishSource": "Your guardian is signing the proposal."
-  },
   "transactionStageSubmitting": {
     "message": "Submitting transaction",
     "englishSource": "Submitting transaction"
@@ -940,14 +888,6 @@
   "transactionStageSubmittingDescription": {
     "message": "Sending your signed transaction to the network.",
     "englishSource": "Sending your signed transaction to the network."
-  },
-  "transactionStageGuardianSyncing": {
-    "message": "Syncing with Guardian",
-    "englishSource": "Syncing with Guardian"
-  },
-  "transactionStageGuardianSyncingDescription": {
-    "message": "Syncing your updated account state with your guardian.",
-    "englishSource": "Syncing your updated account state with your guardian."
   },
   "transactionStageComplete": {
     "message": "Transaction complete",
@@ -964,14 +904,6 @@
   "transactionStageConfirmingDescription": {
     "message": "Waiting for network confirmation.",
     "englishSource": "Waiting for network confirmation."
-  },
-  "transactionStageRegisteringGuardian": {
-    "message": "Registering with guardian",
-    "englishSource": "Registering with guardian"
-  },
-  "transactionStageRegisteringGuardianDescription": {
-    "message": "Registering your account state with the new guardian.",
-    "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
     "message": "Delivering note",
@@ -1575,15 +1507,6 @@
     "message": "Expiration Date",
     "englishSource": "Expiration Date"
   },
-  "recallReturnsNote": {
-    "message": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
-    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
   "recallTimeInPast": {
     "message": "This time has already passed — pick a future time",
     "englishSource": "This time has already passed — pick a future time"
@@ -1698,19 +1621,6 @@
     "message": "We couldn't fund your wallet. Please try again.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
-  "pendingNotesPromptTitle": {
-    "message": "You have Pending Notes",
-    "englishSource": "You have Pending Notes"
-  },
-  "pendingNotesPromptBody": {
-    "message": "You have pending notes worth $amount$.",
-    "englishSource": "You have pending notes worth $amount$.",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
   "pendingNotesPromptAction": {
     "message": "See Now",
     "englishSource": "See Now"
@@ -1746,14 +1656,6 @@
   "hotKeyRotationPromptAction": {
     "message": "Rotate key",
     "englishSource": "Rotate key"
-  },
-  "bridgePromptTitle": {
-    "message": "Bridge in progress",
-    "englishSource": "Bridge in progress"
-  },
-  "bridgePromptBody": {
-    "message": "We’ll keep tracking your bridge in the background.",
-    "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
     "message": "You will write down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen.",
@@ -1835,10 +1737,6 @@
   "external": {
     "message": "External",
     "englishSource": "External"
-  },
-  "claim": {
-    "message": "Claim",
-    "englishSource": "Claim"
   },
   "clear": {
     "message": "Clear",
@@ -1944,17 +1842,9 @@
     "message": "Biometric unlock isn't available on this device.",
     "englishSource": "Biometric unlock isn't available on this device."
   },
-  "chooseYourGuardian": {
-    "message": "Choose your Guardian",
-    "englishSource": "Choose your Guardian"
-  },
   "chooseGuardianDescription": {
     "message": "Select an option below",
     "englishSource": "Select an option below"
-  },
-  "learnMoreAboutGuardian": {
-    "message": "Learn more about the Guardian",
-    "englishSource": "Learn more about the Guardian"
   },
   "guardianOperatedBy": {
     "message": "Operated by:",
@@ -1964,21 +1854,9 @@
     "message": "Location:",
     "englishSource": "Location:"
   },
-  "whatIsAGuardian": {
-    "message": "What is a Guardian?",
-    "englishSource": "What is a Guardian?"
-  },
-  "guardianInfoDescription": {
-    "message": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody.",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
-  },
   "guardianInfoWhatItDoesTitle": {
     "message": "What it does",
     "englishSource": "What it does"
-  },
-  "guardianInfoWhatItDoesDescription": {
-    "message": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device.",
-    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "What it cannot do",
@@ -1991,10 +1869,6 @@
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "Switching is easy",
     "englishSource": "Switching is easy"
-  },
-  "guardianInfoSwitchingIsEasyDescription": {
-    "message": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same.",
-    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Got it",
@@ -2260,37 +2134,13 @@
     "message": "Encrypted Wallet File",
     "englishSource": "Encrypted Wallet File"
   },
-  "guardianBadge": {
-    "message": "Guardian",
-    "englishSource": "Guardian"
-  },
-  "guardianSettings": {
-    "message": "Guardian Settings",
-    "englishSource": "Guardian Settings"
-  },
   "currentLabel": {
     "message": "Current",
     "englishSource": "Current"
   },
-  "newGuardianEndpoint": {
-    "message": "New Guardian Endpoint",
-    "englishSource": "New Guardian Endpoint"
-  },
-  "guardianEndpointUnchanged": {
-    "message": "That's already your current guardian.",
-    "englishSource": "That's already your current guardian."
-  },
-  "rotateGuardian": {
-    "message": "Rotate Guardian",
-    "englishSource": "Rotate Guardian"
-  },
   "keys": {
     "message": "Keys",
     "englishSource": "Keys"
-  },
-  "customGuardian": {
-    "message": "Custom Guardian",
-    "englishSource": "Custom Guardian"
   },
   "guardianProvider": {
     "message": "Provider",
@@ -2320,10 +2170,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian Updated!",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "Online",
     "englishSource": "Online"
@@ -2336,14 +2182,6 @@
     "message": "New",
     "englishSource": "New"
   },
-  "guardianSwitchAuthenticationDescription": {
-    "message": "Authenticate to approve this Guardian switch.",
-    "englishSource": "Authenticate to approve this Guardian switch."
-  },
-  "guardianAuthenticationUnavailable": {
-    "message": "Authentication is unavailable. Try again before switching Guardian.",
-    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
-  },
   "walletKeyHot": {
     "message": "Wallet key (hot)",
     "englishSource": "Wallet key (hot)"
@@ -2351,14 +2189,6 @@
   "recoveryPhraseCold": {
     "message": "Recovery phrase (cold)",
     "englishSource": "Recovery phrase (cold)"
-  },
-  "oldGuardianCantBlockTitle": {
-    "message": "Your old Guardian can't block this",
-    "englishSource": "Your old Guardian can't block this"
-  },
-  "oldGuardianCantBlockBody": {
-    "message": "Rotation is approved by your two on-device keys. The old Guardian is only notified.",
-    "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
     "message": "Rotate device key",
@@ -2396,18 +2226,6 @@
     "message": "Retry",
     "englishSource": "Retry"
   },
-  "guardianChangedTitle": {
-    "message": "Guardian changed",
-    "englishSource": "Guardian changed"
-  },
-  "guardianChangedBody": {
-    "message": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect.",
-    "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
-  },
-  "guardianUrlMismatch": {
-    "message": "That operator doesn't match your account's on-chain guardian.",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
-  },
   "revealHotKey": {
     "message": "Reveal device key",
     "englishSource": "Reveal device key"
@@ -2431,10 +2249,6 @@
   "coldPublicKeyLabel": {
     "message": "Recovery (Cold) Public Key",
     "englishSource": "Recovery (Cold) Public Key"
-  },
-  "guardianKeysRevealDescription": {
-    "message": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key.",
-    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
     "message": "Before you reveal your device key",
@@ -2495,10 +2309,6 @@
   "autoConsumeSettings": {
     "message": "Auto Consume MIDEN notes",
     "englishSource": "Auto Consume MIDEN notes"
-  },
-  "autoConsumeSettingsDescription": {
-    "message": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "Encrypted Wallet File",
@@ -2644,14 +2454,6 @@
     "message": "Choose how you want to recover your account if you lose access.",
     "englishSource": "Choose how you want to recover your account if you lose access."
   },
-  "guardianRecovery": {
-    "message": "Guardian",
-    "englishSource": "Guardian"
-  },
-  "guardianRecoveryDescription": {
-    "message": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state.",
-    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
-  },
   "fullyPrivateRecovery": {
     "message": "Fully Private",
     "englishSource": "Fully Private"
@@ -2664,14 +2466,6 @@
     "message": "How would you like to recover this wallet?",
     "englishSource": "How would you like to recover this wallet?"
   },
-  "importViaGuardian": {
-    "message": "Import via Guardian",
-    "englishSource": "Import via Guardian"
-  },
-  "importViaGuardianDescription": {
-    "message": "Use a guardian to recover and co-sign for this account.",
-    "englishSource": "Use a guardian to recover and co-sign for this account."
-  },
   "importPublicAccount": {
     "message": "Import public account",
     "englishSource": "Import public account"
@@ -2680,59 +2474,13 @@
     "message": "Import the public account derived from your seed phrase.",
     "englishSource": "Import the public account derived from your seed phrase."
   },
-  "guardianEndpoint": {
-    "message": "Guardian URL",
-    "englishSource": "Guardian URL"
-  },
-  "useDifferentGuardian": {
-    "message": "Use a different guardian",
-    "englishSource": "Use a different guardian"
-  },
-  "detectingGuardian": {
-    "message": "Looking for your guardian…",
-    "englishSource": "Looking for your guardian…"
-  },
-  "guardianDetectedTitle": {
-    "message": "Found your guardian: $name$",
-    "englishSource": "Found your guardian: $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "guardianDetectedMultiple": {
-    "message": "More than one guardian knows this account. We picked the one holding your most recent state.",
-    "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
-  },
   "useCustomGuardianInstead": {
     "message": "Use a different one instead?",
     "englishSource": "Use a different one instead?"
   },
-  "guardianNotDetected": {
-    "message": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL.",
-    "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
-  },
-  "guardianProbePartialFailure": {
-    "message": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
-    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
   "retryGuardianDetection": {
     "message": "Try detecting again",
     "englishSource": "Try detecting again"
-  },
-  "guardianAccountNotFound": {
-    "message": "We couldn't find your account on this guardian. Check the URL or import as a public account instead.",
-    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
-  },
-  "useCustomGuardianUrl": {
-    "message": "Use a custom Guardian URL",
-    "englishSource": "Use a custom Guardian URL"
   },
   "default": {
     "message": "Default",
@@ -2910,22 +2658,6 @@
     "message": "Send Payment",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "Claim All",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "Claim All? ($unclaimed$ / $total$)",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
   "totalPending": {
     "message": "Total Pending",
     "englishSource": "Total Pending"
@@ -2946,10 +2678,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
   },
   "notesPendingAcrossAssets": {
     "message": "$notes$ notes pending across $assets$ assets",
@@ -2981,21 +2709,9 @@
       }
     }
   },
-  "noteClaimFailedRetry": {
-    "message": "Claim failed — tap Retry to try again",
-    "englishSource": "Claim failed — tap Retry to try again"
-  },
   "noteUnavailable": {
     "message": "This note is no longer available",
     "englishSource": "This note is no longer available"
-  },
-  "pendingNotes": {
-    "message": "Pending notes",
-    "englishSource": "Pending notes"
-  },
-  "whatArePendingNotes": {
-    "message": "What are pending notes?",
-    "englishSource": "What are pending notes?"
   },
   "consumeYourNotes": {
     "message": "Consume your notes",
@@ -3398,10 +3114,6 @@
     "message": "Haptic Feedback",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "You don't currently have notes to claim.",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
     "message": "You have received a note",
     "englishSource": "You have received a note"
@@ -3413,23 +3125,6 @@
   "transactionFailedNotificationBody": {
     "message": "A transaction couldn't be completed. Open the wallet to review.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
-  },
-  "noteReceivedTapToClaim": {
-    "message": "Tap here to claim it",
-    "englishSource": "Tap here to claim it"
-  },
-  "noteReceivedClickToClaim": {
-    "message": "Click to view and claim it",
-    "englishSource": "Click to view and claim it"
-  },
-  "noteReceivedMultiple": {
-    "message": "You have $count$ new notes to claim",
-    "englishSource": "You have $count$ new notes to claim",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
   },
   "passwordsCanBeInsecure": {
     "message": "Passwords can be insecure. Use biometric authentication instead.",
@@ -3502,10 +3197,6 @@
   "enterAddress": {
     "message": "Enter Address",
     "englishSource": "Enter Address"
-  },
-  "failedToClaimNote": {
-    "message": "Failed to claim note",
-    "englishSource": "Failed to claim note"
   },
   "testnet": {
     "message": "Testnet",
@@ -3659,29 +3350,13 @@
     "message": "Connect another wallet",
     "englishSource": "Connect another wallet"
   },
-  "midenBridge": {
-    "message": "Miden Bridge",
-    "englishSource": "Miden Bridge"
-  },
   "connectEvmWallet": {
     "message": "Connect an EVM wallet",
     "englishSource": "Connect an EVM wallet"
   },
-  "connectEvmWalletDescription": {
-    "message": "Connect a wallet to bridge assets to and from Miden.",
-    "englishSource": "Connect a wallet to bridge assets to and from Miden."
-  },
   "onlyBridgeableTokenSupported": {
     "message": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens.",
     "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
-  "connectDestinationWalletToClaim": {
-    "message": "Connect the destination wallet to claim.",
-    "englishSource": "Connect the destination wallet to claim."
-  },
-  "bridgeDetails": {
-    "message": "Bridge details",
-    "englishSource": "Bridge details"
   },
   "route": {
     "message": "Route",
@@ -3723,25 +3398,9 @@
     "message": "Confirm Deposit",
     "englishSource": "Confirm Deposit"
   },
-  "bridgeDepositProcessing": {
-    "message": "Confirming bridge deposit",
-    "englishSource": "Confirming bridge deposit"
-  },
   "bridgeDepositProcessingDescription": {
     "message": "Approve the request in your wallet and keep this screen open while Sepolia confirms it.",
     "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
-  },
-  "bridgeDepositFailed": {
-    "message": "Bridge deposit failed",
-    "englishSource": "Bridge deposit failed"
-  },
-  "bridgeDepositSubmitted": {
-    "message": "Bridge initiated!",
-    "englishSource": "Bridge initiated!"
-  },
-  "bridgeDepositDeliveryDescription": {
-    "message": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "View on Etherscan",
@@ -3755,49 +3414,9 @@
     "message": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it.",
     "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
-  "fastEthWrapNotice": {
-    "message": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet.",
-    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
-  },
   "destinationNetwork": {
     "message": "Destination network",
     "englishSource": "Destination network"
-  },
-  "claimStatus": {
-    "message": "Claim status",
-    "englishSource": "Claim status"
-  },
-  "claimAsset": {
-    "message": "Claim Asset",
-    "englishSource": "Claim Asset"
-  },
-  "claimAssetSubmitted": {
-    "message": "Claim submitted — funds are on the connected EVM wallet.",
-    "englishSource": "Claim submitted — funds are on the connected EVM wallet."
-  },
-  "claimable": {
-    "message": "Ready to claim",
-    "englishSource": "Ready to claim"
-  },
-  "claiming": {
-    "message": "Claiming…",
-    "englishSource": "Claiming…"
-  },
-  "claimed": {
-    "message": "Claimed",
-    "englishSource": "Claimed"
-  },
-  "claimPending": {
-    "message": "Bridging — claim not ready yet",
-    "englishSource": "Bridging — claim not ready yet"
-  },
-  "claimFailedStatus": {
-    "message": "Claim failed",
-    "englishSource": "Claim failed"
-  },
-  "noManualClaimRequired": {
-    "message": "Funds arrive automatically — no claim needed.",
-    "englishSource": "Funds arrive automatically — no claim needed."
   },
   "fastRouteLabel": {
     "message": "Fast (Epoch)",
@@ -3806,18 +3425,6 @@
   "slowRouteLabel": {
     "message": "Slow (Agglayer)",
     "englishSource": "Slow (Agglayer)"
-  },
-  "bridgeRowTitle": {
-    "message": "Bridge $from$ → $to$",
-    "englishSource": "Bridge $from$ → $to$",
-    "placeholders": {
-      "from": {
-        "content": "$1"
-      },
-      "to": {
-        "content": "$2"
-      }
-    }
   },
   "bridgeRowVia": {
     "message": "Via $provider$ → $network$",
@@ -3907,10 +3514,6 @@
     "message": "Deposit details",
     "englishSource": "Deposit details"
   },
-  "earnWithdrawDetailsTitle": {
-    "message": "Withdrawal details",
-    "englishSource": "Withdrawal details"
-  },
   "depositIntentLabel": {
     "message": "Deposit intent",
     "englishSource": "Deposit intent"
@@ -3918,10 +3521,6 @@
   "redeemIntentLabel": {
     "message": "Redeem intent",
     "englishSource": "Redeem intent"
-  },
-  "earnWithdrawRowTitle": {
-    "message": "Withdraw from Earn",
-    "englishSource": "Withdraw from Earn"
   },
   "earnWithdrawRowVia": {
     "message": "Via Epoch → Miden",
@@ -3934,26 +3533,6 @@
   "earnWithdrawStatusDelivering": {
     "message": "Delivering",
     "englishSource": "Delivering"
-  },
-  "withdrawalStarted": {
-    "message": "Withdrawal Started!",
-    "englishSource": "Withdrawal Started!"
-  },
-  "withdrawalStartedDescription": {
-    "message": "Your funds are being bridged back to Miden. Track delivery in Activity.",
-    "englishSource": "Your funds are being bridged back to Miden. Track delivery in Activity."
-  },
-  "withdrawalProcessing": {
-    "message": "Processing Withdrawal",
-    "englishSource": "Processing Withdrawal"
-  },
-  "withdrawalProcessingDescription": {
-    "message": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds.",
-    "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
-  },
-  "withdrawalFailed": {
-    "message": "Withdrawal Failed",
-    "englishSource": "Withdrawal Failed"
   },
   "transactionComplete": {
     "message": "Transaction Complete!",
@@ -4026,10 +3605,6 @@
   "devEndpointExplorer": {
     "message": "Explorer URL",
     "englishSource": "Explorer URL"
-  },
-  "devEndpointGuardian": {
-    "message": "Custom guardian URL",
-    "englishSource": "Custom guardian URL"
   },
   "devEndpointChecking": {
     "message": "Checking…",
