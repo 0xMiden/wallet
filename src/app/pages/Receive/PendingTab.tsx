@@ -554,10 +554,10 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
       <div className="flex items-center gap-3 py-3.5 relative z-10">
         <div className="flex min-w-0 flex-1 flex-col gap-1 font-heading text-heading-gray">
           <div className="flex items-end gap-1.5">
-            <span data-testid="detail-note-amount" className="text-xl font-extrabold leading-none text-receive-green">
-              {formattedAmount}
+            <span data-testid="detail-note-amount" className="inline-flex items-end gap-1.5">
+              <span className="text-xl font-extrabold leading-none text-receive-green">{formattedAmount}</span>
+              <span className="text-sm font-bold leading-none">{symbol}</span>
             </span>
-            <span className="text-sm font-bold leading-none">{symbol}</span>
             <span className="text-[13px] font-medium leading-none opacity-50">
               {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
             </span>

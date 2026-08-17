@@ -129,6 +129,13 @@ describe('PendingTab — AssetSummaryRow attention badge (#456)', () => {
 });
 
 describe('PendingTab — DetailNoteRow treatment (#456)', () => {
+  it('keeps the token symbol in the rendered amount contract', () => {
+    renderTab({ safeClaimableNotes: [makeNote('a')] });
+    openDetail();
+
+    expect(screen.getByTestId('detail-note-amount')).toHaveTextContent('1000000TST');
+  });
+
   it('renders Retry + the retry explanation for a retriable note', () => {
     renderTab({
       safeClaimableNotes: [makeNote('a')],
