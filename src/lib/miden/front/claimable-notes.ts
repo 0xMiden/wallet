@@ -40,6 +40,7 @@ type ParsedNote = {
   isBeingClaimed: boolean;
   type: NoteTypeEnum | 'unknown';
   swapOrder?: SwapOrderNoteMetadata;
+  recallableAtMs?: number;
 };
 
 // -------------------- Pure helpers (no side effects) --------------------
@@ -73,7 +74,8 @@ function parseNotes(
       senderAddress: note.senderAccountId ?? '',
       isBeingClaimed: notesBeingClaimed.has(noteId),
       type: kind,
-      swapOrder: swapOrders.get(noteId)
+      swapOrder: swapOrders.get(noteId),
+      recallableAtMs: note.recallableAtMs
     });
   }
 
@@ -126,7 +128,8 @@ function attachMetadataToNotes(
       senderAddress: n.senderAddress,
       isBeingClaimed: n.isBeingClaimed,
       type: n.type,
-      swapOrder: n.swapOrder
+      swapOrder: n.swapOrder,
+      recallableAtMs: n.recallableAtMs
     }));
 }
 
@@ -248,7 +251,8 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
         senderAddress: n.senderAddress,
         isBeingClaimed: extensionClaimingNoteIds.has(n.id),
         type: (n.noteType as NoteTypeEnum | 'unknown') ?? 'unknown',
-        swapOrder: n.swapOrder ? { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true } : undefined
+        swapOrder: n.swapOrder ? { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true } : undefined,
+        recallableAtMs: n.recallableAtMs
       }));
   }, [enabled, extensionNotes, extensionClaimingNoteIds, assetsMetadata]);
 

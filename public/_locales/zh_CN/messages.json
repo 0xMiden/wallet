@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "如果无人认领，则返回发件人 $date$ ",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$%",
     "englishSource": "$change$%",
@@ -1630,6 +1639,14 @@
     "message": "添加联系人",
     "englishSource": "Add Contact"
   },
+  "addToContactsPrompt": {
+    "message": "添加到联系人？",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "最近的",
+    "englishSource": "Recent"
+  },
   "newContactPlaceholder": {
     "message": "例如爱丽丝鲍勃",
     "englishSource": "e.g. Alice Bob"
@@ -3028,6 +3045,55 @@
   "pendingNotes": {
     "message": "待处理 notes",
     "englishSource": "Pending notes"
+  },
+  "whatArePendingNotes": {
+    "message": "什么是待处理的notes？",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "消耗你的notes",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "将这些待处理资金添加到您的余额中以开始支出。",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "当有人向您发送资金时，这些资金将以私人方式到达",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "<xid=\"0\"/>",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— 密封的包裹只有您才能打开。",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "消费",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "a note 将其解压到您的可支出余额中。在您这样做之前，资金是您的，但还不能花掉。",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "你有",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "等待。随时使用它们——不着急，而且资金不会面临风险。",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
   },
   "getTokens": {
     "message": "获取代币",

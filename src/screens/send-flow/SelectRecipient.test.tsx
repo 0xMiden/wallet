@@ -131,6 +131,84 @@ describe('SelectRecipient', () => {
   });
 });
 
+describe('SelectRecipient — recent recipients', () => {
+  const RECENTS = [
+    { address: 'mtst1recent_alice', name: 'Alice', chain: 'miden' as const },
+    { address: ETH_ADDRESS, chain: 'ethereum' as const, networkName: 'Sepolia' },
+    { address: '0x1111111111111111111111111111111111111111', chain: 'ethereum' as const }
+  ];
+
+  it('lists recents with names, chain badges and a network fallback, and fills on tap', () => {
+    const onSelectRecent = jest.fn();
+    renderRecipient({ recents: RECENTS, onSelectRecent });
+
+    expect(screen.getByText('recent')).toBeInTheDocument();
+    expect(screen.getAllByTestId('send-recent-recipient')).toHaveLength(3);
+
+    // A saved contact shows its name; an unknown address falls back to the truncated form.
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+    // Miden rows get the badge, EVM rows show the network name (falling back to Ethereum).
+    expect(screen.getByText('miden')).toBeInTheDocument();
+    expect(screen.getByText('Sepolia')).toBeInTheDocument();
+    expect(screen.getByText('ethereum')).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByTestId('send-recent-recipient')[0]!);
+    expect(onSelectRecent).toHaveBeenCalledWith(RECENTS[0]);
+  });
+
+  it('hides the recents section once an address is entered', () => {
+    renderRecipient({ recents: RECENTS, address: MIDEN_ADDRESS });
+
+    expect(screen.queryByTestId('send-recent-recipients')).not.toBeInTheDocument();
+  });
+
+  it('renders nothing when there are no recent sends', () => {
+    renderRecipient({ recents: [] });
+
+    expect(screen.queryByTestId('send-recent-recipients')).not.toBeInTheDocument();
+  });
+});
+
+describe('SelectRecipient — add to contacts', () => {
+  it('offers to save an unknown valid recipient and opens the add-contact sheet', () => {
+    const onAddContact = jest.fn();
+    const props = renderRecipient({
+      address: MIDEN_ADDRESS,
+      isValidAddress: true,
+      canAddContact: true,
+      onAddContact
+    });
+
+    expect(screen.getByText('addToContactsPrompt')).toBeInTheDocument();
+    expect(screen.queryByText('addressBook')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('send-address-book'));
+    expect(onAddContact).toHaveBeenCalledTimes(1);
+    expect(props.onAddressBook).not.toHaveBeenCalled();
+  });
+
+  it('keeps the address book pill for a known contact', () => {
+    const props = renderRecipient({
+      address: MIDEN_ADDRESS,
+      isValidAddress: true,
+      recipientName: 'Alice',
+      onAddContact: jest.fn()
+    });
+
+    expect(screen.getByText('addressBook')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('send-address-book'));
+    expect(props.onAddressBook).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to the address book when no add-contact handler is wired', () => {
+    const props = renderRecipient({ address: MIDEN_ADDRESS, isValidAddress: true, canAddContact: true });
+
+    expect(screen.getByText('addressBook')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('send-address-book'));
+    expect(props.onAddressBook).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('SelectRecipient — mobile keyboard (regression)', () => {
   it('labels the return key Done on the address field', () => {
     renderRecipient();

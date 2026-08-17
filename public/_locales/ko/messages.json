@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "청구하지 않은 경우 보낸 사람에게 반환됩니다. $date$ ",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$%",
     "englishSource": "$change$%",
@@ -1630,6 +1639,14 @@
     "message": "연락처 추가",
     "englishSource": "Add Contact"
   },
+  "addToContactsPrompt": {
+    "message": "연락처에 추가하시겠습니까?",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "최근의",
+    "englishSource": "Recent"
+  },
   "newContactPlaceholder": {
     "message": "예를 들어 앨리스 밥",
     "englishSource": "e.g. Alice Bob"
@@ -3028,6 +3045,55 @@
   "pendingNotes": {
     "message": "notes 보류 중",
     "englishSource": "Pending notes"
+  },
+  "whatArePendingNotes": {
+    "message": "보류 중인 notes은 무엇입니까?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "notes을(를) 소모하세요",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "지출을 시작하려면 보류 중인 자금을 잔액에 추가하세요.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "누군가가 귀하에게 자금을 보내면 비공개로 도착합니다.",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— 봉인된 패키지는 본인만 열 수 있습니다.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "태워 버리는",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "a note는 이를 지출 가능한 잔액에 넣습니다. 그렇게 하기 전까지 자금은 귀하의 것이지만 아직은 사용할 수 없습니다.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "당신은",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "대기 중. 언제든지 사용하세요. 서두를 필요도 없고 자금이 위험에 처할 일도 없습니다.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
   },
   "getTokens": {
     "message": "토큰 받기",

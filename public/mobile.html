@@ -30,13 +30,18 @@
         text-rendering: optimizeLegibility;
       }
 
-      /* Safe area padding for notched devices */
+      /* Safe area padding for notched devices. The bottom edge also consumes
+         --keyboard-height (mirrored from the native keyboard by
+         src/lib/mobile/keyboard-inset.ts, iOS only) so bottom-pinned CTAs ride
+         above the soft keyboard; the transition runs in sync with the native
+         keyboard slide (keyboardWillShow fires with the final height). */
       body {
         padding-top: env(safe-area-inset-top);
-        padding-bottom: max(12px, env(safe-area-inset-bottom));
+        padding-bottom: max(12px, env(safe-area-inset-bottom), var(--keyboard-height, 0px));
         padding-left: env(safe-area-inset-left);
         padding-right: env(safe-area-inset-right);
         box-sizing: border-box;
+        transition: padding-bottom 0.25s ease-out;
       }
 
       /* Ensure #root children take full height */

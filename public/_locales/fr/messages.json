@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "Renvoie à l'expéditeur s'il n'est pas réclamé par $date$ ",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$%",
     "englishSource": "$change$%",
@@ -1630,6 +1639,14 @@
     "message": "Ajouter un contact",
     "englishSource": "Add Contact"
   },
+  "addToContactsPrompt": {
+    "message": "Ajouter aux contacts ?",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "Récent",
+    "englishSource": "Recent"
+  },
   "newContactPlaceholder": {
     "message": "par exemple. Alice Bob",
     "englishSource": "e.g. Alice Bob"
@@ -3027,6 +3044,55 @@
   "pendingNotes": {
     "message": "En attente notes",
     "englishSource": "Pending notes"
+  },
+  "whatArePendingNotes": {
+    "message": "Qu'est-ce qui est en attente notes ?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "Consommez votre notes",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "Ajoutez ces fonds en attente à votre solde pour commencer à dépenser.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "Quand quelqu'un vous envoie des fonds, ils arrivent en tant que fonds privés",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— des paquets scellés que vous seul pouvez ouvrir.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "Consommant",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "a note le décompresse dans votre solde disponible. En attendant, les fonds vous appartiennent mais ne peuvent pas encore être dépensés.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "Tu as",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "en attendant. Consommez-les à tout moment : rien ne presse et aucun argent n'est jamais en danger.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
   },
   "getTokens": {
     "message": "Obtenez des jetons",

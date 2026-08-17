@@ -89,10 +89,14 @@ function DrawerContent({
         data-slot="drawer-content"
         aria-describedby={undefined}
         className={cn(
-          // pb: the sheet is fixed to the viewport bottom, so body's safe-area
-          // padding (mobile.html) doesn't reach it — pad past the Android nav
-          // bar / iOS home indicator ourselves (env() is 0 on extension).
-          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[20px] bg-surface-solid text-sm outline-none pb-[env(safe-area-inset-bottom)]',
+          // pb: the sheet is fixed to the viewport bottom, so body's safe-area /
+          // keyboard padding (mobile.html) doesn't reach it — pad past the
+          // Android nav bar / iOS home indicator AND the iOS soft keyboard
+          // (--keyboard-height, see lib/mobile/keyboard-inset.ts) ourselves
+          // (env() and the var are 0 on extension/Android). The transition runs
+          // in sync with the native keyboard slide.
+          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[20px] bg-surface-solid text-sm outline-none',
+          'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-[padding-bottom] duration-[250ms] ease-out',
           className
         )}
         onPointerDownOutside={event => {

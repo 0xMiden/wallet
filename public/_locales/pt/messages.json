@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "Devolve ao remetente se não for reclamado por $date$ ",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$%",
     "englishSource": "$change$%",
@@ -1630,6 +1639,14 @@
     "message": "Adicionar contato",
     "englishSource": "Add Contact"
   },
+  "addToContactsPrompt": {
+    "message": "Adicionar aos contatos?",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "Recente",
+    "englishSource": "Recent"
+  },
   "newContactPlaceholder": {
     "message": "por exemplo, Alice Bob",
     "englishSource": "e.g. Alice Bob"
@@ -3026,6 +3043,46 @@
   "pendingNotes": {
     "message": "Pendente notes",
     "englishSource": "Pending notes"
+  },
+  "whatArePendingNotes": {
+    "message": "O que está pendente notes?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "Consumir seu notes",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "Adicione esses fundos pendentes ao seu saldo para começar a gastar.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "Quando alguém lhe envia fundos, eles chegam como privados",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "<xid=\"0\"/>",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "- pacotes lacrados que só você pode abrir.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "Consumindo",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "um note descompacta-o em seu saldo disponível. Até que você faça isso, os fundos serão seus, mas ainda não poderão ser gastos.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "Você tem",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "esperando. Consumi-los a qualquer momento – não há pressa e nenhum dinheiro está em risco.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
   },
   "getTokens": {
     "message": "Obtenha fichas",
