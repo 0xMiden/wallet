@@ -7,6 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { TokenLogo } from 'components/TokenLogo';
+import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 
@@ -58,9 +59,9 @@ export interface SelectAmountProps {
   onSelectNetwork?: () => void;
 }
 
-/** Trim trailing zeros so "200.000" renders as "200" but "200.5" stays intact. */
+/** Preserve the usual 4dp limit, expanding for tiny balances, then trim trailing zeros. */
 function formatBalance(value: number): string {
-  return Number(value.toFixed(4)).toString();
+  return toAdaptiveFixed(value, 4).replace(/\.?0+$/, '');
 }
 
 /** Blue circle used as a placeholder before a token/network is chosen. */
@@ -188,7 +189,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
             DEX tokens carry no fiatPrice, so a "$0.00" line would be misleading. */}
         {token.fiatPrice > 0 && (
           <span className="font-heading text-gray text-base font-bold">
-            {t('approxFiatValue', { value: `$${availableFiat.toFixed(2)}` })}
+            {t('approxFiatValue', { value: `$${toAdaptiveFixed(availableFiat)}` })}
           </span>
         )}
       </>

@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Drawer as VaulDrawer } from 'vaul';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
 
@@ -21,12 +22,19 @@ interface DrawerProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
+  /**
+   * Names this drawer's overlay screen-key segment (`drawer:<screenKey>`).
+   * Omit to fall back to the generic `drawer` id — open/close is still
+   * captured, just without a per-drawer label. E2E-only; no visual effect.
+   */
+  screenKey?: string;
 }
 
-function Drawer({ open = false, onOpenChange, children }: DrawerProps) {
+function Drawer({ open = false, onOpenChange, children, screenKey }: DrawerProps) {
   const onClose = useCallback(() => onOpenChange?.(false), [onOpenChange]);
   // Keep the bottom tab navbar hidden while any drawer is open.
   useHideNavbarWhileOpen(open);
+  useOverlayScreenKey(open, screenKey ? `drawer:${screenKey}` : 'drawer');
   return (
     <DrawerContext.Provider value={{ open, onClose }}>
       <VaulDrawer.Root open={open} onOpenChange={onOpenChange} shouldScaleBackground={isExtension()} direction="bottom">

@@ -2,7 +2,11 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { getCurrentScreen, setRoutePart, __resetScreenKeyForTest } from 'lib/e2e/screen-key';
+
 import Dialogs from './Dialogs';
+
+const ORIGINAL_E2E = process.env.MIDEN_E2E_TEST;
 
 // `lib/ui/dialog` owns the modal params store and the close dispatchers.
 // Mock it so each test can steer `useModalsParams()` (open/closed for each
@@ -181,6 +185,54 @@ describe('Dialogs', () => {
       expect(handled).toBe(false);
       expect(dialog.dispatchConfirmClose).not.toHaveBeenCalled();
       expect(dialog.dispatchAlertClose).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('screen-key overlay wiring', () => {
+    beforeEach(() => {
+      process.env.MIDEN_E2E_TEST = 'true';
+      __resetScreenKeyForTest();
+      setRoutePart('/x');
+    });
+
+    afterEach(() => {
+      if (ORIGINAL_E2E === undefined) delete process.env.MIDEN_E2E_TEST;
+      else process.env.MIDEN_E2E_TEST = ORIGINAL_E2E;
+    });
+
+    it('publishes dialog:alert while the alert modal is open', () => {
+      setParams({ alertParams: { isOpen: true }, confirmParams: { isOpen: false } });
+
+      render(<Dialogs />);
+
+      expect(getCurrentScreen().key).toBe('/x > dialog:alert');
+    });
+
+    it('publishes dialog:confirm while the confirmation modal is open', () => {
+      setParams({ alertParams: { isOpen: false }, confirmParams: { isOpen: true } });
+
+      render(<Dialogs />);
+
+      expect(getCurrentScreen().key).toBe('/x > dialog:confirm');
+    });
+
+    it('publishes nothing extra when neither modal is open', () => {
+      setParams({ alertParams: { isOpen: false }, confirmParams: { isOpen: false } });
+
+      render(<Dialogs />);
+
+      expect(getCurrentScreen().key).toBe('/x');
+    });
+
+    it('pops dialog:alert when the alert modal closes', () => {
+      setParams({ alertParams: { isOpen: true }, confirmParams: { isOpen: false } });
+      const { rerender } = render(<Dialogs />);
+      expect(getCurrentScreen().key).toBe('/x > dialog:alert');
+
+      setParams({ alertParams: { isOpen: false }, confirmParams: { isOpen: false } });
+      rerender(<Dialogs />);
+
+      expect(getCurrentScreen().key).toBe('/x');
     });
   });
 });

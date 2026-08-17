@@ -11,6 +11,7 @@ import PageLayout from 'app/layouts/PageLayout';
 import { Button, ButtonVariant } from 'components/Button';
 import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
 import { ScreenHeader } from 'components/ScreenHeader';
+import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
   cancelTransactionById,
   getSwapSettlementNotes,
@@ -178,7 +179,8 @@ function formatDisplayAmount(amount: string | number | bigint): string {
     return amountString;
   }
 
-  return displayAmount.decimalPlaces(DISPLAY_DECIMAL_PLACES, BigNumber.ROUND_DOWN).toFixed();
+  const decimalPlaces = getAdaptiveDecimalPlaces(displayAmount, DISPLAY_DECIMAL_PLACES);
+  return displayAmount.decimalPlaces(decimalPlaces, BigNumber.ROUND_DOWN).toFixed();
 }
 
 function formatFiatDisplayAmount(
@@ -196,7 +198,7 @@ function formatFiatDisplayAmount(
   const { price } = getTokenPrice(tokenPrices, tokenSymbol);
   const fiatAmount = displayAmount.abs().times(price);
 
-  return t('historyDetailsFiatApprox', { amount: `$${fiatAmount.toFixed(2)}` });
+  return t('historyDetailsFiatApprox', { amount: `$${toAdaptiveFixed(fiatAmount)}` });
 }
 
 /** Right-aligned stack of trimmed, copyable note ids. */

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
@@ -87,6 +87,14 @@ jest.mock('app/templates/history/History', () => ({
   )
 }));
 
+// The page owns an 8s AggLayer reconciliation poll; stub the reconciler so the
+// poll's guard/error branches are drivable without the activity/SDK stack.
+const mockReconcile = jest.fn();
+
+jest.mock('lib/miden/activity', () => ({
+  reconcileAgglayerBridgedReceives: (...args: unknown[]) => mockReconcile(...args)
+}));
+
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'test-public-key' })
 }));
@@ -109,6 +117,7 @@ describe('AllHistory', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockedUseClaimableNotes.mockReturnValue({ data: [] });
+    mockReconcile.mockResolvedValue(undefined);
   });
 
   it('renders the activity header, filter chips and search field', () => {
@@ -226,5 +235,78 @@ describe('AllHistory', () => {
 
     expect(getHistory().getAttribute('data-search-query')).toBe('usdc');
     expect((screen.getByTestId('search-input') as HTMLInputElement).value).toBe('usdc');
+  });
+
+  // AggLayer bridge-in rows only become claimable once reconciled, so the page
+  // keeps a poll running for as long as it is mounted.
+  describe('AggLayer reconciliation poll', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      jest.runOnlyPendingTimers();
+      jest.useRealTimers();
+    });
+
+    const tick = async (ms: number) => {
+      await act(async () => {
+        jest.advanceTimersByTime(ms);
+      });
+    };
+
+    it('reconciles immediately on mount and again on every interval', async () => {
+      render(<AllHistory />);
+      // Let the mount-time reconciliation settle so `running` is back to false.
+      await act(async () => {});
+      expect(mockReconcile).toHaveBeenCalledTimes(1);
+
+      await tick(8_000);
+      expect(mockReconcile).toHaveBeenCalledTimes(2);
+
+      await tick(8_000);
+      expect(mockReconcile).toHaveBeenCalledTimes(3);
+    });
+
+    it('skips a tick while the previous reconciliation is still running', async () => {
+      let release: () => void = () => {};
+      mockReconcile.mockImplementation(() => new Promise<void>(resolve => (release = resolve)));
+
+      render(<AllHistory />);
+      expect(mockReconcile).toHaveBeenCalledTimes(1);
+
+      // The mount call never settled, so the interval tick is a no-op.
+      await tick(8_000);
+      expect(mockReconcile).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        release();
+      });
+      await tick(8_000);
+      expect(mockReconcile).toHaveBeenCalledTimes(2);
+    });
+
+    it('warns and keeps polling when a reconciliation rejects', async () => {
+      mockReconcile.mockRejectedValueOnce(new Error('rpc down'));
+
+      render(<AllHistory />);
+      await act(async () => {});
+
+      expect(console.warn).toHaveBeenCalledWith('[activity] AggLayer bridge poll failed', expect.any(Error));
+
+      await tick(8_000);
+      expect(mockReconcile).toHaveBeenCalledTimes(2);
+    });
+
+    it('stops polling once the page unmounts', async () => {
+      const { unmount } = render(<AllHistory />);
+      expect(mockReconcile).toHaveBeenCalledTimes(1);
+
+      unmount();
+      await tick(8_000);
+
+      expect(mockReconcile).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -94,13 +94,23 @@ describe('AssetRow', () => {
     expect(spark).toHaveAttribute('data-width', '120');
     expect(spark).toHaveAttribute('data-height', '32');
 
-    // Amount + price plumbing: balance.toFixed(2) + symbol; balance * price.
+    // Amount + price plumbing: standard 2dp formatting + symbol; balance * price.
     expect(item).toHaveAttribute('data-amount', '2.00 BTC');
     expect(item).toHaveAttribute('data-price', '$200.00');
 
     // getTokenPrice / useTokenSparkline called with the symbol.
     expect(mockGetTokenPrice).toHaveBeenCalledWith(TOKEN_PRICES, 'BTC');
     expect(mockUseTokenSparkline).toHaveBeenCalledWith('BTC', '1D');
+  });
+
+  it('expands precision for a small non-zero balance and fiat value', () => {
+    mockGetTokenPrice.mockReturnValue(priceInfo({ price: 2 }));
+
+    render(<AssetRow asset={makeAsset({ balance: 0.001234 })} tokenPrices={TOKEN_PRICES} />);
+
+    const item = screen.getByTestId('asset-list-item');
+    expect(item).toHaveAttribute('data-amount', '0.0012 BTC');
+    expect(item).toHaveAttribute('data-price', '$0.0025');
   });
 
   it('treats an exactly-zero change as positive', () => {

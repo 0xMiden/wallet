@@ -401,7 +401,20 @@ export default defineConfig({
   },
 
   worker: {
-    format: 'es'
+    format: 'es',
+    // Same reason as vite.background.config.ts: Vite bundles workers in a
+    // separate pass with its own asset naming, so this config also emitted a
+    // second copy of the SDK's 19.5 MB wasm as `assets/miden_client_web-<hash>.wasm`
+    // alongside the main pass's `static/wasm/…`. BOTH configs need this — fixing
+    // only one leaves the other re-adding the duplicate (verified the hard way).
+    rollupOptions: {
+      output: {
+        assetFileNames: assetInfo =>
+          assetInfo.names?.[0]?.endsWith('.wasm')
+            ? 'static/wasm/[name].[hash][extname]'
+            : 'static/media/[name].[hash][extname]'
+      }
+    }
   },
 
   resolve: {

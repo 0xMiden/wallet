@@ -287,12 +287,37 @@ describe('formatBridgeOutputAmount', () => {
     expect(formatBridgeOutputAmount('12')).toBe('12.00');
   });
 
+  it('expands precision for a small non-zero output', () => {
+    expect(formatBridgeOutputAmount('0.00126')).toBe('0.0013');
+  });
+
   it('passes non-numeric input through unchanged', () => {
     expect(formatBridgeOutputAmount('not-a-number')).toBe('not-a-number');
   });
 });
 
 describe('bridgeStatusOf', () => {
+  // ITransactionStatus.Failed === 3. A failed Miden tx never created a deposit,
+  // so its terminal status must beat the route's own (initially pending) metadata.
+  it('reports a failed Miden transaction as failed regardless of route metadata', () => {
+    expect(bridgeStatusOf(bridgeEntry({ status: 3, bridgeProvider: 'agglayer', bridgeClaimStatus: 'pending' }))).toBe(
+      'failed'
+    );
+  });
+
+  it.each([
+    ['ready', 'confirmed'],
+    ['received', 'confirmed'],
+    ['failed', 'failed'],
+    [undefined, 'pending']
+  ])('maps the inbound bridge phase %s', (bridgeInPhase, expected) => {
+    expect(
+      bridgeStatusOf(
+        bridgeEntry({ txType: 'bridged-receive', bridgeInPhase: bridgeInPhase as IHistoryEntry['bridgeInPhase'] })
+      )
+    ).toBe(expected);
+  });
+
   it('maps the agglayer claim lifecycle', () => {
     expect(bridgeStatusOf(bridgeEntry({ bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' }))).toBe('confirmed');
     expect(bridgeStatusOf(bridgeEntry({ bridgeProvider: 'agglayer', bridgeClaimStatus: 'failed' }))).toBe('failed');
@@ -399,6 +424,22 @@ describe('bridgeInRowDisplay', () => {
     });
   });
 
+  // Once the note is consumed the row's own amount is the truth, so a `received`
+  // phase wins over the quoted output amount even on a bridged-receive row.
+  it('prefers the row amount over the quoted output once the phase is received', () => {
+    expect(
+      bridgeInRowDisplay(
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'received',
+          amount: 7n,
+          bridgeInOutputAmount: '99',
+          bridgeInProvider: 'epoch'
+        })
+      ).outAmount
+    ).toBe('7');
+  });
+
   it('defaults the source symbol to USDC and labels a non-agglayer provider Epoch', () => {
     expect(bridgeInRowDisplay(bridgeEntry({ txType: 'consume', bridgeInProvider: 'epoch' }))).toEqual({
       inSymbol: 'USDC',
@@ -418,10 +459,14 @@ describe('earn withdraw helpers', () => {
     expect(isEarnWithdrawEntry(bridgeEntry({ txType: 'send' }))).toBe(false);
   });
 
-  it('trims a human decimal amount to at most two places, rounding down', () => {
+  it('trims a human decimal amount to two places, rounding down', () => {
     expect(formatEarnWithdrawAmount('2.50000000')).toBe('2.5');
     expect(formatEarnWithdrawAmount('1.239')).toBe('1.23');
     expect(formatEarnWithdrawAmount('7')).toBe('7');
+  });
+
+  it('expands precision for a small non-zero withdrawal amount', () => {
+    expect(formatEarnWithdrawAmount('0.001239')).toBe('0.0012');
   });
 
   it('passes a non-numeric amount through unchanged', () => {
