@@ -1670,34 +1670,6 @@
     "message": "開始するには、ウォレットにトークンを追加してください。",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "今すぐ資金を投入",
-    "englishSource": "Fund now"
-  },
-  "walletFundingLoadingTitle": {
-    "message": "MIDENのリクエスト",
-    "englishSource": "Requesting MIDEN"
-  },
-  "walletFundingLoadingBody": {
-    "message": "今すぐミデン faucet に電話します。リクエストの続行中にこのドロワーを閉じることができます。",
-    "englishSource": "Calling the Miden faucet now. You can close this drawer while the request continues."
-  },
-  "walletFundingSuccessTitle": {
-    "message": "MIDEN は正常にリクエストされました",
-    "englishSource": "MIDEN requested successfully"
-  },
-  "walletFundingSuccessBody": {
-    "message": "トークンは準備中です。 note が到着すると残高が更新されます。",
-    "englishSource": "Your tokens are on the way. Your balance will update after the note arrives."
-  },
-  "walletFundingFailureTitle": {
-    "message": "あなたのウォレットに資金を投入できませんでした",
-    "englishSource": "We couldn’t fund your wallet"
-  },
-  "walletFundingFailureBody": {
-    "message": "faucet リクエストは失敗しました。以下のエラーを確認して、再試行してください。",
-    "englishSource": "The faucet request failed. Review the error below and try again."
-  },
   "faucetPromptFunding": {
     "message": "資金調達",
     "englishSource": "Funding"
@@ -1723,30 +1695,6 @@
     "message": "資金の準備ができました",
     "englishSource": "Your funds are ready"
   },
-  "fundWalletLoadingTitle": {
-    "message": "ウォレットに資金を供給する",
-    "englishSource": "Funding your wallet"
-  },
-  "fundWalletLoadingBody": {
-    "message": "faucet からトークンをリクエストしています…",
-    "englishSource": "Requesting tokens from the faucet…"
-  },
-  "fundWalletSuccessTitle": {
-    "message": "ウォレットに資金が投入されました",
-    "englishSource": "Wallet funded"
-  },
-  "fundWalletSuccessBody": {
-    "message": "トークンは現在準備中であり、間もなく表示されます。",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "資金調達に失敗しました",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "あなたのウォレットに資金を投入できませんでした。もう一度試してください。",
-    "englishSource": "We couldn't fund your wallet. Please try again."
-  },
   "pendingNotesPromptTitle": {
     "message": "保留中Notesがあります",
     "englishSource": "You have Pending Notes"
@@ -1759,10 +1707,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "今すぐ見る",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "リカバリフレーズを確認してください",

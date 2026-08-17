@@ -53,7 +53,7 @@ export const EMPTY_WALLET_PROMPT_STORAGE: WalletPromptStorage = {
   pendingNotesDismissedIds: []
 };
 
-export type PendingNoteValue = Pick<ConsumableNote, 'id' | 'amount'> & {
+export type PendingNoteValue = Pick<ConsumableNote, 'id' | 'amount' | 'faucetId'> & {
   metadata: Pick<AssetMetadata, 'decimals' | 'symbol'>;
 };
 
@@ -284,13 +284,14 @@ export async function setFaucetFundingMarker(address: string, marker: FaucetFund
 
 // 100 MIDEN in base units (6 decimals).
 const MIDEN_FAUCET_AMOUNT = 100_000_000n;
-// Bail out of a hung faucet request. Before the ack there is no persisted
-// marker, so nothing else recovers the card's loading state in-session. The
-// timeout also aborts the underlying work (fetches + PoW search) so a late
-// response can't mint a second note behind a retry.
+// Bail out of a hung faucet request. The timeout also aborts the underlying
+// work: the signal is linked into each fetch and checked per PoW iteration.
+// (A 429 back-off sleep inside faucetFetch is not itself interrupted, so
+// cancellation of the work can lag the wrapper's rejection by up to that
+// capped wait — the next fetch attempt then aborts immediately.)
 const FAUCET_REQUEST_TIMEOUT_MS = 60_000;
 
-export async function faucet(address: string): Promise<void> {
+async function runFaucetRequest(address: string): Promise<void> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   // The race guarantees the wrapper rejects on time even if the underlying
@@ -307,6 +308,33 @@ export async function faucet(address: string): Promise<void> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// One request per address at a time, held at MODULE scope: HomePrompts
+// unmounts on any navigation (TabLayout keys its wrapper by route), so a
+// component-local guard forgets an in-flight request and a returning user
+// could start a second real mint. Keyed per address so funding one account
+// never blocks funding another.
+const inFlightFaucetRequests = new Map<string, Promise<void>>();
+
+/** The in-flight faucet request for `address`, if any — lets a remounted card re-attach to the outcome. */
+export function getInFlightFaucetRequest(address: string): Promise<void> | null {
+  return inFlightFaucetRequests.get(address) ?? null;
+}
+
+export function faucet(address: string): Promise<void> {
+  const existing = inFlightFaucetRequests.get(address);
+  if (existing) return existing;
+  const request: Promise<void> = runFaucetRequest(address).finally(() => {
+    if (inFlightFaucetRequests.get(address) === request) inFlightFaucetRequests.delete(address);
+  });
+  inFlightFaucetRequests.set(address, request);
+  return request;
+}
+
+/** Test-only: drop in-flight faucet joins between cases. */
+export function __resetInFlightFaucetRequestsForTest(): void {
+  inFlightFaucetRequests.clear();
 }
 
 export function useWalletPromptStorage() {

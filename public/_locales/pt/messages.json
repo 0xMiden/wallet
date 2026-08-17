@@ -1670,34 +1670,6 @@
     "message": "Adicione tokens à sua carteira para começar.",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "Financie agora",
-    "englishSource": "Fund now"
-  },
-  "walletFundingLoadingTitle": {
-    "message": "Solicitando MIDEN",
-    "englishSource": "Requesting MIDEN"
-  },
-  "walletFundingLoadingBody": {
-    "message": "Ligando para o Miden faucet agora. Você pode fechar esta gaveta enquanto a solicitação continua.",
-    "englishSource": "Calling the Miden faucet now. You can close this drawer while the request continues."
-  },
-  "walletFundingSuccessTitle": {
-    "message": "MIDEN solicitado com sucesso",
-    "englishSource": "MIDEN requested successfully"
-  },
-  "walletFundingSuccessBody": {
-    "message": "Seus tokens estão a caminho. Seu saldo será atualizado após a chegada do note.",
-    "englishSource": "Your tokens are on the way. Your balance will update after the note arrives."
-  },
-  "walletFundingFailureTitle": {
-    "message": "Não foi possível financiar sua carteira",
-    "englishSource": "We couldn’t fund your wallet"
-  },
-  "walletFundingFailureBody": {
-    "message": "A solicitação faucet falhou. Revise o erro abaixo e tente novamente.",
-    "englishSource": "The faucet request failed. Review the error below and try again."
-  },
   "faucetPromptFunding": {
     "message": "Financiamento",
     "englishSource": "Funding"
@@ -1723,30 +1695,6 @@
     "message": "Seus fundos estão prontos",
     "englishSource": "Your funds are ready"
   },
-  "fundWalletLoadingTitle": {
-    "message": "Financiando sua carteira",
-    "englishSource": "Funding your wallet"
-  },
-  "fundWalletLoadingBody": {
-    "message": "Solicitando tokens do faucet…",
-    "englishSource": "Requesting tokens from the faucet…"
-  },
-  "fundWalletSuccessTitle": {
-    "message": "Carteira financiada",
-    "englishSource": "Wallet funded"
-  },
-  "fundWalletSuccessBody": {
-    "message": "Seus tokens estão a caminho e aparecerão em breve.",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "Falha no financiamento",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "Não conseguimos financiar sua carteira. Por favor, tente novamente.",
-    "englishSource": "We couldn't fund your wallet. Please try again."
-  },
   "pendingNotesPromptTitle": {
     "message": "Você tem pendência Notes",
     "englishSource": "You have Pending Notes"
@@ -1759,10 +1707,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "Veja agora",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "Verifique sua frase de recuperação",

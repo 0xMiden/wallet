@@ -8,7 +8,7 @@
 
 ### Changes
 
-- [CHANGE][all] **Fund Now requests only native MIDEN and reports progress in a drawer.** The wallet prompt no longer also mints iMiden from Forkchoice; opening the funding drawer starts the native faucet request automatically and keeps its loading, success, or detailed error state correct across drawer and tab-layout unmounts. The network-discovered native asset now also appears first in the swap token list ahead of the existing DEX test assets.
+- [CHANGE][all] **Test-token funding now mints only native MIDEN.** The Fund action no longer also mints IMIDEN from the forkchoice faucet — the two-source funding is removed, which also retires 1.15.20's per-source retry bookkeeping (there is no second source left to double-mint). One faucet request runs per account at a time no matter how often the card is tapped or remounted, bounded by a 60s timeout that aborts the underlying work, and a failed request shows the faucet's actual error message on the card. The two funding drawers earlier iterations had left unwired (`WalletFundingDrawer`, `FundWalletDrawer`) are deleted along with their orphaned translation keys. The network-discovered native asset now also appears first in the swap token list ahead of the existing DEX test assets.
 
 ## 1.15.20 (2026-08-17)
 

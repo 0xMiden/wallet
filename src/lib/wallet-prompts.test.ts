@@ -8,6 +8,7 @@ import {
   EMPTY_WALLET_PROMPT_STORAGE,
   WalletPromptStatus,
   WalletPromptType,
+  __resetInFlightFaucetRequestsForTest,
   completeWalletPrompt,
   dismissWalletPrompt,
   faucet,
@@ -15,6 +16,7 @@ import {
   fetchFaucetFundingMarker,
   fetchHotKeyHardwareError,
   fetchWalletPromptStorage,
+  getInFlightFaucetRequest,
   getPendingNotesUsdTotal,
   isWalletPromptPending,
   normalizeWalletPromptStorage,
@@ -65,6 +67,7 @@ describe('wallet prompts', () => {
   beforeEach(() => {
     localStorage.clear();
     jest.clearAllMocks();
+    __resetInFlightFaucetRequestsForTest();
   });
 
   it('normalizes missing and malformed storage to an empty prompt set', () => {
@@ -105,9 +108,9 @@ describe('wallet prompts', () => {
     expect(
       getPendingNotesUsdTotal(
         [
-          { id: 'note-1', amount: '1250000', metadata: { decimals: 6, symbol: 'MIDEN' } },
-          { id: 'note-2', amount: '200000000', metadata: { decimals: 8, symbol: 'IMIDEN' } },
-          { id: 'note-3', amount: '3000000', metadata: { decimals: 6, symbol: 'UNKNOWN' } }
+          { id: 'note-1', amount: '1250000', faucetId: '0xmiden', metadata: { decimals: 6, symbol: 'MIDEN' } },
+          { id: 'note-2', amount: '200000000', faucetId: '0ximiden', metadata: { decimals: 8, symbol: 'IMIDEN' } },
+          { id: 'note-3', amount: '3000000', faucetId: '0xother', metadata: { decimals: 6, symbol: 'UNKNOWN' } }
         ],
         {
           MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
@@ -177,6 +180,44 @@ describe('wallet prompts', () => {
     await faucet('mtst1testaddress');
 
     expect(mintFromMidenFaucetMock).toHaveBeenCalledWith('mtst1testaddress', 100_000_000n, expect.any(AbortSignal));
+  });
+
+  it('joins concurrent requests for one address into a single mint, per address', async () => {
+    const resolvers: Array<() => void> = [];
+    mintFromMidenFaucetMock.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolvers.push(() => resolve({ txId: '0xtx', noteId: '0xnote' }));
+        })
+    );
+
+    const first = faucet('mtst1testaddress');
+    const second = faucet('mtst1testaddress');
+    // Joined: one real request, and the join is observable for the UI.
+    expect(second).toBe(first);
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1);
+    expect(getInFlightFaucetRequest('mtst1testaddress')).toBe(first);
+
+    // A DIFFERENT address is not blocked by the first one being in flight.
+    const other = faucet('mtst1otheraddress');
+    expect(other).not.toBe(first);
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(2);
+
+    resolvers.forEach(resolveMint => resolveMint());
+    await Promise.all([first, second, other]);
+    // Settling clears the join, so a genuine later re-fund mints again.
+    expect(getInFlightFaucetRequest('mtst1testaddress')).toBeNull();
+    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+    await faucet('mtst1testaddress');
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('clears the in-flight join when the request rejects', async () => {
+    mintFromMidenFaucetMock.mockRejectedValue(new Error('down'));
+
+    await expect(faucet('mtst1testaddress')).rejects.toThrow('down');
+
+    expect(getInFlightFaucetRequest('mtst1testaddress')).toBeNull();
   });
 
   it('rejects when the official Miden faucet fails', async () => {
