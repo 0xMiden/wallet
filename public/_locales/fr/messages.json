@@ -3422,6 +3422,15 @@
     "message": "Cliquez pour les consulter et les réclamer",
     "englishSource": "Click to view and claim it"
   },
+  "noteReceivedMultiple": {
+    "message": "Vous avez $count$ nouvelles notes à réclamer",
+    "englishSource": "You have $count$ new notes to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "passwordsCanBeInsecure": {
     "message": "Les mots de passe peuvent présenter des failles de sécurité. Privilégiez plutôt l'authentification biométrique.",
     "englishSource": "Passwords can be insecure. Use biometric authentication instead."
