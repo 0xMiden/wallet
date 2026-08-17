@@ -2,8 +2,13 @@
 
 ## 1.15.21 (TBD)
 
+### Features
+
+### Fixes
+
 ### Changes
 
+- [CHANGE][extension] **The Chrome extension download is about half the size it was.** The released build was being produced in development mode by mistake, so every install shipped unminified code plus a complete set of source maps — around 60 MB of debugging files users have no use for, and 40% of the download. The release now builds in production mode, taking the package from roughly 30 MB to 15 MB. No functional change; the same build was smoke-tested end to end first.
 - [CHANGE][ci] **E2E harnesses now capture a screenshot on every screen change (route/card/overlay), and four PR-only suites now also run on `main` with those screenshots uploaded as artifacts on green runs.** Capture is gated on `MIDEN_E2E_TEST` and tree-shaken out of production builds; no user-facing change.
 
 ## 1.15.20 (2026-08-17)
@@ -41,6 +46,8 @@
 - [FIX][extension] **Recurring stuck "Consuming" notes are fixed by moving the wallet's WASM engine off the extension service-worker thread.** Transaction execution, proving, syncing, and reads now run in a dedicated `chrome.offscreen` document, so a wedged operation can no longer freeze the service worker and strand notes mid-consume; each operation is bounded by its own deadline and a wedged one is torn down and safely retried. Behind `MIDEN_USE_OFFSCREEN_CLIENT` (extension only; mobile/desktop unaffected). (#260)
 
 ### Changes
+
+- [CHANGE][extension] **The Chrome extension download is a third of its previous size.** Two separate parts of the build each wrote their own copy of the same 19.5 MB cryptography engine into the package — identical files, both shipped. They now agree on one location, so it is included once. Combined with the production-build fix, the download goes from about 30 MB to about 10 MB.
 
 - [CHANGE][ci] **The Android test set-up no longer waits forever for software that isn't installed.** After the test devices were switched to a plain Android image, start-up still waited for a Google Play Services process to settle — on an image that has no Play Services, so it could never appear. Every run then spent its whole start-up budget waiting and failed with "did not stabilize". That wait is now skipped when the device has no Play Services, which is also the case where the problem it guards against cannot happen.
 
