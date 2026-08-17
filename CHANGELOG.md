@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.15.21 (TBD)
+
+### Features
+### Fixes
+### Changes
+
+- [CHANGE][extension] **The Chrome extension download is about half the size it was.** The released build was being produced in development mode by mistake, so every install shipped unminified code plus a complete set of source maps — around 60 MB of debugging files users have no use for, and 40% of the download. The release now builds in production mode, taking the package from roughly 30 MB to 15 MB. No functional change; the same build was smoke-tested end to end first.
+
 ## 1.15.20 (2026-08-17)
 
 ### Features
