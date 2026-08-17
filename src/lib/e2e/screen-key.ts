@@ -14,8 +14,10 @@ const overlayStack: string[] = [];
 let current: ScreenState = { key: '', seq: 0 };
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
 
-type GlobalWithScreen = typeof globalThis & { __TEST_SCREEN__?: ScreenState };
-type WindowWithPush = typeof window & { __e2eScreenChanged?: (key: string, seq: number) => void };
+type GlobalWithScreen = typeof globalThis & {
+  __TEST_SCREEN__?: ScreenState;
+  __e2eScreenChanged?: (key: string, seq: number) => void;
+};
 
 function enabled(): boolean {
   return process.env.MIDEN_E2E_TEST === 'true';
@@ -25,9 +27,7 @@ function scheduleChromePush(): void {
   if (pushTimer) clearTimeout(pushTimer);
   pushTimer = setTimeout(() => {
     pushTimer = null;
-    /* istanbul ignore next -- SW realm has no window */
-    if (typeof window === 'undefined') return;
-    (window as WindowWithPush).__e2eScreenChanged?.(current.key, current.seq);
+    (globalThis as GlobalWithScreen).__e2eScreenChanged?.(current.key, current.seq);
   }, SCREEN_PUSH_DEBOUNCE_MS);
 }
 
@@ -45,12 +45,12 @@ function recomputeAndPublish(): void {
 }
 
 export function setRoutePart(value: string | null): void {
-  routePart = value || null;
+  routePart = value;
   recomputeAndPublish();
 }
 
 export function setCardPart(value: string | null): void {
-  cardPart = value || null;
+  cardPart = value;
   recomputeAndPublish();
 }
 

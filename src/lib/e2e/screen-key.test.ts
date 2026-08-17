@@ -13,14 +13,14 @@ type PushMock = jest.Mock<void, [string, number]>;
 
 function installPush(): PushMock {
   const fn = jest.fn<void, [string, number]>();
-  (window as typeof window & { __e2eScreenChanged?: (k: string, s: number) => void }).__e2eScreenChanged = fn;
+  (globalThis as typeof globalThis & { __e2eScreenChanged?: (k: string, s: number) => void }).__e2eScreenChanged = fn;
   return fn;
 }
 
 beforeEach(() => {
   process.env.MIDEN_E2E_TEST = 'true';
   __resetScreenKeyForTest();
-  delete (window as typeof window & { __e2eScreenChanged?: unknown }).__e2eScreenChanged;
+  delete (globalThis as typeof globalThis & { __e2eScreenChanged?: unknown }).__e2eScreenChanged;
   jest.useFakeTimers();
 });
 afterEach(() => jest.useRealTimers());
