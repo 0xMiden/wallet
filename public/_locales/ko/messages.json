@@ -3423,8 +3423,8 @@
     "englishSource": "Click to view and claim it"
   },
   "noteReceivedMultiple": {
-    "message": "$count$ 청구를 위한 새로운 notes",
-    "englishSource": "$count$ new notes to claim",
+    "message": "$count$ notes 청구하기",
+    "englishSource": "$count$ notes to claim",
     "placeholders": {
       "count": {
         "content": "$1"
