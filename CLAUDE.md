@@ -275,6 +275,29 @@ once with `pnpm dlx lefthook install` if you want the guard.
 
 Mirrors web-sdk's `Client PR: #N` pattern (`.github/actions/inject-linked-client-pr`).
 
+## CI gotcha: a push to `main` does not always create its workflow runs
+
+Seen 2026-08-14: merge commit `9b84c493b` landed on `main` and GitHub created
+**no** push-triggered runs for it — 25 minutes later the commit had a single
+check suite (the half-hourly `Linked web-sdk PR ready` cron) and nothing else.
+Actions was healthy throughout (another branch got a full set of runs in the same
+window), and none of these workflows use path filters — they are all a bare
+`on: push: branches: [main]`.
+
+This is worse than a red main: the branch *looks* fine because the newest runs
+listed against it are the PREVIOUS commit's.
+
+- **Check by SHA, not by branch.** `gh run list --branch main` answers "the most
+  recent run per workflow on this branch", which silently reports a different
+  commit. Use:
+  `gh api "repos/0xMiden/wallet/actions/runs?head_sha=$(git rev-parse origin/main)"`
+  and confirm `total_count` is non-zero.
+- **Re-trigger without a new commit** where the workflow allows it:
+  `gh workflow run <file>.yml --repo 0xMiden/wallet --ref main`.
+  Dispatchable: `e2e-blockchain`, `e2e-android`, `e2e-bridge`, `e2e-bridge-in`,
+  `e2e-resilience`. NOT dispatchable (push-only, so they need a fresh commit):
+  `coverage-badge` (Badges), Build Production, CodeQL.
+
 ## Important Notes
 
 - Commit messages: single-line, short. Never sign commits (no `Co-Authored-By`).

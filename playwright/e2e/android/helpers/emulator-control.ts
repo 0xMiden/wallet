@@ -133,6 +133,17 @@ export class EmulatorControl {
     // app that bound to its FontsProvider (we saw com.miden.wallet killed
     // this way during a rerun). Poll until it's been seen running for 5
     // consecutive seconds before we proceed.
+    //
+    // SKIPPED on images without Play Services. The AOSP (`default`) image has
+    // no `com.google.android.gms` at all, so this poll could never succeed — it
+    // spun out the whole budget and threw "did not stabilize", every run, the
+    // moment the workflow switched images. The wait exists to dodge a GMS crash
+    // taking the app with it; with no GMS there is neither a process to wait for
+    // nor a crash to dodge.
+    if (!(await deviceHasPackage(serial, 'com.google.android.gms'))) {
+      console.log(`[emulator] ${serial}: no Play Services on this image — skipping the GMS settle wait`);
+      return;
+    }
     const GMS_STABLE_MS = 5_000;
     let gmsRunningSince: number | null = null;
     while (Date.now() - start < BOOT_TIMEOUT_MS) {
@@ -297,6 +308,16 @@ function avdIsUsable(avdHome: string, avd: string): boolean {
   );
 }
 
+/** Is `pkg` installed on this device? Used to skip GMS-only wait steps on AOSP images. */
+async function deviceHasPackage(serial: string, pkg: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync('adb', ['-s', serial, 'shell', 'pm', 'list', 'packages', pkg]);
+    return stdout.includes(pkg);
+  } catch {
+    return false;
+  }
+}
+
 async function ensureAvdsExist(): Promise<void> {
   const { stdout } = await execFileAsync(getEmulatorBin(), ['-list-avds']);
   const present = new Set(
@@ -397,11 +418,22 @@ async function bootAvd(avdName: string, port: number): Promise<string> {
       '-no-window',
       // Override config.ini's `hw.ramSize` — emulator silently clamps the
       // file value to ~2 GB at boot when regenerating hardware-qemu.ini.
-      // 4 GB is the sweet spot: 3 GB OOM-killed the Chromium sandboxed
-      // renderer (wallet WASM + Chromium + Android system bumped against
-      // the lowmem killer); 6 GB inflated qemu RSS to ~22 GB per emulator.
-      // 4 GB keeps host RSS ~5 GB per emulator and gives the WebView
-      // enough headroom to load the SDK WASM and run consume.
+      //
+      // 4 GB, measured — do not raise this without re-measuring.
+      //
+      // Origin: chosen on an Apple Silicon host (3 GB OOM-killed the Chromium
+      // sandboxed renderer; 6 GB inflated qemu RSS to ~22 GB per emulator under
+      // HVF). On the Linux CI runner the guest's own low-memory killer still
+      // reaps the wallet sometimes, so 5 GB was tried — and made it strictly
+      // WORSE: at 5 GB x 2 the host is short enough that the emulator no longer
+      // even finishes starting.
+      //
+      //   4 GB x 2:  passes ~half the time; guest LMK kills the app on the rest
+      //   5 GB x 2:  "Emulator emulator-5556 did not stabilize within 300000ms"
+      //
+      // Two full emulators are simply close to what a 16 GB runner can host.
+      // The lever that helps is giving the HOST more room (see the workflow's
+      // gradle-daemon stop), not giving each guest a bigger share of it.
       '-memory',
       '4096',
       // Sized from the host — see EMULATOR_CORES.

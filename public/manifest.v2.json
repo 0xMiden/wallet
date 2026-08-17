@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Bread",
-  "version": "1.14.3",
+  "version": "1.15.20",
 
   "icons": {
     "16": "misc/logo-white-bg-16.png",
