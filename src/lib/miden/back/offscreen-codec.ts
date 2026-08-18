@@ -11,9 +11,10 @@
 //
 // It has ZERO runtime dependencies (only `btoa`/`atob`, present in both the SW
 // and offscreen-document globals) so it is safe to import from either realm. The
-// one import below is TYPE-ONLY — erased at compile time, so it pulls no module
+// imports below are TYPE-ONLY — erased at compile time, so they pull no module
 // into either bundle and the zero-runtime-dependency rule still holds.
 
+import type { ConnectivityCategory } from '../activity/connectivity-state';
 import type { ITransactionStage } from '../db/types';
 
 /** Discriminator kept on every offscreen-bound message; the offscreen listener
@@ -69,6 +70,28 @@ export const OFFSCREEN_OP_STARTED = 'OFFSCREEN_OP_STARTED' as const;
  * block on this, and a dropped event costs a blank duration, never a
  * transaction. */
 export const OFFSCREEN_STAGE_EVENT = 'OFFSCREEN_STAGE_EVENT' as const;
+
+/** Fire-and-forget connectivity report (offscreen → SW): the offscreen realm has
+ * just observed `category` to be `active` (or not). It exists because the
+ * connectivity snapshot is module-scoped — i.e. per realm — and mirrors to ONE
+ * shared storage key, so two realms writing it would each blind-overwrite the
+ * other's categories; the offscreen realm therefore REPORTS into the SW-owned
+ * snapshot instead of writing that key itself
+ * (`lib/miden/activity/connectivity-state`, `setConnectivityReporter`).
+ *
+ * Unlike {@link OFFSCREEN_STAGE_EVENT} it carries no `op_id`: the connectivity
+ * state is realm-global, not op-scoped, so there is nothing to attribute it to.
+ * Like the stage stamp, no response is expected and a dropped event must be
+ * harmless — the reporting realm never de-duplicates, so it RE-SENDS the value it
+ * observes, AND the SW writes each report through to the storage mirror rather than
+ * de-duplicating it (see `applyConnectivityReport`). What that bounds a loss to is
+ * the next report of the same kind: `proveWithFallback` sends `prover: false` after
+ * every prove that succeeds on its first attempt and `prover: true` after every
+ * delegated prove that fails with a transport-shaped error, so a dropped clear is
+ * repaired by the next first-attempt success and a dropped mark by the next delegated
+ * network failure. Either way the cost is a stale banner, never a latched wrong
+ * state, and nothing downstream makes a correctness decision on it. */
+export const OFFSCREEN_CONNECTIVITY_EVENT = 'OFFSCREEN_CONNECTIVITY_EVENT' as const;
 
 /**
  * SW → offscreen request envelope (§1.1 of the design doc).
@@ -172,6 +195,29 @@ export interface OffscreenStageEvent {
   type: typeof OFFSCREEN_STAGE_EVENT;
   op_id: string;
   stage: ITransactionStage;
+}
+
+/**
+ * offscreen → SW connectivity report (issue #260 realm split). Posted whenever
+ * the offscreen realm marks or clears a connectivity category — in practice
+ * `prover`, from `proveWithFallback`'s success/failure paths around every write
+ * that realm executes. The SW applies it to the single authoritative snapshot it
+ * mirrors to `miden-connectivity-state`, so the two realms' observations
+ * accumulate instead of overwriting each other.
+ *
+ * `active` is the CURRENT observed value, not a delta, and is re-sent on every
+ * observation rather than only on transitions — that is what makes a dropped or
+ * reordered event self-correcting, on the cadence spelled out at
+ * {@link OFFSCREEN_CONNECTIVITY_EVENT}.
+ *
+ * `category` is the canonical `ConnectivityCategory` union via a TYPE-ONLY
+ * import, for the same reason `stage` is — one source of truth, no drift.
+ */
+export interface OffscreenConnectivityEvent {
+  target: typeof SW_TARGET;
+  type: typeof OFFSCREEN_CONNECTIVITY_EVENT;
+  category: ConnectivityCategory;
+  active: boolean;
 }
 
 /**

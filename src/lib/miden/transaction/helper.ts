@@ -11,7 +11,20 @@ import { getMidenClient } from '../sdk/miden-client';
 /**
  * Feature flag: is the offscreen WASM client active? Read as a module constant
  * (mirroring `back/miden-client-proxy.ts`) so a flag-OFF build dead-code-
- * eliminates the flag-on branch of {@link readLastAuthReason}. DEFAULT OFF.
+ * eliminates the flag-on branch of {@link readLastAuthReason}.
+ *
+ * The default is SPLIT by bundle, and the split matters HERE more than anywhere:
+ * `vite.background.config.ts` defaults `MIDEN_USE_OFFSCREEN_CLIENT` to `'true'`, and
+ * the service worker is the only bundle that runs `safeGenerateTransactionsLoop` on
+ * the extension: all three front-side drivers check `isExtension()` first and either
+ * return (`GeneratingTransaction`, `HotKeyRotationGate`) or hand off to the service
+ * worker (`TransactionProgressModal`) — so it is the only bundle that ever calls
+ * {@link readLastAuthReason}. On a default Chrome build the `return undefined` branch
+ * below is therefore the one that executes; it is not the exotic path.
+ * `vite.extension.config.ts` (popup/side panel), `vite.contentScripts.config.ts` and
+ * `vite.desktop.config.ts` default it `'false'`, and `vite.mobile.config.ts` hardcodes
+ * `'false'` — on mobile/desktop the loop runs front-side against the inline client,
+ * which is where the flag-off branch stays live.
  */
 const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
 

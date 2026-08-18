@@ -202,6 +202,10 @@ export const ReviewTransaction: React.FC = () => {
   // Leaving review = leaving the send flow: drop any cached speculative prove
   // and mark in-flight ones stale. (SendManager's typing-time speculation
   // deliberately skips invalidation when handing off to this page.)
+  //
+  // A no-op whenever the offscreen client owns the send: `initSpeculationManager`
+  // returns null there, so back/main.ts's SpeculateInvalidate handler has nothing to
+  // invalidate. See its TRADEOFF block — the popup can't evaluate that gate itself.
   useEffect(() => {
     if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
     if (!isExtension()) return;

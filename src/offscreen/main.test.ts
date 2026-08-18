@@ -2101,3 +2101,117 @@ describe('offscreen/main — OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', (
     expect(G.__off.createOptions).toHaveLength(1);
   });
 });
+
+// --- Connectivity reports: this realm reports, it does NOT write the snapshot ---
+//
+// `lib/miden/activity/connectivity-state` is module-scoped — per realm — and mirrors
+// the WHOLE snapshot to one shared storage key. Both realms mark into it (the SW from
+// sync-manager, this realm from `proveWithFallback` around every write it executes),
+// so a blind write here replaces the SW's node/network categorization wholesale. This
+// realm therefore installs a REPORTER at module load and forwards each observation.
+describe('offscreen/main — connectivity reports (issue #260 single writer)', () => {
+  /** The connectivity-state module instance THIS loaded copy of main.ts installed its
+   * reporter on. Must be imported after `loadModule()` — `jest.resetModules()` gives
+   * each load a fresh registry, so a static import would be a different instance. */
+  const connectivityState = () => import('lib/miden/activity/connectivity-state');
+
+  const connectivityPosts = (posted: any[]) => posted.filter(m => m?.type === 'OFFSCREEN_CONNECTIVITY_EVENT');
+
+  function capturePosts(): any[] {
+    const posted: any[] = [];
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      posted.push(m);
+      return undefined;
+    });
+    return posted;
+  }
+
+  it('installs a reporter at load, so a mark posts an SW-targeted event instead of writing storage', async () => {
+    await loadModule();
+    const posted = capturePosts();
+
+    const { markConnectivityIssue, getConnectivityState } = await connectivityState();
+    markConnectivityIssue('prover');
+    await flush();
+
+    expect(connectivityPosts(posted)).toEqual([
+      { target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category: 'prover', active: true }
+    ]);
+    // Reported, not applied locally: this realm's snapshot stays empty, which is what
+    // keeps it out of the shared storage key the SW owns.
+    expect(getConnectivityState().prover.active).toBe(false);
+  });
+
+  it('posts a clear as `active: false`', async () => {
+    await loadModule();
+    const posted = capturePosts();
+
+    const { clearConnectivityIssue } = await connectivityState();
+    clearConnectivityIssue('prover');
+    await flush();
+
+    expect(connectivityPosts(posted)).toEqual([
+      { target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category: 'prover', active: false }
+    ]);
+  });
+
+  // Drop-safety: the post is fire-and-forget with no delivery guarantee, so the value
+  // is re-sent on EVERY prove. Suppressing repeats here would let one lost clear latch
+  // the banner active permanently — nothing else would ever re-send it.
+  it('re-posts on every mark/clear, not only on transitions', async () => {
+    await loadModule();
+    const posted = capturePosts();
+
+    const { markConnectivityIssue, clearConnectivityIssue } = await connectivityState();
+    markConnectivityIssue('prover');
+    markConnectivityIssue('prover');
+    clearConnectivityIssue('prover');
+    clearConnectivityIssue('prover');
+    await flush();
+
+    expect(connectivityPosts(posted).map(m => m.active)).toEqual([true, true, false, false]);
+  });
+
+  // These marks run INSIDE `proveWithFallback`'s success/failure handlers, so a throw
+  // out of the post would be read as a prove failure — a funds-path consequence for a
+  // banner update. Both failure modes of the channel must be absorbed.
+  //
+  // The double is keyed on the MESSAGE, deliberately not on a call counter.
+  // `chrome.runtime.sendMessage` is a shared global that this module also posts
+  // `OFFSCREEN_READY` to once `ensureInit()` settles (main.ts), and a counter made
+  // which failure branch each connectivity post took depend on whether that unrelated
+  // post had already landed — i.e. on scheduling. Keying on the message pins the mark
+  // to the rejected-promise path and the clear to the synchronous throw whatever else
+  // the module posts, and the `posted` assertion below turns a stray post into an
+  // explicit failure rather than a silent branch swap.
+  it('a post failure NEVER reaches the prove (rejection and synchronous throw both swallowed)', async () => {
+    await loadModule();
+    const posted: any[] = [];
+    G.chrome.runtime.sendMessage = jest.fn((m: any) => {
+      if (m?.type !== 'OFFSCREEN_CONNECTIVITY_EVENT') return Promise.resolve(undefined);
+      posted.push(m);
+      // The two ways this channel fails: no SW receiver (the returned promise rejects)
+      // and a torn-down port (a synchronous throw). The rejection is deferred a tick
+      // rather than pre-rejected, which is both what the real `chrome.runtime.sendMessage`
+      // does — it resolves/rejects once the receiver has (not) answered — and what keeps
+      // the fixture from depending on WHEN the handler is attached: the promise is still
+      // pending when it is returned, so the only way its rejection can escape is a
+      // production path that never attaches one.
+      if (m.active === true) {
+        return new Promise((_resolve, reject) => setTimeout(() => reject(new Error('no receiver')), 0));
+      }
+      throw new Error('port closed');
+    });
+
+    const { markConnectivityIssue, clearConnectivityIssue } = await connectivityState();
+    expect(() => markConnectivityIssue('prover')).not.toThrow();
+    expect(() => clearConnectivityIssue('prover')).not.toThrow();
+    await flush();
+
+    // Exactly the two posts this test provoked, in order — so an extra connectivity
+    // post from anywhere else fails here instead of shifting the fixture underneath it.
+    expect(posted.map(m => m.active)).toEqual([true, false]);
+    // A rejected post is swallowed silently — no reporter-threw warning was logged.
+    expect(warnSpy).not.toHaveBeenCalledWith('[connectivity-state] reporter threw:', expect.anything());
+  });
+});

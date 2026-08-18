@@ -214,8 +214,10 @@ const sharedDefine = {
   'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
   'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
   // Issue #260 slice 1: route flag-gated WASM-client reads (getAccount) through
-  // the chrome.offscreen document. DEFAULT OFF — off is a strict no-op vs. the
-  // inline client. See src/lib/miden/back/miden-client-proxy.ts.
+  // the chrome.offscreen document. DEFAULT OFF *in this bundle* — the popup/side
+  // panel cannot open an offscreen document at all; the service worker's bundle
+  // (`vite.background.config.ts`) defaults the same flag to `'true'`. Off is a strict
+  // no-op vs. the inline client. See src/lib/miden/back/miden-client-proxy.ts.
   'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'false'),
   'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
   'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
@@ -246,6 +248,24 @@ const sharedDefine = {
   // (>= 0.15.0-alpha.6); see the rationale block in
   // vite.background.config.ts.
   'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'true'),
+  // Popup half of the speculative pre-prove flag: it only decides whether the send
+  // flow SENDS SpeculateSendRequest. Whether anything acts on it is the service
+  // worker's call — `initSpeculationManager` returns null when the offscreen client
+  // owns the send (issue #260), leaving the handler inert. Left ON because the popup
+  // cannot evaluate that gate at all: half of it is `isOffscreenAvailable()`, and
+  // `chrome.offscreen` is exposed only to the service worker (this bundle also
+  // DEFAULTS MIDEN_USE_OFFSCREEN_CLIENT to 'false', but that half is only a default,
+  // so it is not what makes the gate unevaluable here).
+  //
+  // The cost of leaving it on, flag-on Chrome: one debounced SpeculateSendRequest per
+  // 500 ms quiet period while the user edits the amount / recipient / token in
+  // SendManager, plus ONE SpeculateInvalidate per exit from the send flow — the two
+  // unmount invalidates are alternatives, not a pair, since SendManager skips its own
+  // while a send draft is pending, which is exactly the handoff to the review screen
+  // (SendManager.tsx). A straight-through send therefore sends only the review
+  // screen's; abandoning the form before review sends only SendManager's. Each is
+  // answered by a handler that does nothing.
+  // See vite.background.config.ts and speculation-manager's TRADEOFF.
   'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify(process.env.MIDEN_USE_SPECULATIVE_PROVING ?? 'true'),
   'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
 };

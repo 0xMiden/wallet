@@ -10,9 +10,11 @@
 // wedged WASM call dies with it — reopens a fresh doc, and rejects the
 // in-flight op(s) with `OperationAbortedError`.
 //
-// This is behind `MIDEN_USE_OFFSCREEN_CLIENT`, DEFAULT OFF. With the flag off,
+// This is behind `MIDEN_USE_OFFSCREEN_CLIENT`, which `vite.background.config.ts`
+// defaults to `'true'` for the service-worker bundle — so on Chrome the offscreen
+// realm is live by default and this forwarder is the real path. With the flag off,
 // every method here is a strict pass-through to the existing inline
-// `getMidenClient()` singleton, so production behavior is unchanged.
+// `getMidenClient()` singleton, so that build's behavior is unchanged.
 
 import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
@@ -63,10 +65,15 @@ import type { NoteType } from '../types';
 /**
  * Feature flag: route proxied methods through the offscreen document.
  *
- * DEFAULT OFF. Read as a module constant (mirroring `USE_OFFSCREEN_PROVING`)
- * so a build with the flag off dead-code-eliminates the offscreen branch. All
- * vite configs default `MIDEN_USE_OFFSCREEN_CLIENT` to `'false'`; mobile
- * hardcodes it off (no `chrome.offscreen` in WKWebView / Android WebView).
+ * The default is SPLIT by bundle, and the service worker — the only bundle that
+ * can open a `chrome.offscreen` document — defaults it ON:
+ * `vite.background.config.ts` defaults `MIDEN_USE_OFFSCREEN_CLIENT` to `'true'`,
+ * while `vite.extension.config.ts` (popup/side panel), `vite.contentScripts.config.ts`
+ * and `vite.desktop.config.ts` default it `'false'` and `vite.mobile.config.ts`
+ * hardcodes `'false'` (no `chrome.offscreen` in WKWebView / Android WebView).
+ *
+ * Read as a module constant (mirroring `USE_OFFSCREEN_PROVING`) so a build with the
+ * flag off dead-code-eliminates the offscreen branch.
  */
 const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
 

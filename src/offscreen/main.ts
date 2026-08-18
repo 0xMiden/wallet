@@ -26,12 +26,18 @@
 //   OFFSCREEN_RELOAD_ENDPOINTS (developer endpoint overrides):
 //     request:  { target: "offscreen", type: "OFFSCREEN_RELOAD_ENDPOINTS" }
 //     response: { ok: true } | { ok: false, error: string }
-//   See src/lib/miden/back/offscreen-codec.ts for the shared wire format.
+//   See src/lib/miden/back/offscreen-codec.ts for the shared wire format, which
+//   also defines the REVERSE (offscreen → SW) families this realm posts: the sign
+//   round-trip, the execution-start signal, the per-step stage stamps, and
+//   OFFSCREEN_CONNECTIVITY_EVENT (this realm's connectivity observations, reported
+//   into the SW-owned snapshot rather than written to storage here).
 
 import * as sdk from '@miden-sdk/miden-sdk/lazy';
 
+import { setConnectivityReporter, type ConnectivityCategory } from 'lib/miden/activity/connectivity-state';
 import {
   OFFSCREEN_CALL,
+  OFFSCREEN_CONNECTIVITY_EVENT,
   OFFSCREEN_OP_STARTED,
   OFFSCREEN_RELOAD_ENDPOINTS,
   OFFSCREEN_SIGN_REQUEST,
@@ -41,6 +47,7 @@ import {
   bytesToB64,
   decodeArg,
   type OffscreenCallRequest,
+  type OffscreenConnectivityEvent,
   type OffscreenOpStarted,
   type OffscreenReloadEndpointsResponse,
   type OffscreenSignResponse,
@@ -67,6 +74,60 @@ const TAG = '[offscreen-prover]';
 // NOT depend on `chrome.offscreen` being absent inside the doc (an unreliable
 // Chrome quirk); the guard reads this deterministic global.
 (globalThis as { __MIDEN_IN_OFFSCREEN_DOC__?: boolean }).__MIDEN_IN_OFFSCREEN_DOC__ = true;
+
+// --- Connectivity marks REPORT to the SW, they do not write storage ---------
+//
+// `lib/miden/activity/connectivity-state` keeps its snapshot in module scope — i.e.
+// PER REALM — and mirrors the WHOLE snapshot to the single shared storage key the
+// banner reads. Both realms reach that module: the SW marks `node`/`network` from
+// sync-manager AND `prover` from the guardian requeue branch of the transaction loop
+// it owns (`transaction/index.ts`), while THIS realm marks/clears `prover` on every
+// write it executes (`proveWithFallback`). Neither has seen the other's issues, so
+// whichever writes last replaces the entire picture — an offscreen prover SUCCESS
+// would clear a real "node unreachable" banner, which is precisely the surface
+// telling the user whether the wallet can reach the network.
+//
+// So this realm becomes a REPORTER: every mark/clear is forwarded to the SW, which
+// owns the snapshot and applies it category-by-category. Installed at module top,
+// before any client exists and before any handler can run, so no observation in this
+// realm can take the storage-writing path.
+//
+// Fire-and-forget, and safe to drop / delay / reorder by construction: a reporting
+// realm keeps no local state and so never de-duplicates — it RE-SENDS rather than
+// sending deltas (see `setConnectivityReporter`) — and the SW applies each report by
+// writing it THROUGH (`applyConnectivityReport` — the de-duplicating mutators would
+// skip the storage mirror a re-send has to repair). Those two halves together are what
+// bound a lost event to a stale banner instead of a latched wrong state; the only
+// consumer is the banner, and nothing downstream makes a correctness decision on it.
+//
+// The re-send CADENCE, precisely, is `proveWithFallback`'s two call sites
+// (`sdk/miden-client-interface.ts`): `prover: false` after every prove that succeeds on
+// its first attempt, and `prover: true` after every DELEGATED prove that fails with a
+// transport-shaped error. Nothing is sent when a non-delegated prove throws, when a
+// delegated failure is not transport-shaped, or on the local re-prove that rescues a
+// delegated failure. So a dropped clear costs staleness until the next first-attempt
+// success and a dropped mark until the next delegated network failure — bounded and
+// cosmetic, but not literally "the next prove".
+function postConnectivityEvent(category: ConnectivityCategory, active: boolean): void {
+  const event: OffscreenConnectivityEvent = {
+    target: SW_TARGET,
+    type: OFFSCREEN_CONNECTIVITY_EVENT,
+    category,
+    active
+  };
+  try {
+    // Same two-layer swallow as `postStageEvent`: `Promise.resolve(...)` tolerates a
+    // mock/polyfilled sendMessage returning a non-promise and absorbs a rejection
+    // (no SW receiver), the outer catch absorbs a synchronous throw (torn-down port).
+    // Both matter more here than for a stamp: these calls sit INSIDE the prove path's
+    // success/failure handlers, where a throw would be read as a prove failure.
+    void Promise.resolve(chrome.runtime.sendMessage(event)).catch(() => {});
+  } catch {
+    /* a synchronous sendMessage throw must not reach the prove — see above */
+  }
+}
+
+setConnectivityReporter(postConnectivityEvent);
 
 // --- Developer endpoint overrides in THIS realm -----------------------------
 //

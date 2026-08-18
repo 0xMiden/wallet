@@ -374,9 +374,12 @@ export default defineConfig({
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
-    // Issue #260 slice 1: route flag-gated WASM-client reads (getAccount)
-    // through the chrome.offscreen document. DEFAULT OFF — off is a strict
-    // no-op vs. the inline client. See lib/miden/back/miden-client-proxy.ts.
+    // Issue #260: route flag-gated WASM-client work through the chrome.offscreen
+    // document. DEFAULT ON for the service-worker bundle — this is the only bundle
+    // that can open an offscreen document, so it is the only one where the flag can
+    // mean anything. Every other config defaults it `'false'` (mobile hardcodes it).
+    // Off is a strict no-op vs. the inline client.
+    // See lib/miden/back/miden-client-proxy.ts.
     'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'true'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
@@ -419,6 +422,14 @@ export default defineConfig({
     // (gated further on !delegateEnabled at runtime). Mobile config pins
     // this false — speculation has nothing to dispatch to without
     // chrome.offscreen anyway, but the explicit pin makes intent clear.
+    //
+    // Left ON even though `initSpeculationManager` (lib/miden/back/speculation-manager.ts)
+    // now returns null whenever MIDEN_USE_OFFSCREEN_CLIENT is on and chrome.offscreen
+    // is present — i.e. on this build's own default. The flag stays a BUILD switch for
+    // the feature, and the realm gate is a RUNTIME fact only the service worker can
+    // evaluate; folding the two together here would also silently disable the flag-off
+    // and non-Chrome paths, which are unaffected by the realm split. See that
+    // function's TRADEOFF block.
     'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify(process.env.MIDEN_USE_SPECULATIVE_PROVING ?? 'true'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
   }

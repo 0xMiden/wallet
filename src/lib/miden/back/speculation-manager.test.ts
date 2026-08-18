@@ -10,8 +10,12 @@
  */
 
 const mockAbort = jest.fn<Promise<boolean>, unknown[]>(async () => false);
+// `isOffscreenAvailable` is half of the "can a speculation produced here still be
+// consumed?" gate, and jsdom has no `chrome.offscreen`, so it is a controllable spy.
+const mockIsOffscreenAvailable = jest.fn<boolean, unknown[]>(() => false);
 jest.mock('./offscreen-prover', () => ({
-  abortSpeculativeProve: (...args: unknown[]) => mockAbort(...args)
+  abortSpeculativeProve: (...args: unknown[]) => mockAbort(...args),
+  isOffscreenAvailable: (...args: unknown[]) => mockIsOffscreenAvailable(...args)
 }));
 
 const mockWithWasmClientLock = jest.fn(async <T>(op: () => Promise<T>) => op());
@@ -72,6 +76,8 @@ describe('SpeculationManager', () => {
 
   beforeEach(() => {
     mockAbort.mockClear();
+    mockIsOffscreenAvailable.mockClear();
+    mockIsOffscreenAvailable.mockReturnValue(false);
     mockWithWasmClientLock.mockClear();
     executeAndProveForSpeculation = jest.fn();
     getClient = jest.fn(async () => ({ executeAndProveForSpeculation }) as any);
@@ -554,6 +560,67 @@ describe('SpeculationManager', () => {
       expect(a).toBe(b);
       // getSpeculationManager returns the cached singleton.
       expect(getSpeculationManager()).toBe(a);
+    });
+  });
+
+  /**
+   * Issue #260 realm split. A speculation is only worth producing if the send that
+   * would claim it runs in THIS realm. With the offscreen client enabled the send is
+   * dispatched as one whole-op OFFSCREEN_CALL and takes the staged in-realm branch
+   * inside the offscreen document, which never consults the cache — so speculating
+   * would pre-prove against a never-synced client, burn the offscreen rayon pool, and
+   * (via `abortSpeculativeProve`) close the very document that owns the live client.
+   */
+  describe('realm gate (issue #260)', () => {
+    const originalFlag = process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+
+    /**
+     * A fresh copy of the module, so `_instance` starts null. The memo is
+     * module-scoped and the singleton test above already populated it, which would
+     * otherwise make "getSpeculationManager() stays null" pass for the wrong reason.
+     */
+    const freshModule = async () => {
+      jest.resetModules();
+      return import('./speculation-manager');
+    };
+
+    afterEach(() => {
+      if (originalFlag === undefined) delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+      else process.env.MIDEN_USE_OFFSCREEN_CLIENT = originalFlag;
+    });
+
+    it('returns null — and leaves getSpeculationManager() null — when the send runs in the offscreen realm', async () => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockIsOffscreenAvailable.mockReturnValue(true);
+      const mod = await freshModule();
+
+      expect(mod.initSpeculationManager(getClient as any)).toBeNull();
+      // Null here is what turns the feature off end to end: back/main.ts's two
+      // SPECULATE handlers and proveLocallyViaOffscreen all branch on it. It is also
+      // the whole of the "no teardown of the offscreen realm" property — there is no
+      // manager object to drive, so nothing can reach `abortSpeculativeProve()`.
+      expect(mod.getSpeculationManager()).toBeNull();
+    });
+
+    // NOT because speculation works without chrome.offscreen — it cannot, the producer
+    // throws there regardless of the flag. The second gate term exists purely to leave
+    // flag-on non-Chrome byte-identical to today; see `initSpeculationManager`.
+    it('still wires the manager when the flag is on but chrome.offscreen is absent (unchanged from today)', async () => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockIsOffscreenAvailable.mockReturnValue(false);
+      const mod = await freshModule();
+
+      expect(mod.initSpeculationManager(getClient as any)).not.toBeNull();
+      expect(mod.getSpeculationManager()).not.toBeNull();
+    });
+
+    it('still wires the manager when the flag is off, even with chrome.offscreen present', async () => {
+      delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+      mockIsOffscreenAvailable.mockReturnValue(true);
+      const mod = await freshModule();
+
+      expect(mod.initSpeculationManager(getClient as any)).not.toBeNull();
+      expect(mod.getSpeculationManager()).not.toBeNull();
     });
   });
 });

@@ -393,10 +393,33 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   //     and <= balance)
   //
   // Known gap: the review page always seeds a 7-day recallBlocks, while this
-  // speculation proves a no-recall tx — a guaranteed params-hash mismatch, so
-  // the cached prove goes unused (one wasted prove per send). The flag is off
-  // by default; carrying the seeded recallBlocks into the speculate request is
-  // the fix if it's ever enabled.
+  // speculation proves a no-recall tx. The interface layer skips the cache entirely
+  // when a reclaim height is set, so the cached prove goes unused — at most one full
+  // prove's worth of CPU per editing session, per the discarded-CPU bound above (a
+  // superseded speculation is marked stale and `abortSpeculativeProve()` closes the
+  // offscreen document to stop it, unless a real op is in flight), not one per
+  // debounced edit. The flag defaults ON (vite.extension.config.ts /
+  // vite.background.config.ts); carrying the seeded recallBlocks into the speculate
+  // request is the fix.
+  //
+  // Second gap, since issue #260: flag-on `MIDEN_USE_OFFSCREEN_CLIENT` (the service
+  // worker's default) the SW handler this request reaches is INERT —
+  // `initSpeculationManager` returns null there because the send that would claim the
+  // result runs in the offscreen realm, which never consults the cache. See its
+  // TRADEOFF block. Left firing rather than gated off here because this bundle cannot
+  // evaluate that gate at all: half of it is `isOffscreenAvailable()`, and
+  // `chrome.offscreen` is exposed only to the service worker.
+  //
+  // The cost of leaving it firing is one debounced SpeculateSendRequest per 500 ms
+  // quiet period while the amount / recipient / token are being edited HERE (this
+  // effect's deps), plus ONE SpeculateInvalidate per exit from the flow — the two
+  // unmount invalidates are alternatives, not a pair, because this component's is
+  // skipped while a draft is pending (see it below) and the review handoff is exactly
+  // when a draft is pending. A straight-through send (edit -> review -> Confirm) sends
+  // only ReviewTransaction's; abandoning the form without ever reaching review sends
+  // only this one. (Backing out of review and then abandoning the form is two separate
+  // exits, so it sends one each.) Every one of them is answered by a handler that does
+  // nothing.
   useEffect(() => {
     if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
     if (!isExtension()) return;
@@ -430,10 +453,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     }, 500);
     return () => {
       // Clear the debounced trigger if deps change before it fires.
-      // We do NOT call requestSpeculateInvalidate here — the in-SW
-      // SpeculationManager already replaces pending on each new
-      // speculate() and discards stale active results. Invalidating on
-      // every keystroke would defeat the cache.
+      // We do NOT call requestSpeculateInvalidate here — whenever there IS an in-SW
+      // SpeculationManager it already replaces pending on each new speculate() and
+      // discards stale active results. Invalidating on every keystroke would defeat
+      // the cache. (Flag-on there is no manager at all — see the note above.)
       clearTimeout(timer);
     };
   }, [delegateEnabled, publicKey, recipientAddress, token, amount]);

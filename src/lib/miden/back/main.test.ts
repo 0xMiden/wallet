@@ -68,7 +68,54 @@ jest.mock('lib/miden/back/miden-client-proxy', () => {
     reloadOffscreenEndpointOverrides: jest.fn(async () => true)
   };
 });
+
+// The speculation singleton, made settable per test. `initSpeculationManager` returns
+// null — leaving `getSpeculationManager()` null — whenever the send that would claim a
+// speculation runs in the offscreen realm (issue #260), which is the extension's
+// DEFAULT configuration. The real module cannot reach that state here: jsdom has no
+// `chrome.offscreen`, so its gate always wires a manager and the two SPECULATE
+// handlers' null branches — now the default production path — would never be executed.
+_g.__mainTest.speculationManager = null;
+jest.mock('lib/miden/back/speculation-manager', () => ({
+  initSpeculationManager: jest.fn(() => (globalThis as any).__mainTest.speculationManager),
+  getSpeculationManager: () => (globalThis as any).__mainTest.speculationManager
+}));
 const proxyMock: any = jest.requireMock('lib/miden/back/miden-client-proxy');
+
+// In-memory storage so connectivity-state's mirror (the copy the popup renders, and
+// the thing an SW restart leaves behind) is both harmless and READABLE here.
+_g.__mainConnStore = {} as Record<string, any>;
+jest.mock('lib/platform/storage-adapter', () => ({
+  getStorageProvider: () => ({
+    get: async (keys: string[]) => {
+      const out: Record<string, any> = {};
+      for (const k of keys)
+        if (k in (globalThis as any).__mainConnStore) out[k] = (globalThis as any).__mainConnStore[k];
+      return out;
+    },
+    set: async (items: Record<string, any>) => {
+      Object.assign((globalThis as any).__mainConnStore, items);
+    },
+    remove: async (keys: string[]) => {
+      for (const k of keys) delete (globalThis as any).__mainConnStore[k];
+    }
+  })
+}));
+
+// Keep the REAL connectivity-state — the listener validates against its canonical
+// CONNECTIVITY_CATEGORIES list, and the tests below assert on the snapshot (and its
+// storage mirror) the real mutators produce, which is the only way "the SW's node
+// issue survived an offscreen prover clear" can be pinned. `applyConnectivityReport`
+// is wrapped in a spy that still RUNS the real implementation, so the routing/
+// validation tests can assert on the call while the behavioural ones read state.
+jest.mock('lib/miden/activity/connectivity-state', () => {
+  const actual = jest.requireActual('lib/miden/activity/connectivity-state');
+  return {
+    ...actual,
+    applyConnectivityReport: jest.fn(actual.applyConnectivityReport)
+  };
+});
+const connectivityMock: any = jest.requireMock('lib/miden/activity/connectivity-state');
 
 // The #260 offscreen client proxy reads (getAccount/syncState/exportNote/
 // getInputNoteDetails) through the `lib/...` alias of miden-client, which jest
@@ -133,14 +180,25 @@ const Actions: any = jest.requireMock('lib/miden/back/actions');
 
 import { WalletMessageType } from 'lib/shared/types';
 
+import { CONNECTIVITY_CATEGORIES } from '../activity/connectivity-state';
 import { TRANSACTION_STAGES } from '../db/types';
 import { MidenMessageType } from '../types';
 import { start } from './main';
 
 let dispatch: (req: any, port?: any) => Promise<any>;
 
+/** connectivity-state mirrors to storage fire-and-forget; yield so the write lands. */
+const flushStorage = () => new Promise(resolve => setTimeout(resolve, 0));
+
 beforeEach(async () => {
   jest.clearAllMocks();
+  for (const k of Object.keys(_g.__mainConnStore)) delete _g.__mainConnStore[k];
+  // `current` in connectivity-state is module state that nothing else here resets, and
+  // the real mutators run in this suite. Reset it from the HARNESS, not as a side
+  // effect of the code under test — otherwise a test's stated setup can be deleted and
+  // it still passes on state leaked from the previous one.
+  connectivityMock.resetConnectivityState();
+  _g.__mainTest.speculationManager = null;
   Actions.isDAppEnabled.mockResolvedValue(true);
   Actions.getFrontState.mockResolvedValue({ status: 'Ready', accounts: [] });
   Actions.revealMnemonic.mockResolvedValue('the mnemonic');
@@ -175,6 +233,71 @@ describe('main.start', () => {
     const watcher = mockStoreWatch.mock.calls[0]![0];
     watcher();
     expect(mockBroadcast).toHaveBeenCalledWith({ type: WalletMessageType.StateUpdated });
+  });
+
+  // The connectivity snapshot is per-realm memory and therefore empty on every MV3
+  // wake, but its storage mirror — the copy the popup renders — survives. Left
+  // unreconciled the two disagree, and the mutators' "already clear" short-circuit
+  // then swallows the clear that would repair the mirror: the banner latches an issue
+  // that has already recovered. Seeding FROM the mirror fixes that without blanking
+  // it, so an outage that is still happening keeps its banner across the wake.
+  it('hydrates the connectivity snapshot from the durable mirror at start', async () => {
+    _g.__mainConnStore[connectivityMock.CONNECTIVITY_STATE_KEY] = {
+      network: { active: false, since: null },
+      node: { active: true, since: 7 },
+      prover: { active: false, since: null },
+      resolving: { active: false, since: null }
+    };
+
+    await start();
+    await flushStorage();
+
+    // The mirrored issue survives — blanking it here is what would make a real
+    // outage's banner vanish on every wake.
+    expect(_g.__mainConnStore[connectivityMock.CONNECTIVITY_STATE_KEY].node.active).toBe(true);
+    // ...and `current` now agrees with it, which is the point: the next successful
+    // sync's clearReachabilityIssues() has something to transition.
+    const snap = connectivityMock.getConnectivityState();
+    expect(snap.node).toEqual({ active: true, since: 7 });
+    connectivityMock.clearReachabilityIssues();
+    await flushStorage();
+    expect(_g.__mainConnStore[connectivityMock.CONNECTIVITY_STATE_KEY].node.active).toBe(false);
+  });
+
+  // A category this realm has already observed for itself is a FRESHER fact than the
+  // pre-restart mirror, and the storage read is asynchronous — an offscreen report or
+  // a sync result can land while it is in flight.
+  it('does not let the mirror overwrite a category observed while it was loading', async () => {
+    _g.__mainConnStore[connectivityMock.CONNECTIVITY_STATE_KEY] = {
+      network: { active: false, since: null },
+      node: { active: true, since: 7 },
+      prover: { active: false, since: null },
+      resolving: { active: false, since: null }
+    };
+
+    const started = start();
+    // Same turn the hydrate read is pending in: the node came back.
+    connectivityMock.clearReachabilityIssues();
+    await started;
+    await flushStorage();
+
+    expect(connectivityMock.getConnectivityState().node.active).toBe(false);
+    expect(_g.__mainConnStore[connectivityMock.CONNECTIVITY_STATE_KEY].node.active).toBe(false);
+  });
+
+  // Anything else under the key (an older build's shape, a hand-edited profile) must
+  // not become `current` — the banner renders whatever lands there.
+  it('ignores a malformed stored snapshot instead of hydrating it', async () => {
+    _g.__mainConnStore[connectivityMock.CONNECTIVITY_STATE_KEY] = {
+      network: { active: false, since: null },
+      node: { active: 'yes', since: 7 },
+      prover: { active: false, since: null },
+      resolving: { active: false, since: null }
+    };
+
+    await start();
+
+    expect(connectivityMock.getConnectivityState().node).toEqual({ active: false, since: null });
   });
 });
 
@@ -703,6 +826,113 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     expect(proxyMock.handleOffscreenStageEvent.mock.calls.map((c: unknown[]) => c[1])).toEqual([...TRANSACTION_STAGES]);
   });
 
+  // Connectivity reports (issue #260 single writer). The offscreen realm executes
+  // the writes, so it observes prover health, but the snapshot is module-scoped and
+  // mirrors to ONE shared key — so it reports here and the SW stays the only writer.
+  it('applies an OFFSCREEN_CONNECTIVITY_EVENT to the SW snapshot (active → mark) and returns false', () => {
+    const sendResponse = jest.fn();
+    const ret = signListener()(
+      { target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category: 'prover', active: true },
+      {},
+      sendResponse
+    );
+    // Fire-and-forget like the other two signals: no response, port not held open.
+    expect(ret).toBe(false);
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(connectivityMock.applyConnectivityReport).toHaveBeenCalledWith('prover', true);
+    // Routed as its own family — not to the sign handler or the stage/start signals.
+    expect(proxyMock.handleOffscreenStageEvent).not.toHaveBeenCalled();
+    expect(proxyMock.markOpStarted).not.toHaveBeenCalled();
+    expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
+  });
+
+  it('applies `active: false` as a CLEAR of that one category', () => {
+    expect(
+      signListener()(
+        { target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category: 'node', active: false },
+        {},
+        jest.fn()
+      )
+    ).toBe(false);
+    expect(connectivityMock.applyConnectivityReport).toHaveBeenCalledWith('node', false);
+  });
+
+  // Same reasoning as the stage stamp's value check: the declared type is a claim
+  // about bytes off the message bus. An unvalidated category would be written into
+  // the snapshot the banner renders.
+  it('drops a report whose category is not a real ConnectivityCategory', () => {
+    for (const category of ['not-a-category', '', 'Prover', 'prover ', '__proto__', 'toString']) {
+      expect(
+        signListener()({ target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category, active: true }, {}, jest.fn())
+      ).toBe(false);
+    }
+    expect(connectivityMock.applyConnectivityReport).not.toHaveBeenCalled();
+  });
+
+  // A missing `active` must not read as "clear" — that would let a malformed
+  // message silently dismiss a live banner.
+  it('drops a report whose `active` is not a boolean', () => {
+    for (const active of [undefined, null, 'true', 1, 0]) {
+      signListener()({ target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category: 'prover', active }, {}, jest.fn());
+    }
+    expect(connectivityMock.applyConnectivityReport).not.toHaveBeenCalled();
+  });
+
+  it('accepts every real ConnectivityCategory (the check is derived from the canonical list)', () => {
+    for (const category of CONNECTIVITY_CATEGORIES) {
+      signListener()({ target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category, active: true }, {}, jest.fn());
+    }
+    expect(connectivityMock.applyConnectivityReport.mock.calls.map((c: unknown[]) => c[0])).toEqual([
+      ...CONNECTIVITY_CATEGORIES
+    ]);
+  });
+
+  // The headline user-visible property of the single-writer fix, asserted on real
+  // state rather than on the spy: pre-fix BOTH realms blind-wrote the whole snapshot
+  // to one storage key, so an offscreen prover SUCCESS erased a live "node
+  // unreachable" banner. The report has to land per category.
+  it('an offscreen prover clear leaves the node issue the SW marked standing (snapshot + mirror)', async () => {
+    connectivityMock.markConnectivityIssue('node');
+
+    signListener()(
+      { target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category: 'prover', active: false },
+      {},
+      jest.fn()
+    );
+    await flushStorage();
+
+    const snap = connectivityMock.getConnectivityState();
+    expect(snap.node.active).toBe(true);
+    expect(snap.prover.active).toBe(false);
+    // The mirror is what the popup renders (`use-connectivity-state` prefers it over
+    // its in-memory copy on the extension), so it has to keep node too.
+    expect(_g.__mainConnStore[connectivityMock.CONNECTIVITY_STATE_KEY].node.active).toBe(true);
+  });
+
+  // Drop-safety, receiving half. The offscreen realm re-sends its observation on
+  // EVERY prove; `current` here is per-realm memory an MV3 eviction resets while the
+  // mirror is durable, so the two routinely disagree. Applying through the ordinary
+  // de-duplicating clear would see "already clear", skip the notify, and latch the
+  // stale mirrored banner with no in-app recovery.
+  it('a reported clear repairs a stale mirror this realm already believes clear', async () => {
+    _g.__mainConnStore[connectivityMock.CONNECTIVITY_STATE_KEY] = {
+      network: { active: false, since: null },
+      node: { active: false, since: null },
+      prover: { active: true, since: 4242 },
+      resolving: { active: false, since: null }
+    };
+    expect(connectivityMock.getConnectivityState().prover.active).toBe(false);
+
+    signListener()(
+      { target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category: 'prover', active: false },
+      {},
+      jest.fn()
+    );
+    await flushStorage();
+
+    expect(_g.__mainConnStore[connectivityMock.CONNECTIVITY_STATE_KEY].prover.active).toBe(false);
+  });
+
   it('responds ok:false when the sign handler itself throws (never drops the response)', async () => {
     // Force an internal fault inside handleOffscreenSignRequest by feeding a
     // malformed base64 that b64ToBytes/Buffer will still process but the signer
@@ -727,5 +957,65 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(false);
     expect(resp.sign_id).toBe('sign-y');
+  });
+});
+
+/**
+ * The two SPECULATE handlers, in the configuration the realm gate created (issue
+ * #260): flag-on Chrome, `getSpeculationManager()` is null and both handlers must be
+ * inert but still ANSWER — the popup's `requestSpeculateSend` /
+ * `requestSpeculateInvalidate` are intercom requests, so a throw or a missing
+ * response surfaces as a rejected request on the review screen rather than as the
+ * silent no-op it is meant to be.
+ */
+describe('SPECULATE handlers (issue #260 realm gate)', () => {
+  const params = {
+    accountId: 'mtst1acct',
+    recipientAccountId: 'mtst1recip',
+    faucetId: 'mtst1faucet',
+    noteType: 'private' as const,
+    amount: '1234'
+  };
+
+  it('answers SpeculateSendRequest without throwing when there is no manager', async () => {
+    expect(_g.__mainTest.speculationManager).toBeNull();
+    await expect(dispatch({ type: WalletMessageType.SpeculateSendRequest, ...params })).resolves.toEqual({
+      type: WalletMessageType.SpeculateSendResponse
+    });
+  });
+
+  it('answers SpeculateInvalidate without throwing when there is no manager', async () => {
+    expect(_g.__mainTest.speculationManager).toBeNull();
+    await expect(dispatch({ type: WalletMessageType.SpeculateInvalidate })).resolves.toEqual({
+      type: WalletMessageType.SpeculateInvalidateResponse
+    });
+  });
+
+  // The other half: where a manager IS wired (flag-off, or a browser with no
+  // chrome.offscreen) the request still has to reach it, with `amount` decoded back
+  // from the string the intercom message carries into the bigint SpeculationParams
+  // hashes on — a mismatch there is a guaranteed cache miss.
+  it('forwards the decoded params to a wired manager, amount as a BigInt', async () => {
+    const speculate = jest.fn();
+    _g.__mainTest.speculationManager = { speculate, invalidate: jest.fn() };
+
+    await dispatch({ type: WalletMessageType.SpeculateSendRequest, ...params });
+
+    expect(speculate).toHaveBeenCalledWith({
+      accountId: 'mtst1acct',
+      recipientAccountId: 'mtst1recip',
+      faucetId: 'mtst1faucet',
+      noteType: 'private',
+      amount: 1234n
+    });
+  });
+
+  it('forwards SpeculateInvalidate to a wired manager', async () => {
+    const invalidate = jest.fn();
+    _g.__mainTest.speculationManager = { speculate: jest.fn(), invalidate };
+
+    await dispatch({ type: WalletMessageType.SpeculateInvalidate });
+
+    expect(invalidate).toHaveBeenCalledTimes(1);
   });
 });

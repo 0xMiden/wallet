@@ -25,7 +25,7 @@
 //   - SPECULATE_INVALIDATE clears the cache and marks any active as stale
 //     (its result will be discarded when it finishes; CPU is already in flight).
 
-import { abortSpeculativeProve } from './offscreen-prover';
+import { abortSpeculativeProve, isOffscreenAvailable } from './offscreen-prover';
 import { withWasmClientLock } from '../sdk/miden-client';
 import type { MidenClientInterface } from '../sdk/miden-client-interface';
 
@@ -229,7 +229,96 @@ export class SpeculationManager {
 /** Module-scoped singleton wired up at SW init. */
 let _instance: SpeculationManager | null = null;
 
-export function initSpeculationManager(getClient: () => Promise<MidenClientInterface>): SpeculationManager {
+/**
+ * Can a speculation produced HERE still be consumed?
+ *
+ * Only if the send that would claim it runs in this same realm. With the
+ * offscreen client enabled (`MIDEN_USE_OFFSCREEN_CLIENT`, which
+ * `vite.background.config.ts` defaults ON for the service worker) it does not:
+ * `midenClientProxy.sendTransaction` dispatches the whole
+ * execute→prove→submit→apply chain as one OFFSCREEN_CALL, and inside that
+ * document `isOffscreenAvailable()` is false (the `isInOffscreenDocument()`
+ * recursion guard), so `shouldUseOffscreenProver()` returns false and the send
+ * takes `MidenClientInterface`'s staged in-realm branch — which never consults
+ * the cache. Meanwhile `_instance` is only ever set here, in the SW, so the
+ * offscreen realm's `getSpeculationManager()` is null regardless.
+ *
+ * `isOffscreenAvailable()` is the second term ONLY to keep flag-on non-Chrome
+ * behaviour byte-identical to today — it is not a claim that speculation works
+ * there. It does not: speculation is Chrome-only on BOTH ends independently of this
+ * flag, since the producer `executeAndProveForSpeculation` throws outright without
+ * `chrome.offscreen`, and the consumer sits behind `shouldUseOffscreenProver`, which
+ * requires it too. So on Firefox/Safari this gate preserves nothing but the status
+ * quo: a manager that gets wired, takes the WASM lock once per debounced edit of the
+ * send form (`SendManager`'s speculate effect, not the review screen), and
+ * logs `[speculation] prove failed:`. That is a pre-existing, flag-independent dead
+ * end (it behaves identically flag-OFF), so fixing it here would be a partial fix to
+ * an unrelated defect; the term keeps this change scoped to the realm split, which
+ * is a flag-on Chrome problem.
+ *
+ * Read per-call rather than as a module const, matching
+ * `shouldRouteGuardianLeafOffscreen` in `transaction/index.ts`: the routing
+ * decision must be togglable in tests, and this module is imported by the
+ * consumer path anyway so there is no dead-code-elimination to win.
+ */
+function speculationIsConsumableInThisRealm(): boolean {
+  return !(process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true' && isOffscreenAvailable());
+}
+
+/**
+ * Wire the singleton, or return null when speculation cannot be consumed in this
+ * realm — in which case `getSpeculationManager()` stays null and every consumer's
+ * existing null branch turns the feature off end to end (the two SPECULATE
+ * handlers in `back/main.ts` no-op; `proveLocallyViaOffscreen` falls through to a
+ * fresh execute + prove).
+ *
+ * TRADEOFF (issue #260 realm split). On the configuration this gate actually changes
+ * — flag-on Chrome, the service worker's default — it gives up no REALIZED saving,
+ * and that is the fact that decides whether rehosting is worth doing. It holds
+ * whatever reclaim the user picked, because the cache lookup is not merely skipped
+ * there, it is unreachable: `MidenClientInterface.sendTransaction` constructs
+ * `cacheParams` INSIDE its `shouldUseOffscreenProver` branch — the branch that
+ * dispatches a prove TO the offscreen document — and flag-on the send is already
+ * executing inside that document, where `isOffscreenAvailable()` is false (the
+ * `isInOffscreenDocument()` recursion guard). The send takes the staged in-realm
+ * branch and `cacheParams` is never constructed at all.
+ *
+ * The flag-off / non-Chrome branch this gate deliberately preserves is a near-dead
+ * end too, for a second and independent reason: there `cacheParams` IS on the taken
+ * branch, but only when `reclaimAfter == null`, and `ReviewTransaction` seeds every
+ * same-chain send with a 7-day reclaim by default — so only a send whose reclaim the
+ * user explicitly edited to "Never" can ever claim a speculation (`SendManager`
+ * already records this as a known gap). So rehosting into the offscreen realm is only
+ * worth doing TOGETHER with carrying `recallBlocks` into `SpeculationParams`; on its
+ * own it would buy nothing on the default send path.
+ *
+ * With that established: this turns the feature off on the extension's default
+ * configuration rather than rehosting it, because speculating anyway is not merely
+ * wasted work — it is actively harmful there:
+ *
+ *   - The result would be suspect even if it could be claimed.
+ *     `executeAndProveForSpeculation` executes against THIS realm's client, and
+ *     flag-on every `syncState` is dispatched to the offscreen realm instead — so
+ *     this client's view of the account drifts away from the state the real send
+ *     will execute against.
+ *   - `speculate()`/`invalidate()` call `abortSpeculativeProve()`, which CLOSES the
+ *     offscreen document. Flag-on that document owns the live client: closing it
+ *     aborts in-flight reads and discards a ~120-150 MB warm realm. Its guard only
+ *     spares CRITICAL ops, so an ordinary sync or balance read is fair game.
+ *   - The prove itself burns the offscreen doc's rayon pool for seconds next to the
+ *     writes that realm is there to run.
+ *
+ * Rehosting it into the offscreen realm was considered and rejected as a much larger
+ * change than this defect warrants: it needs a new cross-realm producer channel for
+ * SPECULATE, an in-realm prove path inside `executeAndProveForSpeculation` (which
+ * today hard-requires `isOffscreenAvailable()`), cache consultation added to the
+ * staged in-realm send branch, and — the blocker — a replacement for abort, since
+ * "kill the document" cannot mean "kill my own realm". Without abort, a superseded
+ * speculation would hold the single offscreen WASM mutex for seconds and DELAY the
+ * user's real send, which is worse than not speculating at all.
+ */
+export function initSpeculationManager(getClient: () => Promise<MidenClientInterface>): SpeculationManager | null {
+  if (!speculationIsConsumableInThisRealm()) return null;
   if (!_instance) _instance = new SpeculationManager(getClient);
   return _instance;
 }

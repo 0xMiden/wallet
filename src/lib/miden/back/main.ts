@@ -2,6 +2,12 @@ import { Runtime } from 'webextension-polyfill';
 
 import { queueNoteImport } from 'lib/miden/activity';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
+import {
+  CONNECTIVITY_CATEGORIES,
+  applyConnectivityReport,
+  hydrateConnectivityState,
+  type ConnectivityCategory
+} from 'lib/miden/activity/connectivity-state';
 import * as Actions from 'lib/miden/back/actions';
 import { intercom } from 'lib/miden/back/defaults';
 import {
@@ -12,6 +18,7 @@ import {
   reloadOffscreenEndpointOverrides
 } from 'lib/miden/back/miden-client-proxy';
 import {
+  OFFSCREEN_CONNECTIVITY_EVENT,
   OFFSCREEN_OP_STARTED,
   OFFSCREEN_SIGN_REQUEST,
   OFFSCREEN_STAGE_EVENT,
@@ -39,6 +46,31 @@ export async function start() {
   console.log('Miden background script started');
   intercom.onRequest(processRequest);
   registerOffscreenSignHandler();
+
+  // The connectivity snapshot is in-memory and therefore empty on every MV3 wake,
+  // but its storage mirror — the copy the popup actually renders — is durable. Seed
+  // the snapshot FROM the mirror so the two agree: otherwise the mutators' "already
+  // clear" short-circuit swallows the clear that would repair a stale mirrored issue
+  // and the banner latches an outage that has already recovered.
+  //
+  // Hydrating rather than blanking the mirror, because the categories cannot be
+  // re-established quickly. `node`/`network` need THREE more consecutive sync
+  // failures (sync-manager's MAX_CONSECUTIVE_SYNC_FAILURES), each up to its 30s
+  // watchdog and spaced by the circuit breaker's 30s–5min backoff — and that streak
+  // counter is SW-module state this same wake resets to zero, against at most TWO
+  // syncs per wake with the popup closed (setupSyncManager's initial one and the
+  // alarm's, which `doSync` may even coalesce into one), so three is never reached.
+  // `prover` is worse: nothing probes it, so a blanked prover banner returns only on
+  // the user's next delegated prove, which may never come — while
+  // `transaction/index.ts` requeues a guardian send on a prover outage and relies on
+  // that banner to explain the wait. Blanking would also un-dismiss a banner the user
+  // dismissed, via the `!merged[category].active` cleanup in `use-connectivity-state`.
+  //
+  // Runs AFTER `registerOffscreenSignHandler()` — which must stay synchronous with SW
+  // start so an inbound message can't miss it — and hydration yields a category to any
+  // observation that lands during its read, so an offscreen report arriving mid-load
+  // wins over the pre-restart mirror.
+  await hydrateConnectivityState();
 
   // NOTE: The Vite sw-patches plugin injects await init_*() calls here
   // (between intercom registration and Actions.init)
@@ -69,6 +101,11 @@ export async function start() {
   // unlock; the manager doesn't run anything until a SPECULATE_SEND_REQUEST
   // arrives, by which point the client must already exist (the user is on
   // the send-flow review screen, which is gated on unlock).
+  //
+  // Returns null — leaving `getSpeculationManager()` null and both SPECULATE
+  // handlers below inert — when the send that would consume the speculation runs
+  // in the offscreen realm instead of here. See `initSpeculationManager` for why
+  // speculating anyway would be harmful rather than merely wasteful.
   initSpeculationManager(() => getMidenClient());
 
   // Native asset ID is network-wide on-chain state — prime discovery here so
@@ -111,6 +148,22 @@ const isTransactionStage = (value: unknown): value is ITransactionStage =>
   typeof value === 'string' && TRANSACTION_STAGE_NAMES.has(value);
 
 /**
+ * The connectivity categories as a runtime set, for validating a report that
+ * arrived over the extension message bus. Built from the canonical
+ * {@link CONNECTIVITY_CATEGORIES} list so a new category needs no second edit.
+ */
+const CONNECTIVITY_CATEGORY_NAMES: ReadonlySet<string> = new Set<string>(CONNECTIVITY_CATEGORIES);
+
+/**
+ * Runtime membership test for an inbound connectivity report — a VALUE check for
+ * the same reason {@link isTransactionStage} is one: the message's declared type
+ * is a claim about bytes the compiler never saw, and an unchecked string would be
+ * written into the snapshot as a category the banner then has to render.
+ */
+const isConnectivityCategory = (value: unknown): value is ConnectivityCategory =>
+  typeof value === 'string' && CONNECTIVITY_CATEGORY_NAMES.has(value);
+
+/**
  * Register the SW-side reverse-IPC sign listener (issue #260, slice 5, design §2.4).
  *
  * When the flag-on offscreen write reaches its execute step, the offscreen
@@ -132,11 +185,19 @@ function registerOffscreenSignHandler(): void {
   if (typeof chrome === 'undefined' || !chrome.runtime?.onMessage?.addListener) return;
   offscreenSignHandlerRegistered = true;
   chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse: (r?: unknown) => void) => {
-    // A SW-targeted message is an OFFSCREEN_SIGN_REQUEST, an OFFSCREEN_OP_STARTED
-    // or an OFFSCREEN_STAGE_EVENT (distinct `type` literals), so type `m` loosely
-    // and discriminate on `type` below.
+    // A SW-targeted message is an OFFSCREEN_SIGN_REQUEST, an OFFSCREEN_OP_STARTED,
+    // an OFFSCREEN_STAGE_EVENT or an OFFSCREEN_CONNECTIVITY_EVENT (distinct `type`
+    // literals), so type `m` loosely and discriminate on `type` below.
     const m = msg as
-      | { target?: string; type?: string; op_id?: string; sign_id?: string; stage?: ITransactionStage }
+      | {
+          target?: string;
+          type?: string;
+          op_id?: string;
+          sign_id?: string;
+          stage?: ITransactionStage;
+          category?: ConnectivityCategory;
+          active?: boolean;
+        }
       | undefined;
     if (m?.target !== SW_TARGET) return false;
     // Execution-start signal (issue #260 flip-prep #3): the op named by `op_id`
@@ -154,6 +215,24 @@ function registerOffscreenSignHandler(): void {
     // `isTransactionStage` is a VALUE check, not just a type check — see its doc.
     if (m.type === OFFSCREEN_STAGE_EVENT) {
       if (typeof m.op_id === 'string' && isTransactionStage(m.stage)) handleOffscreenStageEvent(m.op_id, m.stage);
+      return false;
+    }
+    // Connectivity report from the offscreen realm. That realm executes the writes,
+    // so it — not the SW — observes prover health, but the connectivity snapshot is
+    // module-scoped and mirrors to ONE storage key, so it reports here instead of
+    // writing that key itself (issue #260; see `setConnectivityReporter`). Applying
+    // it ONE CATEGORY at a time keeps the SW the single writer, so the two realms'
+    // observations accumulate per category rather than overwriting each other.
+    // `applyConnectivityReport`, not the ordinary mark/clear: those short-circuit on
+    // "already active / already clear" and so would skip the storage mirror, which
+    // is exactly what a re-sent report after an SW eviction has to repair. See its
+    // doc. Fire-and-forget like the two signals above — no response, port not held.
+    // The category is a VALUE check (see `isConnectivityCategory`), and `active` must
+    // be a real boolean: a missing field would otherwise read as "clear".
+    if (m.type === OFFSCREEN_CONNECTIVITY_EVENT) {
+      if (isConnectivityCategory(m.category) && typeof m.active === 'boolean') {
+        applyConnectivityReport(m.category, m.active);
+      }
       return false;
     }
     if (m.type !== OFFSCREEN_SIGN_REQUEST) return false;
