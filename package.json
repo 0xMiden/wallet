@@ -134,7 +134,7 @@
     "@dicebear/avatars": "4.2.5",
     "@dicebear/avatars-bottts-sprites": "4.2.5",
     "@dicebear/avatars-jdenticon-sprites": "4.2.5",
-    "@epoch-protocol/epoch-intents-sdk": "^1.0.35",
+    "@epoch-protocol/epoch-intents-sdk": "1.0.38",
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
     "@miden-sdk/miden-sdk": "0.15.9",

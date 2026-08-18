@@ -137,15 +137,15 @@ export const resolveSwapAsset = (
 /** USDC fallback decimals for an earn deposit when the faucet has no metadata (mirrors `MIDEN_USDC_DECIMALS`). */
 const EARN_USDC_DECIMALS = 6;
 
-/** Human protocol labels per Epoch lender key (the `LENDER` segment of a `marketUid`). */
-const EARN_LENDER_LABELS: Record<string, string> = { DUMMY_LENDING: 'AAVE' };
-
-/** Build the "AAVE-USDC" pair label from an Epoch `marketUid` (`LENDER:chainId:token`). USDC-only today. */
+/**
+ * Build the market label from an Epoch `marketUid` (`LENDER:chainId:token`) —
+ * the lender key itself, hyphenated (e.g. `DUMMY_LENDING` → "DUMMY-LENDING").
+ * No hardcoded aliases: the badge shows the real market name.
+ */
 const earnMarketLabel = (marketUid: string): string | undefined => {
   const lenderKey = marketUid.split(':')[0];
   if (!lenderKey) return undefined;
-  const protocol = EARN_LENDER_LABELS[lenderKey] ?? lenderKey;
-  return `${protocol}-USDC`;
+  return lenderKey.replaceAll('_', '-');
 };
 
 /**
@@ -153,7 +153,7 @@ const earnMarketLabel = (marketUid: string): string | undefined => {
  *
  *   send          →  {amount} {symbol}        ->  {recipient}
  *   swap          →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
- *   earn-deposit  →  {amount} {symbol}        ↑   {protocol}-USDC   (up-arrow separator)
+ *   earn-deposit  →  {amount} {symbol}        ↑   {market name}     (up-arrow separator)
  *   consume       →  {amount} {symbol}        ->  Consumed
  *
  * Other transaction types (switch-guardian, bridged sends) render nothing for

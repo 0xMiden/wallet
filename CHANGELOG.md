@@ -6,6 +6,10 @@
 
 - [CHANGE][ci] **E2E screenshots are now browsable as a GitHub Pages gallery.** The per-screen-change screenshots each E2E job captures were only reachable by downloading a run's artifact zip and digging through `screens/` folders (and macOS Finder silently drops files on those long paths). A new Pages deploy aggregates the latest `main` run of every E2E job into one browsable gallery at `/e2e/` — grouped by job and spec, with a click-to-zoom filmstrip — while the existing docs stay at `/`. No user-facing change.
 
+### Fixes
+
+- [FIX][all] **Epoch Earn deposits and Fast (Epoch) bridge sends work again against the updated allocator.** The Epoch allocator now validates the Miden collateral note on-chain and rejects any note not cryptographically bound to its intent (smallocator PR #38 — "Miden note is not bound to the intent mandate"), which broke opening Earn positions and Epoch sends. The wallet now follows the new integrator contract: the intents SDK is upgraded to 1.0.38, the collateral P2IDE note is minted with the SDK-supplied mandate-binding attachment and the SDK-supplied reclaim window (previously hardcoded wallet constants), and the same pre-built note request is used across the standard, guardian, and retry paths.
+
 ## 1.15.21 (2026-08-17)
 
 ### Fixes
