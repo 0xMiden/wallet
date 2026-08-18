@@ -397,7 +397,17 @@ export class FakeEpochAllocator {
       return `Miden note is not bound to the intent mandate (recipient ${recipient})`;
     }
 
-    const expected = getSimpleWitnessHash({ ...mandate, midenNoteId: '' }, witnessTypeString);
+    // `getSimpleWitnessHash` THROWS when the mandate lacks a field the
+    // witnessTypeString names. Unwrapped, that escapes to the request handler
+    // and answers 500 "compact validation crashed" — which reads as a broken
+    // harness rather than the malformed request it is, and is not what the real
+    // allocator does. Report it as a rejection with the offending reason.
+    let expected: string;
+    try {
+      expected = getSimpleWitnessHash({ ...mandate, midenNoteId: '' }, witnessTypeString);
+    } catch (err) {
+      return `compact mandate does not satisfy witnessTypeString: ${err instanceof Error ? err.message : String(err)}`;
+    }
     let actual: string;
     try {
       actual = decodeFeltsToBindingHash(felts.map(f => BigInt(f)));
