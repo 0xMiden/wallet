@@ -185,8 +185,8 @@ describe('useTransactionSummaryBadgeContent', () => {
     );
     // lhs = "{amount} {symbol}" with the USDC fallback symbol.
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('750 USDC');
-    // rhs = "{protocol}-USDC" derived from the marketUid lender key.
-    expect(container.textContent).toContain('AAVE-USDC');
+    // rhs = the hyphenated market name derived from the marketUid lender key.
+    expect(container.textContent).toContain('DUMMY-LENDING');
     expect(container.textContent).not.toContain('UNDEFINED');
     act(() => root.unmount());
   });
@@ -203,7 +203,7 @@ describe('useTransactionSummaryBadgeContent', () => {
     );
 
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('125000 mUSDC');
-    expect(container.textContent).toContain('NEW_LENDER-USDC');
+    expect(container.textContent).toContain('NEW-LENDER');
     act(() => root.unmount());
   });
 

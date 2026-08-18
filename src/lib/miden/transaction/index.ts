@@ -364,7 +364,7 @@ export const generateTransaction = async (
       // above and never reach here on success.)
       //
       // Earn-deposit is the exception among value-moving guardian ops: its caller
-      // (`createEarnP2IDNote` via `waitForTransactionCompletion`) reads
+      // (`createEarnP2IDENote` via `waitForTransactionCompletion`) reads
       // `resultBytes`/`outputNoteIds` back off the finished row. On a post-submit
       // failure — a local apply throw OR a canonicalization race — there is NO
       // TransactionResult to repopulate them, so marking the row Completed (as the
@@ -597,11 +597,14 @@ export const generateTransaction = async (
       break;
     case 'bridged-send':
     case 'earn-deposit':
-      // Epoch bridged-send + earn-deposit are send-style (recallable P2IDE note, no
-      // `requestBytes`); Agglayer bridged-send carries a pre-built request. Route the
-      // leaf through the proxy so it runs offscreen flag-on, inline flag-off — same
-      // args the former inline `getMidenClient(options)` block passed.
-      if (transaction.type === 'bridged-send' && transaction.requestBytes) {
+      // Agglayer bridged-send carries a pre-built B2AGG request; Epoch bridged-send
+      // + earn-deposit now ALSO carry pre-built request bytes — the P2IDE collateral
+      // note with the mandate-binding attachment (smallocator PR #38), built at
+      // initiate time by `buildEpochCollateralRequestBytes`. Route the leaf through
+      // the proxy so it runs offscreen flag-on, inline flag-off. The bare
+      // `sendTransaction` fallback only remains for legacy rows queued before the
+      // binding migration.
+      if (transaction.requestBytes) {
         result = await midenClientProxy.newTransaction(
           transaction.accountId,
           transaction.requestBytes,
@@ -989,12 +992,14 @@ const generateGuardianTransaction = async (
       // mistaken for the Agglayer (pre-built request) path.
       if (bridgeTx.extraInputs?.provider === 'epoch') {
         // The solver's allocator requires a recallable, PUBLIC P2IDE collateral
-        // note — it reads the note on-chain (a private note is "not found on-chain")
-        // AND validates its recall window (a plain P2ID has none and is rejected,
-        // "P2IDE reclaim window too small"). `createP2idProposal` can only mint a
-        // plain P2ID, so build the same public P2IDE send request the standard-
-        // account path builds (from the row's recall height) and route it through a
-        // custom proposal — same mechanism as the Agglayer branch below.
+        // note — it reads the note on-chain (a private note is "not found on-chain"),
+        // validates its recall window (a plain P2ID has none and is rejected,
+        // "P2IDE reclaim window too small"), AND requires the mandate-binding
+        // attachment (smallocator PR #38 — "Miden note is not bound to the intent
+        // mandate"). Rows queued by `createBridgeP2IDENote` carry the pre-built
+        // request (own output note with the attachment) in `requestBytes`, which
+        // `ensureGuardianRecallableSendRequestBytes` returns verbatim; its build
+        // path below is only a fallback for legacy attachment-less rows.
         const recallBlocks = bridgeTx.extraInputs?.recallBlocks;
         if (!recallBlocks) {
           throw new Error(
@@ -1026,13 +1031,13 @@ const generateGuardianTransaction = async (
       // with a reclaim height, which the multisig client's P2ID proposal cannot
       // express — so route it through a custom proposal built from a P2IDE send
       // request, exactly like the recallable `send` case (see OpenZeppelin/
-      // guardian#366). `recallBlocks` (set on the row by `openEarnPosition`) is a
-      // RELATIVE blocks-until-reclaim offset; the note's absolute reclaim height is
-      // `syncHeight + recallBlocks` at build time, the same relative→absolute
-      // conversion the non-Guardian path uses. The Epoch allocator validates the
+      // guardian#366). `recallBlocks` (set on the row from the Epoch SDK's mint
+      // callback — allocator minimum + SDK drift buffer) is a RELATIVE
+      // blocks-until-reclaim offset; the note's absolute reclaim height is
+      // `head + recallBlocks` at build time. The Epoch allocator validates the
       // REMAINING reclaim window against its own (later) chain head — not an exact
       // height — so the extra guardian propose/sign/submit delay is absorbed by
-      // `MIDEN_RECLAIM_BUFFER_BLOCKS` baked into `recallBlocks` (see earn-note.ts).
+      // the ~1000-block buffer the SDK bakes into `recallBlocks`.
       const earnTx = transaction as EarnDepositTransaction;
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       const recallBlocks = earnTx.extraInputs?.recallBlocks;
@@ -1053,11 +1058,13 @@ const generateGuardianTransaction = async (
           'Earn deposit was already abandoned by the caller (epochStatus=failed) — refusing to submit an orphan collateral note.'
         );
       }
-      // Build the P2IDE collateral request via the shared guardian helper (same as
-      // the recallable send / Epoch bridge paths). `freshSync`: earn collateral is
-      // allocator-validated, so measure the reclaim height against a current head.
+      // Rows queued by `createEarnP2IDENote` carry the pre-built P2IDE collateral
+      // request (own output note with the mandate-binding attachment, smallocator
+      // PR #38) in `requestBytes`, which the shared guardian helper returns
+      // verbatim; its build path is only a fallback for legacy attachment-less
+      // rows (`freshSync`: measure the reclaim height against a current head).
       // Earn collateral is always PUBLIC — the allocator discovers + consumes it
-      // on-chain (createEarnP2IDNote hardcodes it), regardless of the row's noteType.
+      // on-chain (createEarnP2IDENote hardcodes it), regardless of the row's noteType.
       const requestBytes = await ensureGuardianRecallableSendRequestBytes(
         transaction,
         earnTx.secondaryAccountId!,
@@ -1306,7 +1313,7 @@ const generateGuardianTransaction = async (
       break;
     case 'earn-deposit':
       // Same completion as the non-Guardian path: extract the committed P2IDE
-      // collateral note id and mark the row Deposited. `createEarnP2IDNote` reads
+      // collateral note id and mark the row Deposited. `createEarnP2IDENote` reads
       // `outputNoteIds[0]` off this row to hand the note back to the Epoch SDK, so
       // routing this to the generic custom-tx completion would strand the deposit.
       await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
@@ -1393,7 +1400,7 @@ export const generateTransactionsLoop = async (
     if (errorCode === 'ApplyTransactionAfterSubmitFailed') {
       const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
 
-      // `earn-deposit` is the one type whose caller (`createEarnP2IDNote` via
+      // `earn-deposit` is the one type whose caller (`createEarnP2IDENote` via
       // `waitForTransactionCompletion`) reads `resultBytes`/`outputNoteIds` back off
       // the completed row. This generic post-submit path has no `TransactionResult`
       // to repopulate them from (the apply threw before we could capture it), so
