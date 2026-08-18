@@ -2537,8 +2537,8 @@
     "englishSource": "Private Data Permission"
   },
   "confirmPrivateDataPermissionDescription": {
-    "message": "此舉將授予永久存取您帳戶資料的權限，且無法撤銷。",
-    "englishSource": "This will give permanent access to your account data and cannot be revoked."
+    "message": "此權限可讓該網站持續存取您的帳戶資料，無需再次徵求同意。您可隨時在「設定」→「已授權的 DApp」中撤銷此權限。",
+    "englishSource": "This gives the site ongoing access to your account data without asking again. You can revoke it any time in Settings → Authorized DApps."
   },
   "privateAccountAccessRequest": {
     "message": "此網站正在請求存取您的私人帳戶。",
@@ -3320,6 +3320,18 @@
   "dappTransactionRequest": {
     "message": "此應用程式正在請求一筆交易",
     "englishSource": "This app is requesting a transaction"
+  },
+  "dappSignRequest": {
+    "message": "此應用程式要求您使用您的錢包對資料進行簽名",
+    "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappImportNoteRequest": {
+    "message": "此應用程式欲將私有note匯入您的錢包中",
+    "englishSource": "This app wants to import a private note into your wallet"
+  },
+  "dappPrivateDataRequest": {
+    "message": "此應用程式正在請求存取您的私人錢包資料",
+    "englishSource": "This app is requesting access to your private wallet data"
   },
   "noAccountSelected": {
     "message": "尚未選取任何帳戶",

@@ -3321,6 +3321,18 @@
     "message": "This app is requesting a transaction",
     "englishSource": "This app is requesting a transaction"
   },
+  "dappSignRequest": {
+    "message": "This app wants you to sign data with your wallet",
+    "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappImportNoteRequest": {
+    "message": "This app wants to import a private note into your wallet",
+    "englishSource": "This app wants to import a private note into your wallet"
+  },
+  "dappPrivateDataRequest": {
+    "message": "This app is requesting access to your private wallet data",
+    "englishSource": "This app is requesting access to your private wallet data"
+  },
   "noAccountSelected": {
     "message": "No account selected",
     "englishSource": "No account selected"

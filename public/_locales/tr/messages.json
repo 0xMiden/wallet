@@ -2537,8 +2537,8 @@
     "englishSource": "Private Data Permission"
   },
   "confirmPrivateDataPermissionDescription": {
-    "message": "Bu işlem, hesap verilerinize kalıcı erişim hakkı sağlayacak ve geri alınamaz.",
-    "englishSource": "This will give permanent access to your account data and cannot be revoked."
+    "message": "Bu, siteye tekrar sormadan hesap verilerinize sürekli erişim hakkı verir. Bunu Ayarlar → Yetkilendirilmiş DApp’ler bölümünden istediğiniz zaman iptal edebilirsiniz.",
+    "englishSource": "This gives the site ongoing access to your account data without asking again. You can revoke it any time in Settings → Authorized DApps."
   },
   "privateAccountAccessRequest": {
     "message": "Bu site, özel hesabınıza erişim izni istiyor.",
@@ -3320,6 +3320,18 @@
   "dappTransactionRequest": {
     "message": "Bu uygulama bir işlem talep ediyor",
     "englishSource": "This app is requesting a transaction"
+  },
+  "dappSignRequest": {
+    "message": "Bu uygulama, verileri cüzdanınızla imzalamanızı istemektedir",
+    "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappImportNoteRequest": {
+    "message": "Bu uygulama, özel bir note adresini cüzdanınıza aktarmak istiyor",
+    "englishSource": "This app wants to import a private note into your wallet"
+  },
+  "dappPrivateDataRequest": {
+    "message": "Bu uygulama, özel cüzdan verilerinize erişim izni istemektedir",
+    "englishSource": "This app is requesting access to your private wallet data"
   },
   "noAccountSelected": {
     "message": "Seçili bir hesap yok",

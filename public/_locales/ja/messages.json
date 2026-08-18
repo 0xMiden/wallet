@@ -2537,8 +2537,8 @@
     "englishSource": "Private Data Permission"
   },
   "confirmPrivateDataPermissionDescription": {
-    "message": "これにより、お客様のアカウントデータへの永続的なアクセス権が付与され、これを撤回することはできません。",
-    "englishSource": "This will give permanent access to your account data and cannot be revoked."
+    "message": "これにより、サイトは再度許可を求めることなく、継続的にお客様のアカウントデータにアクセスできるようになります。この権限は、「設定」→「承認済みDApps」からいつでも取り消すことができます。",
+    "englishSource": "This gives the site ongoing access to your account data without asking again. You can revoke it any time in Settings → Authorized DApps."
   },
   "privateAccountAccessRequest": {
     "message": "このサイトは、あなたの個人アカウントへのアクセスを要求しています。",
@@ -3320,6 +3320,18 @@
   "dappTransactionRequest": {
     "message": "このアプリがトランザクションをリクエストしています",
     "englishSource": "This app is requesting a transaction"
+  },
+  "dappSignRequest": {
+    "message": "このアプリでは、ウォレットを使用してデータに署名することを求めています",
+    "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappImportNoteRequest": {
+    "message": "このアプリは、プライベートなnoteをあなたのウォレットにインポートしようとしています",
+    "englishSource": "This app wants to import a private note into your wallet"
+  },
+  "dappPrivateDataRequest": {
+    "message": "このアプリは、ユーザーのプライベートウォレットデータへのアクセスを要求しています",
+    "englishSource": "This app is requesting access to your private wallet data"
   },
   "noAccountSelected": {
     "message": "選択されたアカウントはありません",

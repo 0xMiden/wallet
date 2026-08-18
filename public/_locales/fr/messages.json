@@ -2537,8 +2537,8 @@
     "englishSource": "Private Data Permission"
   },
   "confirmPrivateDataPermissionDescription": {
-    "message": "Cela vous donnera un accès permanent aux données de votre compte et ne pourra pas être révoqué.",
-    "englishSource": "This will give permanent access to your account data and cannot be revoked."
+    "message": "Cela permet au site d’accéder en permanence aux données de votre compte sans avoir à vous le demander à nouveau. Vous pouvez révoquer cette autorisation à tout moment dans Paramètres → DApps autorisées.",
+    "englishSource": "This gives the site ongoing access to your account data without asking again. You can revoke it any time in Settings → Authorized DApps."
   },
   "privateAccountAccessRequest": {
     "message": "Ce site demande à accéder à votre compte personnel.",
@@ -3320,6 +3320,18 @@
   "dappTransactionRequest": {
     "message": "Cette application demande une transaction",
     "englishSource": "This app is requesting a transaction"
+  },
+  "dappSignRequest": {
+    "message": "Cette application vous demande de signer des données avec votre portefeuille",
+    "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappImportNoteRequest": {
+    "message": "Cette application souhaite importer une clé privée note dans votre portefeuille",
+    "englishSource": "This app wants to import a private note into your wallet"
+  },
+  "dappPrivateDataRequest": {
+    "message": "Cette application demande l’accès aux données de votre portefeuille privé",
+    "englishSource": "This app is requesting access to your private wallet data"
   },
   "noAccountSelected": {
     "message": "Aucun compte sélectionné",

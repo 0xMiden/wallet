@@ -2537,8 +2537,8 @@
     "englishSource": "Private Data Permission"
   },
   "confirmPrivateDataPermissionDescription": {
-    "message": "Это обеспечит постоянный доступ к данным вашей учетной записи, и данный доступ не может быть отозван.",
-    "englishSource": "This will give permanent access to your account data and cannot be revoked."
+    "message": "Это предоставляет сайту постоянный доступ к данным вашего аккаунта без повторного запроса. Вы можете отозвать это разрешение в любое время в разделе «Настройки» → «Авторизованные DApps».",
+    "englishSource": "This gives the site ongoing access to your account data without asking again. You can revoke it any time in Settings → Authorized DApps."
   },
   "privateAccountAccessRequest": {
     "message": "Этот сайт запрашивает доступ к вашей личной учетной записи.",
@@ -3320,6 +3320,18 @@
   "dappTransactionRequest": {
     "message": "Это приложение запрашивает транзакцию",
     "englishSource": "This app is requesting a transaction"
+  },
+  "dappSignRequest": {
+    "message": "Это приложение требует, чтобы вы подписывали данные с помощью своего кошелька",
+    "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappImportNoteRequest": {
+    "message": "Это приложение хочет импортировать частный файл note в ваш кошелек",
+    "englishSource": "This app wants to import a private note into your wallet"
+  },
+  "dappPrivateDataRequest": {
+    "message": "Это приложение запрашивает доступ к данным вашего личного кошелька",
+    "englishSource": "This app is requesting access to your private wallet data"
   },
   "noAccountSelected": {
     "message": "Аккаунт не выбран",

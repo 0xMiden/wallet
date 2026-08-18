@@ -2537,8 +2537,8 @@
     "englishSource": "Private Data Permission"
   },
   "confirmPrivateDataPermissionDescription": {
-    "message": "Dadurch erhalten Sie dauerhaften Zugriff auf Ihre Kontodaten; dieser Zugriff kann nicht widerrufen werden.",
-    "englishSource": "This will give permanent access to your account data and cannot be revoked."
+    "message": "Dadurch erhält die Website fortlaufenden Zugriff auf Ihre Kontodaten, ohne erneut danach fragen zu müssen. Sie können diese Berechtigung jederzeit unter „Einstellungen“ → „Autorisierte DApps“ widerrufen.",
+    "englishSource": "This gives the site ongoing access to your account data without asking again. You can revoke it any time in Settings → Authorized DApps."
   },
   "privateAccountAccessRequest": {
     "message": "Diese Website fordert Zugriff auf Ihr privates Konto an.",
@@ -3320,6 +3320,18 @@
   "dappTransactionRequest": {
     "message": "Diese App fordert eine Transaktion an.",
     "englishSource": "This app is requesting a transaction"
+  },
+  "dappSignRequest": {
+    "message": "Diese App möchte, dass Sie Daten mit Ihrer Wallet signieren",
+    "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappImportNoteRequest": {
+    "message": "Diese App möchte eine private „note“ in Ihre Wallet importieren",
+    "englishSource": "This app wants to import a private note into your wallet"
+  },
+  "dappPrivateDataRequest": {
+    "message": "Diese App fordert Zugriff auf Ihre privaten Wallet-Daten an",
+    "englishSource": "This app is requesting access to your private wallet data"
   },
   "noAccountSelected": {
     "message": "Es wurde kein Konto ausgewählt",

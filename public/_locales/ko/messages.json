@@ -2537,8 +2537,8 @@
     "englishSource": "Private Data Permission"
   },
   "confirmPrivateDataPermissionDescription": {
-    "message": "이렇게 하면 귀하의 계정 데이터에 대한 영구적인 접근 권한이 부여되며, 이는 취소할 수 없습니다.",
-    "englishSource": "This will give permanent access to your account data and cannot be revoked."
+    "message": "이를 통해 사이트는 다시 요청하지 않고도 귀하의 계정 데이터에 지속적으로 접근할 수 있습니다. 설정 → 승인된 DApp에서 언제든지 이 권한을 취소할 수 있습니다.",
+    "englishSource": "This gives the site ongoing access to your account data without asking again. You can revoke it any time in Settings → Authorized DApps."
   },
   "privateAccountAccessRequest": {
     "message": "이 사이트에서 귀하의 비공개 계정에 대한 접근 권한을 요청하고 있습니다.",
@@ -3320,6 +3320,18 @@
   "dappTransactionRequest": {
     "message": "이 앱에서 거래를 요청하고 있습니다.",
     "englishSource": "This app is requesting a transaction"
+  },
+  "dappSignRequest": {
+    "message": "이 앱은 사용자가 지갑으로 데이터에 서명하기를 원합니다",
+    "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappImportNoteRequest": {
+    "message": "이 앱은 개인 키note를 귀하의 지갑으로 가져오려고 합니다.",
+    "englishSource": "This app wants to import a private note into your wallet"
+  },
+  "dappPrivateDataRequest": {
+    "message": "이 앱은 사용자의 개인 지갑 데이터에 대한 접근 권한을 요청하고 있습니다.",
+    "englishSource": "This app is requesting access to your private wallet data"
   },
   "noAccountSelected": {
     "message": "선택된 계정이 없습니다.",
