@@ -37,7 +37,7 @@ Bootstrap runs once and is cached in the `node-data` Docker volume. Subsequent s
 playwright/e2e/local-stack/run-note-transport.sh
 ```
 
-Clones + builds `note-transport-service @ v0.4.1` on first run (several minutes); subsequent runs use the cached binary at `${RUNNER_TEMP:-/tmp}/note-transport/target/release/miden-note-transport-node-bin`. Waits until `:57292` is open.
+Clones + builds `note-transport-service @ v0.4.1` on first run (several minutes); subsequent runs use the cached binary at `${RUNNER_TEMP:-/tmp}/note-transport/target/release/miden-note-transport-node`. Waits until `:57292` is open.
 
 ### 3. Build the extension for localnet
 

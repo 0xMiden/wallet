@@ -47,3 +47,21 @@ runs:
       run: |
         cd "${{ runner.temp }}/miden-client"
         ./scripts/start-test-node.sh --background
+    # start-test-node.sh fails with "a node service exited; see <dir>/logs" and then
+    # exits, so the logs it points at are discarded with the runner. That turns any
+    # bring-up failure into an unactionable red X — dump them here instead.
+    - name: Node bring-up logs (on failure)
+      if: failure()
+      shell: bash
+      run: |
+        logs="${{ runner.temp }}/miden-client/target/test-node/data/logs"
+        if [ ! -d "$logs" ]; then
+          echo "No log directory at $logs — the node never got as far as starting a service."
+          exit 0
+        fi
+        for f in "$logs"/*; do
+          [ -f "$f" ] || continue
+          echo "::group::$(basename "$f") (last 200 lines)"
+          tail -200 "$f"
+          echo "::endgroup::"
+        done
