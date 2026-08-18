@@ -281,8 +281,14 @@ export const test = base.extend<TwoEmulatorFixtures>({
       startScreenPoll({
         intervalMs: 250,
         read: () =>
-          walletPage.evaluate(
-            () => (window as unknown as { __TEST_SCREEN__?: { key: string; seq: number } }).__TEST_SCREEN__ ?? null
+          // Gate on paint: right after a launch the WebView is blank (React
+          // hasn't rendered), and a grab then yields an empty white frame.
+          // Report a screen only once the body has visible text, so the poll
+          // skips blank frames until the app has painted.
+          walletPage.evaluate(() =>
+            document.body && document.body.innerText.trim().length > 0
+              ? ((window as unknown as { __TEST_SCREEN__?: { key: string; seq: number } }).__TEST_SCREEN__ ?? null)
+              : null
           ),
         grab: p => walletPage.screenshot({ path: p }),
         dir: screensDir,

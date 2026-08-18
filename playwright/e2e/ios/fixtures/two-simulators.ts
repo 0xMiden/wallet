@@ -411,9 +411,14 @@ export const test = base.extend<TwoSimulatorFixtures>({
           // RWI bridge (see CdpSession.evalAsync). A plain-object read of
           // window.__TEST_SCREEN__ touches no WASM, so it's safe from the
           // single-threaded client's lock contention.
-          const raw = await cdp.eval<string>('return JSON.stringify(window.__TEST_SCREEN__ || null);', {
-            timeoutMs: 5_000
-          });
+          // Gate on paint: right after a launch the WebView is blank (React
+          // hasn't rendered), and a grab then yields an empty white frame.
+          // Report a screen only once the body has visible text, so the poll
+          // skips blank frames until the app has painted.
+          const raw = await cdp.eval<string>(
+            'return JSON.stringify(document.body && document.body.innerText.trim().length > 0 ? (window.__TEST_SCREEN__ || null) : null);',
+            { timeoutMs: 5_000 }
+          );
           return raw ? (JSON.parse(raw) as { key: string; seq: number }) : null;
         },
         grab: p => walletPage.screenshot({ path: p }),
