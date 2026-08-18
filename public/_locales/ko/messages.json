@@ -1670,33 +1670,30 @@
     "message": "시작하려면 지갑에 토큰을 추가하세요.",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "지금 기부하기",
-    "englishSource": "Fund now"
+  "faucetPromptFunding": {
+    "message": "자금 조달",
+    "englishSource": "Funding"
   },
-  "fundWalletLoadingTitle": {
-    "message": "지갑에 자금 입금하기",
-    "englishSource": "Funding your wallet"
+  "faucetPromptFundingSub": {
+    "message": "곧 자금을 사용할 수 있게 됩니다.",
+    "englishSource": "Your funds will be available shortly"
   },
-  "fundWalletLoadingBody": {
-    "message": "faucet에서 토큰을 요청 중입니다…",
-    "englishSource": "Requesting tokens from the faucet…"
+  "faucetPromptFunded": {
+    "message": "입금된 자금",
+    "englishSource": "Funds deposited"
   },
-  "fundWalletSuccessTitle": {
-    "message": "지갑에 자금이 입금됨",
-    "englishSource": "Wallet funded"
+  "faucetPromptFundedSub": {
+    "message": "당신은 $amount$ 준비가 된",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
-  "fundWalletSuccessBody": {
-    "message": "토큰이 발송 중이며 곧 표시될 예정입니다.",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "자금 조달에 실패했습니다",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "지갑에 자금을 충전할 수 없습니다. 다시 시도해 주세요.",
-    "englishSource": "We couldn't fund your wallet. Please try again."
+  "faucetPromptFundedSubGeneric": {
+    "message": "자금이 준비되었습니다",
+    "englishSource": "Your funds are ready"
   },
   "pendingNotesPromptTitle": {
     "message": "귀하의 미결제 노트는 다음과 같습니다Notes",
@@ -1710,10 +1707,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "지금 보기",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "복구 문구를 확인하세요",

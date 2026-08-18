@@ -361,7 +361,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
       />
 
       <div className="flex items-center justify-between pt-2">
-        <span className="text-2xl font-bold text-text-primary-token">{t('assets')}</span>
+        <span className="font-heading text-2xl font-bold text-text-primary-token">{t('assets')}</span>
       </div>
 
       <SearchInput value={search} onChange={onSearchChange} placeholder={t('searchForTokens')} />

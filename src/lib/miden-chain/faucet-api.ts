@@ -53,13 +53,21 @@ export async function faucetFetch(
   init?: RequestInit,
   timeoutMs: number = FAUCET_FETCH_TIMEOUT_MS
 ): Promise<Response> {
+  // The timeout needs its own controller, so a caller-provided `init.signal`
+  // can't ride through to `fetch` directly — link it to the internal one
+  // instead (abort either way, preserving the caller's abort reason).
+  const external = init?.signal ?? undefined;
   const attempt = async (): Promise<Response> => {
     const controller = new AbortController();
+    const abortFromExternal = () => controller.abort(external?.reason);
+    if (external?.aborted) abortFromExternal();
+    external?.addEventListener('abort', abortFromExternal, { once: true });
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       return await fetch(url, { ...init, signal: controller.signal });
     } finally {
       clearTimeout(timer);
+      external?.removeEventListener('abort', abortFromExternal);
     }
   };
 
@@ -72,9 +80,14 @@ export async function faucetFetch(
   return attempt();
 }
 
-export async function getPowChallenge(baseUrl: string, accountId: string, amount: bigint): Promise<PowChallenge> {
+export async function getPowChallenge(
+  baseUrl: string,
+  accountId: string,
+  amount: bigint,
+  signal?: AbortSignal
+): Promise<PowChallenge> {
   const params = new URLSearchParams({ account_id: accountId, amount: amount.toString() });
-  const response = await faucetFetch(`${baseUrl}/pow?${params}`);
+  const response = await faucetFetch(`${baseUrl}/pow?${params}`, { signal });
 
   if (!response.ok) {
     throw new Error(`Faucet PoW request failed with status ${response.status}: ${await response.text()}`);
@@ -89,7 +102,7 @@ export async function getPowChallenge(baseUrl: string, accountId: string, amount
 export async function solvePowChallenge(
   challengeHex: string,
   target: bigint,
-  opts: { deadlineMs?: number } = {}
+  opts: { deadlineMs?: number; signal?: AbortSignal } = {}
 ): Promise<number> {
   const challengeBytes = hexToBytes(challengeHex);
   const buffer = new Uint8Array(challengeBytes.length + 8);
@@ -102,6 +115,7 @@ export async function solvePowChallenge(
   const deadline = Date.now() + (opts.deadlineMs ?? POW_SOLVE_DEADLINE_MS);
 
   for (;;) {
+    if (opts.signal?.aborted) throw opts.signal.reason;
     const nonce = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
     view.setBigUint64(challengeBytes.length, BigInt(nonce), false);
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buffer));
@@ -122,7 +136,8 @@ export async function requestTokens(
   accountId: string,
   amount: bigint,
   challenge: string,
-  nonce: number
+  nonce: number,
+  signal?: AbortSignal
 ): Promise<MintedNote> {
   const params = new URLSearchParams({
     account_id: accountId,
@@ -131,7 +146,7 @@ export async function requestTokens(
     challenge,
     nonce: nonce.toString()
   });
-  const response = await faucetFetch(`${baseUrl}/get_tokens?${params}`);
+  const response = await faucetFetch(`${baseUrl}/get_tokens?${params}`, { signal });
 
   if (!response.ok) {
     throw new Error(`Faucet token request failed with status ${response.status}: ${await response.text()}`);
@@ -141,11 +156,11 @@ export async function requestTokens(
   return { txId: json.tx_id, noteId: json.note_id };
 }
 
-export async function mintFromMidenFaucet(address: string, amount: bigint): Promise<MintedNote> {
+export async function mintFromMidenFaucet(address: string, amount: bigint, signal?: AbortSignal): Promise<MintedNote> {
   const baseUrl = getFaucetApiUrl();
-  const { challenge, target } = await getPowChallenge(baseUrl, address, amount);
-  const nonce = await solvePowChallenge(challenge, target);
-  return requestTokens(baseUrl, address, amount, challenge, nonce);
+  const { challenge, target } = await getPowChallenge(baseUrl, address, amount, signal);
+  const nonce = await solvePowChallenge(challenge, target, { signal });
+  return requestTokens(baseUrl, address, amount, challenge, nonce, signal);
 }
 
 function hexToBytes(hex: string): Uint8Array {

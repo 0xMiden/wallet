@@ -1670,33 +1670,30 @@
     "message": "Añade tokens a tu monedero para empezar.",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "Aporta ahora",
-    "englishSource": "Fund now"
+  "faucetPromptFunding": {
+    "message": "Fondos",
+    "englishSource": "Funding"
   },
-  "fundWalletLoadingTitle": {
-    "message": "Recargar tu monedero",
-    "englishSource": "Funding your wallet"
+  "faucetPromptFundingSub": {
+    "message": "Tus fondos estarán disponibles en breve",
+    "englishSource": "Your funds will be available shortly"
   },
-  "fundWalletLoadingBody": {
-    "message": "Solicitando tokens de faucet…",
-    "englishSource": "Requesting tokens from the faucet…"
+  "faucetPromptFunded": {
+    "message": "Fondos depositados",
+    "englishSource": "Funds deposited"
   },
-  "fundWalletSuccessTitle": {
-    "message": "Financiado con el monedero",
-    "englishSource": "Wallet funded"
+  "faucetPromptFundedSub": {
+    "message": "Tienes $amount$ listo",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
-  "fundWalletSuccessBody": {
-    "message": "Tus tokens están en camino y aparecerán en breve.",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "La financiación no se ha concedido",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "No hemos podido recargar tu monedero. Inténtalo de nuevo.",
-    "englishSource": "We couldn't fund your wallet. Please try again."
+  "faucetPromptFundedSubGeneric": {
+    "message": "Tus fondos están listos",
+    "englishSource": "Your funds are ready"
   },
   "pendingNotesPromptTitle": {
     "message": "Tienes una nota pendiente: Notes",
@@ -1710,10 +1707,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "Ver ahora",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "Comprueba tu frase de recuperación",

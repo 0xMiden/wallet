@@ -7,7 +7,8 @@ import {
   getSwapTokenBySymbol,
   TOKEN_IMIDEN,
   _setSwapTokensForTest,
-  SWAP_TOKEN_DECIMALS
+  SWAP_TOKEN_DECIMALS,
+  SWAP_TOKENS
 } from './tokens';
 
 jest.mock('lib/miden-chain/native-asset', () => ({
@@ -38,16 +39,19 @@ describe('swap token registry accessor', () => {
     expect(getSwapTokenBySymbol('IMIDEN')).toBeDefined();
   });
 
-  it('adds the discovered native asset with its on-chain metadata', () => {
+  it('prepends the discovered native asset with its on-chain metadata', () => {
     mockGetNativeAssetIdSync.mockReturnValue('mtst1native');
     mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
 
-    expect(getSwapTokens()).toContainEqual({
-      symbol: 'MIDEN',
-      faucetId: 'mtst1native',
-      decimals: 6,
-      logoSymbol: 'MIDEN'
-    });
+    expect(getSwapTokens()).toEqual([
+      {
+        symbol: 'MIDEN',
+        faucetId: 'mtst1native',
+        decimals: 6,
+        logoSymbol: 'MIDEN'
+      },
+      ...SWAP_TOKENS
+    ]);
     expect(getSwapTokenByFaucetId('mtst1native')).toEqual(expect.objectContaining({ symbol: 'MIDEN', decimals: 6 }));
   });
 

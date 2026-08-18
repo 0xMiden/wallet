@@ -1670,33 +1670,30 @@
     "message": "Чтобы начать, добавьте токены в свой кошелек.",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "Пополнить счет сейчас",
-    "englishSource": "Fund now"
+  "faucetPromptFunding": {
+    "message": "Финансирование",
+    "englishSource": "Funding"
   },
-  "fundWalletLoadingTitle": {
-    "message": "Пополнение кошелька",
-    "englishSource": "Funding your wallet"
+  "faucetPromptFundingSub": {
+    "message": "Ваши средства будут доступны в ближайшее время",
+    "englishSource": "Your funds will be available shortly"
   },
-  "fundWalletLoadingBody": {
-    "message": "Запрос токенов с сайта faucet…",
-    "englishSource": "Requesting tokens from the faucet…"
+  "faucetPromptFunded": {
+    "message": "Внесенные средства",
+    "englishSource": "Funds deposited"
   },
-  "fundWalletSuccessTitle": {
-    "message": "Средства зачислены на кошелек",
-    "englishSource": "Wallet funded"
+  "faucetPromptFundedSub": {
+    "message": "У вас есть $amount$ готовый",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
-  "fundWalletSuccessBody": {
-    "message": "Ваши токены уже в пути и появятся в ближайшее время.",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "Финансирование не состоялось",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "Нам не удалось пополнить ваш кошелек. Пожалуйста, попробуйте ещё раз.",
-    "englishSource": "We couldn't fund your wallet. Please try again."
+  "faucetPromptFundedSubGeneric": {
+    "message": "Ваши средства готовы",
+    "englishSource": "Your funds are ready"
   },
   "pendingNotesPromptTitle": {
     "message": "У вас есть ожидающие квитанции (Notes)",
@@ -1710,10 +1707,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "Смотреть сейчас",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "Проверьте свою фразу для восстановления",

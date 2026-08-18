@@ -81,6 +81,29 @@ describe('faucet-api', () => {
       expect(result).toEqual({ challenge: CHALLENGE_HEX, target: 1024n });
     });
 
+    it('forwards the abort signal to the fetch', async () => {
+      // `faucetFetch` swaps in its own timeout controller, so the caller's
+      // signal reaches the fetch by linkage, not identity: aborting the
+      // caller's controller must abort the in-flight request with its reason.
+      fetchMock.mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+          })
+      );
+      const controller = new AbortController();
+
+      const request = getPowChallenge(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        controller.signal
+      );
+      controller.abort(new Error('Faucet request timed out'));
+
+      await expect(request).rejects.toThrow('Faucet request timed out');
+    });
+
     it('rejects with the response text on failure', async () => {
       fetchMock.mockResolvedValue(errorResponse(429, 'Account is rate limited for 30 more seconds.'));
 
@@ -98,6 +121,16 @@ describe('faucet-api', () => {
       const nonce = await solvePowChallenge(CHALLENGE_HEX, target);
 
       expect(await isValidSolution(CHALLENGE_HEX, nonce, target)).toBe(true);
+    });
+
+    it('stops the search when the signal aborts', async () => {
+      // Target 0: no nonce can ever solve, so only the abort ends the loop.
+      const controller = new AbortController();
+
+      const search = solvePowChallenge(CHALLENGE_HEX, 0n, { signal: controller.signal });
+      controller.abort(new Error('Faucet request timed out'));
+
+      await expect(search).rejects.toThrow('Faucet request timed out');
     });
 
     it('gives up on an UNSOLVABLE challenge (target 0) within the deadline instead of hanging (gap 10)', async () => {
@@ -187,6 +220,22 @@ describe('faucet-api', () => {
         expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
       expect(result).toEqual({ txId: '0xtx', noteId: '0xnote' });
+    });
+
+    it('forwards the abort signal to the fetch', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ tx_id: '0xtx', note_id: '0xnote' }));
+      const controller = new AbortController();
+
+      await requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42,
+        controller.signal
+      );
+
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/get_tokens?'), { signal: controller.signal });
     });
 
     it('rejects with the response text on failure', async () => {

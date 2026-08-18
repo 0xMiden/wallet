@@ -1670,33 +1670,30 @@
     "message": "Başlamak için cüzdanınıza token ekleyin.",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "Şimdi para yatırın",
-    "englishSource": "Fund now"
+  "faucetPromptFunding": {
+    "message": "Finansman",
+    "englishSource": "Funding"
   },
-  "fundWalletLoadingTitle": {
-    "message": "Cüzdanınıza para yatırma",
-    "englishSource": "Funding your wallet"
+  "faucetPromptFundingSub": {
+    "message": "Paranız kısa sürede kullanıma sunulacak",
+    "englishSource": "Your funds will be available shortly"
   },
-  "fundWalletLoadingBody": {
-    "message": "faucet'dan token talep ediliyor…",
-    "englishSource": "Requesting tokens from the faucet…"
+  "faucetPromptFunded": {
+    "message": "Yatırılan fonlar",
+    "englishSource": "Funds deposited"
   },
-  "fundWalletSuccessTitle": {
-    "message": "Cüzdan ile finanse edildi",
-    "englishSource": "Wallet funded"
+  "faucetPromptFundedSub": {
+    "message": "Var $amount$ hazır",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
-  "fundWalletSuccessBody": {
-    "message": "Jetonlarınız yolda ve kısa süre içinde görünmeye başlayacak.",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "Finansman başarısız oldu",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "Cüzdanınıza para aktaramadık. Lütfen tekrar deneyin.",
-    "englishSource": "We couldn't fund your wallet. Please try again."
+  "faucetPromptFundedSubGeneric": {
+    "message": "Fonlarınız hazır",
+    "englishSource": "Your funds are ready"
   },
   "pendingNotesPromptTitle": {
     "message": "Bekleyen Notes'unuz var",
@@ -1710,10 +1707,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "Şimdi Bak",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "Geri alma ifadesini doğrulayın",

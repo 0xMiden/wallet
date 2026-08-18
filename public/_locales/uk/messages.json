@@ -1670,33 +1670,30 @@
     "message": "Щоб розпочати, додайте токени до свого гаманця.",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "Зробити внесок зараз",
-    "englishSource": "Fund now"
+  "faucetPromptFunding": {
+    "message": "Фінансування",
+    "englishSource": "Funding"
   },
-  "fundWalletLoadingTitle": {
-    "message": "Поповнення гаманця",
-    "englishSource": "Funding your wallet"
+  "faucetPromptFundingSub": {
+    "message": "Ваші кошти незабаром будуть доступні",
+    "englishSource": "Your funds will be available shortly"
   },
-  "fundWalletLoadingBody": {
-    "message": "Запит на отримання токенів з faucet…",
-    "englishSource": "Requesting tokens from the faucet…"
+  "faucetPromptFunded": {
+    "message": "Депоновані кошти",
+    "englishSource": "Funds deposited"
   },
-  "fundWalletSuccessTitle": {
-    "message": "Гроші на рахунку гаманця",
-    "englishSource": "Wallet funded"
+  "faucetPromptFundedSub": {
+    "message": "Ви маєте $amount$ готовий",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
-  "fundWalletSuccessBody": {
-    "message": "Ваші токени вже в дорозі і незабаром з’являться.",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "Фінансування не відбулося",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "Нам не вдалося поповнити ваш гаманець. Спробуйте ще раз.",
-    "englishSource": "We couldn't fund your wallet. Please try again."
+  "faucetPromptFundedSubGeneric": {
+    "message": "Ваші кошти готові",
+    "englishSource": "Your funds are ready"
   },
   "pendingNotesPromptTitle": {
     "message": "У вас є «Pending» (Notes)",
@@ -1710,10 +1707,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "Переглянути зараз",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "Перевірте свою фразу відновлення",

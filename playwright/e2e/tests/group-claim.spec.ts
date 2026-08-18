@@ -127,8 +127,8 @@ test.describe('Pending tab — per-faucet group claim', () => {
     await steps.step(
       'see_pending_prompt_and_assert_rendered_amounts',
       async () => {
-        // Home prompt → CTA → /pending-notes: the journey a user who never opens
-        // the receive screen actually takes.
+        // Home prompt → card tap → /pending-notes: the journey a user who never
+        // opens the receive screen actually takes.
         await openPendingNotesFromHomePrompt(walletA, { timeoutMs: 45_000 });
 
         // Both notes come from one faucet, so they must collapse into exactly

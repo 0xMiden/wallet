@@ -1670,33 +1670,30 @@
     "message": "Add tokens to your wallet to get started.",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "Fund now",
-    "englishSource": "Fund now"
+  "faucetPromptFunding": {
+    "message": "Funding",
+    "englishSource": "Funding"
   },
-  "fundWalletLoadingTitle": {
-    "message": "Funding your wallet",
-    "englishSource": "Funding your wallet"
+  "faucetPromptFundingSub": {
+    "message": "Your funds will be available shortly",
+    "englishSource": "Your funds will be available shortly"
   },
-  "fundWalletLoadingBody": {
-    "message": "Requesting tokens from the faucet…",
-    "englishSource": "Requesting tokens from the faucet…"
+  "faucetPromptFunded": {
+    "message": "Funds deposited",
+    "englishSource": "Funds deposited"
   },
-  "fundWalletSuccessTitle": {
-    "message": "Wallet funded",
-    "englishSource": "Wallet funded"
+  "faucetPromptFundedSub": {
+    "message": "You have  $amount$  ready",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
-  "fundWalletSuccessBody": {
-    "message": "Your tokens are on the way and will appear shortly.",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "Funding failed",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "We couldn't fund your wallet. Please try again.",
-    "englishSource": "We couldn't fund your wallet. Please try again."
+  "faucetPromptFundedSubGeneric": {
+    "message": "Your funds are ready",
+    "englishSource": "Your funds are ready"
   },
   "pendingNotesPromptTitle": {
     "message": "You have Pending Notes",
@@ -1710,10 +1707,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "See Now",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "Verify your recovery phrase",

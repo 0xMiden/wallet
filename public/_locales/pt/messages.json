@@ -1670,33 +1670,30 @@
     "message": "Adicione tokens à sua carteira para começar.",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "Faça uma doação agora",
-    "englishSource": "Fund now"
+  "faucetPromptFunding": {
+    "message": "Financiamento",
+    "englishSource": "Funding"
   },
-  "fundWalletLoadingTitle": {
-    "message": "Recarregar sua carteira",
-    "englishSource": "Funding your wallet"
+  "faucetPromptFundingSub": {
+    "message": "Seus fundos estarão disponíveis em breve",
+    "englishSource": "Your funds will be available shortly"
   },
-  "fundWalletLoadingBody": {
-    "message": "Solicitando tokens do faucet…",
-    "englishSource": "Requesting tokens from the faucet…"
+  "faucetPromptFunded": {
+    "message": "Fundos depositados",
+    "englishSource": "Funds deposited"
   },
-  "fundWalletSuccessTitle": {
-    "message": "Carteira recarregada",
-    "englishSource": "Wallet funded"
+  "faucetPromptFundedSub": {
+    "message": "Você tem $amount$ preparar",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
-  "fundWalletSuccessBody": {
-    "message": "Seus tokens estão a caminho e aparecerão em breve.",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "O financiamento não foi aprovado",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "Não foi possível recarregar sua carteira. Por favor, tente novamente.",
-    "englishSource": "We couldn't fund your wallet. Please try again."
+  "faucetPromptFundedSubGeneric": {
+    "message": "Seus fundos estão prontos",
+    "englishSource": "Your funds are ready"
   },
   "pendingNotesPromptTitle": {
     "message": "Você tem Notes pendentes",
@@ -1710,10 +1707,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "Veja agora",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "Verifique sua frase de recuperação",

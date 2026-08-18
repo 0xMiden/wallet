@@ -1,20 +1,22 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { putToStorage } from 'lib/miden/front/storage';
 import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 
 import {
   EMPTY_WALLET_PROMPT_STORAGE,
-  FaucetError,
   WalletPromptStatus,
   WalletPromptType,
-  __resetFaucetProgressForTest,
+  __resetInFlightFaucetRequestsForTest,
   completeWalletPrompt,
   dismissWalletPrompt,
   faucet,
   fetchActiveBridgePrompts,
+  fetchFaucetFundingMarker,
   fetchHotKeyHardwareError,
   fetchWalletPromptStorage,
+  getInFlightFaucetRequest,
   getPendingNotesUsdTotal,
   isWalletPromptPending,
   normalizeWalletPromptStorage,
@@ -22,6 +24,7 @@ import {
   reportHotKeyHardwareFailure,
   reportHotKeyRotationNeeded,
   seedWalletPrompt,
+  setFaucetFundingMarker,
   setWalletPromptStatus,
   useWalletPromptStorage
 } from './wallet-prompts';
@@ -33,10 +36,6 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/miden-chain/faucet-api', () => ({
-  // Keep the REAL faucetFetch (timeout + Retry-After) that mintFromForkchoice
-  // now routes through; only stub the MIDEN faucet so the forkchoice half is
-  // driven by the mocked global fetch.
-  ...jest.requireActual('lib/miden-chain/faucet-api'),
   mintFromMidenFaucet: jest.fn()
 }));
 
@@ -64,20 +63,11 @@ jest.mock('lib/epoch', () => ({
 
 const mintFromMidenFaucetMock = jest.mocked(mintFromMidenFaucet);
 
-const fetchMock = jest.fn();
-Object.defineProperty(globalThis, 'fetch', {
-  value: fetchMock,
-  writable: true,
-  configurable: true
-});
-
 describe('wallet prompts', () => {
   beforeEach(() => {
     localStorage.clear();
     jest.clearAllMocks();
-    // The per-address faucet-source memo is module-level; clear it so a partial
-    // success in one test can't skip a source in the next (they share addresses).
-    __resetFaucetProgressForTest();
+    __resetInFlightFaucetRequestsForTest();
   });
 
   it('normalizes missing and malformed storage to an empty prompt set', () => {
@@ -118,9 +108,9 @@ describe('wallet prompts', () => {
     expect(
       getPendingNotesUsdTotal(
         [
-          { id: 'note-1', amount: '1250000', metadata: { decimals: 6, symbol: 'MIDEN' } },
-          { id: 'note-2', amount: '200000000', metadata: { decimals: 8, symbol: 'IMIDEN' } },
-          { id: 'note-3', amount: '3000000', metadata: { decimals: 6, symbol: 'UNKNOWN' } }
+          { id: 'note-1', amount: '1250000', faucetId: '0xmiden', metadata: { decimals: 6, symbol: 'MIDEN' } },
+          { id: 'note-2', amount: '200000000', faucetId: '0ximiden', metadata: { decimals: 8, symbol: 'IMIDEN' } },
+          { id: 'note-3', amount: '3000000', faucetId: '0xother', metadata: { decimals: 6, symbol: 'UNKNOWN' } }
         ],
         {
           MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
@@ -184,89 +174,99 @@ describe('wallet prompts', () => {
     });
   });
 
-  it('requests tokens from both the forkchoice and official Miden faucets', async () => {
-    fetchMock.mockResolvedValue({ ok: true, status: 200, headers: new Headers() } as Response);
+  it('requests native tokens from the official Miden faucet', async () => {
     mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
 
     await faucet('mtst1testaddress');
 
-    // objectContaining: faucetFetch adds an AbortSignal to the init for the
-    // timeout, so match the meaningful fields rather than the exact object.
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://faucet-api.forkchoice.xyz/api/mint',
-      expect.objectContaining({
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          token: 'IMIDEN',
-          address: 'mtst1testaddress',
-          amount: 1_000_000_000,
-          note_type: 'public'
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledWith('mtst1testaddress', 100_000_000n, expect.any(AbortSignal));
+  });
+
+  it('joins concurrent requests for one address into a single mint, per address', async () => {
+    const resolvers: Array<() => void> = [];
+    mintFromMidenFaucetMock.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolvers.push(() => resolve({ txId: '0xtx', noteId: '0xnote' }));
         })
-      })
     );
-    expect(mintFromMidenFaucetMock).toHaveBeenCalledWith('mtst1testaddress', 100_000_000n);
-  });
 
-  it('retries ONLY the failed source and never double-mints the one that succeeded (gap 10)', async () => {
-    // Partial failure: forkchoice (IMIDEN) pays out, the MIDEN faucet fails.
-    fetchMock.mockResolvedValue({ ok: true, status: 200, headers: new Headers() } as Response);
-    mintFromMidenFaucetMock.mockRejectedValueOnce(new Error('PoW rate limited'));
-
-    await expect(faucet('mtst1partial')).rejects.toThrow('MIDEN: PoW rate limited');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const first = faucet('mtst1testaddress');
+    const second = faucet('mtst1testaddress');
+    // Joined: one real request, and the join is observable for the UI.
+    expect(second).toBe(first);
     expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1);
+    expect(getInFlightFaucetRequest('mtst1testaddress')).toBe(first);
 
-    // Retry: MIDEN now succeeds. forkchoice already paid out, so it must NOT be
-    // minted a second time — the whole point of gap 10.
-    mintFromMidenFaucetMock.mockResolvedValueOnce({ txId: '0xtx', noteId: '0xnote' });
-    await faucet('mtst1partial');
-
-    expect(fetchMock).toHaveBeenCalledTimes(1); // STILL 1 — no double-mint
-    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(2); // failed source retried
-  });
-
-  it('re-mints both sources on a fresh fund after a fully successful one (memo cleared)', async () => {
-    fetchMock.mockResolvedValue({ ok: true, status: 200, headers: new Headers() } as Response);
-    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
-
-    await faucet('mtst1fresh'); // both succeed → per-address memo cleared
-    await faucet('mtst1fresh'); // a genuine re-fund attempts BOTH again
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // A DIFFERENT address is not blocked by the first one being in flight.
+    const other = faucet('mtst1otheraddress');
+    expect(other).not.toBe(first);
     expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(2);
-  });
 
-  it('rejects unsuccessful forkchoice faucet responses', async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 429, headers: new Headers() } as Response);
+    resolvers.forEach(resolveMint => resolveMint());
+    await Promise.all([first, second, other]);
+    // Settling clears the join, so a genuine later re-fund mints again.
+    expect(getInFlightFaucetRequest('mtst1testaddress')).toBeNull();
     mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
-
-    await expect(faucet('mtst1testaddress')).rejects.toThrow('Faucet request failed with status 429');
+    await faucet('mtst1testaddress');
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(3);
   });
 
-  it('rejects when the official Miden faucet fails even if forkchoice succeeds', async () => {
-    fetchMock.mockResolvedValue({ ok: true, status: 200, headers: new Headers() } as Response);
+  it('clears the in-flight join when the request rejects', async () => {
+    mintFromMidenFaucetMock.mockRejectedValue(new Error('down'));
+
+    await expect(faucet('mtst1testaddress')).rejects.toThrow('down');
+
+    expect(getInFlightFaucetRequest('mtst1testaddress')).toBeNull();
+  });
+
+  it('rejects when the official Miden faucet fails', async () => {
     mintFromMidenFaucetMock.mockRejectedValue(new Error('Faucet PoW request failed with status 429'));
 
     await expect(faucet('mtst1testaddress')).rejects.toThrow('Faucet PoW request failed with status 429');
   });
 
-  it('aggregates both child messages when both faucets reject', async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 500, headers: new Headers() } as Response);
-    mintFromMidenFaucetMock.mockRejectedValue(new Error('PoW rate limited'));
+  it('rejects a faucet request that hangs past the timeout', async () => {
+    jest.useFakeTimers();
+    try {
+      mintFromMidenFaucetMock.mockReturnValue(new Promise(() => {}));
 
-    const error = await faucet('mtst1testaddress').catch((reason: unknown) => reason);
-
-    expect(error).toBeInstanceOf(FaucetError);
-    expect((error as FaucetError).message).toContain('Faucet request failed with status 500');
-    expect((error as FaucetError).message).toContain('PoW rate limited');
+      const request = faucet('mtst1testaddress');
+      // Swallow the interim rejection while the timers advance; the real
+      // assertion follows.
+      request.catch(() => undefined);
+      const signal = mintFromMidenFaucetMock.mock.calls[0]?.[2];
+      if (!signal) throw new Error('expected faucet() to pass an AbortSignal');
+      expect(signal.aborted).toBe(false);
+      await jest.advanceTimersByTimeAsync(60_000);
+      await expect(request).rejects.toThrow('Faucet request timed out');
+      // The timeout must also cancel the in-flight work, not just reject the
+      // wrapper — otherwise a late response could still mint behind a retry.
+      expect(signal.aborted).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
-  it('stringifies a non-Error rejection reason in the aggregated message', async () => {
-    fetchMock.mockRejectedValue('network down');
-    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+  it('stores the funding marker per account', async () => {
+    await setFaucetFundingMarker('accountA', { requestedAt: 1_000, baselineNoteIds: ['note-1'] });
 
-    await expect(faucet('mtst1testaddress')).rejects.toThrow('IMIDEN: network down');
+    expect(await fetchFaucetFundingMarker('accountA')).toEqual({ requestedAt: 1_000, baselineNoteIds: ['note-1'] });
+    expect(await fetchFaucetFundingMarker('accountB')).toBeNull();
+
+    await setFaucetFundingMarker('accountA', null);
+    expect(await fetchFaucetFundingMarker('accountA')).toBeNull();
+  });
+
+  it('ignores malformed funding markers', async () => {
+    await putToStorage('faucet_funding_v2:accountA', { requestedAt: 'soon', baselineNoteIds: [] });
+    expect(await fetchFaucetFundingMarker('accountA')).toBeNull();
+
+    await putToStorage('faucet_funding_v2:accountA', 12345);
+    expect(await fetchFaucetFundingMarker('accountA')).toBeNull();
+
+    await putToStorage('faucet_funding_v2:accountA', { requestedAt: 5, baselineNoteIds: 'nope' });
+    expect(await fetchFaucetFundingMarker('accountA')).toBeNull();
   });
 
   it('loads prompt storage in the hook and exposes pending checks', async () => {

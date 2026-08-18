@@ -1670,33 +1670,30 @@
     "message": "Ajoutez des jetons à votre portefeuille pour commencer.",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "Financer maintenant",
-    "englishSource": "Fund now"
+  "faucetPromptFunding": {
+    "message": "Financement",
+    "englishSource": "Funding"
   },
-  "fundWalletLoadingTitle": {
-    "message": "Approvisionner votre portefeuille",
-    "englishSource": "Funding your wallet"
+  "faucetPromptFundingSub": {
+    "message": "Vos fonds seront disponibles sous peu",
+    "englishSource": "Your funds will be available shortly"
   },
-  "fundWalletLoadingBody": {
-    "message": "Demande de jetons auprès de l'faucet…",
-    "englishSource": "Requesting tokens from the faucet…"
+  "faucetPromptFunded": {
+    "message": "Fonds déposés",
+    "englishSource": "Funds deposited"
   },
-  "fundWalletSuccessTitle": {
-    "message": "Financé par un portefeuille",
-    "englishSource": "Wallet funded"
+  "faucetPromptFundedSub": {
+    "message": "Tu as $amount$ prêt",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
-  "fundWalletSuccessBody": {
-    "message": "Vos jetons sont en cours d'envoi et apparaîtront sous peu.",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "Échec du financement",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "Nous n'avons pas pu créditer votre portefeuille. Veuillez réessayer.",
-    "englishSource": "We couldn't fund your wallet. Please try again."
+  "faucetPromptFundedSubGeneric": {
+    "message": "Vos fonds sont prêts",
+    "englishSource": "Your funds are ready"
   },
   "pendingNotesPromptTitle": {
     "message": "Vous avez des « PendingNotes »",
@@ -1710,10 +1707,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "Voir maintenant",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "Vérifiez votre phrase de récupération",

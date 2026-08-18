@@ -10,10 +10,13 @@ import { WalletPromptStatus, WalletPromptType } from 'lib/wallet-prompts';
 import { HomePrompts } from './HomePrompts';
 
 const mockFaucet = jest.fn();
+const mockGetInFlightFaucetRequest = jest.fn();
 const mockFetchActiveBridgePrompts = jest.fn();
 const mockPollActiveBridgePrompts = jest.fn();
 const mockUseWalletPromptStorage = jest.fn();
 const mockFetchHotKeyHardwareError = jest.fn();
+const mockFetchFaucetFundingMarker = jest.fn();
+const mockSetFaucetFundingMarker = jest.fn();
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -26,6 +29,7 @@ jest.mock('components/ui', () => ({
   PromptCard: ({
     title,
     body,
+    hero,
     onClick,
     actionLabel,
     onAction,
@@ -35,6 +39,7 @@ jest.mock('components/ui', () => ({
   }: {
     title: string;
     body?: string;
+    hero?: { icon: string; label: string; tone: string };
     onClick?: () => void;
     actionLabel?: string;
     onAction?: () => void;
@@ -42,7 +47,7 @@ jest.mock('components/ui', () => ({
     status?: string;
     onDismiss?: () => void;
   }) => (
-    <section data-testid="prompt-card" data-title={title} data-status={status}>
+    <section data-testid="prompt-card" data-title={title} data-status={status} data-hero={hero?.label}>
       <button type="button" onClick={onClick}>
         {title}
       </button>
@@ -66,7 +71,10 @@ jest.mock('lib/wallet-prompts', () => {
   return {
     ...actual,
     faucet: (address: string) => mockFaucet(address),
+    getInFlightFaucetRequest: (address: string) => mockGetInFlightFaucetRequest(address),
     fetchActiveBridgePrompts: (address: string) => mockFetchActiveBridgePrompts(address),
+    fetchFaucetFundingMarker: (address: string) => mockFetchFaucetFundingMarker(address),
+    setFaucetFundingMarker: (address: string, marker: unknown) => mockSetFaucetFundingMarker(address, marker),
     fetchHotKeyHardwareError: () => mockFetchHotKeyHardwareError(),
     pollActiveBridgePrompts: (transactions: unknown[]) => mockPollActiveBridgePrompts(transactions),
     useWalletPromptStorage: () => mockUseWalletPromptStorage()
@@ -74,6 +82,8 @@ jest.mock('lib/wallet-prompts', () => {
 });
 
 jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
+
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => '0xnative' }));
 
 const mockInitiateReplaceHotKeyTransaction = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
@@ -84,33 +94,6 @@ jest.mock('lib/miden/activity', () => ({
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: { tag: 'zustand-provider' } }));
 jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => true }));
 jest.mock('lib/platform', () => ({ isExtension: () => false }));
-// FundWalletDrawer — passthrough stub exposing the funding lifecycle props so
-// the wiring (open / state / errorMessage / onRetry / onDone / onOpenChange)
-// can be asserted without dragging the real vaul drawer into the DOM.
-jest.mock('app/templates/FundWalletDrawer', () => ({
-  FundWalletDrawer: ({
-    open,
-    onOpenChange,
-    state,
-    errorMessage,
-    onRetry,
-    onDone
-  }: {
-    open: boolean;
-    onOpenChange: (open: boolean) => void;
-    state: string;
-    errorMessage?: string;
-    onRetry: () => void;
-    onDone: () => void;
-  }) => (
-    <div data-testid="fund-drawer" data-open={String(open)} data-state={state}>
-      <span data-testid="fund-drawer-error">{errorMessage ?? ''}</span>
-      <button data-testid="fund-drawer-retry" onClick={onRetry} />
-      <button data-testid="fund-drawer-done" onClick={onDone} />
-      <button data-testid="fund-drawer-close" onClick={() => onOpenChange(false)} />
-    </div>
-  )
-}));
 
 const account = {
   publicKey: 'accountA',
@@ -119,11 +102,24 @@ const account = {
   hdIndex: 0
 } as WalletAccount;
 
+const accountB = {
+  publicKey: 'accountB',
+  name: 'Account B',
+  isPublic: false,
+  hdIndex: 1
+} as WalletAccount;
+
 const zeroBalance = [{ tokenId: 'token', balance: 0 }] as TokenBalanceData[];
 const fundedBalance = [{ tokenId: 'token', balance: 1 }] as TokenBalanceData[];
+// Must match the mocked useMidenFaucetId above — arrival only counts notes
+// minted by the native faucet.
+const NATIVE_FAUCET_ID = '0xnative';
 const pendingNotes: PendingNoteValue[] = [
-  { id: 'note-1', amount: '1250000', metadata: { decimals: 6, symbol: 'MIDEN' } },
-  { id: 'note-2', amount: '2000000', metadata: { decimals: 6, symbol: 'USDC' } }
+  { id: 'note-1', amount: '1250000', faucetId: NATIVE_FAUCET_ID, metadata: { decimals: 6, symbol: 'MIDEN' } },
+  { id: 'note-2', amount: '2000000', faucetId: '0xusdc', metadata: { decimals: 6, symbol: 'USDC' } }
+];
+const nonNativeNotes: PendingNoteValue[] = [
+  { id: 'note-usdc-1', amount: '2000000', faucetId: '0xusdc', metadata: { decimals: 6, symbol: 'USDC' } }
 ];
 const tokenPrices = {
   MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
@@ -147,6 +143,9 @@ describe('HomePrompts', () => {
     mockFetchActiveBridgePrompts.mockResolvedValue([]);
     mockPollActiveBridgePrompts.mockResolvedValue(undefined);
     mockFetchHotKeyHardwareError.mockResolvedValue(null);
+    mockFetchFaucetFundingMarker.mockResolvedValue(null);
+    mockSetFaucetFundingMarker.mockResolvedValue(undefined);
+    mockGetInFlightFaucetRequest.mockReturnValue(null);
   });
 
   it('polls and dismisses a pending bridge through the wallet prompt type', async () => {
@@ -236,11 +235,11 @@ describe('HomePrompts', () => {
     expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet);
   });
 
-  it('opens the funding drawer, funds, and completes from the faucet button', async () => {
+  it('funds on card tap, holds the Funding hero, then plays Funded! and completes when notes arrive', async () => {
     const completePrompt = jest.fn();
     mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
 
-    render(
+    const { rerender } = render(
       <HomePrompts
         account={account}
         balances={zeroBalance}
@@ -250,115 +249,248 @@ describe('HomePrompts', () => {
       />
     );
     const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
-    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptAction' }));
+    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
 
-    const drawer = screen.getByTestId('fund-drawer');
-    await waitFor(() => expect(drawer).toHaveAttribute('data-open', 'true'));
     await waitFor(() => expect(mockFaucet).toHaveBeenCalledWith('accountA'));
     expect(mockFaucet).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(drawer).toHaveAttribute('data-state', 'success'));
-    expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet);
+    // The faucet ack alone must not complete the prompt — the Funding hero
+    // holds until the minted funds are actually visible.
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+    expect(faucetCard).toHaveAttribute('data-status', 'loading');
+    expect(completePrompt).not.toHaveBeenCalled();
 
-    // Done closes the drawer.
-    fireEvent.click(screen.getByTestId('fund-drawer-done'));
-    await waitFor(() => expect(drawer).toHaveAttribute('data-open', 'false'));
-  });
-
-  it('surfaces the real faucet error in the drawer and retries from it', async () => {
-    jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    mockFaucet.mockRejectedValueOnce(new Error('rate limited')).mockResolvedValueOnce(undefined);
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
-
-    render(
+    // The minted note becomes claimable → Funded! beat, then completion.
+    rerender(
       <HomePrompts
         account={account}
         balances={zeroBalance}
         balancesLoading={false}
-        claimableNotes={[]}
-        tokenPrices={{}}
+        claimableNotes={pendingNotes}
+        tokenPrices={tokenPrices}
       />
     );
-    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
-    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptAction' }));
-
-    const drawer = screen.getByTestId('fund-drawer');
-    await waitFor(() => expect(drawer).toHaveAttribute('data-state', 'error'));
-    expect(screen.getByTestId('fund-drawer-error')).toHaveTextContent('rate limited');
-
-    // Retry re-invokes the faucet and recovers to success.
-    fireEvent.click(screen.getByTestId('fund-drawer-retry'));
-    await waitFor(() => expect(mockFaucet).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(drawer).toHaveAttribute('data-state', 'success'));
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+    expect(faucetCard).toHaveAttribute('data-status', 'success');
+    expect(completePrompt).not.toHaveBeenCalled();
+    // The pending-notes card must hold back while the success beat plays —
+    // it sorts first in the carousel and would push the hero off-screen.
+    expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
+    await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet), { timeout: 3500 });
+    // Beat over → the pending-notes card takes the stage.
+    await waitFor(() => expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument());
   });
 
-  it('stringifies a non-Error faucet rejection into the drawer message', async () => {
-    jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    mockFaucet.mockRejectedValueOnce('boom');
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
-
-    render(
-      <HomePrompts
-        account={account}
-        balances={zeroBalance}
-        balancesLoading={false}
-        claimableNotes={[]}
-        tokenPrices={{}}
-      />
-    );
-    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
-    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptAction' }));
-
-    const drawer = screen.getByTestId('fund-drawer');
-    await waitFor(() => expect(drawer).toHaveAttribute('data-state', 'error'));
-    expect(screen.getByTestId('fund-drawer-error')).toHaveTextContent('boom');
-  });
-
-  it('keeps the last outcome on close but re-opens fresh (not stale)', async () => {
-    jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    mockFaucet.mockRejectedValueOnce(new Error('rate limited')).mockResolvedValueOnce(undefined);
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
-
-    render(
-      <HomePrompts
-        account={account}
-        balances={zeroBalance}
-        balancesLoading={false}
-        claimableNotes={[]}
-        tokenPrices={{}}
-      />
-    );
-    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
-    const action = within(faucetCard).getByRole('button', { name: 'faucetPromptAction' });
-
-    fireEvent.click(action);
-    const drawer = screen.getByTestId('fund-drawer');
-    await waitFor(() => expect(drawer).toHaveAttribute('data-state', 'error'));
-    expect(screen.getByTestId('fund-drawer-error')).toHaveTextContent('rate limited');
-
-    // Dismiss (swipe / backdrop / X) does NOT synchronously reset — the sheet keeps
-    // its last outcome as it animates out (no spinner flash), and a close mid-request
-    // leaves the indicator alone (no double-fund re-enable).
-    fireEvent.click(screen.getByTestId('fund-drawer-close'));
-    await waitFor(() => expect(drawer).toHaveAttribute('data-open', 'false'));
-
-    // Re-opening goes through fundWallet, which clears the stale error and starts
-    // fresh on loading→success — never the old error.
-    fireEvent.click(action);
-    await waitFor(() => expect(drawer).toHaveAttribute('data-state', 'success'));
-    expect(screen.getByTestId('fund-drawer-error')).toHaveTextContent('');
-  });
-
-  it('keeps the fund action disabled after closing mid-request (no double-fund)', async () => {
-    // The fundingRef re-entrancy guard was dropped; protection now rests on the
-    // card's actionDisabled while the indicator is 'loading'. Closing the drawer
-    // must NOT reset the indicator, or a still-in-flight request could be fired
-    // again from the re-enabled card.
-    let resolveFaucet: () => void = () => undefined;
-    mockFaucet.mockReturnValueOnce(
-      new Promise<void>(resolve => {
-        resolveFaucet = () => resolve();
+  it('plays the Funded! beat and completes when the balance arrives directly', async () => {
+    const completePrompt = jest.fn();
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        completePrompt,
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.Faucet]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        }
       })
     );
+
+    const { rerender } = render(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+    await waitFor(() => expect(mockFaucet).toHaveBeenCalledWith('accountA'));
+    expect(completePrompt).not.toHaveBeenCalled();
+
+    rerender(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+    await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet), { timeout: 3000 });
+  });
+
+  it('resumes the Funding hero from a persisted marker after a remount mid-wait', async () => {
+    const completePrompt = jest.fn();
+    mockFetchFaucetFundingMarker.mockResolvedValue({ requestedAt: Date.now() - 5_000, baselineNoteIds: [] });
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        completePrompt,
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.Faucet]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        }
+      })
+    );
+
+    const { rerender } = render(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+    // No tap happened this session — the hero resumes from the marker alone.
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+    expect(mockFaucet).not.toHaveBeenCalled();
+
+    // Funds land → success beat plays and the marker is cleared.
+    rerender(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={pendingNotes}
+        tokenPrices={tokenPrices}
+      />
+    );
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+    expect(mockSetFaucetFundingMarker).toHaveBeenCalledWith('accountA', null);
+    await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet), { timeout: 3500 });
+  });
+
+  it('keeps one account Funding wait off another account and resumes it on switch-back', async () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+
+    const { rerender } = render(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+
+    // Switching to another (also unfunded) account must show ITS actionable
+    // card, not account A's Funding hero…
+    rerender(
+      <HomePrompts
+        account={accountB}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    const cardOnB = screen.getAllByTestId('prompt-card')[0]!;
+    await waitFor(() => expect(cardOnB).not.toHaveAttribute('data-hero'));
+    expect(cardOnB).toHaveAttribute('data-title', 'faucetPromptTitle');
+    // …consulting B's own marker, and never clearing A's still-in-flight one.
+    await waitFor(() => expect(mockFetchFaucetFundingMarker).toHaveBeenCalledWith('accountB'));
+    expect(mockSetFaucetFundingMarker).not.toHaveBeenCalledWith('accountA', null);
+
+    // Switching back resumes A's wait from A's own persisted marker.
+    mockFetchFaucetFundingMarker.mockImplementation((address: string) =>
+      address === 'accountA'
+        ? Promise.resolve({ requestedAt: Date.now() - 5_000, baselineNoteIds: [] })
+        : Promise.resolve(null)
+    );
+    rerender(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    await waitFor(() =>
+      expect(screen.getAllByTestId('prompt-card')[0]!).toHaveAttribute('data-hero', 'faucetPromptFunding')
+    );
+    expect(mockFaucet).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not treat a pre-existing claimable note as the faucet mint landing', async () => {
+    const completePrompt = jest.fn();
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+    const preexistingNote = pendingNotes[0]!;
+
+    const { rerender } = render(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[preexistingNote]}
+        tokenPrices={tokenPrices}
+      />
+    );
+    const faucetCard = screen.getAllByTestId('prompt-card').find(card => card.dataset.title === 'faucetPromptTitle')!;
+    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+
+    // The note that already existed at request time must NOT flip the card
+    // straight to success — the Funding hero holds.
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+    await act(async () => {});
+    expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding');
+    expect(completePrompt).not.toHaveBeenCalled();
+
+    // Only a NEW note (beyond the request-time baseline) lands the funds.
+    rerender(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[preexistingNote, { ...pendingNotes[0]!, id: 'minted-note' }]}
+        tokenPrices={tokenPrices}
+      />
+    );
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+  });
+
+  it('ends a resumed wait three minutes after the original request, not after the remount', async () => {
+    jest.useFakeTimers();
+    try {
+      // The marker is already 2:50 old at remount.
+      mockFetchFaucetFundingMarker.mockResolvedValue({ requestedAt: Date.now() - 170_000, baselineNoteIds: [] });
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+
+      render(
+        <HomePrompts
+          account={account}
+          balances={zeroBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+      const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+      // Flush the resume fetch so the hero comes up.
+      await act(async () => {});
+      expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding');
+
+      // Three minutes after the REQUEST is only ~10s away — the backstop must
+      // fire then, not three minutes from this mount.
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(11_000);
+      });
+      expect(faucetCard).not.toHaveAttribute('data-hero');
+      expect(mockSetFaucetFundingMarker).toHaveBeenCalledWith('accountA', null);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('shows a failure state and allows the faucet request to be retried by tapping again', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockFaucet.mockRejectedValueOnce(new Error('rate limited')).mockResolvedValueOnce(undefined);
     mockUseWalletPromptStorage.mockReturnValue(makePromptState());
 
     render(
@@ -371,29 +503,23 @@ describe('HomePrompts', () => {
       />
     );
     const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
-    const action = within(faucetCard).getByRole('button', { name: 'faucetPromptAction' });
+    const card = within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' });
 
-    fireEvent.click(action);
-    const drawer = screen.getByTestId('fund-drawer');
-    await waitFor(() => expect(drawer).toHaveAttribute('data-state', 'loading'));
-    expect(action).toBeDisabled();
+    fireEvent.click(card);
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-status', 'failure'));
+    // The failure must carry the faucet's ACTUAL message — a bare red X can't
+    // distinguish a rate limit from an outage (#425).
+    expect(faucetCard).toHaveTextContent('rate limited');
+    // A failed request clears its pre-persisted marker so nothing resumes it.
+    await waitFor(() => expect(mockSetFaucetFundingMarker).toHaveBeenCalledWith('accountA', null));
+    fireEvent.click(card);
 
-    // Dismiss while the request is still in flight.
-    fireEvent.click(screen.getByTestId('fund-drawer-close'));
-    await waitFor(() => expect(drawer).toHaveAttribute('data-open', 'false'));
-
-    // Indicator stays 'loading' → the card action remains disabled, faucet uncalled again.
-    expect(action).toBeDisabled();
-    expect(mockFaucet).toHaveBeenCalledTimes(1);
-
-    // Let the in-flight request settle.
-    await act(async () => {
-      resolveFaucet();
-    });
-    expect(mockFaucet).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockFaucet).toHaveBeenCalledTimes(2));
+    // Retrying clears the previous error from the card.
+    expect(faucetCard).not.toHaveTextContent('rate limited');
   });
 
-  it('does not fund when the faucet card content is clicked', () => {
+  it('ignores a tap while the claimable notes are still loading', () => {
     mockUseWalletPromptStorage.mockReturnValue(makePromptState());
 
     render(
@@ -401,13 +527,128 @@ describe('HomePrompts', () => {
         account={account}
         balances={zeroBalance}
         balancesLoading={false}
-        claimableNotes={[]}
+        claimableNotes={undefined}
         tokenPrices={{}}
       />
     );
     fireEvent.click(screen.getByRole('button', { name: 'faucetPromptTitle' }));
 
+    // An undefined SWR result means the baseline can't be snapshotted yet — a
+    // wait armed against [] would count every pre-existing note as the mint.
     expect(mockFaucet).not.toHaveBeenCalled();
+  });
+
+  it('does not count a non-native note as the mint arriving', async () => {
+    const completePrompt = jest.fn();
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+
+    const { rerender } = render(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+
+    // A new note from a DIFFERENT faucet (e.g. an unrelated inbound transfer,
+    // or a pre-existing note whose metadata only just resolved) must NOT play
+    // the success beat — the request only ever mints native MIDEN.
+    rerender(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={nonNativeNotes}
+        tokenPrices={tokenPrices}
+      />
+    );
+    expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding');
+    expect(completePrompt).not.toHaveBeenCalled();
+
+    // The native mint landing still completes the lifecycle.
+    rerender(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[...nonNativeNotes, ...pendingNotes]}
+        tokenPrices={tokenPrices}
+      />
+    );
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+    await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet), { timeout: 3500 });
+  });
+
+  it('joins an in-flight request from a remount instead of starting a second mint', async () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    // Simulate the module-scoped request a previous mount left running.
+    let rejectInFlight!: (error: Error) => void;
+    const inFlight = new Promise<void>((_resolve, reject) => {
+      rejectInFlight = reject;
+    });
+    mockGetInFlightFaucetRequest.mockReturnValue(inFlight);
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+    // The remounted card re-attaches: loading state, and no second faucet call
+    // even though nothing was tapped on THIS mount.
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+    expect(mockFaucet).not.toHaveBeenCalled();
+
+    // The in-flight request failing paints THIS card with the reason.
+    rejectInFlight(new Error('faucet exploded'));
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-status', 'failure'));
+    expect(faucetCard).toHaveTextContent('faucet exploded');
+  });
+
+  it('funding one account does not block funding another', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    // Account A has a request in flight at module scope; account B does not.
+    mockGetInFlightFaucetRequest.mockImplementation((address: string) =>
+      address === 'accountA' ? new Promise<void>(() => undefined) : null
+    );
+
+    const { rerender } = render(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    // Tapping A's card joins the running request rather than re-minting.
+    const cardA = screen.getAllByTestId('prompt-card')[0]!;
+    await waitFor(() => expect(cardA).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+    expect(mockFaucet).not.toHaveBeenCalled();
+
+    rerender(
+      <HomePrompts
+        account={accountB}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    const cardB = screen.getAllByTestId('prompt-card')[0]!;
+    fireEvent.click(within(cardB).getByRole('button', { name: 'faucetPromptTitle' }));
+
+    await waitFor(() => expect(mockFaucet).toHaveBeenCalledWith('accountB'));
   });
 
   it('dismisses the faucet prompt without calling the faucet', () => {
@@ -429,7 +670,7 @@ describe('HomePrompts', () => {
     expect(mockFaucet).not.toHaveBeenCalled();
   });
 
-  it('shows pending notes first with their USD value and action-only navigation', () => {
+  it('shows pending notes first with their USD value and navigates on card tap', () => {
     const promptState = makePromptState();
     mockUseWalletPromptStorage.mockReturnValue(promptState);
 
@@ -448,11 +689,9 @@ describe('HomePrompts', () => {
       'verifySeedPhrasePromptTitle'
     ]);
     expect(screen.getByText('pendingNotesPromptBody:$4.50')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'pendingNotesPromptAction' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'pendingNotesPromptTitle' }));
-    expect(jest.requireMock('lib/woozie').navigate).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'pendingNotesPromptAction' }));
     expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/pending-notes');
   });
 
@@ -686,6 +925,38 @@ describe('HomePrompts', () => {
     });
   });
 
+  it('marks the copy action failed when the clipboard rejects', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const writeText = jest.fn().mockRejectedValue(new Error('denied'));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        },
+        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
+      })
+    );
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
+    });
+    errorSpy.mockRestore();
+  });
+
   it('initiates a hot-key rotation and routes to the generating-transaction page from the rotation prompt', async () => {
     const completePrompt = jest.fn();
     mockInitiateReplaceHotKeyTransaction.mockResolvedValue('tx-rotate-1');
@@ -753,38 +1024,6 @@ describe('HomePrompts', () => {
     });
     expect(completePrompt).not.toHaveBeenCalled();
     expect(jest.requireMock('lib/woozie').navigate).not.toHaveBeenCalled();
-    errorSpy.mockRestore();
-  });
-
-  it('marks the copy action failed when the clipboard rejects', async () => {
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    const writeText = jest.fn().mockRejectedValue(new Error('denied'));
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-    mockUseWalletPromptStorage.mockReturnValue(
-      makePromptState({
-        storage: {
-          version: 1,
-          prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: []
-        },
-        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
-      })
-    );
-
-    render(
-      <HomePrompts
-        account={account}
-        balances={fundedBalance}
-        balancesLoading={false}
-        claimableNotes={[]}
-        tokenPrices={{}}
-      />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
-    await waitFor(() => {
-      expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
-    });
     errorSpy.mockRestore();
   });
 });

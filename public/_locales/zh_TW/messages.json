@@ -1670,33 +1670,30 @@
     "message": "請將代幣加入您的錢包，即可開始使用。",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "立即捐款",
-    "englishSource": "Fund now"
+  "faucetPromptFunding": {
+    "message": "资金",
+    "englishSource": "Funding"
   },
-  "fundWalletLoadingTitle": {
-    "message": "為您的錢包儲值",
-    "englishSource": "Funding your wallet"
+  "faucetPromptFundingSub": {
+    "message": "您的资金很快就会到账",
+    "englishSource": "Your funds will be available shortly"
   },
-  "fundWalletLoadingBody": {
-    "message": "正在向 faucet 請求憑證……",
-    "englishSource": "Requesting tokens from the faucet…"
+  "faucetPromptFunded": {
+    "message": "存入资金",
+    "englishSource": "Funds deposited"
   },
-  "fundWalletSuccessTitle": {
-    "message": "錢包已充值",
-    "englishSource": "Wallet funded"
+  "faucetPromptFundedSub": {
+    "message": "你有 $amount$ 准备好",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
-  "fundWalletSuccessBody": {
-    "message": "您的代幣正在送來的路上，稍後就會顯示。",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "資金籌措失敗",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "我們無法為您的錢包充值。請重新嘗試。",
-    "englishSource": "We couldn't fund your wallet. Please try again."
+  "faucetPromptFundedSubGeneric": {
+    "message": "您的资金已准备好",
+    "englishSource": "Your funds are ready"
   },
   "pendingNotesPromptTitle": {
     "message": "您有待處理的 Notes",
@@ -1710,10 +1707,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "立即查看",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "驗證您的恢復短語",

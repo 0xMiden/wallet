@@ -1670,33 +1670,30 @@
     "message": "Aby rozpocząć, dodaj tokeny do swojego portfela.",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "Wpłać teraz",
-    "englishSource": "Fund now"
+  "faucetPromptFunding": {
+    "message": "Finansowanie",
+    "englishSource": "Funding"
   },
-  "fundWalletLoadingTitle": {
-    "message": "Wpłata środków na konto",
-    "englishSource": "Funding your wallet"
+  "faucetPromptFundingSub": {
+    "message": "Twoje środki będą dostępne wkrótce",
+    "englishSource": "Your funds will be available shortly"
   },
-  "fundWalletLoadingBody": {
-    "message": "Pobieranie tokenów z serwisu faucet…",
-    "englishSource": "Requesting tokens from the faucet…"
+  "faucetPromptFunded": {
+    "message": "Fundusze zdeponowane",
+    "englishSource": "Funds deposited"
   },
-  "fundWalletSuccessTitle": {
-    "message": "Środki z portfela",
-    "englishSource": "Wallet funded"
+  "faucetPromptFundedSub": {
+    "message": "Masz $amount$ gotowy",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
-  "fundWalletSuccessBody": {
-    "message": "Twoje tokeny są już w drodze i pojawią się wkrótce.",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "Finansowanie nie powiodło się",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "Nie udało nam się zasilić Twojego portfela. Spróbuj ponownie.",
-    "englishSource": "We couldn't fund your wallet. Please try again."
+  "faucetPromptFundedSubGeneric": {
+    "message": "Twoje środki są gotowe",
+    "englishSource": "Your funds are ready"
   },
   "pendingNotesPromptTitle": {
     "message": "Masz oczekujące „Notes”",
@@ -1710,10 +1707,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "Zobacz teraz",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "Sprawdź swoją frazę odzyskiwania",

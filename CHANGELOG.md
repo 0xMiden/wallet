@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.15.22 (TBD)
+
+### Fixes
+
+- [FIX][all] **Funding a new wallet now shows its full lifecycle instead of going silent for ~30s.** The faucet API acks a mint within seconds, but the minted note only becomes visible after chain inclusion and a client sync (~30–60s); the "Fund your wallet" card used to flash success on the ack and vanish, leaving the Home screen looking idle until the funds appeared. The card itself is now the tap target (no separate CTA button) and walks through a full sequence: a "Funding" hero (animated hourglass tile, indeterminate progress bar, "Your funds will be available shortly") for the whole wait, then a green "Funds deposited — You have $X ready" success beat once the funds land, then a hand-off to the pending-notes card — which now holds back while the hero is on stage so it can't push the success state off-screen (it sorts first in the carousel). The wait survives remounts and app restarts via a per-account persisted request marker (so one account's wait never surfaces on another), counts only notes beyond the request-time baseline as arrival (a pre-existing claimable note can't fake an instant success), and falls back to the actionable card 3 minutes after the original request if the mint never lands; the faucet request itself times out after 60s so a hung request can't hold the loading state forever. The pending-notes card's "See Now" button was likewise folded into a whole-card tap. `PromptCard` gained an icon slot, a filled pill CTA, a corner dismiss that hides while a request is in flight, press-in feedback on tappable cards, and a reusable "hero" takeover mode; the Home "Assets" heading now uses the heading font, and the onboarding confirmation screen's typography was polished (bold Nunito heading, Nunito body copy, pill-styled daily-reminder note — fixing a stray `font-medium` attribute that was never applied).
+
+### Changes
+
+- [CHANGE][all] **Test-token funding now mints only native MIDEN.** The Fund action no longer also mints IMIDEN from the forkchoice faucet — the two-source funding is removed, which also retires 1.15.20's per-source retry bookkeeping (there is no second source left to double-mint). One faucet request runs per account at a time no matter how often the card is tapped or remounted, bounded by a 60s timeout that aborts the underlying work, and a failed request shows the faucet's actual error message on the card. The two funding drawers earlier iterations had left unwired (`WalletFundingDrawer`, `FundWalletDrawer`) are deleted along with their orphaned translation keys. The network-discovered native asset now also appears first in the swap token list ahead of the existing DEX test assets.
 ## 1.15.21 (2026-08-17)
 
 ### Fixes

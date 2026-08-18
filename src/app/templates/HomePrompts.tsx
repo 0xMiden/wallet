@@ -2,9 +2,10 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 
 import { useTranslation } from 'react-i18next';
 
-import { FundWalletDrawer } from 'app/templates/FundWalletDrawer';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { IconName } from 'app/icons/v2';
 import { GuardianNeedsUrlBanner } from 'app/templates/GuardianNeedsUrlBanner';
-import { PromptCard, PromptCardStatus, PromptCarousel, PromptCardVariant } from 'components/ui';
+import { PromptCard, PromptCardHero, PromptCardStatus, PromptCarousel, PromptCardVariant } from 'components/ui';
 import { formatUsd } from 'lib/i18n/numbers';
 import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import type { TokenBalanceData } from 'lib/miden/front';
@@ -16,10 +17,14 @@ import { WalletAccount } from 'lib/shared/types';
 import {
   fetchActiveBridgePrompts,
   faucet,
+  type FaucetFundingMarker,
+  fetchFaucetFundingMarker,
   fetchHotKeyHardwareError,
+  getInFlightFaucetRequest,
   getPendingNotesUsdTotal,
   type PendingNoteValue,
   pollActiveBridgePrompts,
+  setFaucetFundingMarker,
   useWalletPromptStorage,
   WalletPromptStatus,
   WalletPromptType
@@ -27,8 +32,10 @@ import {
 import { navigate } from 'lib/woozie';
 
 type PromptCardOverrides = {
+  title?: string;
   body?: string;
   status?: PromptCardStatus;
+  hero?: PromptCardHero;
   onClick?: () => void;
   onAction?: () => void;
   onDismiss?: () => void;
@@ -41,6 +48,7 @@ type WalletPromptDefinition = {
   route?: string;
   actionKey?: string;
   variant?: PromptCardVariant;
+  icon?: IconName;
   dismissible: boolean;
 };
 
@@ -53,13 +61,12 @@ const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition
   [WalletPromptType.Faucet]: {
     titleKey: 'faucetPromptTitle',
     bodyKey: 'faucetPromptBody',
-    actionKey: 'faucetPromptAction',
+    icon: IconName.Coins,
     dismissible: true
   },
   [WalletPromptType.PendingNotes]: {
     titleKey: 'pendingNotesPromptTitle',
     bodyKey: 'pendingNotesPromptBody',
-    actionKey: 'pendingNotesPromptAction',
     dismissible: true
   },
   [WalletPromptType.VerifySeedPhrase]: {
@@ -84,6 +91,19 @@ const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition
     dismissible: true
   }
 };
+
+// How long after a successful faucet request we keep showing the "Funding"
+// hero before giving the user the Fund action back. Arrival normally takes
+// ~30-60s (chain inclusion + client sync).
+const FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS = 3 * 60_000;
+
+// The persisted per-account marker plus the account it belongs to, so every
+// consumer (display, arrival, backstop) can refuse a wait that isn't the
+// current account's.
+type FundingWait = FaucetFundingMarker & { address: string };
+// How long the "Funds deposited" success beat holds before the prompt
+// completes — long enough to read the two-line lockup.
+const FAUCET_FUNDED_BEAT_MS = 2400;
 
 // E2E hooks, kebab-case like every other testid in the tree. Only prompts a
 // spec actually drives get one — deriving an id for the whole enum would leave
@@ -121,8 +141,26 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const { storage, isLoaded, setPromptStatus, dismissPrompt, completePrompt, isPromptPending } =
     useWalletPromptStorage();
   const [faucetStatusIndicator, setFaucetStatusIndicator] = useState<PromptCardStatus>('idle');
-  const [fundDrawerOpen, setFundDrawerOpen] = useState(false);
-  const [faucetErrorMessage, setFaucetErrorMessage] = useState<string>();
+  // Non-null between a successful faucet request and the minted funds becoming
+  // visible (a claimable note or a balance). The faucet API acks in ~1s but
+  // the note takes ~30-60s of chain inclusion + sync to appear; without this
+  // the card vanished on ack and the wallet looked idle for that whole gap.
+  // Tagged with the requesting account (the wait must never surface on another
+  // account — HomePrompts is NOT remounted on switch), the request time (the
+  // arrival backstop anchors to it, even across restarts) and the note ids
+  // that already existed at request time (arrival requires a NEW note, so a
+  // pre-existing claimable note can't fake an instant success).
+  const [fundingWait, setFundingWait] = useState<FundingWait | null>(null);
+  const awaitingFaucetFunds = fundingWait !== null && fundingWait.address === account.publicKey;
+  // Brief "Funded!" success beat once the funds land, before the prompt
+  // completes and the card hands off.
+  const [faucetFundsArrived, setFaucetFundsArrived] = useState(false);
+  // The faucet's actual failure reason, rendered in the card body — a bare red
+  // X can't distinguish a rate limit from an outage (#425).
+  const [faucetError, setFaucetError] = useState<string | null>(null);
+  const midenFaucetId = useMidenFaucetId();
+  const accountKeyRef = useRef(account.publicKey);
+  accountKeyRef.current = account.publicKey;
 
   const [hotKeyError, setHotKeyError] = useState<string | null>(null);
   const [copyStatusIndicator, setCopyStatusIndicator] = useState<PromptCardStatus>('idle');
@@ -152,7 +190,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const faucetStatus = storage.prompts[WalletPromptType.Faucet];
   const faucetIsTerminal =
     faucetStatus === WalletPromptStatus.Dismissed || faucetStatus === WalletPromptStatus.Completed;
-  const showFaucetPrompt = isLoaded && !balancesLoading && !hasBalance && !faucetIsTerminal;
+  const showFaucetPrompt =
+    awaitingFaucetFunds || faucetFundsArrived || (isLoaded && !balancesLoading && !hasBalance && !faucetIsTerminal);
 
   useEffect(
     () => () => {
@@ -259,42 +298,193 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     if (!isLoaded || balancesLoading) return;
     if (!hasBalance && faucetStatus === undefined) {
       setPromptStatus(WalletPromptType.Faucet, WalletPromptStatus.Pending);
-    } else if (hasBalance && faucetStatus === WalletPromptStatus.Pending) {
+    } else if (
+      hasBalance &&
+      faucetStatus === WalletPromptStatus.Pending &&
+      // Let the Funding → Funded! sequence own completion for our own request.
+      !awaitingFaucetFunds &&
+      !faucetFundsArrived
+    ) {
       completePrompt(WalletPromptType.Faucet);
     }
-  }, [balancesLoading, completePrompt, faucetStatus, hasBalance, isLoaded, setPromptStatus]);
+  }, [
+    awaitingFaucetFunds,
+    balancesLoading,
+    completePrompt,
+    faucetFundsArrived,
+    faucetStatus,
+    hasBalance,
+    isLoaded,
+    setPromptStatus
+  ]);
 
-  // Drives the FundWalletDrawer; doubles as the drawer's onRetry. The drawer
-  // owns the success/failure surface now (no auto-idle timer) — it stays up
-  // showing the outcome until the user acts (Done / Retry / Close).
-  const fundWallet = useCallback(async () => {
-    setFundDrawerOpen(true);
-    setFaucetErrorMessage(undefined);
+  // An account switch re-renders this component in place (it is not keyed by
+  // account) — drop any other account's on-screen funding presentation. Its
+  // persisted marker is left untouched, so switching back resumes it via the
+  // resume effect below.
+  useEffect(() => {
+    setFundingWait(current => (current !== null && current.address !== account.publicKey ? null : current));
+    setFaucetFundsArrived(false);
+    setFaucetStatusIndicator('idle');
+    setFaucetError(null);
+  }, [account.publicKey]);
+
+  // Re-attach to a request still running at module scope after a remount
+  // (HomePrompts unmounts on any navigation): show the loading state again and
+  // paint the failure if it rejects. Success needs no handler here — the
+  // persisted marker plus the arrival effect own that path.
+  useEffect(() => {
+    const address = account.publicKey;
+    const inFlight = getInFlightFaucetRequest(address);
+    if (!inFlight) return;
+    let cancelled = false;
     setFaucetStatusIndicator('loading');
+    inFlight.then(
+      () => {
+        if (!cancelled && accountKeyRef.current === address) setFaucetStatusIndicator('idle');
+      },
+      (error: unknown) => {
+        if (cancelled || accountKeyRef.current !== address) return;
+        setFundingWait(current => (current !== null && current.address === address ? null : current));
+        setFaucetStatusIndicator('failure');
+        setFaucetError(error instanceof Error ? error.message : String(error));
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [account.publicKey]);
+
+  const fundWallet = useCallback(async () => {
+    const address = account.publicKey;
+    // A second tap (or a tap from a remount) joins the request already running
+    // at module scope instead of starting a second real mint.
+    if (getInFlightFaucetRequest(address)) return;
+    // Don't arm a wait against an unloaded note set: claimableNotes is SWR
+    // data and undefined until its first load resolves, so a baseline
+    // snapshotted now would treat every pre-existing note as the arriving
+    // mint the moment the load lands.
+    if (claimableNotes === undefined) return;
+    // Snapshot the notes that already exist: only a note beyond this baseline
+    // (or a balance) counts as the mint landing.
+    const baselineNoteIds = pendingNoteIds;
+    // Anchor the wait to when the user asked, not when the faucet acked — the
+    // ack can lag up to the 60s timeout, and the 3-minute backstop is
+    // described as "after the original request".
+    const requestedAt = Date.now();
+    const marker: FaucetFundingMarker = { requestedAt, baselineNoteIds };
+    setFaucetStatusIndicator('loading');
+    setFaucetError(null);
+    // Persist BEFORE the request: the card unmounts on any navigation, and a
+    // marker that only exists after the ack would greet a returning user with
+    // an idle, fully tappable card while the first request is still running.
     try {
-      await faucet(account.publicKey);
-      setFaucetStatusIndicator('success');
-      completePrompt(WalletPromptType.Faucet);
+      await setFaucetFundingMarker(address, marker);
     } catch (error) {
-      setFaucetStatusIndicator('failure');
-      setFaucetErrorMessage(error instanceof Error ? error.message : String(error));
+      console.warn('[wallet-prompts] failed to persist faucet funding marker:', error);
+    }
+    setFundingWait({ address, ...marker });
+    try {
+      await faucet(address);
+      if (accountKeyRef.current === address) setFaucetStatusIndicator('idle');
+    } catch (error) {
+      // The request failed — the pre-persisted marker no longer describes an
+      // expected mint, so clear it for WHATEVER account made the request…
+      setFaucetFundingMarker(address, null).catch(clearError =>
+        console.warn('[wallet-prompts] failed to clear faucet funding marker:', clearError)
+      );
+      // …but only paint the failure if that account is still on screen.
+      if (accountKeyRef.current === address) {
+        setFundingWait(current => (current !== null && current.address === address ? null : current));
+        setFaucetStatusIndicator('failure');
+        setFaucetError(error instanceof Error ? error.message : String(error));
+      }
       console.error('[wallet-prompts] faucet request failed:', error);
     }
-  }, [account.publicKey, completePrompt]);
+  }, [account.publicKey, claimableNotes, pendingNoteIds]);
 
-  // Map the internal indicator onto the drawer's 3-state contract. 'idle' is only
-  // the initial pre-funding value; opening always goes through fundWallet (which
-  // clears any stale error and sets 'loading' first), and we intentionally keep
-  // the last outcome as the drawer animates closed — no synchronous reset — so a
-  // dismiss gesture doesn't flash the spinner, and a close mid-request leaves the
-  // indicator on 'loading' (keeping the Fund-now action disabled, no double-fund).
-  const fundDrawerState: 'loading' | 'success' | 'error' =
-    faucetStatusIndicator === 'success' ? 'success' : faucetStatusIndicator === 'failure' ? 'error' : 'loading';
+  // Resume the "Funding" wait after a remount, app restart, or switch back to
+  // this account: a persisted, still-fresh request marker means the mint is in
+  // flight (or already landed, in which case the arrival effect below fires
+  // immediately).
+  useEffect(() => {
+    if (!isLoaded || balancesLoading || awaitingFaucetFunds || faucetFundsArrived || faucetIsTerminal) return;
+    const address = account.publicKey;
+    let cancelled = false;
+    fetchFaucetFundingMarker(address)
+      .then(marker => {
+        if (cancelled || marker === null) return;
+        if (Date.now() - marker.requestedAt < FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS) {
+          setFundingWait({ address, ...marker });
+        } else {
+          void setFaucetFundingMarker(address, null);
+        }
+      })
+      .catch(error => {
+        console.warn('[wallet-prompts] failed to read faucet funding marker:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [account.publicKey, awaitingFaucetFunds, balancesLoading, faucetFundsArrived, faucetIsTerminal, isLoaded]);
+
+  // Funds arrived — a NEW claimable note from the native MIDEN faucet (the
+  // request only ever mints native), or a balance (the card only exists on a
+  // zero-balance account, so any balance is new): swap the "Funding" hero for
+  // a short "Funded!" success beat. Requiring the native faucet keeps an
+  // unrelated inbound note — or a pre-existing note whose metadata resolved
+  // late and only just joined claimableNotes — from faking the success.
+  useEffect(() => {
+    if (!awaitingFaucetFunds || fundingWait === null) return;
+    // An unloaded note set can't be graded against the baseline.
+    if (claimableNotes === undefined) return;
+    const baseline = new Set(fundingWait.baselineNoteIds);
+    const hasNewNote =
+      midenFaucetId !== null && claimableNotes.some(note => note.faucetId === midenFaucetId && !baseline.has(note.id));
+    if (!hasNewNote && !hasBalance) return;
+    setFundingWait(null);
+    setFaucetFundsArrived(true);
+    setFaucetFundingMarker(fundingWait.address, null).catch(error =>
+      console.warn('[wallet-prompts] failed to clear faucet funding marker:', error)
+    );
+  }, [awaitingFaucetFunds, claimableNotes, fundingWait, hasBalance, midenFaucetId]);
+
+  // After the success beat, complete the prompt so the pending-notes card /
+  // balance takes over.
+  useEffect(() => {
+    if (!faucetFundsArrived) return;
+    const timer = setTimeout(() => {
+      setFaucetFundsArrived(false);
+      completePrompt(WalletPromptType.Faucet);
+    }, FAUCET_FUNDED_BEAT_MS);
+    return () => clearTimeout(timer);
+  }, [completePrompt, faucetFundsArrived]);
+
+  // Backstop: if the funds never show up (faucet acked but the mint failed),
+  // fall back to the actionable card instead of spinning forever. Anchored to
+  // the request time — not this mount — so a resumed wait still ends 3
+  // minutes after the original request.
+  useEffect(() => {
+    if (!awaitingFaucetFunds || fundingWait === null) return;
+    const address = fundingWait.address;
+    const remainingMs = Math.max(0, fundingWait.requestedAt + FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS - Date.now());
+    const timer = setTimeout(() => {
+      setFundingWait(null);
+      void setFaucetFundingMarker(address, null);
+    }, remainingMs);
+    return () => clearTimeout(timer);
+  }, [awaitingFaucetFunds, fundingWait]);
+
+  // While the faucet hero is on stage (Funding wait or the Funded! beat), the
+  // pending-notes card must NOT surface: it sorts first in the carousel and
+  // would shove the hero off-screen the instant the minted note lands, hiding
+  // the success beat. It takes over right after the beat completes.
+  const faucetHeroActive = awaitingFaucetFunds || faucetFundsArrived || faucetStatusIndicator === 'loading';
 
   const pendingWalletPrompts = useMemo(() => {
     if (!isLoaded || balancesLoading) return [];
     return WALLET_PROMPT_ORDER.filter(type => {
-      if (type === WalletPromptType.PendingNotes) return showPendingNotesPrompt;
+      if (type === WalletPromptType.PendingNotes) return showPendingNotesPrompt && !faucetHeroActive;
       if (type === WalletPromptType.Faucet) return showFaucetPrompt;
       if (type === WalletPromptType.Bridge) return bridgePromptPending && bridgeTransactions.length > 0;
       return isPromptPending(type);
@@ -303,6 +493,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     balancesLoading,
     bridgePromptPending,
     bridgeTransactions.length,
+    faucetHeroActive,
     isLoaded,
     isPromptPending,
     showFaucetPrompt,
@@ -314,11 +505,35 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const promptOverrides = useCallback(
     (type: WalletPromptType): PromptCardOverrides => {
       switch (type) {
-        case WalletPromptType.Faucet:
+        case WalletPromptType.Faucet: {
+          const funding = awaitingFaucetFunds || faucetStatusIndicator === 'loading';
           return {
-            onAction: fundWallet,
-            actionDisabled: faucetStatusIndicator === 'loading'
+            // The whole card is the trigger; no CTA button. While the hero is
+            // up (Funding / Funded!) taps are inert.
+            onClick: funding || faucetFundsArrived ? undefined : fundWallet,
+            status: funding ? 'loading' : faucetFundsArrived ? 'success' : faucetStatusIndicator,
+            // On failure the body carries the faucet's actual message, so a
+            // rate limit, a rejected amount, and an outage read differently.
+            body: faucetStatusIndicator === 'failure' && faucetError ? faucetError : undefined,
+            hero: funding
+              ? {
+                  icon: IconName.Hourglass,
+                  label: t('faucetPromptFunding'),
+                  subLabel: t('faucetPromptFundingSub'),
+                  tone: 'accent' as const
+                }
+              : faucetFundsArrived
+                ? {
+                    icon: IconName.Checkmark,
+                    label: t('faucetPromptFunded'),
+                    subLabel: hasPendingNotes
+                      ? t('faucetPromptFundedSub', { amount: formattedPendingNotesUsdTotal })
+                      : t('faucetPromptFundedSubGeneric'),
+                    tone: 'positive' as const
+                  }
+                : undefined
           };
+        }
         case WalletPromptType.Bridge:
           return {
             onClick: () => navigate(`/history-details/${bridgeTransactions[0]}`),
@@ -326,7 +541,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
           };
         case WalletPromptType.PendingNotes:
           return {
-            onAction: () => navigate('/pending-notes'),
+            onClick: () => navigate('/pending-notes'),
             body: t(WALLET_PROMPT_DEFINITIONS[type].bodyKey, { amount: formattedPendingNotesUsdTotal }),
             onDismiss: () => setPromptStatus(type, WalletPromptStatus.Dismissed, pendingNoteIds)
           };
@@ -346,12 +561,16 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       }
     },
     [
+      awaitingFaucetFunds,
       bridgeTransactions,
       copyHotKeyError,
       copyStatusIndicator,
+      faucetError,
+      faucetFundsArrived,
       faucetStatusIndicator,
       formattedPendingNotesUsdTotal,
       fundWallet,
+      hasPendingNotes,
       pendingNoteIds,
       rotateHotKey,
       rotationStatusIndicator,
@@ -361,40 +580,32 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   );
 
   return (
-    <>
-      <PromptCarousel>
-        {pendingWalletPrompts.map(([type, definition]) => {
-          const overrides = promptOverrides(type);
-          const route = definition.route;
-          const testId = WALLET_PROMPT_TEST_IDS[type];
-          return (
-            <PromptCard
-              key={type}
-              data-testid={testId}
-              actionTestId={testId ? `${testId}-action` : undefined}
-              title={t(definition.titleKey)}
-              body={overrides.body ?? t(definition.bodyKey)}
-              variant={definition.variant}
-              onClick={overrides.onClick ?? (route && !overrides.onAction ? () => navigate(route) : undefined)}
-              actionLabel={definition.actionKey ? t(definition.actionKey) : undefined}
-              onAction={overrides.onAction}
-              actionDisabled={overrides.actionDisabled ?? false}
-              status={overrides.status}
-              onDismiss={overrides.onDismiss ?? (definition.dismissible ? () => dismissPrompt(type) : undefined)}
-            />
-          );
-        })}
-        {account.guardianSyncStatus === 'needs-user-input' && <GuardianNeedsUrlBanner />}
-      </PromptCarousel>
-      <FundWalletDrawer
-        open={fundDrawerOpen}
-        onOpenChange={setFundDrawerOpen}
-        state={fundDrawerState}
-        errorMessage={faucetErrorMessage}
-        onRetry={fundWallet}
-        onDone={() => setFundDrawerOpen(false)}
-      />
-    </>
+    <PromptCarousel>
+      {pendingWalletPrompts.map(([type, definition]) => {
+        const overrides = promptOverrides(type);
+        const route = definition.route;
+        const testId = WALLET_PROMPT_TEST_IDS[type];
+        return (
+          <PromptCard
+            key={type}
+            data-testid={testId}
+            actionTestId={testId ? `${testId}-action` : undefined}
+            title={overrides.title ?? t(definition.titleKey)}
+            body={overrides.body ?? t(definition.bodyKey)}
+            variant={definition.variant}
+            icon={definition.icon}
+            hero={overrides.hero}
+            onClick={overrides.onClick ?? (route && !overrides.onAction ? () => navigate(route) : undefined)}
+            actionLabel={definition.actionKey ? t(definition.actionKey) : undefined}
+            onAction={overrides.onAction}
+            actionDisabled={overrides.actionDisabled ?? false}
+            status={overrides.status}
+            onDismiss={overrides.onDismiss ?? (definition.dismissible ? () => dismissPrompt(type) : undefined)}
+          />
+        );
+      })}
+      {account.guardianSyncStatus === 'needs-user-input' && <GuardianNeedsUrlBanner />}
+    </PromptCarousel>
   );
 };
 

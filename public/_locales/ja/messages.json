@@ -1670,33 +1670,30 @@
     "message": "まずはウォレットにトークンを追加して、始めましょう。",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "今すぐ資金を拠出する",
-    "englishSource": "Fund now"
+  "faucetPromptFunding": {
+    "message": "資金調達",
+    "englishSource": "Funding"
   },
-  "fundWalletLoadingTitle": {
-    "message": "ウォレットへの入金",
-    "englishSource": "Funding your wallet"
+  "faucetPromptFundingSub": {
+    "message": "資金は間もなく利用可能になります",
+    "englishSource": "Your funds will be available shortly"
   },
-  "fundWalletLoadingBody": {
-    "message": "faucet からトークンをリクエスト中…",
-    "englishSource": "Requesting tokens from the faucet…"
+  "faucetPromptFunded": {
+    "message": "入金された資金",
+    "englishSource": "Funds deposited"
   },
-  "fundWalletSuccessTitle": {
-    "message": "ウォレットへの入金完了",
-    "englishSource": "Wallet funded"
+  "faucetPromptFundedSub": {
+    "message": "あなたが持っている $amount$ 準備ができて",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
-  "fundWalletSuccessBody": {
-    "message": "トークンは現在配送中ですので、まもなく表示される予定です。",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "資金調達が失敗しました",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "お持ちのウォレットへの入金に失敗しました。もう一度お試しください。",
-    "englishSource": "We couldn't fund your wallet. Please try again."
+  "faucetPromptFundedSubGeneric": {
+    "message": "資金の準備ができました",
+    "englishSource": "Your funds are ready"
   },
   "pendingNotesPromptTitle": {
     "message": "未決済のNotesがあります",
@@ -1710,10 +1707,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "今すぐ見る",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "リカバリーフレーズを確認してください",
