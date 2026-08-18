@@ -1670,6 +1670,31 @@
     "message": "Adicione tokens à sua carteira para começar.",
     "englishSource": "Add tokens to your wallet to get started."
   },
+  "faucetPromptFunding": {
+    "message": "Financiamento",
+    "englishSource": "Funding"
+  },
+  "faucetPromptFundingSub": {
+    "message": "Seus fundos estarão disponíveis em breve",
+    "englishSource": "Your funds will be available shortly"
+  },
+  "faucetPromptFunded": {
+    "message": "Fundos depositados",
+    "englishSource": "Funds deposited"
+  },
+  "faucetPromptFundedSub": {
+    "message": "Você tem $amount$ preparar",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetPromptFundedSubGeneric": {
+    "message": "Seus fundos estão prontos",
+    "englishSource": "Your funds are ready"
+  },
   "pendingNotesPromptTitle": {
     "message": "Você tem Notes pendentes",
     "englishSource": "You have Pending Notes"
@@ -4030,30 +4055,5 @@
   "devEndpointResetConfirm": {
     "message": "Isso apaga definitivamente esta carteira, incluindo suas chaves e seu histórico de transações. Você precisará da sua frase de recuperação para restaurá-la.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
-  },
-  "faucetPromptFunding": {
-    "message": "Financiamento",
-    "englishSource": "Funding"
-  },
-  "faucetPromptFundingSub": {
-    "message": "Seus fundos estarão disponíveis em breve",
-    "englishSource": "Your funds will be available shortly"
-  },
-  "faucetPromptFunded": {
-    "message": "Fundos depositados",
-    "englishSource": "Funds deposited"
-  },
-  "faucetPromptFundedSub": {
-    "message": "Você tem $amount$ preparar",
-    "englishSource": "You have $amount$ ready",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "faucetPromptFundedSubGeneric": {
-    "message": "Seus fundos estão prontos",
-    "englishSource": "Your funds are ready"
   }
 }

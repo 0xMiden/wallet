@@ -1670,6 +1670,31 @@
     "message": "Щоб розпочати, додайте токени до свого гаманця.",
     "englishSource": "Add tokens to your wallet to get started."
   },
+  "faucetPromptFunding": {
+    "message": "Фінансування",
+    "englishSource": "Funding"
+  },
+  "faucetPromptFundingSub": {
+    "message": "Ваші кошти незабаром будуть доступні",
+    "englishSource": "Your funds will be available shortly"
+  },
+  "faucetPromptFunded": {
+    "message": "Депоновані кошти",
+    "englishSource": "Funds deposited"
+  },
+  "faucetPromptFundedSub": {
+    "message": "Ви маєте $amount$ готовий",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetPromptFundedSubGeneric": {
+    "message": "Ваші кошти готові",
+    "englishSource": "Your funds are ready"
+  },
   "pendingNotesPromptTitle": {
     "message": "У вас є «Pending» (Notes)",
     "englishSource": "You have Pending Notes"
@@ -4030,30 +4055,5 @@
   "devEndpointResetConfirm": {
     "message": "Це призведе до остаточного видалення цього гаманця, включаючи ваші ключі та історію транзакцій. Для його відновлення вам знадобиться фраза відновлення.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
-  },
-  "faucetPromptFunding": {
-    "message": "Фінансування",
-    "englishSource": "Funding"
-  },
-  "faucetPromptFundingSub": {
-    "message": "Ваші кошти незабаром будуть доступні",
-    "englishSource": "Your funds will be available shortly"
-  },
-  "faucetPromptFunded": {
-    "message": "Депоновані кошти",
-    "englishSource": "Funds deposited"
-  },
-  "faucetPromptFundedSub": {
-    "message": "Ви маєте $amount$ готовий",
-    "englishSource": "You have $amount$ ready",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "faucetPromptFundedSubGeneric": {
-    "message": "Ваші кошти готові",
-    "englishSource": "Your funds are ready"
   }
 }

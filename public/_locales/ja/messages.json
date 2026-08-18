@@ -1670,6 +1670,31 @@
     "message": "まずはウォレットにトークンを追加して、始めましょう。",
     "englishSource": "Add tokens to your wallet to get started."
   },
+  "faucetPromptFunding": {
+    "message": "資金調達",
+    "englishSource": "Funding"
+  },
+  "faucetPromptFundingSub": {
+    "message": "資金は間もなく利用可能になります",
+    "englishSource": "Your funds will be available shortly"
+  },
+  "faucetPromptFunded": {
+    "message": "入金された資金",
+    "englishSource": "Funds deposited"
+  },
+  "faucetPromptFundedSub": {
+    "message": "あなたが持っている $amount$ 準備ができて",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetPromptFundedSubGeneric": {
+    "message": "資金の準備ができました",
+    "englishSource": "Your funds are ready"
+  },
   "pendingNotesPromptTitle": {
     "message": "未決済のNotesがあります",
     "englishSource": "You have Pending Notes"
@@ -4030,30 +4055,5 @@
   "devEndpointResetConfirm": {
     "message": "この操作を行うと、このウォレットはキーや取引履歴を含めて完全に消去されます。復元するには、リカバリーフレーズが必要になります。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
-  },
-  "faucetPromptFunding": {
-    "message": "資金調達",
-    "englishSource": "Funding"
-  },
-  "faucetPromptFundingSub": {
-    "message": "資金は間もなく利用可能になります",
-    "englishSource": "Your funds will be available shortly"
-  },
-  "faucetPromptFunded": {
-    "message": "入金された資金",
-    "englishSource": "Funds deposited"
-  },
-  "faucetPromptFundedSub": {
-    "message": "あなたが持っている $amount$ 準備ができて",
-    "englishSource": "You have $amount$ ready",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "faucetPromptFundedSubGeneric": {
-    "message": "資金の準備ができました",
-    "englishSource": "Your funds are ready"
   }
 }

@@ -1670,6 +1670,31 @@
     "message": "請將代幣加入您的錢包，即可開始使用。",
     "englishSource": "Add tokens to your wallet to get started."
   },
+  "faucetPromptFunding": {
+    "message": "资金",
+    "englishSource": "Funding"
+  },
+  "faucetPromptFundingSub": {
+    "message": "您的资金很快就会到账",
+    "englishSource": "Your funds will be available shortly"
+  },
+  "faucetPromptFunded": {
+    "message": "存入资金",
+    "englishSource": "Funds deposited"
+  },
+  "faucetPromptFundedSub": {
+    "message": "你有 $amount$ 准备好",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetPromptFundedSubGeneric": {
+    "message": "您的资金已准备好",
+    "englishSource": "Your funds are ready"
+  },
   "pendingNotesPromptTitle": {
     "message": "您有待處理的 Notes",
     "englishSource": "You have Pending Notes"
@@ -4030,30 +4055,5 @@
   "devEndpointResetConfirm": {
     "message": "此操作將永久刪除此錢包，包括您的金鑰和交易紀錄。若要還原錢包，您需要使用您的恢復短語。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
-  },
-  "faucetPromptFunding": {
-    "message": "资金",
-    "englishSource": "Funding"
-  },
-  "faucetPromptFundingSub": {
-    "message": "您的资金很快就会到账",
-    "englishSource": "Your funds will be available shortly"
-  },
-  "faucetPromptFunded": {
-    "message": "存入资金",
-    "englishSource": "Funds deposited"
-  },
-  "faucetPromptFundedSub": {
-    "message": "你有 $amount$ 准备好",
-    "englishSource": "You have $amount$ ready",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "faucetPromptFundedSubGeneric": {
-    "message": "您的资金已准备好",
-    "englishSource": "Your funds are ready"
   }
 }

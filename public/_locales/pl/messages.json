@@ -1670,6 +1670,31 @@
     "message": "Aby rozpocząć, dodaj tokeny do swojego portfela.",
     "englishSource": "Add tokens to your wallet to get started."
   },
+  "faucetPromptFunding": {
+    "message": "Finansowanie",
+    "englishSource": "Funding"
+  },
+  "faucetPromptFundingSub": {
+    "message": "Twoje środki będą dostępne wkrótce",
+    "englishSource": "Your funds will be available shortly"
+  },
+  "faucetPromptFunded": {
+    "message": "Fundusze zdeponowane",
+    "englishSource": "Funds deposited"
+  },
+  "faucetPromptFundedSub": {
+    "message": "Masz $amount$ gotowy",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetPromptFundedSubGeneric": {
+    "message": "Twoje środki są gotowe",
+    "englishSource": "Your funds are ready"
+  },
   "pendingNotesPromptTitle": {
     "message": "Masz oczekujące „Notes”",
     "englishSource": "You have Pending Notes"
@@ -4030,30 +4055,5 @@
   "devEndpointResetConfirm": {
     "message": "Spowoduje to trwałe usunięcie tego portfela, w tym kluczy i historii transakcji. Aby go przywrócić, potrzebna będzie fraza odzyskiwania.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
-  },
-  "faucetPromptFunding": {
-    "message": "Finansowanie",
-    "englishSource": "Funding"
-  },
-  "faucetPromptFundingSub": {
-    "message": "Twoje środki będą dostępne wkrótce",
-    "englishSource": "Your funds will be available shortly"
-  },
-  "faucetPromptFunded": {
-    "message": "Fundusze zdeponowane",
-    "englishSource": "Funds deposited"
-  },
-  "faucetPromptFundedSub": {
-    "message": "Masz $amount$ gotowy",
-    "englishSource": "You have $amount$ ready",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "faucetPromptFundedSubGeneric": {
-    "message": "Twoje środki są gotowe",
-    "englishSource": "Your funds are ready"
   }
 }
