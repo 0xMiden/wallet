@@ -20,7 +20,7 @@ import { MidenCli, resolveCliPath } from '../../helpers/miden-cli';
 import { CdpBridge, type CdpSession, isCdpNoPagesError } from '../helpers/cdp-bridge';
 import { IosWalletPage } from '../helpers/ios-wallet-page';
 import { isSimctlTimeoutError, SimulatorControl } from '../helpers/simulator-control';
-import { createNotificationAlertGate } from '../helpers/system-alerts';
+import { createNotificationAlertGate, warmUpIdb } from '../helpers/system-alerts';
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -139,6 +139,13 @@ async function launchSimWalletInstance(
   });
 
   const walletPage = new IosWalletPage({ cdp, sim, udid, bundleId: BUNDLE_ID });
+
+  // Connect idb's companion now, before the screen poll starts, so the first
+  // home frame isn't captured while idb is still cold-starting (see warmUpIdb).
+  // Best-effort and mostly free after the first test (the companion persists).
+  await warmUpIdb(udid, {
+    onLog: message => timeline.emit({ category: 'test_lifecycle', severity: 'info', wallet: label, message })
+  });
 
   timeline.emit({
     category: 'test_lifecycle',

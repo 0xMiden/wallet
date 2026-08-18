@@ -162,6 +162,35 @@ export function createNotificationAlertGate(
   };
 }
 
+/**
+ * Connect idb's per-device companion before screenshots begin, so the first
+ * frame the alert could cover isn't racing a cold start.
+ *
+ * The first `idb ui describe-all` of a run spawns `idb_companion` for that
+ * device and often fails or lags while it comes up. That companion then
+ * persists for the whole worker process, so this only pays a real cost on the
+ * first test — later tests find it already connected. Retries `describe-all`
+ * until one succeeds (companion up) or the budget is spent. Best-effort: if idb
+ * never connects, the run proceeds and the gate simply no-ops.
+ */
+export async function warmUpIdb(
+  udid: string,
+  options: { attempts?: number; gapMs?: number; onLog?: (message: string) => void } = {}
+): Promise<void> {
+  const { attempts = 12, gapMs = 1500, onLog } = options;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      // describe-all (via dismiss, which no-ops when no alert is up) — success
+      // means the companion answered and is now connected for the gate.
+      await dismissNotificationPermissionAlert(udid);
+      return;
+    } catch {
+      if (i < attempts - 1) await sleep(gapMs);
+    }
+  }
+  onLog?.(`[system-alerts] idb warmup could not connect on ${udid}; alert dismissal may be delayed`);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
