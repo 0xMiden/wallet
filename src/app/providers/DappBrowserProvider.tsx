@@ -984,6 +984,40 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     if (accounts && accounts.length > 0) return accounts[0]!.publicKey;
     return null;
   }, [currentAccount, accounts]);
+
+  // E2E-only observability. The dApp itself renders in a native webview that
+  // CDP cannot see, so the suite needs the wallet's own view of the world to
+  // assert against: which session is foregrounded, what each session's
+  // lifecycle status is, and — the load-bearing one — the slot rect the
+  // wallet last asked the plugin to position the webview at. The dApp-browser
+  // spec compares that rect against the size the dApp page reports for itself,
+  // which is how a "resized the frame but never re-laid-out the content"
+  // regression is caught.
+  //
+  // Strictly READ-ONLY: the suite drives every transition through real taps on
+  // real elements. Exposing actions here would let the tests bypass the UI and
+  // silently stop covering it. Mirrors the __TEST_STORE__ gate; zero
+  // production impact.
+  useEffect(() => {
+    if (process.env.MIDEN_E2E_TEST !== 'true') return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).__TEST_DAPP_BROWSER__ = {
+      foregroundId,
+      mode: foregroundId ? 'active' : 'launcher',
+      switcherOpen,
+      slotRect,
+      sessions: sessionStates.map(s => ({
+        id: s.session.id,
+        url: s.session.url,
+        origin: s.origin,
+        status: s.status,
+        isLoading: s.isLoading,
+        isCold: s.isCold,
+        error: s.error
+      }))
+    };
+  }, [foregroundId, switcherOpen, slotRect, sessionStates]);
+
   return (
     <DappBrowserContext.Provider value={contextValue}>
       {children}

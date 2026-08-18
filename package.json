@@ -114,7 +114,9 @@
     "build:devnet": "rimraf ./dist && yarn clear:webpack-cache && cross-env MIDEN_NETWORK=devnet DISABLE_TS_CHECKER=true NODE_ENV=development MODE_ENV=production MANIFEST_VERSION=3 webpack",
     "dev:devnet": "cross-env MIDEN_NETWORK=devnet yarn dev",
     "build:desktop:devnet": "rimraf ./dist/desktop && cross-env MIDEN_NETWORK=devnet DISABLE_TS_CHECKER=true NODE_ENV=development MODE_ENV=production webpack --config webpack.desktop.config.js",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:e2e:mobile:dapp:run": "playwright test --config playwright.ios.dapp.config.ts",
+    "test:e2e:android:dapp:run": "playwright test --config playwright.android.dapp.config.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.0.1",

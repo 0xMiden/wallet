@@ -170,12 +170,35 @@ export class EmulatorControl {
     throw new Error(`Emulator ${serial} did not stabilize within ${BOOT_TIMEOUT_MS}ms`);
   }
 
-  async install(serial: string, apkPath: string): Promise<void> {
+  async install(serial: string, apkPath: string, packageName?: string): Promise<void> {
     if (!fs.existsSync(apkPath)) {
       throw new Error(`APK not found at ${apkPath}`);
     }
     // `install -r -t` allows replacing + accepting test packages.
     await execFileAsync('adb', ['-s', serial, 'install', '-r', '-t', apkPath]);
+
+    // Pre-grant the runtime permissions whose system dialogs would otherwise
+    // appear over the app on first launch (Android 13+ gates POST_NOTIFICATIONS
+    // behind a prompt). That dialog is modal: it swallows taps meant for the
+    // wallet AND dims everything behind it, which is how it first showed up
+    // here — a dApp-browser screenshot where the dApp had loaded correctly but
+    // the whole screen was greyed out under "Allow Bread to send you
+    // notifications?".
+    //
+    // Granting rather than dismissing keeps it deterministic: there is no
+    // dialog to race. Failures are swallowed because the permission does not
+    // exist below API 33, where `pm grant` errors instead of no-op'ing.
+    if (packageName) {
+      await execFileAsync('adb', [
+        '-s',
+        serial,
+        'shell',
+        'pm',
+        'grant',
+        packageName,
+        'android.permission.POST_NOTIFICATIONS'
+      ]).catch(() => {});
+    }
   }
 
   async uninstall(serial: string, packageName: string): Promise<void> {

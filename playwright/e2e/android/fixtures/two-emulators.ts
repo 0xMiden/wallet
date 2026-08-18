@@ -94,7 +94,7 @@ async function launchEmuWalletInstance(
     uninstallMs = ms(tUninstall);
 
     const tInstall = phaseStart();
-    await emu.install(serial, APK_PATH);
+    await emu.install(serial, APK_PATH, PACKAGE_NAME);
     installMs = ms(tInstall);
     installedSerials.add(serial);
   } else {

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.22 (TBD)
+
+### Changes
+
+- [CHANGE][mobile] **The dApp browser now has an end-to-end test suite on both iOS and Android.** It drives the whole journey a user can take — opening a dApp from the curated grid or by typing a URL, minimizing it to a tile, maximizing it again, stacking several dApps and switching between them, leaving the browser tab and coming back, and closing one — and checks what is actually on screen at each step rather than only what the app believes. The dApps under test are served locally, so the suite is deterministic and needs no network or third-party site to stay up. It runs on every push to `main`.
+
 ## 1.15.21 (2026-08-17)
 
 ### Fixes
