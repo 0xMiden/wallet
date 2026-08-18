@@ -5,6 +5,7 @@
 ### Changes
 
 - [CHANGE][mobile] **The dApp browser now has an end-to-end test suite on both iOS and Android.** It drives the whole journey a user can take — opening a dApp from the curated grid or by typing a URL, minimizing it to a tile, maximizing it again, stacking several dApps and switching between them, leaving the browser tab and coming back, and closing one — and checks what is actually on screen at each step rather than only what the app believes. The dApps under test are served locally, so the suite is deterministic and needs no network or third-party site to stay up. It runs on every push to `main`.
+- [CHANGE][ci] **E2E screenshots are now browsable as a GitHub Pages gallery.** The per-screen-change screenshots each E2E job captures were only reachable by downloading a run's artifact zip and digging through `screens/` folders (and macOS Finder silently drops files on those long paths). A new Pages deploy aggregates the latest `main` run of every E2E job into one browsable gallery at `/e2e/` — grouped by job and spec, with a click-to-zoom filmstrip — while the existing docs stay at `/`. No user-facing change.
 
 ## 1.15.21 (2026-08-17)
 
