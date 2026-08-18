@@ -68,6 +68,11 @@
 ### Known issues
 
 - **Guardian is expected to fail on this line until guardian packages ship for 0.16.** The guardian's version line is independent of Miden's: the newest published `@openzeppelin/miden-multisig-client` (`0.16.2`) still declares `@miden-sdk/miden-sdk: ^0.15.8`, so every released guardian build targets the Miden 0.15 protocol. The wallet's dependency resolutions force it onto the wallet's own SDK, so installs succeed and the mismatch surfaces at runtime as divergent MASM procedure roots. Tracked in #522.
+## 1.15.22 (TBD)
+
+### Changes
+
+- [CHANGE][ci] **E2E screenshots are now browsable as a GitHub Pages gallery.** The per-screen-change screenshots each E2E job captures were only reachable by downloading a run's artifact zip and digging through `screens/` folders (and macOS Finder silently drops files on those long paths). A new Pages deploy aggregates the latest `main` run of every E2E job into one browsable gallery at `/e2e/` — grouped by job and spec, with a click-to-zoom filmstrip — while the existing docs stay at `/`. No user-facing change.
 
 ## 1.15.21 (2026-08-17)
 
