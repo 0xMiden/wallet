@@ -114,6 +114,11 @@ function slug(s) {
 const jobs = [];
 let totalShots = 0;
 let totalSpecs = 0;
+let totalBlank = 0;
+// A 1280x720 solid-white PNG is ~4.2KB; real captured frames are >20KB. Drop
+// near-blank frames (a capture that landed before the page had painted) so the
+// filmstrip never shows white gaps.
+const BLANK_MAX_BYTES = 8000;
 const jobDirs = fs
   .readdirSync(INPUT, { withFileTypes: true })
   .filter(e => e.isDirectory())
@@ -131,7 +136,13 @@ for (const jobName of jobDirs) {
     specsMap.get(spec).push(png);
   }
   const specs = [];
-  for (const [specDir, pngs] of specsMap) {
+  for (const [specDir, allPngs] of specsMap) {
+    const pngs = allPngs.filter(src => {
+      const ok = fs.statSync(src).size >= BLANK_MAX_BYTES;
+      if (!ok) totalBlank++;
+      return ok;
+    });
+    if (pngs.length === 0) continue;
     pngs.sort((a, b) => screenIndex(path.basename(a)) - screenIndex(path.basename(b)) || a.localeCompare(b));
     const shots = pngs.map(src => {
       const file = path.basename(src);
@@ -334,5 +345,5 @@ const html = `<!doctype html>
 fs.mkdirSync(OUTPUT, { recursive: true });
 fs.writeFileSync(path.join(OUTPUT, 'index.html'), html);
 console.log(
-  `gallery: ${jobs.length} jobs, ${totalSpecs} specs, ${totalShots} screenshots -> ${path.join(OUTPUT, 'index.html')}`
+  `gallery: ${jobs.length} jobs, ${totalSpecs} specs, ${totalShots} screenshots (${totalBlank} blank dropped) -> ${path.join(OUTPUT, 'index.html')}`
 );
