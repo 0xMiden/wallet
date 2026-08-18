@@ -103,6 +103,12 @@ async function launchEmuWalletInstance(
     wipeMs = ms(tWipe);
   }
 
+  // Pre-grant POST_NOTIFICATIONS so the OS notification dialog never appears
+  // (it otherwise covers every screenshot). Granted every launch, not once
+  // after install: the warm-emulator wipe path above (`pm clear`/wipeAppState)
+  // resets granted runtime permissions. Best-effort — see grantNotifications.
+  await emu.grantNotifications(serial, PACKAGE_NAME);
+
   const tLaunch = phaseStart();
   // MIDEN_E2E_TEST + MIDEN_NETWORK are build-time baked on Android (vite
   // define) — the env arg here is a no-op kept for interface symmetry

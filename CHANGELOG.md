@@ -72,6 +72,7 @@
 
 ### Changes
 
+- [CHANGE][ci] **The mobile E2E screenshots no longer have the OS "Allow notifications" dialog covering them.** The wallet requests notification permission when its home screen mounts, and the native prompt then sat over the centre of nearly every mobile screenshot. Android now pre-grants `POST_NOTIFICATIONS` before launch, and iOS taps "Allow" on the SpringBoard alert via `idb` (the CDP harness can't reach a native alert). No app behaviour changes — the real permission code path still runs; the alert is just answered. Best-effort, so a missing `idb` degrades gracefully instead of failing the run.
 - [CHANGE][ci] **E2E screenshots are now browsable as a GitHub Pages gallery.** The per-screen-change screenshots each E2E job captures were only reachable by downloading a run's artifact zip and digging through `screens/` folders (and macOS Finder silently drops files on those long paths). A new Pages deploy aggregates the latest `main` run of every E2E job into one browsable gallery at `/e2e/` — grouped by job and spec, with a click-to-zoom filmstrip — while the existing docs stay at `/`. No user-facing change.
 
 ## 1.15.21 (2026-08-17)
