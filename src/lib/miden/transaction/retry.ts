@@ -21,7 +21,7 @@ import {
  *
  * `earn-deposit` is ALSO excluded, and for a different reason. The row is only
  * the Miden half of an Epoch lending deposit: `openEarnPosition` quotes the
- * intent, then `solveIntent` calls back into `createEarnP2IDNote`, which queues
+ * intent, then `solveIntent` calls back into `createEarnP2IDENote`, which queues
  * this row and BLOCKS on it before the intent is submitted. So when the row
  * fails, the surrounding intent has already been abandoned (there is no
  * allocator-side mandate left to satisfy). Re-queueing would re-run only the
@@ -44,7 +44,7 @@ import {
  *    so `earn-deposit` SHOULD keep participating, and it does.
  *  - `ApplyTransactionAfterSubmitFailed` marks the row `Completed` rather than
  *    Failed: the note IS on chain, so the correct move is to let the awaiting
- *    `createEarnP2IDNote` read it back, not to re-send. `earn-deposit` belongs
+ *    `createEarnP2IDENote` read it back, not to re-send. `earn-deposit` belongs
  *    in that type-agnostic path too, and stays there.
  *
  * Both of those cover cases where the intent is still valid; only the terminal

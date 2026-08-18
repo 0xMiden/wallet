@@ -646,7 +646,11 @@ export class EarnDepositTransaction implements ITransaction {
   noteType?: NoteType;
   transactionId?: string;
   outputNoteIds?: string[];
-  /** Guardian path: serialized P2IDE send request reused across propose/sign/retry. */
+  /**
+   * Serialized P2IDE collateral request (own output note with the Epoch
+   * mandate-binding attachment), built once at initiate time and reused
+   * verbatim across the standard pipeline, guardian propose/sign, and retries.
+   */
   requestBytes?: Uint8Array;
   status: ITransactionStatus;
   initiatedAt: number;
@@ -664,7 +668,8 @@ export class EarnDepositTransaction implements ITransaction {
     marketUid: string,
     faucetId: string,
     sendParams: IBridgedSendNoteParams,
-    delegateTransaction?: boolean
+    delegateTransaction?: boolean,
+    requestBytes?: Uint8Array
   ) {
     this.id = uuid();
     this.type = 'earn-deposit';
@@ -673,6 +678,7 @@ export class EarnDepositTransaction implements ITransaction {
     this.faucetId = faucetId;
     this.secondaryAccountId = sendParams.recipientId;
     this.noteType = sendParams.noteType;
+    this.requestBytes = requestBytes;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'DEFAULT';

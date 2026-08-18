@@ -58,7 +58,7 @@ export interface B2AggBridgeDeps {
  * `completeBridgedSendTransaction`) so it proves + submits and shows up in the
  * activity list exactly like every other wallet transaction.
  *
- * Mirrors `createBridgeP2IDNote`: nudge the SW on extension, run the in-page
+ * Mirrors `createBridgeP2IDENote`: nudge the SW on extension, run the in-page
  * background processor on mobile/desktop, then wait for the queued tx to settle.
  *
  * Recorded as a `bridged-send` row with `provider: 'agglayer'` so the activity

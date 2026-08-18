@@ -328,9 +328,12 @@ export const initiateSendTransaction = async (
 /**
  * Queue a cross-chain Miden→EVM send (`bridged-send`). For the agglayer (Slow)
  * route, `requestBytes` is a pre-built B2AGG `TransactionRequest` (own output
- * note) and the standard pipeline proves + submits it via `newTransaction`, then
- * `completeBridgedSendTransaction` records it. For the epoch (Fast) route there
- * are no `requestBytes` — `bridgeEpochSend` drives the row out-of-band.
+ * note). For the epoch (Fast) route, `requestBytes` is the pre-built P2IDE
+ * collateral request carrying the mandate-binding attachment (smallocator
+ * PR #38, built by `buildEpochCollateralRequestBytes`) and `bridgeEpochSend`
+ * drives the surrounding intent out-of-band. Either way the standard pipeline
+ * proves + submits the request via `newTransaction`, then
+ * `completeBridgedSendTransaction` records it.
  */
 export const initiateBridgedSendTransaction = async (
   accountId: string,
@@ -359,7 +362,12 @@ export const initiateBridgedSendTransaction = async (
   return dbTransaction.id;
 };
 
-/** Queue the recallable Miden P2IDE note that collateralizes an Earn deposit. */
+/**
+ * Queue the recallable Miden P2IDE note that collateralizes an Earn deposit.
+ * `requestBytes` is the pre-built P2IDE collateral request carrying the
+ * mandate-binding attachment (smallocator PR #38, built by
+ * `buildEpochCollateralRequestBytes`); the pipeline submits it verbatim.
+ */
 export const initiateEarnDepositTransaction = async (
   accountId: string,
   amount: bigint,
@@ -367,7 +375,8 @@ export const initiateEarnDepositTransaction = async (
   marketUid: string,
   faucetId: string,
   sendParams: IBridgedSendNoteParams,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  requestBytes?: Uint8Array
 ): Promise<string> => {
   const dbTransaction = new EarnDepositTransaction(
     accountId,
@@ -376,7 +385,8 @@ export const initiateEarnDepositTransaction = async (
     marketUid,
     faucetId,
     sendParams,
-    delegateTransaction
+    delegateTransaction,
+    requestBytes
   );
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;

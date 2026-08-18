@@ -584,7 +584,7 @@ describe('generateTransaction — Guardian routing', () => {
 
     // Completion must route to completeEarnDepositTransaction, NOT the generic custom-tx
     // completion — otherwise the row finishes without the collateral note id that
-    // createEarnP2IDNote reads back for the Epoch handoff (stranding the deposit).
+    // createEarnP2IDENote reads back for the Epoch handoff (stranding the deposit).
     // 'Deposited to lending' is set only by completeEarnDepositTransaction, so it pins
     // the routing: deleting the completion case fails this assertion.
     const completed = txStore.find(row => row.id === txId);
@@ -896,7 +896,7 @@ describe('generateTransaction — Guardian routing', () => {
   });
 
   it('Guardian earn-deposit: submit lands but local apply fails — row is marked Failed (not Completed) so the awaiting caller stops waiting', async () => {
-    // A Completed earn-deposit row without resultBytes would hang createEarnP2IDNote's
+    // A Completed earn-deposit row without resultBytes would hang createEarnP2IDENote's
     // waitForTransactionCompletion (TransactionResult.deserialize(undefined) throws after
     // cleanup(), so the wait promise never settles and openEarnPosition hangs forever).
     // A post-submit apply failure must therefore Fail the row, NOT Complete it — unlike
