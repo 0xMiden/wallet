@@ -20,6 +20,7 @@ import { MidenCli, resolveCliPath } from '../../helpers/miden-cli';
 import { CdpBridge, type CdpSession, isCdpNoPagesError } from '../helpers/cdp-bridge';
 import { IosWalletPage } from '../helpers/ios-wallet-page';
 import { isSimctlTimeoutError, SimulatorControl } from '../helpers/simulator-control';
+import { startNotificationAlertDismisser } from '../helpers/system-alerts';
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -55,6 +56,8 @@ interface SimWalletInstance {
   cdp: CdpSession;
   udid: string;
   bundleId: string;
+  /** Stops the background notification-permission-alert dismisser (see system-alerts.ts). */
+  stopAlertDismisser: () => void;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -161,7 +164,20 @@ async function launchSimWalletInstance(
     }
   });
 
-  return { walletPage, cdp, udid, bundleId: BUNDLE_ID };
+  // Start the alert watcher as the last thing before returning, so nothing
+  // between here and the return can throw and orphan it (setupBothWallets can
+  // only stop a watcher it received on the returned instance). The authenticated
+  // app shell mounts later in the test body and fires initNativeNotifications(),
+  // which raises a native "…Would Like to Send You Notifications" SpringBoard
+  // alert outside the WebView — CDP can't tap it and it covers every composited
+  // screenshot until answered. The watcher taps "Allow" via idb the moment it
+  // appears, then stops. Best-effort (no-op when idb is absent); stopped in
+  // teardown and on the setup-error path.
+  const stopAlertDismisser = startNotificationAlertDismisser(udid, {
+    onLog: message => timeline.emit({ category: 'test_lifecycle', severity: 'info', wallet: label, message })
+  });
+
+  return { walletPage, cdp, udid, bundleId: BUNDLE_ID, stopAlertDismisser };
 }
 
 /**
@@ -194,7 +210,10 @@ async function setupBothWallets(
       instanceB = await launchSimWalletInstance(simB, udidB, envConfig, timeline, 'B');
       return { instanceA, instanceB };
     } catch (err) {
-      // Drop any half-open CDP sockets from this attempt before recovering.
+      // Drop any half-open CDP sockets + alert watchers from this attempt
+      // before recovering.
+      instanceA?.stopAlertDismisser();
+      instanceB?.stopAlertDismisser();
       await instanceA?.cdp.close().catch(() => undefined);
       await instanceB?.cdp.close().catch(() => undefined);
       // Both signatures point at the same wedged macos-26 sim subsystem: a
@@ -430,6 +449,8 @@ export const test = base.extend<TwoSimulatorFixtures>({
     await use({ instanceA, instanceB, simA, simB });
 
     screenPolls.forEach(p => p.stop());
+    instanceA.stopAlertDismisser();
+    instanceB.stopAlertDismisser();
 
     // Parallel teardown is safe — close is a CDP socket close, terminate is
     // just `simctl terminate` which doesn't contend.
