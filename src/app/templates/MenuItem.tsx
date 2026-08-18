@@ -82,7 +82,9 @@ const MenuItem: FC<MenuItemProps> = ({
           />
         </button>
       ) : (
-        <Link to={slug || '#'} onClick={onClick} testID={testID}>
+        // `testID` only feeds analytics inside Link — the anchor itself needs the
+        // spread `data-testid` for the settings e2e helpers to find routed rows.
+        <Link to={slug || '#'} onClick={onClick} testID={testID} data-testid={testID}>
           <ClickableContent
             titleI18nKey={titleI18nKey}
             Icon={Icon}
