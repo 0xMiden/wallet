@@ -87,11 +87,13 @@ jobs:
           mkdir -p _e2e_stage
           WORKFLOWS="e2e-blockchain.yml e2e-android.yml e2e-bridge.yml e2e-bridge-in.yml e2e-resilience.yml pr-e2e-swap.yml pr-e2e-earn.yml pr-e2e-guardian-lifecycle.yml pr-e2e-bridge-guardian.yml"
           for wf in $WORKFLOWS; do
-            # The latest run may be in progress (this workflow can be triggered by the
-            # same push that started the E2E suites) — pick the latest COMPLETED run,
-            # which is the one that actually has downloadable screenshot artifacts.
-            rid=$(gh run list --workflow "$wf" --branch main --limit 15 --json databaseId,status --jq 'map(select(.status=="completed"))[0].databaseId // empty' 2>/dev/null || true)
-            if [ -z "$rid" ]; then echo "no completed main run for $wf"; continue; fi
+            # Pick the latest SUCCESSFUL run. Not "latest" (may be in progress, no
+            # artifacts) and not merely "completed" (a rapid series of main pushes
+            # makes concurrency cancel earlier in-progress runs, and a cancelled run
+            # has only partial artifacts — that shrank the gallery). A successful run
+            # ran every spec and uploaded the full screenshot set.
+            rid=$(gh run list --workflow "$wf" --branch main --limit 20 --json databaseId,conclusion --jq 'map(select(.conclusion=="success"))[0].databaseId // empty' 2>/dev/null || true)
+            if [ -z "$rid" ]; then echo "no successful main run for $wf"; continue; fi
             echo "::group::$wf (run $rid)"
             tmp="_e2e_stage/_tmp"
             rm -rf "$tmp"; mkdir -p "$tmp"
