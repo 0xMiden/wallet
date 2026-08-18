@@ -29,7 +29,9 @@ const args = parseArgs(process.argv.slice(2));
 const INPUT = args.input;
 const OUTPUT = args.output;
 if (!INPUT || !OUTPUT) {
-  console.error('usage: build-e2e-gallery.mjs --input <dir> --output <dir> [--sha ..] [--run-url ..] [--generated-at ..] [--branch ..]');
+  console.error(
+    'usage: build-e2e-gallery.mjs --input <dir> --output <dir> [--sha ..] [--run-url ..] [--generated-at ..] [--branch ..]'
+  );
   process.exit(1);
 }
 const SHA = args.sha || '';
@@ -52,11 +54,11 @@ const JOB_LABELS = [
   ['bridge-guardian-e2e', 'Guardian Bridge-Out (Chrome)'],
   ['bridge-e2e', 'Bridge-Out (Chrome)'],
   ['resilience', 'Infra Resilience (Chrome)'],
-  ['local-e2e', 'Core (Chrome, localnet)'],
+  ['local-e2e', 'Core (Chrome, localnet)']
 ];
 function jobLabel(name) {
   for (const [prefix, label] of JOB_LABELS) if (name.includes(prefix)) return label;
-  return name.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return name.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 /* ---------- discovery ---------- */
@@ -70,7 +72,8 @@ function walk(dir, hits) {
   for (const e of entries) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) walk(p, hits);
-    else if (e.isFile() && /screen-\d+.*\.png$/i.test(e.name) && /(^|\/)screens\//.test(p.replace(/\\/g, '/'))) hits.push(p);
+    else if (e.isFile() && /screen-\d+.*\.png$/i.test(e.name) && /(^|\/)screens\//.test(p.replace(/\\/g, '/')))
+      hits.push(p);
   }
 }
 
@@ -83,7 +86,7 @@ function specOf(pngPath) {
 // A shorter, human-facing spec title from the harness folder name.
 function specTitle(specDir) {
   // e.g. "swap-cancel.spec.ts-swap-_cancel_-_reclaim-A_offers_10_SWPA-..."
-  let s = specDir.replace(/\.spec\.ts.*$/i, (m) => m.replace(/^\.spec\.ts-?/i, ' — '));
+  let s = specDir.replace(/\.spec\.ts.*$/i, m => m.replace(/^\.spec\.ts-?/i, ' — '));
   s = s.replace(/\.(ts|js)-/i, ' — ');
   s = s.replace(/[_]+/g, ' ').replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
   return s || specDir;
@@ -101,7 +104,10 @@ function screenCaption(file) {
   return { key: s.replace(/-/g, ' › '), wallet };
 }
 function slug(s) {
-  return s.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+  return s
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
 }
 
 /* ---------- collect ---------- */
@@ -110,8 +116,8 @@ let totalShots = 0;
 let totalSpecs = 0;
 const jobDirs = fs
   .readdirSync(INPUT, { withFileTypes: true })
-  .filter((e) => e.isDirectory())
-  .map((e) => e.name)
+  .filter(e => e.isDirectory())
+  .map(e => e.name)
   .sort();
 
 for (const jobName of jobDirs) {
@@ -127,7 +133,7 @@ for (const jobName of jobDirs) {
   const specs = [];
   for (const [specDir, pngs] of specsMap) {
     pngs.sort((a, b) => screenIndex(path.basename(a)) - screenIndex(path.basename(b)) || a.localeCompare(b));
-    const shots = pngs.map((src) => {
+    const shots = pngs.map(src => {
       const file = path.basename(src);
       const rel = path.join('assets', slug(jobName), slug(specDir), file);
       const dest = path.join(OUTPUT, rel);
@@ -145,7 +151,7 @@ for (const jobName of jobDirs) {
 }
 
 /* ---------- render ---------- */
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const shortSha = SHA ? SHA.slice(0, 8) : '';
 const commitLink = SHA ? `https://github.com/0xMiden/wallet/commit/${SHA}` : '';
 
@@ -223,13 +229,13 @@ footer{border-top:1px solid var(--border);color:var(--muted);font-size:12.5px;pa
 function renderJob(job) {
   const specs = job.specs
     .map(
-      (spec) => `
+      spec => `
       <div class="spec">
         <h3>${esc(spec.title)}</h3>
         <div class="strip">
           ${spec.shots
             .map(
-              (s) => `<button class="frame" data-src="${esc(s.rel)}" data-cap="${esc(s.key)}${s.wallet ? ' · wallet ' + s.wallet : ''}">
+              s => `<button class="frame" data-src="${esc(s.rel)}" data-cap="${esc(s.key)}${s.wallet ? ' · wallet ' + s.wallet : ''}">
               <span class="thumbwrap"><img loading="lazy" src="${esc(s.rel)}" alt="${esc(s.key)}">
                 <span class="num">${String(s.idx).padStart(3, '0')}</span>${s.wallet ? `<span class="wl">${esc(s.wallet)}</span>` : ''}</span>
               <span class="cap">${esc(s.key)}</span></button>`
@@ -248,7 +254,7 @@ function renderJob(job) {
 }
 
 const toc = jobs
-  .map((j) => `<a href="#${esc(slug(j.name))}">${esc(j.label)} <span class="c">${j.count}</span></a>`)
+  .map(j => `<a href="#${esc(slug(j.name))}">${esc(j.label)} <span class="c">${j.count}</span></a>`)
   .join('\n');
 
 const html = `<!doctype html>
@@ -327,4 +333,6 @@ const html = `<!doctype html>
 
 fs.mkdirSync(OUTPUT, { recursive: true });
 fs.writeFileSync(path.join(OUTPUT, 'index.html'), html);
-console.log(`gallery: ${jobs.length} jobs, ${totalSpecs} specs, ${totalShots} screenshots -> ${path.join(OUTPUT, 'index.html')}`);
+console.log(
+  `gallery: ${jobs.length} jobs, ${totalSpecs} specs, ${totalShots} screenshots -> ${path.join(OUTPUT, 'index.html')}`
+);

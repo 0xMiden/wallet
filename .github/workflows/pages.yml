@@ -19,23 +19,23 @@ on:
   # Refresh the gallery whenever an E2E suite finishes on main.
   workflow_run:
     workflows:
-      - "E2E Blockchain"
-      - "E2E Android"
-      - "E2E Bridge"
-      - "E2E Bridge-IN"
-      - "Infra Resilience E2E (Chrome)"
-      - "Swap E2E (Chrome)"
-      - "Earn E2E (Chrome)"
-      - "Guardian Lifecycle E2E (Chrome)"
-      - "Guardian Bridge-Out E2E (Chrome)"
+      - 'E2E Blockchain'
+      - 'E2E Android'
+      - 'E2E Bridge'
+      - 'E2E Bridge-IN'
+      - 'Infra Resilience E2E (Chrome)'
+      - 'Swap E2E (Chrome)'
+      - 'Earn E2E (Chrome)'
+      - 'Guardian Lifecycle E2E (Chrome)'
+      - 'Guardian Bridge-Out E2E (Chrome)'
     types: [completed]
   # Rebuild docs (and the gallery) when docs or the gallery tooling changes.
   push:
     branches: [main]
     paths:
-      - "docs/**"
-      - "scripts/build-e2e-gallery.mjs"
-      - ".github/workflows/pages.yml"
+      - 'docs/**'
+      - 'scripts/build-e2e-gallery.mjs'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:
