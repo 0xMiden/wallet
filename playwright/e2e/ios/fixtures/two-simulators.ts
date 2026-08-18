@@ -20,7 +20,7 @@ import { MidenCli, resolveCliPath } from '../../helpers/miden-cli';
 import { CdpBridge, type CdpSession, isCdpNoPagesError } from '../helpers/cdp-bridge';
 import { IosWalletPage } from '../helpers/ios-wallet-page';
 import { isSimctlTimeoutError, SimulatorControl } from '../helpers/simulator-control';
-import { startNotificationAlertDismisser } from '../helpers/system-alerts';
+import { createNotificationAlertGate } from '../helpers/system-alerts';
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -56,8 +56,6 @@ interface SimWalletInstance {
   cdp: CdpSession;
   udid: string;
   bundleId: string;
-  /** Stops the background notification-permission-alert dismisser (see system-alerts.ts). */
-  stopAlertDismisser: () => void;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -164,20 +162,7 @@ async function launchSimWalletInstance(
     }
   });
 
-  // Start the alert watcher as the last thing before returning, so nothing
-  // between here and the return can throw and orphan it (setupBothWallets can
-  // only stop a watcher it received on the returned instance). The authenticated
-  // app shell mounts later in the test body and fires initNativeNotifications(),
-  // which raises a native "…Would Like to Send You Notifications" SpringBoard
-  // alert outside the WebView — CDP can't tap it and it covers every composited
-  // screenshot until answered. The watcher taps "Allow" via idb the moment it
-  // appears, then stops. Best-effort (no-op when idb is absent); stopped in
-  // teardown and on the setup-error path.
-  const stopAlertDismisser = startNotificationAlertDismisser(udid, {
-    onLog: message => timeline.emit({ category: 'test_lifecycle', severity: 'info', wallet: label, message })
-  });
-
-  return { walletPage, cdp, udid, bundleId: BUNDLE_ID, stopAlertDismisser };
+  return { walletPage, cdp, udid, bundleId: BUNDLE_ID };
 }
 
 /**
@@ -210,10 +195,7 @@ async function setupBothWallets(
       instanceB = await launchSimWalletInstance(simB, udidB, envConfig, timeline, 'B');
       return { instanceA, instanceB };
     } catch (err) {
-      // Drop any half-open CDP sockets + alert watchers from this attempt
-      // before recovering.
-      instanceA?.stopAlertDismisser();
-      instanceB?.stopAlertDismisser();
+      // Drop any half-open CDP sockets from this attempt before recovering.
       await instanceA?.cdp.close().catch(() => undefined);
       await instanceB?.cdp.close().catch(() => undefined);
       // Both signatures point at the same wedged macos-26 sim subsystem: a
@@ -420,10 +402,18 @@ export const test = base.extend<TwoSimulatorFixtures>({
     // socket as the rest of the spec's traffic.
     const screensDir = path.join(steps.outputDir, 'screens');
     const screenPolls = [
-      { label: 'A', walletPage: instanceA.walletPage, cdp: instanceA.cdp },
-      { label: 'B', walletPage: instanceB.walletPage, cdp: instanceB.cdp }
-    ].map(({ label, walletPage, cdp }) =>
-      startScreenPoll({
+      { label: 'A' as const, walletPage: instanceA.walletPage, cdp: instanceA.cdp, udid: instanceA.udid },
+      { label: 'B' as const, walletPage: instanceB.walletPage, cdp: instanceB.cdp, udid: instanceB.udid }
+    ].map(({ label, walletPage, cdp, udid }) => {
+      // Dismiss the native notification-permission alert before each screenshot
+      // (see system-alerts.ts): initNativeNotifications() raises it when the
+      // authenticated shell mounts mid-test — a SpringBoard alert outside the
+      // WebView that CDP can't tap. Gating the capture (vs a background poll)
+      // means no frame is ever shot while it's up. Best-effort; no-op without idb.
+      const alertGate = createNotificationAlertGate(udid, {
+        onLog: message => timeline.emit({ category: 'test_lifecycle', severity: 'info', wallet: label, message })
+      });
+      return startScreenPoll({
         intervalMs: 250,
         read: async () => {
           // Sync `eval`, not `evalAsync` — the latter is broken on this iOS
@@ -440,17 +430,18 @@ export const test = base.extend<TwoSimulatorFixtures>({
           );
           return raw ? (JSON.parse(raw) as { key: string; seq: number }) : null;
         },
-        grab: p => walletPage.screenshot({ path: p }),
+        grab: async p => {
+          await alertGate.beforeCapture();
+          await walletPage.screenshot({ path: p });
+        },
         dir: screensDir,
         label
-      })
-    );
+      });
+    });
 
     await use({ instanceA, instanceB, simA, simB });
 
     screenPolls.forEach(p => p.stop());
-    instanceA.stopAlertDismisser();
-    instanceB.stopAlertDismisser();
 
     // Parallel teardown is safe — close is a CDP socket close, terminate is
     // just `simctl terminate` which doesn't contend.

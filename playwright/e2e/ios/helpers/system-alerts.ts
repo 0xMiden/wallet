@@ -27,7 +27,7 @@ const execFileAsync = promisify(execFile);
  * harness only — no wallet source is changed and no behaviour is suppressed.
  *
  * Everything here is best-effort: if `idb` is not installed (local dev without
- * it) or the companion is unavailable, the watcher gives up quietly and the run
+ * it) or the companion is unavailable, the gate gives up quietly and the run
  * proceeds — the alert simply reappears in screenshots, exactly as before.
  */
 
@@ -100,54 +100,55 @@ export async function dismissNotificationPermissionAlert(udid: string): Promise<
   return true;
 }
 
-interface DismisserOptions {
-  /** Gap between polls once idb is answering (describe-all itself is ~0.5s). */
-  pollGapMs?: number;
-  /**
-   * Hard ceiling on how long the watcher runs. This is only a crashed-worker
-   * backstop — teardown (and the setup-error paths) call the returned `stop()`
-   * the moment the test ends, which is the real terminator. It must therefore
-   * exceed worst-case (setup + time-to-home): the alert doesn't appear at
-   * launch but when the authenticated shell mounts *during the test body*, and
-   * on a degraded macos-26 runner setup alone can burn many minutes, so a short
-   * cap would expire before the alert ever shows. Default matches the per-test
-   * timeout (playwright.ios.config.ts).
-   */
-  maxDurationMs?: number;
-  /** Consecutive idb failures after which we assume idb is missing/broken and stop. */
+interface GateOptions {
+  /** Consecutive idb failures after which we stop trying (idb missing/broken). */
   maxConsecutiveErrors?: number;
+  /** Pause after a successful tap so the alert animates out before the screenshot. */
+  settleMs?: number;
   /** Optional log sink (defaults to console). */
   onLog?: (message: string) => void;
 }
 
 /**
- * Start a background watcher that dismisses the notification-permission alert
- * the moment it appears, then stops (the app requests permission once per
- * session). Returns a `stop()` to cancel it (call in teardown / on the
- * setup-error path). Never rejects.
+ * A capture-path gate that dismisses the notification-permission alert *before*
+ * a screenshot is taken, so a frame is never captured while the alert is up.
+ *
+ * Call `beforeCapture()` in the screenshot path. It is a no-op once the alert
+ * has been tapped (the app asks once per session) and after idb proves
+ * unavailable, so the steady-state cost is zero. On the frames before the alert
+ * appears it makes a cheap `describe-all` call that finds nothing — which also
+ * warms idb's companion, so the very first frame the alert *would* cover is
+ * dismissed synchronously rather than racing a background poller.
+ *
+ * Deliberately capture-driven, not a background watcher: the alert is only a
+ * problem because it lands in screenshots, and gating the capture removes it at
+ * exactly the moment that matters with no timing race. Never rejects.
  */
-export function startNotificationAlertDismisser(udid: string, options: DismisserOptions = {}): () => void {
+export function createNotificationAlertGate(
+  udid: string,
+  options: GateOptions = {}
+): { beforeCapture(): Promise<void> } {
   const {
-    pollGapMs = 300,
-    maxDurationMs = 1_500_000,
     maxConsecutiveErrors = 5,
+    settleMs = 250,
     // eslint-disable-next-line no-console
     onLog = (message: string): void => console.log(message)
   } = options;
 
-  let stopped = false;
-  const start = Date.now();
+  let dismissed = false;
+  let consecutiveErrors = 0;
+  let warnedUnavailable = false;
 
-  void (async (): Promise<void> => {
-    let consecutiveErrors = 0;
-    let warnedUnavailable = false;
-    while (!stopped && Date.now() - start < maxDurationMs) {
+  return {
+    async beforeCapture(): Promise<void> {
+      if (dismissed || consecutiveErrors >= maxConsecutiveErrors) return;
       try {
         const tapped = await dismissNotificationPermissionAlert(udid);
         consecutiveErrors = 0;
         if (tapped) {
+          dismissed = true;
           onLog(`[system-alerts] dismissed notification permission alert on ${udid}`);
-          return;
+          await sleep(settleMs);
         }
       } catch (err) {
         consecutiveErrors += 1;
@@ -156,14 +157,8 @@ export function startNotificationAlertDismisser(udid: string, options: Dismisser
           const first = (err as Error).message.split('\n')[0];
           onLog(`[system-alerts] idb unavailable on ${udid} (${first}); notification alert won't be auto-dismissed`);
         }
-        if (consecutiveErrors >= maxConsecutiveErrors) return;
       }
-      await sleep(pollGapMs);
     }
-  })().catch(() => undefined);
-
-  return (): void => {
-    stopped = true;
   };
 }
 
