@@ -135,6 +135,20 @@ test.describe('earn: deposit happy path', () => {
     //    - The positions fake serves a zero-balance DUMMY_LENDING vault to any
     //      un-seeded owner by default, so the Earn catalog renders a vault row.
     allocator.setEarnDepositOutcome('completed');
+    //    - The note inspector arms smallocator PR #38 binding validation on
+    //      POST /compact: the fake reads the submitted collateral note's
+    //      attachment felts from the wallet SW (the persisted request bytes the
+    //      pipeline actually proves + submits) and 400s — failing this test —
+    //      unless the attachment commits to the intent mandate.
+    allocator.setNoteInspector(noteId =>
+      swOf(walletA).evaluate(
+        (id: string) =>
+          (
+            globalThis as unknown as { __TEST_NOTE_ATTACHMENT_FELTS__: (noteId: string) => Promise<string[] | null> }
+          ).__TEST_NOTE_ATTACHMENT_FELTS__(id),
+        noteId
+      )
+    );
 
     // 3. Drive the real Earn UI: catalog → vault detail → deposit CTA. Capture
     //    the vault id from the row testid (the slug is derived downstream as

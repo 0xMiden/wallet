@@ -102,12 +102,15 @@ export const SuccessAmountBlock: FC<{ amountText?: string; subline?: ReactNode }
 
 /**
  * Hero summary pill under the title — "{amount} {symbol} → {recipient}" in a
- * rounded pill with the blue-circle arrow. Reuses the in-progress screen's
+ * rounded pill with the blue-circle arrow (or a caller-provided `separator`
+ * glyph, e.g. the earn up-arrow). Reuses the in-progress screen's
  * `TransactionSummaryBadge`, so it renders `null` when either side is missing.
  */
-export const SuccessSummaryPill: FC<{ lhs?: ReactNode; rhs?: ReactNode }> = ({ lhs, rhs }) => (
-  <TransactionSummaryBadge lhs={lhs} rhs={rhs} className="mt-1" />
-);
+export const SuccessSummaryPill: FC<{ lhs?: ReactNode; rhs?: ReactNode; separator?: ReactNode }> = ({
+  lhs,
+  rhs,
+  separator
+}) => <TransactionSummaryBadge lhs={lhs} rhs={rhs} separator={separator} className="mt-1" />;
 
 /**
  * Key/value receipt rows. The label is the shared grey `ReviewLabel` pill; the

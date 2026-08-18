@@ -62,6 +62,26 @@ export interface AllocatorRequestLog {
 /** Terminal status the deposit poller accepts on the Sepolia leg (`EARN_DONE_STATUSES`). */
 export type EarnDepositStatus = 'completed' | 'finalized' | 'success' | 'filled' | 'settled';
 
+/**
+ * Reads the attachment felts of the note `noteId` as the WALLET submitted it
+ * (decimal strings). Return `[]` for a note with no attachment and `null` when
+ * the note can't be found. Specs wire this to the SW hook
+ * `__TEST_NOTE_ATTACHMENT_FELTS__` (see `earn-test-hooks.ts`).
+ */
+export type NoteAttachmentInspector = (noteId: string) => Promise<string[] | null>;
+
+/** Minimal mandate shape POST /compact carries for Miden collateral. */
+interface CompactMandate {
+  midenNoteId?: string;
+  recipient?: string;
+  [key: string]: unknown;
+}
+
+interface CompactRequestBody {
+  compact?: { mandate?: CompactMandate };
+  witnessTypeString?: string;
+}
+
 export class FakeEpochAllocator {
   private server?: Server;
   /** Withdraw / Miden leg — the delivered bridged-note id, once programmed. */
@@ -72,6 +92,8 @@ export class FakeEpochAllocator {
   private midenRecipient: string = DEFAULT_MIDEN_RECIPIENT;
   /** Nonce echoed back from POST /relay-execute (the gasless withdraw submit). */
   private withdrawNonce: string = 'earn-withdraw-nonce-1';
+  /** When set, POST /compact validates the note's mandate-binding attachment. */
+  private noteInspector: NoteAttachmentInspector | null = null;
   /** Every request served, for assertions. */
   readonly requests: AllocatorRequestLog[] = [];
 
@@ -108,6 +130,19 @@ export class FakeEpochAllocator {
   /** Program the nonce POST /relay-execute echoes back for the gasless withdraw. */
   setWithdrawNonce(nonce: string): void {
     this.withdrawNonce = nonce;
+  }
+
+  /**
+   * Enable smallocator PR #38 note↔mandate binding validation on POST /compact.
+   * With an inspector wired, the fake fetches the submitted note's attachment
+   * felts, recomputes the mandate's binding hash with the REAL Epoch SDK
+   * helpers, and rejects (400, the production error string) any collateral note
+   * that is missing, attachment-less, or bound to a different mandate — so a
+   * wallet regression in the binding attachment fails the e2e instead of
+   * passing silently against a blind ack.
+   */
+  setNoteInspector(inspector: NoteAttachmentInspector): void {
+    this.noteInspector = inspector;
   }
 
   async start(): Promise<void> {
@@ -197,9 +232,21 @@ export class FakeEpochAllocator {
         return;
       }
 
-      // POST /compact — allocation ack (the wallet reads nothing meaningful off this).
+      // POST /compact — allocation ack (the wallet reads nothing meaningful off
+      // this). With a note inspector wired, first replays smallocator PR #38's
+      // note↔mandate binding validation and 400s like the real allocator.
       if (method === 'POST' && path === '/compact') {
-        this.send(res, 200, { hash: '0x00', signature: '0x00', digest: '0x00', nonce: '1' });
+        this.validateCompact(body)
+          .then(rejection => {
+            if (rejection) {
+              this.send(res, 400, { success: false, error: rejection });
+              return;
+            }
+            this.send(res, 200, { hash: '0x00', signature: '0x00', digest: '0x00', nonce: '1' });
+          })
+          .catch((err: unknown) => {
+            this.send(res, 500, { success: false, error: `compact validation crashed: ${String(err)}` });
+          });
         return;
       }
 
@@ -278,5 +325,53 @@ export class FakeEpochAllocator {
 
       this.send(res, 404, { success: false, error: `unhandled ${method} ${path}` });
     });
+  }
+
+  /**
+   * smallocator PR #38 stand-in: validate that the Miden collateral note named
+   * by the mandate is bound to THIS mandate. Returns the rejection message
+   * (production error strings) or `null` to accept. A no-op — like the old
+   * blind ack — when no inspector is wired or the request carries no Miden
+   * collateral (EVM-collateral intents have no `midenNoteId`).
+   *
+   * Uses the REAL `@epoch-protocol/epoch-intents-sdk` helpers so the expected
+   * hash is computed by the exact code the wallet's SDK uses to mint the felts
+   * (`computeMidenMandateBindingHash` neutralizes `midenNoteId` identically on
+   * both sides; `decodeFeltsToBindingHash` ignores word-padding felts past the
+   * fixed binding count).
+   */
+  private async validateCompact(body: unknown): Promise<string | null> {
+    if (!this.noteInspector) return null;
+    const request = (body ?? {}) as CompactRequestBody;
+    const mandate = request.compact?.mandate;
+    const witnessTypeString = request.witnessTypeString;
+    const noteId = mandate?.midenNoteId;
+    if (!mandate || !noteId) return null;
+    if (!witnessTypeString) return 'compact request is missing witnessTypeString';
+
+    const felts = await this.noteInspector(noteId);
+    if (felts === null) {
+      return `Miden collateral note not found on-chain (${noteId})`;
+    }
+
+    const { computeMidenMandateBindingHash, decodeFeltsToBindingHash, MIDEN_MANDATE_BINDING_FELT_COUNT } =
+      await import('@epoch-protocol/epoch-intents-sdk');
+
+    const recipient = typeof mandate.recipient === 'string' ? mandate.recipient : 'unknown';
+    if (felts.length < MIDEN_MANDATE_BINDING_FELT_COUNT) {
+      return `Miden note is not bound to the intent mandate (recipient ${recipient})`;
+    }
+
+    const expected = computeMidenMandateBindingHash(mandate, witnessTypeString);
+    let actual: string;
+    try {
+      actual = decodeFeltsToBindingHash(felts.map(f => BigInt(f)));
+    } catch {
+      return `Miden note is not bound to the intent mandate (recipient ${recipient})`;
+    }
+    if (actual.toLowerCase() !== expected.toLowerCase()) {
+      return `Miden note is not bound to the intent mandate (recipient ${recipient})`;
+    }
+    return null;
   }
 }

@@ -142,7 +142,7 @@ const EARN_USDC_DECIMALS = 6;
  * the lender key itself, hyphenated (e.g. `DUMMY_LENDING` → "DUMMY-LENDING").
  * No hardcoded aliases: the badge shows the real market name.
  */
-const earnMarketLabel = (marketUid: string): string | undefined => {
+export const earnMarketLabel = (marketUid: string): string | undefined => {
   const lenderKey = marketUid.split(':')[0];
   if (!lenderKey) return undefined;
   return lenderKey.replaceAll('_', '-');
