@@ -5,6 +5,9 @@
 ### Fixes
 
 - [FIX][extension] **The browser console is no longer flooded with wallet errors and warnings.** Two unrelated causes: the wallet reconnected to its background service worker once a second forever whenever that connection was unavailable — logging a "could not establish connection" error each time, in every open tab — and the extension pages each declared a preload for every code chunk they might need, which the browser warned about for each chunk it did not end up using. Reconnection now backs off and gives up when the page can never reach the extension again (after an update or reload), and the unused preload hints are gone.
+### Changes
+
+- [CHANGE][ci] **E2E screenshots are now browsable as a GitHub Pages gallery.** The per-screen-change screenshots each E2E job captures were only reachable by downloading a run's artifact zip and digging through `screens/` folders (and macOS Finder silently drops files on those long paths). A new Pages deploy aggregates the latest `main` run of every E2E job into one browsable gallery at `/e2e/` — grouped by job and spec, with a click-to-zoom filmstrip — while the existing docs stay at `/`. No user-facing change.
 
 ## 1.15.21 (2026-08-17)
 
