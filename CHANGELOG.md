@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.22 (TBD)
+
+### Changes
+
+- [CHANGE][ci] **E2E screenshots are now browsable as a GitHub Pages gallery.** The per-screen-change screenshots each E2E job captures were only reachable by downloading a run's artifact zip and digging through `screens/` folders (and macOS Finder silently drops files on those long paths). A new Pages deploy aggregates the latest `main` run of every E2E job into one browsable gallery at `/e2e/` — grouped by job and spec, with a click-to-zoom filmstrip — while the existing docs stay at `/`. No user-facing change.
+
 ## 1.15.21 (2026-08-17)
 
 ### Fixes
