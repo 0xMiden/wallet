@@ -233,10 +233,11 @@ async function runSync(): Promise<void> {
               amountBaseUnits: firstAsset.amount,
               senderAddress: note.senderAccountId ?? '',
               noteType: note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown',
+              recallableAtMs: note.recallableAtMs,
               swapOrder: swapOrders.get(noteId)
             };
           })
-          .filter(Boolean) as SerializedConsumableNote[];
+          .filter((note): note is SerializedConsumableNote => note !== null);
 
         // Read vault assets
         const account = await midenClientProxy.getAccount(accountPubKey);

@@ -2,16 +2,13 @@ import React, { useCallback, useMemo, useState } from 'react';
 
 import classNames from 'clsx';
 import { t } from 'i18next';
-import { useForm } from 'react-hook-form';
 
-import FormField from 'app/atoms/FormField';
-import FormSubmitButton from 'app/atoms/FormSubmitButton';
+import { AddNewContactForm } from 'app/templates/AddNewContactForm';
 import { Avatar } from 'components/Avatar';
 import { CardItem } from 'components/CardItem';
-import { useContacts, isAddressValid } from 'lib/miden/front';
+import { useContacts } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { useConfirm } from 'lib/ui/dialog';
-import { withErrorHumanDelay } from 'lib/ui/humanDelay';
 import { truncateAddress } from 'utils/string';
 
 const AddressBook: React.FC = () => {
@@ -88,97 +85,3 @@ const AddressBook: React.FC = () => {
 };
 
 export default AddressBook;
-
-type ContactFormData = {
-  address: string;
-  name: string;
-};
-
-const SUBMIT_ERROR_TYPE = 'submit-error';
-
-const AddNewContactForm: React.FC<{ className?: string }> = ({ className }) => {
-  const { addContact } = useContacts();
-
-  const {
-    register,
-    reset: resetForm,
-    handleSubmit,
-    clearErrors,
-    setError,
-    watch,
-    formState: { errors, isSubmitting }
-  } = useForm<ContactFormData>();
-
-  const addressValue = watch('address');
-  const nameValue = watch('name');
-  const isFormEmpty = !addressValue || !nameValue;
-
-  const onAddContactSubmit = useCallback(
-    async ({ address, name }: ContactFormData) => {
-      if (isSubmitting) return;
-
-      try {
-        clearErrors();
-
-        if (!isAddressValid(address)) {
-          throw new Error(t('invalidAddress'));
-        }
-
-        await addContact({ address, name, addedAt: Date.now() });
-        resetForm();
-      } catch (err: any) {
-        await withErrorHumanDelay(err, () => setError('address', { type: SUBMIT_ERROR_TYPE, message: err.message }));
-      }
-    },
-    [isSubmitting, clearErrors, addContact, resetForm, setError]
-  );
-
-  return (
-    <form className={classNames('flex flex-col', className)} onSubmit={handleSubmit(onAddContactSubmit)}>
-      <div className="flex flex-col gap-4">
-        <span className="text-heading-gray font-medium text-base">{t('addContact')}</span>
-        <FormField
-          {...register('name', {
-            required: t('required'),
-            maxLength: { value: 50, message: t('maximalAmount', { amount: '50' }) }
-          })}
-          id="name"
-          name="name"
-          data-testid="address-book-name-input"
-          placeholder={t('enterUsername')}
-          errorCaption={errors.name?.message}
-          containerClassName="bg-gray-25 border-gray-100 border rounded-10"
-          maxLength={50}
-          className="bg-gray-25 h-14 active:border-none focus:border-none  placeholder:text-text-muted placeholder:font-medium rounded-10"
-          fieldWrapperBottomMargin={false}
-        />
-        <FormField
-          {...register('address', {
-            required: t('required'),
-            maxLength: { value: 50, message: t('maximalAmount', { amount: '50' }) }
-          })}
-          id="address"
-          name="address"
-          data-testid="address-book-address-input"
-          placeholder={t('enterAddress')}
-          errorCaption={errors.address?.message}
-          className="bg-gray-25 h-14 active:border-none focus:border-none placeholder:text-text-muted rounded-10"
-          fieldWrapperBottomMargin={false}
-          containerClassName="bg-gray-25 border-gray-100 border rounded-10"
-        />
-      </div>
-      <FormSubmitButton
-        className="capitalize w-full justify-center mt-7 rounded-10 text-base font-semibold h-14"
-        loading={isSubmitting}
-        disabled={isFormEmpty}
-        testID="AddressBook/AddNewContact"
-        // `testID` above is analytics-only — FormSubmitButton destructures it out and
-        // never renders it. The raw lowercase prop is the one that reaches the DOM
-        // (via ...rest -> Button), same as ConfirmationModal's buttons.
-        data-testid="address-book-add-contact"
-      >
-        {t('addContact')}
-      </FormSubmitButton>
-    </form>
-  );
-};

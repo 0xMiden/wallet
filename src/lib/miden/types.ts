@@ -31,6 +31,8 @@ export interface ConsumableNote {
   isBeingClaimed: boolean;
   type: NoteType | 'unknown';
   swapOrder?: SwapOrderNoteMetadata;
+  /** Estimated epoch ms when the sender can reclaim this P2IDE note; absent for non-recallable notes. */
+  recallableAtMs?: number;
 }
 
 export interface SwapOrderNoteMetadata {

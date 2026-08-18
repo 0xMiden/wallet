@@ -123,7 +123,10 @@ describe('MidenClientInterface', () => {
     jest.doMock('./helpers', () => ({
       getBech32AddressFromAccountId: (id: any) => String(id)
     }));
-    jest.doMock('../helpers', () => ({ toNoteType: jest.fn() }));
+    jest.doMock('../helpers', () => ({
+      getNoteRecallableAtMs: jest.fn(() => undefined),
+      toNoteType: jest.fn()
+    }));
     jest.doMock('../db/types', () => ({
       ConsumeTransaction: class {},
       SendTransaction: class {}
@@ -1615,7 +1618,10 @@ describe('MidenClientInterface', () => {
       }));
       jest.doMock('./constants', () => ({ NoteExportType: {} }));
       jest.doMock('./helpers', () => ({ getBech32AddressFromAccountId: (id: any) => String(id) }));
-      jest.doMock('../helpers', () => ({ toNoteType: jest.fn() }));
+      jest.doMock('../helpers', () => ({
+        getNoteRecallableAtMs: jest.fn(() => undefined),
+        toNoteType: jest.fn()
+      }));
       jest.doMock('../db/types', () => ({ ConsumeTransaction: class {}, SendTransaction: class {} }));
       jest.doMock('screens/onboarding/types', () => ({ WalletType: { OnChain: 'on-chain', OffChain: 'off-chain' } }));
       jest.doMock('lib/miden/activity/connectivity-state', () => ({

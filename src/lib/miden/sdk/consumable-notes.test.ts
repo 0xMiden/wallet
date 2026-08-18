@@ -27,6 +27,8 @@ jest.mock('./helpers', () => ({
   getBech32AddressFromAccountId: (accountId: unknown) => `bech32(${String(accountId)})`
 }));
 
+jest.mock('../helpers', () => ({ getNoteRecallableAtMs: () => 1_700_000_000_000 }));
+
 import { attachmentOrderAndDepth, reduceConsumableNoteRecord, reduceConsumableNoteRecords } from './consumable-notes';
 
 // -------------------- live-record mock builder --------------------
@@ -128,6 +130,12 @@ describe('attachmentOrderAndDepth', () => {
 // -------------------- reduceConsumableNoteRecord --------------------
 
 describe('reduceConsumableNoteRecord — full field parity', () => {
+  it('carries the recall-time estimate when the reducer receives the synced block height', () => {
+    const record = fakeRecord();
+
+    expect(reduceConsumableNoteRecord(record, 42)).toMatchObject({ recallableAtMs: 1_700_000_000_000 });
+  });
+
   it('carries every field each caller reads (id, nullifier, noteType enum, sender bech32, state, ALL assets, swapAttachment)', () => {
     const rec = fakeRecord({
       id: '0xnote',

@@ -25,8 +25,11 @@ export interface SelectAmountProps {
   confirmTitle?: string;
   showNetworkPill?: boolean;
   showBalanceHelper?: boolean;
-  /** Padding classes for the confirm-button footer. The `pb-24` default clears
-   *  the floating BottomNav; pass a snugger value when the navbar is hidden. */
+  /** Padding classes for the confirm-button footer. The default bottom cushion
+   *  clears the floating BottomNav but collapses while the soft keyboard is up
+   *  (body's --keyboard-height padding already lifts the layout), keeping the
+   *  CTA snug against the keyboard; pass a snugger value when the navbar is
+   *  hidden. */
   footerClassName?: string;
   children?: React.ReactNode;
   onAmountChange: (amount: string) => void;
@@ -77,7 +80,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   confirmTitle,
   showNetworkPill = true,
   showBalanceHelper = true,
-  footerClassName = 'pt-4 pb-24',
+  footerClassName = 'pt-4 pb-[max(0px,calc(6rem-var(--keyboard-height,0px)))]',
   children,
   onAmountChange,
   onSelectToken,
@@ -227,7 +230,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         {children}
       </div>
 
-      <div className={clsx('shrink-0', footerClassName)}>
+      <div className={clsx('shrink-0 transition-[padding-bottom] duration-[250ms] ease-out', footerClassName)}>
         <Button
           title={confirmTitle ?? t('confirm')}
           variant={ButtonVariant.Primary}

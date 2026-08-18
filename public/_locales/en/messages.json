@@ -140,6 +140,15 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "Returns to the sender if unclaimed by $date$",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
     "message": "$change$%",
     "englishSource": "$change$%",
@@ -1613,6 +1622,14 @@
     "message": "Add Contact",
     "englishSource": "Add Contact"
   },
+  "addToContactsPrompt": {
+    "message": "Add to contacts?",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "Recent",
+    "englishSource": "Recent"
+  },
   "newContactPlaceholder": {
     "message": "e.g. Alice Bob",
     "englishSource": "e.g. Alice Bob"
@@ -2969,6 +2986,55 @@
     "message": "Pending notes",
     "englishSource": "Pending notes"
   },
+  "whatArePendingNotes": {
+    "message": "What are pending notes?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "Consume your notes",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "Add these pending funds to your balance to start spending.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "When someone sends you funds, they arrive as private",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— sealed packages only you can open.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "Consuming",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "You have",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+  },
   "getTokens": {
     "message": "Get tokens",
     "englishSource": "Get tokens"
@@ -3350,8 +3416,8 @@
     "englishSource": "Click to view and claim it"
   },
   "noteReceivedMultiple": {
-    "message": "You have $count$ new notes to claim",
-    "englishSource": "You have $count$ new notes to claim",
+    "message": "$count$ notes to claim",
+    "englishSource": "$count$ notes to claim",
     "placeholders": {
       "count": {
         "content": "$1"
