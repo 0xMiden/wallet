@@ -422,6 +422,13 @@ export const test = base.extend<TwoSimulatorFixtures>({
           screenshot: async ({ path: p }) => {
             await alertGate.beforeCapture();
             await walletPage.screenshot({ path: p });
+            // The alert renders asynchronously when the home shell mounts, so it
+            // can appear in the window between the check above and this shot. If
+            // it did, dismiss it and overwrite the frame so it's never captured
+            // with the alert up (the gate is a no-op once already dismissed).
+            if (await alertGate.beforeCapture()) {
+              await walletPage.screenshot({ path: p });
+            }
           }
         },
         screensDir,

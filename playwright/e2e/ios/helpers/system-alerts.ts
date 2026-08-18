@@ -127,7 +127,7 @@ interface GateOptions {
 export function createNotificationAlertGate(
   udid: string,
   options: GateOptions = {}
-): { beforeCapture(): Promise<void> } {
+): { beforeCapture(): Promise<boolean> } {
   const {
     maxConsecutiveErrors = 5,
     settleMs = 250,
@@ -140,8 +140,14 @@ export function createNotificationAlertGate(
   let warnedUnavailable = false;
 
   return {
-    async beforeCapture(): Promise<void> {
-      if (dismissed || consecutiveErrors >= maxConsecutiveErrors) return;
+    /**
+     * Dismiss the alert if it's up. Returns true iff it tapped "Allow" on THIS
+     * call — the caller uses that to re-take a screenshot, because the alert can
+     * render in the window between this check and the shot (it appears async on
+     * home mount), so a call after the shot catches and clears that racy frame.
+     */
+    async beforeCapture(): Promise<boolean> {
+      if (dismissed || consecutiveErrors >= maxConsecutiveErrors) return false;
       try {
         const tapped = await dismissNotificationPermissionAlert(udid);
         consecutiveErrors = 0;
@@ -149,6 +155,7 @@ export function createNotificationAlertGate(
           dismissed = true;
           onLog(`[system-alerts] dismissed notification permission alert on ${udid}`);
           await sleep(settleMs);
+          return true;
         }
       } catch (err) {
         consecutiveErrors += 1;
@@ -158,6 +165,7 @@ export function createNotificationAlertGate(
           onLog(`[system-alerts] idb unavailable on ${udid} (${first}); notification alert won't be auto-dismissed`);
         }
       }
+      return false;
     }
   };
 }
