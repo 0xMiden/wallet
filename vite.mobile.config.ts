@@ -10,7 +10,7 @@ import { defineConfig, type Plugin } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import wasm from 'vite-plugin-wasm';
 
-import { copyClassicWorkerWasm } from './src/lib/build/worker-wasm-assets';
+import { copyClassicWorkerWasm } from './src/lib/build-assets/worker-wasm-assets';
 
 const pkg = require('./package.json');
 
