@@ -11,17 +11,37 @@
  * track a "quarantine" set of note ids and filter them out of every
  * claimable-notes read path until the transaction is actually confirmed.
  *
- * Lifecycle: the dry-run QUARANTINES the imported notes' ids; CONFIRM
+ * Lifecycle: the dry-run QUARANTINES the ids it actually INTRODUCED; CONFIRM
  * RELEASES them (the transaction will consume them; if it fails to submit
- * they simply reappear as claimable, which is correct); CANCEL/decline does
- * nothing, so the notes stay hidden.
+ * they simply reappear as claimable, which is correct); CANCEL/decline
+ * releases nothing, so notes the dry-run introduced stay hidden.
  *
- * Storage: a deduped array (insertion order) under a single shared
- * chrome.storage key, capped to the most recent `MAX_QUARANTINED` ids so a
- * user who repeatedly opens-and-declines dApp transactions can't grow this
- * unboundedly. Every export here is defensive — a quarantine read/write
- * failure must never break sync or simulation, so all storage access is
- * wrapped in try/catch with safe fallbacks.
+ * TWO bounds make "stay hidden" safe, because the ids come from
+ * dApp-controlled bytes and this wallet is the user's only view of their own
+ * notes:
+ *
+ *  1. PROVENANCE. `simulate-custom-tx.ts` quarantines only the ids the client
+ *     did NOT already hold before the dry-run imported them. A note the user
+ *     already owned (one the dApp delivered earlier, or any public note the
+ *     wallet had already discovered) is therefore never hidden by a dApp
+ *     opening — and the user declining — a confirm dialog.
+ *  2. TTL. Every entry carries the wall-clock time it was quarantined and is
+ *     ignored once it is older than `QUARANTINE_TTL_MS`. Quarantine is a
+ *     short-lived "don't surprise the user with a note their cancelled dry-run
+ *     imported" measure, NOT a permanent censor: the note is on chain and is
+ *     the user's, so a declined simulation must not be able to hide it from
+ *     the claimable UI forever.
+ *
+ * Storage: a deduped array (insertion order) of `{ id, at }` entries under a
+ * single shared chrome.storage key, capped to the most recent
+ * `MAX_QUARANTINED` ids so a user who repeatedly opens-and-declines dApp
+ * transactions can't grow this unboundedly. Entries persisted by an earlier
+ * build were bare id strings with no timestamp; those are dropped on read
+ * (see `parseEntries`) — un-hiding a note is the safe direction, and the ids
+ * are re-quarantined by any dry-run that imports them again. Every export here
+ * is defensive — a quarantine read/write failure must never break sync or
+ * simulation, so all storage access is wrapped in try/catch with safe
+ * fallbacks.
  */
 import { Note, NoteFile } from '@miden-sdk/miden-sdk/lazy';
 
@@ -57,6 +77,20 @@ const QUARANTINE_KEY = 'simulation_quarantined_note_ids';
 // never released, so the set is capped to the most recently quarantined
 // MAX_QUARANTINED ids rather than growing forever.
 const MAX_QUARANTINED = 500;
+/**
+ * How long a quarantined id stays hidden. Past this, the entry is ignored (and
+ * pruned by the next write). Bounds the blast radius of a hide that is never
+ * explicitly released: the notes are the user's own on-chain funds, so "hidden
+ * until the user resets the wallet" is not an acceptable terminal state.
+ * Matches the bridge-in registry's 7-day cutoff.
+ */
+const QUARANTINE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** A quarantined note id plus the wall-clock ms at which it was quarantined. */
+interface QuarantineEntry {
+  id: string;
+  at: number;
+}
 
 /**
  * Derives the note ids for a custom-tx's `importNotes` (base64 note bytes),
@@ -79,16 +113,34 @@ export function importedNoteIds(importNotes: string[] | undefined): string[] {
     .filter((x): x is string => !!x);
 }
 
-async function readQuarantinedIds(): Promise<string[]> {
-  return (await fetchFromStorage<string[]>(QUARANTINE_KEY)) ?? [];
+/**
+ * Accepts only well-formed `{ id, at }` entries. Anything else — most notably
+ * the bare-id-string entries written by builds before the TTL existed — is
+ * dropped, so a legacy id stops hiding its note instead of hiding it forever
+ * with no recorded age.
+ */
+function parseEntries(raw: unknown): QuarantineEntry[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap(entry => {
+    if (!entry || typeof entry !== 'object') return [];
+    const { id, at } = entry as Partial<QuarantineEntry>;
+    return typeof id === 'string' && typeof at === 'number' ? [{ id, at }] : [];
+  });
+}
+
+/** Entries that are still within the TTL, oldest first. */
+async function readLiveEntries(): Promise<QuarantineEntry[]> {
+  const cutoff = Date.now() - QUARANTINE_TTL_MS;
+  return parseEntries(await fetchFromStorage<unknown>(QUARANTINE_KEY)).filter(entry => entry.at > cutoff);
 }
 
 /** Adds `ids` to the quarantine set (deduped, capped to the last MAX_QUARANTINED). Never throws. */
 export async function quarantineNoteIds(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   try {
-    const existing = await readQuarantinedIds();
-    const merged = [...existing.filter(id => !ids.includes(id)), ...ids];
+    const existing = await readLiveEntries();
+    const now = Date.now();
+    const merged = [...existing.filter(entry => !ids.includes(entry.id)), ...ids.map(id => ({ id, at: now }))];
     const capped = merged.slice(-MAX_QUARANTINED);
     await putToStorage(QUARANTINE_KEY, capped);
   } catch {
@@ -100,18 +152,18 @@ export async function quarantineNoteIds(ids: string[]): Promise<void> {
 export async function releaseNoteIds(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   try {
-    const existing = await readQuarantinedIds();
-    const remaining = existing.filter(id => !ids.includes(id));
+    const existing = await readLiveEntries();
+    const remaining = existing.filter(entry => !ids.includes(entry.id));
     await putToStorage(QUARANTINE_KEY, remaining);
   } catch {
     // Quarantine failures must never break confirm.
   }
 }
 
-/** Reads the current quarantine set as a Set (empty on missing/error). Never throws. */
+/** Reads the currently-hidden ids as a Set (empty on missing/error). Never throws. */
 export async function getQuarantinedNoteIds(): Promise<Set<string>> {
   try {
-    return new Set(await readQuarantinedIds());
+    return new Set((await readLiveEntries()).map(entry => entry.id));
   } catch {
     return new Set();
   }

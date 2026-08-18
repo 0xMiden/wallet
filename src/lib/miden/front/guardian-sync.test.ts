@@ -18,6 +18,7 @@ const storeState: {
   swapHotKey: jest.Mock;
   setGuardianEndpoint: jest.Mock;
   checkGuardianDrift: jest.Mock;
+  signTransaction: jest.Mock;
 } = {
   accounts: [],
   getPublicKeyForCommitment: jest.fn(),
@@ -25,7 +26,8 @@ const storeState: {
   persistNewHotKey: jest.fn(),
   swapHotKey: jest.fn(),
   setGuardianEndpoint: jest.fn(),
-  checkGuardianDrift: jest.fn()
+  checkGuardianDrift: jest.fn(),
+  signTransaction: jest.fn()
 };
 
 jest.mock('lib/store', () => ({
@@ -43,9 +45,21 @@ jest.mock('./guardian-manager', () => ({
 
 // The self-heal hook dynamic-imports this; stub it so the sync test stays focused
 // on sync behavior (the hardening itself is covered in the transactions suite).
+// `startBackgroundTransactionProcessing` comes from the same dynamic import: it is
+// the off-extension driver for the row the hardening enqueues.
 const mockEnsureGuardianProcedureThresholds = jest.fn();
+const mockStartBackgroundTransactionProcessing = jest.fn();
 jest.mock('lib/miden/transaction', () => ({
-  ensureGuardianProcedureThresholds: (...args: unknown[]) => mockEnsureGuardianProcedureThresholds(...args)
+  ensureGuardianProcedureThresholds: (...args: unknown[]) => mockEnsureGuardianProcedureThresholds(...args),
+  startBackgroundTransactionProcessing: (...args: unknown[]) => mockStartBackgroundTransactionProcessing(...args)
+}));
+
+// Platform gate for the off-extension driver above. Default: extension (the SW owns
+// the FIFO loop there), flipped per test.
+const mockIsExtension = jest.fn(() => true);
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isExtension: () => mockIsExtension()
 }));
 
 // Cold-re-register self-heal dependencies. isGuardianAuthRejection is stubbed to
@@ -135,6 +149,8 @@ describe('syncGuardianAccounts', () => {
     jest.clearAllMocks();
     storeState.accounts = [];
     storeState.checkGuardianDrift.mockResolvedValue(undefined);
+    mockIsExtension.mockReturnValue(true);
+    mockEnsureGuardianProcedureThresholds.mockResolvedValue(undefined);
   });
 
   it('is a no-op when no Guardian accounts are present', async () => {
@@ -171,6 +187,51 @@ describe('syncGuardianAccounts', () => {
 
     expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledTimes(1);
     expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledWith('guardian-heal', undefined, zustandProvider);
+  });
+
+  it('drives the queued hardening row off-extension, where the SW nudge is a no-op', async () => {
+    // `ensureGuardianProcedureThresholds` only nudges via `requestSWTransactionProcessing()`,
+    // which returns immediately when there is no extension service worker. Nothing else
+    // starts the FIFO loop from this path, so without an explicit driver the
+    // `update-procedure-threshold` row sits Queued for the rest of the session —
+    // showing in Activity as a pending entry that never progresses, with the account
+    // left un-hardened until the next app launch's OrphanedTransactionRecovery.
+    mockIsExtension.mockReturnValue(false);
+    mockEnsureGuardianProcedureThresholds.mockResolvedValue('hardening-tx-1');
+    storeState.accounts = [{ publicKey: 'guardian-mobile', type: WalletType.Guardian, hotPublicKey: 'hot-mobile' }];
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+
+    await syncGuardianAccounts();
+
+    expect(mockStartBackgroundTransactionProcessing).toHaveBeenCalledTimes(1);
+    expect(mockStartBackgroundTransactionProcessing).toHaveBeenCalledWith(
+      storeState.signTransaction,
+      false,
+      zustandProvider
+    );
+  });
+
+  it('does not start the background driver on the extension (the SW owns the loop)', async () => {
+    mockIsExtension.mockReturnValue(true);
+    mockEnsureGuardianProcedureThresholds.mockResolvedValue('hardening-tx-2');
+    storeState.accounts = [{ publicKey: 'guardian-ext', type: WalletType.Guardian, hotPublicKey: 'hot-ext' }];
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+
+    await syncGuardianAccounts();
+
+    expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+  });
+
+  it('does not start the background driver when the account was already hardened', async () => {
+    // No row was enqueued, so there is nothing to drive.
+    mockIsExtension.mockReturnValue(false);
+    mockEnsureGuardianProcedureThresholds.mockResolvedValue(undefined);
+    storeState.accounts = [{ publicKey: 'guardian-hardened', type: WalletType.Guardian, hotPublicKey: 'hot-hard' }];
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+
+    await syncGuardianAccounts();
+
+    expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
   });
 
   it('continues syncing remaining accounts when one throws', async () => {

@@ -21,18 +21,6 @@ export default defineConfig({
   // playwright.earn.config.ts on the dedicated earn job, not here.
   testIgnore: ['**/guardian-*.spec.ts', '**/swap/**', '**/bridge/**', '**/earn/**', '**/resilience/**'],
   timeout: 300_000, // 5 min per test (blockchain ops are slow)
-  use: {
-    // Playwright defaults BOTH of these to 0 = unbounded. An action whose
-    // actionability check never settles (a button under a modal still animating
-    // in, say) then hangs for the whole per-test budget and fails with
-    // "Target page, context or browser has been closed" — which names neither
-    // the step nor the element, and looks like a crash rather than a stuck
-    // click. That is what `contacts-send` did on main: 10 minutes, no
-    // diagnostic. Bounded here so the failing ACTION reports itself; specs that
-    // legitimately need longer pass an explicit per-call timeout, which wins.
-    actionTimeout: 30_000,
-    navigationTimeout: 90_000
-  },
   expect: {
     timeout: 60_000
   },
@@ -56,10 +44,26 @@ export default defineConfig({
   maxFailures: isLocalnet ? 3 : 1,
   workers: 1,
   reporter: [['list'], ['json', { outputFile: 'test-results/results.json' }]],
+  // ONE `use` block. It used to be two (timeouts here, browser options at the
+  // bottom); a duplicate key is legal JS — the later literal simply wins — so
+  // the timeouts were silently discarded and Playwright fell back to its
+  // unbounded defaults. Neither gate that would have caught it runs on this
+  // file: `yarn lint` only lints `src`, and `tsconfig.json` now includes the
+  // root playwright configs so TS1117 fires if the split ever comes back.
   use: {
     headless: false, // Extensions require headed mode
     trace: 'on', // Always record traces for debugging
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure'
+    video: 'retain-on-failure',
+    // Playwright defaults BOTH of these to 0 = unbounded. An action whose
+    // actionability check never settles (a button under a modal still animating
+    // in, say) then hangs for the whole per-test budget and fails with
+    // "Target page, context or browser has been closed" — which names neither
+    // the step nor the element, and looks like a crash rather than a stuck
+    // click. That is what `contacts-send` did on main: 10 minutes, no
+    // diagnostic. Bounded here so the failing ACTION reports itself; specs that
+    // legitimately need longer pass an explicit per-call timeout, which wins.
+    actionTimeout: 30_000,
+    navigationTimeout: 90_000
   }
 });

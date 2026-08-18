@@ -198,6 +198,15 @@ const LOCAL_CONSUMED_NOTE_STATES = [
   InputNoteState.ConsumedUnauthenticatedLocal
 ];
 
+/**
+ * The two states miden-client writes in `apply_transaction`, i.e. AFTER a
+ * consuming transaction of ours was submitted and applied locally but before its
+ * block is committed. They mean the OPPOSITE of "not consumed", so they must
+ * never reach the `'not-landed'` catch-all — a caller that terminal-fails on
+ * `'not-landed'` would fail a claim whose submit already reached the node.
+ */
+const PROCESSING_NOTE_STATES = [InputNoteState.ProcessingAuthenticated, InputNoteState.ProcessingUnauthenticated];
+
 // Minimum time a transaction must be in GeneratingTransaction status before we consider it "stuck"
 // This prevents cancelling transactions that are actively being processed
 const MIN_PROCESSING_TIME_BEFORE_STUCK = 60; // 1 minute (in seconds)
@@ -217,12 +226,26 @@ const MIN_PROCESSING_TIME_BEFORE_STUCK = 60; // 1 minute (in seconds)
  *                         its sender). Ambiguous for funds-visibility.
  *   - `'invalid'`         the note is `Invalid` (e.g. nullifier reused / never
  *                         committed) — the consume can never land; fail fast.
- *   - `'not-landed'`      the note still exists and is not consumed (Committed /
- *                         Expected / Unverified) — the consume did NOT land.
+ *   - `'processing'`      the note is `ProcessingAuthenticated` /
+ *                         `ProcessingUnauthenticated` — a consuming transaction of
+ *                         OURS was submitted and applied locally, and its block is
+ *                         not committed yet. In flight, not failed: within a few
+ *                         blocks it becomes a consumed state or reverts to
+ *                         `Committed`, so the caller must leave the row alone and
+ *                         re-ask, never terminal-fail it.
+ *   - `'not-landed'`      the note still exists and is not consumed or in flight
+ *                         (Committed / Expected / Unverified) — the consume did
+ *                         NOT land.
  *   - `'unknown'`         no note row for the id, or the node query errored —
  *                         indeterminate (never treated as landed).
  */
-export type ConsumeLandedVerdict = 'landed-local' | 'landed-external' | 'invalid' | 'not-landed' | 'unknown';
+export type ConsumeLandedVerdict =
+  | 'landed-local'
+  | 'landed-external'
+  | 'invalid'
+  | 'processing'
+  | 'not-landed'
+  | 'unknown';
 
 /**
  * Node-authoritative check of whether a consume's input note landed on chain.
@@ -245,10 +268,10 @@ export type ConsumeLandedVerdict = 'landed-local' | 'landed-external' | 'invalid
  * only a LOCAL consumed state (provably this client's own tracked consume) yields
  * `'landed-local'`, the sole verdict a caller may treat as "my consume landed" and
  * surface as Completed / 'Received'. `ConsumedExternal` is reported separately as
- * `'landed-external'` (consumed, but not provably mine) so the caller decides; the
- * killed-consume path never marks it Received. A missing note or a thrown error
- * yields `'unknown'`; an error or any uncertainty NEVER yields `'landed-local'`, so
- * a false Received is impossible.
+ * `'landed-external'` (consumed, but not provably mine) so the caller decides; no
+ * caller marks it Received — neither the killed-consume path nor the stuck-consume
+ * reaper. A missing note or a thrown error yields `'unknown'`; an error or any
+ * uncertainty NEVER yields `'landed-local'`, so a false Received is impossible.
  */
 export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean): Promise<ConsumeLandedVerdict> => {
   try {
@@ -272,6 +295,8 @@ export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean)
     if (LOCAL_CONSUMED_NOTE_STATES.includes(note.state)) return 'landed-local';
     if (note.state === InputNoteState.ConsumedExternal) return 'landed-external';
     if (note.state === InputNoteState.Invalid) return 'invalid';
+    // Checked BEFORE the catch-all: a Processing* note is mid-flight, not unspent.
+    if (PROCESSING_NOTE_STATES.includes(note.state)) return 'processing';
     return 'not-landed';
   } catch (error) {
     console.error('[verifyConsumeLanded] error checking note state for tx', tx.id, error);
@@ -304,6 +329,18 @@ export type SendLandedVerdict = 'landed' | 'unknown';
  * Mirrors {@link verifyConsumeLanded} (which checks the INPUT note's consumed
  * state) but for the OUTPUT side, via the tx id. Best-effort syncs first for the
  * freshest node state; a sync failure falls back to the last-synced record.
+ *
+ * COVERAGE LIMIT — read before relying on this as the only double-send guard.
+ * `ITransaction.transactionId` is written ONLY by the completion handlers in
+ * `complete.ts` (the success path) and by `updateBridgedReceivePhase`. A row
+ * failed by a route that killed it from OUTSIDE its own write pipeline — the
+ * stuck reaper, the cold-start sweep, an offscreen deadline kill, a user Cancel
+ * mid-flight — therefore arrives here with no id at all and short-circuits to
+ * `'unknown'`, i.e. this check is INERT on exactly the rows whose submit outcome
+ * is in doubt. Stamping the id pre-submit is not currently possible under
+ * `MIDEN_USE_OFFSCREEN_CLIENT`: the write runs in the offscreen realm and its
+ * DTOs carry no row id. `isSubmitOutcomeUnknown` (constants.ts) is what closes
+ * that gap, by refusing the retry outright for the rebuilt-request types.
  */
 export const verifySendLanded = async (tx: { id: string; transactionId?: string }): Promise<SendLandedVerdict> => {
   if (!tx.transactionId) return 'unknown';
@@ -337,15 +374,32 @@ export const verifySendLanded = async (tx: { id: string; transactionId?: string 
  * `sync: false`: this reaper runs alongside AutoSync (which keeps note state
  * fresh), so it must NOT fire one sync per stuck consume — matching its pre-#3a
  * behavior of 0 syncs/cycle.
- *   - `'landed-local'` / `'landed-external'` → mark Completed. The reaper treats an
- *                      external-consumed note as landed too — a lower-exposure,
- *                      pre-existing behavior (the note IS consumed on chain, and
- *                      the reaper is not the funds-visibility-critical path). The
- *                      strict "provably mine" rule is enforced only on the immediate
- *                      killed-consume path (see tryCompleteKilledConsume).
+ *   - `'landed-local'` → mark Completed. FUNDS-SAFETY: this is the ONLY verdict that
+ *                      may become a 'Received' row, exactly as on the killed-consume
+ *                      path (see tryCompleteKilledConsume). This reaper is the sole
+ *                      consume reconciler on mobile and desktop — its one caller
+ *                      returns early on `isExtension()` and `tryCompleteKilledConsume`
+ *                      fires only on the Chrome-offscreen `OperationAbortedError` — so
+ *                      a lenient rule here would be the ONLY rule those platforms run.
+ *   - `'landed-external'` → the note is consumed on chain but NOT provably by us (a
+ *                      recallable P2IDE the sender recalled, or another consumer of
+ *                      the same public note, lands in that state). Treated exactly
+ *                      like `'not-landed'`: failed after the processing grace window,
+ *                      never Completed. The residual is a SAFE false-Failed — a
+ *                      re-consume harmlessly collides on the spent nullifier and the
+ *                      next sync reconciles — instead of a false 'Received' telling
+ *                      the user they got funds a third party actually took.
  *   - `'invalid'`    → fail IMMEDIATELY with INVALID_NOTE_ERROR: an Invalid note can
  *                      never be consumed, so there is no reason to wait out the grace
  *                      window and surface the generic interrupted error instead.
+ *   - `'processing'` → a consuming tx of ours is submitted and applied locally but
+ *                      not committed yet → skip (leave for a later cycle). Failing
+ *                      it would terminal-fail a claim that already reached the
+ *                      node — and on a Guardian account that is the COMMON path,
+ *                      because `runGuardianPipeline` releases the WASM lock after
+ *                      `submit()`/`apply()` and only then runs a multi-second
+ *                      `service.sync()`, leaving the row `GeneratingTransaction`
+ *                      and this reaper free to read the note mid-window.
  *   - `'not-landed'` → the note exists but is not consumed; fail only after the
  *                      processing grace window so an actively-processing consume
  *                      isn't reaped mid-flight.
@@ -373,10 +427,10 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
     // N syncs/cycle where the pre-#3a reaper did 0 (see verifyConsumeLanded).
     const verdict = await verifyConsumeLanded(tx, false);
 
-    if (verdict === 'landed-local' || verdict === 'landed-external') {
-      // Note has been consumed on-chain - mark transaction as completed. The reaper
-      // (unlike the killed-consume path) treats an external-consumed note as landed
-      // too: a lower-exposure, pre-existing behavior the #3a refactor must preserve.
+    if (verdict === 'landed-local') {
+      // The node confirms the note is consumed on chain by THIS client's own tracked
+      // tx - mark the transaction completed. 'landed-external' deliberately does NOT
+      // reach here (see the funds-safety note above).
       await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
         displayMessage: 'Received',
         completedAt: Math.floor(Date.now() / 1000)
@@ -388,9 +442,11 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
       // fast-fail the #3a refactor accidentally collapsed into 'not-landed').
       await cancelTransaction(tx, INVALID_NOTE_ERROR);
       resolvedCount++;
-    } else if (verdict === 'not-landed') {
-      // Note still exists but is not consumed - only cancel if the tx has been
-      // processing for a while, so we don't reap one that is actively processing.
+    } else if (verdict === 'not-landed' || verdict === 'landed-external') {
+      // Either the note is not consumed at all, or it is consumed by someone who is
+      // not provably us ('landed-external'). Both mean this consume did not
+      // demonstrably land, so only cancel once the tx has been processing for a
+      // while, so we don't reap one that is actively processing.
       // Use ACTIVE (foreground) processing time so a consume that merely sat
       // backgrounded on mobile isn't reaped on resume (issue #473).
       const processingTime = tx.processingStartedAt
@@ -401,7 +457,10 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
         resolvedCount++;
       }
     }
-    // 'unknown' (no note row / node query error) → leave for a later cycle.
+    // 'unknown' (no note row / node query error) and 'processing' (our own consume
+    // is submitted and applied locally, awaiting commit) both fall through here →
+    // leave for a later cycle. Do NOT fold 'processing' into the 'not-landed' arm:
+    // that note IS spent by a transaction of ours that reached the node.
   }
 
   return resolvedCount;

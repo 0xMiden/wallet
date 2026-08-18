@@ -384,7 +384,21 @@ export class Vault {
         }
         // If hardware succeeded, we don't store password protector (hardware-only mode)
       } else {
-        // Password-based protection (user opted out of biometrics or hardware not available)
+        // Password-based protection (user opted out of biometrics or hardware not available).
+        //
+        // `useHardwareOnly && !hardwareAvailable` also lands here: onboarding
+        // offered biometrics (its own availability probe said yes) but the probe
+        // above now says no, so there is no password to fall back on —
+        // `Actions.registerNewWallet` passes `password ?? ''`. Encrypting the
+        // vault key under the empty string would protect every secret in the
+        // wallet (mnemonic, account auth keys, guardian cold key, EVM keys) with
+        // no secret at all, AND lock the user out: `Vault.setup(undefined)` finds
+        // no hardware protector and throws, while Unlock demands a password the
+        // user never chose. Fail loudly instead, exactly like the hardware-setup
+        // failure above and like `spawnFromMidenClient`'s identical branch.
+        if (!password) {
+          throw new PublicError('Password is required for password-based vault protection');
+        }
         const passwordProtectedVaultKey = await Passworder.encryptVaultKeyWithPassword(vaultKeyBytes, password);
         await savePlain(VAULT_KEY_PASSWORD_STORAGE_KEY, passwordProtectedVaultKey);
       }

@@ -1,55 +1,63 @@
 /* eslint-disable import/first */
 /**
- * Tests for `DesktopDappConfirmationModal` — the headless (renders `null`)
- * component that bridges the in-memory `dappConfirmationStore` to the
- * desktop (Tauri) dApp-browser overlay.
+ * Tests for `DesktopDappConfirmationModal` — the desktop dApp approval prompt.
  *
- * The component has no visible DOM; every behaviour lives in two effects:
+ * SECURITY REGRESSION. The prompt used to be a JS string handed to
+ * `show_dapp_confirmation_overlay` → `dapp_window.eval(...)`, i.e. injected into the
+ * REQUESTING PAGE's main world. Its DOM, its `#miden-btn-approve` listener and its
+ * standing-private-data checkbox were all page-owned, so a `MutationObserver` in the
+ * dApp could tick the box and fire a synthetic click the instant the overlay
+ * appeared — granting standing private-data access and executing sends with no user
+ * interaction beyond having the page open. The verdict then came back over a
+ * navigation to a fixed host that any page could perform itself, with no proof it
+ * came from the wallet.
  *
- *  1. A response listener (`onDappConfirmationResponse`) that, when the
- *     overlay reports approve/deny, resolves the matching store request
- *     on a 100ms setTimeout (matching the original auto-approval timing).
- *  2. A store subscription that, whenever a NEW pending request appears,
- *     generates + shows the overlay script, and denies the request if the
- *     overlay fails to show.
- *
- * We drive it with the REAL `dappConfirmationStore` singleton (a clean
- * in-memory coordinator) so the request/resolve interplay is exercised
- * for real, and mock only the Tauri-touching `./dapp-browser` bindings,
- * the wallet store selector, `lib/platform.isDesktop`, and i18n.
+ * These tests pin the replacement: the request drives `dappConfirmationStore`, the
+ * shared `<DappConfirmationModal>` (the one mobile renders) is mounted in the
+ * WALLET's own React tree, and the verdict comes from a click on that tree. The real
+ * modal is rendered, not a stub, so "the approval control exists in the wallet
+ * document" is what is actually asserted.
  */
 
 import React from 'react';
 
-import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
-import { act, render } from '@testing-library/react';
+import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import { dappConfirmationStore, DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
+import {
+  dappConfirmationStore,
+  DAppConfirmationRequest,
+  DAppConfirmationResult
+} from 'lib/dapp-browser/confirmation-store';
 
 import DesktopDappConfirmationModal, {
   DesktopDappConfirmationModal as NamedDesktopDappConfirmationModal
 } from './DesktopDappConfirmationModal';
 
 // ── ./dapp-browser — Tauri command bindings ────────────────────────
-const mockGenerateOverlay: jest.Mock = jest.fn(() => 'OVERLAY_SCRIPT');
-const mockShowOverlay: jest.Mock = jest.fn(() => Promise.resolve());
-const mockUnsub: jest.Mock = jest.fn();
-let capturedResponseCb: ((response: { requestId: string; confirmed: boolean }) => void) | null = null;
-const mockOnResponse: jest.Mock = jest.fn((cb: (response: { requestId: string; confirmed: boolean }) => void) => {
-  capturedResponseCb = cb;
-  return Promise.resolve(mockUnsub);
-});
-
+// Only `focusMainWindow` may remain. The mock deliberately exposes NOTHING else, so
+// re-introducing an overlay-eval call would fail with "is not a function" instead of
+// silently passing.
+const mockFocusMainWindow: jest.Mock = jest.fn(() => Promise.resolve());
 jest.mock('./dapp-browser', () => ({
-  generateDesktopConfirmationOverlay: (...args: unknown[]) => mockGenerateOverlay(...args),
-  onDappConfirmationResponse: (cb: (response: { requestId: string; confirmed: boolean }) => void) => mockOnResponse(cb),
-  showDappConfirmationOverlay: (...args: unknown[]) => mockShowOverlay(...args)
+  focusMainWindow: () => mockFocusMainWindow()
+}));
+
+// ── @demox-labs/miden-wallet-adapter-base — real enum values ───────
+// The package is untransformed ESM, so jest substitutes the repo-level manual mock,
+// whose `AllowedPrivateData` is `{}` and whose `PrivateDataPermission` has neither
+// member. Every scope assertion would then compare `undefined` with `undefined` and
+// pass regardless of behaviour; these values mirror the real enums.
+jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
+  PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
+  AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
 }));
 
 // ── lib/platform — control the desktop guard ───────────────────────
 const mockIsDesktop: jest.Mock = jest.fn(() => true);
 jest.mock('lib/platform', () => ({
-  isDesktop: () => mockIsDesktop()
+  isDesktop: () => mockIsDesktop(),
+  isMobile: () => false
 }));
 
 // ── lib/store — selector-based wallet store stub ───────────────────
@@ -60,16 +68,39 @@ jest.mock('lib/store', () => ({
     selector({ currentAccount: mockCurrentAccount, accounts: mockAccounts })
 }));
 
-// ── i18n — identity translator (returns the key) ───────────────────
+// ── shared-modal environment (mirrors DappConfirmationModal.test.tsx) ──
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k: string) => k })
 }));
 
-// A 30-char public key, so slice(0,10)+'...'+slice(-8) is deterministic.
-const FULL_KEY = '0123456789ABCDEFGHIJKLMNOPQRST';
-const SHORT_KEY = '0123456789...MNOPQRST';
+jest.mock('lib/animation', () => ({
+  useSprings: () => ({ overlay: {}, modal: {}, sheetPresent: {}, reduceMotion: false })
+}));
 
-let resolveSpy: jest.SpyInstance;
+jest.mock('lib/mobile/haptics', () => ({
+  hapticLight: jest.fn(),
+  hapticMedium: jest.fn()
+}));
+
+jest.mock('lib/mobile/useMobileBackHandler', () => ({
+  useMobileBackHandler: () => undefined
+}));
+
+jest.mock('framer-motion', () => {
+  const ReactActual = jest.requireActual('react');
+  const passthrough = ReactActual.forwardRef(
+    ({ children, ...rest }: { children?: React.ReactNode }, ref: React.Ref<HTMLDivElement>) =>
+      ReactActual.createElement('div', { ref, ...rest }, children)
+  );
+  return { motion: new Proxy({}, { get: () => passthrough }) };
+});
+
+jest.mock('app/icons/v2', () => ({
+  Icon: () => null,
+  IconName: {}
+}));
+
+const FULL_KEY = 'mtst1apsnkg6x57mhxyrq09aavyq08yu5dy4p_qr7qqq9wr6w';
 
 function buildRequest(overrides: Partial<DAppConfirmationRequest> = {}): DAppConfirmationRequest {
   return {
@@ -80,337 +111,162 @@ function buildRequest(overrides: Partial<DAppConfirmationRequest> = {}): DAppCon
     network: 'testnet',
     networkRpc: 'https://rpc.testnet.miden.io',
     privateDataPermission: PrivateDataPermission.UponRequest,
-    allowedPrivateData: undefined as never,
+    allowedPrivateData: AllowedPrivateData.None,
     existingPermission: false,
     ...overrides
   } as DAppConfirmationRequest;
 }
 
-/** Flush pending microtasks (promise `.then`/`.catch`) inside act. */
+/** Push a request into the REAL store and expose its eventual resolution. */
+function pushRequest(request: DAppConfirmationRequest): { get: () => DAppConfirmationResult | undefined } {
+  let resolved: DAppConfirmationResult | undefined;
+  act(() => {
+    void dappConfirmationStore.requestConfirmation(request).then(result => {
+      resolved = result;
+    });
+  });
+  return { get: () => resolved };
+}
+
+/** Flush pending microtasks inside act. */
 async function flush(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
   });
 }
 
-/** Push a request into the store and collect its eventual resolution. */
-function pushRequest(request: DAppConfirmationRequest): { get: () => unknown } {
-  let resolved: unknown;
-  act(() => {
-    void dappConfirmationStore.requestConfirmation(request).then(r => {
-      resolved = r;
-    });
-  });
-  return { get: () => resolved };
-}
-
 beforeEach(() => {
   jest.clearAllMocks();
-  jest.useFakeTimers();
   mockIsDesktop.mockReturnValue(true);
-  mockGenerateOverlay.mockReturnValue('OVERLAY_SCRIPT');
-  mockShowOverlay.mockImplementation(() => Promise.resolve());
-  mockCurrentAccount = null;
+  mockCurrentAccount = { publicKey: FULL_KEY };
   mockAccounts = [];
-  capturedResponseCb = null;
-  resolveSpy = jest.spyOn(dappConfirmationStore, 'resolveConfirmation');
 });
 
-afterEach(() => {
-  // Drain any request left pending in the singleton's default slot so it
-  // cannot leak into the next test.
-  dappConfirmationStore.resolveConfirmation(undefined, { confirmed: false });
-  jest.runOnlyPendingTimers();
-  jest.useRealTimers();
-  jest.restoreAllMocks();
+afterEach(async () => {
+  // The store is a module singleton — never leave a request pending for the next test.
+  act(() => {
+    dappConfirmationStore.resolveConfirmation(undefined, { confirmed: false });
+  });
+  await flush();
 });
 
 describe('DesktopDappConfirmationModal', () => {
-  it('renders nothing and registers the response listener on desktop', async () => {
+  it('renders nothing while no confirmation is pending', () => {
     const { container } = render(<DesktopDappConfirmationModal />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('is exported both as default and by name (App.tsx lazy-imports the named one)', () => {
+    expect(NamedDesktopDappConfirmationModal).toBe(DesktopDappConfirmationModal);
+  });
+
+  it('stays inert off desktop, so mobile keeps its own provider-rendered modal', async () => {
+    mockIsDesktop.mockReturnValue(false);
+    const { container } = render(<DesktopDappConfirmationModal />);
+    pushRequest(buildRequest());
     await flush();
 
     expect(container).toBeEmptyDOMElement();
-    expect(mockOnResponse).toHaveBeenCalledTimes(1);
-    expect(typeof capturedResponseCb).toBe('function');
+    expect(mockFocusMainWindow).not.toHaveBeenCalled();
   });
 
-  it('default export is the same component as the named export', () => {
-    expect(DesktopDappConfirmationModal).toBe(NamedDesktopDappConfirmationModal);
-  });
-
-  it('does nothing when not running on desktop (both effects short-circuit)', async () => {
-    mockIsDesktop.mockReturnValue(false);
+  it('renders the approval in the WALLET window and resolves from a click there', async () => {
     render(<DesktopDappConfirmationModal />);
+    const result = pushRequest(buildRequest());
     await flush();
 
-    // Effect 1 never subscribed to responses.
-    expect(mockOnResponse).not.toHaveBeenCalled();
+    // The prompt is in this document — the wallet's own React tree — not in a
+    // string handed to the dApp webview to evaluate.
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText('Miden Faucet')).toBeInTheDocument();
+    expect(screen.getByText('https://faucet.testnet.miden.io')).toBeInTheDocument();
 
-    // Effect 2 never subscribed to the store, so a new request is ignored.
-    pushRequest(buildRequest());
-    await flush();
-    expect(mockGenerateOverlay).not.toHaveBeenCalled();
-    expect(mockShowOverlay).not.toHaveBeenCalled();
-  });
-
-  it('shows an overlay for a connection request using the app name and short account id', async () => {
-    mockCurrentAccount = { publicKey: FULL_KEY };
-    render(<DesktopDappConfirmationModal />);
-    await flush();
-
-    const request = buildRequest({ type: 'connect', appMeta: { name: 'Miden Faucet' } });
-    pushRequest(request);
-    await flush();
-
-    expect(mockGenerateOverlay).toHaveBeenCalledTimes(1);
-    const args = mockGenerateOverlay.mock.calls[0]!;
-    expect(args[0]).toBe(request.id); // requestId
-    expect(args[1]).toBe('Miden Faucet'); // appName from appMeta.name
-    expect(args[2]).toBe(request.origin); // origin
-    expect(args[3]).toBe(request.network); // network
-    expect(args[4]).toBe(SHORT_KEY); // shortAccountId
-    expect(args[5]).toBe(false); // isTransaction (connect => false)
-    expect(args[6]).toEqual([]); // transactionMessages fallback
-    expect(args[7]).toEqual({
-      connectionRequest: 'dappConnectionRequest',
-      transactionRequest: 'dappTransactionRequest',
-      account: 'account',
-      network: 'network',
-      noAccountSelected: 'noAccountSelected',
-      deny: 'deny',
-      approve: 'approve',
-      confirm: 'confirm'
-    });
-    expect(mockShowOverlay).toHaveBeenCalledWith('OVERLAY_SCRIPT');
-  });
-
-  it('falls back to the origin as app name and marks transaction requests, forwarding messages', async () => {
-    render(<DesktopDappConfirmationModal />);
-    await flush();
-
-    const request = buildRequest({
-      id: 'tx-1',
-      type: 'transaction',
-      appMeta: {} as DAppConfirmationRequest['appMeta'], // no name -> origin fallback
-      transactionMessages: ['send 5 MIDEN']
-    });
-    pushRequest(request);
-    await flush();
-
-    const args = mockGenerateOverlay.mock.calls[0]!;
-    expect(args[1]).toBe(request.origin); // appName falls back to origin
-    expect(args[5]).toBe(true); // isTransaction (transaction => true)
-    expect(args[6]).toEqual(['send 5 MIDEN']); // forwarded messages
-  });
-
-  it('marks "consume" requests as transactions too', async () => {
-    render(<DesktopDappConfirmationModal />);
-    await flush();
-
-    pushRequest(buildRequest({ id: 'consume-1', type: 'consume' }));
-    await flush();
-
-    expect(mockGenerateOverlay.mock.calls[0]![5]).toBe(true);
-  });
-
-  it('uses accounts[0] when there is no current account, and empty short id when none', async () => {
-    // No current account, but a fallback account in the list.
-    mockAccounts = [{ publicKey: FULL_KEY }];
-    const { unmount } = render(<DesktopDappConfirmationModal />);
-    await flush();
-
-    pushRequest(buildRequest());
-    await flush();
-    expect(mockGenerateOverlay.mock.calls[0]![4]).toBe(SHORT_KEY);
-    unmount();
-
-    // No account at all -> shortAccountId is ''.
-    mockAccounts = [];
-    mockCurrentAccount = null;
-    mockGenerateOverlay.mockClear();
-    render(<DesktopDappConfirmationModal />);
-    await flush();
-    pushRequest(buildRequest({ id: 'req-2' }));
-    await flush();
-    expect(mockGenerateOverlay.mock.calls[0]![4]).toBe('');
-  });
-
-  it('denies the request when the overlay fails to show', async () => {
-    mockShowOverlay.mockImplementation(() => Promise.reject(new Error('overlay boom')));
-    render(<DesktopDappConfirmationModal />);
-    await flush();
-
-    const handle = pushRequest(buildRequest());
-    await flush(); // let the rejected showOverlay promise settle into .catch
-
-    expect(resolveSpy).toHaveBeenCalledWith(undefined, { confirmed: false });
-    expect(handle.get()).toEqual({ confirmed: false });
-  });
-
-  it('ignores a repeated notification for the same pending request (no duplicate overlay)', async () => {
-    render(<DesktopDappConfirmationModal />);
-    await flush();
-
-    const request = buildRequest();
-    pushRequest(request);
-    await flush();
-    expect(mockGenerateOverlay).toHaveBeenCalledTimes(1);
-
-    // Re-submit the SAME request object: the store swaps it in place and
-    // notifies again, but the component recognises the identical reference
-    // and must NOT regenerate the overlay.
-    pushRequest(request);
-    await flush();
-    expect(mockGenerateOverlay).toHaveBeenCalledTimes(1);
-  });
-
-  it('clears its pending ref when the store empties (request resolved elsewhere)', async () => {
-    render(<DesktopDappConfirmationModal />);
-    await flush();
-
-    pushRequest(buildRequest());
-    await flush();
-    expect(mockGenerateOverlay).toHaveBeenCalledTimes(1);
-
-    // Resolve out-of-band -> store notifies with no pending request -> the
-    // component takes the `!request` branch and clears its ref.
-    act(() => {
-      dappConfirmationStore.resolveConfirmation(undefined, { confirmed: false });
-    });
-    await flush();
-
-    // A subsequent response for the (now-cleared) request must be ignored.
-    act(() => {
-      capturedResponseCb?.({ requestId: 'req-1', confirmed: true });
-    });
     await act(async () => {
-      jest.advanceTimersByTime(100);
+      fireEvent.click(screen.getByRole('button', { name: 'approve' }));
     });
-    // Only the out-of-band deny reached resolveConfirmation; the stray
-    // response did not schedule another resolution.
-    expect(resolveSpy).toHaveBeenCalledTimes(1);
+    await flush();
+
+    expect(result.get()).toMatchObject({ confirmed: true, accountPublicKey: FULL_KEY });
+    // And the prompt is gone once answered.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  describe('response listener', () => {
-    it('ignores a response when there is no pending request', async () => {
-      render(<DesktopDappConfirmationModal />);
-      await flush();
+  it('resolves a denial from the wallet-side Deny button', async () => {
+    render(<DesktopDappConfirmationModal />);
+    const result = pushRequest(buildRequest());
+    await flush();
 
-      act(() => {
-        capturedResponseCb?.({ requestId: 'whatever', confirmed: true });
-      });
-      await act(async () => {
-        jest.advanceTimersByTime(100);
-      });
-
-      expect(resolveSpy).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'deny' }));
     });
+    await flush();
 
-    it('ignores a response whose requestId does not match the pending request', async () => {
-      render(<DesktopDappConfirmationModal />);
-      await flush();
-
-      pushRequest(buildRequest({ id: 'req-A' }));
-      await flush();
-
-      act(() => {
-        capturedResponseCb?.({ requestId: 'req-B', confirmed: true });
-      });
-      await act(async () => {
-        jest.advanceTimersByTime(100);
-      });
-
-      expect(resolveSpy).not.toHaveBeenCalled();
-    });
-
-    it('resolves with confirmed=true, the full account id, and the request permission on approve', async () => {
-      mockCurrentAccount = { publicKey: FULL_KEY };
-      render(<DesktopDappConfirmationModal />);
-      await flush();
-
-      const handle = pushRequest(
-        buildRequest({ id: 'req-A', privateDataPermission: PrivateDataPermission.UponRequest })
-      );
-      await flush();
-
-      act(() => {
-        capturedResponseCb?.({ requestId: 'req-A', confirmed: true });
-      });
-      await act(async () => {
-        jest.advanceTimersByTime(100);
-      });
-
-      expect(resolveSpy).toHaveBeenCalledWith(undefined, {
-        confirmed: true,
-        accountPublicKey: FULL_KEY,
-        privateDataPermission: PrivateDataPermission.UponRequest
-      });
-      expect(handle.get()).toEqual({
-        confirmed: true,
-        accountPublicKey: FULL_KEY,
-        privateDataPermission: PrivateDataPermission.UponRequest
-      });
-    });
-
-    it('on approve with no account and no request permission, uses undefined id and the default permission', async () => {
-      mockCurrentAccount = null;
-      mockAccounts = [];
-      render(<DesktopDappConfirmationModal />);
-      await flush();
-
-      // privateDataPermission omitted -> falsy -> falls back to UponRequest.
-      pushRequest(buildRequest({ id: 'req-C', privateDataPermission: undefined as never }));
-      await flush();
-
-      act(() => {
-        capturedResponseCb?.({ requestId: 'req-C', confirmed: true });
-      });
-      await act(async () => {
-        jest.advanceTimersByTime(100);
-      });
-
-      expect(resolveSpy).toHaveBeenCalledWith(undefined, {
-        confirmed: true,
-        accountPublicKey: undefined,
-        privateDataPermission: PrivateDataPermission.UponRequest
-      });
-    });
-
-    it('resolves with confirmed=false on deny', async () => {
-      mockCurrentAccount = { publicKey: FULL_KEY };
-      render(<DesktopDappConfirmationModal />);
-      await flush();
-
-      const handle = pushRequest(buildRequest({ id: 'req-D' }));
-      await flush();
-
-      act(() => {
-        capturedResponseCb?.({ requestId: 'req-D', confirmed: false });
-      });
-      await act(async () => {
-        jest.advanceTimersByTime(100);
-      });
-
-      expect(resolveSpy).toHaveBeenCalledWith(undefined, { confirmed: false });
-      expect(handle.get()).toEqual({ confirmed: false });
-    });
+    expect(result.get()).toEqual({ confirmed: false });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('unsubscribes both listeners on unmount', async () => {
+  it('raises the wallet window once per request, since it sits behind the dApp window', async () => {
+    render(<DesktopDappConfirmationModal />);
+    pushRequest(buildRequest());
+    await flush();
+
+    expect(mockFocusMainWindow).toHaveBeenCalledTimes(1);
+
+    // An unrelated store notification must not re-raise the window.
+    act(() => {
+      dappConfirmationStore.resolveConfirmation('some-other-session', { confirmed: false });
+    });
+    await flush();
+    expect(mockFocusMainWindow).toHaveBeenCalledTimes(1);
+  });
+
+  it('still prompts when raising the window fails', async () => {
+    mockFocusMainWindow.mockRejectedValueOnce(new Error('no window'));
+    render(<DesktopDappConfirmationModal />);
+    const result = pushRequest(buildRequest());
+    await flush();
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'approve' }));
+    });
+    await flush();
+    expect(result.get()).toMatchObject({ confirmed: true });
+  });
+
+  it('falls back to the first account when none is current', async () => {
+    mockCurrentAccount = null;
+    mockAccounts = [{ publicKey: FULL_KEY }];
+    render(<DesktopDappConfirmationModal />);
+    const result = pushRequest(buildRequest());
+    await flush();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'approve' }));
+    });
+    await flush();
+    expect(result.get()).toMatchObject({ accountPublicKey: FULL_KEY });
+  });
+
+  it('cannot approve a connect with no account at all', async () => {
+    mockCurrentAccount = null;
+    mockAccounts = [];
+    render(<DesktopDappConfirmationModal />);
+    pushRequest(buildRequest());
+    await flush();
+
+    expect(screen.getByRole('button', { name: 'approve' })).toBeDisabled();
+  });
+
+  it('unsubscribes from the store on unmount', async () => {
     const { unmount } = render(<DesktopDappConfirmationModal />);
-    await flush(); // let onDappConfirmationResponse's promise resolve so unsub is captured
-
     unmount();
 
-    // Effect 1 cleanup calls the response-listener unsubscribe.
-    expect(mockUnsub).toHaveBeenCalledTimes(1);
-
-    // Effect 2 cleanup removed the store listener: a new request no longer
-    // reaches the (now-unmounted) component.
-    mockGenerateOverlay.mockClear();
-    pushRequest(buildRequest({ id: 'after-unmount' }));
+    pushRequest(buildRequest());
     await flush();
-    expect(mockGenerateOverlay).not.toHaveBeenCalled();
+    // No focus call means the subscription is really gone (the component is
+    // unmounted, so there is no tree left to assert against).
+    expect(mockFocusMainWindow).not.toHaveBeenCalled();
   });
 });

@@ -149,6 +149,14 @@ jest.mock('./confirm/decode', () => ({
     inputNotesConsumed: 1,
     outputNotesCreated: 1,
     storageChanged: false
+  })),
+  executedBytesToView: jest.fn(() => ({
+    account: 'mtst1executed',
+    outgoing: [{ faucetId: 'fA', amount: 10n }],
+    incoming: [],
+    inputNotesConsumed: 0,
+    outputNotesCreated: 1,
+    storageChanged: false
   }))
 }));
 
@@ -966,6 +974,21 @@ describe('ConfirmPage custom transaction', () => {
     await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
     expect(screen.getByTestId('asset-view')).toHaveAttribute('data-account', 'mtst1acct');
     expect((ctx as any).simulateCustomTransaction).toHaveBeenCalledWith('req-1');
+  });
+
+  // Regression: on web-sdk 0.16 an ordinary single-sig account produces NO
+  // TransactionSummary (executeForSummary rejects TRANSACTION_ALREADY_AUTHORIZED),
+  // so the dry run returns the executed transaction instead. Ignoring it left the
+  // verified asset view unreachable for every such account, with the loss shown as
+  // a transient "could not verify by simulation".
+  it('shows the verified view from the executed transaction when no summary is produced', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ executedBytes: 'execB64' });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
+    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-account', 'mtst1executed');
+    expect(screen.queryByText('couldNotVerifyBySimulation')).not.toBeInTheDocument();
   });
 
   it('keeps the declared view with a caveat when simulation errors', async () => {

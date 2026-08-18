@@ -1,6 +1,6 @@
-import { Note, NoteFile, TransactionRequest, TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
+import { Note, NoteFile, TransactionRequest, TransactionResult, TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
 
-import { declaredRequestToView, summaryBytesToView, summaryToView } from './decode';
+import { declaredRequestToView, executedBytesToView, summaryBytesToView, summaryToView } from './decode';
 
 // `faucetId()` returns an AccountId object (not a string). Token metadata is
 // cached under the BECH32 faucet address, so the decoders must resolve the id
@@ -15,6 +15,7 @@ const note = (assets: any[]) => ({ assets: () => ({ fungibleAssets: () => assets
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   TransactionRequest: { deserialize: jest.fn() },
+  TransactionResult: { deserialize: jest.fn() },
   TransactionSummary: { deserialize: jest.fn() },
   Note: { deserialize: jest.fn() },
   // NoteFile is tried FIRST for importNotes (mirroring importNoteBytes); it
@@ -78,6 +79,36 @@ describe('summaryToView', () => {
       inputNotesConsumed: 1,
       outputNotesCreated: 2,
       storageChanged: false
+    });
+  });
+});
+
+describe('executedBytesToView', () => {
+  // Used when the account was already fully authorized so web-sdk 0.16 produced
+  // no TransactionSummary (`executeForSummary` rejects TRANSACTION_ALREADY_
+  // AUTHORIZED) — i.e. every ordinary single-sig account. Assets come from the
+  // notes the execution really consumed/created, because 0.16's `accountPatch()`
+  // reports ABSOLUTE final balances, not a delta.
+  it('maps an executed transaction to bech32 outgoing/incoming + note counts', () => {
+    (TransactionResult.deserialize as jest.Mock).mockReturnValueOnce({
+      executedTransaction: () => ({
+        accountId: () => 'acctId',
+        inputNotes: () => ({ numNotes: () => 1, notes: () => [{ note: () => note([fa('fB', 3n)]) }] }),
+        outputNotes: () => ({ numNotes: () => 2, notes: () => [note([fa('fA', 10n)]), note([])] }),
+        accountPatch: () => ({ storage: () => ({ isEmpty: () => false }) })
+      })
+    });
+
+    const view = executedBytesToView('execB64');
+
+    expect(TransactionResult.deserialize).toHaveBeenCalledWith(expect.any(Uint8Array));
+    expect(view).toEqual({
+      account: 'bech32:acctId',
+      outgoing: [{ faucetId: 'bech32:fA', amount: 10n }],
+      incoming: [{ faucetId: 'bech32:fB', amount: 3n }],
+      inputNotesConsumed: 1,
+      outputNotesCreated: 2,
+      storageChanged: true
     });
   });
 });

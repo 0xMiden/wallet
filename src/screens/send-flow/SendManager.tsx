@@ -179,39 +179,18 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     return true;
   }, [showAddContactDrawer, showNetworkDrawer, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
 
-  // Dismiss any stale completion modal on send-flow entry.
+  // Reset the leftover completion state on send-flow entry.
   //
-  // After PR #230, the TransactionProgressModal auto-dismiss is gated on
-  // terminal-state signals so the "Done" screen stays visible until the
-  // user explicitly taps Done. The modal renders as `fixed inset-0` with
-  // `zIndex: 9999` and no `pointer-events: none` — while it's open it
-  // intercepts every click in the viewport.
+  // `lastCompletedTxHash` is set by the send/swap success path and read by the
+  // receipt view; entering /send is a clear "I'm starting a new transaction"
+  // signal, so clear it (and, defensively, any `isTransactionModalOpen` flag —
+  // the progress modal that used to consume it has been removed, so in practice
+  // that branch no longer fires).
   //
-  // The modal is shared across the wallet: SendManager opens it for
-  // sends, Receive opens it for claims, ConfirmPage opens it for dApp
-  // requests. Any of those completing leaves it sticky. In stress and in
-  // any user flow that initiates a send while a previous send/claim/dApp
-  // tx's completion screen is still up, navigating to `/send` finds the
-  // SelectToken tile blocked behind the modal — Playwright sees
-  // `locator.click` time out against
-  // `getByTestId('send-flow').locator('div.cursor-pointer')`. An
-  // earlier fix gated on `lastCompletedTxHash !== null`, which only
-  // catches the send-completion case (that hash is set by SendManager's
-  // onSubmit only) — claim/dApp completions still produced sticky
-  // modals because they leave the hash null but still flip
-  // `transactionComplete` true via the Dexie queue going empty.
-  //
-  // Entering /send is a clear "I'm starting a new transaction" signal,
-  // equivalent to tapping Done on whatever was open. In-flight modals can't
-  // reach this code path here because PR #217's `pathname`-watching effect in
-  // the modal already auto-dismisses non-terminal opens on navigation away
-  // from `settledPathname`, so the only `isTransactionModalOpen === true`
-  // state reachable here is terminal.
-  //
-  // Gated on `/send` (not run-once-on-mount): submit now happens on the
-  // full-screen `/send/review` route where TabLayout is unmounted, so the
-  // post-success navigate('/') freshly mounts SendManager — a mount effect
-  // would instantly dismiss the "Done" modal and null the Midenscan hash.
+  // Gated on `/send` (not run-once-on-mount): submit happens on the full-screen
+  // `/send/review` route where TabLayout is unmounted, so the post-success
+  // navigate('/') freshly mounts SendManager — a mount effect would instantly
+  // null the Midenscan hash on the receipt.
   useEffect(() => {
     if (pathname !== '/send') return;
     const state = useWalletStore.getState();

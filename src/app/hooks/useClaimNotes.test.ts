@@ -55,13 +55,17 @@ jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
 
-const note = (id: string) => ({ id, isBeingClaimed: false, amount: '1', faucetId: 'f', metadata: {} });
+const note = (id: string, faucetId = 'f') => ({ id, isBeingClaimed: false, amount: '1', faucetId, metadata: {} });
+
+const mockNavigate = jest.requireMock('lib/woozie').navigate as jest.Mock;
+/** Note ids passed as the 2nd arg of the n-th initiateConsumeNotesTransaction call. */
+const queuedNoteIds = (call: number) => (mockInitiateConsume.mock.calls[call]![1] as { id: string }[]).map(n => n.id);
 
 const failedConsume = (...noteIds: string[]) => ({ type: 'consume', noteIds });
 
 function setNotes(...ids: string[]) {
   mockUseClaimableNotes.mockReturnValue({
-    data: ids.map(note),
+    data: ids.map(id => note(id)),
     mutate: jest.fn().mockResolvedValue([])
   });
 }
@@ -165,6 +169,70 @@ describe('useClaimNotes failed-note check (#456)', () => {
     await act(async () => {
       focusGate.resolve([]);
     });
+  });
+
+  // "Claim All" can span several faucets, but a completed consume row carries a
+  // single (faucetId, amount) pair derived from the FIRST input note, so a
+  // mixed-faucet batch recorded only the first asset and dropped the rest from
+  // history entirely. One transaction per faucet keeps each row honest.
+  it("queues one consume transaction per faucet, grouping that faucet's notes together", async () => {
+    const notes = [note('n-miden', 'faucet-miden'), note('n-usdc', 'faucet-usdc'), note('n-miden-2', 'faucet-miden')];
+    mockUseClaimableNotes.mockReturnValue({
+      data: notes,
+      mutate: jest.fn().mockResolvedValue(notes)
+    });
+    mockInitiateConsume.mockResolvedValueOnce('tx-miden').mockResolvedValueOnce('tx-usdc');
+
+    const { result } = renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+
+    await act(async () => {
+      await result.current.handleClaimAll();
+    });
+
+    expect(mockInitiateConsume).toHaveBeenCalledTimes(2);
+    expect(queuedNoteIds(0)).toEqual(['n-miden', 'n-miden-2']);
+    expect(queuedNoteIds(1)).toEqual(['n-usdc']);
+    // The progress screen follows the first queued transaction.
+    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/tx-miden');
+  });
+
+  it('still queues a SINGLE transaction when every pending note shares one faucet', async () => {
+    const notes = [note('a', 'faucet-miden'), note('b', 'faucet-miden')];
+    mockUseClaimableNotes.mockReturnValue({
+      data: notes,
+      mutate: jest.fn().mockResolvedValue(notes)
+    });
+    mockInitiateConsume.mockResolvedValue('tx-1');
+
+    const { result } = renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+
+    await act(async () => {
+      await result.current.handleClaimAll();
+    });
+
+    expect(mockInitiateConsume).toHaveBeenCalledTimes(1);
+    expect(queuedNoteIds(0)).toEqual(['a', 'b']);
+  });
+
+  it('flags only the failing faucet group when one group throws at queue time', async () => {
+    const notes = [note('n-miden', 'faucet-miden'), note('n-usdc', 'faucet-usdc')];
+    mockUseClaimableNotes.mockReturnValue({
+      data: notes,
+      mutate: jest.fn().mockResolvedValue(notes)
+    });
+    mockInitiateConsume.mockRejectedValueOnce(new Error('queue failed')).mockResolvedValueOnce('tx-usdc');
+
+    const { result } = renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+
+    await act(async () => {
+      await result.current.handleClaimAll();
+    });
+
+    await waitFor(() => expect(result.current.retriableNoteIds.has('n-miden')).toBe(true));
+    expect(result.current.retriableNoteIds.has('n-usdc')).toBe(false);
   });
 
   it('keeps a queue-time claim failure retriable across a focus re-run — does not wipe it (#456)', async () => {

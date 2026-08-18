@@ -35,7 +35,18 @@ export interface DAppConfirmationRequest {
    * slot. PR-4 chunk 8.
    */
   sessionId?: string;
-  type: 'connect' | 'sign' | 'transaction' | 'consume';
+  /**
+   * What the user is being asked to approve.
+   *
+   * `connect` renders the account panel; every other kind renders the
+   * `transactionMessages` detail list (see {@link isDetailsConfirmation}) — the
+   * shape both the mobile modal and the desktop overlay already use for
+   * transactions. `sign`, `importPrivateNote` and `privateData` exist so the
+   * non-extension platforms can prompt for `signBytes`, `importPrivateNote` and
+   * the `UponRequest` private-data reads instead of leaving the dApp's promise
+   * unsettled (those handlers previously had no non-extension branch at all).
+   */
+  type: 'connect' | 'sign' | 'transaction' | 'consume' | 'importPrivateNote' | 'privateData';
   origin: string;
   appMeta: DappMetadata;
   network: string;
@@ -46,6 +57,33 @@ export interface DAppConfirmationRequest {
   // Transaction-specific fields
   transactionMessages?: string[];
   sourcePublicKey?: string;
+}
+
+/**
+ * True for the request kinds whose modal body is the `transactionMessages`
+ * detail list rather than the connect-style account panel. Shared by the mobile
+ * modal and the desktop overlay so the two can't drift.
+ */
+export function isDetailsConfirmation(type: DAppConfirmationRequest['type']): boolean {
+  return type !== 'connect';
+}
+
+/**
+ * i18n key for the one-line prompt above the detail list, per request kind.
+ */
+export function confirmationPromptKey(type: DAppConfirmationRequest['type']): string {
+  switch (type) {
+    case 'connect':
+      return 'dappConnectionRequest';
+    case 'sign':
+      return 'dappSignRequest';
+    case 'importPrivateNote':
+      return 'dappImportNoteRequest';
+    case 'privateData':
+      return 'dappPrivateDataRequest';
+    default:
+      return 'dappTransactionRequest';
+  }
 }
 
 export interface DAppConfirmationResult {

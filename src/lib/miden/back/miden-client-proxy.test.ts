@@ -1161,18 +1161,25 @@ describe('MidenClientProxy — settlement paths', () => {
     expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
   });
 
-  it('a sendMessage transport rejection surfaces the transport error (finishOpError)', async () => {
+  // FUNDS-1: a transport rejection is the SAME physical event as the `undefined`
+  // response above — the offscreen document went away — so it must settle with the
+  // same error TYPE. It used to surface as a bare Error, which classified as an
+  // ordinary failure everywhere downstream: `tryCompleteKilledConsume` skipped its
+  // node check, and the persisted `rawError` carried no recognizable kill reason.
+  it('a sendMessage transport rejection settles as OperationAbortedError(transport), keeping the cause', async () => {
     const { midenClientProxy } = await loadProxy(true);
     const { OperationAbortedError } = await import('./offscreen-codec');
-    fakeChrome.runtime.sendMessage.mockRejectedValue(new Error('message port closed before a response'));
+    const transportError = new Error('message port closed before a response');
+    fakeChrome.runtime.sendMessage.mockRejectedValue(transportError);
 
     const p = midenClientProxy.call('getAccount', ['a'], { deadlineMs: null }).catch((e: Error) => e);
     await flush();
     fireReady();
     const err = await p;
-    expect(err).toBeInstanceOf(Error);
-    expect(err).not.toBeInstanceOf(OperationAbortedError);
-    expect((err as Error).message).toContain('message port closed');
+    expect(err).toBeInstanceOf(OperationAbortedError);
+    expect((err as { reason?: string }).reason).toBe('transport');
+    // The original transport message is preserved, not swallowed.
+    expect((err as Error).cause).toBe(transportError);
   });
 });
 

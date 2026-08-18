@@ -42,6 +42,7 @@ import { getBech32AddressFromAccountId } from './helpers';
 import { yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { recordProveTelemetry } from './prove-telemetry';
+import { isApplyAfterSubmitError } from './sdk-error-code';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
 // Guardian helpers are dynamic-imported inside the methods that use them to avoid
 // a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
@@ -169,12 +170,19 @@ export type FungibleAssetDetails = {
  * `notefile deserialization failed: invalid utf-8 sequence...` that surfaces when
  * `Note` bytes are fed straight into `NoteFile.deserialize`.
  *
- * The wrapped `NoteDetails` variant carries no tag (`tag: None`,
- * `after_block_num: 0`), so the imported note is stored as `Expected` without
- * tag-based sync tracking. It still becomes consumable: the client's
- * `reconcile_expected_notes` fetches every expected note by ID on each
- * `syncState`, recovering the on-chain metadata and inclusion proof and
- * transitioning it to `Committed`. So dropping the metadata here is safe.
+ * The wrapped variant is the `NoteDetails` one, so the note is stored as
+ * `Expected` until a sync commits it — and it is wrapped with the note's REAL
+ * tag (`metadata().tag()`), because that tag is the only thing that can commit
+ * it. `client.notes.import` resolves an expected note by asking the node for the
+ * notes carrying the file's tag between its after-block hint and the chain tip,
+ * and it subscribes the client to that tag for later syncs. On 0.16
+ * `NoteFile.fromNoteDetails` — what this used to call — is documented as using
+ * "a zero-valued sync hint": it asks for tag 0 instead of the note's own tag, so
+ * the node returns nothing for it and an already-committed private note stayed
+ * `Expected` forever (absent from the claimable list, never consumable), leaving
+ * a dead tag-0 subscription riding every later sync request. Block 0 is the after-block hint because a bare
+ * `Note` carries no block information; scanning from genesis is slower than a
+ * real hint but correct.
  */
 function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
   try {
@@ -192,7 +200,7 @@ function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
           'Pass noteFile.serialize() or note.serialize().'
       );
     }
-    return NoteFile.fromNoteDetails(new NoteDetails(note.assets(), note.recipient()));
+    return NoteFile.fromExpectedNote(new NoteDetails(note.assets(), note.recipient()), note.metadata().tag(), 0);
   }
 }
 
@@ -428,8 +436,8 @@ export class MidenClientInterface {
    *
    * Resolves to a hex string: the note ID for a metadata-bearing file, or
    * the details commitment for a details-only file. The wallet's
-   * `deserializeNoteFileOrNote` wraps raw `Note` bytes via
-   * `NoteFile.fromNoteDetails`, so for that path the returned hex is a
+   * `deserializeNoteFileOrNote` wraps raw `Note` bytes into the details variant
+   * (`NoteFile.fromExpectedNote`), so for that path the returned hex is a
    * details commitment, not a note ID.
    */
   async importNoteBytes(noteBytes: Uint8Array): Promise<string> {
@@ -548,12 +556,31 @@ export class MidenClientInterface {
     // the main client, separate WASM object so it can't trip the
     // single-threaded aliasing guard) — the SDK wrapper exposes no
     // consumability-annotated listing.
+    //
+    // `useWorker` is pinned to `false` (the SDK's 6th positional parameter; its
+    // default is `true`). It must be explicit because this line runs in TWO
+    // realms: in the MV3 service worker `Worker` is undefined so the SDK silently
+    // takes the in-realm path, but the offscreen document — where this now runs
+    // whenever MIDEN_USE_OFFSCREEN_CLIENT is on, which is the Chrome default for
+    // the SW bundle — IS a real document, so the default would spawn a Web Worker
+    // and a SECOND multi-threaded WASM instance inside the offscreen doc on every
+    // sync tick, claimable-notes refresh and dApp note query, then tear it down.
+    // `useWorker:false` still yields a DISTINCT wasm-bindgen client object, so the
+    // aliasing protection this transient read relies on is unchanged; it just
+    // stops paying for a worker + WASM instantiation per call.
     if (this.network === 'mock') {
       return await this.client.notes.listAvailable({ account: accountId });
     }
     const wasm = await getWasmOrThrow();
     const syncHeight = await this.client.getSyncHeight();
-    const inner = await WasmWebClient.createClient(getEffectiveRpcUrl());
+    const inner = await WasmWebClient.createClient(
+      getEffectiveRpcUrl(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false
+    );
     try {
       const records: ConsumableNoteRecord[] = await inner.getConsumableNotes(resolveAccountId(wasm, accountId));
       return records
@@ -592,7 +619,7 @@ export class MidenClientInterface {
       reclaimAfter = syncResult.blockNum() + extraInputs.recallBlocks;
     }
 
-    return proveWithFallback(async prover => {
+    return proveWithFallback(async (prover, attempt) => {
       if (this.shouldUseOffscreenProver(prover)) {
         // SpeculationParams MUST hash identically to whatever the popup
         // sent in SPECULATE_SEND_REQUEST so the cache hits. We skip the
@@ -612,6 +639,7 @@ export class MidenClientInterface {
         return await this.proveLocallyViaOffscreen(
           (wasm, inner) =>
             buildSendExecuteArgs(wasm, inner, accountId, secondaryAccountId, faucetId, noteType, amount, reclaimAfter),
+          attempt,
           cacheParams,
           onStage
         );
@@ -660,6 +688,10 @@ export class MidenClientInterface {
       await onStage?.('proving');
       const proven = await executed.prove(prover ? { prover } : {});
       await onStage?.('submitting');
+      // Point of no return: everything below can put this transfer on chain, so a
+      // failure past here must NOT be retried with the local prover — the retry
+      // would build a fresh request (new note serial) and submit a SECOND send.
+      attempt.markSubmitting();
       const submitted = await proven.submit();
       await submitted.apply();
       return executed.result;
@@ -734,7 +766,7 @@ export class MidenClientInterface {
     const targetNoteIds = noteIds && noteIds.length > 0 ? noteIds : [noteId];
 
     recordProveTiming(`consumeNoteId entered noteId=${noteId} delegateTransaction=${transaction.delegateTransaction}`);
-    return proveWithFallback(async prover => {
+    return proveWithFallback(async (prover, attempt) => {
       recordProveTiming(`consumeNoteId closure entered, prover=${prover ? 'set' : 'undefined'}`);
       if (this.shouldUseOffscreenProver(prover)) {
         return await this.proveLocallyViaOffscreen(async (wasm, inner) => {
@@ -765,8 +797,20 @@ export class MidenClientInterface {
           const acctId = resolveAccountId(wasm, accountId);
           recordProveTiming('consumeNoteId buildExecuteArgs: resolveAccountId returned');
           return { accountId: acctId, request };
-        });
+        }, attempt);
       }
+      // The ONLY caller that deliberately does NOT call `attempt.markSubmitting()`
+      // before an opaque whole-op SDK write, i.e. the only one that still permits a
+      // whole-op local-prover retry. Two properties make that safe here and nowhere
+      // else: (1) the retry consumes the SAME input notes, so if the first attempt
+      // did reach the chain the second is rejected on the spent nullifier rather
+      // than duplicating value — unlike a send/swap, whose retry mints a new output
+      // note with a fresh serial; (2) the apply-after-submit failure (submitted,
+      // local store update failed) is excluded from the retry by
+      // `proveWithFallback`'s `isApplyAfterSubmitError` gate, so that row still
+      // classifies as landed. Keeping the retry matters because consume is the
+      // wallet's highest-frequency write (auto-claim) and the remote prover's ~10s
+      // deadline is its most common failure.
       recordProveTiming('consumeNoteId calling SDK client.transactions.consume');
       try {
         const { result } = await this.client.transactions.consume({
@@ -801,7 +845,14 @@ export class MidenClientInterface {
     const offer = { token: faucetId, amount };
     const request = { token: extraInputs.requestedFaucetId, amount: extraInputs.requestedAmount };
 
-    return proveWithFallback(async prover => {
+    return proveWithFallback(async (prover, attempt) => {
+      // `pswapCreate` is opaque: it builds the PSWAP request, executes, proves,
+      // submits and applies inside one SDK call, so there is no seam at which to
+      // mark the point of no return. Mark it BEFORE the call — a whole-op retry
+      // would build a SECOND PSWAP note (a fresh note serial) and lock the offered
+      // asset twice. The cost is that a swap gets no delegated→local prove
+      // fallback; a duplicated swap note is unrecoverable, a failed swap is not.
+      attempt.markSubmitting();
       const { result } = await this.client.transactions.pswapCreate({
         account: accountId,
         offer,
@@ -817,21 +868,33 @@ export class MidenClientInterface {
     requestBytes: Uint8Array,
     delegateTransaction?: boolean
   ): Promise<TransactionResult> {
-    const transactionRequest = TransactionRequest.deserialize(requestBytes);
-
-    return proveWithFallback(async prover => {
+    return proveWithFallback(async (prover, attempt) => {
       if (this.shouldUseOffscreenProver(prover)) {
         return await this.proveLocallyViaOffscreen(async wasm => {
-          // `inner.executeTransaction` consumes both args by value. We get a
-          // fresh deserialization of the same bytes so we don't share a
-          // moved-from TransactionRequest with anything outside this scope.
+          // `inner.executeTransaction` consumes both args by value, so every
+          // attempt hydrates its OWN request from the bytes — a shared handle
+          // would be moved-from the second time it was used.
           const request = TransactionRequest.deserialize(requestBytes);
           const acctId = resolveAccountId(wasm, accountId);
           return { accountId: acctId, request };
-        });
+        }, attempt);
       }
-      const { result } = await this.client.transactions.submit(accountId, transactionRequest, { prover });
-      return result;
+      // Staged execute → prove → submit → apply rather than the all-in-one
+      // `transactions.submit`, for the same reason the send path is staged: it
+      // gives the prove-fallback a seam to stop at, so a failure at or after
+      // submit can never be retried into a second broadcast of this request
+      // (dApp custom transactions and the Agglayer bridged-send both land here).
+      // Each attempt deserializes its own request — a wasm-bindgen request is
+      // consumed by execution, so a shared handle would be moved-from on a retry.
+      const executed = await this.client.transactions.executeRequest(
+        accountId,
+        TransactionRequest.deserialize(requestBytes)
+      );
+      const proven = await executed.prove(prover ? { prover } : {});
+      attempt.markSubmitting();
+      const submitted = await proven.submit();
+      await submitted.apply();
+      return executed.result;
     }, delegateTransaction);
   }
 
@@ -869,6 +932,7 @@ export class MidenClientInterface {
    */
   private async proveLocallyViaOffscreen(
     buildExecuteArgs: (wasm: any, inner: any) => Promise<{ accountId: any; request: TransactionRequest }>,
+    attempt: ProveAttempt,
     cacheParams?: SpeculationParams,
     onStage?: (stage: ITransactionStage) => Promise<void> | void
   ): Promise<TransactionResult> {
@@ -913,6 +977,8 @@ export class MidenClientInterface {
           // Proof came from a speculation cache hit (pre-proved on the review
           // screen), so there's no live prove step to time — stamp only submit.
           await onStage?.('submitting');
+          // Point of no return — see the identical mark on the inline send path.
+          attempt.markSubmitting();
           const result = (await withInner.call(this.client, async (inner: any) => {
             const txResult: TransactionResult = wasm.TransactionResult.deserialize(hit.txResultBytes);
             const proven = wasm.ProvenTransaction.deserialize(hit.provenBytes);
@@ -958,6 +1024,8 @@ export class MidenClientInterface {
         `proveLocallyViaOffscreen proveViaOffscreen returned in ${durationMs.toFixed(0)}ms (lock reacquired); submitting + applying`
       );
       await onStage?.('submitting');
+      // Point of no return — see the identical mark on the inline send path.
+      attempt.markSubmitting();
       await withInner.call(this.client, async (inner: any) => {
         recordProveTiming('proveLocallyViaOffscreen inside SDK lock; deserializing proven + submit');
         const proven = wasm.ProvenTransaction.deserialize(new Uint8Array(provenBytes));
@@ -1022,13 +1090,25 @@ export class MidenClientInterface {
 }
 
 /**
- * Select the prover and run `fn(prover)` for a transaction. Shared by EVERY
- * wallet transaction path (guardian and non-guardian) so proving behaves
+ * Handed to every `proveWithFallback` callback so it can declare its point of no
+ * return. See {@link proveWithFallback} for why that matters.
+ */
+export interface ProveAttempt {
+  /**
+   * MUST be called immediately before the attempt's first irreversible network
+   * write (`submit`). After it is called, `proveWithFallback` will never re-run
+   * the callback — a retry could otherwise broadcast the transaction twice.
+   */
+  markSubmitting(): void;
+}
+
+/**
+ * Select the prover and run `fn(prover, attempt)` for a transaction. Shared by
+ * EVERY wallet transaction path (guardian and non-guardian) so proving behaves
  * identically everywhere:
- *  - delegate (setting on) → `fn()` with no explicit prover, so the caller
- *    proves via its remote prover; on failure, fall back to the local/native
- *    prover below.
- *  - otherwise → `fn(localProver)`, where localProver is the native Rust prover
+ *  - delegate (setting on) → `fn(undefined, …)`, so the caller proves via its
+ *    remote prover; on failure, fall back to the local/native prover below.
+ *  - otherwise → `fn(localProver, …)`, where localProver is the native Rust prover
  *    on mobile (off the main thread via @miden/native-prover) and the WASM local
  *    prover on desktop/extension.
  *
@@ -1037,9 +1117,25 @@ export class MidenClientInterface {
  * directly (the guardian pipeline) must pass an explicit remote prover in the
  * delegate branch, since the raw client's default prover is the main-thread WASM
  * one; see `generateGuardianTransaction`.
+ *
+ * FUNDS SAFETY — why the fallback is gated. `fn` is not a prove step: for every
+ * caller it also SUBMITS and APPLIES. Retrying it wholesale after a failure at or
+ * after `submit()` re-broadcasts the transaction — with a freshly built request
+ * (a new random note serial, so a different output note that the node has no
+ * reason to reject as a duplicate), debiting the user twice for one transfer. It
+ * also destroyed the apply-after-submit classification: the original error was
+ * discarded in favour of the retry's, so `isApplyAfterSubmitError` no longer fired
+ * and a transfer that IS on chain was marked Failed, then re-queued by the user's
+ * Retry into a third send. So the retry runs ONLY when the attempt provably never
+ * reached submit: `attempt.markSubmitting()` was not called AND the error is not
+ * the SDK's apply-after-submit variant (belt and braces — a caller whose write is
+ * opaque, with no seam to mark, must call `markSubmitting()` before it). The
+ * guardian pipelines (`runGuardianPipeline`, offscreen `guardianPipeline`) get
+ * this right structurally by re-proving the SAME executed transaction; the
+ * gate is how the callers that own their whole write reach the same guarantee.
  */
 export async function proveWithFallback<T>(
-  fn: (prover?: TransactionProver) => Promise<T>,
+  fn: (prover: TransactionProver | undefined, attempt: ProveAttempt) => Promise<T>,
   delegateTransaction?: boolean
 ): Promise<T> {
   recordProveTiming(`withProverFallback entered delegateTransaction=${delegateTransaction}`);
@@ -1059,9 +1155,18 @@ export async function proveWithFallback<T>(
     return TransactionProver.newLocalProver();
   };
 
+  // Flipped by the callback right before its first irreversible write. Read in
+  // the catch below to decide whether a retry is safe — see the docstring.
+  let submitReached = false;
+  const attempt: ProveAttempt = {
+    markSubmitting: () => {
+      submitReached = true;
+    }
+  };
+
   const startedAt = performance.now();
   try {
-    const result = !shouldDelegate ? await fn(localProverFactory()) : await fn();
+    const result = !shouldDelegate ? await fn(localProverFactory(), attempt) : await fn(undefined, attempt);
     const pathLabel = shouldDelegate ? 'delegate' : isMobile() ? 'native-mobile' : 'local';
     const durationMs = performance.now() - startedAt;
     recordProveTiming(
@@ -1076,7 +1181,11 @@ export async function proveWithFallback<T>(
     clearConnectivityIssue('prover');
     return result;
   } catch (err) {
-    if (shouldDelegate) {
+    // `submitReached` / `isApplyAfterSubmitError`: the attempt got far enough that
+    // re-running it could broadcast the transaction a second time. Propagate the
+    // ORIGINAL error untouched so `generateTransactionsLoop`'s
+    // `isApplyAfterSubmitError` classification still sees it.
+    if (shouldDelegate && !submitReached && !isApplyAfterSubmitError(err)) {
       const remoteDurationMs = performance.now() - startedAt;
       // The remote prover path failed. Whether or not we can fall back
       // locally, the user-facing surface should know remote proving is
@@ -1092,7 +1201,7 @@ export async function proveWithFallback<T>(
       const fallbackStartedAt = performance.now();
       const fallbackPath = isMobile() ? 'native-mobile' : 'local';
       try {
-        const result = await fn(localProverFactory());
+        const result = await fn(localProverFactory(), attempt);
         recordProveTiming(
           `path=${fallbackPath}-fallback duration_ms=${(performance.now() - fallbackStartedAt).toFixed(1)}`
         );
@@ -1116,9 +1225,21 @@ export async function proveWithFallback<T>(
           remoteDurationMs,
           failed: true
         });
+        // Keep the remote failure attached: the retry's error is the one that
+        // matters (it is the attempt that could have reached the chain), but the
+        // original explains WHY there was a retry at all, and it was previously
+        // dropped entirely. Only set when nothing else owns `cause`. This cannot
+        // mis-classify the row: `isApplyAfterSubmitError` walks the cause chain,
+        // and an apply-after-submit original never reaches this retry (it is
+        // excluded by the gate above).
+        if (fallbackErr instanceof Error && fallbackErr.cause === undefined) {
+          fallbackErr.cause = err;
+        }
         throw fallbackErr;
       }
     }
+    // Not retryable (local prove, already-submitted attempt, or an
+    // apply-after-submit failure): the original error propagates unchanged.
     throw err;
   }
 }

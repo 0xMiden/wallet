@@ -51,6 +51,7 @@ import {
   setTransactionStage,
   updateTransactionStatus
 } from './helper';
+import { bridgeProviderOf } from './retry';
 import { markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
@@ -61,6 +62,7 @@ import {
   BridgedSendTransaction,
   ConsumeTransaction,
   EarnDepositTransaction,
+  IBridgeProvider,
   ITransaction,
   ITransactionStage,
   ITransactionStatus,
@@ -76,7 +78,7 @@ import { accountIdStringToSdk, canonicalWalletAccountId, sameWalletAccountId } f
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
-import { extractSdkErrorCode } from '../sdk/sdk-error-code';
+import { extractSdkErrorCode, isApplyAfterSubmitError } from '../sdk/sdk-error-code';
 import { NoteTypeEnum } from '../types';
 
 export * from './cancel';
@@ -127,12 +129,13 @@ const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<I
 // result flag-on (the non-guardian leaf moved offscreen in slice 7b feeds the same
 // completeBridgedSend / completeEarnDeposit), and a wedge-kill →
 // OperationAbortedError falls through the guardian catch to cancelTransaction →
-// Failed with NO silent auto-requeue (earn-deposit is excluded from REQUEUEABLE_TYPES;
-// bridged-send is user-tap-only — never auto-requeued — so a killed-then-retried
-// send-style write can't double-spend), and a round-tripped
-// `ApplyTransactionAfterSubmitFailed` reaches the guardian classifier keyed by the
-// preserved errorCode (→ both Fail, byte-identical to their flag-off inline apply
-// throw). An unknown type is not in the set, so it stays inline too.
+// Failed with NO silent auto-requeue (earn-deposit and Epoch bridged-send are both
+// excluded from REQUEUEABLE_TYPES, and bridged-send is user-tap-only — never
+// auto-requeued — so a killed-then-retried send-style write can't double-spend), and
+// a round-tripped apply-after-submit failure reaches the guardian classifier via the
+// forwarded error TEXT (`isApplyAfterSubmitError`; → both Fail, byte-identical to
+// their flag-off inline apply throw). An unknown type is not in the set, so it stays
+// inline too.
 const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
   'send',
   'consume',
@@ -144,6 +147,64 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
   'bridged-send',
   'earn-deposit'
 ]);
+
+/**
+ * Whether a row's caller BLOCKS on `waitForTransactionCompletion(txId)` and then
+ * reads `resultBytes` / `outputNoteIds` back off the finished row:
+ *
+ *   - `earn-deposit`           → `createEarnP2IDNote` (lib/epoch/earn-note.ts)
+ *   - `bridged-send` (EPOCH)   → `createBridgeP2IDNote` (lib/epoch/miden-note.ts)
+ *
+ * Both are the Miden half of an Epoch flow: a recallable P2IDE collateral note whose
+ * id the caller needs before it can submit the surrounding intent.
+ *
+ * A post-submit failure (a local apply throw, or a guardian canonicalization race)
+ * leaves NO `TransactionResult` to repopulate those fields from. Marking such a row
+ * Completed would hand the waiter `TransactionResult.deserialize(undefined)`, which
+ * throws inside the liveQuery observer AFTER `cleanup()` has already cleared the
+ * timeout — the promise then never settles and the Epoch flow hangs forever while the
+ * activity row claims success. So these rows must be marked Failed instead: the
+ * caller resolves via the error branch, the flow can run its own failure handling
+ * (`markBridgedSendFailed`), and the on-chain collateral note reclaims itself at its
+ * recall height. Neither is blindly re-queued into a duplicate note — `earn-deposit`
+ * and Epoch `bridged-send` are both excluded from `REQUEUEABLE_TYPES`.
+ *
+ * The gate is per-ROUTE, not per-type, because only ONE of the two `bridged-send`
+ * routes has an awaiting caller. The Agglayer (Slow) route enters via
+ * `initiateB2AggBridge` (lib/agglayer/b2agg/index.ts), which returns the txId
+ * immediately and never awaits the row — it carries a self-contained pre-built
+ * B2AGG `requestBytes` and needs nothing read back off it. Failing an Agglayer row
+ * whose note IS on chain is actively harmful: `BridgeClaimSection` gates the deposit
+ * tracker and the whole Connect-wallet / Claim-Asset block on
+ * `status !== Failed`, so a Failed row removes the only in-wallet path to claim the
+ * bridged funds on L1, and the Epoch-only "Reclaim funds" fallback does not apply.
+ * So an Agglayer row takes the generic “mark Completed, sync will reconcile” path
+ * instead, exactly like a plain send.
+ *
+ * A `bridged-send` with no recorded `provider` (no such row is written by this
+ * codebase — `IBridgedSendExtraInputs.provider` is required) is treated as NOT
+ * result-awaiting, matching `isRequeueableTransaction`'s handling of the same field.
+ */
+const RESULT_AWAITING_BRIDGE_PROVIDER: IBridgeProvider = 'epoch';
+
+const isResultAwaitingRow = (tx: Pick<ITransaction, 'type' | 'extraInputs'>): boolean => {
+  if (tx.type === 'earn-deposit') return true;
+  if (tx.type === 'bridged-send') return bridgeProviderOf(tx) === RESULT_AWAITING_BRIDGE_PROVIDER;
+  return false;
+};
+
+/**
+ * Activity label for a guardian row whose submit LANDED on chain but whose local
+ * reconcile failed. There is no `TransactionResult` here, so the label is derived
+ * from the type alone and must match what the happy-path completion handler would
+ * have written: `completeConsumeTransaction` → "Claimed",
+ * `completeBridgedSendTransaction` → "Bridged to EVM", everything else → "Sent".
+ */
+const applyLandedDisplayMessage = (type: ITransactionType): string => {
+  if (type === 'consume') return 'Claimed';
+  if (type === 'bridged-send') return 'Bridged to EVM';
+  return 'Sent';
+};
 
 // Cooldown (seconds) applied to a tx requeued after a transient guardian
 // pending-delta 409. A persistently-conflicting tx is always the OLDEST Queued
@@ -181,6 +242,18 @@ const RATE_LIMIT_REQUEUE_COOLDOWN_SEC = 30;
 //   - Too large and the row never becomes eligible before MAX_QUEUED_AGE (30
 //     min from initiatedAt) reaps it, so the user waits out the whole cap for
 //     zero retries and gets a generic "expired" message.
+// Cooldown (seconds) applied to a tx deferred because the wallet LOCKED mid-sign
+// (issue #313). The deferral has to return the row to `Queued`: `generateTransaction`
+// advances it to `GeneratingTransaction` BEFORE any signing, and
+// `getTransactionsInProgress()` selects exactly that status, so a row left there
+// head-of-line blocks `generateTransactionsLoop` for EVERY account until
+// `cancelStuckTransactions` reaps it at MAX_WAIT_BEFORE_CANCEL (30 min desktop /
+// 2 min mobile) — the terminal note-claim failure the #313 guard exists to prevent.
+// The cooldown keeps a still-locked wallet from re-attempting (and re-syncing)
+// every ~5s poll, and is short enough that the first post-unlock cycle picks the
+// tx up; MAX_QUEUED_AGE stays the terminal cap.
+const LOCKED_REQUEUE_COOLDOWN_SEC = 15;
+
 const MIN_RATE_LIMIT_REQUEUE_COOLDOWN_SEC = PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC;
 const MAX_RATE_LIMIT_REQUEUE_COOLDOWN_SEC = 300;
 
@@ -288,8 +361,10 @@ async function reconcileStructuralApplyFailure(
  * failing a killed consume we ask the node whether the note landed as consumed and
  * mark it Completed if so.
  *
- * Returns `true` when it marked the row Completed (the caller must NOT then fail
- * it); `false` to fall through to the existing `cancelTransaction` → Failed.
+ * Returns `true` when the caller must NOT fail the row — either because this
+ * marked it Completed, or because the node reports the consume already in flight
+ * (`'processing'`), which the stuck reaper resolves on a later cycle. Returns
+ * `false` to fall through to the existing `cancelTransaction` → Failed.
  *
  * FUNDS-SAFETY — a false 'Received' is impossible. 'landed' requires a node-positive
  * consumed state, and this path completes ONLY on `'landed-local'`: a note consumed
@@ -301,7 +376,15 @@ async function reconcileStructuralApplyFailure(
  * on the note nullifier and the next sync reconciles the row — never a false
  * 'Received' telling the user they got funds a third party actually took. A missing
  * note, `'invalid'`, `'not-landed'`, or a query error (`'unknown'`) likewise return
- * `false` → the unchanged funds-safe Failed path. SCOPE is CONSUME only: send / swap
+ * `false` → the unchanged funds-safe Failed path.
+ *
+ * `'processing'` is the one verdict that is neither: the note is spent by a
+ * transaction of OURS that was submitted and applied locally, so failing the row
+ * would report a claim that reached the node as Failed (and count it toward the
+ * per-note auto-consume backoff), while completing it would call a not-yet-committed
+ * block 'Received'. It therefore returns `true` WITHOUT writing a terminal status —
+ * the row stays in progress and `verifyStuckTransactionsFromNode` resolves it once
+ * the note settles into a consumed state or reverts to `Committed`. SCOPE is CONSUME only: send / swap
  * / execute / bridged-send / earn-deposit have no node-checkable post-kill identity
  * (their tx-id/output-note are lost with the killed result) — a separate deferred
  * follow-up (#3b) handles them, and this helper leaves that send-style path untouched.
@@ -315,6 +398,9 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
   // sync: true — this resolves ONE killed tx and wants the freshest possible note
   // state before deciding (the background reaper rides AutoSync and passes false).
   const verdict = await verifyConsumeLanded(consumeTx, true);
+  // In flight: submitted and applied locally, block not committed yet. Neither
+  // terminal state is honest, so leave the row for the reaper (see above).
+  if (verdict === 'processing') return true;
   // Complete ONLY on 'landed-local' (provably this client's own consume). See the
   // FUNDS-SAFETY note above: 'landed-external'/'invalid'/'not-landed'/'unknown' →
   // funds-safe Failed, never a false 'Received'.
@@ -331,6 +417,42 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
   });
   return true;
 }
+
+/**
+ * Throws when `openEarnPosition` has already abandoned this earn deposit, so the
+ * collateral note must NOT be submitted. Called by BOTH leaves — the Guardian one
+ * and the non-Guardian one — each inside its own error handling, which is why it
+ * is a helper rather than a single check at the top of `generateTransaction`.
+ *
+ * `openEarnPosition` gives up on a deposit whose queued row didn't complete within
+ * `waitForTransactionCompletion`'s 5 minutes (or whose Epoch intent was aborted)
+ * and records that by patching `extraInputs.epochStatus = 'failed'` (earn.ts). That
+ * patch does NOT touch `status` — unlike the bridged-send abandonment path
+ * (`markBridgedSendFailed`, which writes `Failed` and so removes the row from the
+ * Queued scan) — leaving the row Queued and well inside MAX_QUEUED_AGE, so the FIFO
+ * loop still picks it up once the queue drains. Submitting it then mints a P2IDE
+ * collateral note to the Epoch allocator with no live intent behind it: the funds
+ * are stranded until the note's reclaim height (MIDEN_MIN_RECLAIM_BLOCKS +
+ * MIDEN_RECLAIM_BUFFER_BLOCKS) and the activity row falsely reads "Deposited to
+ * lending".
+ *
+ * The row is re-read rather than trusted from memory: the in-memory copy was loaded
+ * when the loop picked the row, which can be minutes earlier — exactly the window in
+ * which the caller gives up.
+ *
+ * The throw is terminal (→ cancelTransaction → Failed), and a Failed earn-deposit is
+ * never auto-requeued: it is excluded from REQUEUEABLE_TYPES precisely so it cannot
+ * be replayed into a duplicate note.
+ */
+const assertEarnDepositIntentLive = async (transaction: ITransaction): Promise<void> => {
+  const freshRow = await Repo.transactions.where({ id: transaction.id }).first();
+  const row: ITransaction = freshRow ?? transaction;
+  if (row.extraInputs?.epochStatus === 'failed') {
+    throw new Error(
+      'Earn deposit was already abandoned by the caller (epochStatus=failed) — refusing to submit an orphan collateral note.'
+    );
+  }
+};
 
 export const generateTransaction = async (
   transaction: Transaction,
@@ -381,7 +503,7 @@ export const generateTransaction = async (
       // old guardian). Run the same finalization the happy path would; only cancel if
       // that reconcile itself fails.
       if (
-        extractSdkErrorCode(error) === 'ApplyTransactionAfterSubmitFailed' &&
+        isApplyAfterSubmitError(error) &&
         (transaction.type === 'replace-hot-key' || transaction.type === 'switch-guardian')
       ) {
         try {
@@ -400,37 +522,45 @@ export const generateTransaction = async (
       // reconciles the note state via ConsumedExternal. (Structural ops are handled
       // above and never reach here on success.)
       //
-      // Earn-deposit is the exception among value-moving guardian ops: its caller
-      // (`createEarnP2IDNote` via `waitForTransactionCompletion`) reads
-      // `resultBytes`/`outputNoteIds` back off the finished row. On a post-submit
-      // failure — a local apply throw OR a canonicalization race — there is NO
-      // TransactionResult to repopulate them, so marking the row Completed (as the
-      // branches below do for send/consume/swap/execute) would leave the caller to
-      // `TransactionResult.deserialize(undefined)`, which throws AFTER `cleanup()` and
-      // hangs the wait promise (and `openEarnPosition`) forever. Fail the row instead
-      // so the caller resolves via the error branch; the on-chain P2IDE collateral note
-      // reclaims itself at its recall height. Mirrors generateTransactionsLoop's
-      // non-guardian guard; earn-deposit is excluded from `REQUEUEABLE_TYPES` (retry.ts)
-      // so a Failed row is never re-queued into a duplicate collateral note. (It IS a
-      // member of REQUEUEABLE_ON_PENDING_CONFLICT, but that set only requeues still-Queued
-      // rows on a transient pre-submit 409; a Failed row is terminal.)
+      // The result-awaiting exception among value-moving guardian ops
+      // (earn-deposit and EPOCH bridged-send): their callers read `resultBytes` /
+      // `outputNoteIds` back off the finished row, and a post-submit failure — a
+      // local apply throw OR a canonicalization race — leaves no TransactionResult
+      // to repopulate them from. Marking the row Completed (as the branches below do
+      // for send/consume/swap/execute/agglayer bridged-send) would hang the awaiting
+      // Epoch flow forever; see the `isResultAwaitingRow` doc comment for the full
+      // mechanism. Fail the row instead so the caller resolves via its error branch.
+      // Mirrors generateTransactionsLoop's non-guardian guard; neither row can be
+      // blindly re-queued into a duplicate collateral note (both are excluded from
+      // `REQUEUEABLE_TYPES` — earn-deposit outright, bridged-send for the Epoch
+      // provider, which is the only provider that takes this collateral-note path).
+      // (earn-deposit IS a member of REQUEUEABLE_ON_PENDING_CONFLICT, but that set
+      // only requeues still-Queued rows on a transient pre-submit 409; a Failed row
+      // is terminal.)
       if (
-        transaction.type === 'earn-deposit' &&
-        (extractSdkErrorCode(error) === 'ApplyTransactionAfterSubmitFailed' || isGuardianCanonicalizationError(error))
+        isResultAwaitingRow(transaction) &&
+        (isApplyAfterSubmitError(error) || isGuardianCanonicalizationError(error))
       ) {
         console.warn(
-          '[Guardian] earn-deposit submitted but post-submit reconcile failed — marking Failed so the awaiting caller stops waiting:',
+          `[Guardian] ${transaction.type} submitted but post-submit reconcile failed — marking Failed so the awaiting caller stops waiting:`,
           error
         );
         await cancelTransaction(transaction, error);
         return;
       }
+      // `bridged-send` is in this list too, and by the ordering above it can only
+      // be an Agglayer (Slow) row here — an Epoch one returned from the
+      // result-awaiting branch. Its B2AGG note is on chain, so it must be marked
+      // Completed like any other landed value-moving op; leaving it to fall through
+      // to `cancelTransaction` would hide the L1 claim UI on funds that already left
+      // the account (see the `isResultAwaitingRow` doc comment).
       if (
-        extractSdkErrorCode(error) === 'ApplyTransactionAfterSubmitFailed' &&
+        isApplyAfterSubmitError(error) &&
         (transaction.type === 'consume' ||
           transaction.type === 'send' ||
           transaction.type === 'swap' ||
-          transaction.type === 'execute')
+          transaction.type === 'execute' ||
+          transaction.type === 'bridged-send')
       ) {
         console.warn(
           '[Guardian] submit landed but local apply failed — marking Completed; sync will reconcile:',
@@ -438,7 +568,7 @@ export const generateTransaction = async (
         );
         try {
           await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
-            displayMessage: transaction.type === 'consume' ? 'Claimed' : 'Sent',
+            displayMessage: applyLandedDisplayMessage(transaction.type),
             completedAt: Math.floor(Date.now() / 1000) // seconds
           });
         } catch (markErr) {
@@ -456,7 +586,7 @@ export const generateTransaction = async (
         console.warn('[Guardian] canonicalization race during tx generation — marking Completed:', error);
         try {
           await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
-            displayMessage: transaction.type === 'consume' ? 'Claimed' : 'Sent',
+            displayMessage: applyLandedDisplayMessage(transaction.type),
             completedAt: Math.floor(Date.now() / 1000) // seconds
           });
         } catch (markErr) {
@@ -585,10 +715,11 @@ export const generateTransaction = async (
       // have LANDED on chain before the offscreen realm was torn down. Its noteId
       // is known pre-execute, so verify against the node: only 'landed-local'
       // (provably this client's own consume) → Completed (the note WAS claimed)
-      // instead of a misleading Failed; 'landed-external' (not provably mine) /
-      // 'invalid' / 'not-landed' / 'unknown' fall through to the funds-safe
-      // cancelTransaction below. CONSUME only — send/swap/execute have no post-kill
-      // node identity (deferred #3b).
+      // instead of a misleading Failed; 'processing' (submitted + applied locally,
+      // awaiting commit) leaves the row in progress for the stuck reaper;
+      // 'landed-external' (not provably mine) / 'invalid' / 'not-landed' /
+      // 'unknown' fall through to the funds-safe cancelTransaction below. CONSUME
+      // only — send/swap/execute have no post-kill node identity (deferred #3b).
       if (await tryCompleteKilledConsume(transaction, error)) return;
       await cancelTransaction(transaction, error);
     }
@@ -652,6 +783,14 @@ export const generateTransaction = async (
       // `requestBytes`); Agglayer bridged-send carries a pre-built request. Route the
       // leaf through the proxy so it runs offscreen flag-on, inline flag-off — same
       // args the former inline `getMidenClient(options)` block passed.
+      //
+      // The abandoned-intent guard the Guardian leaf has must apply here too: this
+      // shared block had none, so a non-Guardian account still minted the orphan
+      // collateral note. `bridged-send` needs no equivalent — its abandonment path
+      // writes `status = Failed`, which takes the row out of the Queued scan.
+      if (transaction.type === 'earn-deposit') {
+        await assertEarnDepositIntentLive(transaction);
+      }
       if (transaction.type === 'bridged-send' && transaction.requestBytes) {
         result = await midenClientProxy.newTransaction(
           transaction.accountId,
@@ -1092,18 +1231,12 @@ const generateGuardianTransaction = async (
           'Earn deposit is missing recallBlocks/allocator — the collateral must be a recallable P2IDE note.'
         );
       }
-      // If openEarnPosition already abandoned this deposit — its 5-min
-      // waitForTransactionCompletion timed out, or the Epoch intent was aborted — it
-      // marked extraInputs.epochStatus 'failed'. A guardian requeue can keep this row
-      // live past that wait (up to MAX_QUEUED_AGE), so bail out rather than submit a
-      // collateral note the allocator has no live intent for: that would strand the note
-      // until its recall height AND falsely mark the row 'Deposited to lending'. This
-      // throw is terminal (→ cancelTransaction below), and a Failed row is never re-picked.
-      if (earnTx.extraInputs?.epochStatus === 'failed') {
-        throw new Error(
-          'Earn deposit was already abandoned by the caller (epochStatus=failed) — refusing to submit an orphan collateral note.'
-        );
-      }
+      // If openEarnPosition already abandoned this deposit, bail out rather than
+      // submit a collateral note the allocator has no live intent for. A guardian
+      // requeue can keep this row live long past the caller's wait (up to
+      // MAX_QUEUED_AGE). See assertEarnDepositIntentLive; the throw is terminal
+      // (→ cancelTransaction below) and a Failed row is never re-picked.
+      await assertEarnDepositIntentLive(earnTx);
       // Build the P2IDE collateral request via the shared guardian helper (same as
       // the recallable send / Epoch bridge paths). `freshSync`: earn collateral is
       // allocator-validated, so measure the reclaim height against a current head.
@@ -1423,9 +1556,10 @@ export const generateTransactionsLoop = async (
     return true;
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
-    // The SDK attaches a stable `errorCode` string to thrown errors for
-    // variants callers are expected to dispatch on. See
-    // `error_code_from_client_error` in miden-client.
+    // A stable code string, when the SDK attaches one (web-sdk sets `code`; the
+    // offscreen bus re-attaches a forwarded code as `errorCode`). web-sdk 0.16
+    // maps only a couple of account-tracking variants, so most failures arrive
+    // code-less and are classified by text instead — see `isApplyAfterSubmitError`.
     const errorCode = extractSdkErrorCode(e);
 
     // If the failure was caused by the wallet being locked mid-sign,
@@ -1444,7 +1578,25 @@ export const generateTransactionsLoop = async (
     // rather than marking it Failed.
     const authReason = await readLastAuthReason();
     if (authReason === 'locked' || isLockedError(e)) {
-      logger.warning('Wallet locked during tx generation; leaving tx queued for retry');
+      logger.warning('Wallet locked during tx generation; requeueing tx for retry after unlock');
+      // Genuinely RE-QUEUE it. `generateTransaction` already advanced the row to
+      // `GeneratingTransaction` (before any signing), and that status is exactly
+      // what `getTransactionsInProgress()` selects — so a bare `return` would pin
+      // the FIFO for every account until the stuck reaper Failed this row half an
+      // hour later. Nothing reached the chain: the failure is a locked vault at
+      // sign time, which is strictly pre-submit, so requeueing cannot double-spend.
+      // Wrapped: `updateTransactionStatus` throws on an already-terminal row (a
+      // concurrent cancel), and that throw must not escape the loop's catch.
+      try {
+        await requeueTransactionForRetry(
+          nextTransaction.id,
+          nextTransaction.type,
+          'syncing',
+          LOCKED_REQUEUE_COOLDOWN_SEC
+        );
+      } catch (requeueError) {
+        logger.warning('Failed to requeue locked transaction', requeueError);
+      }
       return false;
     }
 
@@ -1453,24 +1605,22 @@ export const generateTransactionsLoop = async (
     // outcome; the next sync will reconcile note states via
     // ConsumedExternal. Retrying would hit the node's nullifier check
     // and produce a misleading "already consumed" error.
-    if (errorCode === 'ApplyTransactionAfterSubmitFailed') {
+    if (isApplyAfterSubmitError(e)) {
       const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
 
-      // `earn-deposit` is the one type whose caller (`createEarnP2IDNote` via
-      // `waitForTransactionCompletion`) reads `resultBytes`/`outputNoteIds` back off
-      // the completed row. This generic post-submit path has no `TransactionResult`
-      // to repopulate them from (the apply threw before we could capture it), so
-      // marking the row Completed here would leave the caller to
-      // `TransactionResult.deserialize(undefined)` — which throws *after* cleanup()
-      // fires, settling the wait promise as neither success nor timeout and hanging
-      // the Epoch solve callback (and `openEarnPosition`) forever. Fail the row
-      // instead so the caller resolves via the error branch and gives up cleanly;
-      // the on-chain P2IDE collateral note reclaims itself at its recall height.
-      // `earn-deposit` is excluded from `REQUEUEABLE_TYPES`, so a Failed row is never
-      // blindly re-queued into a duplicate collateral note.
-      if (tx && tx.type === 'earn-deposit') {
+      // Result-awaiting rows (earn-deposit, EPOCH bridged-send) must NOT be marked
+      // Completed here: their callers read `resultBytes`/`outputNoteIds` back off
+      // the completed row and this generic post-submit path has no
+      // `TransactionResult` to repopulate them from (the apply threw before we could
+      // capture it). See the `isResultAwaitingRow` doc comment. Fail the row instead
+      // so the caller resolves via the error branch and gives up cleanly; the
+      // on-chain P2IDE collateral note reclaims itself at its recall height, and
+      // neither is blindly re-queued into a duplicate collateral note. An AGGLAYER
+      // `bridged-send` is deliberately NOT in this branch — nothing awaits it, its
+      // note is on chain, and failing it would hide the L1 claim UI.
+      if (tx && isResultAwaitingRow(tx)) {
         logger.warning(
-          'Earn-deposit submitted but local apply failed; marking Failed so the awaiting caller stops waiting'
+          `${tx.type} submitted but local apply failed; marking Failed so the awaiting caller stops waiting`
         );
         if (tx.status !== ITransactionStatus.Failed) await cancelTransaction(tx, e);
         return false;
@@ -1494,10 +1644,15 @@ export const generateTransactionsLoop = async (
       return false;
     }
 
-    // If the input note was already consumed on chain, the pre-flight
-    // nullifier check transitioned it to ConsumedExternal. Mark this tx
-    // Failed (it never reached chain) but the note is already reconciled
-    // — subsequent cycles won't retry it.
+    // Diagnostic only. If the input note was already consumed on chain, the
+    // pre-flight nullifier check transitioned it to ConsumedExternal; the tx is
+    // then marked Failed below (it never reached chain) while the note stays
+    // reconciled, so subsequent cycles won't retry it. This branch logs that
+    // case when the SDK labels it — web-sdk 0.16 does not emit an
+    // `InputNoteAlreadyConsumedOnChain` code, so it is currently only reachable
+    // from a code explicitly attached by a caller or a future SDK. It changes no
+    // behaviour either way; the funds-critical classification is
+    // `isApplyAfterSubmitError` above.
     if (errorCode === 'InputNoteAlreadyConsumedOnChain') {
       logger.warning('Input note already consumed on chain; tx unnecessary');
     }
@@ -1506,8 +1661,9 @@ export const generateTransactionsLoop = async (
     // guardian catch in generateTransaction). An OperationAbortedError on a
     // consume whose note the node reports as consumed BY THIS CLIENT'S OWN tx
     // ('landed-local') → mark Completed (the note WAS claimed), no requeue;
-    // otherwise (incl. 'landed-external' — consumed but not provably mine) fall
-    // through to the funds-safe Failed path below. Send/swap/execute are untouched
+    // 'processing' → leave the row in progress for the stuck reaper; otherwise
+    // (incl. 'landed-external' — consumed but not provably mine) fall through to
+    // the funds-safe Failed path below. Send/swap/execute are untouched
     // (deferred #3b).
     if (await tryCompleteKilledConsume(nextTransaction, e)) return false;
 

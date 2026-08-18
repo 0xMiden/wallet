@@ -1,7 +1,7 @@
 import PQueue from 'p-queue';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
-import { MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
+import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
 import {
   applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
   resolveGuardianDrift
@@ -487,6 +487,17 @@ export function removeDAppSession(origin: string) {
  * `dappConfirmationStore` requests by it. Single-session callers
  * (extension popup, faucet-webview, native-notifications) omit the
  * argument and the legacy "default" slot is used.
+ *
+ * Enforces the Settings → "DApps Interaction" kill switch HERE, at the single
+ * point every transport funnels through, rather than at each entry point. The
+ * `MidenMessageType.PageRequest` arms in `back/main.ts` and
+ * `intercom/in-process-request-handler.ts` keep their own check because they
+ * additionally gate the PING availability probe (which never reaches this
+ * function); the mobile in-app browser and the desktop Tauri dApp window do NOT
+ * go through PageRequest at all — `handleWebViewMessage` calls this directly —
+ * so before this gate existed the toggle was inert on three of the four shipped
+ * platforms. Throwing (rather than returning void) surfaces to the dApp as a
+ * rejected request instead of a silent `null`.
  */
 export async function processDApp(
   origin: string,
@@ -494,6 +505,9 @@ export async function processDApp(
   sessionId?: string
 ): Promise<MidenDAppResponse | void> {
   dappDebug('[processDApp] Called with origin:', origin, 'sessionId:', sessionId, 'req type:', req?.type);
+  if (!(await isDAppEnabled())) {
+    throw new Error(MidenDAppErrorType.NotGranted);
+  }
   // This dumps the full request payload (addresses, amounts, note ids,
   // transaction payload). Gated behind DEBUG_DAPP_BRIDGE so release
   // builds don't leak transaction data to os_log / logcat.
@@ -518,22 +532,22 @@ export async function processDApp(
       return withInited(() => getDappQueue().add(() => requestConsumeTransaction(origin, req, sessionId)));
 
     case MidenDAppMessageType.PrivateNotesRequest:
-      return withInited(() => getDappQueue().add(() => requestPrivateNotes(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestPrivateNotes(origin, req, sessionId)));
 
     case MidenDAppMessageType.SignRequest:
-      return withInited(() => getDappQueue().add(() => requestSign(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestSign(origin, req, sessionId)));
 
     case MidenDAppMessageType.AssetsRequest:
-      return withInited(() => getDappQueue().add(() => requestAssets(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestAssets(origin, req, sessionId)));
 
     case MidenDAppMessageType.GuardianInfoRequest:
       return withInited(() => getDappQueue().add(() => requestGuardianInfo(origin, req)));
 
     case MidenDAppMessageType.ImportPrivateNoteRequest:
-      return withInited(() => getDappQueue().add(() => requestImportPrivateNote(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestImportPrivateNote(origin, req, sessionId)));
 
     case MidenDAppMessageType.ConsumableNotesRequest:
-      return withInited(() => getDappQueue().add(() => requestConsumableNotes(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestConsumableNotes(origin, req, sessionId)));
 
     case MidenDAppMessageType.WaitForTransactionRequest:
       return withInited(() => waitForTransaction(req));

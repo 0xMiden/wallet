@@ -1,6 +1,7 @@
 import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
 import { getSignerDetailsFromAccount } from 'lib/miden/guardian/account';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
+import { isExtension } from 'lib/platform';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import type { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -222,8 +223,21 @@ export async function syncGuardianAccounts(): Promise<void> {
       // threshold-1 indefinitely. Idempotent + best-effort; once per session.
       if (!hardeningChecked.has(account.publicKey)) {
         hardeningChecked.add(account.publicKey);
-        const { ensureGuardianProcedureThresholds } = await import('lib/miden/transaction');
-        await ensureGuardianProcedureThresholds(account.publicKey, undefined, zustandProvider);
+        const { ensureGuardianProcedureThresholds, startBackgroundTransactionProcessing } =
+          await import('lib/miden/transaction');
+        const hardeningTxId = await ensureGuardianProcedureThresholds(account.publicKey, undefined, zustandProvider);
+        // The nudge inside `ensureGuardianProcedureThresholds` is
+        // `requestSWTransactionProcessing()`, which returns immediately when
+        // there is no extension service worker. Off-extension nothing else
+        // starts the FIFO loop from this path, so without this the freshly
+        // queued `update-procedure-threshold` row would sit Queued for the rest
+        // of the session — visible in Activity as a pending entry that never
+        // progresses, with the account left un-hardened until the next app
+        // launch's OrphanedTransactionRecovery picked it up. Every other enqueue
+        // site pairs the nudge with exactly this driver.
+        if (hardeningTxId && !isExtension()) {
+          startBackgroundTransactionProcessing(useWalletStore.getState().signTransaction, false, zustandProvider);
+        }
       }
     } catch (error) {
       // An auth rejection (401) means the guardian's request-auth allowlist and

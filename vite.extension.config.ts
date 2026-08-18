@@ -225,9 +225,16 @@ const sharedDefine = {
   // E2E behaviour opt-outs. Separate from MIDEN_E2E_TEST (which only installs
   // the __TEST_*__ hooks) so a harness build can keep the hooks while still
   // exercising the real side panel / endpoint-override paths. Default 'false'
-  // => identical to today in every non-E2E build. Both MUST stay defined: this
-  // bundle runs with `globals: { process: false }` below, so a `process.env.X`
-  // read that isn't replaced at build time throws a ReferenceError at runtime.
+  // => identical to today in every non-E2E build.
+  //
+  // Both MUST stay defined here AND in every other config that bundles the
+  // reading module. A `process.env.X` read with no matching define does NOT
+  // fail loudly: the bundler rewrites the un-matched `process.env` base to an
+  // empty object literal, so the shipped code is `{}.X === '...'` — always
+  // `undefined`, i.e. the flag is silently OFF in that bundle with no
+  // diagnostic at all. (That is exactly how DEBUG_DAPP_BRIDGE went dead across
+  // all five configs.) Adding a flag to one config and not the others is
+  // therefore a silent behaviour split, not a crash.
   'process.env.MIDEN_E2E_DISABLE_SIDEPANEL': JSON.stringify(process.env.MIDEN_E2E_DISABLE_SIDEPANEL ?? 'false'),
   'process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES': JSON.stringify(
     process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES ?? 'false'
@@ -243,6 +250,12 @@ const sharedDefine = {
     process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
   ),
   'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
+  // dApp-bridge debug logging: `dappDebug` (lib/miden/back/dapp.ts) and `dlog`
+  // (lib/dapp-browser/message-handler.ts) both read this. It MUST be defined in
+  // every config that bundles either module — an un-defined `process.env.X` read
+  // is rewritten to `{}.X`, i.e. `undefined`, so the flag would be permanently
+  // off and the documented `DEBUG_DAPP_BRIDGE=1` escape hatch would do nothing.
+  'process.env.DEBUG_DAPP_BRIDGE': JSON.stringify(process.env.DEBUG_DAPP_BRIDGE ?? ''),
   'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
   // Requires the explicit-prover fix from 0xMiden/web-sdk#182
   // (>= 0.15.0-alpha.6); see the rationale block in

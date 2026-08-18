@@ -190,31 +190,58 @@ describe('swap order note settlement', () => {
     expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback], true);
   });
 
-  it('persists expiry intent before batching the current tip and all paybacks', async () => {
+  it('persists expiry intent before queueing, and never batches the still-fillable tip with the paybacks', async () => {
     const tip = consumable('tip', 'tip');
     const payback = consumable('payback', 'payback');
+    (initiateConsumeNotesTransaction as jest.Mock)
+      .mockResolvedValueOnce('consume-payback')
+      .mockResolvedValueOnce('consume-tip');
+
     await reconcileSwapOrderNotes('account-1', [tip, payback], true, 220);
 
-    // Two writes: the expiry intent on the swap row, then the settlement tag
-    // on the queued consume row.
-    expect(modify).toHaveBeenCalledTimes(2);
+    // One consume per role, paybacks first. A Miden transaction is atomic and an
+    // expired order's tip is still publicly fillable, so a solver that fills it
+    // would fail a combined batch — and the #215 backoff gate, which counts a
+    // note's failures through the shared batch row, would then throttle the
+    // payback claim (funds already delivered to this account) for 5, 10, 20 …
+    // minutes.
+    expect((initiateConsumeNotesTransaction as jest.Mock).mock.calls).toEqual([
+      ['account-1', [payback], true],
+      ['account-1', [tip], true]
+    ]);
+    // Three writes: the expiry intent on the swap row, then one settlement tag
+    // per queued consume row.
+    expect(modify).toHaveBeenCalledTimes(3);
     expect(modify.mock.invocationCallOrder[0]).toBeLessThan(
       (initiateConsumeNotesTransaction as jest.Mock).mock.invocationCallOrder[0]!
     );
-    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [tip, payback], true);
   });
 
-  it('tags an expired batch that still carries payback notes as settle — funds were received', async () => {
+  it('tags the payback consume settle and the tip consume reclaim, each on its own row', async () => {
+    (initiateConsumeNotesTransaction as jest.Mock)
+      .mockResolvedValueOnce('consume-payback')
+      .mockResolvedValueOnce('consume-tip');
+
     await reconcileSwapOrderNotes('account-1', [consumable('tip', 'tip'), consumable('payback', 'payback')], true, 220);
 
-    expect(Repo.transactions.where).toHaveBeenCalledWith({ id: 'consume-1' });
-    const tagWriter = modify.mock.calls[modify.mock.calls.length - 1]![0] as unknown as (tx: {
-      type: string;
-      extraInputs?: Record<string, unknown>;
-    }) => void;
-    const consumeRow = { type: 'consume', extraInputs: undefined as Record<string, unknown> | undefined };
-    tagWriter(consumeRow);
-    expect(consumeRow.extraInputs).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'settle' });
+    // where() call 1 is the expiry-intent write on the swap row; 2 and 3 are the
+    // two settlement tags, in queueing order.
+    expect(Repo.transactions.where).toHaveBeenNthCalledWith(2, { id: 'consume-payback' });
+    expect(Repo.transactions.where).toHaveBeenNthCalledWith(3, { id: 'consume-tip' });
+
+    const tagsWrittenBy = (modifyCall: number) => {
+      const tagWriter = modify.mock.calls[modifyCall]![0] as unknown as (tx: {
+        type: string;
+        extraInputs?: Record<string, unknown>;
+      }) => void;
+      const consumeRow = { type: 'consume', extraInputs: undefined as Record<string, unknown> | undefined };
+      tagWriter(consumeRow);
+      return consumeRow.extraInputs;
+    };
+    expect(tagsWrittenBy(1)).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'settle' });
+    // The unfilled remainder is a reclaim — and now that it has its own row,
+    // `getSwapSettlementNotes` no longer buckets it as a settled (received) note.
+    expect(tagsWrittenBy(2)).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim' });
   });
 
   it('tags a fund-less expired batch (tip only) as reclaim', async () => {

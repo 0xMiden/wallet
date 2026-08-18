@@ -137,7 +137,8 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
-  getBech32AddressFromAccountId: () => 'bech32-addr'
+  getBech32AddressFromAccountId: () => 'bech32-addr',
+  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
 }));
 
 // Stub the wallet adapter package's enums (jest can't destructure the .mjs build).
@@ -208,6 +209,19 @@ const SESSION = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // The consume approval preview is derived from the note the wallet resolves, not
+  // from the dApp's declared faucet/amount/type, so consume tests need the note to
+  // exist in the store (note-1 / faucet-1 / 50, matching their request fixtures).
+  _g.__dappExtTest.midenClient.getInputNoteDetails = jest.fn().mockResolvedValue([
+    {
+      noteId: 'note-1',
+      noteType: 0,
+      senderAccountId: 's1',
+      nullifier: 'nf1',
+      state: 0,
+      assets: [{ faucetId: 'faucet-1', amount: '50' }]
+    }
+  ]);
   _g.__dappExtTest.intercomListeners.length = 0;
   for (const k of Object.keys(_g.__dappExtTest.storage)) delete _g.__dappExtTest.storage[k];
   _g.__dappExtTest.storage[STORAGE_KEY] = { 'https://miden.xyz': [SESSION] };
@@ -754,6 +768,12 @@ describe('Full confirmation cycles in extension mode', () => {
       { confirmed: true, delegate: true }
     );
     expect(res.type).toBe(MidenDAppMessageType.ConsumeResponse);
+
+    // 4th positional arg is `manualRetry`. The user just approved THIS consume on
+    // the confirm page, so auto-consume's exponential backoff must not swallow it
+    // and answer the dApp with a previous attempt's Failed row id.
+    const sdk = require('lib/miden/transaction');
+    expect(sdk.initiateConsumeTransactionFromId.mock.calls[0][3]).toBe(true);
   });
 
   it('requestPrivateNotes rejects when user declines (covers onDecline at L641)', async () => {

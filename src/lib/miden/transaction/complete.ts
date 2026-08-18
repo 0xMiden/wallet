@@ -66,22 +66,25 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
 
     // Relay the private note + wait for commit as a coherent unit on ONE client.
     // Both route through `midenClientProxy` (issue #260, slice 7b): under the flag
-    // the send ran offscreen, so the note lives in the OFFSCREEN client's store and
-    // that realm owns the fresh sync height — the relay + wait MUST run there, not on
-    // the dormant SW client. Flag-off both run on the SW client, byte-identical to
-    // the former inline `getMidenClient()` calls (each proxy call owns its own WASM
-    // lock, so the outer lock this block used to hold is gone). Best-effort: any
-    // relay/wait failure is caught and logged, then the row still reaches Completed
-    // (degraded, not Failed) below.
+    // the send ran offscreen, so the note is an APPLIED OUTPUT note of the OFFSCREEN
+    // client's store — and 0.16's `sendPrivateOutput` resolves it by id out of that
+    // store — so the relay + wait MUST run there, not on the dormant SW client.
+    // Flag-off both run on the SW client, byte-identical to the former inline
+    // `getMidenClient()` calls (each proxy call owns its own WASM lock, so the outer
+    // lock this block used to hold is gone). Best-effort: any relay/wait failure is
+    // caught and logged, then the row still reaches Completed (degraded, not Failed)
+    // below.
     try {
-      // Relay to the transport layer BEFORE waiting for commit. The block hint
-      // sendPrivateNote attaches is the client's current sync height, and the
-      // recipient scans FORWARD from it for the note's on-chain commitment.
-      // Waiting for commit first advances sync height to/past the commitment
-      // block, so on fast chains the hint overshoots the commitment and the
-      // recipient never finds the note (silent non-delivery). Relaying first
-      // keeps the hint below the commitment; the commit wait still gates the
-      // Completed status below.
+      // Relay to the transport layer BEFORE waiting for commit. Under 0.15 this
+      // ORDER was load-bearing: the hint was the client's live sync height, and
+      // waiting first advanced it past the note's commitment block, so the
+      // recipient — who scans FORWARD from the hint — silently never found the
+      // note. Under 0.16 `sendPrivateOutput` derives the hint from the note's
+      // stored `expected_height` instead, which does not move with sync, so the
+      // ordering is no longer what makes delivery correct. It is kept because it
+      // is still the right shape (relay the moment the note exists, gate the row's
+      // Completed status on the commit) — do not re-derive the old invariant from
+      // it.
       await midenClientProxy.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
       await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
@@ -493,14 +496,16 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     try {
       await setTransactionStage(tx.id, 'delivering');
       try {
-        // Relay BEFORE waiting for commit — same reason as completeCustomTransaction:
-        // the sync-height block hint must stay below the note's commitment block, or
-        // the recipient scans past it and never receives. Both the relay and the
-        // paired wait route through `midenClientProxy` (issue #260, slice 7b) so they
-        // run on the SAME client that created the note: the OFFSCREEN client flag-on
-        // (which owns the note + the fresh sync height), the SW client flag-off —
-        // byte-identical to the former inline block (each proxy call owns its WASM
-        // lock, so the outer lock is gone).
+        // Relay BEFORE waiting for commit — same shape as completeCustomTransaction,
+        // and the same caveat: under 0.16 the hint comes from the note's stored
+        // `expected_height`, not the client's live sync height, so the ordering is
+        // no longer what keeps the hint below the commitment block. Both the relay
+        // and the paired wait route through `midenClientProxy` (issue #260, slice
+        // 7b) so they run on the SAME client that created the note — the OFFSCREEN
+        // client flag-on, whose store holds it as an applied output note and is
+        // therefore the only one `sendPrivateOutput` can resolve it from; the SW
+        // client flag-off, byte-identical to the former inline block (each proxy
+        // call owns its WASM lock, so the outer lock is gone).
         await midenClientProxy.sendPrivateNote(note, tx.secondaryAccountId);
       } catch (error) {
         console.warn('Private-note transport failed; SDK outbox will retry on next sync', {

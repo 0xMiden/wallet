@@ -17,7 +17,7 @@
  * avoids tripping the host viewport bug documented in `viewport-reset.ts`.
  */
 
-import React, { type FC, useEffect, useRef } from 'react';
+import React, { type FC, useEffect, useRef, useState } from 'react';
 
 import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 import { motion } from 'framer-motion';
@@ -25,9 +25,16 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { useSprings } from 'lib/animation';
-import type { DAppConfirmationRequest, DAppConfirmationResult } from 'lib/dapp-browser/confirmation-store';
+import {
+  confirmationPromptKey,
+  isDetailsConfirmation,
+  type DAppConfirmationRequest,
+  type DAppConfirmationResult
+} from 'lib/dapp-browser/confirmation-store';
+import { formatAllowedPrivateData, grantsStandingPrivateDataAccess } from 'lib/dapp-browser/private-data-scope';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { truncateAddress } from 'utils/string';
 
 interface DappConfirmationModalProps {
@@ -43,10 +50,25 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   const { t } = useTranslation();
   // PR-7: reduce-motion-aware springs.
   const springs = useSprings();
-  const isTransaction = request.type === 'transaction' || request.type === 'consume';
+  // Every non-connect request kind (transaction, consume, sign, importPrivateNote,
+  // privateData) renders the same detail-list body; only the prompt line differs.
+  const isTransaction = isDetailsConfirmation(request.type);
   const appName = request.appMeta?.name || request.origin;
   const transactionMessages = request.transactionMessages ?? [];
   const canApprove = isTransaction || Boolean(accountId);
+
+  // Private-data scope of a connect request. `Auto` + a non-empty
+  // `allowedPrivateData` is STANDING access: the private-notes /
+  // consumable-notes / assets handlers then serve the origin on demand with no
+  // further prompt, for as long as the session lives. The prompt used to render
+  // none of this and echoed the dApp's requested permission straight back, so
+  // the user approved a scope they were never shown.
+  const requestsStandingPrivateData = grantsStandingPrivateDataAccess(
+    request.privateDataPermission,
+    request.allowedPrivateData
+  );
+  const allowedPrivateDataList = formatAllowedPrivateData(request.allowedPrivateData);
+  const [standingAccessAcknowledged, setStandingAccessAcknowledged] = useState(false);
 
   // PR-7: focus management. On mount we store the element that was
   // focused before the modal opened, move focus to the first focusable
@@ -135,7 +157,17 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     onResolve({
       confirmed: true,
       accountPublicKey: accountId ?? undefined,
-      privateDataPermission: request.privateDataPermission ?? PrivateDataPermission.UponRequest
+      // Standing access is granted only on an explicit affirmative gesture.
+      // Approving without ticking the box downgrades to `UponRequest` (each
+      // read prompts) instead of silently honouring what the dApp asked for.
+      privateDataPermission:
+        requestsStandingPrivateData && !standingAccessAcknowledged
+          ? PrivateDataPermission.UponRequest
+          : (request.privateDataPermission ?? PrivateDataPermission.UponRequest),
+      // Mobile has no confirm-popup equivalent of ConfirmPage, which reads this
+      // for the extension; without it the backend hard-coded delegated proving
+      // and silently overrode the user's Delegated-proving setting.
+      delegate: isDelegateProofEnabled()
     });
   }
 
@@ -179,9 +211,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
 
         {/* Body */}
         <div className="px-6 py-5">
-          <p className="mb-4 text-sm text-text-muted">
-            {isTransaction ? t('dappTransactionRequest') : t('dappConnectionRequest')}
-          </p>
+          <p className="mb-4 text-sm text-text-muted">{t(confirmationPromptKey(request.type))}</p>
 
           {isTransaction && transactionMessages.length > 0 && (
             <div className="mb-4 rounded-xl bg-gray-50 p-4">
@@ -202,6 +232,35 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
               <p className="font-inter text-sm text-grey-900">
                 {accountId ? truncateAddress(accountId) : t('noAccountSelected')}
               </p>
+            </div>
+          )}
+
+          {request.type === 'connect' && (
+            <div className="mb-4 rounded-xl bg-grey-50 p-4" data-testid="private-data-scope">
+              <p className="text-sm font-semibold text-grey-900">
+                {requestsStandingPrivateData ? t('privateDataAccessAuto') : t('privateDataAccessUponRequest')}
+              </p>
+              {requestsStandingPrivateData ? (
+                <>
+                  <p className="mt-1 text-xs text-grey-500">{t('accessWillBeGranted')}</p>
+                  <p className="text-xs font-semibold text-grey-900">{allowedPrivateDataList}</p>
+                  <p className="mt-2 text-xs text-grey-500">{t('confirmPrivateDataPermissionDescription')}</p>
+                  <label
+                    className="mt-3 flex items-start gap-2 text-xs text-grey-900"
+                    htmlFor="dapp-standing-private-data"
+                  >
+                    <input
+                      id="dapp-standing-private-data"
+                      type="checkbox"
+                      checked={standingAccessAcknowledged}
+                      onChange={event => setStandingAccessAcknowledged(event.target.checked)}
+                    />
+                    <span>{t('confirmRisk')}</span>
+                  </label>
+                </>
+              ) : (
+                <p className="mt-1 text-xs text-grey-500">{t('confirmationRequired')}</p>
+              )}
             </div>
           )}
 

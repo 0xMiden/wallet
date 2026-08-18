@@ -19,6 +19,7 @@ import {
   completeReplaceHotKeyTransaction,
   completeSwitchGuardianTransaction,
   completeUpdateProcedureThresholdTransaction,
+  ensureGuardianProcedureThresholds,
   generateTransaction,
   initiateReplaceHotKeyTransaction,
   initiateSwitchGuardianTransaction
@@ -30,6 +31,20 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
+
+/**
+ * The verbatim `Display` text miden-client produces for
+ * `ClientError::ApplyTransactionAfterSubmitFailed`, confirmed present in the
+ * shipped `@miden-sdk/miden-sdk@0.16.0-rc.2` wasm. That SDK attaches NO code
+ * property for this variant, so this string is the ONLY signal the wallet's
+ * classifier has. Building the fixture from the real message — instead of
+ * hand-setting an `errorCode` the SDK never sets — is what makes these tests
+ * fail if the classifier stops recognising what the SDK actually throws.
+ */
+const APPLY_AFTER_SUBMIT_ERROR_MESSAGE =
+  "Transaction 0xdeadbeef was accepted into the node's mempool at block 42 but the local store update failed. " +
+  'The pending update is attached to this error as `pending_update`; you can re-apply it later via ' +
+  '`Client::apply_transaction_update`. Do NOT resubmit the same transaction.';
 
 const txStore: Array<Record<string, unknown>> = [];
 const putToStorage = jest.fn(async (..._args: unknown[]) => {});
@@ -917,8 +932,7 @@ describe('generateTransaction — Guardian routing', () => {
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
 
     // Submit lands on-chain but the LOCAL apply throws ApplyTransactionAfterSubmitFailed.
-    const applyErr: Error & { errorCode?: string } = new Error('apply failed');
-    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    const applyErr = new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
     const applyFn = jest.fn(async () => {
       throw applyErr;
     });
@@ -1001,6 +1015,196 @@ describe('generateTransaction — Guardian routing', () => {
     );
 
     expect(txStore.find(r => r.id === txId)?.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('Guardian bridged-send: submit lands but local apply fails — row is marked Failed (not Completed)', async () => {
+    // Same hazard as earn-deposit: `createBridgeP2IDNote` blocks on
+    // waitForTransactionCompletion and reads `outputNoteIds` off the finished row.
+    // A Completed row with no resultBytes hangs that wait forever (the Epoch intent
+    // is never submitted) while the activity view reads "Bridged to EVM".
+    const txId = 'bridge-guardian-applyfail';
+    const requestBytes = new Uint8Array([51, 52, 53]);
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'bridged-send',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      extraInputs: {
+        provider: 'epoch',
+        destinationAddress: '0xevm',
+        destinationNetwork: 8453,
+        sourceFaucetId: 'faucet',
+        claimStatus: 'not-applicable',
+        recallBlocks: 1200
+      },
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
+    mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate: jest.fn() });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'bridge-applyfail-proposal', nonce: 8 })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const applyFn = jest.fn(async () => {
+      throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+    });
+    const client = Object.assign(makeClientApi(makeResult(), applyFn), {
+      sync: jest.fn(async () => ({ blockNum: () => 100 }))
+    });
+    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // POST-submit: the proposal was signed and submitted before apply threw, so the
+    // generic value-moving arm would have marked this Completed / 'Sent'.
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalled();
+    expect(applyFn).toHaveBeenCalled();
+    const row = txStore.find(r => r.id === txId);
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(row?.displayMessage).not.toBe('Sent');
+  });
+
+  it('Guardian AGGLAYER bridged-send: submit lands but local apply fails — row is marked Completed (not Failed)', async () => {
+    // Route-specific, unlike the Epoch case above. An Agglayer (Slow) row is queued
+    // by `initiateB2AggBridge`, which never awaits the row, so there is no waiter to
+    // strand — and its B2AGG note IS on chain. Failing it would hide the L1 claim UI
+    // (`BridgeClaimSection` gates the whole Connect-wallet / Claim-Asset block on
+    // `status !== Failed`) on funds that already left the account.
+    const txId = 'bridge-guardian-agglayer-applyfail';
+    const requestBytes = new Uint8Array([71, 72, 73]);
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'bridged-send',
+      amount: 1000n,
+      faucetId: 'faucet',
+      requestBytes,
+      extraInputs: {
+        provider: 'agglayer',
+        destinationAddress: '0xevm',
+        destinationNetwork: 0,
+        sourceFaucetId: 'faucet',
+        claimStatus: 'pending'
+      },
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'bridge-agglayer-proposal', nonce: 10 })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const applyFn = jest.fn(async () => {
+      throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+    });
+    const client = Object.assign(makeClientApi(makeResult(), applyFn), {
+      sync: jest.fn(async () => ({ blockNum: () => 100 }))
+    });
+    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(applyFn).toHaveBeenCalled();
+    const row = txStore.find(r => r.id === txId);
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    // The label matches what `completeBridgedSendTransaction` writes on the happy path.
+    expect(row?.displayMessage).toBe('Bridged to EVM');
+  });
+
+  it('Guardian bridged-send: a canonicalization race after submit also marks the row Failed (not Completed)', async () => {
+    // The canonicalization arm has no type filter at all, so before the fix a
+    // guardian bridged-send — the wallet's default account type — took the
+    // type-agnostic Completed path and hung `createBridgeP2IDNote`.
+    const txId = 'bridge-guardian-canon';
+    const requestBytes = new Uint8Array([61, 62, 63]);
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'bridged-send',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      extraInputs: {
+        provider: 'epoch',
+        destinationAddress: '0xevm',
+        destinationNetwork: 8453,
+        sourceFaucetId: 'faucet',
+        claimStatus: 'not-applicable',
+        recallBlocks: 1200
+      },
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
+    mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate: jest.fn() });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'bridge-canon-proposal', nonce: 9 })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const canonErr = new Error('Refusing to overwrite local state: incoming nonce 5 is not greater than local nonce 7');
+    const client = Object.assign(
+      makeClientApi(
+        makeResult(),
+        jest.fn(async () => {
+          throw canonErr;
+        })
+      ),
+      { sync: jest.fn(async () => ({ blockNum: () => 100 })) }
+    );
+    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId);
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(row?.displayMessage).not.toBe('Sent');
   });
 
   it('Guardian recallable send reuses persisted request bytes after a retry', async () => {
@@ -2386,8 +2590,7 @@ describe('generateTransaction — Guardian routing', () => {
     mockIsGuardianAccount.mockResolvedValue(true);
 
     // The submit lands on chain but the LOCAL apply throws — the rotation is real.
-    const applyErr: Error & { errorCode?: string } = new Error('apply failed');
-    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    const applyErr = new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
     mockGetMidenClient.mockResolvedValue({
       syncState: jest.fn(async () => {}),
       getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
@@ -2513,8 +2716,7 @@ describe('generateTransaction — Guardian routing', () => {
     };
     mockIsGuardianAccount.mockResolvedValue(true);
 
-    const applyErr: Error & { errorCode?: string } = new Error('apply failed');
-    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    const applyErr = new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
     mockGetMidenClient.mockResolvedValue({
       syncState: jest.fn(async () => {}),
       getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
@@ -2580,8 +2782,7 @@ describe('generateTransaction — Guardian routing', () => {
     };
     mockIsGuardianAccount.mockResolvedValue(true);
 
-    const applyErr: Error & { errorCode?: string } = new Error('apply failed');
-    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    const applyErr = new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
     mockGetMidenClient.mockResolvedValue({
       syncState: jest.fn(async () => {}),
       getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
@@ -2634,8 +2835,7 @@ describe('generateTransaction — Guardian routing', () => {
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
 
     // Submit lands on chain but the LOCAL apply throws — the note IS consumed.
-    const applyErr: Error & { errorCode?: string } = new Error('apply failed');
-    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    const applyErr = new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
     mockGetMidenClient.mockResolvedValue({
       syncState: jest.fn(async () => {}),
       client: makeClientApi(
@@ -2680,8 +2880,7 @@ describe('generateTransaction — Guardian routing', () => {
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
 
-    const applyErr: Error & { errorCode?: string } = new Error('apply failed');
-    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    const applyErr = new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
     mockGetMidenClient.mockResolvedValue({
       syncState: jest.fn(async () => {}),
       client: makeClientApi(
@@ -3259,5 +3458,41 @@ describe('completeUpdateProcedureThresholdTransaction', () => {
 
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+});
+
+describe('ensureGuardianProcedureThresholds', () => {
+  beforeEach(() => {
+    txStore.length = 0;
+    mockIsGuardianAccount.mockResolvedValue(true);
+  });
+
+  it('returns the queued txId so an off-extension caller can drive the FIFO loop', async () => {
+    // The only nudge inside this function is `requestSWTransactionProcessing()`,
+    // which is a no-op off-extension. The id is the caller's cue to start the
+    // background processor itself (see `syncGuardianAccounts`); returning nothing
+    // left the row Queued for the rest of the session on mobile/desktop.
+    mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 1 });
+
+    const txId = await ensureGuardianProcedureThresholds('guardian-acc', false, {} as never);
+
+    expect(typeof txId).toBe('string');
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.type).toBe('update-procedure-threshold');
+    expect(row.status).toBe(ITransactionStatus.Queued);
+  });
+
+  it('returns undefined when the account is already hardened (nothing was enqueued)', async () => {
+    mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 2 });
+
+    await expect(ensureGuardianProcedureThresholds('guardian-acc', false, {} as never)).resolves.toBeUndefined();
+    expect(txStore).toHaveLength(0);
+  });
+
+  it('returns undefined (never throws) when the threshold check itself fails', async () => {
+    mockGetOrCreateMultisigService.mockRejectedValue(new Error('guardian down'));
+
+    await expect(ensureGuardianProcedureThresholds('guardian-acc', false, {} as never)).resolves.toBeUndefined();
+    expect(txStore).toHaveLength(0);
   });
 });

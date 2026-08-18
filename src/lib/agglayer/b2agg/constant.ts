@@ -10,9 +10,10 @@ export const EVM_AGGLAYER_NETWORK_ID = 0;
 // real bridge faucet is used. The bridge-OUT AggLayer harness can't mint the real
 // faucet (custom transfer-policy, no key), so it points the whole Slow route at a
 // runtime-created test faucet instead. Mirrors `setAgglayerSenderForE2E`
-// (bridge-in). Read on the FRONT (createB2AggNote + the send-flow route gate);
-// `hasAgglayerFaucetOverride()` also flips the note's asset-callback flag so a
-// plain CLI faucet's (Disabled-flagged) balance is found — see b2agg/index.ts.
+// (bridge-in). Read on the FRONT (createB2AggNote + the send-flow route gate). No
+// asset-callback handling is needed: on 0.16 the flag is intrinsic to the faucet
+// account id, so pointing the route at the override id already yields the correct
+// asset.
 let e2eFaucetOverride: string | null = null;
 
 export function setAgglayerFaucetForE2E(faucetId: string): void {
@@ -21,8 +22,4 @@ export function setAgglayerFaucetForE2E(faucetId: string): void {
 
 export function getAgglayerFaucetId(): string {
   return e2eFaucetOverride ?? MIDEN_AGGLAYER_FAUCET_ID;
-}
-
-export function hasAgglayerFaucetOverride(): boolean {
-  return e2eFaucetOverride !== null;
 }

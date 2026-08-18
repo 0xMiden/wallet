@@ -40,6 +40,48 @@ export const INVALID_NOTE_ERROR = 'Note is invalid';
 
 export const TRANSACTION_FORCE_CANCELLED_ERROR = 'Transaction force-cancelled for debugging';
 
+/**
+ * Refusal reason for a Retry the wallet cannot prove is safe. Surfaced verbatim
+ * by the two retry footers (they render `error.message`).
+ */
+export const TRANSACTION_RETRY_UNSAFE_ERROR =
+  'This transaction may already have been submitted, so it cannot be retried automatically. ' +
+  'Check your activity once it syncs, and start a new one only if it never arrived.';
+
+/**
+ * True when a Failed row's `submit()` outcome cannot be ruled out from local
+ * state — i.e. "did this already reach the node?" is unanswerable here.
+ *
+ * ONE durable, in-realm signal decides it: `processingStartedAt`, stamped
+ * atomically with the Queued → GeneratingTransaction transition by the service
+ * worker's / driver's own ordered write, and never replayed across the offscreen
+ * bus. Its ABSENCE proves the row never left the queue, so nothing was executed,
+ * let alone submitted. Its PRESENCE proves nothing either way — which is the
+ * whole point: the answer is then UNKNOWN, and a caller that moves funds must
+ * treat it as "may already have landed".
+ *
+ * This used to ENUMERATE the failure reasons written by the routes that kill a
+ * row from OUTSIDE its own write pipeline (the stuck reaper, the cold-start
+ * sweep, a force-cancel, a user Cancel, an offscreen deadline kill) and let every
+ * other reason through as safe. That was fail-OPEN, because a write can also fail
+ * from INSIDE its own pipeline AFTER `submit()` has landed, and such a failure
+ * carries an arbitrary error string that matches no entry. Under
+ * `MIDEN_USE_OFFSCREEN_CLIENT` (the service worker's default, i.e. shipped
+ * Chrome) that is reachable three ways: the offscreen document going away right
+ * after a multi-second prove rejects `chrome.runtime.sendMessage`, and both
+ * `getWasmOrThrow()` and `TransactionResult.deserialize(...)` in
+ * `dispatchOffscreenWrite` run only AFTER the offscreen write reported success.
+ * Each left a landed send one tap away from a second submit.
+ *
+ * Deliberately NOT keyed on `tx.stage`: under `MIDEN_USE_OFFSCREEN_CLIENT` a
+ * non-guardian write runs in the offscreen realm and its stage stamps come back
+ * as TELEMETRY only, so a dropped stamp must never be able to widen this gate.
+ */
+export function isSubmitOutcomeUnknown(tx: { processingStartedAt?: number }): boolean {
+  // Never left the queue → nothing was executed, let alone submitted.
+  return tx.processingStartedAt !== undefined;
+}
+
 export const isUserCancelledTransaction = (error: unknown): boolean => error === USER_CANCELLED_TRANSACTION_REASON;
 
 /**

@@ -248,7 +248,8 @@ export interface MidenDAppSimulateTransactionRequest extends WalletMessageBase {
 
 export interface MidenDAppSimulateTransactionResponse extends WalletMessageBase {
   type: MidenMessageType.DAppSimulateTransactionResponse;
-  summaryBytes?: string; // base64 serialized TransactionSummary
+  summaryBytes?: string; // base64 serialized TransactionSummary (authorization pending)
+  executedBytes?: string; // base64 serialized TransactionResult (already fully authorized)
   error?: string;
 }
 

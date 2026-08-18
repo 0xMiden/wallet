@@ -424,6 +424,36 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
+  // The success receipt's hash (and its "View on Midenscan" link) must come
+  // from the row this page tracks, not from the module-global store slot: that
+  // slot is written only for a row that HAS a transactionId and is cleared only
+  // on entering /send or the swap flow, so a receipt dismissed with Done leaves
+  // the previous transaction's hash behind for the next one to inherit.
+  it("prefers the tracked row's transactionId over a leftover store hash", async () => {
+    mockRowState = { row: makeTx({ status: 2, transactionId: '0xrow' }), loaded: true };
+    mockWalletStoreState.lastCompletedTxHash = '0xpreviousSend';
+    getExplorerTxUrlMock.mockReturnValue('https://devnet.midenscan.com/tx/0xrow');
+
+    const { root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(getExplorerTxUrlMock).toHaveBeenCalledWith('0xrow');
+    expect(getExplorerTxUrlMock).not.toHaveBeenCalledWith('0xpreviousSend');
+    act(() => root.unmount());
+  });
+
+  // A consume completed by a path with no TransactionResult to stamp an id from
+  // leaves `transactionId` undefined; without this clear, the receipt would fall
+  // back to the previous transaction's hash.
+  it('clears a leftover completed-tx hash when it starts tracking a row', async () => {
+    mockRowState = { row: makeTx({ status: 1, stage: 'submitting' }), loaded: true };
+    mockWalletStoreState.lastCompletedTxHash = '0xpreviousSend';
+
+    const { root } = await mount(<GeneratingTransactionPage txId="tx-consume" />);
+
+    expect(mockWalletStoreState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
+    act(() => root.unmount());
+  });
+
   it('does not auto-navigate home when the row reaches a terminal state', async () => {
     navigateMock.mockClear();
     window.location.hash = '#/generating-transaction/tx-1';

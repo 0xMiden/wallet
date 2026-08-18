@@ -79,7 +79,8 @@ describe('PrivateDataPermissionBanner', () => {
       expect(screen.getByText('privateDataAccessAuto')).toBeInTheDocument();
       expect(screen.getByText('accessWillBeGranted')).toBeInTheDocument();
 
-      // Every `if` in allowedPrivateDataToString is truthy → all three labels joined.
+      // Every `if` in the shared `formatAllowedPrivateData` is truthy → all three
+      // labels joined, in the same order the mobile and desktop prompts render them.
       expect(screen.getByText('Assets, Notes, Storage')).toBeInTheDocument();
 
       // No public-account content and no upon-request content.
@@ -88,8 +89,14 @@ describe('PrivateDataPermissionBanner', () => {
       expect(screen.queryByTestId('icon')).not.toBeInTheDocument();
     });
 
-    it('renders an empty allowed-data list when no flags are set (all bitwise branches false)', () => {
-      const { container } = render(
+    it('describes Auto with an empty category mask as upon-request, matching the other two surfaces', () => {
+      // `dapp.ts` defaults `allowedPrivateData` to `None`, so a connect request can
+      // arrive as Auto+None from any page. The three private-data handlers require a
+      // non-empty category bit to serve without prompting, so this grant is NOT
+      // standing — the popup used to say "Automatic" and then list nothing, while the
+      // mobile modal and desktop overlay (which share
+      // `grantsStandingPrivateDataAccess`) correctly said "Upon Request".
+      render(
         <PrivateDataPermissionBanner
           privateDataPermission={PrivateDataPermission.Auto}
           allowedPrivateData={AllowedPrivateData.None}
@@ -97,14 +104,10 @@ describe('PrivateDataPermissionBanner', () => {
         />
       );
 
-      expect(screen.getByText('privateDataAccessAuto')).toBeInTheDocument();
-      expect(screen.getByText('accessWillBeGranted')).toBeInTheDocument();
-
-      // With None (0) every `if` is falsy → parts.join('') === '' → the list paragraph is empty.
-      const paragraphs = Array.from(container.querySelectorAll('p'));
-      const listParagraph = paragraphs.find(p => p.className.includes('font-') && p.textContent === '');
-      expect(listParagraph).toBeDefined();
-      expect(listParagraph?.textContent).toBe('');
+      expect(screen.getByText('privateDataAccessUponRequest')).toBeInTheDocument();
+      expect(screen.getByText('confirmationRequired')).toBeInTheDocument();
+      expect(screen.queryByText('privateDataAccessAuto')).not.toBeInTheDocument();
+      expect(screen.queryByText('accessWillBeGranted')).not.toBeInTheDocument();
     });
 
     it('renders a partial allowed-data list, exercising a mix of true/false bitwise branches', () => {

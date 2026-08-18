@@ -451,6 +451,33 @@ describe('bridge prompts', () => {
     expect(updateClaimStatus).toHaveBeenCalledWith('agg-ready', 'ready', { depositReady: true });
   });
 
+  it('marks ready only the row whose OWN bridge-out produced the claimable deposit', async () => {
+    // Two Slow bridge-outs to the same L1 address. The claim the user then makes
+    // is stamped onto whichever row flipped to 'ready', so flipping both off one
+    // deposit reports a bridge as claimed that was never claimed.
+    // Deposit 41 belongs to row A. An unbound lookup (no origin hash) resolves it
+    // too, so dropping the binding flips BOTH rows ready off this one deposit.
+    findClaimableDeposit.mockImplementation(async (_dest: unknown, originTxHash: unknown) =>
+      originTxHash === '0xrow-b-origin' ? null : { deposit_cnt: 41 }
+    );
+
+    await pollActiveBridgePrompts([
+      baseBridge({
+        id: 'agg-a',
+        transactionId: '0xrow-a-origin',
+        extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+      }),
+      baseBridge({
+        id: 'agg-b',
+        transactionId: '0xrow-b-origin',
+        extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+      })
+    ]);
+
+    expect(updateClaimStatus).toHaveBeenCalledTimes(1);
+    expect(updateClaimStatus).toHaveBeenCalledWith('agg-a', 'ready', { depositReady: true });
+  });
+
   it('leaves a pending AggLayer bridge untouched while no deposit is claimable', async () => {
     await pollActiveBridgePrompts([
       baseBridge({

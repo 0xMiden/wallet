@@ -27,7 +27,7 @@ Use Node 22+ and Yarn v1. Copy `.env.example` to `.env`, then run `yarn install`
 - `yarn test` runs Jest; `yarn test:coverage` enforces coverage thresholds.
 - `yarn test:e2e` runs the basic Playwright extension suite serially; `yarn test:e2e:blockchain:{testnet,devnet,localhost}` and `yarn test:e2e:mobile:{devnet,testnet}` run live-network suites.
 - `yarn ts` type-checks; `yarn lint` runs ESLint; `yarn format` applies Prettier. Run lint/format only before committing or when asked — not on every build.
-- `yarn storybook` starts component development on port 6006.
+- There is no Storybook: the Vite migration left the `storybook` / `build:storybook` scripts behind but no `.storybook/` config and no `*.stories.*` file, so both exit with `SB_CORE-SERVER_0006 (MainFileMissingError)`. `yarn build-all` (`run-s build:*`, fail-fast) therefore aborts at `build:storybook` and never reaches `build:desktop` — build the platforms you need explicitly (`yarn build:chrome`, `yarn build:mobile`, `yarn desktop:build`).
 
 ### Version bumps
 

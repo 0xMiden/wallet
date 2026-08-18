@@ -30,7 +30,13 @@ import FormSecondaryButton from './atoms/FormSecondaryButton';
 import FormSubmitButton from './atoms/FormSubmitButton';
 import Name from './atoms/Name';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
-import { declaredRequestToView, summaryBytesToView, summaryToView, TxAssetView } from './confirm/decode';
+import {
+  declaredRequestToView,
+  executedBytesToView,
+  summaryBytesToView,
+  summaryToView,
+  TxAssetView
+} from './confirm/decode';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 import { Icon, IconName } from './icons/v2';
@@ -379,10 +385,17 @@ const CustomTransactionContent: React.FC<{
     let cancelled = false;
     (async () => {
       try {
-        const { summaryBytes } = await simulateCustomTransaction(id);
+        const { summaryBytes, executedBytes } = await simulateCustomTransaction(id);
         if (cancelled) return;
         if (summaryBytes) {
           setVerifiedView(summaryBytesToView(summaryBytes));
+          return;
+        }
+        // Already-fully-authorized account (every ordinary single-sig one on
+        // web-sdk 0.16): no summary is produced, the dry run returns the executed
+        // transaction instead. Same ground truth — see simulate-custom-tx.ts.
+        if (executedBytes) {
+          setVerifiedView(executedBytesToView(executedBytes));
           return;
         }
         setSimError(true);

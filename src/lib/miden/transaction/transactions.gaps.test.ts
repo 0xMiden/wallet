@@ -711,6 +711,46 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
     }
   });
 
+  // FUNDS-2: the two Processing* states mean our consuming tx WAS submitted and
+  // applied locally — the opposite of "not consumed". They used to fall through
+  // verifyConsumeLanded's catch-all to 'not-landed', so a killed consume whose
+  // claim had already reached the node was terminal-failed.
+  it.each(['ProcessingAuthenticated', 'ProcessingUnauthenticated'])(
+    'node reports the note %s (submitted, awaiting commit) → the row stays in progress, not Failed',
+    async noteState => {
+      pushConsume(`nk-${noteState}`);
+      const restore = patchClient(noteState);
+      try {
+        await generateTransactionsLoop(dummySign, false, stubProvider);
+        const row = txStore.find(r => r.id === `nk-${noteState}`)!;
+        expect(row.status).toBe(ITransactionStatus.GeneratingTransaction);
+        expect(row.status).not.toBe(ITransactionStatus.Failed);
+        // Not completed either — the block is not committed yet.
+        expect(row.displayMessage).not.toBe('Received');
+      } finally {
+        restore();
+      }
+    }
+  );
+
+  it.each(['ProcessingAuthenticated', 'ProcessingUnauthenticated'])(
+    'verifyConsumeLanded maps %s to the distinct "processing" verdict',
+    async noteState => {
+      const { verifyConsumeLanded } = require('./cancel');
+      const sdk = require('../sdk/miden-client');
+      const orig = sdk.getMidenClient;
+      sdk.getMidenClient = async () => ({
+        syncState: jest.fn(async () => {}),
+        getInputNoteDetails: jest.fn(async () => [{ state: noteState }])
+      });
+      try {
+        expect(await verifyConsumeLanded({ id: 'v-proc', noteId: 'note-kill' }, true)).toBe('processing');
+      } finally {
+        sdk.getMidenClient = orig;
+      }
+    }
+  );
+
   it('verifyConsumeLanded(sync=true): a failed sync falls back to last-synced state (LOCAL-consumed → landed-local)', async () => {
     // sync=true best-effort syncs before reading, but a sync failure must NOT block
     // the check: a consumed note never un-consumes, so the last-synced state stays

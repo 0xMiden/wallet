@@ -99,7 +99,10 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
 
   if (inputs.provider === 'agglayer') {
     if (inputs.claimStatus !== 'pending' || !inputs.destinationAddress) return;
-    const deposit = await findClaimableMidenToEvmDeposit(inputs.destinationAddress);
+    // Bound to this row's own Miden transaction id: several rows can share one
+    // destination address, and marking them all ready off ANY claimable deposit
+    // points every one of them at the same deposit.
+    const deposit = await findClaimableMidenToEvmDeposit(inputs.destinationAddress, tx.transactionId);
     if (deposit) await updateBridgeClaimStatus(tx.id, 'ready', { depositReady: true });
     return;
   }

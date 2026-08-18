@@ -34,6 +34,7 @@ import {
   IEarnWithdrawExtraInputs,
   ITransaction,
   ITransactionStatus,
+  ITransactionType,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
@@ -92,6 +93,19 @@ interface RequestedTokenInfo {
   decimals?: number;
   symbol?: string;
 }
+
+/**
+ * Transaction types that move value OUT of the wallet's own account, i.e. whose
+ * Transfer Details read "From: this account / To: `secondaryAccountId`".
+ *
+ *  - `send` — `secondaryAccountId` is the recipient.
+ *  - `earn-deposit` — `secondaryAccountId` is the Epoch allocator the P2IDE
+ *    collateral note is sent to (`EarnDepositTransaction`, db/types.ts).
+ *  - `bridged-send` — normally short-circuited by `isBridgeOut` (which hides the
+ *    Miden "to" row in favour of the BridgeClaimSection), but a USER-CANCELLED
+ *    bridge falls through to this rule and is still outbound.
+ */
+const OUTBOUND_TRANSFER_TYPES: ITransactionType[] = ['send', 'earn-deposit', 'bridged-send'];
 
 const DISPLAY_DECIMAL_PLACES = 3;
 
@@ -314,6 +328,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         earnWithdrawPhase: earnWithdrawExtra?.phase,
         earnDepositStatus: earnDepositExtra?.epochStatus,
         secondaryAddress: tx.secondaryAccountId,
+        // Read by the Retry gate's double-send guard: its ABSENCE proves the row
+        // never left the queue, so its failure is unambiguously pre-submit.
+        processingStartedAt: tx.processingStartedAt,
         txId: tx.id,
         noteType: tx.noteType,
         noteId: tx.outputNoteIds?.[0],
@@ -669,10 +686,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // rewrites it to 'Failed' (or "Interrupted…"). Keying the direction off the
   // message therefore reversed From/To on every send that had not completed — a
   // cancelled 500 TST send read "From: <recipient> / To: <your own account>".
-  // `send` is the only outbound type that reaches this branch (bridged-send and
-  // switch-guardian are handled above), so type is the whole rule; the message
-  // check is kept as a fallback for rows persisted before `txType` existed.
-  const isOutboundTransfer = entry?.txType === 'send' || entry?.message === 'Sent';
+  //
+  // Every outbound type has to be listed here, not just `send`. An `earn-deposit`
+  // moves collateral OUT of the account and into the Epoch allocator
+  // (`secondaryAccountId` = `sendParams.recipientId`) and its `displayMessage` is
+  // 'Depositing' / 'Deposited to lending' — never 'Sent' — so keying only on `send`
+  // rendered it exactly backwards in every state. A USER-CANCELLED `bridged-send`
+  // falls out of `isBridgeOut` (which excludes cancelled rows so the bridge claim UI
+  // stays hidden) and lands here too, still outbound. The message check is kept as a
+  // fallback for rows persisted before `txType` existed.
+  const isOutboundTransfer =
+    (entry?.txType !== undefined && OUTBOUND_TRANSFER_TYPES.includes(entry.txType)) || entry?.message === 'Sent';
   const fromAddress = isBridgeOut
     ? entry?.address
     : isGuardianSwitch
@@ -729,7 +753,18 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     !entry.isCancelled &&
     (entry.txType === 'earn-withdraw'
       ? earnWithdraw?.phase === 'failed'
-      : isRequeueableTransaction({ status: entry.status, type: entry.txType }));
+      : isRequeueableTransaction({
+          status: entry.status,
+          type: entry.txType,
+          // Epoch (Fast) bridged sends are not replayable — their Epoch intent is
+          // already gone, so a requeue would mint a second orphan collateral note.
+          bridgeProvider: entry.bridgeProvider,
+          // Feed the double-send guard: a send/swap that left the queue but has
+          // no captured transaction id to ask the node about is not safely
+          // replayable — its submit may already have landed.
+          transactionId: entry.externalTxId,
+          processingStartedAt: entry.processingStartedAt
+        }));
 
   return (
     <PageLayout hideToolbar>

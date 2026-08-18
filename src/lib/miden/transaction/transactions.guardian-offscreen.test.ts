@@ -620,27 +620,54 @@ describe('guardian bridged-send / earn-deposit kill-window (funds-safety) — an
   );
 });
 
-describe('guardian bridged-send / earn-deposit errorCode preservation → classifier marks Failed (not Completed)', () => {
-  it.each(bridgeEarnCases())(
-    '$type: a round-tripped ApplyTransactionAfterSubmitFailed marks the row Failed — byte-identical to the flag-OFF inline apply throw',
-    async ({ row, complete }) => {
+describe('guardian bridged-send / earn-deposit errorCode preservation → classifier routes on the ROW, not the type alone', () => {
+  /**
+   * A round-tripped `ApplyTransactionAfterSubmitFailed` means the submit LANDED and
+   * only the local apply threw. What that should do to the row depends on whether
+   * anything is awaiting the row's `resultBytes` / `outputNoteIds`:
+   *
+   *   - `earn-deposit` and EPOCH `bridged-send` → Failed. `createEarnP2IDNote` /
+   *     `createBridgeP2IDNote` block on `waitForTransactionCompletion` and read those
+   *     fields back; there is no `TransactionResult` here to repopulate them from, so
+   *     the caller must resolve via its error branch. The recallable P2IDE collateral
+   *     note reclaims itself at its recall height.
+   *   - AGGLAYER `bridged-send` → Completed. `initiateB2AggBridge` returns the txId
+   *     immediately and never awaits the row, and the B2AGG note is on chain. Failing
+   *     it would hide the only in-wallet L1 claim path (`BridgeClaimSection` gates the
+   *     deposit tracker and the Connect-wallet / Claim-Asset block on `status !==
+   *     Failed`) on funds that already left the account.
+   *
+   * Either way the preserved `errorCode` is what the classifier reads, which is what
+   * this suite exists to prove survives the offscreen round-trip.
+   */
+  // `bridgeEarnCases()`'s bridged-send row is the AGGLAYER route (pre-built
+  // `requestBytes`). The Epoch counterpart needs a whole recallable-P2IDE build to
+  // reach this point, so its Failed outcome is pinned in transactions.guardian.test.ts
+  // ('Guardian bridged-send: submit lands but local apply fails') instead.
+  const applyCases = () => [
+    { label: 'earn-deposit', ...bridgeEarnCases()[1]!, expected: ITransactionStatus.Failed },
+    { label: 'bridged-send (agglayer)', ...bridgeEarnCases()[0]!, expected: ITransactionStatus.Completed }
+  ];
+
+  it.each(applyCases())(
+    '$label: a round-tripped ApplyTransactionAfterSubmitFailed reaches the classifier',
+    async ({ label, row, complete, expected }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      const id = `be-apply-${label}`;
       const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
       applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
       mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
-      const { service } = arrange(`be-apply-${row.type}`, row);
+      const { service } = arrange(id, row);
 
-      await generateTransaction(buildTx(`be-apply-${row.type}`, row) as never, signCallback, false, provider as never);
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
 
-      // Unlike send/swap/execute/consume (marked Completed on a post-submit apply
-      // failure), bridged-send and earn-deposit are NOT in that Completed branch — the
-      // guardian classifier routes their preserved errorCode to cancelTransaction →
-      // Failed (earn-deposit so its awaiting caller resolves via the error branch;
-      // bridged-send as the generic terminal). This is the SAME outcome the flag-OFF
-      // inline `apply()` throw produces, proving the errorCode survived the round-trip.
-      const finalRow = txStore.find(r => r.id === `be-apply-${row.type}`)!;
-      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      const finalRow = txStore.find(r => r.id === id)!;
+      expect(finalRow.status).toBe(expected);
+      // The candidate proposal is abandoned either way — that happens in
+      // `generateGuardianTransaction`'s own catch, before the classification above.
       expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      // No `TransactionResult` exists on this path, so the completion handler never
+      // runs regardless of which terminal status the row lands on.
       expect(complete).not.toHaveBeenCalled();
     }
   );

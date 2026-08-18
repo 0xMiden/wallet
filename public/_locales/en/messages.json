@@ -2537,8 +2537,8 @@
     "englishSource": "Private Data Permission"
   },
   "confirmPrivateDataPermissionDescription": {
-    "message": "This will give permanent access to your account data and cannot be revoked.",
-    "englishSource": "This will give permanent access to your account data and cannot be revoked."
+    "message": "This gives the site ongoing access to your account data without asking again. You can revoke it any time in Settings → Authorized DApps.",
+    "englishSource": "This gives the site ongoing access to your account data without asking again. You can revoke it any time in Settings → Authorized DApps."
   },
   "privateAccountAccessRequest": {
     "message": "This site is requesting access to your private account.",

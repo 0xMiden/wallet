@@ -21,6 +21,7 @@ import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
 import { TokensMetadataProvider } from './assets';
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
+import { OrphanedTransactionRecovery } from './OrphanedTransactionRecovery';
 import { SwapSettlementManager } from './SwapSettlementManager';
 import { useForegroundRefresh } from './useForegroundRefresh';
 import { useSyncTrigger } from './useSyncTrigger';
@@ -171,6 +172,10 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
             {children}
             <SwapSettlementManager />
             <NativeNoteAutoConsumeManager />
+            {/* Startup recovery for transactions orphaned by an app kill. No-op on
+                the extension, where the service worker's `setupTransactionProcessor`
+                already does this. */}
+            <OrphanedTransactionRecovery />
             {/* NoteToastProvider monitors for new notes and shows toast on mobile */}
             <NoteToastProvider />
           </FiatCurrencyProvider>

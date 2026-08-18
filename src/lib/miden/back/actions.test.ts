@@ -657,6 +657,21 @@ describe('actions', () => {
   });
 
   describe('processDApp', () => {
+    // Every dispatch now runs through the "DApps Interaction" kill switch, and
+    // `isDAppEnabled()` is `vault.isExist() && settings.DAppEnabled`. The suite's
+    // shared Vault mock resolves `undefined` by default, so the enabled state has
+    // to be arranged explicitly here (and reset so it can't leak into the
+    // `mockResolvedValueOnce`-based specs elsewhere in this file).
+    beforeEach(() => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.isExist.mockResolvedValue(true);
+    });
+
+    afterEach(() => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.isExist.mockReset();
+    });
+
     it('handles GetCurrentPermissionRequest', async () => {
       const { getCurrentPermission } = jest.requireMock('./dapp');
       getCurrentPermission.mockResolvedValueOnce({ granted: true });
@@ -700,7 +715,7 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.SignRequest, payload: 'data' };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestSign).toHaveBeenCalledWith('https://example.com', req);
+      expect(requestSign).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ signature: '0x123' });
     });
 
@@ -750,7 +765,7 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.PrivateNotesRequest, data: {} };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestPrivateNotes).toHaveBeenCalledWith('https://example.com', req);
+      expect(requestPrivateNotes).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ notes: [] });
     });
 
@@ -761,7 +776,7 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.AssetsRequest, data: {} };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestAssets).toHaveBeenCalledWith('https://example.com', req);
+      expect(requestAssets).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ assets: [] });
     });
 
@@ -783,7 +798,7 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.ImportPrivateNoteRequest, data: {} };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestImportPrivateNote).toHaveBeenCalledWith('https://example.com', req);
+      expect(requestImportPrivateNote).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ imported: true });
     });
 
@@ -794,7 +809,7 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.ConsumableNotesRequest, data: {} };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestConsumableNotes).toHaveBeenCalledWith('https://example.com', req);
+      expect(requestConsumableNotes).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ notes: [] });
     });
 
@@ -807,6 +822,56 @@ describe('actions', () => {
 
       expect(waitForTransaction).toHaveBeenCalledWith(req);
       expect(result).toEqual({ status: 'completed' });
+    });
+
+    // The confirmation store keys prompts by session and the mobile modal renders
+    // only the FOREGROUND session's slot, so a handler that drops the id parks its
+    // prompt in the unrendered '__default__' slot — the promise never settles and
+    // the shared concurrency-1 dApp queue wedges for every origin.
+    it.each([
+      [MidenDAppMessageType.SignRequest, 'requestSign'],
+      [MidenDAppMessageType.PrivateNotesRequest, 'requestPrivateNotes'],
+      [MidenDAppMessageType.AssetsRequest, 'requestAssets'],
+      [MidenDAppMessageType.ImportPrivateNoteRequest, 'requestImportPrivateNote'],
+      [MidenDAppMessageType.ConsumableNotesRequest, 'requestConsumableNotes']
+    ])('threads the multi-instance sessionId into %s', async (type, handlerName) => {
+      const handler = jest.requireMock('./dapp')[handlerName as string];
+      handler.mockResolvedValueOnce({});
+
+      const req = { type, data: {} };
+      await processDApp('https://example.com', req as any, 'session-7');
+
+      expect(handler).toHaveBeenCalledWith('https://example.com', req, 'session-7');
+    });
+
+    // The Settings toggle used to be enforced only in the extension's PageRequest
+    // arm; mobile and desktop call processDApp directly, so it was inert there.
+    it('refuses every request when the DApps Interaction switch is off', async () => {
+      const browser = jest.requireMock('webextension-polyfill');
+      browser.storage.local.get.mockResolvedValueOnce({ DAppEnabled: false });
+      const { requestPermission } = jest.requireMock('./dapp');
+      // The `./dapp` module mocks are shared across this file and are not reset
+      // between specs, so clear this one before asserting it is never reached.
+      requestPermission.mockClear();
+
+      await expect(
+        processDApp('https://example.com', { type: MidenDAppMessageType.PermissionRequest } as any)
+      ).rejects.toThrow('NOT_GRANTED');
+
+      expect(requestPermission).not.toHaveBeenCalled();
+    });
+
+    it('refuses when the vault does not exist yet', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.isExist.mockResolvedValue(false);
+      const { getCurrentPermission } = jest.requireMock('./dapp');
+      getCurrentPermission.mockClear();
+
+      await expect(
+        processDApp('https://example.com', { type: MidenDAppMessageType.GetCurrentPermissionRequest } as any)
+      ).rejects.toThrow('NOT_GRANTED');
+
+      expect(getCurrentPermission).not.toHaveBeenCalled();
     });
   });
 

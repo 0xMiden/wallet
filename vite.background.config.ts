@@ -400,6 +400,12 @@ export default defineConfig({
       process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
     ),
     'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
+    // dApp-bridge debug logging: `dappDebug` (lib/miden/back/dapp.ts) and `dlog`
+    // (lib/dapp-browser/message-handler.ts) both read this. It MUST be defined in
+    // every config that bundles either module — an un-defined `process.env.X` read
+    // is rewritten to `{}.X`, i.e. `undefined`, so the flag would be permanently
+    // off and the documented `DEBUG_DAPP_BRIDGE=1` escape hatch would do nothing.
+    'process.env.DEBUG_DAPP_BRIDGE': JSON.stringify(process.env.DEBUG_DAPP_BRIDGE ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     // Opt the wallet's local-prove path into the chrome.offscreen mt-wasm
     // route — ~3.5x faster (40s -> 11s) on a 10-core machine with
@@ -410,11 +416,12 @@ export default defineConfig({
     // 0xMiden/web-sdk#182 (>= 0.15.0-alpha.6): older 0.15 SDK builds reject
     // the prove with "Client not initialized".
     //
-    // Mobile (vite.mobile.config.ts) does NOT define this env, so its
-    // runtime value is undefined and the `=== 'true'` check fails — mobile
-    // always uses the bundled SDK path. Even if it somehow were true, the
-    // runtime `isOffscreenAvailable()` guard returns false in WKWebView /
-    // Capacitor (no chrome.offscreen API), so the fallback fires anyway.
+    // Mobile (vite.mobile.config.ts) PINS this to `'false'` at build time, so a
+    // stray shell env can never opt mobile into a code path it cannot run and
+    // dead-code elimination drops the offscreen import entirely — mobile always
+    // uses the bundled SDK path. The runtime `isOffscreenAvailable()` guard would
+    // return false in WKWebView / Capacitor anyway (no chrome.offscreen API), so
+    // the fallback fires regardless.
     'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'true'),
     // Speculative pre-prove: when the user reaches the review screen, the
     // popup tells the SW to start proving with the form params so the proof

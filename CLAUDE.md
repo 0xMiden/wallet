@@ -182,7 +182,8 @@ Remove rules when uninstalling.
 
 - `src-tauri/src/{main,dapp_browser,lib}.rs`, `scripts/dapp-injection.js`
 - Clear state: `rm -rf ~/Library/WebKit/{com.miden.wallet,miden-wallet}`
-- dApp flow: inject encodes base64 request → navigate `https://miden-wallet-request/{payload}` → Tauri `on_navigation` intercepts → event to main window → `DesktopDappHandler` confirms → response via same URL-intercept pattern.
+- dApp flow: inject encodes base64 request (carrying the per-window bridge token) → navigate `https://miden-wallet-request/{payload}` → Tauri `on_navigation` intercepts, checks the token, strips it → event to main window → `DesktopDappHandler` handles it, `DesktopDappConfirmationModal` prompts **in the wallet window** → response back to the page via the `dapp_wallet_response` command.
+- Every app-defined Tauri command is ACL-gated (`src-tauri/permissions/app.toml` + `capabilities/default.json`, `"windows": ["main"]`) and refuses a non-`main` webview (`src-tauri/src/ipc_guard.rs`). Adding a command means adding it to BOTH `generate_handler!` and `permissions/app.toml`, plus the guard — the dApp-browser window loads arbitrary sites with `withGlobalTauri: true`.
 
 ## E2E
 
@@ -203,7 +204,7 @@ iOS-specific product notes:
 ### E2E test hooks
 `MIDEN_E2E_TEST=true` exposes `window.__TEST_STORE__` (Zustand) and `window.__TEST_INTERCOM__`. Zero production impact.
 
-**Keep it a hook flag, not a behaviour switch.** Suppressing real product behaviour under `MIDEN_E2E_TEST` makes that behaviour permanently untestable — it can't be reached from any E2E run. The two existing opt-outs have their own flags, set by the `test:e2e:*:build` scripts (and defined in each `vite.*.config.ts` — an env read that isn't `define`d throws at runtime, the extension bundle has no `process` global):
+**Keep it a hook flag, not a behaviour switch.** Suppressing real product behaviour under `MIDEN_E2E_TEST` makes that behaviour permanently untestable — it can't be reached from any E2E run. The two existing opt-outs have their own flags, set by the `test:e2e:*:build` scripts (and defined in each `vite.*.config.ts` — an env read with no matching `define` is rewritten to `{}.X`, i.e. silently `undefined`, so a flag missing from one config is off in that bundle with no error at all):
 - `MIDEN_E2E_DISABLE_SIDEPANEL` — keeps onboarding in-tab (`lib/extension/side-panel-handoff.ts`); a suite that wants to drive the real side panel builds without it.
 - `MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES` — makes `loadEndpointOverrides()` a no-op so the build-baked network wins (`lib/miden-chain/effective-endpoints.ts`).
 
@@ -304,7 +305,7 @@ listed against it are the PREVIOUS commit's.
 - Never `git push` without explicit request.
 - Stay within requested scope — don't modify files beyond the task.
 - Update `CHANGELOG.md` one-liner per PR/task (not per fix).
-- When adding a new intercom message type, also update `src/lib/intercom/mobile-adapter.ts`.
+- When adding a new intercom message type, also update `src/lib/intercom/in-process-request-handler.ts` (the one switch both the mobile and desktop adapters dispatch through).
 - Optimistic updates: snapshot prev, apply, rollback on catch.
 - Background auto-ops: use `startBackgroundTransactionProcessing` (polls 5s × 5min, no modal) instead of `openLoadingFullPage`.
 - Transaction states (`ITransactionStatus`): Queued(0) → GeneratingTransaction(1) → Completed(2) / Failed(3).

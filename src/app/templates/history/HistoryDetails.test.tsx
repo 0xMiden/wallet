@@ -1359,6 +1359,22 @@ describe('HistoryDetails earn-deposit', () => {
     );
   });
 
+  it.each([
+    ['while depositing', 'Depositing', 1],
+    ['once deposited', 'Deposited to lending', STATUS_COMPLETED],
+    ['after a failure', 'Failed', 3]
+  ])('points From/To outward %s', async (_label, displayMessage, status) => {
+    // The collateral leaves the user's account (`accountId`) for the Epoch
+    // allocator (`secondaryAccountId` = sendParams.recipientId). None of the
+    // deposit's display messages is ever 'Sent', so a direction rule keyed on
+    // `txType === 'send' || message === 'Sent'` rendered this exactly backwards.
+    mockGetTransactionById.mockResolvedValue(earnDepositTx({}, { displayMessage, status }));
+    await renderAndLoad();
+
+    expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-A');
+    expect(rowByLabel('to')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-B');
+  });
+
   it('falls back to the raw market uid when it has no protocol segment', async () => {
     mockGetTransactionById.mockResolvedValue(earnDepositTx({ marketUid: ':11155111:0xabc' }));
     await renderAndLoad();

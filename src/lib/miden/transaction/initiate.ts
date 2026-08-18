@@ -59,7 +59,13 @@ export const requestCustomTransaction = async (
 export const initiateConsumeTransactionFromId = async (
   accountId: string,
   noteId: string,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  // Forwarded to `initiateConsumeNotesTransaction`'s bounded-retry gate. Every
+  // caller of this helper runs behind an explicit user approval (the dApp
+  // consume sheet, the failed-bridge "Reclaim funds" button), so they pass
+  // `true`: auto-consume's backoff must not swallow a claim the user just
+  // approved and answer it with the previous attempt's Failed row.
+  manualRetry?: boolean
 ): Promise<string> => {
   // Routed through `midenClientProxy.getInputNoteSummary` (issue #260, slice 7a):
   // flag-ON it reads the OFFSCREEN client that owns the note (the SW client is
@@ -78,7 +84,7 @@ export const initiateConsumeTransactionFromId = async (
     type: summary.noteType !== undefined ? toNoteTypeString(summary.noteType) : 'unknown'
   };
 
-  return await initiateConsumeTransaction(accountId, note, delegateTransaction);
+  return await initiateConsumeTransaction(accountId, note, delegateTransaction, manualRetry);
 };
 
 // NOTE: this used to take a `background` flag that routed Guardian auto-consume
@@ -491,12 +497,22 @@ const GUARDIAN_PROCEDURE_HARDENING = { procedure: 'update_guardian', threshold: 
  * post-rotation call it's also invoked self-healingly from the guardian sync —
  * closing the window where a migrated account is 3-key but `update_guardian` is
  * still threshold-1 because the original hardening tx was dropped.
+ *
+ * Returns the queued transaction's id when it actually enqueued one, and
+ * `undefined` when the account was already hardened or the check failed. The
+ * `requestSWTransactionProcessing()` nudge below is EXTENSION-ONLY (it returns
+ * immediately off-extension), and this function is deliberately kept free of any
+ * frontend imports — pulling `lib/store` in here would drag Zustand into the
+ * service-worker init chain. So a caller that runs off-extension and is not
+ * itself inside `generateTransactionsLoop` must take the returned id as its cue
+ * to start the loop (see `syncGuardianAccounts`); otherwise the row would sit
+ * Queued until the next app launch reaped or resumed it.
  */
 export const ensureGuardianProcedureThresholds = async (
   accountId: string,
   delegateTransaction: boolean | undefined,
   guardianProvider: GuardianAccountProvider
-): Promise<void> => {
+): Promise<string | undefined> => {
   try {
     // Loading the service fetches the on-chain account config, including its
     // procedure thresholds.
@@ -504,9 +520,9 @@ export const ensureGuardianProcedureThresholds = async (
     if (
       service.getProcedureThreshold(GUARDIAN_PROCEDURE_HARDENING.procedure) === GUARDIAN_PROCEDURE_HARDENING.threshold
     ) {
-      return;
+      return undefined;
     }
-    await initiateUpdateProcedureThresholdTransaction(
+    const txId = await initiateUpdateProcedureThresholdTransaction(
       accountId,
       GUARDIAN_PROCEDURE_HARDENING.procedure,
       GUARDIAN_PROCEDURE_HARDENING.threshold,
@@ -514,11 +530,20 @@ export const ensureGuardianProcedureThresholds = async (
       guardianProvider
     );
     // Nudge the processor to pick up the freshly-queued tx. Dynamic import to
-    // avoid a static cycle with the activity barrel.
-    const { requestSWTransactionProcessing } = await import('lib/miden/activity');
-    requestSWTransactionProcessing();
+    // avoid a static cycle with the activity barrel. Scoped catch: the row is
+    // already persisted at this point, so a failed nudge must not swallow its id —
+    // the caller needs it to start the loop off-extension. A row left un-nudged is
+    // still picked up by the next processing cycle.
+    try {
+      const { requestSWTransactionProcessing } = await import('lib/miden/activity');
+      requestSWTransactionProcessing();
+    } catch (nudgeError) {
+      console.warn('[guardian] could not nudge the transaction processor for the hardening tx:', nudgeError);
+    }
+    return txId;
   } catch (e) {
     console.warn('[guardian] procedure-threshold hardening skipped (non-fatal):', e);
+    return undefined;
   }
 };
 

@@ -142,7 +142,10 @@ describe('BridgeClaimSection', () => {
       render(<BridgeClaimSection entry={entry()} onUpdated={jest.fn()} />);
       const btn = await screen.findByText('t:reclaimFunds');
       fireEvent.click(btn);
-      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false));
+      // 4th arg = manualRetry. The button only exists behind an explicit tap, so
+      // auto-consume's exponential backoff must not swallow it and answer with a
+      // previously-failed reclaim's row id.
+      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
       expect(mockRequestSWProcessing).not.toHaveBeenCalled(); // isExtension() mocked false
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/reclaim-tx-1');
     });
@@ -193,6 +196,37 @@ describe('BridgeClaimSection', () => {
       const claimBtn = await screen.findByText('t:claimAsset');
       fireEvent.click(claimBtn);
       await waitFor(() => expect(mockClaimAgglayer).toHaveBeenCalled());
+    });
+
+    it("looks the deposit up against THIS row's own bridge-out transaction", async () => {
+      // Several bridge-outs can share one L1 destination. The claim the user
+      // makes here is stamped onto this row, so the lookup has to be bound to
+      // this row's Miden transaction id rather than the destination alone.
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindClaimable.mockImplementation(async (_dest: unknown, originTxHash: unknown) =>
+        originTxHash === '0xrow-a-origin' ? { id: 'deposit-a' } : null
+      );
+      render(<BridgeClaimSection entry={agglayer({ externalTxId: '0xrow-a-origin' })} onUpdated={jest.fn()} />);
+
+      await waitFor(() => expect(mockFindClaimable).toHaveBeenCalledWith('0xdead', '0xrow-a-origin'));
+      fireEvent.click(await screen.findByText('t:claimAsset'));
+      await waitFor(() =>
+        expect(mockClaimAgglayer).toHaveBeenCalledWith(expect.objectContaining({ deposit: { id: 'deposit-a' } }))
+      );
+    });
+
+    it('stays on Claim Pending when no deposit belongs to this row', async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindClaimable.mockImplementation(async (_dest: unknown, originTxHash: unknown) =>
+        originTxHash === '0xrow-a-origin' ? { id: 'deposit-a' } : null
+      );
+      render(<BridgeClaimSection entry={agglayer({ externalTxId: '0xrow-b-origin' })} onUpdated={jest.fn()} />);
+
+      await waitFor(() => expect(mockFindClaimable).toHaveBeenCalledWith('0xdead', '0xrow-b-origin'));
+      // The claim button stays disabled on "Claim Pending" (the same label also
+      // renders in the status row) and never offers row A's deposit.
+      expect(screen.getByRole('button', { name: 't:claimPending' })).toBeDisabled();
+      expect(screen.queryByText('t:claimAsset')).not.toBeInTheDocument();
     });
 
     it('surfaces an error when the claim fails', async () => {

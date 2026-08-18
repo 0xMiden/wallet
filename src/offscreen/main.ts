@@ -459,14 +459,15 @@ const DISPATCH: Record<string, DispatchFn> = {
   },
 
   // Relay a just-created PRIVATE note to the transport layer (issue #260, slice 7b).
-  // Under the flag the send ran here, so the note lives in THIS (offscreen) client's
-  // store and THIS realm owns the fresh sync height that `sendPrivateNote` attaches
-  // as the recipient's forward-scan hint — so the relay MUST run here, not on the
-  // dormant SW client (whose stale height would overshoot the note's commitment).
-  // The live `Note` can't cross postMessage, so it arrived as `Note.serialize()` raw
-  // bytes and is re-hydrated here; `notes.sendPrivate` uses the live Note DIRECTLY (no
-  // store lookup — that path is only for note-ID inputs), so nothing else is read off
-  // the store. A transport relay — no prove / sign — so a void result (nothing to
+  // Under the flag the send ran here, so the note is an APPLIED OUTPUT note of THIS
+  // (offscreen) client's store — which is what makes the relay belong here: under
+  // 0.16 `sendPrivateNote` calls `notes.sendPrivateOutput({ noteId })`, which
+  // resolves the note by id from the calling client's store and derives the
+  // recipient's forward-scan hint from its stored `expected_height` (the chain tip
+  // when the note's transaction was submitted). On the dormant SW client that
+  // lookup simply fails. The live `Note` can't cross postMessage, so it arrived as
+  // `Note.serialize()` raw bytes and is re-hydrated here purely to read its id back.
+  // A transport relay — no prove / sign — so a void result (nothing to
   // re-hydrate); the SW-side caller only awaits it.
   sendPrivateNote: async (client, noteBytes: Uint8Array, to: string) => {
     const note = (sdk as any).Note.deserialize(noteBytes);
@@ -802,13 +803,16 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     });
   } catch (err) {
     console.error(`${TAG} call '${msg?.method}' failed:`, err);
-    // Preserve the SDK's stable `errorCode` (issue #260, funds-critical). The
-    // offscreen client runs `useWorker:false`, so a failed write throws the RAW
-    // main-thread JsError still carrying `errorCode` — extract it with the SAME
-    // helper the SW-inline classifier uses so a round-tripped
-    // `ApplyTransactionAfterSubmitFailed` is classified identically to flag-off
-    // (marked Completed, NOT Failed → requeue → double-spend). `undefined` for a
-    // code-less error keeps the reply shape unchanged (mirrors the flag-off path).
+    // Preserve the SDK's stable error code when it sets one (issue #260,
+    // funds-critical). The offscreen client runs `useWorker:false`, so a failed
+    // write throws the RAW main-thread JsError — extract the code with the SAME
+    // helper the SW-inline classifier uses. web-sdk 0.16 leaves most failures
+    // code-less, so the funds-critical apply-after-submit case is carried by the
+    // `error` TEXT below instead and re-classified SW-side by
+    // `isApplyAfterSubmitError`; forwarding the message verbatim is what makes the
+    // round trip classify identically to flag-off (marked Completed, NOT Failed →
+    // requeue → double-spend). `undefined` for a code-less error keeps the reply
+    // shape unchanged (mirrors the flag-off path).
     sendResponse({
       ok: false,
       op_id: msg?.op_id,

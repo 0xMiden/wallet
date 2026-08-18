@@ -265,25 +265,40 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
   }
   if (resp.ok) op.resolveResult(resp.resultB64);
   else {
-    // Preserve the SDK's stable `errorCode` end-to-end (issue #260, funds-critical).
-    // Re-attach it onto the rejection in the EXACT shape the SW tx classifier reads
-    // (`extractSdkErrorCode` → `err.errorCode`), so a round-tripped
-    // `ApplyTransactionAfterSubmitFailed` from a failed offscreen write is classified
-    // identically to the flag-off inline path (marked Completed, NOT Failed → requeue
-    // → double-spend). Shared by all four writes via `dispatchOffscreenWrite`/this
-    // single choke point. A code-less failure (`undefined`) leaves the error
-    // untagged, exactly as before.
+    // Preserve the SDK's stable error code end-to-end (issue #260, funds-critical).
+    // Re-attach it onto the rejection under `errorCode`, one of the two names
+    // `extractSdkErrorCode` reads. The rejection's MESSAGE also embeds the offscreen
+    // realm's verbatim error text, which is what lets the SW classify a round-tripped
+    // apply-after-submit failure (`isApplyAfterSubmitError`) identically to the
+    // flag-off inline path — marked Completed, NOT Failed → requeue → double-spend —
+    // even though web-sdk 0.16 attaches no code for that variant. Shared by all four
+    // writes via `dispatchOffscreenWrite`/this single choke point. A code-less failure
+    // (`undefined`) leaves the error untagged, exactly as before.
     const err = new Error(`Offscreen call '${op.method}' failed: ${resp.error}`);
     if (resp.errorCode !== undefined) (err as { errorCode?: string }).errorCode = resp.errorCode;
     op.reject(err);
   }
 }
 
-/** Settle an op that failed at the transport layer (sendMessage rejected). */
+/**
+ * Settle an op that failed at the TRANSPORT layer (`sendMessage` rejected).
+ *
+ * This is the same physical event as {@link finishOp}'s `resp === undefined`
+ * branch — the offscreen document went away before it could answer — so it
+ * settles with the same error TYPE. The runtime picks between the two shapes
+ * (an `undefined` resolution vs. a "message channel closed" rejection) for
+ * reasons the SW cannot observe, and a bare `Error` here classified differently
+ * from an `OperationAbortedError` everywhere downstream: `tryCompleteKilledConsume`
+ * would skip its node check, and the offscreen-kill reason would not be
+ * recognizable in the persisted `rawError`. The original message is preserved as
+ * `cause` so nothing diagnostic is lost.
+ */
 function finishOpError(op_id: string, err: unknown): void {
   const op = takeInFlight(op_id);
   if (!op) return;
-  op.reject(err instanceof Error ? err : new Error(String(err)));
+  const aborted = new OperationAbortedError(op_id, 'transport');
+  aborted.cause = err;
+  op.reject(aborted);
 }
 
 /** Reject every still-in-flight op with a fresh abort error (its own op_id). */
@@ -841,11 +856,19 @@ export const midenClientProxy = {
    *
    * This MUST run on the SAME client that created the note, mirroring the
    * `waitForTransactionCommit` companion above — and for a funds-critical reason:
-   * `sendPrivateNote` attaches the CLIENT'S CURRENT SYNC HEIGHT as the recipient's
-   * forward-scan hint. Under the flag the send ran offscreen, so the note lives in
-   * the OFFSCREEN client's store and that realm owns the fresh sync height; the
-   * dormant SW client's height is stale, and a relay on it would attach a stale/
-   * overshooting hint (the recipient scans past the commitment and never receives).
+   * under 0.16 `MidenClientInterface.sendPrivateNote` calls
+   * `notes.sendPrivateOutput({ noteId })`, which resolves the note BY ID from the
+   * calling client's store as an APPLIED OUTPUT note and derives the recipient's
+   * forward-scan hint from that stored `expected_height` (the chain tip when the
+   * note's transaction was submitted). Under the flag the send ran offscreen, so
+   * the note is an output note of the OFFSCREEN client's store only; relaying on
+   * the dormant SW client rejects outright with the SDK's `No output note found for
+   * the given id` and the recipient — whose copy of these bytes may be the only one
+   * — silently never receives it.
+   *
+   * (Under 0.15 this call was `notes.sendPrivate(note, to)` and the hint was the
+   * client's live sync height, which is why the realm-pinning was originally argued
+   * from sync-height staleness. The requirement is the same; the reason is not.)
    *
    *   Flag off (default): BYTE-IDENTICAL to the former inline relay — the exact
    *   `getMidenClient().sendPrivateNote(note, to)` under the WASM lock (the caller's
@@ -856,10 +879,13 @@ export const midenClientProxy = {
    *
    *   Flag on: forward to the offscreen doc. The live `Note` cannot cross
    *   postMessage, so it crosses as `note.serialize()` bytes (`encodeArg`'s raw-bytes
-   *   tag, never JSON) and is re-hydrated offscreen via `Note.deserialize`; the SDK's
-   *   `notes.sendPrivate` uses that live `Note` DIRECTLY (no store lookup — that path
-   *   is only for note-ID inputs), so the note is fully self-contained and only the
-   *   block hint is read off the (offscreen) client. It is a transport relay — no
+   *   tag, never JSON) and is re-hydrated offscreen via `Note.deserialize`; only its
+   *   ID is then used, because `notes.sendPrivateOutput` looks the note back up in
+   *   the offscreen store — which is exactly where the write that created it applied
+   *   it. Every relay today is for an output note of a transaction the SAME realm
+   *   just executed, proved, submitted and applied; a note this realm did not apply
+   *   (an imported one, or one whose client DB `lib/miden/reset.ts` has since
+   *   cleared) does not satisfy that precondition. It is a transport relay — no
    *   prove / sign, NOT a `criticalOp` — carrying the short read deadline; a wedge is
    *   reclaimed by that deadline, and the SDK persists the relay payload to its
    *   durable outbox BEFORE transport, so a kill is safe (the outbox retries on the

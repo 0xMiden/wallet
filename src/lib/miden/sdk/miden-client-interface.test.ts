@@ -367,7 +367,10 @@ describe('MidenClientInterface', () => {
 
     const result = await client.newTransaction('acc-id', new Uint8Array([1, 2]));
     expect(result).toBe(fakeTransactionResult);
-    expect(fakeMidenClient.transactions.submit).toHaveBeenCalled();
+    // Staged execute → prove → submit → apply (not the all-in-one
+    // `transactions.submit`), so the prove-fallback has a seam to stop at.
+    expect(fakeMidenClient.transactions.executeRequest).toHaveBeenCalled();
+    expect(fakeMidenClient.transactions.submit).not.toHaveBeenCalled();
   });
 
   it('waits for transaction commit successfully', async () => {
@@ -544,6 +547,87 @@ describe('MidenClientInterface', () => {
     expect(proveCalls).toBe(2);
   });
 
+  // Regression (funds safety): `proveWithFallback`'s callback is not a prove step
+  // — for every caller it also submits and applies. Retrying it wholesale after a
+  // failure at or AFTER `submit()` re-broadcasts the transfer, and because the
+  // send path rebuilds its request each attempt (a fresh random note serial → a
+  // different output note the node has no reason to reject as a duplicate) the
+  // user is debited twice. It also destroyed the apply-after-submit
+  // classification: the retry's error replaced the original, so
+  // `isApplyAfterSubmitError` stopped firing and a transfer that IS on chain was
+  // marked Failed → the user's Retry then sent a third time.
+  it.each([
+    [
+      'submit rejects (the node may still have accepted it)',
+      new Error('network error while submitting'),
+      'submit' as const
+    ],
+    [
+      'apply rejects after a successful submit',
+      new Error(
+        "Transaction 0xabc was accepted into the node's mempool at block 42 but the local store update failed."
+      ),
+      'apply' as const
+    ]
+  ])(
+    'does not re-run the send pipeline when the delegated attempt already reached submit — %s',
+    async (_l, err, failAt) => {
+      let submitCalls = 0;
+      const fakeMidenClient = buildFakeMidenClient({
+        transactions: {
+          executeRequest: jest.fn(async () => ({
+            id: 'tx-id',
+            result: fakeTransactionResult,
+            prove: jest.fn(async () => ({
+              submit: jest.fn(async () => {
+                submitCalls += 1;
+                if (failAt === 'submit') throw err;
+                return { apply: jest.fn(async () => Promise.reject(err)) };
+              })
+            }))
+          }))
+        }
+      });
+
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => String(id)
+      }));
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => ({
+          AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
+          NoteType: { Public: 'public', Private: 'private' }
+        })
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      // The ORIGINAL error propagates — `generateTransactionsLoop`'s
+      // apply-after-submit classification reads the immediate error's message chain.
+      await expect(
+        client.sendTransaction({
+          accountId: 'sender',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(1),
+          extraInputs: {},
+          delegateTransaction: true
+        } as any)
+      ).rejects.toBe(err);
+
+      // Exactly one execute and one submit: no second broadcast.
+      expect(fakeMidenClient.transactions.executeRequest).toHaveBeenCalledTimes(1);
+      expect(submitCalls).toBe(1);
+    }
+  );
+
   it('sendTransaction throws a friendly error when _withInnerWebClient is missing', async () => {
     const fakeMidenClient = buildFakeMidenClient({ _withInnerWebClient: undefined });
 
@@ -576,6 +660,104 @@ describe('MidenClientInterface', () => {
         extraInputs: {}
       } as any)
     ).rejects.toThrow(/_withInnerWebClient missing/);
+  });
+
+  // The consume leaf drives the SDK's opaque all-in-one `transactions.consume`, so
+  // it has no seam at which to mark the point of no return and deliberately keeps
+  // the whole-op local-prover retry (the retry re-consumes the SAME notes, so a
+  // first attempt that landed is rejected on the spent nullifier). The one case it
+  // must NOT retry is apply-after-submit — the tx IS on chain — because the retry's
+  // error would replace it and the row would be classified Failed instead of landed.
+  it('does not retry an opaque consume whose failure says the node already accepted it', async () => {
+    const applyAfterSubmit = new Error(
+      "Transaction 0xabc was accepted into the node's mempool at block 42 but the local store update failed."
+    );
+    const consume = jest.fn(async () => Promise.reject(applyAfterSubmit));
+    const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
+
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await expect(
+      client.consumeNoteId({
+        accountId: 'acc-id',
+        noteId: 'note-1',
+        type: 'consume',
+        delegateTransaction: true
+      } as any)
+    ).rejects.toBe(applyAfterSubmit);
+
+    expect(consume).toHaveBeenCalledTimes(1);
+  });
+
+  // Swap is the other opaque whole-op write, but unlike consume a retry would mint
+  // a SECOND PSWAP note (a fresh note serial) and lock the offered asset twice — so
+  // it marks the point of no return before the call and gives up the prove fallback.
+  it('does not retry a delegated swap: pswapCreate has no seam to stop at', async () => {
+    const pswapErr = new Error('remote prover deadline exceeded');
+    const pswapCreate = jest.fn(async () => Promise.reject(pswapErr));
+    const fakeMidenClient = buildFakeMidenClient({ transactions: { pswapCreate } });
+
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await expect(
+      client.swapTransaction({
+        accountId: 'acc-id',
+        faucetId: 'offered-faucet',
+        amount: BigInt(10),
+        type: 'swap',
+        delegateTransaction: true,
+        extraInputs: { requestedFaucetId: 'wanted-faucet', requestedAmount: BigInt(20) }
+      } as any)
+    ).rejects.toBe(pswapErr);
+
+    expect(pswapCreate).toHaveBeenCalledTimes(1);
+  });
+
+  // `newTransaction` (dApp custom transactions + the Agglayer bridged-send) is
+  // staged for the same reason the send path is: so a failure at or after submit
+  // cannot be retried into a second broadcast of the same request.
+  it('does not re-execute newTransaction when the delegated attempt already reached submit', async () => {
+    const submitErr = new Error('network error while submitting');
+    const executeRequest = jest.fn(async () => ({
+      id: 'tx-id',
+      result: fakeTransactionResult,
+      prove: jest.fn(async () => ({ submit: jest.fn(async () => Promise.reject(submitErr)) }))
+    }));
+    const fakeMidenClient = buildFakeMidenClient({ transactions: { executeRequest } });
+
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      TransactionProver: { newLocalProver: jest.fn(() => 'local') },
+      TransactionRequest: { deserialize: jest.fn(() => ({})) }
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await expect(client.newTransaction('acc-id', new Uint8Array([1, 2]), true)).rejects.toBe(submitErr);
+
+    expect(executeRequest).toHaveBeenCalledTimes(1);
   });
 
   it('consumeNoteId returns TransactionResult', async () => {
@@ -1525,11 +1707,11 @@ describe('MidenClientInterface', () => {
       const requestBytes = new Uint8Array([0xde, 0xad]);
       await client.newTransaction('mtst1acc', requestBytes);
 
-      // Two deserialize calls: one at the top of the method (used as the
-      // fallback path's request) and one inside proveLocallyViaOffscreen's
-      // builder closure (a fresh deserialization, since wasm-bindgen
-      // executeTransaction consumes the value).
-      expect(txRequestDeserialize).toHaveBeenCalledTimes(2);
+      // Exactly one deserialize: the one inside proveLocallyViaOffscreen's builder
+      // closure. `newTransaction` no longer deserializes eagerly at the top of the
+      // method — a wasm-bindgen request is consumed by execution, so each attempt
+      // now hydrates its own from the bytes.
+      expect(txRequestDeserialize).toHaveBeenCalledTimes(1);
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
     });
@@ -1740,11 +1922,22 @@ describe('MidenClientInterface', () => {
     async function setup(sdk: {
       noteFileDeserialize: jest.Mock;
       noteDeserialize: jest.Mock;
-      fromNoteDetails?: jest.Mock;
+      fromExpectedNote?: jest.Mock;
     }) {
       const fakeMidenClient = buildFakeMidenClient();
       const importMock = fakeMidenClient.notes.import as jest.Mock;
-      const fromNoteDetails = sdk.fromNoteDetails ?? jest.fn((details: any) => ({ kind: 'from-details', details }));
+      // Only `fromExpectedNote` is exposed: `fromNoteDetails` is the
+      // zero-valued-sync-hint constructor whose tag-0 file can never commit, so
+      // a regression back to it must fail loudly here rather than silently
+      // import an unclaimable note.
+      const fromExpectedNote =
+        sdk.fromExpectedNote ??
+        jest.fn((details: any, tag: any, afterBlockNum: number) => ({
+          kind: 'from-details',
+          details,
+          tag,
+          afterBlockNum
+        }));
       const NoteDetailsCtor = jest.fn(function (this: any, assets: any, recipient: any) {
         this.assets = assets;
         this.recipient = recipient;
@@ -1752,7 +1945,7 @@ describe('MidenClientInterface', () => {
 
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         MidenClient: { create: jest.fn(async () => fakeMidenClient) },
-        NoteFile: { deserialize: sdk.noteFileDeserialize, fromNoteDetails },
+        NoteFile: { deserialize: sdk.noteFileDeserialize, fromExpectedNote },
         Note: { deserialize: sdk.noteDeserialize },
         NoteDetails: NoteDetailsCtor,
         AccountFile: { deserialize: jest.fn(() => ({})) },
@@ -1786,7 +1979,7 @@ describe('MidenClientInterface', () => {
         seed: new Uint8Array([1, 2, 3]),
         insertKeyCallback: jest.fn()
       });
-      return { client, importMock, fromNoteDetails, NoteDetailsCtor };
+      return { client, importMock, fromExpectedNote, NoteDetailsCtor };
     }
 
     it('imports serialized NoteFile bytes directly without touching the Note fallback', async () => {
@@ -1805,13 +1998,17 @@ describe('MidenClientInterface', () => {
       const noteFileDeserialize = jest.fn(() => {
         throw new Error('notefile deserialization failed: invalid utf-8 sequence of 1 bytes from index 1');
       });
-      const fakeNote = { assets: jest.fn(() => 'note-assets'), recipient: jest.fn(() => 'note-recipient') };
+      const fakeNote = {
+        assets: jest.fn(() => 'note-assets'),
+        recipient: jest.fn(() => 'note-recipient'),
+        metadata: jest.fn(() => ({ tag: () => 'note-tag-1241513984' }))
+      };
       const noteDeserialize = jest.fn(() => fakeNote);
-      const fromNoteDetails = jest.fn((details: any) => ({ kind: 'wrapped', details }));
+      const fromExpectedNote = jest.fn((details: any, tag: any) => ({ kind: 'wrapped', details, tag }));
       const { client, importMock, NoteDetailsCtor } = await setup({
         noteFileDeserialize,
         noteDeserialize,
-        fromNoteDetails
+        fromExpectedNote
       });
 
       await client.importNoteBytes(new Uint8Array([9, 9, 9]));
@@ -1819,8 +2016,40 @@ describe('MidenClientInterface', () => {
       expect(noteDeserialize).toHaveBeenCalled();
       // NoteDetails built from the note's assets + recipient, then wrapped.
       expect(NoteDetailsCtor).toHaveBeenCalledWith('note-assets', 'note-recipient');
-      expect(fromNoteDetails).toHaveBeenCalled();
+      expect(fromExpectedNote).toHaveBeenCalled();
       expect(importMock).toHaveBeenCalledWith(expect.objectContaining({ kind: 'wrapped' }));
+    });
+
+    /**
+     * A NoteFile's tag is what makes an imported expected note resolvable: the
+     * client asks the node for the notes carrying that tag and subscribes to it.
+     * Wrapping with the SDK's zero-valued sync hint (`NoteFile.fromNoteDetails`)
+     * produced tag 0, which no real note carries — so a private note that was
+     * already committed on chain stayed `Expected` forever: never in the
+     * claimable list, never consumable, and leaving a dead tag-0 subscription on
+     * every later sync.
+     */
+    it("wraps a bare Note with the note's OWN tag, not a zero-valued sync hint", async () => {
+      const noteFileDeserialize = jest.fn(() => {
+        throw new Error('notefile deserialization failed: invalid utf-8 sequence of 1 bytes from index 2');
+      });
+      const noteTag = { value: 1241513984 };
+      const metadata = jest.fn(() => ({ tag: () => noteTag }));
+      const noteDeserialize = jest.fn(() => ({
+        assets: jest.fn(() => 'note-assets'),
+        recipient: jest.fn(() => 'note-recipient'),
+        metadata
+      }));
+      const { client, importMock, fromExpectedNote } = await setup({ noteFileDeserialize, noteDeserialize });
+
+      await client.importNoteBytes(new Uint8Array([9, 9, 9]));
+
+      expect(metadata).toHaveBeenCalled();
+      const [, tagArg, afterBlockArg] = fromExpectedNote.mock.calls[0]!;
+      expect(tagArg).toBe(noteTag);
+      // A bare Note carries no block information, so the scan starts at genesis.
+      expect(afterBlockArg).toBe(0);
+      expect(importMock).toHaveBeenCalledWith(expect.objectContaining({ tag: noteTag, afterBlockNum: 0 }));
     });
 
     it('throws a clear, actionable error when bytes are neither a NoteFile nor a Note', async () => {
@@ -1911,7 +2140,15 @@ describe('MidenClientInterface', () => {
     ]);
 
     await expect(client.getConsumableNotes('mtst1account')).resolves.toEqual([currentlyConsumable, ungated]);
-    expect(createClient).toHaveBeenCalledWith('https://rpc.example');
+    // The trailing `false` is `useWorker` (the SDK's 6th positional parameter, which
+    // defaults to TRUE). It has to be explicit: this read runs in the offscreen
+    // document whenever MIDEN_USE_OFFSCREEN_CLIENT is on — the Chrome default for the
+    // SW bundle — and an offscreen document is a real document where `Worker` exists,
+    // so the default would spawn a Web Worker plus a second WASM instance on every
+    // sync tick / claimable-notes refresh / dApp note query and then tear it down.
+    // (In an MV3 service worker `Worker` is undefined, which is why the omission was
+    // invisible before the offscreen rehost.)
+    expect(createClient).toHaveBeenCalledWith('https://rpc.example', undefined, undefined, undefined, undefined, false);
     expect(fromBech32).toHaveBeenCalledWith('mtst1account');
     expect(getConsumableNotes).toHaveBeenCalledWith({ accountId: 'mtst1account' });
     expect(terminate).toHaveBeenCalledTimes(1);

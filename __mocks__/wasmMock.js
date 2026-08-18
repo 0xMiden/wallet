@@ -29,6 +29,10 @@ module.exports = {
     ConsumedUnauthenticatedLocal: 'ConsumedUnauthenticatedLocal',
     ConsumedExternal: 'ConsumedExternal',
     Invalid: 'Invalid',
+    // Written by miden-client's apply_transaction: our own consuming tx was
+    // submitted and applied locally, block not committed yet.
+    ProcessingAuthenticated: 'ProcessingAuthenticated',
+    ProcessingUnauthenticated: 'ProcessingUnauthenticated',
     Committed: 'Committed',
     Expected: 'Expected',
     Unverified: 'Unverified'

@@ -127,6 +127,27 @@ jest.mock('lib/miden/back/defaults', () => ({
   intercom: { broadcast: jest.fn() }
 }));
 
+// The consume approval preview resolves the note the wallet will actually consume
+// (rather than trusting the dApp's declared faucet/amount/type), so the consume
+// case needs a client whose store contains it.
+jest.mock('lib/miden/sdk/miden-client', () => ({
+  getMidenClient: async () => ({
+    getInputNoteDetails: async () => [
+      {
+        noteId: 'note-1',
+        noteType: 0,
+        senderAccountId: 's1',
+        nullifier: 'nf1',
+        state: 0,
+        assets: [{ faucetId: 'faucet-6dp', amount: '1500000' }]
+      }
+    ],
+    on: jest.fn()
+  }),
+  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  runWhenClientIdle: () => {}
+}));
+
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
     getCurrentAccountPublicKey: jest.fn().mockResolvedValue('miden-account-1')
@@ -175,7 +196,9 @@ const sendRequest = (faucetId: string, amount: string) =>
     type: MidenDAppMessageType.SendTransactionRequest,
     sourcePublicKey: 'miden-account-1',
     transaction: {
-      senderAddress: 'mtst1sender',
+      // Must be the connected account — the wallet now rejects a send that names
+      // any other account as the payer (`executingAccountError`).
+      senderAddress: 'miden-account-1',
       recipientAddress: 'mtst1recipient',
       faucetId,
       noteType: 'private',
@@ -250,6 +273,72 @@ describe('dApp send approval: the amount is scaled by the faucet decimals', () =
   });
 });
 
+// ── 1b. The executing account must be the connected one ────────────
+
+describe('dApp transactions execute ONLY as the connected account', () => {
+  const sendRequestFrom = (senderAddress: string) =>
+    ({
+      type: MidenDAppMessageType.SendTransactionRequest,
+      // Authorized against the connected account …
+      sourcePublicKey: 'miden-account-1',
+      transaction: {
+        // … but asked to execute as this one.
+        senderAddress,
+        recipientAddress: 'mtst1attacker',
+        faucetId: 'faucet-6dp',
+        noteType: 'private',
+        amount: '5000000',
+        recallBlocks: 0
+      }
+    }) as unknown as Parameters<typeof requestSendTransaction>[1];
+
+  const customRequestFrom = (address: string) =>
+    ({
+      type: MidenDAppMessageType.TransactionRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: {
+        payload: { address, transactionRequest: 'tx', recipientAddress: 'mtst1attacker', inputNoteIds: [] }
+      }
+    }) as unknown as Parameters<typeof requestTransaction>[1];
+
+  beforeEach(() => {
+    mockGetTokenMetadata.mockResolvedValue({ decimals: 6 });
+  });
+
+  it('rejects a send whose senderAddress is an account the origin is not connected to', async () => {
+    await expect(requestSendTransaction(DAPP_ORIGIN, sendRequestFrom('miden-account-2'), 'session-1')).rejects.toThrow(
+      'NOT_GRANTED'
+    );
+    // Rejected BEFORE any approval sheet: the user is never shown a prompt that
+    // looks like the connected account's own transfer.
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('rejects a custom transaction whose address is an account the origin is not connected to', async () => {
+    await expect(requestTransaction(DAPP_ORIGIN, customRequestFrom('miden-account-2'), 'session-1')).rejects.toThrow(
+      'NOT_GRANTED'
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('accepts the composite `<address>_<suffix>` publicKey form for the same account', async () => {
+    // Guardian accounts store a composite publicKey; the dApp side sends the bare
+    // address. A raw `===` would reject this legitimate request.
+    await expect(
+      requestSendTransaction(DAPP_ORIGIN, sendRequestFrom('miden-account-1_qr7qqq9wr6w'), 'session-1')
+    ).rejects.toThrow(DECLINED);
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  });
+
+  it('names the paying account on the send approval sheet', async () => {
+    await expect(
+      requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000'), 'session-1')
+    ).rejects.toThrow(DECLINED);
+
+    expect(capturedConfirmation().transactionMessages).toContain('From, miden-account-1');
+  });
+});
+
 // ── 2. The approval sheet names the verified origin ────────────────
 
 describe('dApp approval sheets name the verified origin, not the dApp-supplied name', () => {
@@ -283,7 +372,7 @@ describe('dApp approval sheets name the verified origin, not the dApp-supplied n
       sourcePublicKey: 'miden-account-1',
       transaction: {
         payload: {
-          address: 'mtst1sender',
+          address: 'miden-account-1',
           transactionRequest: 'tx',
           recipientAddress: 'mtst1recipient',
           inputNoteIds: [],

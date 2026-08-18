@@ -97,8 +97,16 @@ jest.mock('lib/miden/guardian/use-guardian-probe', () => ({
 }));
 
 const mockPutToStorage = jest.fn<Promise<void>, unknown[]>();
+const mockFetchFromStorage = jest.fn<Promise<unknown>, unknown[]>(async () => null);
 jest.mock('lib/miden/front/storage', () => ({
-  putToStorage: (...args: unknown[]) => mockPutToStorage(...args)
+  putToStorage: (...args: unknown[]) => mockPutToStorage(...args),
+  fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
+}));
+
+// The key `Vault.spawn`'s reset preserves; the page has to preserve it across
+// its own wipe too (see the endpoint-override test below).
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ENDPOINT_OVERRIDE_STORAGE_KEY: 'endpoint_overrides'
 }));
 
 const PROBED_RESULT = {
@@ -135,6 +143,7 @@ function renderPage() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockFetchFromStorage.mockResolvedValue(null);
   mockRegisterWallet.mockResolvedValue(undefined);
   mockPostOnboardingRoute.mockReturnValue('/');
   mockGenerateMnemonic.mockReturnValue('a b c d e f g h i j k l');
@@ -257,6 +266,45 @@ describe('ForgotPassword', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
+  /**
+   * The recovery wipe must not take the dev-settings endpoint override with it.
+   * `clearClientStorage()` is a blanket `localStorage.clear()`, and on desktop
+   * localStorage IS the platform key-value store, so the override — the one key
+   * a storage reset is supposed to survive — went with it. `Vault.spawn`'s reset
+   * snapshots it only AFTER this call, so it read null and restored nothing: the
+   * account was recovered on the custom network while the next launch resolved
+   * the build-default endpoints (empty balances, wrong native token, no error).
+   */
+  it('preserves the endpoint override across the recovery wipe (desktop localStorage)', async () => {
+    mockFetchFromStorage.mockResolvedValue({ rpcUrl: 'https://custom.example.com' });
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockFetchFromStorage).toHaveBeenCalledWith('endpoint_overrides');
+    expect(mockPutToStorage).toHaveBeenCalledWith('endpoint_overrides', { rpcUrl: 'https://custom.example.com' });
+    // Read BEFORE the wipe, written back AFTER it — the order is the fix.
+    expect(mockFetchFromStorage.mock.invocationCallOrder[0]).toBeLessThan(
+      mockClearClientStorage.mock.invocationCallOrder[0]!
+    );
+    expect(mockPutToStorage.mock.invocationCallOrder[0]).toBeGreaterThan(
+      mockClearClientStorage.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('writes no override back when none was set', async () => {
+    // The common case: no dev-settings override, so the wipe has nothing to
+    // preserve and must not resurrect a key with a null value.
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockClearClientStorage).toHaveBeenCalledTimes(1);
+    expect(mockPutToStorage).not.toHaveBeenCalled();
+  });
+
   it('confirmation hands off to the side panel when available (#428)', async () => {
     mockPostOnboardingRoute.mockReturnValue('/finish-side-panel');
     renderPage();
@@ -329,6 +377,67 @@ describe('ForgotPassword', () => {
     // the endpoint threaded into registerWallet is undefined (backend then falls
     // back to the stored / default endpoint).
     expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, 'pw2', 'fmt:seed words here', true, undefined);
+  });
+
+  it('Import flow: the password step leads to the recovery-method step, not straight to Confirmation', async () => {
+    // Without this step the flow could only ever recover the Guardian BIP-44
+    // namespace, so a user who onboarded with "no guardian" had their wallet
+    // wiped by clearClientStorage() and then hit "No Guardian accounts found at
+    // this guardian endpoint for this seed" — their OffChain account at
+    // m/44'/0'/1'/0' was never derived or looked up.
+    const { container } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportSelectRecoveryMethod);
+  });
+
+  it('Import flow: a non-guardian recovery registers that wallet type with NO endpoint', async () => {
+    mockProbeStart.mockResolvedValue(PROBED_RESULT);
+
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.OnChain } });
+    await dispatch({ id: 'confirmation' });
+
+    // The selected type reaches Vault.spawn, which derives from that namespace and
+    // skips the Guardian lookup entirely. A detected guardian endpoint must NOT be
+    // bound to a non-guardian recovery.
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OnChain, 'pw', 'fmt:seed words here', true, undefined);
+  });
+
+  it('Import flow: a guardian recovery uses the endpoint chosen on the recovery-method step', async () => {
+    mockProbeStart.mockResolvedValue(PROBED_RESULT);
+
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://chosen.example.com' }
+    });
+    await dispatch({ id: 'confirmation' });
+
+    // The user's explicit pick wins over the background probe's winner.
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      'fmt:seed words here',
+      true,
+      'https://chosen.example.com'
+    );
+  });
+
+  it('Create (reset) flow: still goes straight to Confirmation — a fresh seed has nothing to look up', async () => {
+    const { container } = renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
   });
 
   it('confirmation (Import flow): threads the probed guardian endpoint into registerWallet', async () => {

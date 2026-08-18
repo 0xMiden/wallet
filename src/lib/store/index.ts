@@ -26,6 +26,15 @@ function getIntercom(): IIntercomClient {
 // Helper to make requests to backend
 async function request<T extends WalletRequest>(req: T): Promise<WalletResponse> {
   const res = await getIntercom().request(req);
+  // An adapter that has no `case` for this message type falls through to its
+  // `default:` arm and resolves `undefined`. Name the unhandled type instead of
+  // letting `'type' in undefined` throw a bare TypeError — that TypeError used to
+  // surface in the UI as e.g. "Cannot read properties of undefined (reading
+  // 'type')" under the password field of Reveal Hot Key, reading to the user as a
+  // wrong password rather than as a missing handler.
+  if (res == null) {
+    throw new Error(`No handler for request type: ${String(req.type)}`);
+  }
   if (!('type' in res)) {
     throw new Error('Invalid response received.');
   }
@@ -445,7 +454,7 @@ export const useWalletStore = create<WalletStore>()(
         id
       });
       assertResponse(res.type === MidenMessageType.DAppSimulateTransactionResponse);
-      return { summaryBytes: res.summaryBytes, error: res.error };
+      return { summaryBytes: res.summaryBytes, executedBytes: res.executedBytes, error: res.error };
     },
 
     confirmDAppPermission: async (id, confirmed, accountId, privateDataPermission, allowedPrivateData) => {

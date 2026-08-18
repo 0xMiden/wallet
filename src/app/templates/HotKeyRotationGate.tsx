@@ -136,9 +136,10 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   }, [beginRotation]);
 
   // Driver: on extension the service worker owns the FIFO loop; on
-  // mobile/desktop nobody else is mounted to drive it (the rotation never
-  // routes to the GeneratingTransaction page), so the overlay kicks the same
-  // loop that page uses. The in-flight generate promise survives unmount.
+  // mobile/desktop the rotation never routes to the GeneratingTransaction page,
+  // and `OrphanedTransactionRecovery` only runs its one-shot sweep at app start,
+  // so the overlay kicks the same loop that page uses. The in-flight generate
+  // promise survives unmount.
   const driveLoop = useCallback(async () => {
     try {
       await safeGenerateTransactionsLoop(signTransaction, false, zustandProvider);

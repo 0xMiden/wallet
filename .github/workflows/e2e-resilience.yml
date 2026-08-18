@@ -1,8 +1,10 @@
 name: Infra Resilience E2E (Chrome)
-# Fault-injection suite: stands up the hermetic localnet stack (node, prover,
-# note-transport, BOTH guardians, Anvil) and runs playwright/e2e/tests/resilience,
-# each spec arming a network/guardian fault (harness/network-faults.ts) and
-# asserting the wallet degrades / recovers gracefully.
+# Fault-injection suite: stands up the hermetic localnet stack and runs
+# playwright/e2e/tests/resilience, each spec arming a network/guardian fault
+# (harness/network-faults.ts) and asserting the wallet degrades / recovers
+# gracefully. The node + prover come from .github/actions/run-local-node and the
+# note-transport from run-note-transport.sh (both HOST processes on 0.16); only
+# the two guardians come from docker-compose.local.yml.
 #
 # Trigger: push to main (post-merge signal), manual dispatch, and a nightly cron.
 # This is NOT a required pre-merge PR gate (spec decision) — a full docker stack
@@ -71,16 +73,8 @@ jobs:
             cargo install miden-client-cli --git "$url" --rev "$rev" --locked
           fi
           miden-client --version
-      - name: Bring up node + prover
-        working-directory: playwright/e2e/local-stack
-        run: |
-          for attempt in 1 2 3; do
-            docker compose --env-file versions.env -f docker-compose.local.yml up --wait --wait-timeout 300 && exit 0
-            echo "bring-up attempt $attempt failed; tearing down and retrying" >&2
-            docker compose --env-file versions.env -f docker-compose.local.yml down -v || true
-            sleep 10
-          done
-          exit 1
+      - name: Start local 0.16 node (validator + sequencer + ntx-builder + prover)
+        uses: ./.github/actions/run-local-node
       - name: Wait for node RPC + prover
         working-directory: playwright/e2e/local-stack
         run: |
@@ -98,6 +92,9 @@ jobs:
           # Guardian resilience specs (17-19) need BOTH operators; the
           # guardian-switch profile implies Tier-2, so this starts guardian (:3000)
           # + guardian-b (:3001) and their postgres backends.
+          # Those three specs are currently quarantined on SDK 0.16
+          # (playwright.resilience.config.ts testIgnore, #522) — the bring-up stays
+          # so the suite is whole again the moment the quarantine is lifted.
           docker compose --env-file versions.env -f docker-compose.local.yml \
             --profile guardian-switch up -d guardian guardian-postgres guardian-b guardian-b-postgres
       - name: Wait for guardians
@@ -122,12 +119,12 @@ jobs:
       - name: Run resilience specs
         # No --retries override: use the config's retries=2. The resilience
         # ASSERTIONS are deterministic (armed fault → a non-graceful regression
-        # fails on every attempt, so a retry can't mask it), but the guardian
-        # specs' onboarding SETUP drives real proofs through the single serial
-        # prover and flakes under back-to-back load — the exact prover-timing
-        # flake the base localnet config already retries for. See the config
-        # comment. The "Report flaky" step below surfaces any retried-then-passed
-        # spec so a creeping flake stays visible instead of silent.
+        # fails on every attempt, so a retry can't mask it), but wallet-onboarding
+        # SETUP drives real proofs through the single serial prover and flakes
+        # under back-to-back load — the prover-timing flake pr-e2e-local absorbs
+        # with --retries=1. See the config comment. The "Report flaky" step below
+        # surfaces any retried-then-passed spec so a creeping flake stays visible
+        # instead of silent.
         run: xvfb-run -a yarn test:e2e:resilience:run
       - name: Report flaky (retried-then-passed) specs
         if: always()

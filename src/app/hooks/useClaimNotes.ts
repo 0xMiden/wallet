@@ -269,31 +269,57 @@ export function useClaimNotes(): ClaimNotesState {
 
       try {
         let batchTxId: string | null = null;
-        try {
-          // One consume transaction for the whole batch — both the WASM client
-          // and the Guardian consume proposal take multiple note ids, so this
-          // is a single proof/submit instead of one per note. User tapped
-          // Claim All — bypass the auto-consume backoff gate so failed notes
-          // can be retried on demand.
-          batchTxId = await initiateConsumeNotesTransaction(
-            account.publicKey,
-            notesToClaim,
-            isDelegatedProvingEnabled,
-            true
-          );
-        } catch (err) {
-          console.error('Error queuing notes for claim:', noteIds, err);
-          // Record the failure in the memory-only set too: this queue-time throw
-          // rolled back its Dexie transaction, so getFailedTransactions can't
-          // re-surface it and the REPLACE-based recheck would otherwise wipe the
-          // flag on the next focus/visibility tick (#456).
-          for (const id of noteIds) locallyFailedNoteIdsRef.current.add(id);
-          setRetriableNoteIds(prev => new Set([...prev, ...noteIds]));
-          setClaimingNoteIds(prev => {
-            const next = new Set(prev);
-            for (const noteId of noteIds) next.delete(noteId);
-            return next;
-          });
+        // One consume transaction PER FAUCET, not one for the whole batch.
+        //
+        // A completed consume row carries a single (faucetId, amount) pair:
+        // `completeConsumeTransaction` takes the faucet from the FIRST input
+        // note and then sums only the assets whose faucet matches it. A
+        // mixed-faucet batch therefore recorded "Received 10 MIDEN" for a
+        // transaction that also delivered 25 USDC, and nothing else ever
+        // creates a row for the dropped asset — it is absent from the activity
+        // list and from the detail screen, and `tx.faucetId` reconciliation
+        // (swap/bridge) never sees it. Grouping makes each row's asset
+        // attribution correct BY CONSTRUCTION, which is the shape
+        // `handleClaimGroup` already produced; the cost is one proof per
+        // distinct asset instead of one for the batch. Notes sharing a faucet
+        // still go out in a single proof/submit.
+        const byFaucet = new Map<string, NoteWithMetadata[]>();
+        for (const note of notesToClaim) {
+          const group = byFaucet.get(note.faucetId);
+          if (group) {
+            group.push(note);
+          } else {
+            byFaucet.set(note.faucetId, [note]);
+          }
+        }
+
+        for (const groupNotes of byFaucet.values()) {
+          const groupNoteIds = groupNotes.map(n => n.id);
+          try {
+            // User tapped Claim All — bypass the auto-consume backoff gate so
+            // failed notes can be retried on demand.
+            const groupTxId = await initiateConsumeNotesTransaction(
+              account.publicKey,
+              groupNotes,
+              isDelegatedProvingEnabled,
+              true
+            );
+            batchTxId = batchTxId ?? groupTxId;
+          } catch (err) {
+            console.error('Error queuing notes for claim:', groupNoteIds, err);
+            // Record the failure in the memory-only set too: this queue-time throw
+            // rolled back its Dexie transaction, so getFailedTransactions can't
+            // re-surface it and the REPLACE-based recheck would otherwise wipe the
+            // flag on the next focus/visibility tick (#456). Scoped to the failing
+            // group so the faucets that DID queue stay marked as claiming.
+            for (const id of groupNoteIds) locallyFailedNoteIdsRef.current.add(id);
+            setRetriableNoteIds(prev => new Set([...prev, ...groupNoteIds]));
+            setClaimingNoteIds(prev => {
+              const next = new Set(prev);
+              for (const noteId of groupNoteIds) next.delete(noteId);
+              return next;
+            });
+          }
         }
 
         if (isExtension()) {

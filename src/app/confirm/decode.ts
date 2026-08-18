@@ -1,4 +1,11 @@
-import { FungibleAsset, Note, NoteFile, TransactionRequest, TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
+import {
+  FungibleAsset,
+  Note,
+  NoteFile,
+  TransactionRequest,
+  TransactionResult,
+  TransactionSummary
+} from '@miden-sdk/miden-sdk/lazy';
 
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { b64ToU8 } from 'lib/shared/helpers';
@@ -70,6 +77,35 @@ export function summaryToView(ts: TransactionSummary): TxAssetView {
 
 export function summaryBytesToView(summaryB64: string): TxAssetView {
   return summaryToView(TransactionSummary.deserialize(b64ToU8(summaryB64)));
+}
+
+/**
+ * Ground-truth view from a locally EXECUTED transaction (authoritative), used
+ * when the account was already fully authorized so execution produced no
+ * TransactionSummary — every ordinary single-sig account on web-sdk 0.16, where
+ * `executeForSummary` rejects with `TRANSACTION_ALREADY_AUTHORIZED` (see
+ * `lib/miden/back/simulate-custom-tx.ts`).
+ *
+ * Assets come from the notes the execution actually consumed and created, not
+ * from the account delta: 0.16's `ExecutedTransaction.accountPatch()` is
+ * ABSOLUTE (final balances, `AccountVaultPatch.updatedFungibleAssets()`), so it
+ * cannot be read as an incoming/outgoing delta without the pre-state. Note flows
+ * are the same quantities the summary view reports for the transactions this
+ * screen previews, and unlike `declaredRequestToView` they are what execution
+ * really produced rather than what the request declared.
+ */
+export function executedBytesToView(executedB64: string): TxAssetView {
+  const executed = TransactionResult.deserialize(b64ToU8(executedB64)).executedTransaction();
+  const inputNotes = executed.inputNotes();
+  const outputNotes = executed.outputNotes();
+  return {
+    account: getBech32AddressFromAccountId(executed.accountId()),
+    outgoing: outputNotes.notes().flatMap(note => noteAssets(note)),
+    incoming: inputNotes.notes().flatMap(note => noteAssets(note.note())),
+    inputNotesConsumed: inputNotes.numNotes(),
+    outputNotesCreated: outputNotes.numNotes(),
+    storageChanged: !executed.accountPatch().storage().isEmpty()
+  };
 }
 
 /**

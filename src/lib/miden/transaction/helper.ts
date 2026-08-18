@@ -16,9 +16,9 @@ import { getMidenClient } from '../sdk/miden-client';
  * The default is SPLIT by bundle, and the split matters HERE more than anywhere:
  * `vite.background.config.ts` defaults `MIDEN_USE_OFFSCREEN_CLIENT` to `'true'`, and
  * the service worker is the only bundle that runs `safeGenerateTransactionsLoop` on
- * the extension: all three front-side drivers check `isExtension()` first and either
- * return (`GeneratingTransaction`, `HotKeyRotationGate`) or hand off to the service
- * worker (`TransactionProgressModal`) — so it is the only bundle that ever calls
+ * the extension: every front-side driver (`GeneratingTransaction`,
+ * `HotKeyRotationGate`, `OrphanedTransactionRecovery`) checks `isExtension()` first
+ * and returns — so it is the only bundle that ever calls
  * {@link readLastAuthReason}. On a default Chrome build the `return undefined` branch
  * below is therefore the one that executes; it is not the exotic path.
  * `vite.extension.config.ts` (popup/side panel), `vite.contentScripts.config.ts` and
@@ -299,18 +299,35 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
 
         if (tx.status === ITransactionStatus.Completed) {
           cleanup();
-          const txResult = TransactionResult.deserialize(tx.resultBytes!);
-          const res = {
-            txHash: tx.transactionId!,
-            outputNotes: txResult
-              .executedTransaction()
-              .outputNotes()
-              .notes()
-              .map(no => no.intoFull())
-              .filter(no => !!no)
-              .map(fullNote => u8ToB64(fullNote.serialize()))
-          };
-          resolve(res);
+          // Never let a throw escape this observer. `cleanup()` has already cleared
+          // the timeout, and dexie runs `next` inside its own promise chain — so an
+          // exception here settles the wait promise as neither success NOR timeout
+          // and the awaiting caller (the Epoch bridge/earn note builders) hangs
+          // forever while the activity row reads Completed. The known trigger is a
+          // row marked Completed by a post-submit failure path with no
+          // `resultBytes`; `isResultAwaitingRow` in `transaction/index.ts` now
+          // Fails those rows instead, and this is the backstop for any other route
+          // to a result-less Completed row.
+          try {
+            if (!tx.resultBytes) {
+              resolve({ errorMessage: 'Transaction completed without a transaction result' });
+              return;
+            }
+            const txResult = TransactionResult.deserialize(tx.resultBytes);
+            const res = {
+              txHash: tx.transactionId!,
+              outputNotes: txResult
+                .executedTransaction()
+                .outputNotes()
+                .notes()
+                .map(no => no.intoFull())
+                .filter(no => !!no)
+                .map(fullNote => u8ToB64(fullNote.serialize()))
+            };
+            resolve(res);
+          } catch (err) {
+            resolve({ errorMessage: err instanceof Error ? err.message : String(err) });
+          }
         } else if (tx.status === ITransactionStatus.Failed) {
           cleanup();
           resolve({ errorMessage: tx.error || 'Transaction failed' });

@@ -911,6 +911,27 @@ describe('Vault.createHDAccount', () => {
 });
 
 describe('Vault.spawn', () => {
+  // Regression: the hardware-only path (`!password`) fell through to the
+  // password branch when the availability probe said the hardware was NOT
+  // available, and encrypted the vault key under the empty string —
+  // `Actions.registerNewWallet` passes `password ?? ''`. That protects the
+  // mnemonic, every account auth key, the guardian cold key and the EVM keys
+  // with no secret at all, AND locks the user out (setup() finds no hardware
+  // protector; Unlock demands a password never chosen). `spawnFromMidenClient`
+  // always had this guard; `spawn` did not.
+  it.each([
+    ['no password at all', undefined],
+    ['the empty string registerNewWallet substitutes', '']
+  ])('refuses to mint an empty-password vault when hardware is unavailable (%s)', async (_label, password) => {
+    // Extension platform mocks → isHardwareSecurityAvailableForVault() === false,
+    // i.e. onboarding chose biometrics but the probe now says unavailable.
+    await expect(Vault.spawn(WalletType.OnChain, password as any)).rejects.toThrow(
+      'Password is required for password-based vault protection'
+    );
+    // Nothing password-shaped was persisted, so no empty-password blob exists.
+    expect(await Vault.hasPasswordProtector()).toBe(false);
+  });
+
   it('creates a fresh wallet with a generated mnemonic and password protection', async () => {
     const vault = await Vault.spawn(WalletType.OnChain, 'pw');
     expect(vault).toBeInstanceOf(Vault);

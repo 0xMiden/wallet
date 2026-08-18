@@ -14,7 +14,7 @@ import {
   requeueFailedTransaction,
   safeGenerateTransactionsLoop as dbTransactionsLoop
 } from 'lib/miden/activity';
-import { ITransactionStatus } from 'lib/miden/db/types';
+import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
@@ -41,6 +41,14 @@ import type { GeneratingTransactionPageProps, GeneratingTransactionProps, Transa
 import { useTransactionRow } from './useTransactionRow';
 
 export type { GeneratingTransactionPageProps, GeneratingTransactionProps } from './types';
+
+/**
+ * `extraInputs` for a `bridged-send` row, `undefined` for every other type.
+ * The retry gate needs `provider` to tell the replayable Agglayer (Slow) route
+ * from the non-replayable Epoch (Fast) one.
+ */
+const bridgedSendExtras = (tx: ITransaction): IBridgedSendExtraInputs | undefined =>
+  tx.type === 'bridged-send' ? tx.extraInputs : undefined;
 
 export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ txId, keepOpen = false }) => {
   const { t } = useTranslation();
@@ -116,10 +124,22 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   // #483 — a failed tx can retry from the failure footer. Only FIFO-loop txs
   // reach this screen (send/consume/swap/…); isRequeueableTransaction already
   // requires status===Failed and excludes the non-requeueable cases (structural
-  // guardian ops, earn-deposit). earn-withdraw never routes here — it's born
-  // Completed with its failure in extraInputs.phase and has its own
-  // withdraw-status screen — so there is no earn branch to handle.
-  const canRetry = !!active && isRequeueableTransaction({ status: active.status, type: active.type });
+  // guardian ops, earn-deposit, and Epoch bridged sends — hence the provider).
+  // earn-withdraw never routes here — it's born Completed with its failure in
+  // extraInputs.phase and has its own withdraw-status screen — so there is no
+  // earn branch to handle.
+  const canRetry =
+    !!active &&
+    isRequeueableTransaction({
+      status: active.status,
+      type: active.type,
+      bridgeProvider: bridgedSendExtras(active)?.provider,
+      // Feed the double-send guard: a send/swap that left the queue but has no
+      // captured transaction id to ask the node about is not safely replayable —
+      // its submit may already have landed.
+      transactionId: active.transactionId,
+      processingStartedAt: active.processingStartedAt
+    });
 
   const handleRetry = useCallback(async () => {
     if (!active) return;
@@ -138,6 +158,18 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     }
   }, [active, t]);
 
+  // Drop any hash left over from an EARLIER receipt as soon as this screen
+  // starts tracking a different row. `lastCompletedTxHash` is module-global and
+  // survives a receipt dismissed with Done (`onClose` navigates home without
+  // calling `closeTransactionModal`); it is cleared otherwise only on entering
+  // /send or the swap flow, so a claim opened straight from the pending list
+  // would otherwise inherit the previous send's hash. Declared BEFORE the
+  // recorder below so both run in one effect flush, in this order, on mount.
+  useEffect(() => {
+    const store = useWalletStore.getState();
+    if (store.lastCompletedTxHash !== null) store.setLastCompletedTxHash(null);
+  }, [txId]);
+
   // Record the on-chain hash once the row reaches Completed with one set.
   useEffect(() => {
     if (status === ITransactionStatus.Completed && active?.transactionId) {
@@ -147,8 +179,16 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
 
   // No auto-close: once the tx reaches a terminal state the receipt stays up
   // until the user dismisses it via Done/Hide.
+  //
+  // The TRACKED ROW WINS. Several completion paths finish a row without a
+  // `TransactionResult` to stamp an id from (`tryCompleteKilledConsume`, the
+  // stuck-transaction node verifier, the generic apply-after-submit branch), so
+  // the row can be Completed with `transactionId` undefined — and the store slot
+  // is only ever written for a row that HAS one. Reading the store first
+  // therefore showed the PREVIOUS transaction's hash, with a "View on
+  // Midenscan" link to it, on this row's success receipt.
   const lastCompletedTxHash = useWalletStore(state => state.lastCompletedTxHash);
-  const receiptTxHash = lastCompletedTxHash ?? active?.transactionId ?? null;
+  const receiptTxHash = active?.transactionId ?? lastCompletedTxHash ?? null;
   const explorerUrl = receiptTxHash ? getExplorerTxUrl(receiptTxHash) : undefined;
   const onViewExplorer = useCallback(() => {
     if (!explorerUrl) return;
