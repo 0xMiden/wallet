@@ -1,3 +1,4 @@
+import type { Mandate } from '@epoch-protocol/epoch-commons-sdk';
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
 
 /**
@@ -70,16 +71,49 @@ export type EarnDepositStatus = 'completed' | 'finalized' | 'success' | 'filled'
  */
 export type NoteAttachmentInspector = (noteId: string) => Promise<string[] | null>;
 
-/** Minimal mandate shape POST /compact carries for Miden collateral. */
-interface CompactMandate {
-  midenNoteId?: string;
-  recipient?: string;
-  [key: string]: unknown;
-}
+/** Mandate shape POST /compact carries — the commons-SDK Mandate plus the Miden collateral note id. */
+type CompactMandate = Mandate & { midenNoteId?: string };
 
 interface CompactRequestBody {
   compact?: { mandate?: CompactMandate };
   witnessTypeString?: string;
+}
+
+// ── Mandate-binding felts (ported from @epoch-protocol/epoch-intents-sdk) ────
+//
+// `dist/miden.js` in the intents SDK can't be imported here: its compiled ESM
+// uses EXTENSIONLESS relative imports (`./types`), which bundlers resolve but
+// plain Node — this server's runtime — rejects with ERR_MODULE_NOT_FOUND. The
+// substance (the EIP-712 witness hash) still comes from the REAL
+// `@epoch-protocol/epoch-commons-sdk` `getSimpleWitnessHash` — the exact
+// function the wallet's SDK delegates to when minting the felts — so only this
+// trivial fixed-width felt packing is duplicated. Keep the widths in sync with
+// `BINDING_FELT_BYTE_WIDTHS` in the intents SDK's `dist/miden.js`.
+
+/** Fixed felt widths (bytes) for a 32-byte hash: 7+7+7+7+4 = 32. */
+const BINDING_FELT_BYTE_WIDTHS = [7, 7, 7, 7, 4];
+/** Number of felts the mandate-binding hash occupies (`MIDEN_MANDATE_BINDING_FELT_COUNT`). */
+const MIDEN_MANDATE_BINDING_FELT_COUNT = BINDING_FELT_BYTE_WIDTHS.length;
+
+/**
+ * Inverse of the SDK's `encodeBindingHashToFelts`: unpack big-endian fixed-width
+ * felts back into the 32-byte hash. Extra felts (word padding) beyond the fixed
+ * count are ignored, matching how the Miden SDK pads attachment words. Throws on
+ * a felt out of range for its width — the caller treats that as "not bound".
+ */
+function decodeFeltsToBindingHash(felts: bigint[]): string {
+  if (felts.length < MIDEN_MANDATE_BINDING_FELT_COUNT) {
+    throw new Error(`expected at least ${MIDEN_MANDATE_BINDING_FELT_COUNT} felts, got ${felts.length}`);
+  }
+  let hex = '';
+  BINDING_FELT_BYTE_WIDTHS.forEach((width, i) => {
+    const felt = felts[i];
+    if (felt === undefined || felt < 0n || felt >= 1n << BigInt(width * 8)) {
+      throw new Error(`felt[${i}] out of range for a ${width}-byte chunk`);
+    }
+    hex += felt.toString(16).padStart(width * 2, '0');
+  });
+  return `0x${hex}`;
 }
 
 export class FakeEpochAllocator {
@@ -334,11 +368,13 @@ export class FakeEpochAllocator {
    * blind ack — when no inspector is wired or the request carries no Miden
    * collateral (EVM-collateral intents have no `midenNoteId`).
    *
-   * Uses the REAL `@epoch-protocol/epoch-intents-sdk` helpers so the expected
-   * hash is computed by the exact code the wallet's SDK uses to mint the felts
-   * (`computeMidenMandateBindingHash` neutralizes `midenNoteId` identically on
-   * both sides; `decodeFeltsToBindingHash` ignores word-padding felts past the
-   * fixed binding count).
+   * The expected hash is computed by the REAL `@epoch-protocol/epoch-commons-sdk`
+   * `getSimpleWitnessHash` — the exact code the wallet's intents SDK delegates to
+   * when minting the felts — with `midenNoteId` neutralized to `""` identically
+   * on both sides (the note id derives from the attachment, so it can't be
+   * committed). Felt unpacking is the local port above (the intents SDK's
+   * compiled ESM can't be loaded by plain Node); word-padding felts past the
+   * fixed binding count are ignored.
    */
   private async validateCompact(body: unknown): Promise<string | null> {
     if (!this.noteInspector) return null;
@@ -354,15 +390,14 @@ export class FakeEpochAllocator {
       return `Miden collateral note not found on-chain (${noteId})`;
     }
 
-    const { computeMidenMandateBindingHash, decodeFeltsToBindingHash, MIDEN_MANDATE_BINDING_FELT_COUNT } =
-      await import('@epoch-protocol/epoch-intents-sdk');
+    const { getSimpleWitnessHash } = await import('@epoch-protocol/epoch-commons-sdk');
 
     const recipient = typeof mandate.recipient === 'string' ? mandate.recipient : 'unknown';
     if (felts.length < MIDEN_MANDATE_BINDING_FELT_COUNT) {
       return `Miden note is not bound to the intent mandate (recipient ${recipient})`;
     }
 
-    const expected = computeMidenMandateBindingHash(mandate, witnessTypeString);
+    const expected = getSimpleWitnessHash({ ...mandate, midenNoteId: '' }, witnessTypeString);
     let actual: string;
     try {
       actual = decodeFeltsToBindingHash(felts.map(f => BigInt(f)));
