@@ -73,14 +73,6 @@ export type StageTrackedTransactionType = 'switch-guardian' | 'replace-hot-key';
  * ChromeWalletPageApi extension below.
  */
 export interface WalletPage {
-  /** Capture this wallet's current screen (the StoryCapture / step-runner grab). */
-  screenshot(opts: { path: string }): Promise<void>;
-  /**
-   * Story-filmstrip beat hook, wired by the fixture. Flow methods (send/swap/
-   * claim) call it at key moments (review → generating → receipt) so multi-screen
-   * actions tell their sub-story. No-op until wired; best-effort.
-   */
-  beatCapture?: (key: string) => Promise<void>;
   navigateTo(hash: string): Promise<void>;
   navigateHome(): Promise<void>;
   createNewWallet(password?: string): Promise<{ address: string; seedPhrase: string[] }>;
@@ -414,24 +406,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    */
   get page(): Page {
     return this.currentPage;
-  }
-
-  /**
-   * Story-filmstrip beat hook, wired by the two-wallets fixture. Flow methods
-   * (`sendTokens`, `claimAllNotes`, swap) call it at key moments — review,
-   * generating, receipt — so multi-screen actions tell their sub-story in the
-   * gallery. No-op until wired; the callback itself is best-effort.
-   */
-  beatCapture?: (key: string) => Promise<void>;
-
-  /**
-   * `ScreenshotCapable` — captures this wallet's current page. Reads through the
-   * `page` getter so it transparently follows a `reopen()`/relaunch swap, and is
-   * what the StoryCapture / step runner grab. (Specs still use `walletX.page`
-   * directly; this just gives the POM the same shape as the mobile page objects.)
-   */
-  async screenshot(opts: { path: string }): Promise<void> {
-    await this.page.screenshot({ path: opts.path });
   }
 
   // ── Navigation ────────────────────────────────────────────────────────────
@@ -1738,7 +1712,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     let iteration = 0;
     let lastPending = -1;
     let stuckSameCountIters = 0;
-    let claimBeatCaptured = false;
 
     while (Date.now() < deadline && stableZero < STABLE_ZERO_THRESHOLD) {
       iteration++;
@@ -1772,12 +1745,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         .first()
         .waitFor({ state: 'visible', timeout: 2_000 })
         .catch(() => {});
-
-      // Story beat (once): the Pending-notes screen with claimable notes.
-      if (!claimBeatCaptured) {
-        await this.beatCapture?.('claim-pending');
-        claimBeatCaptured = true;
-      }
 
       // Desktop fast path: a single "Claim All" button drains every faucet.
       if (await claimAllBtn.isVisible().catch(() => false)) {
@@ -2181,9 +2148,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       params.isPrivate
     );
 
-    // Story beat: the review screen is up and settled here.
-    await this.beatCapture?.('send-review');
-
     // 5. ReviewTransaction: submit. Page-scoped — the review page renders
     // outside the send-flow container now.
     await this.page.getByTestId('send-review-submit').click({ timeout: STEP_TIMEOUT_MS });
@@ -2202,9 +2166,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page
       .waitForFunction(() => window.location.hash.includes('generating-transaction'), undefined, { timeout: 2_000 })
       .catch(() => {});
-
-    // Story beat: the "Generating Transaction" screen.
-    await this.beatCapture?.('send-generating');
 
     // Fail HERE, at the real failure point. Both of these used to be swallowed:
     // the detach timeout by a bare `.catch(() => {})`, and a rendered error
