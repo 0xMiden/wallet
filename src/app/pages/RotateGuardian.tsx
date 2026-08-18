@@ -32,7 +32,9 @@ const RotateGuardian: FC = () => {
     <PageLayout hideToolbar>
       <NavigationHeader title={t('rotateGuardian')} onBack={goBack} variant="prominent" titleAlign="left" />
       <ChooseGuardianScreen onSubmit={handleSubmit} currentEndpoint={currentEndpoint} allowCustomEndpoint />
-      {error && <div className="px-6 pb-6 -mt-2 text-red-500 text-xs text-center select-text">{error}</div>}
+      {error && (
+        <div className="px-6 pb-6 -mt-2 text-red-500 text-xs text-center select-text wrap-break-word">{error}</div>
+      )}
     </PageLayout>
   );
 };

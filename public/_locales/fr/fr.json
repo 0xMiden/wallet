@@ -269,7 +269,6 @@
   "fastTransactionDescription": "La transaction sera automatiquement diffusée et finalisée.",
   "fastTransaction": "Vitesse des transactions",
   "delegateProofSettings": "Génération de preuves déléguées",
-  "delegateProofSettingsDescription": "Ici, vous pouvez configurer la délégation de la génération de preuves à un serveur distant. Cela accélérera la génération de preuves mais divulguera les détails de la transaction à un serveur de confiance.",
   "mainAssetBalanceIsZero": "Votre solde de crédits aleo (actif principal) est nul. Des crédits Aleo sont requis pour les frais.",
   "claim": "Réclamer",
   "availableToClaim": "Disponible pour réclamer",

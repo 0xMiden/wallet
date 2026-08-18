@@ -29,7 +29,11 @@ const ConnectBanner: FC<ConnectBannerProps> = ({ origin }) => {
           <Icon name={IconName.Globe} fill="currentColor" size="lg" />
         </div>
       </div>
-      <span className="font-medium text-center text-[16px] items-center font-semibold">{origin}</span>
+      {/* The only thing on the connect prompt that identifies WHO is asking —
+          hooked for E2E so a wrong/spoofed origin fails a test, not just review. */}
+      <span className="font-medium text-center text-[16px] items-center font-semibold" data-testid="connect-origin">
+        {origin}
+      </span>
     </div>
   );
 };

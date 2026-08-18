@@ -35,7 +35,7 @@ export const SelectNetworkDrawer: React.FC<SelectNetworkDrawerProps> = ({
   );
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} screenKey="network">
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{t('selectNetwork')}</DrawerTitle>

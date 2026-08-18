@@ -3,9 +3,10 @@ import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
+import { midenClientProxy } from '../back/miden-client-proxy';
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
 import { sameWalletAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { withWasmClientLock } from '../sdk/miden-client';
 
 // Cache MultisigService instances to avoid re-initialization on every sync cycle.
 // `hotPublicKey` is recorded alongside so rotations are detected on next access:
@@ -105,10 +106,9 @@ export async function getOrCreateMultisigService(
 
     // Get the Account object from the Miden client.
     const { sdkAccount } = await withWasmClientLock(async () => {
-      const midenClient = await getMidenClient();
       // Use the matched account's stored publicKey (the form the in-wallet path
       // uses) rather than the possibly-bare dApp-supplied id.
-      const sdkAccount = await midenClient.getAccount(account.publicKey);
+      const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
       return { sdkAccount };
     });
 

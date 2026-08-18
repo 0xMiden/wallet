@@ -189,6 +189,25 @@ describe('SelectAmount', () => {
       expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('available');
     });
 
+    it('omits the misleading "$0.00" fiat line when the token has no fiat price (swap DEX tokens, #461)', () => {
+      renderComponent({ token: baseToken({ balance: 5, fiatPrice: 0 }) });
+      const helper = screen.getByTestId('ai-helper');
+      expect(helper).toHaveTextContent('available');
+      expect(helper).not.toHaveTextContent('approxFiatValue');
+    });
+
+    it('shows the available-balance helper even in embedded mode when showBalanceHelper is on (#461)', () => {
+      // The swap "You Pay" field is embedded but must still show how much is
+      // spendable — previously embedded mode always stripped the helper.
+      renderComponent({ embedded: true, token: baseToken({ balance: 200 }) });
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('available');
+    });
+
+    it('keeps the balance helper off an embedded field when showBalanceHelper is false (swap "You Receive")', () => {
+      renderComponent({ embedded: true, showBalanceHelper: false });
+      expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('available');
+    });
+
     it('renders children below the amount field', () => {
       renderComponent({ children: <div data-testid="extra-child">extra</div> });
       expect(screen.getByTestId('extra-child')).toBeInTheDocument();
@@ -322,10 +341,12 @@ describe('SelectAmount', () => {
       renderComponent({ embedded: true });
       expect(screen.getByTestId('amount-input')).toBeInTheDocument();
       expect(screen.getByTestId('token-logo')).toBeInTheDocument();
-      // No network pill, no confirm button, no helper (helper prop is undefined).
+      // No network pill / confirm button (embedded strips the chrome), but the
+      // available-balance helper now shows — it's controlled by showBalanceHelper,
+      // not by embedded (#461).
       expect(screen.queryByText('miden')).not.toBeInTheDocument();
       expect(screen.queryByTestId('confirm-btn')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('ai-helper')).not.toBeInTheDocument();
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('available');
     });
 
     it('renders the "$" placeholder chip when embedded with no token', () => {
@@ -339,6 +360,82 @@ describe('SelectAmount', () => {
     it('ignores children in the embedded variant', () => {
       renderComponent({ embedded: true, children: <div data-testid="extra-child">extra</div> });
       expect(screen.queryByTestId('extra-child')).not.toBeInTheDocument();
+    });
+  });
+
+  // A cross-chain deposit swaps the Miden chip for a two-row destination
+  // selector, and the CTA additionally waits on a chosen network.
+  describe('bridge variant', () => {
+    const sepolia = { id: 'sepolia' as const, name: 'Sepolia', chainId: 11155111 };
+
+    /** The destination-network row: the last button inside the bridge selector. */
+    const networkRow = (): HTMLButtonElement => {
+      const buttons = screen.getByTestId('ai-token-selector').querySelectorAll('button');
+      const last = buttons.item(buttons.length - 1);
+      if (!last) throw new Error('bridge selector rendered no buttons');
+      return last;
+    };
+
+    it('replaces the Miden pill with the token + destination-network selector', () => {
+      renderComponent({ isBridge: true, network: sepolia, outputSymbol: 'USDC' });
+
+      expect(screen.queryByText('miden')).not.toBeInTheDocument();
+      const selector = screen.getByTestId('ai-token-selector');
+      expect(selector).toHaveTextContent('USDC');
+      expect(selector).toHaveTextContent('Sepolia');
+      // Arrival hint: "{network} · arrives as {symbol}".
+      expect(selector).toHaveTextContent('receiveOnArrivesAs');
+    });
+
+    it('prompts for a network and blocks the CTA until one is chosen', () => {
+      renderComponent({ isBridge: true, network: undefined });
+
+      expect(screen.getByText('selectNetwork')).toBeInTheDocument();
+      expect(screen.getByTestId('confirm-btn')).toBeDisabled();
+    });
+
+    it('enables the CTA once a network is chosen', () => {
+      renderComponent({ isBridge: true, network: sepolia });
+      expect(screen.getByTestId('confirm-btn')).toBeEnabled();
+    });
+
+    it('opens the token and network pickers with haptic feedback', () => {
+      const onSelectToken = jest.fn();
+      const onSelectNetwork = jest.fn();
+      renderComponent({ isBridge: true, network: sepolia, onSelectToken, onSelectNetwork });
+
+      fireEvent.click(screen.getByTestId('send-token-selector'));
+      expect(onSelectToken).toHaveBeenCalled();
+
+      fireEvent.click(networkRow());
+      expect(onSelectNetwork).toHaveBeenCalled();
+      expect(hapticLight).toHaveBeenCalledTimes(2);
+    });
+
+    it('tolerates a missing network handler', () => {
+      renderComponent({ isBridge: true, network: sepolia, onSelectNetwork: undefined });
+
+      expect(() => fireEvent.click(networkRow())).not.toThrow();
+    });
+
+    it('shows the "$" placeholder while no token is chosen', () => {
+      renderComponent({ isBridge: true, token: undefined, network: sepolia });
+
+      expect(screen.getByTestId('ai-token-selector')).toHaveTextContent('$');
+      expect(screen.getByText('selectAToken')).toBeInTheDocument();
+    });
+  });
+
+  // `formatBalance` keeps 4dp but expands so a dust balance never reads as 0.
+  describe('balance helper precision', () => {
+    it('trims trailing zeros on an ordinary balance', () => {
+      renderComponent({ token: baseToken({ balance: 12.5 }) });
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 12.5 USDC');
+    });
+
+    it('expands past 4dp rather than rounding a dust balance to zero', () => {
+      renderComponent({ token: baseToken({ balance: 0.00001234, fiatPrice: 0.2 }) });
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 0.000012 USDC');
     });
   });
 });

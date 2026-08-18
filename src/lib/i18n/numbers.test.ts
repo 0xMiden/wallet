@@ -6,11 +6,13 @@ import {
   getPluralKey,
   formatBigInt,
   stringToBigInt,
-  stringToAleoMicrocredits,
-  ALEO_MICROCREDITS_TO_CREDITS,
   toLocalFixed,
   toShortened,
-  toFixedRoundedDown
+  toFixedRoundedDown,
+  getAdaptiveDecimalPlaces,
+  toAdaptiveFixed,
+  formatUsd,
+  MAX_DISPLAY_DECIMAL_PLACES
 } from './numbers';
 
 // `toShortened` delegates the thousand/million/billion labelling to i18next's
@@ -96,6 +98,57 @@ describe('toLocalFormat', () => {
   });
 });
 
+describe('adaptive amount formatting', () => {
+  it('keeps two decimal places for ordinary values and zero', () => {
+    expect(getAdaptiveDecimalPlaces(12.345)).toBe(2);
+    expect(toAdaptiveFixed(12.345)).toBe('12.35');
+    expect(toAdaptiveFixed(0)).toBe('0.00');
+  });
+
+  it('shows the first two significant fractional places for small values', () => {
+    expect(getAdaptiveDecimalPlaces('0.001234')).toBe(4);
+    expect(toAdaptiveFixed('0.001234')).toBe('0.0012');
+    expect(toAdaptiveFixed('-0.00005678')).toBe('-0.000057');
+  });
+
+  it('honours a larger normal precision before adapting', () => {
+    // The first non-zero digit already fits inside the requested 4dp, so the
+    // larger normal precision is kept as-is.
+    expect(getAdaptiveDecimalPlaces('0.0001234', 4)).toBe(4);
+    expect(toAdaptiveFixed('1.23456', 4)).toBe('1.2346');
+    // Only once the value is small enough to vanish at 4dp does it adapt.
+    expect(getAdaptiveDecimalPlaces('0.00001234', 4)).toBe(6);
+    expect(toAdaptiveFixed('0.00001234', 4)).toBe('0.000012');
+  });
+
+  it('preserves non-finite BigNumber output', () => {
+    expect(toAdaptiveFixed(NaN)).toBe('NaN');
+    expect(toAdaptiveFixed(Infinity)).toBe('Infinity');
+    expect(toAdaptiveFixed(-Infinity)).toBe('-Infinity');
+  });
+
+  it('uses adaptive precision for small USD values while preserving grouping', () => {
+    expect(formatUsd(1024.5)).toBe('$1,024.50');
+    expect(formatUsd(0.001234)).toBe('$0.0012');
+  });
+
+  // `Intl.NumberFormat` throws `RangeError` above 20 fraction digits, so an
+  // unbounded expansion turned a dust balance (1 base unit of an 18-decimal
+  // token at a sub-cent price) into a render crash rather than a number.
+  it('clamps the expansion so far-below-cent values format instead of throwing', () => {
+    expect(getAdaptiveDecimalPlaces(1e-30)).toBe(MAX_DISPLAY_DECIMAL_PLACES);
+    expect(() => formatUsd(1e-30)).not.toThrow();
+    expect(formatUsd(1e-30)).toBe('$0.00000000000000000000');
+    expect(toAdaptiveFixed('0.000000000000000000000001')).toBe('0.00000000000000000000');
+  });
+
+  it('still expands fully for the deepest token precision we support', () => {
+    // 18 decimals is the deepest real token, so the clamp never truncates one.
+    expect(getAdaptiveDecimalPlaces('0.000000000000000001')).toBe(19);
+    expect(toAdaptiveFixed('0.000000000000000001')).toBe('0.0000000000000000010');
+  });
+});
+
 describe('getPluralKey', () => {
   it('appends the CLDR plural category for a singular amount', () => {
     expect(getPluralKey('item', 1)).toBe('item_one');
@@ -150,17 +203,6 @@ describe('stringToBigInt', () => {
   it('rounds to avoid float precision drift', () => {
     expect(stringToBigInt('2.7', 2)).toBe(BigInt(270));
     expect(stringToBigInt('1.005', 2)).toBe(BigInt(100));
-  });
-});
-
-describe('stringToAleoMicrocredits', () => {
-  it('exposes the microcredits-per-credit constant', () => {
-    expect(ALEO_MICROCREDITS_TO_CREDITS).toBe(1_000_000);
-  });
-
-  it('floors credits into microcredits', () => {
-    expect(stringToAleoMicrocredits('2.5')).toBe(BigInt(2_500_000));
-    expect(stringToAleoMicrocredits('1.0000009')).toBe(BigInt(1_000_000));
   });
 });
 

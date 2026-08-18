@@ -11,6 +11,16 @@ import CryptoSwift
 // wrapped secp256k1 hot key used for transaction signing. The Keychain /
 // hardware-key paths stay in LocalBiometric.
 //
+// SECURITY MODEL — hardware-WRAPPED at rest, not hardware-held signing (same
+// contract as the Android plugin). The k256 scalar is generated in app memory,
+// ECIES-wrapped to a Secure Enclave P-256 key, and decrypted back into app
+// memory for every sign/reveal (the SE cannot run secp256k1/Keccak itself).
+// The SE guarantee covers the P-256 wrapper key only; the plaintext scalar
+// transiently exists in the app process and is zeroed best-effort. Signing is
+// silent (guardian autosync signs every ~3s); revealHotKey demands fresh
+// device-owner authentication (Face ID / Touch ID / passcode) before the
+// scalar is returned to JS.
+//
 // Storage layout:
 //   - Per-account SE-backed P-256 key tagged "com.miden.wallet.hot.<b64-suffix>"
 //   - Returned ciphertext is "<b64-suffix>:<b64-ECIES-payload>" so signWith /
@@ -19,6 +29,17 @@ import CryptoSwift
 private let logger = OSLog(subsystem: "com.miden.wallet", category: "HotKey")
 
 private let kHotKeyTagPrefix = "com.miden.wallet.hot."
+
+// Wire-format bounds, mirroring the Android plugin: 16-byte tag suffix
+// (24 b64 chars) + ':' + ECIES X963-SHA256-AESGCM payload (ephemeral pubkey
+// 65 + ciphertext 32 + GCM tag 16 = 113 bytes; bounded loosely rather than
+// pinned so an SDK-side format change doesn't brick parsing). Enforced before
+// any decode so a hostile JS caller can't force large allocations or address
+// arbitrary Keychain tags.
+private let kMaxCiphertextChars = 512
+private let kTagSuffixBytes = 16
+private let kMinPayloadBytes = 48
+private let kMaxPayloadBytes = 256
 
 @objc(HotKeyPlugin)
 public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
@@ -34,31 +55,35 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func generateHotKey(_ call: CAPPluginCall) {
         os_log("[HotKey] generateHotKey called", log: logger, type: .debug)
 
-        // 1. Random k256 secret
-        var secretBytes = Data(count: 32)
-        let rngStatus = secretBytes.withUnsafeMutableBytes { raw -> Int32 in
-            guard let base = raw.baseAddress else { return errSecParam }
-            return SecRandomCopyBytes(kSecRandomDefault, 32, base)
-        }
-        guard rngStatus == errSecSuccess else {
-            call.reject("Failed to generate hot-key secret: \(rngStatus)")
-            return
-        }
-
+        // 1. Random k256 secret, rejection-sampled: P256K.Signing.PrivateKey
+        //    validates 1 <= d < n, so resample the astronomically rare
+        //    out-of-range draw instead of failing the whole call.
         // 2. Derive compressed k256 public key (33 bytes: 0x02/0x03 parity
         //    prefix + 32-byte x). Miden SDK's PublicKey.deserialize expects
         //    the compressed form; this matches what jsFallback.ts emits via
         //    AuthSecretKey.publicKey().serialize().slice(1). P256K's default
         //    format is .compressed, so `dataRepresentation` is already the
         //    33-byte form — no stripping needed.
-        let publicKeyHex: String
-        do {
-            let pk = try P256K.Signing.PrivateKey(dataRepresentation: secretBytes)
-            let rawPub = pk.publicKey.dataRepresentation
-            publicKeyHex = rawPub.map { String(format: "%02x", $0) }.joined()
-        } catch {
+        var secretBytes = Data(count: 32)
+        var publicKeyHexOrNil: String?
+        for _ in 0..<8 {
+            let rngStatus = secretBytes.withUnsafeMutableBytes { raw -> Int32 in
+                guard let base = raw.baseAddress else { return errSecParam }
+                return SecRandomCopyBytes(kSecRandomDefault, 32, base)
+            }
+            guard rngStatus == errSecSuccess else {
+                zeroBytes(&secretBytes)
+                call.reject("Failed to generate hot-key secret: \(rngStatus)")
+                return
+            }
+            if let pk = try? P256K.Signing.PrivateKey(dataRepresentation: secretBytes) {
+                publicKeyHexOrNil = pk.publicKey.dataRepresentation.map { String(format: "%02x", $0) }.joined()
+                break
+            }
+        }
+        guard let publicKeyHex = publicKeyHexOrNil else {
             zeroBytes(&secretBytes)
-            call.reject("Failed to derive hot-key public key: \(error.localizedDescription)")
+            call.reject("Failed to derive hot-key public key")
             return
         }
 
@@ -90,7 +115,9 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
         //    continuous Face ID / Touch ID prompt loop. If a per-use gate is ever
         //    reintroduced, background/sync signing must first be routed off the
         //    hot key (or the gate scoped to user-initiated operations only).
-        //    The key still never leaves the Secure Enclave.
+        //    The SE WRAPPER key never leaves the Secure Enclave; the wrapped
+        //    k256 secret is decrypted into app memory on every operation (see
+        //    SECURITY MODEL in the header). Reveal alone is presence-gated.
         //
         //    Accessibility is `AfterFirstUnlockThisDeviceOnly`, NOT
         //    `WhenUnlockedThisDeviceOnly`: the same AutoSync tick also signs
@@ -171,9 +198,30 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
+        // 6. Round-trip self-test (parity with Android's wrapSecretProven):
+        //    prove this device's SE can silently unwrap the exact blob we are
+        //    about to return, so an unsignable blob can never be handed to JS.
+        var probeError: Unmanaged<CFError>?
+        var probe = SecKeyCreateDecryptedData(
+            sePrivateKey,
+            .eciesEncryptionStandardX963SHA256AESGCM,
+            wrapped as CFData,
+            &probeError
+        ) as Data?
+        let probeOk = probe == secretBytes
+        if probe != nil { zeroBytes(&probe!) }
         zeroBytes(&secretBytes)
+        guard probeOk else {
+            SecItemDelete([
+                kSecClass as String: kSecClassKey,
+                kSecAttrApplicationTag as String: fullTagData
+            ] as CFDictionary)
+            let msg = probeError?.takeRetainedValue().localizedDescription ?? "round-trip mismatch"
+            call.reject("Secure hardware unavailable: \(msg)", "HARDWARE_UNAVAILABLE")
+            return
+        }
 
-        // 6. Pack into "<base64-tag>:<base64-payload>" so signWithHotKey can
+        // 7. Pack into "<base64-tag>:<b64-payload>" so signWithHotKey can
         //    recover the SE key tag from the ciphertext alone.
         let packed = "\(tagSuffixB64):\(wrapped.base64EncodedString())"
         os_log("[HotKey] generateHotKey success", log: logger, type: .debug)
@@ -183,10 +231,13 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
         ])
     }
 
-    /// Unwrap the hot-key secret inside the SE (triggers Face ID), Keccak-256
-    /// the supplied 32-byte word, ECDSA-sign (recoverable) over secp256k1,
-    /// and return r||s||v as 0x-prefixed hex (65 bytes). The unwrapped secret
-    /// is zeroed before returning.
+    /// Unwrap the hot-key secret inside the SE (silent — the SE key carries
+    /// only `.privateKeyUsage`, no per-use presence gate; guardian sync signs
+    /// every ~3s), Keccak-256 the supplied 32-byte word (digestHex is a
+    /// PREIMAGE — it is hashed again before ECDSA, matching the Android
+    /// plugin; do not pass an already-Keccak'd digest), ECDSA-sign
+    /// (recoverable) over secp256k1, and return r||s||v as 0x-prefixed hex
+    /// (65 bytes). The unwrapped secret is zeroed before returning.
     @objc func signWithHotKey(_ call: CAPPluginCall) {
         os_log("[HotKey] signWithHotKey called", log: logger, type: .debug)
 
@@ -196,27 +247,27 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        // 1. Split tag from payload.
-        let parts = ciphertext.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count == 2,
-              let payload = Data(base64Encoded: String(parts[1])) else {
-            call.reject("Malformed hot-key ciphertext")
-            return
-        }
-        let fullTag = kHotKeyTagPrefix + String(parts[0])
-        guard let fullTagData = fullTag.data(using: .utf8) else {
-            call.reject("Failed to encode hot-key tag")
+        // 1. Split tag from payload (strict, bounded — see parseCiphertext).
+        guard let (fullTagData, payload) = parseCiphertext(ciphertext) else {
+            call.reject("Malformed hot-key ciphertext", "BAD_CIPHERTEXT")
             return
         }
 
         // 2. Decode the digest (caller passes it 0x-prefixed, matching
         //    Word.toHex()). Must be 32 bytes — Miden Words are 4 felts × 8.
-        //    Use CryptoSwift's `Data(hex:)` so the same lib that does the
-        //    Keccak hashes the bytes it parsed.
+        //    Length-check BEFORE decoding (CryptoSwift's `Data(hex:)` silently
+        //    skips invalid characters, so the post-decode count check alone
+        //    would accept a padded/garbled string of the right density). Use
+        //    CryptoSwift so the same lib that does the Keccak hashes the
+        //    bytes it parsed.
         let cleanedHex = digestHex.hasPrefix("0x") ? String(digestHex.dropFirst(2)) : digestHex
+        guard cleanedHex.count == 64 else {
+            call.reject("Hot-key digest must be 32 hex bytes", "INVALID_INPUT")
+            return
+        }
         let digestBytes = Data(hex: cleanedHex)
         guard digestBytes.count == 32 else {
-            call.reject("Hot-key digest must be 32 hex bytes")
+            call.reject("Hot-key digest must be 32 hex bytes", "INVALID_INPUT")
             return
         }
 
@@ -236,7 +287,7 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             } else if lookupStatus == errSecAuthFailed {
                 call.reject("Authentication failed", "AUTH_FAILED")
             } else {
-                call.reject("Hot-key SE key not found: \(lookupStatus)")
+                call.reject("Hot-key SE key not found: \(lookupStatus)", "KEY_NOT_FOUND")
             }
             return
         }
@@ -317,10 +368,22 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve(["signatureHex": signatureHex])
     }
 
-    /// Unwrap the hot-key secret inside the SE (triggers Face ID) and return
-    /// the raw 32-byte secp256k1 secret as hex. Used by Settings → Reveal Hot
-    /// Key. Same SE/ECIES unwrap path as `signWithHotKey`, minus the actual
-    /// signing step. The unwrapped secret is zeroed before returning.
+    /// Unwrap the hot-key secret inside the SE and return the raw 32-byte
+    /// secp256k1 secret as hex. Used by Settings → Reveal Hot Key. Same
+    /// SE/ECIES unwrap path as `signWithHotKey`, minus the signing step — but
+    /// unlike sign (which must stay silent for autosync), reveal demands fresh
+    /// device-owner authentication (Face ID / Touch ID / passcode) BEFORE the
+    /// unwrap, so script running in the WebView can't silently exfiltrate the
+    /// key (parity with Android's confirmPresenceThenReveal). If no
+    /// authentication method is available at all, the reveal is rejected
+    /// (AUTH_UNAVAILABLE) rather than skipping the gate — an INTENTIONAL
+    /// trade-off (do not "fix" by skipping): the wallet's own in-app unlock
+    /// cannot substitute, because it lives in the WebView and compromised
+    /// script can call this plugin method directly, bypassing any JS password
+    /// UI. A user with no passcode/biometric enrolled must set one up to
+    /// reveal; signing is unaffected, and the JS facade treats
+    /// AUTH_UNAVAILABLE as a benign (non-reportable) outcome. The unwrapped
+    /// secret is zeroed before returning.
     @objc func revealHotKey(_ call: CAPPluginCall) {
         os_log("[HotKey] revealHotKey called", log: logger, type: .debug)
 
@@ -329,18 +392,46 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        let parts = ciphertext.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count == 2,
-              let payload = Data(base64Encoded: String(parts[1])) else {
-            call.reject("Malformed hot-key ciphertext")
-            return
-        }
-        let fullTag = kHotKeyTagPrefix + String(parts[0])
-        guard let fullTagData = fullTag.data(using: .utf8) else {
-            call.reject("Failed to encode hot-key tag")
+        guard let (fullTagData, payload) = parseCiphertext(ciphertext) else {
+            call.reject("Malformed hot-key ciphertext", "BAD_CIPHERTEXT")
             return
         }
 
+        // Presence gate before touching the key material. deviceOwner
+        // Authentication includes the passcode fallback, so any secured
+        // device can pass; only a device with no auth at all rejects.
+        let laContext = LAContext()
+        var canEvaluateError: NSError?
+        guard laContext.canEvaluatePolicy(.deviceOwnerAuthentication, error: &canEvaluateError) else {
+            os_log(
+                "[HotKey] revealHotKey: no usable authenticator: %{public}@",
+                log: logger, type: .error, canEvaluateError?.localizedDescription ?? "unknown"
+            )
+            call.reject(
+                "Revealing the hot key requires device authentication (biometric or passcode), and none is available",
+                "AUTH_UNAVAILABLE"
+            )
+            return
+        }
+        laContext.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Reveal your device key") { [weak self] success, error in
+            guard let self else { return }
+            guard success else {
+                let nsError = error as NSError?
+                if nsError?.domain == LAError.errorDomain,
+                   nsError?.code == LAError.userCancel.rawValue || nsError?.code == LAError.appCancel.rawValue ||
+                   nsError?.code == LAError.systemCancel.rawValue {
+                    call.reject("Authentication cancelled", "USER_CANCELLED")
+                } else {
+                    call.reject("Authentication failed: \(nsError?.localizedDescription ?? "unknown")", "AUTH_FAILED")
+                }
+                return
+            }
+            self.performReveal(call, fullTagData: fullTagData, payload: payload)
+        }
+    }
+
+    /// Post-auth reveal body: SE key lookup, silent ECIES unwrap, resolve.
+    private func performReveal(_ call: CAPPluginCall, fullTagData: Data, payload: Data) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassKey,
             kSecAttrApplicationTag as String: fullTagData,
@@ -356,7 +447,7 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             } else if lookupStatus == errSecAuthFailed {
                 call.reject("Authentication failed", "AUTH_FAILED")
             } else {
-                call.reject("Hot-key SE key not found: \(lookupStatus)")
+                call.reject("Hot-key SE key not found: \(lookupStatus)", "KEY_NOT_FOUND")
             }
             return
         }
@@ -408,9 +499,11 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve(["secretKeyHex": secretKeyHex])
     }
 
-    /// Delete the per-account SE hot key. Idempotent — a missing key resolves
-    /// successfully so callers can call this during account deletion without
-    /// branching on existence.
+    /// Delete the per-account SE hot key. Idempotent for a MISSING key
+    /// (resolves successfully so callers can call this during account deletion
+    /// without branching on existence) — but a Keychain failure while deleting
+    /// an existing key is a real error and rejects, so account deletion can't
+    /// silently leave wrapper keys behind (parity with Android).
     @objc func deleteHotKey(_ call: CAPPluginCall) {
         os_log("[HotKey] deleteHotKey called", log: logger, type: .debug)
 
@@ -419,14 +512,10 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        let parts = ciphertext.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count >= 1 else {
-            call.reject("Malformed hot-key ciphertext")
-            return
-        }
-        let fullTag = kHotKeyTagPrefix + String(parts[0])
-        guard let fullTagData = fullTag.data(using: .utf8) else {
-            call.reject("Failed to encode hot-key tag")
+        // Same strict parse as sign/reveal — a malformed blob must not be
+        // silently "deleted" as a success.
+        guard let (fullTagData, _) = parseCiphertext(ciphertext) else {
+            call.reject("Malformed hot-key ciphertext", "BAD_CIPHERTEXT")
             return
         }
 
@@ -435,7 +524,30 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             kSecAttrApplicationTag as String: fullTagData
         ] as CFDictionary)
         os_log("[HotKey] deleteHotKey status: %{public}d", log: logger, type: .debug, status)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            call.reject("Failed to delete hot key: \(status)")
+            return
+        }
         call.resolve()
+    }
+
+    /// Strict wire-format parse: "<24-char b64 of 16-byte tag>:<b64 ECIES
+    /// payload within bounds>", bounded before any decode. Returns nil on
+    /// anything else — callers reject with BAD_CIPHERTEXT.
+    private func parseCiphertext(_ ciphertext: String) -> (fullTagData: Data, payload: Data)? {
+        guard ciphertext.count <= kMaxCiphertextChars else { return nil }
+        let parts = ciphertext.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              let suffix = Data(base64Encoded: String(parts[0])),
+              suffix.count == kTagSuffixBytes,
+              let payload = Data(base64Encoded: String(parts[1])),
+              payload.count >= kMinPayloadBytes,
+              payload.count <= kMaxPayloadBytes,
+              let fullTagData = (kHotKeyTagPrefix + String(parts[0])).data(using: .utf8)
+        else {
+            return nil
+        }
+        return (fullTagData, payload)
     }
 
     private func zeroBytes(_ data: inout Data) {

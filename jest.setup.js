@@ -1,3 +1,11 @@
+// `setupFiles: ['dotenv/config']` loads the developer's local `.env`, so a
+// `MIDEN_NETWORK=devnet` there would leak into `DEFAULT_NETWORK` and fail every
+// test that asserts testnet behaviour (address prefixes, RPC endpoints). CI has
+// no `.env` and therefore falls back to testnet — pin the same value here so a
+// local run matches CI. Tests that need another network override it explicitly
+// via `jest.isolateModules`.
+process.env.MIDEN_NETWORK = 'testnet';
+
 require('@testing-library/jest-dom');
 const { Crypto, CryptoKey } = require('@peculiar/webcrypto');
 const { TextEncoder, TextDecoder } = require('util');

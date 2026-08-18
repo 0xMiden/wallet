@@ -249,6 +249,28 @@ it('hardware cancellation never queues a switch', async () => {
   expect(mockNavigate).not.toHaveBeenCalled();
 });
 
+// Guardian failures carry long unbreakable strings (endpoint URLs, RPC/SDK
+// errors, hashes). Without wrap-break-word they overflow the fixed-width extension
+// popup and get clipped, hiding the failure reason. Both error sinks must wrap.
+const LONG_GUARDIAN_ERROR =
+  'GuardianHttpError: https://guardian.example.com/v1/operators/rotate?token=abcdef0123456789abcdef0123456789 failed';
+
+// (The extension password-auth sink — FormField's errorCaption — is covered by
+// its own unit test in FormField.test.tsx; this suite mocks FormField, so the
+// real errorCaption classes aren't observable here.)
+it('wraps the long guardian error on the mobile hardware-auth path so it is not clipped (#454)', async () => {
+  // On mobile hasHardwareProtector() is true; the error renders in the review
+  // page's own error row (line 207) instead of the auth-step FormField.
+  mockHasHardwareProtector.mockResolvedValue(true);
+  mockUnlock.mockRejectedValue(new Error(LONG_GUARDIAN_ERROR));
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+  fireEvent.click(confirm);
+
+  expect(await screen.findByText(LONG_GUARDIAN_ERROR)).toHaveClass('wrap-break-word');
+});
+
 it('password authentication gates the extension flow and retries with fresh authentication', async () => {
   mockUnlock.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined);
   mockInitiateSwitch.mockRejectedValueOnce(new Error('queue failed')).mockResolvedValueOnce('retry-tx');

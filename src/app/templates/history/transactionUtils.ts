@@ -2,6 +2,7 @@ import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
 import { getDateFnsLocale } from 'lib/i18n';
+import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
@@ -70,14 +71,14 @@ export const isCompletedTransaction = (message: string): boolean => {
 };
 
 /**
- * Round a bridge's (USDC) destination output to 2 decimals for display. The
- * stored value is full 18-decimal precision; the row + detail only ever show 2.
- * Passes non-numeric input through unchanged.
+ * Round a bridge's (USDC) destination output to the standard 2 decimals for
+ * display, expanding for small non-zero values. Passes non-numeric input
+ * through unchanged.
  */
 export const formatBridgeOutputAmount = (amount: string | undefined): string | undefined => {
   if (amount === undefined) return undefined;
-  const n = Number(amount);
-  return Number.isFinite(n) ? n.toFixed(2) : amount;
+  const n = new BigNumber(amount);
+  return n.isFinite() ? toAdaptiveFixed(n) : amount;
 };
 
 export type BridgeStatus = 'pending' | 'confirmed' | 'failed';
@@ -117,7 +118,7 @@ export const BRIDGE_STATUS_LABEL_KEY: Record<BridgeStatus, string> = {
 export interface BridgeRowDisplay {
   inSymbol: string;
   outSymbol: string;
-  /** Quoted destination output (2dp), falling back to the input amount for legacy/in-flight rows. */
+  /** Quoted destination output, falling back to the input amount for legacy/in-flight rows. */
   outAmount?: string;
   providerLabel: string;
   network: string;
@@ -162,10 +163,11 @@ export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
 /** `earn-withdraw` rows carry a Smart Withdraw lifecycle phase. */
 export const isEarnWithdrawEntry = (entry: IHistoryEntry): boolean => entry.txType === 'earn-withdraw';
 
-/** Trim a human decimal amount to at most 2 places (e.g. `2.50000000` → `2.5`). */
+/** Trim a human decimal amount to 2 places, expanding when needed to preserve a small non-zero value. */
 export const formatEarnWithdrawAmount = (human: string): string => {
   const n = new BigNumber(human);
-  return n.isFinite() ? n.decimalPlaces(2, BigNumber.ROUND_DOWN).toFixed() : human;
+  if (!n.isFinite()) return human;
+  return n.decimalPlaces(getAdaptiveDecimalPlaces(n), BigNumber.ROUND_DOWN).toFixed();
 };
 
 /** Map each withdraw phase to the row status-chip tone (reuses the bridge tones). */

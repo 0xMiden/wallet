@@ -1,0 +1,111 @@
+name: Compile surfaces
+
+# The wallet ships FOUR surfaces — Chrome extension, iOS, Android and the Tauri
+# desktop app — and until now only the extension was built on a PR. A change that
+# broke the Android gradle build, the iOS Xcode build, or the Rust in src-tauri
+# merged with nothing going red, and was found later by whoever next tried to
+# ship that platform.
+#
+# These are COMPILE gates, deliberately: no emulator, no simulator, no chain.
+# They answer "does this still build" in minutes, which is the failure that
+# actually reaches main. Behaviour on those surfaces is covered by the E2E
+# suites (e2e-blockchain.yml for iOS, e2e-android.yml for Android).
+#
+# Each job is a required-check candidate, so none of them is `continue-on-error`:
+# a gate that cannot fail is worse than no gate, because it reads as coverage.
+
+on:
+  pull_request:
+    branches: [main, next]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compile-surfaces-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Compile Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: yarn }
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - run: yarn install --frozen-lockfile
+      # `mobile:sync` regenerates the Capacitor bridge files the gradle build
+      # needs; assembleDebug is the same target the Android E2E job builds, so a
+      # break here is a break there.
+      - name: Build debug APK
+        run: yarn test:e2e:android:build
+
+  desktop:
+    name: Compile desktop (Tauri)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: yarn }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      # Tauri's system deps on Linux. The desktop app ships for macOS, but the
+      # Rust in src-tauri is what this gate is checking and it compiles here far
+      # cheaper than on a macOS runner.
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: yarn install --frozen-lockfile
+      # REQUIRED before cargo: `tauri::generate_context!()` reads tauri.conf.json's
+      # `frontendDist` (../dist/desktop) at COMPILE time and fails the build if the
+      # directory is absent. `cargo check` alone is not runnable from a clean
+      # checkout — verified locally, where it failed with
+      # "The `frontendDist` configuration is set to `../dist/desktop` but this path doesn't exist".
+      - name: Build desktop frontend
+        run: yarn build:desktop
+      - name: Check Rust
+        working-directory: src-tauri
+        run: cargo check --locked --all-targets
+
+  ios:
+    name: Compile iOS
+    # macos-26, matching the iOS E2E jobs in e2e-blockchain.yml. NOT macos-15:
+    # that image ships Xcode 16.4 / iOS 18.5, and the in-app browser plugin uses
+    # `UIGlassEffect`, an iOS 26 API — so the build fails there with
+    # "cannot find 'UIGlassEffect' in scope" while compiling fine on a machine
+    # with Xcode 26. A compile gate on the wrong toolchain tests the wrong thing.
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: yarn }
+      - run: yarn install --frozen-lockfile
+      - name: Sync Capacitor
+        run: yarn mobile:sync
+      # -project, not -workspace: this app resolves its native deps through Swift
+      # Package Manager, not CocoaPods. Unsigned and for a generic device, because
+      # this gate is about whether the code COMPILES — signing belongs to release.
+      - name: Build App scheme
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build

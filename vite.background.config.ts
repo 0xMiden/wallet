@@ -308,7 +308,28 @@ export default defineConfig({
   },
 
   worker: {
-    format: 'es' // Workers need ESM for top-level await support
+    format: 'es', // Workers need ESM for top-level await support
+    // Emit worker ASSETS under the same names the main pass uses (above).
+    // Vite bundles workers in a SEPARATE pass with its own defaults, so this
+    // one config wrote the SDK's 19.5 MB wasm into the package twice — the main
+    // pass as `static/wasm/miden_client_web.<hash>.wasm`, the worker pass as
+    // `assets/miden_client_web-<hash>.wasm`. Byte-identical (same SHA-256, and
+    // Vite derives the same content hash for both), both genuinely referenced,
+    // and worth ~5 MB of the shipped zip for the redundant copy.
+    //
+    // Verified this config is the source: a `build:bg` alone into an empty
+    // dist produces BOTH files. With one naming scheme both passes resolve to
+    // the same path, the second write is the same bytes, and the package
+    // carries one wasm; Vite rewrites the worker's URL to wherever the asset
+    // lands, so it still resolves.
+    rollupOptions: {
+      output: {
+        assetFileNames: assetInfo =>
+          assetInfo.names?.[0]?.endsWith('.wasm')
+            ? 'static/wasm/[name].[hash][extname]'
+            : 'static/media/[name].[hash][extname]'
+      }
+    }
   },
 
   resolve: {
@@ -353,9 +374,18 @@ export default defineConfig({
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
+    // Issue #260 slice 1: route flag-gated WASM-client reads (getAccount)
+    // through the chrome.offscreen document. DEFAULT OFF — off is a strict
+    // no-op vs. the inline client. See lib/miden/back/miden-client-proxy.ts.
+    'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'true'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    // E2E behaviour opt-outs — see vite.extension.config.ts. Default 'false'.
+    'process.env.MIDEN_E2E_DISABLE_SIDEPANEL': JSON.stringify(process.env.MIDEN_E2E_DISABLE_SIDEPANEL ?? 'false'),
+    'process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES': JSON.stringify(
+      process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES ?? 'false'
+    ),
     'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
     'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
       process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'

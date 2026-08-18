@@ -7,6 +7,7 @@ import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { CircleButton } from 'components/CircleButton';
+import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
@@ -113,7 +114,7 @@ const PositionAreaChart: FC<{ position: EarnPosition }> = ({ position }) => {
               const point = payload[0].payload;
               return (
                 <div className="rounded-lg bg-heading-gray px-2 py-1 text-xs text-pure-white shadow">
-                  <div className="font-heading font-semibold">${Number(point.value).toFixed(2)}</div>
+                  <div className="font-heading font-semibold">${toAdaptiveFixed(point.value)}</div>
                   <div className="opacity-75">{point.label}</div>
                 </div>
               );

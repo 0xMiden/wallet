@@ -1,6 +1,7 @@
 import React, { HTMLAttributes } from 'react';
 
 import classNames from 'clsx';
+import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
 
@@ -29,6 +30,7 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
   titleAlign = 'center',
   ...props
 }) => {
+  const { t } = useTranslation();
   const prominent = variant === 'prominent';
   const centered = titleAlign === 'center';
   return (
@@ -46,6 +48,7 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
             // text-black auto-flips to white in dark mode; currentColor carries it
             // into the SVG fill so the arrow stays visible on the dark circle.
             <CircleButton
+              aria-label={t('back')}
               icon={prominent ? IconName.ArrowLeft : IconName.ChevronLeft}
               onClick={onBack}
               className={classNames('shrink-0', prominent && 'w-10 h-10 bg-gray-25 text-black')}
@@ -64,7 +67,14 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
             {props.title}
           </h1>
         </div>
-        {onClose ? <CircleButton icon={IconName.Close} onClick={onClose} className="fill-black text-black" /> : null}
+        {onClose ? (
+          <CircleButton
+            aria-label={t('close')}
+            icon={IconName.Close}
+            onClick={onClose}
+            className="fill-black text-black"
+          />
+        ) : null}
       </div>
       {prominent && <div aria-hidden="true" className="shrink-0 mx-4 mb-4 h-1 rounded-full bg-gray-50" />}
     </>

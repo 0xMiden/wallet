@@ -7,13 +7,19 @@ import { ReceiptRow } from './TransactionSuccessLayout';
 type TFn = (key: string, options?: { defaultValue?: string }) => string;
 
 interface BuildReceiptRowsArgs {
-  /** Recipient / destination address shown in the "To" row. */
+  /** Recipient / destination address shown in the address row. */
   destinationAddress?: string;
-  /** Formatted "amount symbol" shown in the "Total Paid" row. */
+  /** Label for the address row; defaults to "To" (consume receipts pass "From" — the note sender). */
+  destinationLabel?: string;
+  /** Formatted "amount symbol" shown in the amount row. */
   amountText?: string;
-  /** On-chain source hash shown in the "Source TX" row. */
+  /** Label for the amount row; defaults to "Total Paid" (consume receipts pass "Total Consumed"). */
+  amountLabel?: string;
+  /** Ids of the notes a consume claimed; rendered as a "Notes Consumed" row. */
+  noteIds?: string[];
+  /** On-chain hash shown in the "Transaction ID" row. */
   txHash?: string | null;
-  /** When provided, the source-tx value becomes a button. */
+  /** When provided, the transaction-id value becomes a button. */
   onViewExplorer?: () => void;
   /** Optional "Route" row value (e.g. "Slow"); bridge sends only. */
   route?: string;
@@ -24,18 +30,28 @@ interface BuildReceiptRowsArgs {
 /**
  * Builds the shared key/value receipt rows for the amount-led success views.
  * Rows are appended only when their data exists, so the same builder serves a
- * minimal plain send and a fully-populated bridged send. Order matches the
- * design: To → Route → Total Paid → Source TX.
+ * minimal plain send, a fully-populated bridged send, and a consume/claim.
+ * Order matches the design: To/From → Route → Total → Notes Consumed → Transaction ID.
  */
 export const buildReceiptRows = (
   t: TFn,
-  { destinationAddress, amountText, txHash, onViewExplorer, route, routeSub }: BuildReceiptRowsArgs
+  {
+    destinationAddress,
+    destinationLabel,
+    amountText,
+    amountLabel,
+    noteIds,
+    txHash,
+    onViewExplorer,
+    route,
+    routeSub
+  }: BuildReceiptRowsArgs
 ): ReceiptRow[] => {
   const rows: ReceiptRow[] = [];
 
   if (destinationAddress) {
     rows.push({
-      label: t('to'),
+      label: destinationLabel ?? t('to'),
       value: truncateAddress(destinationAddress, true, 6, 4, 4)
     });
   }
@@ -50,14 +66,21 @@ export const buildReceiptRows = (
 
   if (amountText) {
     rows.push({
-      label: t('totalPaid', { defaultValue: 'Total Paid' }),
+      label: amountLabel ?? t('totalPaid', { defaultValue: 'Total Paid' }),
       value: amountText
+    });
+  }
+
+  if (noteIds && noteIds.length > 0) {
+    rows.push({
+      label: t('notesConsumed', { defaultValue: 'Notes Consumed' }),
+      value: noteIds.map(id => truncateHash(id, 6, 4)).join(', ')
     });
   }
 
   if (txHash) {
     rows.push({
-      label: t('sourceTx', { defaultValue: 'Source TX' }),
+      label: t('sourceTx', { defaultValue: 'Transaction ID' }),
       value: truncateHash(txHash, 6, 4),
       onClick: onViewExplorer,
       actionLabel: t('viewOnMidenscan')

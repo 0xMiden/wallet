@@ -3,6 +3,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TokenLogo } from 'components/TokenLogo';
+import { toAdaptiveFixed } from 'lib/i18n/numbers';
 
 export interface ReviewAmountProps {
   symbol: string;
@@ -36,7 +37,7 @@ export const ReviewAmount: React.FC<ReviewAmountProps> = ({ symbol, amount, fiat
       </div>
       {fiat != null && (
         <p className="text-center font-heading text-sm text-gray">
-          {t('approxFiatValue', { value: `$${fiat.toFixed(2)}` })}
+          {t('approxFiatValue', { value: `$${toAdaptiveFixed(fiat)}` })}
         </p>
       )}
     </div>

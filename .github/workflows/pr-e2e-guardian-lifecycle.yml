@@ -1,6 +1,8 @@
 name: Guardian Lifecycle E2E (Chrome)
 on:
   pull_request:
+  push:
+    branches: [main]
   workflow_dispatch: {}
 concurrency:
   group: guardian-lifecycle-e2e-${{ github.ref }}
@@ -15,11 +17,21 @@ jobs:
   # wired into pr-e2e-local.yml), switch/recovery scenarios need a SECOND,
   # distinct-keypair guardian ("B", :3001) to switch/recover TO — brought up
   # via the `guardian-switch` compose profile (docker-compose.local.yml).
-  # As of this writing the switch/recovery specs don't exist yet (later
-  # phases of the same project); this job is scaffolding that picks them up
-  # automatically once they land, via playwright.guardian.config.ts's
-  # `**/guardian-*.spec.ts` testMatch. guardian-lifecycle-e2e-gate is the
-  # stable required-check name.
+  # The specs are live (seven guardian-*.spec.ts files), picked up via
+  # playwright.guardian.config.ts's `**/guardian-*.spec.ts` testMatch.
+  # guardian-lifecycle-e2e-gate is the stable required-check name.
+  # #615: guardian-recovery.spec.ts:65 flaked ~10% of executions (~11 failures /
+  # ~110 real runs, 2026-08-04 -> 2026-08-12) since the spec landed — there was
+  # no regression commit. The cause was a harness false negative: claimAllNotes
+  # billed its reload against the drain budget and could time out mid-way through
+  # its two-sample "drained" confirmation, failing wallets that HAD drained. Fixed
+  # here; the dump now also renders `status` by name so a Completed row cannot be
+  # misread as in-flight.
+  #
+  # A red run on this job is therefore NOT pre-excused. Guardian 401/429 handling
+  # is tracked separately (#617 rate-limit requeue, #619 post-rotation
+  # re-register) — if a failure shows those, triage it, don't assume flake.
+  # This is NOT #522 (that is the SDK-0.16 protocol gate).
   guardian-lifecycle-e2e:
     name: guardian-lifecycle-e2e (chrome)
     runs-on: ubuntu-latest
@@ -44,6 +56,21 @@ jobs:
       # rustc -- a newer stable can reject the pinned older CLI/transport crates and
       # go red on unrelated PRs. Bump this deliberately (and the cache key below).
       - uses: dtolnay/rust-toolchain@1.96.1
+      # The cargo cache is SHARED by every E2E workflow and warmed on main
+      # (.github/workflows/warm-e2e-cargo-cache.yml), so a PR restores it instead
+      # of spending ~12 min rebuilding binaries that are byte-identical across
+      # jobs. Keyed on what actually determines those binaries — the rustc pin,
+      # the note-transport ref and the pinned miden-client-cli rev — NOT on all of
+      # package.json, which changes on most PRs for unrelated reasons and used to
+      # bust this cache every time.
+      - name: Compute shared cargo cache key
+        id: cargo_cache_key
+        run: |
+          rev=$(node -p "require('./package.json').midenClientCliGit.rev")
+          url=$(node -p "require('./package.json').midenClientCliGit.url")
+          ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
+          pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
+          echo "key=miden-e2e-cargo-v1-rust1.96.1-${{ hashFiles('playwright/e2e/local-stack/versions.env') }}-$pins" >> "$GITHUB_OUTPUT"
       - name: Cache cargo (cli + note-transport)
         uses: actions/cache@v4
         with:
@@ -53,7 +80,7 @@ jobs:
             ${{ runner.temp }}/note-transport/target
           # rustc pin is in the key so a toolchain bump forces a clean rebuild
           # (a binary built with a different rustc must not be reused).
-          key: guardian-lifecycle-e2e-cargo-v1-rust1.96.1-${{ hashFiles('package.json', 'playwright/e2e/local-stack/versions.env') }}
+          key: ${{ steps.cargo_cache_key.outputs.key }}
       - run: yarn install --frozen-lockfile
       - name: Pre-install miden-client-cli (off the per-test clock)
         run: |
@@ -167,10 +194,13 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian --profile guardian-switch -f docker-compose.local.yml logs --no-color | tail -400
       - uses: actions/upload-artifact@v4
-        if: failure()
+        # Keep the screenshot filmstrip only on main-push runs (the record);
+        # on PRs, upload only when the run failed (debug artifact, as before).
+        if: ${{ github.event_name == 'push' || failure() }}
         with:
           name: guardian-lifecycle-e2e-report
           path: test-results/
+          retention-days: 7
       - name: Tear down
         if: always()
         working-directory: playwright/e2e/local-stack

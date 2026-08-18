@@ -293,7 +293,6 @@
   "fastTransactionDescription": "İşlem otomatik olarak yayınlanacak ve sonuçlandırılacaktır.",
   "fastTransaction": "İşlem Hızı",
   "delegateProofSettings": "Delege Kanıtı Oluşturma",
-  "delegateProofSettingsDescription": "Burada kanıt oluşturma yetkisini uzak bir sunucuya yapılandırabilirsiniz. Bu, kanıt oluşturmayı hızlandıracak ancak işlem ayrıntılarını güvenilir bir sunucuya açıklayacaktır.",
   "mainAssetBalanceIsZero": "Aleo kredileriniz (ana varlık) bakiyeniz sıfır. Ücret için Aleo kredisi gereklidir.",
   "claim": "İddia",
   "availableToClaim": "Talep edilebilir",

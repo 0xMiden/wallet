@@ -35,6 +35,8 @@ export interface OnboardingFlowProps {
   biometricAttempts?: number;
   biometricError?: string | null;
   guardianLookupError?: boolean;
+  /** Registration/recovery failure text to surface on the confirmation step (#630). */
+  recoveryError?: string | null;
   /**
    * Progress of the background guardian auto-detection probe (issue #418).
    * Left undefined by hosts that don't run the probe, which makes the import
@@ -91,6 +93,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   biometricAttempts = 0,
   biometricError = null,
   guardianLookupError = false,
+  recoveryError = null,
   guardianProbe,
   confirmCreating = false,
   onBiometricChange,
@@ -235,6 +238,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             isLoading={isLoading}
             biometricAttempts={biometricAttempts}
             biometricError={biometricError}
+            recoveryError={recoveryError}
             creating={confirmCreating}
             onSubmit={onConfirmSubmit}
             onSwitchToPassword={onSwitchToPassword}
@@ -256,6 +260,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     biometricAttempts,
     biometricError,
     guardianLookupError,
+    recoveryError,
     // Without this the recovery-method screen keeps rendering the first probe
     // state it saw and freezes on "detecting your guardian".
     guardianProbe,

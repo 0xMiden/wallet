@@ -21,10 +21,17 @@ export function useEarnPositions(): {
   vaults: EarnVault[];
   isLoading: boolean;
   error?: string;
+  /** Force an immediate re-fetch (backs the error-state Retry). */
+  refetch: () => void;
 } {
   const account = useAccount();
 
-  const { data, isLoading } = useRetryableSWR(
+  const {
+    data,
+    isLoading,
+    error: swrError,
+    mutate
+  } = useRetryableSWR(
     ['earn-positions', account.publicKey, account.evmAddress],
     async () => {
       const fromActivity = await getEarnDepositEvmAddresses(account.publicKey);
@@ -41,8 +48,17 @@ export function useEarnPositions(): {
       vaults: (data?.vaults ?? []).map(mapEarnVault),
       summary: buildEarnSummary(data?.positions ?? []),
       isLoading,
-      error: data?.errors[0]?.error
+      // Surface a load failure so the UI can show "couldn't load — retry" instead
+      // of a misleading empty "$0 / no positions". Prefer the positions service's
+      // own per-owner error; fall back to an SWR-level throw (e.g. the owner
+      // lookup failed) so no failure mode reads as "you have nothing".
+      error:
+        data?.errors[0]?.error ??
+        (swrError ? (swrError instanceof Error ? swrError.message : String(swrError)) : undefined),
+      refetch: () => {
+        void mutate();
+      }
     }),
-    [data, isLoading]
+    [data, isLoading, swrError, mutate]
   );
 }

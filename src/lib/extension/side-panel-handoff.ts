@@ -26,14 +26,35 @@ function getChrome(): ChromeApi | undefined {
 
 /**
  * True when this build should hand onboarding off to a Chrome side panel.
- * Disabled under E2E so the test harness keeps the classic in-tab flow (its
+ *
+ * Opt-out is its own build flag (`MIDEN_E2E_DISABLE_SIDEPANEL`), deliberately
+ * NOT `MIDEN_E2E_TEST`. `MIDEN_E2E_TEST` means "install the test hooks"; when it
+ * also suppressed the handoff, every E2E run drove a surface no Chrome user
+ * sees, and the side panel — where a real session actually lives — was
+ * unreachable from the harness. Now the E2E build scripts set this flag
+ * explicitly to keep the existing suites on the classic in-tab flow (their
  * onboarding driver clicks "Get started" and expects an in-tab wallet, not a
- * panel that closes the tab).
+ * panel that closes the tab), and a suite that wants to cover the panel can
+ * build with the hooks on and this flag off. Unset (every production build) it
+ * has no effect.
  */
 export function canHandoffToSidePanel(): boolean {
-  if (process.env.MIDEN_E2E_TEST === 'true') return false;
+  if (process.env.MIDEN_E2E_DISABLE_SIDEPANEL === 'true') return false;
   const chromeApi = getChrome();
   return Boolean(isExtension() && chromeApi?.sidePanel?.open && chromeApi?.windows?.getLastFocused);
+}
+
+/**
+ * The route a freshly-onboarded OR recovered wallet should enter on. When the
+ * side-panel handoff is available we send it to the dedicated `/finish-side-panel`
+ * screen (its "Open wallet" button opens the panel inside a fresh user gesture);
+ * otherwise — non-extension, a handoff-disabled build, or a missing API — we
+ * enter the wallet in-tab at `/`. Shared by the create flow and the
+ * guardian-recovery flows so recovery opens in the side panel just like
+ * first-run onboarding (#428).
+ */
+export function postOnboardingRoute(): '/finish-side-panel' | '/' {
+  return canHandoffToSidePanel() ? '/finish-side-panel' : '/';
 }
 
 /**

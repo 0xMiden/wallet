@@ -30,7 +30,12 @@ jest.mock('capacitor-barcode-scanner', () => ({
 
 jest.mock('lib/platform', () => ({
   isMobile: jest.fn(),
-  isAndroid: jest.fn()
+  isAndroid: jest.fn(),
+  // Off-mobile, isScanAvailable now also consults the extension webcam path
+  // (isExtension + window.BarcodeDetector). This suite is not an extension, so
+  // isExtension returns false (as the real impl does) and the off-mobile branch
+  // stays false — mirroring the original assertion.
+  isExtension: jest.fn(() => false)
 }));
 
 const mockIsMobile = isMobile as jest.MockedFunction<typeof isMobile>;

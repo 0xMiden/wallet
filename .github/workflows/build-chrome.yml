@@ -66,6 +66,21 @@ jobs:
       - name: Build Chrome extension
         env:
           MIDEN_NETWORK: ${{ matrix.network }}
+          # PRODUCTION build. Every vite config gates BOTH minification and
+          # source maps on this one variable:
+          #
+          #   sourcemap: process.env.MODE_ENV !== 'production'
+          #   minify:    process.env.MODE_ENV === 'production'
+          #
+          # It was never set here, so the extension users install shipped
+          # UNMINIFIED and with its full source maps: 59.9 MB of .map files and
+          # 34.5 MB of formatted, commented JavaScript, in a 29.96 MB zip that
+          # was 40% source maps. `build:mobile` already sets this — the
+          # extension was simply missed.
+          #
+          # Measured on the 1.15.20 tree: 29.96 MB -> 15.43 MB zipped (-48.5%).
+          MODE_ENV: production
+          NODE_ENV: production
         run: yarn build:chrome
 
       - name: Compute artifact name

@@ -1,5 +1,7 @@
 import * as Repo from 'lib/miden/repo';
 
+import { verifySendLanded } from './cancel';
+import { updateTransactionStatus } from './helper';
 import {
   IEarnWithdrawExtraInputs,
   ITransaction,
@@ -69,11 +71,34 @@ export const isRequeueableTransaction = (tx: { status?: ITransactionStatus; type
  * stale-queued TTL doesn't cancel the retry on sight, and `nextEligibleAt`
  * is cleared so a stale requeue-backoff can't delay the user's explicit retry.
  */
+/** Output-producing types whose Retry must first node-verify it didn't already
+ *  land (double-send guard). Consume is excluded — it has its own input-note
+ *  landed check (verifyConsumeLanded) on the kill/reaper path. */
+const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-send', 'execute'];
+
 export const requeueFailedTransaction = async (txId: string): Promise<void> => {
   const tx = await Repo.transactions.where({ id: txId }).first();
   if (!tx) throw new Error(`Transaction ${txId} not found`);
   if (!isRequeueableTransaction(tx)) {
     throw new Error(`Transaction ${txId} (${tx.type}) is not retryable`);
+  }
+
+  // Idempotency guard (resilience gap 2): a send/swap can be marked Failed by an
+  // ambiguous post-submit abort even though its original submit actually LANDED.
+  // Blindly re-queueing it through the loop would broadcast a SECOND send — a
+  // real double-spend of the user's funds. So node-verify first: if the tx is
+  // provably on chain (committed) or in the mempool (pending), complete the row
+  // instead of resubmitting. An indeterminate result keeps the resubmit path (no
+  // captured id / no record → we couldn't confirm it landed).
+  if (NODE_VERIFIED_RETRY_TYPES.includes(tx.type)) {
+    const verdict = await verifySendLanded(tx);
+    if (verdict === 'landed') {
+      await updateTransactionStatus(txId, ITransactionStatus.Completed, {
+        displayMessage: 'Completed',
+        completedAt: Math.floor(Date.now() / 1000)
+      });
+      return;
+    }
   }
 
   await Repo.transactions.where({ id: txId }).modify((dbTx: ITransaction) => {

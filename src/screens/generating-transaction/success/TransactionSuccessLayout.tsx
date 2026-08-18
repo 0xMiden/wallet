@@ -201,42 +201,40 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
   useHideNavbarWhileOpen();
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-heading-gray">
-      <ScreenHeader title={headerTitle} closeLabel={t('close')} onClose={onClose} />
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg px-4 text-heading-gray">
+      <ScreenHeader className="shrink-0" title={headerTitle} closeLabel={t('close')} onClose={onClose} />
 
-      <main className="flex min-h-0 flex-1 flex-col">
-        <section className="flex flex-1 flex-col items-center px-3 pt-6">
-          {hero ?? <SuccessHero />}
+      {/* Scroll region: only the receipt body scrolls when the popup is short, so
+          the footer CTAs below stay pinned and fully reachable (#463). */}
+      <main className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-3 pt-6">
+        {hero ?? <SuccessHero />}
 
-          <h2 className="mt-6 w-full text-center text-[2rem] font-heading font-bold text-heading-gray">{title}</h2>
+        <h2 className="mt-6 w-full text-center text-[2rem] font-heading font-bold text-heading-gray">{title}</h2>
 
-          {children}
-        </section>
-
-        <div className="w-full shrink-0 px-1 pt-10 flex flex-col items-center justify-center">
-          {footerDescription && (
-            <p className="mb-4 text-center text-base font-normal  text-gray">{footerDescription}</p>
-          )}
-
-          {secondaryAction ? (
-            <div className="flex w-full flex-col gap-3 items-center justify-between">
-              {secondaryFirst ? (
-                <>
-                  <FooterAction action={secondaryAction} className="w-full" />
-                  <FooterAction action={primaryAction} className="w-full" />
-                </>
-              ) : (
-                <>
-                  <FooterAction action={primaryAction} className="w-full" />
-                  <FooterAction action={secondaryAction} className="w-full" />
-                </>
-              )}
-            </div>
-          ) : (
-            <FooterAction action={primaryAction} className="w-full" />
-          )}
-        </div>
+        {children}
       </main>
+
+      <div className="w-full shrink-0 px-1 pb-4 pt-6 flex flex-col items-center justify-center">
+        {footerDescription && <p className="mb-4 text-center text-base font-normal  text-gray">{footerDescription}</p>}
+
+        {secondaryAction ? (
+          <div className="flex w-full flex-col gap-3 items-center justify-between">
+            {secondaryFirst ? (
+              <>
+                <FooterAction action={secondaryAction} className="w-full" />
+                <FooterAction action={primaryAction} className="w-full" />
+              </>
+            ) : (
+              <>
+                <FooterAction action={primaryAction} className="w-full" />
+                <FooterAction action={secondaryAction} className="w-full" />
+              </>
+            )}
+          </div>
+        ) : (
+          <FooterAction action={primaryAction} className="w-full" />
+        )}
+      </div>
     </div>
   );
 };

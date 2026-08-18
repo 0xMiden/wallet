@@ -6,13 +6,11 @@ import wordslist from 'bip39/src/wordlists/english.json';
 import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
-import { canHandoffToSidePanel } from 'lib/extension/side-panel-handoff';
+import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
-import { putToStorage } from 'lib/miden/front/storage';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
@@ -97,6 +95,12 @@ const Welcome: FC = () => {
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
   const [password, setPassword] = useState<string | null>(null);
   const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
+  // The guardian operator endpoint the user picked (choose-guardian) or that the
+  // import recovery-method screen resolved. Threaded explicitly into
+  // registerWallet (stage 1 of #408) so a new Guardian account binds to it,
+  // replacing the former write to the global GUARDIAN_URL_STORAGE_KEY. Undefined
+  // for non-guardian (public) wallets.
+  const [guardianEndpoint, setGuardianEndpoint] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
   const [useBiometric, setUseBiometric] = useState(true);
   const [isHardwareSecurityAvailable, setIsHardwareSecurityAvailable] = useState(false);
@@ -161,6 +165,14 @@ const Welcome: FC = () => {
     // matches the Chrome E2E's private default and keeps non-guardian specs
     // independent of a guardian backend.
     const bypassWalletType = params.get('walletType') === 'guardian' ? WalletType.Guardian : WalletType.OffChain;
+    // Guardian endpoint override for the bypass. Production sets this via the
+    // ChooseGuardian / ImportRecoveryMethod screens, which the bypass skips — so
+    // thread it from the `guardianUrl` param the E2E helper passes. register()
+    // forwards it as the guardianEndpoint override, exactly like the real picker,
+    // so createGuardianAccount (create) and Vault.spawn's recovery scan (import)
+    // bind to it rather than the retired global GUARDIAN_URL_STORAGE_KEY read
+    // (#408 stage 3). Only meaningful for a Guardian wallet.
+    const bypassGuardianUrl = params.get('guardianUrl') || undefined;
     // Optional `seed` param: a space- or comma-separated mnemonic. When present,
     // import that exact seed (onboardingType=Import drives registerWallet's
     // isImport=true) instead of generating a fresh mnemonic + Create. This lets
@@ -190,6 +202,9 @@ const Welcome: FC = () => {
     (globalThis as { __TEST_LAST_GENERATED_SEED__?: string }).__TEST_LAST_GENERATED_SEED__ = testSeed.join(' ');
     const testPassword = params.get('password') || 'password1';
     setWalletType(bypassWalletType);
+    if (bypassWalletType === WalletType.Guardian && bypassGuardianUrl) {
+      setGuardianEndpoint(bypassGuardianUrl);
+    }
     setSeedPhrase(testSeed);
     setPassword(testPassword);
     setOnboardingType(bypassOnboardingType);
@@ -229,14 +244,20 @@ const Welcome: FC = () => {
       const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
       // For hardware-only wallets, pass undefined as password
       const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
-      await registerWallet(walletType, actualPassword, seedPhraseFormatted, onboardingType === OnboardingType.Import);
+      await registerWallet(
+        walletType,
+        actualPassword,
+        seedPhraseFormatted,
+        onboardingType === OnboardingType.Import,
+        guardianEndpoint
+      );
       if (onboardingType === OnboardingType.Create) {
         await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
       }
     } else {
       throw new Error('Missing password or seed phrase');
     }
-  }, [password, seedPhrase, registerWallet, onboardingType, walletType]);
+  }, [password, seedPhrase, registerWallet, onboardingType, walletType, guardianEndpoint]);
 
   // Side panel handoff: kick off wallet creation as soon as the confirmation
   // screen is reached (the screen shows a spinner), so the wallet is Ready by
@@ -322,7 +343,7 @@ const Welcome: FC = () => {
         navigate('/#choose-guardian');
         break;
       case 'choose-guardian-submit':
-        await putToStorage(GUARDIAN_URL_STORAGE_KEY, action.payload.guardianEndpoint);
+        setGuardianEndpoint(action.payload.guardianEndpoint);
         setWalletType(WalletType.Guardian);
         if (password) {
           // Passcode flow already established a password — go straight to confirmation.
@@ -386,9 +407,12 @@ const Welcome: FC = () => {
         break;
       case 'import-select-recovery-method':
         setWalletType(action.payload.walletType);
-        if (action.payload.walletType === WalletType.Guardian && action.payload.guardianEndpoint) {
-          await putToStorage(GUARDIAN_URL_STORAGE_KEY, action.payload.guardianEndpoint);
-        }
+        // Capture the resolved endpoint for a Guardian import so register() can
+        // thread it explicitly; leave it undefined for a public (non-guardian)
+        // recovery so no endpoint is bound.
+        setGuardianEndpoint(
+          action.payload.walletType === WalletType.Guardian ? action.payload.guardianEndpoint : undefined
+        );
         setGuardianLookupError(false);
         navigate('/#confirmation');
         break;
@@ -406,7 +430,10 @@ const Welcome: FC = () => {
           await waitForReadyState(syncFromBackend);
           setIsLoading(false);
           eventCategory = AnalyticsEventCategory.FormSubmit;
-          navigate('/');
+          // Recovery/import completes in this classic handler (the Create flow
+          // takes the auto-create effect above). Hand off to the side panel just
+          // like Create does, instead of always entering in-tab (#428).
+          navigate(postOnboardingRoute());
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);

@@ -2,7 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
-import { AmountInput } from './AmountInput';
+import { AmountInput, normalizeDecimalInput } from './AmountInput';
 
 // Mock the Icon component / IconName enum used by the error row. Keeps the DOM
 // tiny and lets us assert which icon variant was requested.
@@ -207,6 +207,74 @@ describe('AmountInput', () => {
       expect(onValueChange).toHaveBeenCalled();
     });
 
+    // #433 — on a comma-decimal keyboard/locale (es, de, fr, …) the user types a
+    // comma for the decimal point. Group separators are disabled, so a comma can
+    // only mean "decimal": normalize it to a dot before parsing so the emitted
+    // value stays "."-normalized for the transaction pipeline.
+    it('normalizes a typed comma decimal separator to a dot', () => {
+      const onValueChange = jest.fn();
+      render(<AmountInput onValueChange={onValueChange} data-testid={TESTID} />);
+
+      fireEvent.change(getInput(), { target: { value: '1,5' } });
+
+      expect(onValueChange).toHaveBeenCalledWith('1.5', undefined, expect.objectContaining({ value: '1.5' }));
+    });
+
+    it('normalizes a comma in a sub-one value (0,001 → 0.001)', () => {
+      const onValueChange = jest.fn();
+      render(<AmountInput onValueChange={onValueChange} data-testid={TESTID} />);
+
+      fireEvent.change(getInput(), { target: { value: '0,001' } });
+
+      expect(onValueChange).toHaveBeenCalledWith('0.001', undefined, expect.objectContaining({ value: '0.001' }));
+    });
+
+    it('leaves a dot decimal separator unchanged', () => {
+      const onValueChange = jest.fn();
+      render(<AmountInput onValueChange={onValueChange} data-testid={TESTID} />);
+
+      fireEvent.change(getInput(), { target: { value: '2.75' } });
+
+      expect(onValueChange).toHaveBeenCalledWith('2.75', undefined, expect.objectContaining({ value: '2.75' }));
+    });
+
+    it('treats commas as thousands groupings when a dot is present (pasted 1,000.50)', () => {
+      // A dot is already the decimal point, so the commas are groupings — drop
+      // them rather than collapse into a broken multi-dot value.
+      const onValueChange = jest.fn();
+      render(<AmountInput onValueChange={onValueChange} data-testid={TESTID} />);
+
+      fireEvent.change(getInput(), { target: { value: '1,000.50' } });
+
+      expect(onValueChange).toHaveBeenCalledWith('1000.50', undefined, expect.objectContaining({ value: '1000.50' }));
+    });
+
+    it('accepts a comma decimal on a dot-group locale (de-DE) — guards groupSeparator=""', () => {
+      // react-currency-input-field derives its group separator from the ambient
+      // locale (via Intl.NumberFormat) even with grouping disabled. On a de-DE
+      // device the group separator is ".", which would strip our normalized dot
+      // and re-break the fix — unless the field pins groupSeparator="". Force the
+      // ambient locale to de-DE so this test fails if that prop is ever removed.
+      const RealNumberFormat = Intl.NumberFormat;
+      const spy = jest
+        .spyOn(Intl, 'NumberFormat')
+        .mockImplementation(
+          ((_locale?: unknown, options?: Intl.NumberFormatOptions) =>
+            new RealNumberFormat('de-DE', options)) as unknown as typeof Intl.NumberFormat
+        );
+
+      try {
+        const onValueChange = jest.fn();
+        render(<AmountInput onValueChange={onValueChange} data-testid={TESTID} />);
+
+        fireEvent.change(getInput(), { target: { value: '1,5' } });
+
+        expect(onValueChange).toHaveBeenCalledWith('1.5', undefined, expect.objectContaining({ value: '1.5' }));
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     it('focuses the input when the amount row is clicked', () => {
       const { container } = render(<AmountInput data-testid={TESTID} />);
       const row = container.querySelector('.cursor-text') as HTMLElement;
@@ -215,6 +283,22 @@ describe('AmountInput', () => {
       expect(getInput()).not.toHaveFocus();
       fireEvent.click(row);
       expect(getInput()).toHaveFocus();
+    });
+  });
+
+  describe('normalizeDecimalInput', () => {
+    it('turns a comma decimal into a dot', () => {
+      expect(normalizeDecimalInput('1,5')).toBe('1.5');
+      expect(normalizeDecimalInput('0,001')).toBe('0.001');
+    });
+
+    it('leaves a dot decimal untouched', () => {
+      expect(normalizeDecimalInput('2.75')).toBe('2.75');
+      expect(normalizeDecimalInput('42')).toBe('42');
+    });
+
+    it('drops commas as groupings when a dot is already present', () => {
+      expect(normalizeDecimalInput('1,000.50')).toBe('1000.50');
     });
   });
 });

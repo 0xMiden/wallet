@@ -113,6 +113,10 @@ const _g = globalThis as any;
 _g.__dappTestMockGetAccount = jest.fn();
 _g.__dappTestMockGetOutputNotes = jest.fn();
 const mockGetAccount = _g.__dappTestMockGetAccount;
+// The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
+// of miden-client, which jest mocks separately from the relative specifier below;
+// delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     getAccount: (id: string) => (globalThis as any).__dappTestMockGetAccount(id),
@@ -629,7 +633,8 @@ describe('requestConsumableNotes — Auto permission', () => {
       getAccount: _g.__dappTestMockGetAccount,
       getOutputNotes: _g.__dappTestMockGetOutputNotes,
       syncState: jest.fn(async () => {}),
-      getConsumableNotes: jest.fn(async () => [])
+      // Slice-4: dapp reads consumable notes as DTOs via getConsumableNoteDtos.
+      getConsumableNoteDtos: jest.fn(async () => [])
     });
     try {
       const res = await dapp.requestConsumableNotes('https://miden.xyz', {

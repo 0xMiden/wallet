@@ -86,6 +86,7 @@ export const AddNewContactForm: React.FC<AddNewContactFormProps> = ({
           })}
           id="name"
           name="name"
+          data-testid="address-book-name-input"
           placeholder={t('enterUsername')}
           errorCaption={errors.name?.message}
           containerClassName="bg-gray-25 border-gray-100 border rounded-10"
@@ -100,6 +101,7 @@ export const AddNewContactForm: React.FC<AddNewContactFormProps> = ({
           })}
           id="address"
           name="address"
+          data-testid="address-book-address-input"
           placeholder={t('enterAddress')}
           errorCaption={errors.address?.message}
           className="bg-gray-25 h-14 active:border-none focus:border-none placeholder:text-text-muted rounded-10"
@@ -112,6 +114,7 @@ export const AddNewContactForm: React.FC<AddNewContactFormProps> = ({
         loading={isSubmitting}
         disabled={isFormEmpty}
         testID="AddressBook/AddNewContact"
+        data-testid="address-book-add-contact"
       >
         {t('addContact')}
       </FormSubmitButton>

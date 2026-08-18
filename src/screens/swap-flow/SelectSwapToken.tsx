@@ -36,7 +36,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
   };
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} screenKey="swap-token">
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{t('selectAToken')}</DrawerTitle>

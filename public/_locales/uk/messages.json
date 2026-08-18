@@ -53,7 +53,7 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Адреса: $number$",
+    "message": "Адреса: $number$ ",
     "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
@@ -447,6 +447,10 @@
   "earnPositionsRegionLabel": {
     "message": "посади",
     "englishSource": "Positions"
+  },
+  "earnPositionsLoadError": {
+    "message": "Не вдалося завантажити ваші позиції. Перевірте підключення та повторіть спробу.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -1077,6 +1081,10 @@
     "message": "Умови обслуговування",
     "englishSource": "Terms of Service"
   },
+  "sendFeedback": {
+    "message": "Надіслати відгук",
+    "englishSource": "Send feedback"
+  },
   "termsOfUse": {
     "message": "Умови використання",
     "englishSource": "Terms of Use"
@@ -1347,6 +1355,10 @@
     "message": "Генерація доказів делегування",
     "englishSource": "Delegate Proof Generation"
   },
+  "delegateProofSettingsDescription": {
+    "message": "Коли ввімкнено, підтвердження транзакцій генеруються на віддалених серверах — швидше, без великого завантаження на ваш пристрій, і ваші ключі ніколи не залишають його. Коли вимкнено або послуга недоступна, гаманець перевіряє локально: більш приватний, але повільніший і потребує великого одноразового завантаження.",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+  },
   "transfer": {
     "message": "Переказ",
     "englishSource": "Transfer"
@@ -1581,8 +1593,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "Якщо до того часу не буде затребувано, $amount$ автоматично повертається у ваш гаманець. Жодні кошти не втрачаються.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "Якщо ви не затребували до того часу, ви можете вимагати $amount$ назад у ваш гаманець. Жодні кошти не втрачаються.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1679,6 +1691,30 @@
     "message": "Профінансуйте зараз",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "Поповнення вашого гаманця",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "Запит маркерів від faucet…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "Гаманець фінансується",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "Ваші жетони вже в дорозі та незабаром з’являться.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "Фінансування не вдалося",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "Ми не змогли поповнити ваш гаманець. Спробуйте ще раз.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
     "message": "У вас є Notes",
     "englishSource": "You have Pending Notes"
@@ -1709,12 +1745,24 @@
     "englishSource": "Secure signing unavailable"
   },
   "hotKeyHardwareErrorPromptBody": {
-    "message": "Цей пристрій не міг використовувати захищене обладнання для підписання транзакцій. Скопіюйте помилку та надішліть її команді Miden.",
-    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+    "message": "Захищене обладнання цього пристрою повідомило про помилку під час налаштування підпису транзакцій. Скопіюйте помилку та надішліть її команді Miden.",
+    "englishSource": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team."
   },
   "hotKeyHardwareErrorPromptAction": {
     "message": "Помилка копіювання",
     "englishSource": "Copy error"
+  },
+  "hotKeyRotationPromptTitle": {
+    "message": "Необхідно змінити ключ пристрою",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "Цей пристрій більше не може використовувати (гарячу) клавішу вашого пристрою. Поверніть його, щоб відновити підпис — ваші кошти не вплинуть.",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "Обернути ключ",
+    "englishSource": "Rotate key"
   },
   "bridgePromptTitle": {
     "message": "Міст у процесі",
@@ -1808,6 +1856,10 @@
   "claim": {
     "message": "Претензія",
     "englishSource": "Claim"
+  },
+  "clear": {
+    "message": "ясно",
+    "englishSource": "Clear"
   },
   "midenWallet": {
     "message": "Хліб!",
@@ -1942,8 +1994,8 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Схвалює або відхиляє транзакції на основі вашої політики безпеки. Допомагає відновити роботу, якщо ви втратите пристрій.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device.",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "Що воно не може зробити",
@@ -1958,8 +2010,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Ви можете будь-коли перейти до іншого Опікуна — або повністю видалити одного — за допомогою фрази відновлення.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "Ви можете будь-коли перейти до іншого Опікуна за допомогою фрази відновлення. Змінюється лише той, хто є співпідписником; ваш рахунок і кошти залишаються незмінними.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "зрозумів",
@@ -2490,8 +2542,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Автоматично споживати notes з Miden Faucet",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "Автоматично забирає вхідний MIDEN notes на ваш баланс — так само, як торкнутися \"Запитувати\". Це не витрачає ваші кошти та не додає жодної комісії.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "Зашифрований файл гаманця",
@@ -2575,12 +2627,12 @@
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
-    "message": "Не закривайте це вікно. Після створення транзакції ви повернетесь на домашню сторінку",
-    "englishSource": "Do not close this window. You will be navigated back to the home page after the transaction is generated"
+    "message": "Не закривайте це вікно, доки транзакція не буде згенерована",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "doNotCloseWindowAutoClose": {
-    "message": "Не закривайте це вікно. Вікно автоматично закриється після створення транзакції",
-    "englishSource": "Do not close this window. Window will auto-close after the transaction is generated"
+    "message": "Не закривайте це вікно, доки транзакція не буде згенерована",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "transactionSuccessDescription": {
     "message": "Ваша транзакція була успішно оброблена та підтверджена в мережі.",
@@ -2625,6 +2677,10 @@
   "viewInActivities": {
     "message": "Переглянути в Діяльності",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "Переглянути діяльність",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Переглянути деталі",
@@ -2965,6 +3021,23 @@
         "content": "$1"
       }
     }
+  },
+  "notesUnresolved": {
+    "message": "$count$ невирішено",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Не вдалося подати претензію — торкніться «Повторити», щоб повторити спробу",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "Цей note більше не доступний",
+    "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
     "message": "Очікує notes",
@@ -3335,6 +3408,22 @@
     "message": "Сканування скасовано",
     "englishSource": "Scan cancelled"
   },
+  "scanQrTitle": {
+    "message": "Відскануйте QR-код",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Наведіть камеру на QR-код",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "Камера не знайдена",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Запит на доступ до камери…",
+    "englishSource": "Requesting camera access…"
+  },
   "scan": {
     "message": "Сканувати",
     "englishSource": "Scan"
@@ -3366,6 +3455,14 @@
   "noteReceivedTitle": {
     "message": "Ви отримали note",
     "englishSource": "You have received a note"
+  },
+  "transactionFailedNotificationTitle": {
+    "message": "Помилка транзакції",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "Не вдалося завершити транзакцію. Відкрийте гаманець для перегляду.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
     "message": "Торкніться тут, щоб отримати його",
@@ -3916,9 +4013,21 @@
     "message": "Total Paid",
     "englishSource": "Total Paid"
   },
+  "totalConsumed": {
+    "message": "Всього спожито",
+    "englishSource": "Total Consumed"
+  },
+  "notesConsumed": {
+    "message": "Notes Спожито",
+    "englishSource": "Notes Consumed"
+  },
+  "consumed": {
+    "message": "Споживається",
+    "englishSource": "Consumed"
+  },
   "sourceTx": {
-    "message": "Source TX",
-    "englishSource": "Source TX"
+    "message": "ID транзакції",
+    "englishSource": "Transaction ID"
   },
   "developerSettingsTitle": {
     "message": "Налаштування розробника",

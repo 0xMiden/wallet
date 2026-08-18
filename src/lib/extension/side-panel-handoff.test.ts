@@ -1,6 +1,11 @@
 import { isExtension } from 'lib/platform';
 
-import { canHandoffToSidePanel, closeOnboardingTab, openSidePanelToWallet } from './side-panel-handoff';
+import {
+  canHandoffToSidePanel,
+  closeOnboardingTab,
+  openSidePanelToWallet,
+  postOnboardingRoute
+} from './side-panel-handoff';
 
 jest.mock('lib/platform', () => ({
   isExtension: jest.fn()
@@ -40,17 +45,25 @@ function setChrome(chrome: ChromeMock | undefined): void {
 
 let warnSpy: jest.SpyInstance;
 const originalE2E = process.env.MIDEN_E2E_TEST;
+const originalDisable = process.env.MIDEN_E2E_DISABLE_SIDEPANEL;
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
+}
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockIsExtension.mockReturnValue(true);
   process.env.MIDEN_E2E_TEST = 'false';
+  delete process.env.MIDEN_E2E_DISABLE_SIDEPANEL;
   warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
 afterEach(() => {
   setChrome(undefined);
-  process.env.MIDEN_E2E_TEST = originalE2E;
+  restoreEnv('MIDEN_E2E_TEST', originalE2E);
+  restoreEnv('MIDEN_E2E_DISABLE_SIDEPANEL', originalDisable);
   warnSpy.mockRestore();
 });
 
@@ -60,10 +73,22 @@ describe('canHandoffToSidePanel', () => {
     expect(canHandoffToSidePanel()).toBe(true);
   });
 
-  it('is false under E2E (harness uses the classic in-tab flow)', () => {
-    process.env.MIDEN_E2E_TEST = 'true';
+  it('is false when the build opts out via MIDEN_E2E_DISABLE_SIDEPANEL', () => {
+    process.env.MIDEN_E2E_DISABLE_SIDEPANEL = 'true';
     setChrome(makeChrome());
     expect(canHandoffToSidePanel()).toBe(false);
+  });
+
+  it('is unaffected by MIDEN_E2E_TEST alone, so an E2E build can reach the panel', () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    setChrome(makeChrome());
+    expect(canHandoffToSidePanel()).toBe(true);
+  });
+
+  it('ignores a non-"true" value of the opt-out flag', () => {
+    process.env.MIDEN_E2E_DISABLE_SIDEPANEL = 'false';
+    setChrome(makeChrome());
+    expect(canHandoffToSidePanel()).toBe(true);
   });
 
   it('is false when not running as an extension', () => {
@@ -75,6 +100,31 @@ describe('canHandoffToSidePanel', () => {
   it('is false when the side panel API is absent (e.g. Firefox)', () => {
     setChrome(undefined);
     expect(canHandoffToSidePanel()).toBe(false);
+  });
+});
+
+describe('postOnboardingRoute', () => {
+  it('routes to the side-panel handoff when handoff is available', () => {
+    setChrome(makeChrome());
+    expect(postOnboardingRoute()).toBe('/finish-side-panel');
+  });
+
+  it('routes in-tab to / when the side panel is unavailable (non-extension)', () => {
+    mockIsExtension.mockReturnValue(false);
+    setChrome(makeChrome());
+    expect(postOnboardingRoute()).toBe('/');
+  });
+
+  it('routes in-tab to / when the build opts out of the handoff (classic in-tab flow)', () => {
+    process.env.MIDEN_E2E_DISABLE_SIDEPANEL = 'true';
+    setChrome(makeChrome());
+    expect(postOnboardingRoute()).toBe('/');
+  });
+
+  it('still routes to the handoff under MIDEN_E2E_TEST alone', () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    setChrome(makeChrome());
+    expect(postOnboardingRoute()).toBe('/finish-side-panel');
   });
 });
 

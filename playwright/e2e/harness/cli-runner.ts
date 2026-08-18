@@ -62,7 +62,7 @@ export async function runCliCommand(
       timeout: timeoutMs,
       cwd,
       env: { ...process.env, ...options.env },
-      maxBuffer: 10 * 1024 * 1024,
+      maxBuffer: 10 * 1024 * 1024
     });
 
     result = {
@@ -74,7 +74,7 @@ export async function runCliCommand(
       stderr: stderr.trim(),
       durationMs: Date.now() - startedAt,
       timedOut: false,
-      parsed: parseCliOutput(stdout),
+      parsed: parseCliOutput(stdout)
     };
   } catch (err: any) {
     result = {
@@ -88,7 +88,7 @@ export async function runCliCommand(
       durationMs: Date.now() - startedAt,
       timedOut: err.killed === true,
       timeoutMs: err.killed ? timeoutMs : undefined,
-      parsed: parseCliOutput(err.stdout ?? ''),
+      parsed: parseCliOutput(err.stdout ?? '')
     };
   }
 
@@ -100,7 +100,7 @@ export async function runCliCommand(
     message: `CLI: ${shortCmd} [exit=${result.exitCode}${result.timedOut ? ' TIMEOUT' : ''}] (${result.durationMs}ms)`,
     data: result as unknown as Record<string, unknown>,
     durationMs: result.durationMs,
-    ...(options.stepName ? { stepName: options.stepName } : {}),
+    ...(options.stepName ? { stepName: options.stepName } : {})
   });
 
   return result;

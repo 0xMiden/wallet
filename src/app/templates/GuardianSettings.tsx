@@ -1,4 +1,4 @@
-import React, { FC } from 'react';
+import React, { FC, useState } from 'react';
 
 import clsx from 'clsx';
 import { Trans, useTranslation } from 'react-i18next';
@@ -14,6 +14,7 @@ import { Button } from 'components/Button';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
+import { GuardianInfoDrawer } from 'screens/onboarding/common/GuardianInfoDrawer';
 
 const GuardianDetailRow: FC<{ label: string; value: string; isLast?: boolean }> = ({ label, value, isLast }) => (
   <div
@@ -40,6 +41,7 @@ const GuardianSettings: FC = () => {
   const { t, i18n } = useTranslation();
   const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
   const lastSyncedAt = useWalletStore(s => s.lastSyncedAt);
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
 
   const option = guardianOptionForEndpoint(currentEndpoint);
   const logoEntry = option ? GUARDIAN_LOGOS[option.id] : undefined;
@@ -85,6 +87,16 @@ const GuardianSettings: FC = () => {
         <p className="mt-2 text-sm leading-5 text-heading-gray">
           <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="font-semibold" /> }} />
         </p>
+        <button
+          type="button"
+          onClick={() => {
+            hapticLight();
+            setIsInfoOpen(true);
+          }}
+          className="mt-2 text-sm font-bold text-primary-500 underline underline-offset-4 decoration-2"
+        >
+          {t('learnMoreAboutGuardian')}
+        </button>
       </section>
 
       <hr className="my-3 border-border-faint" />
@@ -107,6 +119,8 @@ const GuardianSettings: FC = () => {
         title={t('rotateGuardian')}
         onClick={handleRotate}
       />
+
+      <GuardianInfoDrawer open={isInfoOpen} onOpenChange={setIsInfoOpen} />
     </div>
   );
 };

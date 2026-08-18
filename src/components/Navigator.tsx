@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode, useMemo } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode, useMemo, useEffect } from 'react';
 
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 
+import { setCardPart } from 'lib/e2e/screen-key';
 import { isMobile } from 'lib/platform';
 
 export type AnimationDirection = 'forward' | 'backward' | 'up' | 'down';
@@ -96,6 +97,16 @@ export const NavigatorProvider: React.FC<{ children: ReactNode; routes: Route[];
     () => (activeRoute ? routes.findIndex(r => r.name === activeRoute.name) : 0),
     [activeRoute, routes]
   );
+
+  // E2E-only. Publishes the active card into the screen-key signal so E2E
+  // harnesses can screenshot on every screen change; clears on unmount so
+  // leaving a Navigator-backed flow drops the card part. Gated on
+  // MIDEN_E2E_TEST so it tree-shakes out of production.
+  useEffect(() => {
+    if (process.env.MIDEN_E2E_TEST !== 'true') return;
+    setCardPart(activeRoute?.name ?? null);
+    return () => setCardPart(null);
+  }, [activeRoute]);
 
   return (
     <NavigatorContext.Provider
