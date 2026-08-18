@@ -69,12 +69,17 @@ jobs:
           source: ./docs
           destination: ./_site
 
+      # jekyll-build-pages runs in a container as root, so ./_site comes out
+      # root-owned and the later Node step (runner user) can't write ./_site/e2e.
+      - name: Make _site writable
+        run: sudo chown -R "$(id -u):$(id -g)" _site
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Gather E2E screenshot artifacts (latest main run per workflow)
+      - name: Gather E2E screenshot artifacts (latest COMPLETED main run per workflow)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -82,8 +87,11 @@ jobs:
           mkdir -p _e2e_stage
           WORKFLOWS="e2e-blockchain.yml e2e-android.yml e2e-bridge.yml e2e-bridge-in.yml e2e-resilience.yml pr-e2e-swap.yml pr-e2e-earn.yml pr-e2e-guardian-lifecycle.yml pr-e2e-bridge-guardian.yml"
           for wf in $WORKFLOWS; do
-            rid=$(gh run list --workflow "$wf" --branch main --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)
-            if [ -z "$rid" ]; then echo "no main run for $wf"; continue; fi
+            # The latest run may be in progress (this workflow can be triggered by the
+            # same push that started the E2E suites) — pick the latest COMPLETED run,
+            # which is the one that actually has downloadable screenshot artifacts.
+            rid=$(gh run list --workflow "$wf" --branch main --limit 15 --json databaseId,status --jq 'map(select(.status=="completed"))[0].databaseId // empty' 2>/dev/null || true)
+            if [ -z "$rid" ]; then echo "no completed main run for $wf"; continue; fi
             echo "::group::$wf (run $rid)"
             tmp="_e2e_stage/_tmp"
             rm -rf "$tmp"; mkdir -p "$tmp"
