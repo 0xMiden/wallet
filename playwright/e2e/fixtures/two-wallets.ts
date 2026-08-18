@@ -203,8 +203,21 @@ function buildChromeSnapshotCaps(page: Page, context: BrowserContext, extensionI
  */
 export async function installScreenCapture(page: Page, label: string, outputDir: string): Promise<void> {
   const screensDir = path.join(outputDir, 'screens');
-  const handler = (key: string, seq: number) =>
-    captureBestEffort(async p => void (await page.screenshot({ path: p })), screensDir, seq, key, label);
+  const handler = async (key: string, seq: number) => {
+    // A screen-change can fire right after a page (re)load, before React has
+    // painted -- capturing then yields a blank white viewport. Wait briefly for
+    // the page to have rendered visible text, and skip the frame if it never
+    // does, so the filmstrip never contains blank frames.
+    try {
+      await page.waitForFunction(() => !!document.body && document.body.innerText.trim().length > 0, undefined, {
+        timeout: 1500,
+        polling: 100
+      });
+    } catch {
+      return;
+    }
+    await captureBestEffort(async p => void (await page.screenshot({ path: p })), screensDir, seq, key, label);
+  };
   try {
     await page.exposeFunction('__e2eScreenChanged', handler);
   } catch {
