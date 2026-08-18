@@ -130,14 +130,15 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Auth actions
-    registerWallet: async (walletType, password, mnemonic, ownMnemonic) => {
+    registerWallet: async (walletType, password, mnemonic, ownMnemonic, guardianEndpoint) => {
       console.log('[WalletStore] registerWallet called with walletType:', walletType);
       const res = await request({
         type: WalletMessageType.NewWalletRequest,
         walletType,
         password,
         mnemonic,
-        ownMnemonic
+        ownMnemonic,
+        guardianEndpoint
       });
       assertResponse(res.type === WalletMessageType.NewWalletResponse);
       // State will be synced via StateUpdated notification

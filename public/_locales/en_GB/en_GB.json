@@ -271,7 +271,6 @@
   "fastTransactionDescription": "The transaction will automatically be broadcasted and finalized.",
   "fastTransaction": "Transaction Speed",
   "delegateProofSettings": "Delegate Proof Generation",
-  "delegateProofSettingsDescription": "Here you can configure delegation of proof generation to a remote server. This will speed up proof generation but disclose the transaction details to a trusted server.",
   "mainAssetBalanceIsZero": "Your aleo credits (main asset) balance is zero. Aleo credits are required for the fee.",
   "claim": "Claim",
   "availableToClaim": "Available to claim",

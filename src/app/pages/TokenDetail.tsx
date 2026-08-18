@@ -13,6 +13,7 @@ import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 import History from 'app/templates/history/History';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { TokenLogo } from 'components/TokenLogo';
+import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from 'lib/miden/front';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
@@ -75,10 +76,10 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             <TokenLogo symbol={symbol} size="xl" className="rounded-10" />
 
             <span className="font-heading text-[44px] font-bold text-heading-gray leading-none pt-2">
-              {balance.toFixed(2)}
+              {toAdaptiveFixed(balance)}
             </span>
             <span className="font-heading text-sm font-semibold text-heading-gray opacity-50 leading-none pt-1">
-              ${fiatValue.toFixed(2)}
+              ${toAdaptiveFixed(fiatValue)}
             </span>
           </div>
 
@@ -160,7 +161,9 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
             })}
           </span>
         </div>
-        <span className="font-heading text-2xl font-bold text-heading-gray">${priceInfo.price.toFixed(3)}</span>
+        <span className="font-heading text-2xl font-bold text-heading-gray">
+          ${toAdaptiveFixed(priceInfo.price, 3)}
+        </span>
         <div className="mt-3 h-20">
           <ChartContainer config={{ price: { color: PRIMARY_HEX } }} className="h-full w-full aspect-auto">
             <LineChart data={chartData}>
@@ -171,7 +174,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
                   const point = payload[0].payload;
                   return (
                     <div className="rounded-lg bg-heading-gray px-2 py-1 text-xs text-pure-white shadow">
-                      <div className="font-heading font-semibold">${Number(point.value).toFixed(2)}</div>
+                      <div className="font-heading font-semibold">${toAdaptiveFixed(point.value)}</div>
                       {point.time && <div className="opacity-75">{formatTooltipTime(point.time, timeframe)}</div>}
                     </div>
                   );

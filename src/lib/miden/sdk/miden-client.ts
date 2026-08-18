@@ -245,10 +245,19 @@ class MidenClientSingleton {
     }
 
     this.initializingPromise = (async () => {
-      const client = await MidenClientInterface.create();
-      this.instance = client;
-      this.initializingPromise = null;
-      return client;
+      try {
+        const client = await MidenClientInterface.create();
+        this.instance = client;
+        return client;
+      } finally {
+        // Always clear the memoized init promise so a transient startup failure
+        // (e.g. the node is unreachable at first client construction) self-heals
+        // on the NEXT getInstance() call, instead of poisoning the singleton with
+        // a permanently-rejected promise until a full reload / SW restart. Before
+        // this, a startup blip left every caller getting the same rejection
+        // forever (resilience gap 7).
+        this.initializingPromise = null;
+      }
     })();
 
     return this.initializingPromise;
@@ -269,10 +278,15 @@ class MidenClientSingleton {
     }
 
     this.initializingPromiseWithOptions = (async () => {
-      const client = await MidenClientInterface.create(options);
-      this.instanceWithOptions = client;
-      this.initializingPromiseWithOptions = null;
-      return client;
+      try {
+        const client = await MidenClientInterface.create(options);
+        this.instanceWithOptions = client;
+        return client;
+      } finally {
+        // Self-heal a transient startup failure instead of poisoning the
+        // memoized promise (resilience gap 7 — see getInstance above).
+        this.initializingPromiseWithOptions = null;
+      }
     })();
 
     return this.initializingPromiseWithOptions;

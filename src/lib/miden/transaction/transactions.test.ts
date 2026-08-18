@@ -22,10 +22,10 @@ import {
   MAX_WAIT_BEFORE_CANCEL,
   MAX_QUEUED_AGE,
   REMOTE_PROVER_FAILED_ERROR,
+  REMOTE_PROVER_TIMEOUT_ERROR,
   LOCAL_PROVER_FAILED_ERROR,
-  MAX_CONSECUTIVE_CONSUME_FAILURES,
-  RECENT_FAILURE_WINDOW_SEC,
-  RETRY_COOLDOWN_SEC
+  RETRY_COOLDOWN_SEC,
+  MAX_RETRY_BACKOFF_SEC
 } from './index';
 
 // Mock functions defined inside factory to avoid hoisting issues with SWC
@@ -61,6 +61,11 @@ const mockGetMidenClient = jest.fn((): any => ({
   syncState: mockSyncState,
   getInputNote: mockGetInputNote
 }));
+// The #260 offscreen client proxy reads (syncState/getAccount) through the
+// `lib/...` alias of miden-client, which jest mocks separately from the relative
+// specifier below; delegate the alias to the same mock so the proxy's flag-off
+// passthrough hits it.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
   withWasmClientLock: jest.fn((fn: () => Promise<any>) => fn())
@@ -257,6 +262,55 @@ describe('transactions utilities', () => {
       expect(mockModify).toHaveBeenCalled();
     });
 
+    it('stamps stage="complete" on success so a finished tx stops reading as in-flight (#618)', async () => {
+      // setTransactionStage refuses post-terminal writes, so without this a
+      // completed replace-hot-key froze at 'confirming' and a completed guardian
+      // consume at 'guardian-synced' — both of which read as still-running.
+      const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'confirming' };
+      const row: Record<string, unknown> = { ...tx };
+      mockTransactionsWhere
+        .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
+        .mockReturnValueOnce({ modify: jest.fn(async (cb: (t: Record<string, unknown>) => void) => cb(row)) });
+
+      await updateTransactionStatus('tx-1', ITransactionStatus.Completed, {});
+
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(row.stage).toBe('complete');
+    });
+
+    it('stamps complete even when the payload is a whole row carrying a stale stage (#618)', async () => {
+      // completeCustomTransaction forwards interpretTransactionResult(...), which is
+      // the pick-time row object itself — so the payload DOES carry a `stage` key.
+      // A presence check on otherValues.stage would skip the stamp here and let
+      // Object.assign write the stale pick-time stage back over the DB's current one.
+      const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'guardian-synced' };
+      const row: Record<string, unknown> = { ...tx };
+      mockTransactionsWhere
+        .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
+        .mockReturnValueOnce({ modify: jest.fn(async (cb: (t: Record<string, unknown>) => void) => cb(row)) });
+
+      await updateTransactionStatus('tx-1', ITransactionStatus.Completed, {
+        stage: 'creating-proposal',
+        transactionId: 'hash-1'
+      } as never);
+
+      expect(row.stage).toBe('complete');
+      expect(row.transactionId).toBe('hash-1');
+    });
+
+    it('preserves the stage on FAILURE — it records where the failure happened (#618)', async () => {
+      const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'creating-proposal' };
+      const row: Record<string, unknown> = { ...tx };
+      mockTransactionsWhere
+        .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
+        .mockReturnValueOnce({ modify: jest.fn(async (cb: (t: Record<string, unknown>) => void) => cb(row)) });
+
+      await updateTransactionStatus('tx-1', ITransactionStatus.Failed, {});
+
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.stage).toBe('creating-proposal');
+    });
+
     it('throws when transaction not found', async () => {
       mockTransactionsWhere.mockReturnValueOnce({
         first: jest.fn().mockResolvedValueOnce(undefined)
@@ -384,12 +438,12 @@ describe('transactions utilities', () => {
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
     });
 
-    it('creates a new transaction when only an old Failed consume exists (retry allowed after cooldown)', async () => {
+    it('creates a new transaction when only an old Failed consume exists (retry allowed after backoff)', async () => {
       // The dedup query now returns ALL consume rows for the noteId (Failed
       // included), and the bounded-retry policy decides whether to allow a new
-      // attempt. Single Failed row whose `completedAt` is past both the
-      // RETRY_COOLDOWN_SEC and the RECENT_FAILURE_WINDOW_SEC → cap and cooldown
-      // both clear → new attempt is enqueued.
+      // attempt. A single Failed row means the backoff is only RETRY_COOLDOWN_SEC
+      // (2^0), and its `completedAt` is past that → the backoff has elapsed → a
+      // fresh attempt (re-probe) is enqueued.
       const nowSec = Math.floor(Date.now() / 1000);
       const oldFailedTx = {
         id: 'old-failed-tx',
@@ -397,8 +451,8 @@ describe('transactions utilities', () => {
         noteId: 'note-123',
         accountId: 'account-1',
         status: ITransactionStatus.Failed,
-        initiatedAt: nowSec - RECENT_FAILURE_WINDOW_SEC - 100,
-        completedAt: nowSec - RECENT_FAILURE_WINDOW_SEC - 50
+        initiatedAt: nowSec - RETRY_COOLDOWN_SEC - 100,
+        completedAt: nowSec - RETRY_COOLDOWN_SEC - 50
       };
       mockDedupQuery([oldFailedTx]);
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
@@ -473,13 +527,44 @@ describe('transactions utilities', () => {
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
     });
 
-    it('blocks a new attempt after MAX_CONSECUTIVE_CONSUME_FAILURES inside the recent window', async () => {
-      // The cap is on consecutive failures inside RECENT_FAILURE_WINDOW_SEC.
-      // Build MAX_CONSECUTIVE recent failures, the most recent of which IS
-      // outside the per-attempt cooldown. Cooldown alone would allow; the
-      // cap fires and suppresses.
+    it('clears a requeue cooldown on the blocking Queued row so an explicit retry is not silently ignored (#617)', async () => {
+      // A guardian 429 requeues the consume as Queued with nextEligibleAt up to
+      // 5 min out, and the FIFO loop skips it until then. Dedup means a fresh tap
+      // does NOT queue a second row — so without clearing the cooldown, tapping
+      // Claim would appear to do nothing for minutes. Regression guard: this is
+      // the interaction that made the guardian e2e drain time out.
+      const modify = jest.fn(async (cb: (t: Record<string, unknown>) => void) => {
+        cb(rowRef);
+      });
+      const rowRef: Record<string, unknown> = { nextEligibleAt: Math.floor(Date.now() / 1000) + 300 };
+      const backedOff = {
+        id: 'backed-off-tx',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Queued,
+        nextEligibleAt: Math.floor(Date.now() / 1000) + 300,
+        initiatedAt: 100
+      };
+      mockDedupQuery([backedOff]);
+      mockTransactionsWhere.mockReturnValue({ modify, first: jest.fn().mockResolvedValue(backedOff) });
+
+      const result = await initiateConsumeTransaction('account-1', note, undefined, true);
+
+      expect(result).toBe('backed-off-tx');
+      expect(mockTransactionsAdd).not.toHaveBeenCalled();
+      expect(modify).toHaveBeenCalled();
+      expect(rowRef.nextEligibleAt).toBeUndefined();
+    });
+
+    it('grows the backoff with each failure: a gap that clears one failure still blocks after several', async () => {
+      // The backoff doubles with lifetime failures. Five failures require
+      // RETRY_COOLDOWN_SEC · 2^4 = 80 min of idle. The most recent failure is
+      // RETRY_COOLDOWN_SEC + 100s ago — enough to clear the base cooldown a
+      // single failure would impose, but far short of the grown backoff — so the
+      // new attempt is suppressed. This is exactly what a sliding window missed.
       const nowSec = Math.floor(Date.now() / 1000);
-      const failedRows = Array.from({ length: MAX_CONSECUTIVE_CONSUME_FAILURES }, (_, i) => ({
+      const failedRows = Array.from({ length: 5 }, (_, i) => ({
         id: `failed-tx-${i}`,
         type: 'consume',
         noteId: 'note-123',
@@ -497,27 +582,30 @@ describe('transactions utilities', () => {
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
     });
 
-    it('ignores Failed rows older than RECENT_FAILURE_WINDOW_SEC when counting toward the cap', async () => {
-      // 10 Failed rows but all of them are older than the recent window —
-      // none count toward the cap. The single recent Failed clears the
-      // cooldown and is the only one that matters; new attempt allowed.
+    it('blocks re-attempt after many lifetime failures even when all are old (terminal-safe backoff #313)', async () => {
+      // The original #215 sliding window forgot failures older than 30 min, so a
+      // deterministically-unconsumable note that getConsumableNotes keeps offering
+      // dripped a fresh failure every RETRY_COOLDOWN_SEC forever. The lifetime
+      // exponential backoff counts ALL Failed rows: 10 of them push the required
+      // idle gap to MAX_RETRY_BACKOFF_SEC (24h), so a note whose most recent
+      // failure was only ~30 min ago is still suppressed rather than re-attempted.
       const nowSec = Math.floor(Date.now() / 1000);
-      const ancient = Array.from({ length: 10 }, (_, i) => ({
-        id: `ancient-failed-${i}`,
+      const failures = Array.from({ length: 10 }, (_, i) => ({
+        id: `failed-${i}`,
         type: 'consume',
         noteId: 'note-123',
         accountId: 'account-1',
         status: ITransactionStatus.Failed,
-        initiatedAt: nowSec - RECENT_FAILURE_WINDOW_SEC - 10_000 - i,
-        completedAt: nowSec - RECENT_FAILURE_WINDOW_SEC - 5_000 - i
+        initiatedAt: nowSec - 3600 - 100 - i,
+        completedAt: nowSec - 1800 - i // most recent ~30 min ago
       }));
-      mockDedupQuery(ancient);
+      mockDedupQuery(failures);
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
 
       const result = await initiateConsumeTransaction('account-1', note);
 
-      expect(mockTransactionsAdd).toHaveBeenCalled();
-      expect(typeof result).toBe('string');
+      expect(mockTransactionsAdd).not.toHaveBeenCalled();
+      expect(result).toBe('failed-0');
     });
 
     it('does not dedup across different accounts', async () => {
@@ -538,14 +626,13 @@ describe('transactions utilities', () => {
       expect(mockTransactionsAdd).toHaveBeenCalled();
     });
 
-    it('falls back to initiatedAt when a Failed row has no completedAt (cap+cooldown still apply)', async () => {
+    it('falls back to initiatedAt when a Failed row has no completedAt (backoff still applies)', async () => {
       // Edge case: a Failed row whose `completedAt` was never written (e.g. a
-      // crash mid-cancel). The recent-window filter, the sort comparator, AND
-      // the cooldown check all use `completedAt ?? initiatedAt`, so a row
-      // missing `completedAt` must still be considered for the gate. This test
-      // exercises the `?? initiatedAt` fallback on lines 183, 186, and 189 by
-      // ranking a no-completedAt Failed first via initiatedAt and verifying the
-      // cooldown branch suppresses the new attempt.
+      // crash mid-cancel). Both the sort comparator and the backoff check use
+      // `completedAt ?? initiatedAt`, so a row missing `completedAt` must still
+      // be considered for the gate. This test exercises the `?? initiatedAt`
+      // fallback by ranking a no-completedAt Failed first via initiatedAt and
+      // verifying the backoff branch suppresses the new attempt.
       const nowSec = Math.floor(Date.now() / 1000);
       const noCompletedAtFailed = {
         id: 'no-completed-at-failed',
@@ -576,10 +663,11 @@ describe('transactions utilities', () => {
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
     });
 
-    it('drops Failed rows with no completedAt and stale initiatedAt from the recent-window filter', async () => {
-      // Same `?? initiatedAt` fallback on line 183, but this time the fallback
-      // value is OUTSIDE the recent-failure window — the row is filtered out,
-      // leaving zero recent failures, and a new attempt is enqueued.
+    it('re-probes a single stale failure with no completedAt once its backoff has elapsed (initiatedAt fallback)', async () => {
+      // Same `?? initiatedAt` fallback, single failure: the backoff is only
+      // RETRY_COOLDOWN_SEC (2^0), and the row's initiatedAt-derived recency is
+      // far past that, so the backoff has elapsed and a fresh attempt is enqueued
+      // — the re-probe that keeps this a bounded backoff, not a permanent give-up.
       const nowSec = Math.floor(Date.now() / 1000);
       const ancientNoCompletedAt = {
         id: 'ancient-no-completed-at',
@@ -587,7 +675,7 @@ describe('transactions utilities', () => {
         noteId: 'note-123',
         accountId: 'account-1',
         status: ITransactionStatus.Failed,
-        initiatedAt: nowSec - RECENT_FAILURE_WINDOW_SEC - 10_000,
+        initiatedAt: nowSec - RETRY_COOLDOWN_SEC - 10_000,
         completedAt: undefined
       };
       mockDedupQuery([ancientNoCompletedAt]);
@@ -597,6 +685,32 @@ describe('transactions utilities', () => {
 
       expect(mockTransactionsAdd).toHaveBeenCalled();
       expect(result).not.toBe('ancient-no-completed-at');
+    });
+
+    it('re-probes even after many lifetime failures once the capped backoff (24h) has elapsed (#313)', async () => {
+      // Terminal-safe, not terminal: the backoff is capped at MAX_RETRY_BACKOFF_SEC,
+      // so a note stuck for a long time is still retried roughly daily. If it has
+      // since become consumable (reclaim height reached, chain advanced), that probe
+      // succeeds and the note recovers on its own — no permanent give-up, no
+      // failure-class parsing.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const failures = Array.from({ length: 12 }, (_, i) => ({
+        id: `failed-${i}`,
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Failed,
+        // Most recent failure is just past the 24h ceiling.
+        initiatedAt: nowSec - MAX_RETRY_BACKOFF_SEC - 1000 - i,
+        completedAt: nowSec - MAX_RETRY_BACKOFF_SEC - 100 - i
+      }));
+      mockDedupQuery(failures);
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+
+      const result = await initiateConsumeTransaction('account-1', note);
+
+      expect(mockTransactionsAdd).toHaveBeenCalled();
+      expect(typeof result).toBe('string');
     });
 
     it('sort comparator hits the `b.completedAt ?? b.initiatedAt` fallback when an interior row lacks completedAt', async () => {
@@ -1023,8 +1137,11 @@ describe('transactions utilities', () => {
         return dbTx;
       };
 
+      // The 'sending' stage can't be pinned to pre-submit, so a delegated timeout
+      // gets the hedged copy (no false "no funds moved" claim) — not the definitive
+      // stage-'proving' REMOTE_PROVER_FAILED_ERROR (#419 review).
       const remoteTimedOut = await runCancel('request timeout hit', true);
-      expect(remoteTimedOut.error).toBe(REMOTE_PROVER_FAILED_ERROR);
+      expect(remoteTimedOut.error).toBe(REMOTE_PROVER_TIMEOUT_ERROR);
       expect(remoteTimedOut.rawError).toBe('Error: request timeout hit');
 
       const localTimedOut = await runCancel('request timeout hit', false);
@@ -1166,6 +1283,10 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       })),
       withWasmClientLock: jest.fn((cb: () => any) => cb())
     }));
+    // The #260 proxy (routed by index.ts's syncState preflight) imports
+    // getMidenClient via the `lib/...` alias — inside this isolate block the
+    // relative doMock above doesn't cover it, so delegate the alias to it.
+    jest.doMock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       InputNoteState: {

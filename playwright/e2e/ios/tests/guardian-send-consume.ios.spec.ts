@@ -24,7 +24,7 @@ test.describe('Guardian account - consume + send', () => {
     walletB,
     midenCli,
     steps,
-    timeline,
+    timeline
   }) => {
     let addressA: string;
     let addressB: string;
@@ -54,7 +54,7 @@ test.describe('Guardian account - consume + send', () => {
         await walletA.claimAllNotes(180_000, [faucetId!]);
       },
       {
-        captureStateFrom: [{ target: walletA, label: 'A' }],
+        captureStateFrom: [{ target: walletA, label: 'A' }]
       }
     );
 
@@ -65,7 +65,7 @@ test.describe('Guardian account - consume + send', () => {
         expect(balance).toBeGreaterThan(0);
       },
       {
-        captureStateFrom: [{ target: walletA, label: 'A' }],
+        captureStateFrom: [{ target: walletA, label: 'A' }]
       }
     );
 
@@ -91,11 +91,11 @@ test.describe('Guardian account - consume + send', () => {
           recipientAddress: addressB!,
           amount: '500',
           tokenSymbol: 'TST',
-          isPrivate: false,
+          isPrivate: false
         });
       },
       {
-        captureStateFrom: [{ target: walletA, label: 'A' }],
+        captureStateFrom: [{ target: walletA, label: 'A' }]
       }
     );
 
@@ -112,8 +112,8 @@ test.describe('Guardian account - consume + send', () => {
       {
         captureStateFrom: [
           { target: walletA, label: 'A' },
-          { target: walletB, label: 'B' },
-        ],
+          { target: walletB, label: 'B' }
+        ]
       }
     );
   });

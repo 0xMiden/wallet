@@ -63,6 +63,7 @@ jest.mock('../send-flow/SelectAmount', () => ({
       <div
         data-testid={`select-amount-${key}`}
         data-embedded={String(props.embedded)}
+        data-show-balance-helper={String(props.showBalanceHelper)}
         data-amount={props.amount}
         data-valid={String(props.isValidAmount)}
         data-error={props.error}
@@ -130,6 +131,21 @@ describe('SwapAmounts', () => {
       expect(receive).toBeInTheDocument();
       expect(pay).toHaveAttribute('data-embedded', 'true');
       expect(receive).toHaveAttribute('data-embedded', 'true');
+    });
+
+    it('shows the available balance on You Pay but not on You Receive (#461)', () => {
+      renderComponent({ offerBalance: 42 });
+
+      const pay = screen.getByTestId('select-amount-youPay');
+      const receive = screen.getByTestId('select-amount-youReceive');
+
+      // You Pay: the real spendable balance is passed and the field does not opt
+      // out of the helper (relies on SelectAmount's default-on; the on-render is
+      // covered by SelectAmount's own unit tests).
+      expect(parseToken(pay).balance).toBe(42);
+      expect(pay).toHaveAttribute('data-show-balance-helper', 'undefined');
+      // You Receive (output): balance helper explicitly off.
+      expect(receive).toHaveAttribute('data-show-balance-helper', 'false');
 
       // Amounts are forwarded verbatim.
       expect(pay).toHaveAttribute('data-amount', '10');

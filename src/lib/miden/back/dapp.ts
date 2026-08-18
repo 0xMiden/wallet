@@ -7,7 +7,7 @@ import {
   PrivateDataPermission,
   SendTransaction
 } from '@demox-labs/miden-wallet-adapter-base';
-import { AccountInterface, NoteFilterTypes, NoteType, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
+import { NoteFilterTypes, NoteType, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
 import { nanoid } from 'nanoid';
 import type { Runtime } from 'webextension-polyfill';
 
@@ -58,7 +58,6 @@ import {
   MidenMessageType,
   MidenRequest
 } from 'lib/miden/types';
-import { getNetworkId } from 'lib/miden-chain/constants';
 import { isDesktop, isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
@@ -67,12 +66,14 @@ import { WalletType } from 'screens/onboarding/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
 import { queueNoteImport } from '../activity';
+import { midenClientProxy } from './miden-client-proxy';
 import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
+import { isLikelyNetworkError } from '../activity/connectivity-classify';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { withWasmClientLock } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 import {
   initiateSendTransaction,
@@ -128,8 +129,7 @@ async function dappLog(message: string): Promise<void> {
 }
 
 async function getAccountPublicKeyB64(accountId: string): Promise<string> {
-  const midenClient = await getMidenClient();
-  const account = await midenClient.getAccount(accountId);
+  const account = await midenClientProxy.getAccount(accountId);
   if (!account) {
     throw new Error('Account not found');
   }
@@ -416,12 +416,13 @@ export async function requestSign(origin: string, req: MidenDAppSignRequest): Pr
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  return new Promise((resolve, reject) => generatePromisifySign(resolve, reject, dApp, req));
+  return new Promise((resolve, reject) => generatePromisifySign(resolve, reject, origin, dApp, req));
 }
 
 const generatePromisifySign = async (
   resolve: (value: MidenDAppSignResponse | PromiseLike<MidenDAppSignResponse>) => void,
   reject: (reason?: any) => void,
+  origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppSignRequest
 ) => {
@@ -489,12 +490,13 @@ export async function requestPrivateNotes(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  return new Promise((resolve, reject) => generatePromisifyRequestPrivateNotes(resolve, reject, dApp, req));
+  return new Promise((resolve, reject) => generatePromisifyRequestPrivateNotes(resolve, reject, origin, dApp, req));
 }
 
 const generatePromisifyRequestPrivateNotes = async (
   resolve: (value: MidenDAppPrivateNotesResponse | PromiseLike<MidenDAppPrivateNotesResponse>) => void,
   reject: (reason?: any) => void,
+  origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppPrivateNotesRequest
 ) => {
@@ -580,9 +582,8 @@ async function getPrivateNoteDetails(notefilterType: NoteFilterTypes, noteIds?: 
   try {
     privateNotes = await withUnlocked(async () => {
       return await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
         const query = noteFilterTypeToQuery(notefilterType, noteIds);
-        let allNotes = await midenClient.getInputNoteDetails(query);
+        let allNotes = await midenClientProxy.getInputNoteDetails(query);
         let privateNotes = allNotes.filter(note => note.noteType === NoteType.Private);
         return privateNotes;
       });
@@ -606,12 +607,13 @@ export async function requestConsumableNotes(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  return new Promise((resolve, reject) => generatePromisifyRequestConsumableNotes(resolve, reject, dApp, req));
+  return new Promise((resolve, reject) => generatePromisifyRequestConsumableNotes(resolve, reject, origin, dApp, req));
 }
 
 export const generatePromisifyRequestConsumableNotes = async (
   resolve: (value: MidenDAppConsumableNotesResponse | PromiseLike<MidenDAppConsumableNotesResponse>) => void,
   reject: (reason?: any) => void,
+  origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppConsumableNotesRequest
 ) => {
@@ -684,39 +686,30 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
     consumableNotes = await withUnlocked(async () => {
       // Wrap WASM client operations in a lock to prevent concurrent access
       return await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        await midenClient.syncState();
-        const notes = await midenClient.getConsumableNotes(accountId);
-        const consumableNotesDetails = notes.flatMap(note => {
+        await midenClientProxy.syncState();
+        // Consumable notes as DTOs (issue #260, slice 4). The reclaim gate + the
+        // reduction ran in the client's realm (offscreen when the flag is on, so
+        // it uses the same realm that just ran syncState above — no stale height).
+        // The DTO is a strict superset of InputNoteDetails; map it 1:1.
+        const notes = await midenClientProxy.getConsumableNotes(accountId);
+        return notes.flatMap<InputNoteDetails>(note => {
           // Partial (metadata-less) notes have no ID — and, since 0.15
           // nullifiers fold in metadata, no nullifier either. They cannot
           // be consumed, so skip until sync completes them.
-          const noteId = note.id();
-          const nullifier = note.nullifier();
-          if (!noteId || !nullifier) {
+          if (!note.noteId || !note.nullifier) {
             return [];
           }
-          const assets = note
-            .details()
-            .assets()
-            .fungibleAssets()
-            .map(asset => ({
-              amount: asset.amount().toString(),
-              faucetId: asset.faucetId().toBech32(getNetworkId(), AccountInterface.BasicWallet)
-            }));
           return [
             {
-              noteId: noteId.toString(),
-              noteType: note.metadata()?.noteType(),
-              senderAccountId:
-                note.metadata()?.sender()?.toBech32(getNetworkId(), AccountInterface.BasicWallet) || undefined,
-              nullifier,
-              state: note.state(),
-              assets: assets
+              noteId: note.noteId,
+              noteType: note.noteType,
+              senderAccountId: note.senderAccountId,
+              nullifier: note.nullifier,
+              state: note.state,
+              assets: note.assets
             }
           ];
         });
-        return consumableNotesDetails;
       });
     });
     return consumableNotes;
@@ -735,12 +728,13 @@ export async function requestAssets(origin: string, req: MidenDAppAssetsRequest)
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  return new Promise((resolve, reject) => generatePromisifyRequestAssets(resolve, reject, dApp, req));
+  return new Promise((resolve, reject) => generatePromisifyRequestAssets(resolve, reject, origin, dApp, req));
 }
 
 export const generatePromisifyRequestAssets = async (
   resolve: (value: MidenDAppAssetsResponse | PromiseLike<MidenDAppAssetsResponse>) => void,
   reject: (reason?: any) => void,
+  origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppAssetsRequest
 ) => {
@@ -814,8 +808,7 @@ async function getAssets(accountId: string): Promise<Asset[]> {
     assets = await withUnlocked(async () => {
       // Wrap WASM client operations in a lock to prevent concurrent access
       return await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        const account = await midenClient.getAccount(accountId);
+        const account = await midenClientProxy.getAccount(accountId);
         const fungibleAssets = account?.vault().fungibleAssets() || [];
         const balances = fungibleAssets.map(asset => ({
           faucetId: getBech32AddressFromAccountId(asset.faucetId()),
@@ -894,12 +887,13 @@ export async function requestImportPrivateNote(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  return new Promise((resolve, reject) => generatePromisifyImportPrivateNote(resolve, reject, dApp, req));
+  return new Promise((resolve, reject) => generatePromisifyImportPrivateNote(resolve, reject, origin, dApp, req));
 }
 
 export const generatePromisifyImportPrivateNote = async (
   resolve: (value: MidenDAppImportPrivateNoteResponse | PromiseLike<MidenDAppImportPrivateNoteResponse>) => void,
   reject: (reason?: any) => void,
+  origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppImportPrivateNoteRequest
 ) => {
@@ -925,12 +919,18 @@ export const generatePromisifyImportPrivateNote = async (
         if (confirmReq.confirmed) {
           try {
             let noteId = await withUnlocked(async () => {
-              // Wrap WASM client operations in a lock to prevent concurrent access
+              // Wrap WASM client operations in a lock to prevent concurrent access.
+              // Route through the offscreen proxy (issue #260, slice 7c): this is a
+              // STORE WRITE (a claimable private note imported by a dApp flow). Flag-ON
+              // the note MUST land in the OFFSCREEN client's store — the realm that
+              // syncs and consumes — else it would import into the dormant SW store and
+              // be unclaimable. Flag-OFF each proxy method is byte-identical to the
+              // former inline `getMidenClient().importNoteBytes()` / `.syncState()`
+              // (verbatim getMidenClient path under this caller's lock).
               return await withWasmClientLock(async () => {
-                const midenClient = await getMidenClient();
                 const noteAsUint8Array = b64ToU8(req.note);
-                const noteId = await midenClient.importNoteBytes(noteAsUint8Array);
-                await midenClient.syncState();
+                const noteId = await midenClientProxy.importNoteBytes(noteAsUint8Array);
+                await midenClientProxy.syncState();
                 return noteId;
               });
             });
@@ -942,6 +942,14 @@ export const generatePromisifyImportPrivateNote = async (
               noteId
             });
           } catch (e) {
+            // Don't lose the note on a transient blip (resilience gap 1): a
+            // private note's bytes can be its only copy. Queue it for the
+            // background import loop (wall-clock retry + backoff, dead-letter on
+            // give-up) before surfacing the error. Only transient failures are
+            // re-queued — a genuinely malformed note would just dead-letter.
+            if (isLikelyNetworkError(e)) {
+              await queueNoteImport(req.note).catch(() => {});
+            }
             reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
           }
         } else {
@@ -974,7 +982,7 @@ export async function requestTransaction(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  return new Promise((resolve, reject) => generatePromisifyTransaction(resolve, reject, dApp, req, sessionId));
+  return new Promise((resolve, reject) => generatePromisifyTransaction(resolve, reject, origin, dApp, req, sessionId));
 }
 
 export function buildCustomTxConfirmPayload(args: {
@@ -1023,6 +1031,7 @@ export function makeSimulateHandler(id: string, tx: MidenCustomTransaction) {
 const generatePromisifyTransaction = async (
   resolve: (value: MidenDAppTransactionResponse | PromiseLike<MidenDAppTransactionResponse>) => void,
   reject: (reason?: any) => void,
+  origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppTransactionRequest,
   sessionId?: string
@@ -1048,6 +1057,7 @@ const generatePromisifyTransaction = async (
           transactionId: (value as MidenDAppSendTransactionResponse).transactionId
         }),
       reject,
+      origin,
       dApp,
       { ...req, transaction: req.transaction.payload } as unknown as MidenDAppSendTransactionRequest,
       sessionId
@@ -1061,6 +1071,7 @@ const generatePromisifyTransaction = async (
           transactionId: (value as MidenDAppConsumeResponse).transactionId
         }),
       reject,
+      origin,
       dApp,
       { ...req, transaction: req.transaction.payload } as unknown as MidenDAppConsumeRequest,
       sessionId
@@ -1094,7 +1105,7 @@ const generatePromisifyTransaction = async (
       id,
       sessionId,
       type: 'transaction',
-      origin: dApp.appMeta.name,
+      origin,
       appMeta: dApp.appMeta,
       network: dApp.network,
       networkRpc,
@@ -1212,12 +1223,15 @@ export async function requestSendTransaction(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  return new Promise((resolve, reject) => generatePromisifySendTransaction(resolve, reject, dApp, req, sessionId));
+  return new Promise((resolve, reject) =>
+    generatePromisifySendTransaction(resolve, reject, origin, dApp, req, sessionId)
+  );
 }
 
 const generatePromisifySendTransaction = async (
   resolve: (value: MidenDAppSendTransactionResponse | PromiseLike<MidenDAppSendTransactionResponse>) => void,
   reject: (reason?: any) => void,
+  origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppSendTransactionRequest,
   sessionId?: string
@@ -1228,7 +1242,7 @@ const generatePromisifySendTransaction = async (
   let transactionMessages: string[] = [];
   try {
     transactionMessages = await withUnlocked(async () => {
-      return formatSendTransactionPreview(req.transaction);
+      return await formatSendTransactionPreview(req.transaction);
     });
   } catch (e) {
     reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
@@ -1243,7 +1257,7 @@ const generatePromisifySendTransaction = async (
       id,
       sessionId,
       type: 'transaction',
-      origin: dApp.appMeta.name,
+      origin,
       appMeta: dApp.appMeta,
       network: dApp.network,
       networkRpc,
@@ -1351,12 +1365,15 @@ export async function requestConsumeTransaction(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  return new Promise((resolve, reject) => generatePromisifyConsumeTransaction(resolve, reject, dApp, req, sessionId));
+  return new Promise((resolve, reject) =>
+    generatePromisifyConsumeTransaction(resolve, reject, origin, dApp, req, sessionId)
+  );
 }
 
 const generatePromisifyConsumeTransaction = async (
   resolve: (value: MidenDAppConsumeResponse | PromiseLike<MidenDAppConsumeResponse>) => void,
   reject: (reason?: any) => void,
+  origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppConsumeRequest,
   sessionId?: string
@@ -1382,7 +1399,7 @@ const generatePromisifyConsumeTransaction = async (
       id,
       sessionId,
       type: 'consume',
-      origin: dApp.appMeta.name,
+      origin,
       appMeta: dApp.appMeta,
       network: dApp.network,
       networkRpc,
@@ -1672,11 +1689,25 @@ function isAllowedNetwork() {
   //return NETWORKS.some(n => !n.disabled && n.id === net.toString());
 }
 
-function formatSendTransactionPreview(transaction: SendTransaction): string[] {
+/**
+ * Renders the approval-screen rows for a dApp `requestSend`.
+ *
+ * The amount is formatted HERE, from the faucet's own decimals, exactly like
+ * `formatConsumeTransactionPreview` does. It used to be emitted raw (base
+ * units) and divided by a hardcoded `10 ** 6` in the extension's ConfirmPage
+ * — which showed the wrong number for any faucet that isn't 6-decimal, showed
+ * raw base units on mobile/desktop (whose renderers print the row verbatim),
+ * and lost precision above 2^53 because the division went through `Number()`.
+ * `formatBigInt` stays in bigint until the last step, so large amounts render
+ * exactly.
+ */
+async function formatSendTransactionPreview(transaction: SendTransaction): Promise<string[]> {
+  const tokenMetadata = await getTokenMetadata(transaction.faucetId);
+  const amount = formatAmountSafe(BigInt(transaction.amount), 'send', tokenMetadata?.decimals);
   const tsTexts = [
     'Transfer note from faucet:',
     transaction.faucetId,
-    `Amount, ${transaction.amount}`,
+    `Amount, ${amount}`,
     `Recipient, ${transaction.recipientAddress}`,
     `Note Type, ${capitalizeFirstLetter(transaction.noteType)}`
   ];

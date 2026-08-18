@@ -4,8 +4,27 @@ import { liveQuery } from 'dexie';
 import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
 
+import { type SignCallbackReason } from './sign-callback';
 import { ITransaction, ITransactionStage, ITransactionStatus, TransactionOutput } from '../db/types';
 import { getMidenClient } from '../sdk/miden-client';
+
+/**
+ * Feature flag: is the offscreen WASM client active? Read as a module constant
+ * (mirroring `back/miden-client-proxy.ts`) so a flag-OFF build dead-code-
+ * eliminates the flag-on branch of {@link readLastAuthReason}. DEFAULT OFF.
+ */
+const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
+
+// Re-export the sign-callback classification from its leaf home (issue #260,
+// slice 5). It moved to `./sign-callback` to break a `helper ↔ proxy` import
+// cycle (the offscreen write proxy needs the classifier). Re-exporting keeps
+// every existing caller — `import { buildSignCallbackError, ... } from './helper'`
+// / `./index` — unchanged.
+export { buildSignCallbackError, buildSignCallbackOptions, type SignCallbackError } from './sign-callback';
+// `SignCallbackReason` is imported locally (used in `readLastAuthReason`'s
+// return type) and re-exported from that local binding to avoid naming it in
+// two separate re-export statements.
+export type { SignCallbackReason };
 
 /**
  * Detect the eventually-consistent Guardian canonicalization error:
@@ -23,40 +42,6 @@ import { getMidenClient } from '../sdk/miden-client';
 export function isGuardianCanonicalizationError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
   return /Refusing to overwrite local state/i.test(message) || /is not greater than local nonce/i.test(message);
-}
-
-/**
- * Stable tags attached to errors the sign callback throws, so the catch
- * site for a failed executeTransaction can pattern-match on the raw
- * thrown value (recovered via `midenClient.lastAuthError()`) and treat
- * each failure mode differently — e.g. retry a `locked` failure after
- * the wallet unlocks instead of marking the tx permanently Failed.
- */
-export type SignCallbackReason = 'locked' | 'rejected' | 'not_found' | 'internal';
-
-export interface SignCallbackError extends Error {
-  reason: SignCallbackReason;
-}
-
-/**
- * Wrap an underlying sign failure in a typed Error that the SDK will
- * capture verbatim (see `WebClient.lastAuthError`). Classifies by
- * inspecting the underlying error's shape — current signals are the
- * Zustand-store locked state (string "Not initialized" from
- * `assertInited`) and generic TypeError for null-vault access.
- */
-export function buildSignCallbackError(err: unknown): SignCallbackError {
-  const underlying = err instanceof Error ? err : new Error(String(err));
-  let reason: SignCallbackReason = 'internal';
-  const msg = underlying.message || '';
-  if (/not initialized|locked|vault.*null|Cannot read propert/i.test(msg)) {
-    reason = 'locked';
-  }
-  const wrapped = Object.assign(new Error(`Sign callback failed (${reason}): ${msg}`), {
-    reason,
-    cause: underlying
-  }) as SignCallbackError;
-  return wrapped;
 }
 
 /**
@@ -103,11 +88,40 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
   }
 
   await Repo.transactions.where({ id: id }).modify(t => {
+    // Snapshot the stamps accumulated DURING the run, before the assign below
+    // can overwrite them with a stale forwarded copy (see the Completed branch).
+    const runStageTimestamps = t.stageTimestamps;
     Object.assign(t, otherValues);
     t.status = status;
-    // Stamp a synthetic `complete` boundary so the last processing step gets a
-    // real end time (the terminal step has no following stage to close it).
+    // Stamp the terminal stage on success. `setTransactionStage` refuses writes
+    // once a row is terminal, so the trailing setTransactionStage(id,'complete')
+    // in generateTransaction is a silent no-op and a SUCCESSFUL row keeps
+    // whatever stage it happened to be in — a completed replace-hot-key freezes
+    // at 'confirming', a completed guardian consume at 'guardian-synced'. That
+    // read as "still in flight" and cost several investigations (#618).
+    //
+    // Unconditional, and AFTER the Object.assign so it wins: completeCustomTransaction
+    // forwards `interpretTransactionResult(...)`, i.e. the whole pick-time row, so any
+    // presence check on `otherValues.stage` misfires there and writes the stale
+    // pick-time stage straight back. No Completed caller passes `stage` deliberately —
+    // the only deliberate stage payload is requeueTransactionForRetry, which writes Queued.
+    //
+    // Failed rows keep their stage: there it records WHERE the failure happened
+    // and is diagnostically load-bearing (GeneratingTransaction reads it to pin
+    // the failed step).
     if (status === ITransactionStatus.Completed) {
+      t.stage = 'complete';
+      // Restore the run's stamps, for the same reason the stage write above is
+      // unconditional: completeCustomTransaction forwards
+      // `interpretTransactionResult(...)`, i.e. the whole row as picked at loop
+      // time — which predates every stamp `setTransactionStage` wrote during the
+      // run, so the assign above would hand back an empty set and every step
+      // would render without a duration (#524). No Completed caller supplies
+      // stamps deliberately; the only deliberate payload is
+      // requeueTransactionForRetry, and that writes Queued, not Completed.
+      if (runStageTimestamps) t.stageTimestamps = runStageTimestamps;
+      // The same write also closes the LAST processing step: its span runs to the
+      // synthetic `complete` boundary, since no following stage exists to end it.
       if (!t.stageTimestamps) t.stageTimestamps = {};
       if (t.stageTimestamps.complete === undefined) t.stageTimestamps.complete = Date.now();
     }
@@ -119,14 +133,38 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
  * `generateTransaction` / `completeSendTransaction` so the progress modal
  * can show "Syncing" / "Sending" / "Confirming" / "Delivering" instead of
  * a single opaque "Generating transaction". Does not gate on status —
- * late writes after `Completed` are no-ops via the `.modify` callback
- * (the stage field is informational and only read while status is
- * pre-terminal).
+ * late writes after a terminal status are no-ops via the `.modify` callback.
+ *
+ * That terminal guard is load-bearing, NOT a formality: a Failed row's stage
+ * records WHERE it failed and `GeneratingTransaction` reads it to pin the failed
+ * step, so a late write would erase the failure location. Completed rows are
+ * stamped `'complete'` by `updateTransactionStatus` itself (#618), which is why
+ * this function stays the pre-terminal writer.
  */
-export const setTransactionStage = async (id: string, stage: ITransactionStage) => {
+export const setTransactionStage = async (
+  id: string,
+  stage: ITransactionStage,
+  opts?: { readonly timingOnly?: boolean }
+) => {
   await Repo.transactions.where({ id }).modify(tx => {
     if (tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed) {
-      tx.stage = stage;
+      // `tx.stage` is CONTROL state, `tx.stageTimestamps` is TELEMETRY, and the two
+      // are written together only when the writer is reliable and in-order.
+      //
+      // Two funds-safety gates in `transaction/index.ts` read `tx.stage` to decide a
+      // failed guardian tx is PRE-submit and may therefore be auto-requeued — "submit
+      // is stamped 'submitting' and runs only AFTER prove, so nothing reached the
+      // chain". That inference is only sound if every writer of `stage` is ordered
+      // with respect to the work it describes.
+      //
+      // A stamp replayed from the OFFSCREEN realm is not: it crosses `chrome.runtime`
+      // fire-and-forget, with no delivery or ordering guarantee against the op's own
+      // reply. A dropped or late `submitting` would leave the row reading `proving`
+      // after submit had actually run, and the requeue gate would re-submit a
+      // transaction that may already be on chain. So cross-realm stamps record the
+      // boundary for the progress screen and leave `stage` alone — the service
+      // worker's own in-order writes remain its only author.
+      if (!opts?.timingOnly) tx.stage = stage;
       // Record the first time this stage was entered so the UI can compute
       // per-step durations from persisted stamps (see ITransaction.stageTimestamps).
       // First-entry-wins: a stage re-set on requeue keeps its original boundary.
@@ -137,11 +175,29 @@ export const setTransactionStage = async (id: string, stage: ITransactionStage) 
 };
 
 /**
- * Reads the SDK-captured last auth error and extracts a `reason` tag if
- * present. Returns undefined if there was no auth failure or the thrown
- * value didn't carry a reason.
+ * Reads the last sign-callback failure reason (`locked` / `rejected` / …) from
+ * the SW-inline WASM client, used by the transaction loop to DEFER a
+ * locked-mid-sign tx instead of Failing it (issue #313 note-loss guard).
+ *
+ * Invariant (issue #260 flip-prep #2): consult the SW client's `lastAuthError()`
+ * IFF the SW client actually did the sign — i.e. the FLAG-OFF (inline) write path.
+ * Under the flag-ON offscreen write the sign runs in the OFFSCREEN realm and the
+ * SDK captures the error on the OFFSCREEN client; the SW-inline client NEVER
+ * signed for that op, so its `lastAuthError()` is stale / another op's. Deferring
+ * a genuinely-failed offscreen write on that stale slot would leave it Queued
+ * FOREVER (never Failed). So under flag-on this returns `undefined` and the loop
+ * relies solely on the op-keyed error tag (`isLockedError(e)`, set by
+ * `dispatchOffscreenWrite` when the reverse-IPC sign reported 'locked').
+ *
+ * Flag-OFF is byte-identical to before: `USE_OFFSCREEN_CLIENT` is false, the
+ * guard below dead-code-eliminates, and this reads the SW client exactly as it
+ * always has.
  */
 export async function readLastAuthReason(): Promise<SignCallbackReason | undefined> {
+  // Flag-on: the offscreen realm signed, not this SW client — its lastAuthError()
+  // is not authoritative for the failing op. The locked signal (if any) rides the
+  // op-keyed error tag instead.
+  if (USE_OFFSCREEN_CLIENT) return undefined;
   try {
     const midenClient = await getMidenClient();
     const rawClient = (midenClient as any).client;

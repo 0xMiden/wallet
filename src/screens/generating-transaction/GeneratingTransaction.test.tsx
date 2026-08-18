@@ -21,7 +21,14 @@ jest.mock('components/Alert', () => ({
   Alert: ({ title }: { title: string }) => <div data-testid="alert">{title}</div>,
   AlertVariant: { Warning: 'Warning' }
 }));
-jest.mock('components/Button', () => ({ Button: () => null, ButtonVariant: {} }));
+jest.mock('components/Button', () => ({
+  Button: ({ children, onClick, variant }: { children?: React.ReactNode; onClick?: () => void; variant?: string }) => (
+    <button type="button" data-variant={variant} onClick={onClick}>
+      {children}
+    </button>
+  ),
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' }
+}));
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
   IconName: { Success: 'Success', Failed: 'Failed', InProgress: 'InProgress' }
@@ -50,10 +57,6 @@ jest.mock('lib/woozie', () => ({
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect">redirect:{to}</div>
 }));
 
-jest.mock('lib/settings/helpers', () => ({
-  isAutoCloseEnabled: jest.fn(() => false)
-}));
-
 jest.mock('lib/analytics', () => ({
   useAnalytics: () => ({ pageEvent: jest.fn(), trackEvent: jest.fn() })
 }));
@@ -80,8 +83,14 @@ jest.mock('lib/mobile/external-browser', () => ({
 // The container drives the FIFO loop via safeGenerateTransactionsLoop (unchanged
 // behaviour). That's the only thing it still pulls from lib/miden/activity.
 const safeGenerateTransactionsLoopMock = jest.fn();
+const requeueFailedTransactionMock = jest.fn();
+const requestSWTransactionProcessingMock = jest.fn();
+const isRequeueableTransactionMock = jest.fn((..._a: unknown[]) => true);
 jest.mock('lib/miden/activity', () => ({
-  safeGenerateTransactionsLoop: (...args: any[]) => safeGenerateTransactionsLoopMock(...args)
+  safeGenerateTransactionsLoop: (...args: any[]) => safeGenerateTransactionsLoopMock(...args),
+  requeueFailedTransaction: (...a: any[]) => requeueFailedTransactionMock(...a),
+  requestSWTransactionProcessing: (...a: any[]) => requestSWTransactionProcessingMock(...a),
+  isRequeueableTransaction: (...a: any[]) => isRequeueableTransactionMock(...a)
 }));
 
 // The container observes the tracked row through this hook. Tests drive the row
@@ -224,6 +233,11 @@ describe('GeneratingTransactionPage container effects', () => {
     getExplorerTxUrlMock.mockReset();
     getExplorerTxUrlMock.mockReturnValue(undefined);
     openExternalUrlMock.mockClear();
+    navigateMock.mockClear();
+    requeueFailedTransactionMock.mockClear();
+    requestSWTransactionProcessingMock.mockClear();
+    isRequeueableTransactionMock.mockReset();
+    isRequeueableTransactionMock.mockReturnValue(true);
     window.location.hash = '';
   });
 
@@ -234,7 +248,6 @@ describe('GeneratingTransactionPage container effects', () => {
   });
 
   const navigateMock = jest.requireMock('lib/woozie').navigate as jest.Mock;
-  const isAutoCloseEnabledMock = jest.requireMock('lib/settings/helpers').isAutoCloseEnabled as jest.Mock;
 
   const flush = async () => {
     await act(async () => {
@@ -262,6 +275,29 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
+  // #602 — the processing screen nests a fixed-height full-screen page
+  // (overflow-hidden) > this flex-1 wrapper (default overflow:visible) > the
+  // `overflow-y-auto` scroll region. Flexbox gives a visible flex item an
+  // automatic minimum size equal to its content, so WITHOUT `min-h-0` this
+  // wrapper refuses to shrink to its viewport slot on a short (safe-area-inset)
+  // phone; the parent then clips it and the scroll region inherits a height ==
+  // its content (zero scroll range), leaving the pinned footer "Hide" CTA on a
+  // two-line-title flow (Earn, guardian, …) spilled below the viewport and
+  // unreachable. This pins the guard on the wrapper that actually needs it —
+  // NOT the scroll region (already auto-min 0 via overflow-y-auto).
+  it('keeps the processing scroll chain shrinkable (min-h-0) so the footer CTA can never be clipped (#602)', async () => {
+    mockRowState = { row: makeTx({ type: 'earn-deposit', stage: 'submitting' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    const scroller = container.querySelector('.overflow-y-auto'); // the single scroll region
+    expect(scroller).not.toBeNull();
+    const shrinkableWrapper = scroller!.parentElement as HTMLElement;
+    expect(shrinkableWrapper).toHaveClass('flex-1'); // it is the flex-1 wrapper feeding the scroll region
+    expect(shrinkableWrapper).toHaveClass('min-h-0'); // ...and it must be allowed to shrink to its slot
+    act(() => root.unmount());
+  });
+
   it('records the completed tx hash when the row reaches Completed with a hash', async () => {
     mockRowState = { row: makeTx({ status: 2, transactionId: '0xdeadbeef' }), loaded: true };
 
@@ -286,6 +322,38 @@ describe('GeneratingTransactionPage container effects', () => {
     const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
     expect(container.textContent).toContain('transactionFailed');
+    act(() => root.unmount());
+  });
+
+  it('shows Retry on a failed requeueable tx and requeues + kicks processing on click (#483)', async () => {
+    isRequeueableTransactionMock.mockReturnValue(true);
+    mockRowState = { row: makeTx({ status: 3, type: 'swap' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    const retryBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retry'));
+    expect(retryBtn).toBeTruthy();
+
+    await act(async () => {
+      retryBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(requeueFailedTransactionMock).toHaveBeenCalledWith('tx-1');
+    expect(requestSWTransactionProcessingMock).toHaveBeenCalled();
+    // Requeue flips the watched row back in place — the screen must NOT navigate
+    // (the key difference from HistoryDetails.handleRetry).
+    expect(navigateMock).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it('does NOT show Retry when the failed tx is not requeueable (#483)', async () => {
+    isRequeueableTransactionMock.mockReturnValue(false);
+    mockRowState = { row: makeTx({ status: 3, type: 'replace-hot-key' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    const retryBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retry'));
+    expect(retryBtn).toBeFalsy();
     act(() => root.unmount());
   });
 
@@ -356,15 +424,13 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
-  it('auto-closes (navigate home) when the row reaches a terminal state and auto-close is enabled', async () => {
-    isAutoCloseEnabledMock.mockReturnValue(true);
+  it('does not auto-navigate home when the row reaches a terminal state', async () => {
     navigateMock.mockClear();
     window.location.hash = '#/generating-transaction/tx-1';
     mockRowState = { row: makeTx({ stage: 'submitting' }), loaded: true };
 
     const { root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
-    // Row transitions to Completed → schedules auto-close.
     mockRowState = { row: makeTx({ status: 2, transactionId: '0xhash' }), loaded: true };
     await act(async () => {
       root.render(<GeneratingTransactionPage txId="tx-1" />);
@@ -372,37 +438,11 @@ describe('GeneratingTransactionPage container effects', () => {
     await flush();
 
     await act(async () => {
-      jest.advanceTimersByTime(10_000);
-    });
-    await flush();
-
-    expect(navigateMock).toHaveBeenCalledWith('/');
-    isAutoCloseEnabledMock.mockReturnValue(false);
-    act(() => root.unmount());
-  });
-
-  it('does not navigate on auto-close when the hash is not on the generating-transaction route', async () => {
-    // onClose early-returns when the hash does not include 'generating-transaction'.
-    isAutoCloseEnabledMock.mockReturnValue(true);
-    navigateMock.mockClear();
-    window.location.hash = '#/some-other-route/tx-1';
-    mockRowState = { row: makeTx({ stage: 'submitting' }), loaded: true };
-
-    const { root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
-
-    mockRowState = { row: makeTx({ status: 2, transactionId: '0xhash' }), loaded: true };
-    await act(async () => {
-      root.render(<GeneratingTransactionPage txId="tx-1" />);
-    });
-    await flush();
-
-    await act(async () => {
-      jest.advanceTimersByTime(10_000);
+      jest.advanceTimersByTime(60_000);
     });
     await flush();
 
     expect(navigateMock).not.toHaveBeenCalled();
-    isAutoCloseEnabledMock.mockReturnValue(false);
     act(() => root.unmount());
   });
 });
@@ -558,6 +598,40 @@ describe('GeneratingTransaction stage + state rendering', () => {
     );
     expect(container.textContent).toContain('transactionFailed');
     expect(container.textContent).toContain('transactionErrorDescription');
+    act(() => root.unmount());
+  });
+
+  // #483 — a failed tx must offer a direct route to its Activity detail, like
+  // the success views already do; success routes through TransactionSuccess.
+  it('links a failed transaction to its Activity detail', async () => {
+    const navigateMock = jest.requireMock('lib/woozie').navigate as jest.Mock;
+    navigateMock.mockClear();
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={false}
+        onDoneClick={() => {}}
+        transactionComplete
+        hasErrors
+        completedTransaction={{ id: 'tx-failed-1', type: 'swap' } as never}
+      />
+    );
+    const viewBtn = Array.from(container.querySelectorAll('button')).find(button =>
+      button.textContent?.includes('viewInActivities')
+    );
+    expect(viewBtn).toBeDefined();
+    act(() => viewBtn!.click());
+    expect(navigateMock).toHaveBeenCalledWith('/history-details/tx-failed-1');
+    act(() => root.unmount());
+  });
+
+  it('does not show the Activity link on a successful (non-failed) transaction', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction isGuardian={false} onDoneClick={() => {}} transactionComplete hasErrors={false} />
+    );
+    const viewBtn = Array.from(container.querySelectorAll('button')).find(button =>
+      button.textContent?.includes('viewInActivities')
+    );
+    expect(viewBtn).toBeUndefined();
     act(() => root.unmount());
   });
 

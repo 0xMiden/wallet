@@ -5,8 +5,10 @@ import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 
 import {
   EMPTY_WALLET_PROMPT_STORAGE,
+  FaucetError,
   WalletPromptStatus,
   WalletPromptType,
+  __resetFaucetProgressForTest,
   completeWalletPrompt,
   dismissWalletPrompt,
   faucet,
@@ -18,6 +20,7 @@ import {
   normalizeWalletPromptStorage,
   pollActiveBridgePrompts,
   reportHotKeyHardwareFailure,
+  reportHotKeyRotationNeeded,
   seedWalletPrompt,
   setWalletPromptStatus,
   useWalletPromptStorage
@@ -30,6 +33,10 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/miden-chain/faucet-api', () => ({
+  // Keep the REAL faucetFetch (timeout + Retry-After) that mintFromForkchoice
+  // now routes through; only stub the MIDEN faucet so the forkchoice half is
+  // driven by the mocked global fetch.
+  ...jest.requireActual('lib/miden-chain/faucet-api'),
   mintFromMidenFaucet: jest.fn()
 }));
 
@@ -68,6 +75,9 @@ describe('wallet prompts', () => {
   beforeEach(() => {
     localStorage.clear();
     jest.clearAllMocks();
+    // The per-address faucet-source memo is module-level; clear it so a partial
+    // success in one test can't skip a source in the next (they share addresses).
+    __resetFaucetProgressForTest();
   });
 
   it('normalizes missing and malformed storage to an empty prompt set', () => {
@@ -175,39 +185,105 @@ describe('wallet prompts', () => {
   });
 
   it('requests tokens from both the forkchoice and official Miden faucets', async () => {
-    fetchMock.mockResolvedValue({ ok: true, status: 200 } as Response);
+    fetchMock.mockResolvedValue({ ok: true, status: 200, headers: new Headers() } as Response);
     mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
 
     await faucet('mtst1testaddress');
 
-    expect(fetchMock).toHaveBeenCalledWith('https://faucet-api.forkchoice.xyz/api/mint', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        token: 'IMIDEN',
-        address: 'mtst1testaddress',
-        amount: 1_000_000_000,
-        note_type: 'public'
+    // objectContaining: faucetFetch adds an AbortSignal to the init for the
+    // timeout, so match the meaningful fields rather than the exact object.
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://faucet-api.forkchoice.xyz/api/mint',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          token: 'IMIDEN',
+          address: 'mtst1testaddress',
+          amount: 1_000_000_000,
+          note_type: 'public'
+        })
       })
-    });
+    );
     expect(mintFromMidenFaucetMock).toHaveBeenCalledWith('mtst1testaddress', 100_000_000n);
   });
 
   it('tolerates a failing forkchoice faucet when the Miden faucet succeeds (best-effort)', async () => {
     // Forkchoice is a devnet-specific service and irrelevant on a custom network;
     // its failure must NOT sink the fund when the authoritative Miden faucet works.
-    fetchMock.mockResolvedValue({ ok: false, status: 429 } as Response);
+    fetchMock.mockResolvedValue({ ok: false, status: 429, headers: new Headers() } as Response);
     mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
 
     await expect(faucet('mtst1testaddress')).resolves.toBeUndefined();
     expect(mintFromMidenFaucetMock).toHaveBeenCalledWith('mtst1testaddress', 100_000_000n);
   });
 
+  it('does not memo a fund only forkchoice failed, so a later fund retries both sources', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, headers: new Headers() } as Response);
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500, headers: new Headers() } as Response);
+    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+
+    await faucet('mtst1besteffort'); // forkchoice fails, MIDEN pays out → still a success
+    await faucet('mtst1besteffort'); // a genuine re-fund attempts BOTH again
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries ONLY the failed source and never double-mints the one that succeeded (gap 10)', async () => {
+    // Partial failure: forkchoice (IMIDEN) pays out, the MIDEN faucet fails.
+    fetchMock.mockResolvedValue({ ok: true, status: 200, headers: new Headers() } as Response);
+    mintFromMidenFaucetMock.mockRejectedValueOnce(new Error('PoW rate limited'));
+
+    await expect(faucet('mtst1partial')).rejects.toThrow('MIDEN: PoW rate limited');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1);
+
+    // Retry: MIDEN now succeeds. forkchoice already paid out, so it must NOT be
+    // minted a second time — the whole point of gap 10.
+    mintFromMidenFaucetMock.mockResolvedValueOnce({ txId: '0xtx', noteId: '0xnote' });
+    await faucet('mtst1partial');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1); // STILL 1 — no double-mint
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(2); // failed source retried
+  });
+
+  it('re-mints both sources on a fresh fund after a fully successful one (memo cleared)', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, headers: new Headers() } as Response);
+    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+
+    await faucet('mtst1fresh'); // both succeed → per-address memo cleared
+    await faucet('mtst1fresh'); // a genuine re-fund attempts BOTH again
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects when the official Miden faucet fails even if forkchoice succeeds', async () => {
-    fetchMock.mockResolvedValue({ ok: true, status: 200 } as Response);
+    fetchMock.mockResolvedValue({ ok: true, status: 200, headers: new Headers() } as Response);
     mintFromMidenFaucetMock.mockRejectedValue(new Error('Faucet PoW request failed with status 429'));
 
     await expect(faucet('mtst1testaddress')).rejects.toThrow('Faucet PoW request failed with status 429');
+  });
+
+  it('aggregates both child messages when both faucets reject', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 500, headers: new Headers() } as Response);
+    mintFromMidenFaucetMock.mockRejectedValue(new Error('PoW rate limited'));
+
+    const error = await faucet('mtst1testaddress').catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(FaucetError);
+    expect((error as FaucetError).message).toContain('Faucet request failed with status 500');
+    expect((error as FaucetError).message).toContain('PoW rate limited');
+  });
+
+  it('stringifies a non-Error rejection reason in the aggregated message', async () => {
+    // A forkchoice failure on its own is tolerated, so pair it with a MIDEN
+    // failure to surface the aggregate that carries the stringified reason.
+    fetchMock.mockRejectedValue('network down');
+    mintFromMidenFaucetMock.mockRejectedValue(new Error('PoW rate limited'));
+
+    await expect(faucet('mtst1testaddress')).rejects.toThrow('IMIDEN: network down');
   });
 
   it('loads prompt storage in the hook and exposes pending checks', async () => {
@@ -451,5 +527,34 @@ describe('hot-key hardware failure report', () => {
     const storage = await fetchWalletPromptStorage();
     expect(storage.prompts[WalletPromptType.HotKeyHardwareUnavailable]).toBe(WalletPromptStatus.Dismissed);
     expect(await fetchHotKeyHardwareError()).toEqual({ message: 'still broken' });
+  });
+});
+
+describe('hot-key rotation-needed report', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('seeds the rotation prompt', async () => {
+    await reportHotKeyRotationNeeded();
+
+    const storage = await fetchWalletPromptStorage();
+    expect(storage.prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(WalletPromptStatus.Pending);
+  });
+
+  it('does not re-seed after the user dismissed it', async () => {
+    await dismissWalletPrompt(WalletPromptType.HotKeyRotationNeeded);
+    await reportHotKeyRotationNeeded();
+
+    const storage = await fetchWalletPromptStorage();
+    expect(storage.prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(WalletPromptStatus.Dismissed);
+  });
+
+  it('re-arms after a completed rotation (a new unwrap failure is a new incident)', async () => {
+    await completeWalletPrompt(WalletPromptType.HotKeyRotationNeeded);
+    await reportHotKeyRotationNeeded();
+
+    const storage = await fetchWalletPromptStorage();
+    expect(storage.prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(WalletPromptStatus.Pending);
   });
 });

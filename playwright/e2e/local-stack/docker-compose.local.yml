@@ -2,7 +2,7 @@
 # ntx-builder + remote prover) and the note-transport service run as HOST PROCESSES
 # (see .github/actions/run-local-node + run-note-transport.sh), NOT in this compose:
 # the published 0.16 node images lag the encrypted-tx node the SDK is built against,
-# so the node is compiled + run from rust-sdk's start-test-node.sh. This file provides
+# so the node is compiled + run from miden-client's start-test-node.sh. This file provides
 # only the Tier-2 `guardian` profile (OpenZeppelin guardian + postgres) and
 # a Tier-3 `guardian-switch` profile (second, distinct-keypair guardian for
 # switch/recovery specs).

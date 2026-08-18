@@ -26,7 +26,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({ primeNativeAssetId: jest.fn()
 jest.mock('lib/settings/helpers', () => ({ mirrorBackgroundSettings: jest.fn() }));
 jest.mock('./useSyncTrigger', () => ({ useSyncTrigger: jest.fn() }));
 jest.mock('./assets', () => ({ TokensMetadataProvider: ({ children }: any) => <>{children}</> }));
-jest.mock('lib/fiat-curency', () => ({ FiatCurrencyProvider: ({ children }: any) => <>{children}</> }));
+jest.mock('lib/fiat-currency', () => ({ FiatCurrencyProvider: ({ children }: any) => <>{children}</> }));
 jest.mock('lib/prices', () => ({ PriceProvider: () => null }));
 jest.mock('components/NoteToastProvider', () => ({ NoteToastProvider: () => null }));
 jest.mock('./NativeNoteAutoConsumeManager', () => ({ NativeNoteAutoConsumeManager: () => null }));

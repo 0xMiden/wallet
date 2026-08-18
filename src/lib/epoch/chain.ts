@@ -1,6 +1,7 @@
 import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
 import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
+import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 
 /**
  * Fetches the latest Miden chain head. Used to compute an absolute
@@ -11,7 +12,7 @@ import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 export async function getCurrentMidenBlock(): Promise<number> {
   await ensureSdkWasmReady();
   const rpc = new RpcClient(getRpcEndpoint());
-  const header = await rpc.getBlockHeaderByNumber(undefined);
+  const header = await withRpcTimeout(() => rpc.getBlockHeaderByNumber(undefined), 'getCurrentMidenBlock');
   return Number(header.blockNum());
 }
 

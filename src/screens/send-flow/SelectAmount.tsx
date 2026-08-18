@@ -7,6 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { TokenLogo } from 'components/TokenLogo';
+import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 
@@ -24,8 +25,11 @@ export interface SelectAmountProps {
   confirmTitle?: string;
   showNetworkPill?: boolean;
   showBalanceHelper?: boolean;
-  /** Padding classes for the confirm-button footer. The `pb-24` default clears
-   *  the floating BottomNav; pass a snugger value when the navbar is hidden. */
+  /** Padding classes for the confirm-button footer. The default bottom cushion
+   *  clears the floating BottomNav but collapses while the soft keyboard is up
+   *  (body's --keyboard-height padding already lifts the layout), keeping the
+   *  CTA snug against the keyboard; pass a snugger value when the navbar is
+   *  hidden. */
   footerClassName?: string;
   children?: React.ReactNode;
   onAmountChange: (amount: string) => void;
@@ -33,10 +37,11 @@ export interface SelectAmountProps {
   /** Required in the default (page) variant, which renders its own Confirm CTA. */
   onConfirm?: () => void;
   /**
-   * `embedded` strips the full-screen chrome (network pill, balance helper,
-   * scroll container, Confirm button) so the field can be stacked — the swap
-   * screen renders two of these (You Pay / You Receive) under one shared
-   * Confirm. Defaults to the standalone page layout used by the send flow.
+   * `embedded` strips the full-screen chrome (network pill, scroll container,
+   * Confirm button) so the field can be stacked — the swap screen renders two of
+   * these (You Pay / You Receive) under one shared Confirm. The available-balance
+   * helper is NOT stripped by `embedded`; it's controlled by `showBalanceHelper`
+   * (#461). Defaults to the standalone page layout used by the send flow.
    */
   embedded?: boolean;
   /** Token-logo symbol override (e.g. the DEX `logoSymbol`); defaults to `token.name`. */
@@ -54,9 +59,9 @@ export interface SelectAmountProps {
   onSelectNetwork?: () => void;
 }
 
-/** Trim trailing zeros so "200.000" renders as "200" but "200.5" stays intact. */
+/** Preserve the usual 4dp limit, expanding for tiny balances, then trim trailing zeros. */
 function formatBalance(value: number): string {
-  return Number(value.toFixed(4)).toString();
+  return toAdaptiveFixed(value, 4).replace(/\.?0+$/, '');
 }
 
 /** Blue circle used as a placeholder before a token/network is chosen. */
@@ -75,7 +80,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   confirmTitle,
   showNetworkPill = true,
   showBalanceHelper = true,
-  footerClassName = 'pt-4 pb-24',
+  footerClassName = 'pt-4 pb-[max(0px,calc(6rem-var(--keyboard-height,0px)))]',
   children,
   onAmountChange,
   onSelectToken,
@@ -180,9 +185,13 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         <span className="font-heading text-gray text-base font-bold">
           {t('available')} {formatBalance(token.balance)} {token.name}
         </span>
-        <span className="font-heading text-gray text-base font-bold">
-          {t('approxFiatValue', { value: `$${availableFiat.toFixed(2)}` })}
-        </span>
+        {/* Only show the fiat approximation when we actually have a price — swap
+            DEX tokens carry no fiatPrice, so a "$0.00" line would be misleading. */}
+        {token.fiatPrice > 0 && (
+          <span className="font-heading text-gray text-base font-bold">
+            {t('approxFiatValue', { value: `$${toAdaptiveFixed(availableFiat)}` })}
+          </span>
+        )}
       </>
     ) : null;
 
@@ -191,7 +200,11 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       label={label ?? (title ? undefined : t('selectAmount'))}
       value={amount}
       error={error ? t(error) : undefined}
-      helper={embedded ? undefined : helper}
+      // The helper (available balance) is controlled by `showBalanceHelper`, not
+      // by `embedded`: the swap "You Pay" field is embedded but must still show
+      // how much is spendable (#461). Embedded callers that don't want it (e.g.
+      // the swap "You Receive" field) pass showBalanceHelper={false}.
+      helper={helper}
       tokenSelector={isBridge ? bridgeSelector : tokenSelector}
       showDivider={!!amount && !!token}
       data-testid="send-amount-input"
@@ -217,7 +230,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         {children}
       </div>
 
-      <div className={clsx('shrink-0', footerClassName)}>
+      <div className={clsx('shrink-0 transition-[padding-bottom] duration-[250ms] ease-out', footerClassName)}>
         <Button
           title={confirmTitle ?? t('confirm')}
           variant={ButtonVariant.Primary}

@@ -141,9 +141,20 @@ function isEndpointOverride(value: unknown): value is EndpointOverride {
   );
 }
 
-/** Load the persisted override into the sync cache. No-op under E2E builds. */
+/**
+ * Load the persisted override into the sync cache.
+ *
+ * No-op when the build sets `MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES` — a separate
+ * flag from `MIDEN_E2E_TEST` on purpose. `MIDEN_E2E_TEST` only means "install
+ * the test hooks"; while it also pinned the endpoints, no E2E run could ever
+ * exercise the developer endpoint-override flow, because the persisted override
+ * was discarded on every load. The E2E build scripts set this flag so the
+ * existing suites keep talking to their build-baked network, and a suite that
+ * wants to cover overrides can build with the hooks on and this flag off. Unset
+ * (every production build) it has no effect.
+ */
 export async function loadEndpointOverrides(): Promise<void> {
-  if (process.env.MIDEN_E2E_TEST === 'true') {
+  if (process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES === 'true') {
     overrideCache = null;
     return;
   }

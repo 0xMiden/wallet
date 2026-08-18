@@ -1,11 +1,6 @@
+import { createRemoteDebugger, type RemoteDebugger, type RemoteDebuggerOptions } from 'appium-remote-debugger';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-
-import {
-  createRemoteDebugger,
-  type RemoteDebugger,
-  type RemoteDebuggerOptions,
-} from 'appium-remote-debugger';
 
 const execFileAsync = promisify(execFile);
 
@@ -83,7 +78,7 @@ export class CdpSession {
     evalAsyncCount: 0,
     evalAsyncMs: 0,
     evaluateCount: 0,
-    evaluateMs: 0,
+    evaluateMs: 0
   };
 
   constructor(private rd: RemoteDebugger) {}
@@ -104,10 +99,7 @@ export class CdpSession {
    */
   async eval<T = unknown>(body: string, opts: { timeoutMs?: number } = {}): Promise<T> {
     const start = Date.now();
-    const exec = (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [
-      body,
-      [],
-    ]) as Promise<T>;
+    const exec = (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [body, []]) as Promise<T>;
     try {
       return await withHardTimeout(exec, opts.timeoutMs ?? EVAL_HARD_TIMEOUT_MS, 'eval');
     } finally {
@@ -138,10 +130,7 @@ export class CdpSession {
    */
   async evalAsync<T = unknown>(body: string, opts: { timeoutMs?: number } = {}): Promise<T> {
     const timeoutMs = opts.timeoutMs ?? 30_000;
-    const exec = (this.rd as unknown as ExecuteAtomCapable).executeAtomAsync(
-      'execute_async_script',
-      [body, []]
-    );
+    const exec = (this.rd as unknown as ExecuteAtomCapable).executeAtomAsync('execute_async_script', [body, []]);
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(
@@ -171,10 +160,7 @@ export class CdpSession {
   async evaluate<T = unknown>(fn: () => T | Promise<T>, opts: { timeoutMs?: number } = {}): Promise<T> {
     const body = `return (${fn.toString()})();`;
     const start = Date.now();
-    const exec = (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [
-      body,
-      [],
-    ]) as Promise<T>;
+    const exec = (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [body, []]) as Promise<T>;
     try {
       return await withHardTimeout(exec, opts.timeoutMs ?? EVAL_HARD_TIMEOUT_MS, 'evaluate');
     } finally {
@@ -205,7 +191,7 @@ export class CdpSession {
             level: m.level ?? 'log',
             text: extractConsoleText(m),
             ts: m.timestamp ?? Date.now(),
-            source: m.source,
+            source: m.source
           };
           for (const listener of this.consoleListeners) listener(entry);
         }
@@ -257,7 +243,7 @@ export class CdpBridge {
       includeSafari: false,
       socketPath,
       pageLoadMs: 1_000,
-      pageReadyTimeout: PAGE_READY_TIMEOUT,
+      pageReadyTimeout: PAGE_READY_TIMEOUT
     };
     const rd = createRemoteDebugger(opts, false);
 
@@ -304,17 +290,17 @@ interface ExecuteAtomCapable {
   executeAtomAsync(name: string, args: unknown[]): Promise<unknown>;
 }
 interface SelectAppCapable {
-  selectApp(currentUrl: string | null, maxTries: number, ignoreAboutBlankUrl: boolean): Promise<
-    Array<{ id: string; url?: string; title?: string }>
-  >;
+  selectApp(
+    currentUrl: string | null,
+    maxTries: number,
+    ignoreAboutBlankUrl: boolean
+  ): Promise<Array<{ id: string; url?: string; title?: string }>>;
 }
 interface SelectPageCapable {
   selectPage(appKey: string, pageNum: number): Promise<void>;
 }
 interface ConsoleCapable {
-  startConsole(
-    listener: (error: Error | undefined, message: WebKitConsoleMessage | undefined) => void
-  ): void;
+  startConsole(listener: (error: Error | undefined, message: WebKitConsoleMessage | undefined) => void): void;
   stopConsole(): void;
 }
 
@@ -351,17 +337,10 @@ async function discoverInspectorSocket(udid: string): Promise<string> {
   let lastErr: unknown;
   while (Date.now() - start < SOCKET_DISCOVERY_TIMEOUT) {
     try {
-      const { stdout } = await execFileAsync('xcrun', [
-        'simctl',
-        'spawn',
-        udid,
-        'launchctl',
-        'print',
-        'user/501',
-      ]);
+      const { stdout } = await execFileAsync('xcrun', ['simctl', 'spawn', udid, 'launchctl', 'print', 'user/501']);
       // Look for a line like:
       //   "RWI_LISTEN_SOCKET" => /private/tmp/com.apple.launchd.../com.apple.webinspectord_sim.socket
-      const match = stdout.match(/RWI_LISTEN_SOCKET[^/]*([/\w.\-]+webinspectord_sim\.socket)/);
+      const match = stdout.match(/RWI_LISTEN_SOCKET[^/]*([/\w.-]+webinspectord_sim\.socket)/);
       if (match?.[1]) return match[1];
     } catch (err) {
       lastErr = err;

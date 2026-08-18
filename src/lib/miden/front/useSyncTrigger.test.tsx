@@ -64,6 +64,25 @@ jest.mock('./guardian-sync', () => ({
   syncGuardianAccounts: (...args: unknown[]) => mockSyncGuardianAccounts(...args)
 }));
 
+const mockMarkConnectivityIssue = jest.fn();
+const mockClearReachabilityIssues = jest.fn();
+jest.mock('lib/miden/activity/connectivity-state', () => ({
+  markConnectivityIssue: (...args: unknown[]) => mockMarkConnectivityIssue(...args),
+  clearReachabilityIssues: (...args: unknown[]) => mockClearReachabilityIssues(...args)
+}));
+
+const mockIsLikelyNetworkError = jest.fn((..._args: unknown[]) => true);
+const mockClassifySyncError = jest.fn((..._args: unknown[]) => 'node');
+jest.mock('lib/miden/activity/connectivity-classify', () => ({
+  isLikelyNetworkError: (...args: unknown[]) => mockIsLikelyNetworkError(...args),
+  classifySyncError: (...args: unknown[]) => mockClassifySyncError(...args)
+}));
+
+const mockRequestNotesRefresh = jest.fn();
+jest.mock('./note-refresh', () => ({
+  requestNotesRefresh: () => mockRequestNotesRefresh()
+}));
+
 const HookHost: React.FC = () => {
   useSyncTrigger();
   return null;
@@ -78,6 +97,12 @@ describe('useSyncTrigger', () => {
     storeState.status = WalletStatus.Ready;
     storeState.accounts = [];
     mockIsExtension.mockReturnValue(false);
+    // Restore a succeeding sync default (tests below install persistent
+    // rejections that would otherwise leak into later tests).
+    mockSyncState.mockReset();
+    mockSyncState.mockResolvedValue(undefined);
+    mockIsLikelyNetworkError.mockReturnValue(true);
+    mockClassifySyncError.mockReturnValue('node');
   });
 
   it('does nothing when wallet status is not Ready', () => {
@@ -126,6 +151,16 @@ describe('useSyncTrigger', () => {
     // Flips sync status on and off around the call.
     expect(storeState.setSyncStatus).toHaveBeenCalledWith(true);
     await waitFor(() => expect(storeState.setSyncStatus).toHaveBeenCalledWith(false));
+    unmount();
+  });
+
+  it('mobile/desktop: refreshes claimable notes after a successful sync (#462)', async () => {
+    const { unmount } = render(<HookHost />);
+
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalled());
+    // A completed sync surfaces just-imported notes immediately, without waiting
+    // out the claimable-notes SWR interval.
+    await waitFor(() => expect(mockRequestNotesRefresh).toHaveBeenCalled());
     unmount();
   });
 
@@ -239,6 +274,61 @@ describe('useSyncTrigger', () => {
     unmount();
     delete (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__;
     process.env.MIDEN_E2E_TEST = prevEnv;
+  });
+
+  // #596 — the mobile/desktop sync path used to fire the "cannot reach the Miden
+  // node" banner on the very FIRST sync failure, while the service-worker path
+  // (#273, sync-manager.ts) gates it behind a 3-consecutive-failure streak. A
+  // lone testnet sync blip must not flap the banner while the node is healthy.
+  it('mobile/desktop: only banners a connectivity issue after 3 consecutive sync failures (#596)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockSyncState.mockRejectedValue(new Error('cannot reach node'));
+
+    const { unmount } = render(<HookHost />);
+
+    // 1st failure — no banner yet
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalledTimes(1));
+    expect(mockMarkConnectivityIssue).not.toHaveBeenCalled();
+
+    // 2nd failure — still no banner
+    act(() => requestImmediateSync());
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalledTimes(2));
+    expect(mockMarkConnectivityIssue).not.toHaveBeenCalled();
+
+    // 3rd consecutive failure — NOW the banner fires, once, with the classified category
+    act(() => requestImmediateSync());
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(mockMarkConnectivityIssue).toHaveBeenCalledWith('node'));
+    expect(mockMarkConnectivityIssue).toHaveBeenCalledTimes(1);
+
+    warn.mockRestore();
+    unmount();
+  });
+
+  it('mobile/desktop: a successful sync resets the failure streak so a later lone failure does not banner (#596)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // fail, fail, succeed (resets streak + clears banner), fail (streak now 1)
+    mockSyncState
+      .mockRejectedValueOnce(new Error('x'))
+      .mockRejectedValueOnce(new Error('x'))
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('x'));
+
+    const { unmount } = render(<HookHost />);
+
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalledTimes(1)); // fail 1
+    act(() => requestImmediateSync());
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalledTimes(2)); // fail 2
+    act(() => requestImmediateSync());
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalledTimes(3)); // success -> reset
+    await waitFor(() => expect(mockClearReachabilityIssues).toHaveBeenCalled());
+    act(() => requestImmediateSync());
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalledTimes(4)); // fail (streak only 1)
+
+    expect(mockMarkConnectivityIssue).not.toHaveBeenCalled();
+
+    warn.mockRestore();
+    unmount();
   });
 
   it('extension: clears the interval on unmount', async () => {

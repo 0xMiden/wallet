@@ -66,7 +66,8 @@ jest.mock('lib/biometric', () => ({
 // Chrome side-panel handoff availability (captured once via useMemo at mount).
 let mockCanHandoff = false;
 jest.mock('lib/extension/side-panel-handoff', () => ({
-  canHandoffToSidePanel: () => mockCanHandoff
+  canHandoffToSidePanel: () => mockCanHandoff,
+  postOnboardingRoute: () => (mockCanHandoff ? '/finish-side-panel' : '/')
 }));
 
 // Miden context + store + intercom sync.
@@ -427,13 +428,23 @@ describe('Welcome — onAction forward navigation', () => {
 // ===========================================================================
 
 describe('Welcome — choose-guardian-submit', () => {
-  it('goes straight to confirmation when a passcode password already exists', async () => {
+  it('goes straight to confirmation when a passcode password already exists (and threads the picked endpoint)', async () => {
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '111111' });
     mockNavigate.mockClear();
     await dispatch({ id: 'choose-guardian-submit', payload: { guardianEndpoint: 'https://g' } });
-    expect(mockPutToStorage).toHaveBeenCalledWith('guardian_url_setting', 'https://g');
+    // Stage 1 of #408: the picked endpoint is captured in state (not written to
+    // the global GUARDIAN_URL_STORAGE_KEY) and threaded into registerWallet.
+    expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      '111111',
+      expect.any(String),
+      false,
+      'https://g'
+    );
   });
 
   it('uses hardware-only protection when biometric hardware is available', async () => {
@@ -463,13 +474,22 @@ describe('Welcome — choose-guardian-submit', () => {
     await dispatch({ id: 'setup-passcode-submit', payload: '111111' });
     mockPutToStorage.mockClear();
     await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' } });
-    // clears the guardian endpoint
-    expect(mockPutToStorage).toHaveBeenCalledWith('guardian_url_setting', '');
-    // never persists a real guardian endpoint
-    expect(mockPutToStorage).not.toHaveBeenCalledWith('guardian_url_setting', expect.stringContaining('http'));
+    // The global GUARDIAN_URL_STORAGE_KEY is frozen (#568 — per-account endpoints
+    // are authoritative), so onboarding must not write it for ANY value: the
+    // no-guardian branch leaves the endpoint unbound and threads `undefined`
+    // through registerWallet instead.
+    expect(mockPutToStorage).not.toHaveBeenCalledWith('guardian_url_setting', expect.anything());
     // driving to confirmation registers a private, no-guardian (OffChain) wallet
     await dispatch({ id: 'confirmation' });
-    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OffChain, '111111', expect.any(String), false);
+    // ...threading an UNDEFINED guardian endpoint, the no-guardian marker the
+    // non-guardian spawn branch relies on.
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.OffChain,
+      '111111',
+      expect.any(String),
+      false,
+      undefined
+    );
   });
 });
 
@@ -544,24 +564,37 @@ describe('Welcome — create-password-submit', () => {
 // ===========================================================================
 
 describe('Welcome — import-select-recovery-method', () => {
-  it('persists the guardian endpoint for guardian wallets', async () => {
+  it('captures the guardian endpoint for guardian wallets and threads it into registerWallet', async () => {
     await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     await dispatch({
       id: 'import-select-recovery-method',
       payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
     });
-    expect(mockPutToStorage).toHaveBeenCalledWith('guardian_url_setting', 'https://g');
+    // Stage 1 of #408: no longer written to the global GUARDIAN_URL_STORAGE_KEY.
+    expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, 'pw', expect.any(String), true, 'https://g');
   });
 
-  it('skips storage for non-guardian wallets', async () => {
+  it('threads no endpoint for non-guardian wallets', async () => {
     await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     await dispatch({
       id: 'import-select-recovery-method',
       payload: { walletType: WalletType.OffChain }
     });
     expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OffChain, 'pw', expect.any(String), true, undefined);
   });
 });
 
@@ -576,7 +609,13 @@ describe('Welcome — confirmation / register', () => {
     mockNavigate.mockClear();
     await dispatch({ id: 'confirmation' });
 
-    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, '123456', expect.any(String), false);
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      '123456',
+      expect.any(String),
+      false,
+      undefined
+    );
     // Create flow triggers the verify-seed prompt.
     expect(mockSeedWalletPrompt).toHaveBeenCalledWith('verify-seed-phrase');
     expect(mockSyncFromBackend).toHaveBeenCalled();
@@ -593,7 +632,13 @@ describe('Welcome — confirmation / register', () => {
     await dispatch({ id: 'choose-guardian-submit', payload: { guardianEndpoint: 'https://g' } });
     mockNavigate.mockClear();
     await dispatch({ id: 'confirmation' });
-    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, undefined, expect.any(String), false);
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      undefined,
+      expect.any(String),
+      false,
+      'https://g'
+    );
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
@@ -960,6 +1005,22 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockRegisterWallet).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalledWith('/finish-side-panel');
   });
+
+  it('routes a successful guardian-import confirmation to the side-panel handoff (#428)', async () => {
+    mockCanHandoff = true;
+    await renderWelcome();
+    // Recover an existing wallet: import seed → password → guardian recovery.
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    mockNavigate.mockClear();
+    // The auto-create effect is Create-only, so import/recovery completes via
+    // the classic confirmation handler — which must now hand off to the panel.
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/');
+  });
 });
 
 // ===========================================================================
@@ -1054,5 +1115,57 @@ describe('Welcome — E2E onboarding bypass', () => {
     expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
     expect(mockFlowProps.current.seedPhrase).not.toBeNull();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
+  });
+
+  it('threads the guardianUrl param into registerWallet as the endpoint override (create)', async () => {
+    // #408 stage 3 regression guard: the bypass skips the ChooseGuardian screen,
+    // so without this the guardianEndpoint override is undefined and a stage-3
+    // create binds to the network default (ignoring the E2E's faulted endpoint).
+    // The `guardianUrl` param must reach registerWallet's 5th arg (the override).
+    process.env.MIDEN_E2E_TEST = 'true';
+    window.history.replaceState(
+      null,
+      '',
+      '/?__test_skip_onboarding=1&walletType=guardian&guardianUrl=http%3A%2F%2Flocalhost%3A3001&password=pw'
+    );
+    await renderWelcome();
+
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
+    expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
+
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      expect.any(String),
+      false, // not an import
+      'http://localhost:3001' // the threaded override
+    );
+    // The bypass no longer writes the global GUARDIAN_URL_STORAGE_KEY.
+    expect(mockPutToStorage).not.toHaveBeenCalled();
+  });
+
+  it('threads the guardianUrl param into registerWallet as the endpoint override (import/recovery)', async () => {
+    // Recovery path: with a `seed` param the bypass runs an Import, and the same
+    // override must reach registerWallet so Vault.spawn's recovery scan probes
+    // the right operator instead of the retained global-key/default fallback.
+    process.env.MIDEN_E2E_TEST = 'true';
+    window.history.replaceState(
+      null,
+      '',
+      '/?__test_skip_onboarding=1&walletType=guardian&seed=alpha+beta+gamma&guardianUrl=http%3A%2F%2Flocalhost%3A3001&password=pw'
+    );
+    await renderWelcome();
+
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
+
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      expect.any(String),
+      true, // import → ownMnemonic drives Vault.spawn's recovery branch
+      'http://localhost:3001'
+    );
   });
 });

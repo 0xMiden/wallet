@@ -32,7 +32,7 @@ export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenCh
   }, [connect, nativeReown, useNativeReownWallet]);
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} screenKey="evm-connect">
       <DrawerContent className="pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
         <DrawerHeader>
           <DrawerTitle>{t('connectEvmWallet')}</DrawerTitle>

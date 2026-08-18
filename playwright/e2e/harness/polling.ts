@@ -43,8 +43,8 @@ export async function waitForCondition(
         attempt,
         maxAttempts,
         met,
-        intervalMs,
-      },
+        intervalMs
+      }
     });
 
     if (met) return;

@@ -14,23 +14,41 @@ import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook'
 import { accountIdStringToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { isExtension } from 'lib/platform';
+import { isExtension, isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
-import { detectAddressChain, isValidEthereumAddress, isValidMidenAddress, isValidRecipientAddress } from 'utils/miden';
+import {
+  detectAddressChain,
+  isValidEthereumAddress,
+  isValidMidenAddress,
+  isValidRecipientAddress,
+  MidenAddressError
+} from 'utils/miden';
 
 import { AccountsListDrawer } from './AccountsList';
+import { AddContactDrawer } from './AddContactDrawer';
 import { SendNetworkId } from './bridge-networks';
 import { Route as RouteStep } from './Route';
+import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectAmount } from './SelectAmount';
 import { SelectNetworkDrawer } from './SelectNetwork';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
 import { consumeSendDraft, hasSendDraft, SendDraft, setSendDraft } from './send-draft';
-import { BridgeRoute, Contact, SendFlowAction, SendFlowActionId, SendFlowForm, SendFlowStep, UIToken } from './types';
+import {
+  BridgeRoute,
+  Contact,
+  RecentRecipient,
+  SendFlowAction,
+  SendFlowActionId,
+  SendFlowForm,
+  SendFlowStep,
+  UIToken
+} from './types';
 import { useEpochQuote } from './useEpochQuote';
+import { useRecentRecipients } from './useRecentRecipients';
 import { WalletType } from '../onboarding/types';
 
 const ROUTES: Route[] = [
@@ -89,6 +107,11 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   const [showContactsDrawer, setShowContactsDrawer] = useState(false);
   // EVM destination networks are selected in a bottom sheet from the recipient step.
   const [showNetworkDrawer, setShowNetworkDrawer] = useState(false);
+  // Saving an unknown-but-valid recipient to the address book, also a bottom sheet.
+  const [showAddContactDrawer, setShowAddContactDrawer] = useState(false);
+  // Extension-only: the webcam QR scanner is a bottom sheet over the recipient
+  // step (mobile scans through its native plugin instead — see onScan below).
+  const [showScanDrawer, setShowScanDrawer] = useState(false);
   // Retain a choice made before the address determines whether the send is Miden or EVM.
   const [recipientNetwork, setRecipientNetwork] = useState<SendNetworkId>();
 
@@ -131,6 +154,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // Handle mobile back button/gesture. Open bottom sheets close first;
   // otherwise back pops the Navigator step or exits the flow.
   useMobileBackHandler(() => {
+    if (showAddContactDrawer) {
+      setShowAddContactDrawer(false);
+      return true;
+    }
     if (showNetworkDrawer) {
       setShowNetworkDrawer(false);
       return true;
@@ -150,7 +177,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     // On first step, close entire flow
     onClose();
     return true;
-  }, [showNetworkDrawer, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
+  }, [showAddContactDrawer, showNetworkDrawer, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
 
   // Dismiss any stale completion modal on send-flow entry.
   //
@@ -243,6 +270,22 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     return allContactsList.find(contact => contact.id.trim().toLowerCase() === normalizedAddress);
   }, [allContactsList, recipientAddress]);
 
+  const isValidRecipient = !errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress);
+  // A valid address that isn't in the wallet or the address book can be saved
+  // straight from the recipient step — the pill offers "Add to contacts?".
+  const canAddContact = isValidRecipient && !selectedContact;
+
+  // Previous recipients, resolved against the contact list for display names.
+  const recentSendRecipients = useRecentRecipients(publicKey);
+  const recents: RecentRecipient[] = useMemo(
+    () =>
+      recentSendRecipients.map(recipient => ({
+        ...recipient,
+        name: allContactsList.find(contact => contact.id.trim().toLowerCase() === recipient.address.toLowerCase())?.name
+      })),
+    [recentSendRecipients, allContactsList]
+  );
+
   // Cross-chain sends over the Slow (Agglayer) route are restricted to the single
   // bridgeable faucet token; Fast (Epoch) bridges any token.
   const isBridgeableToken =
@@ -290,6 +333,29 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     enabled: isBridge
   });
 
+  // E2E-only hook: mirror the forward-quote's state so the harness can assert on
+  // WHY a quote is missing instead of on the "$" the fee happens to render.
+  // `fastFeeUsd` below is undefined for three unrelated reasons — no token, no
+  // amount, or no quote — and all three paint the same "—", so a test gated on
+  // the rendered text cannot tell a quote-service outage from a token that never
+  // loaded. `useEpochQuote` already captures the failure reason and nothing reads
+  // it. Mirrors the __TEST_STORE__ / __TEST_SET_SHARE_PRIVATELY__ gate; zero
+  // production impact.
+  useEffect(() => {
+    if (process.env.MIDEN_E2E_TEST !== 'true') return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).__TEST_EPOCH_QUOTE__ = {
+      enabled: isBridge,
+      loading: epochQuote.loading,
+      amount: epochQuote.amount ?? null,
+      symbol: epochQuote.symbol ?? null,
+      error: epochQuote.error ?? null,
+      hasToken: !!token,
+      hasAmount: amountBaseUnits != null,
+      fiatPrice: token?.fiatPrice ?? null
+    };
+  }, [isBridge, epochQuote.loading, epochQuote.amount, epochQuote.symbol, epochQuote.error, token, amountBaseUnits]);
+
   // Fast-route fee = what the user sends (USD) minus the USDC they'd receive.
   const fastFeeUsd = useMemo(() => {
     if (!token || !amount || epochQuote.amount == null) return undefined;
@@ -336,7 +402,11 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     if (!isExtension()) return;
     if (delegateEnabled) return; // delegated proving — no point speculating
     if (!publicKey || !recipientAddress || !token || !amount) return;
-    if (!isValidMidenAddress(recipientAddress)) return;
+    try {
+      isValidMidenAddress(recipientAddress);
+    } catch {
+      return;
+    }
     const amountFloat = parseFloat(amount);
     if (!(amountFloat > 0)) return;
     if (amountFloat > token.balance) return;
@@ -484,9 +554,46 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     [onAction]
   );
 
-  // Chain-aware address validation: 0x → Ethereum (hex), otherwise Miden bech32.
-  // The error copy matches the detected chain so an Ethereum address no longer
-  // shows the "Invalid Miden account ID" message.
+  // Chain-aware address validation: 0x → Ethereum (hex + EIP-55), otherwise a
+  // strict Miden bech32 decode via the SDK. The error copy matches the detected
+  // chain, and a well-formed address for a different Miden network gets its own
+  // message instead of failing later in the transaction pipeline.
+  const recipientErrorKey = useCallback(
+    (raw: string): string | null => {
+      const trimmed = raw.trim();
+      if (!trimmed) return null;
+      if (detectAddressChain(trimmed) === 'ethereum') {
+        return isValidEthereumAddress(trimmed) ? null : 'invalidEthereumAddress';
+      }
+      // Self-send guard: a P2IDE to yourself consumes through the kernel's
+      // target branch, so recall semantics are meaningless and auto-consume
+      // would claim it right back. Block it at entry, before the decode check —
+      // it's the more specific message for the account's own address.
+      if (sameWalletAccountId(trimmed, publicKey)) return 'cannotSendToSelf';
+      try {
+        isValidMidenAddress(trimmed);
+      } catch (error) {
+        return error instanceof MidenAddressError && error.reason === 'wrong-network'
+          ? 'midenAddressWrongNetwork'
+          : 'invalidMidenAccountId';
+      }
+      return null;
+    },
+    [publicKey]
+  );
+
+  const applyRecipientValidation = useCallback(
+    (address: string) => {
+      const errorKey = recipientErrorKey(address);
+      if (errorKey) {
+        setError('recipientAddress', { type: 'manual', message: errorKey });
+      } else {
+        clearErrors('recipientAddress');
+      }
+    },
+    [recipientErrorKey, setError, clearErrors]
+  );
+
   const onAddressChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
       const address = event.target.value;
@@ -494,48 +601,48 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: address }
       });
-      const trimmed = address.trim();
-      if (!trimmed) {
-        clearErrors('recipientAddress');
-        return;
-      }
-      const addressChain = detectAddressChain(trimmed);
-      const valid = addressChain === 'ethereum' ? isValidEthereumAddress(trimmed) : isValidMidenAddress(trimmed);
-      if (!valid) {
-        setError('recipientAddress', {
-          type: 'manual',
-          message: addressChain === 'ethereum' ? 'invalidEthereumAddress' : 'invalidMidenAccountId'
-        });
-      } else if (addressChain === 'miden' && sameWalletAccountId(trimmed, publicKey)) {
-        // Self-send guard: a P2IDE to yourself consumes through the kernel's
-        // target branch, so recall semantics are meaningless and auto-consume
-        // would claim it right back. Block it at entry.
-        setError('recipientAddress', { type: 'manual', message: 'cannotSendToSelf' });
-      } else {
-        clearErrors('recipientAddress');
-      }
+      applyRecipientValidation(address);
     },
-    [onAction, setError, clearErrors, publicKey]
+    [onAction, applyRecipientValidation]
   );
 
-  const onScan = useCallback(async () => {
-    const result = await scanQRCode();
-    if (result.success && result.address) {
+  // Apply a scanned recipient address. Shared by the mobile native scanner and
+  // the extension webcam drawer so both go through the same validation — scanning
+  // your own receive QR is the easy way to self-send, and a QR from another
+  // network's wallet should surface the wrong-network message here.
+  const applyScannedAddress = useCallback(
+    (address: string) => {
       onAction({
         id: SendFlowActionId.SetFormValues,
-        payload: { recipientAddress: result.address }
+        payload: { recipientAddress: address }
       });
-      // Scanning your own receive QR is the easy way to self-send — same guard
-      // as typed entry.
-      if (sameWalletAccountId(result.address, publicKey)) {
-        setError('recipientAddress', { type: 'manual', message: 'cannotSendToSelf' });
-      } else {
-        clearErrors('recipientAddress');
-      }
+      applyRecipientValidation(address);
+    },
+    [onAction, applyRecipientValidation]
+  );
+
+  // Surface a scan error (from either scan path) on the recipient field.
+  const applyScanError = useCallback(
+    (errorKey: string) => {
+      setError('recipientAddress', { type: 'manual', message: errorKey });
+    },
+    [setError]
+  );
+
+  // Mobile: the native barcode plugin (iOS Swift / Android npm) returns a single
+  // scan result. The extension has no such plugin — it opens the webcam drawer.
+  const runNativeScan = useCallback(async () => {
+    const result = await scanQRCode();
+    if (result.success && result.address) {
+      applyScannedAddress(result.address);
     } else if (result.errorKey && result.errorKey !== 'scanCancelled') {
-      setError('recipientAddress', { type: 'manual', message: result.errorKey });
+      applyScanError(result.errorKey);
     }
-  }, [onAction, setError, clearErrors, publicKey]);
+  }, [applyScannedAddress, applyScanError]);
+
+  const openScanDrawer = useCallback(() => setShowScanDrawer(true), []);
+
+  const onScan = isMobile() ? runNativeScan : openScanDrawer;
 
   const onSelectContact = useCallback(
     (contact: Contact) => {
@@ -544,13 +651,21 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         payload: { recipientAddress: contact.id }
       });
       // A saved contact can be the account's own address — same guard as typed entry.
-      if (sameWalletAccountId(contact.id, publicKey)) {
-        setError('recipientAddress', { type: 'manual', message: 'cannotSendToSelf' });
-      } else {
-        clearErrors('recipientAddress');
-      }
+      applyRecipientValidation(contact.id);
     },
-    [onAction, setError, clearErrors, publicKey]
+    [onAction, applyRecipientValidation]
+  );
+
+  // A "Recent" row fills the recipient exactly like picking a contact does.
+  const onSelectRecent = useCallback(
+    (recipient: RecentRecipient) => {
+      onAction({
+        id: SendFlowActionId.SetFormValues,
+        payload: { recipientAddress: recipient.address }
+      });
+      applyRecipientValidation(recipient.address);
+    },
+    [onAction, applyRecipientValidation]
   );
 
   const onAmountChange = useCallback(
@@ -586,13 +701,17 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
           return (
             <SelectRecipient
               address={recipientAddress || ''}
-              isValidAddress={!errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress)}
+              isValidAddress={isValidRecipient}
               error={errors.recipientAddress?.message?.toString()}
               chain={chain}
               network={displayedNetwork}
               recipientName={selectedContact?.name}
+              recents={recents}
+              canAddContact={canAddContact}
               onAddressChange={onAddressChange}
               onAddressBook={() => setShowContactsDrawer(true)}
+              onAddContact={() => setShowAddContactDrawer(true)}
+              onSelectRecent={onSelectRecent}
               onSelectNetwork={() => setShowNetworkDrawer(true)}
               onScan={isScanAvailable() ? onScan : undefined}
               onConfirm={() => goToStep(SendFlowStep.SelectAmount)}
@@ -605,7 +724,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               amount={amount || ''}
               isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
               error={errors.amount?.message?.toString()}
-              footerClassName="pt-4 pb-6"
+              footerClassName="pt-4 pb-[max(0px,calc(1.5rem-var(--keyboard-height,0px)))]"
               onAmountChange={onAmountChange}
               onSelectToken={() => setShowTokenDrawer(true)}
               onConfirm={onConfirmAmount}
@@ -619,7 +738,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               fastFeeUsd={fastFeeUsd}
               fastQuoteLoading={epochQuote.loading}
               slowEnabled={isBridgeableToken}
-              footerClassName="pt-4 pb-6"
+              footerClassName="pt-4 pb-[max(0px,calc(1.5rem-var(--keyboard-height,0px)))]"
               onConfirm={goToReview}
             />
           );
@@ -630,6 +749,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     [
       token,
       recipientAddress,
+      isValidRecipient,
+      recents,
+      canAddContact,
+      onSelectRecent,
       errors.recipientAddress,
       errors.amount,
       onAddressChange,
@@ -684,6 +807,12 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         onSelectContact={onSelectContact}
       />
 
+      <AddContactDrawer
+        open={showAddContactDrawer}
+        onOpenChange={setShowAddContactDrawer}
+        address={recipientAddress ?? ''}
+      />
+
       <SelectNetworkDrawer
         open={showNetworkDrawer}
         selectedNetwork={displayedNetwork}
@@ -695,6 +824,13 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
             payload: { bridgeNetwork: selectedNetwork === 'miden' ? undefined : selectedNetwork }
           });
         }}
+      />
+
+      <ScanQrDrawer
+        open={showScanDrawer}
+        onOpenChange={setShowScanDrawer}
+        onDetected={applyScannedAddress}
+        onError={applyScanError}
       />
     </div>
   );

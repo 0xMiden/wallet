@@ -1,10 +1,10 @@
 {
   "payload": {
-    "message": "유효 탑재량",
+    "message": "페이로드",
     "englishSource": "Payload"
   },
   "bridgeDepositTitle": {
-    "message": "미덴 다리",
+    "message": "Miden Bridge",
     "englishSource": "Miden Bridge"
   },
   "bridgeDepositHeading": {
@@ -12,23 +12,23 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "지갑이 열려 정확한 금액을 승인하고 Sepolia에 서명합니다.",
+    "message": "지갑이 열리면 정확한 금액을 승인하고 Sepolia에서 서명하게 됩니다.",
     "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
   },
   "bridgeDepositYouReceive": {
-    "message": "당신은 받는다",
+    "message": "다음과 같은 내용을 받게 됩니다.",
     "englishSource": "You receive"
   },
   "bridgeDepositBridgeOption": {
-    "message": "브릿지 옵션",
+    "message": "브리지 옵션",
     "englishSource": "Bridge option"
   },
   "bridgeDepositApprovingTitle": {
-    "message": "승인 내용",
+    "message": "승인하시는 내용",
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "지갑에서 승인을 요청할 것입니다. $tokenSymbol$ 그리고 세폴리아 보증금에 서명하세요. 자금은 확인 후 Miden에 도착합니다.",
+    "message": "지갑에서 $tokenSymbol$에 대한 승인을 요청하고 Sepolia에서 입금에 서명하도록 안내할 것입니다. 확인이 완료되면 자금이 Miden에 입금됩니다.",
     "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "계정 #: $number$ ",
-    "englishSource": "Account #: $number$",
+    "message": "주소: $number$",
+    "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -62,15 +62,15 @@
     }
   },
   "balanceCardAccountOptions": {
-    "message": "계정 옵션",
+    "message": "계정 설정",
     "englishSource": "Account options"
   },
   "dappSwitcherLoading": {
-    "message": "로드 중…",
+    "message": "로딩 중…",
     "englishSource": "Loading…"
   },
   "dappSwitcherCardActivate": {
-    "message": "$name$. Activate to switch to this dApp.",
+    "message": "$name$. 이 dApp으로 전환하려면 활성화하세요.",
     "englishSource": "$name$. Activate to switch to this dApp.",
     "placeholders": {
       "name": {
@@ -79,7 +79,7 @@
     }
   },
   "dappSwitcherCloseCard": {
-    "message": "닫다 $name$ ",
+    "message": "$name$ 닫기",
     "englishSource": "Close $name$",
     "placeholders": {
       "name": {
@@ -88,11 +88,11 @@
     }
   },
   "promptCardDismiss": {
-    "message": "해고하다",
+    "message": "닫기",
     "englishSource": "Dismiss"
   },
   "promptCardLoading": {
-    "message": "로드 중",
+    "message": "로딩 중",
     "englishSource": "Loading"
   },
   "priceChangeAmountNeutral": {
@@ -105,7 +105,7 @@
     }
   },
   "priceChangeAmountPositive": {
-    "message": "+ $amount$ ",
+    "message": "+$amount$",
     "englishSource": "+$amount$",
     "placeholders": {
       "amount": {
@@ -114,7 +114,7 @@
     }
   },
   "priceChangeAmountNegative": {
-    "message": "- $amount$ ",
+    "message": "-$amount$",
     "englishSource": "-$amount$",
     "placeholders": {
       "amount": {
@@ -123,7 +123,7 @@
     }
   },
   "priceChangePercent": {
-    "message": "$value$%",
+    "message": "$value$",
     "englishSource": "$value$%",
     "placeholders": {
       "value": {
@@ -132,7 +132,7 @@
     }
   },
   "pendingTabApproxUsd": {
-    "message": "≈  $value$ ",
+    "message": "≈ $value$",
     "englishSource": "≈ $value$",
     "placeholders": {
       "value": {
@@ -140,8 +140,17 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "$date$에서 청구하지 않을 경우 발신자에게 반환됩니다.",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
-    "message": "$change$%",
+    "message": "$change$",
     "englishSource": "$change$%",
     "placeholders": {
       "change": {
@@ -150,7 +159,7 @@
     }
   },
   "historyDetailsIdLabel": {
-    "message": "ID: $id$ ",
+    "message": "ID: $id$",
     "englishSource": "ID: $id$",
     "placeholders": {
       "id": {
@@ -174,11 +183,11 @@
     }
   },
   "historyDetailsLoadError": {
-    "message": "거래를 로드하지 못했습니다.",
+    "message": "트랜잭션을 불러오지 못했습니다.",
     "englishSource": "Failed to load transaction"
   },
   "historyDetailsFiatApprox": {
-    "message": "≈  $amount$ USD",
+    "message": "≈ $amount$ USD",
     "englishSource": "≈ $amount$ USD",
     "placeholders": {
       "amount": {
@@ -196,7 +205,7 @@
     }
   },
   "dappPeekCardOverflowBadge": {
-    "message": "+ $count$ ",
+    "message": "+$count$",
     "englishSource": "+$count$",
     "placeholders": {
       "count": {
@@ -205,7 +214,7 @@
     }
   },
   "settingsVersion": {
-    "message": "버전 $version$ ",
+    "message": "버전$version$",
     "englishSource": "Version $version$",
     "placeholders": {
       "version": {
@@ -218,7 +227,7 @@
     "englishSource": "Bread"
   },
   "earnPositionHeaderTitle": {
-    "message": "나의 $protocol$  •  $asset$ 위치",
+    "message": "제 '$protocol$' • $asset$ 포지션",
     "englishSource": "My $protocol$ • $asset$ position",
     "placeholders": {
       "protocol": {
@@ -230,7 +239,7 @@
     }
   },
   "earnAssetOnNetwork": {
-    "message": "$network$의 $asset$",
+    "message": "$asset$ $network$에서",
     "englishSource": "$asset$ on $network$",
     "placeholders": {
       "asset": {
@@ -246,15 +255,15 @@
     "englishSource": "Deposited"
   },
   "earnMetricTotalEarned": {
-    "message": "총 수익",
+    "message": "총 적립액",
     "englishSource": "Total Earned"
   },
   "earnMetricDailyAvg": {
-    "message": "일일 평균",
+    "message": "일평균",
     "englishSource": "Daily Avg"
   },
   "earnMetricTimeActive": {
-    "message": "활동 시간",
+    "message": "활성 시간",
     "englishSource": "Time Active"
   },
   "earnMetricStarted": {
@@ -262,7 +271,7 @@
     "englishSource": "Started"
   },
   "earnProjectedEarnings": {
-    "message": "~  $estimate$ · 에 $apy$ APY",
+    "message": "~ $estimate$ · $apy$ APY",
     "englishSource": "~ $estimate$ · at $apy$ APY",
     "placeholders": {
       "estimate": {
@@ -274,59 +283,59 @@
     }
   },
   "protocol": {
-    "message": "규약",
+    "message": "의전",
     "englishSource": "Protocol"
   },
   "position": {
-    "message": "위치",
+    "message": "Position",
     "englishSource": "Position"
   },
   "withdraw": {
-    "message": "철회하다",
+    "message": "인출",
     "englishSource": "Withdraw"
   },
   "earnDepositMore": {
-    "message": "더 입금하세요",
+    "message": "더 입금하기",
     "englishSource": "Deposit more"
   },
   "earnWithdrawAmount": {
-    "message": "인출금액",
+    "message": "인출 금액",
     "englishSource": "Withdraw Amount"
   },
   "earnWithdrawalLabel": {
-    "message": "철수",
+    "message": "인출",
     "englishSource": "Withdrawal"
   },
   "earnFullPositionGasless": {
-    "message": "전체 위치(가스 없음)",
+    "message": "전체 포지션 (가스비 없음)",
     "englishSource": "Full position (gasless)"
   },
   "earnEstimatedTimeLabel": {
-    "message": "예상 시간",
+    "message": "예상 소요 시간",
     "englishSource": "Estimated time"
   },
   "earnEstimatedTimeOneMinute": {
-    "message": "~1분",
+    "message": "약 1분",
     "englishSource": "~1 minute"
   },
   "withdrawing": {
-    "message": "철수…",
+    "message": "중단 중…",
     "englishSource": "Withdrawing…"
   },
   "earnWithdrawNotOwned": {
-    "message": "이 포지션은 현재 지갑에서 파생된 EVM 계정이 소유하지 않습니다.",
+    "message": "이 포지션은 현재 지갑에서 파생된 EVM 계정이 소유하고 있지 않습니다.",
     "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
-    "message": "무가스 인출에 실패했습니다.",
+    "message": "가스 비용 없이 인출하는 데 실패했습니다.",
     "englishSource": "Gasless withdrawal failed."
   },
   "earnCurrentApy": {
-    "message": "현재 APY",
+    "message": "현재 연이율(APY)",
     "englishSource": "Current APY"
   },
   "earnDeposit": {
-    "message": "보증금",
+    "message": "입금",
     "englishSource": "Deposit"
   },
   "earnTvlLabel": {
@@ -338,7 +347,7 @@
     "englishSource": "Risk"
   },
   "earnAuditedLabel": {
-    "message": "감사됨",
+    "message": "감사 완료",
     "englishSource": "Audited"
   },
   "earnDepositAmountTitle": {
@@ -346,7 +355,7 @@
     "englishSource": "Deposit Amount"
   },
   "earnOpenPosition": {
-    "message": "오픈 포지션",
+    "message": "포지션 개설",
     "englishSource": "Open position"
   },
   "earnProjection1Month": {
@@ -366,7 +375,7 @@
     "englishSource": "Now"
   },
   "earnProjectedRewardAmount": {
-    "message": "+ $amount$ ",
+    "message": "+$amount$",
     "englishSource": "+$amount$",
     "placeholders": {
       "amount": {
@@ -375,15 +384,15 @@
     }
   },
   "earnCollateralLabel": {
-    "message": "방계친",
+    "message": "담보",
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE(가스리스)",
+    "message": "Miden P2IDE (가스 미사용)",
     "englishSource": "Miden P2IDE (gasless)"
   },
   "earnDepositRoute": {
-    "message": "미덴 -> $protocol$  ( $network$ )",
+    "message": "Miden -> $protocol$ ($network$)",
     "englishSource": "Miden -> $protocol$ ($network$)",
     "placeholders": {
       "protocol": {
@@ -395,27 +404,27 @@
     }
   },
   "earnEstimatedTime": {
-    "message": "예상 시간",
+    "message": "예상 소요 시간",
     "englishSource": "Estimated time"
   },
   "earnEstimatedTimeValue": {
-    "message": "~30초",
+    "message": "약 30초",
     "englishSource": "~30 seconds"
   },
   "earnNoEvmAddress": {
-    "message": "이 계정에 사용할 수 있는 EVM 주소가 없습니다.",
+    "message": "이 계정에는 사용 가능한 EVM 주소가 없습니다.",
     "englishSource": "No EVM address available for this account."
   },
   "earnFailedToOpenPosition": {
-    "message": "포지션을 오픈하지 못했습니다.",
+    "message": "포지션을 개설하지 못했습니다",
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "총 획득 보상",
+    "message": "총 적립 포인트",
     "englishSource": "Total Earned Rewards"
   },
   "earnEarningBlendedApy": {
-    "message": "적립 $apy$ 블렌디드 APY",
+    "message": "$apy$의 복합 연이율(APY) 획득",
     "englishSource": "Earning $apy$ blended APY",
     "placeholders": {
       "apy": {
@@ -424,7 +433,7 @@
     }
   },
   "earnTotalDeposited": {
-    "message": "총 입금",
+    "message": "예치금 총액",
     "englishSource": "Total Deposited"
   },
   "earnEstimatedRewards": {
@@ -432,12 +441,16 @@
     "englishSource": "Estimated Rewards"
   },
   "earnPositionsTitle": {
-    "message": "내 직위",
+    "message": "내 포지션",
     "englishSource": "My positions"
   },
   "earnPositionsRegionLabel": {
-    "message": "직위",
+    "message": "포지션",
     "englishSource": "Positions"
+  },
+  "earnPositionsLoadError": {
+    "message": "포지션을 불러올 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -461,7 +474,7 @@
     "englishSource": "See All"
   },
   "earnVaultsTitle": {
-    "message": "주요 금고",
+    "message": "추천 금고",
     "englishSource": "Featured Vaults"
   },
   "earnApyLabel": {
@@ -469,7 +482,7 @@
     "englishSource": "APY"
   },
   "earnVaultAssetOnNetwork": {
-    "message": "$network$의 $asset$",
+    "message": "$asset$ $network$에서",
     "englishSource": "$asset$ on $network$",
     "placeholders": {
       "asset": {
@@ -481,19 +494,19 @@
     }
   },
   "earnCurrentPositionsTitle": {
-    "message": "현재 직위",
+    "message": "현재 포지션",
     "englishSource": "Current Positions"
   },
   "advanced": {
-    "message": "고급의",
+    "message": "고급",
     "englishSource": "Advanced"
   },
   "appName": {
-    "message": "타노스 - 테조스 지갑",
+    "message": "빵",
     "englishSource": "Bread"
   },
   "appDesc": {
-    "message": "Miden 블록체인용 브라우저 지갑",
+    "message": "Miden용 브라우저 지갑 blockchain",
     "englishSource": "A browser wallet for the Miden blockchain"
   },
   "createAccount": {
@@ -501,7 +514,7 @@
     "englishSource": "Create Account"
   },
   "importAccount": {
-    "message": "계정 불러오기",
+    "message": "계정 가져오기",
     "englishSource": "Import account"
   },
   "settings": {
@@ -509,12 +522,11 @@
     "englishSource": "Settings"
   },
   "authorizedDApps": {
-    "message": "인증된 분산 앱",
-    "description": "DApps = Decentralized Applications",
+    "message": "승인된 DApp",
     "englishSource": "Authorized DApps"
   },
   "versionLabel": {
-    "message": "버전: $version$ ",
+    "message": "버전: $version$",
     "englishSource": "version: $version$",
     "placeholders": {
       "version": {
@@ -523,7 +535,7 @@
     }
   },
   "resetPermissionsConfirmation": {
-    "message": "다음에 대한 권한을 재설정하시겠습니까? $origin$ ?",
+    "message": "\n $origin$의 권한을 재설정하시겠습니까?",
     "englishSource": "Are you sure you want to reset permissions for\n $origin$?",
     "placeholders": {
       "origin": {
@@ -532,19 +544,19 @@
     }
   },
   "clickToRevealField": {
-    "message": "이 필드를 표시하려면 클릭하세요.",
+    "message": "이 필드를 보려면 클릭하세요",
     "englishSource": "Click to reveal this field"
   },
   "clickToReveal": {
-    "message": "클릭하여 공개",
+    "message": "클릭하여 내용 보기",
     "englishSource": "Click to reveal"
   },
   "copiedHash": {
-    "message": "복사됨.",
+    "message": "복사했습니다.",
     "englishSource": "Copied."
   },
   "copyHashToClipboard": {
-    "message": "클립보드로 복사",
+    "message": "클립보드에 복사",
     "englishSource": "Copy to clipboard"
   },
   "accounts": {
@@ -556,11 +568,11 @@
     "englishSource": "Card Color"
   },
   "lock": {
-    "message": "블록",
+    "message": "잠금",
     "englishSource": "Lock"
   },
   "importedAccount": {
-    "message": "불러오기 완료",
+    "message": "수입",
     "englishSource": "Imported"
   },
   "networks": {
@@ -572,15 +584,15 @@
     "englishSource": "Back"
   },
   "skip": {
-    "message": "건너뛰다",
+    "message": "건너뛰기",
     "englishSource": "Skip"
   },
   "okGotIt": {
-    "message": "알았어요",
+    "message": "알겠습니다",
     "englishSource": "Got it"
   },
   "changelogTitle": {
-    "message": "Miden 지갑이 업데이트되었습니다.",
+    "message": "빵 업데이트됨",
     "englishSource": "Bread updated"
   },
   "update": {
@@ -588,34 +600,19 @@
     "englishSource": "Update"
   },
   "originLabel": {
-    "message": "원금: $origin$",
-    "placeholders": {
-      "origin": {
-        "content": "$1"
-      }
-    },
+    "message": "출처:",
     "englishSource": "Origin:"
   },
   "networkLabel": {
-    "message": "네트워크: $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    },
+    "message": "네트워크:",
     "englishSource": "Network:"
   },
   "pkhLabel": {
-    "message": "계정: $pkh$",
-    "placeholders": {
-      "pkh": {
-        "content": "$1"
-      }
-    },
+    "message": "계정:",
     "englishSource": "Account:"
   },
   "analytics": {
-    "message": "해석학",
+    "message": "분석",
     "englishSource": "Analytics"
   },
   "cancel": {
@@ -623,11 +620,11 @@
     "englishSource": "Cancel"
   },
   "cancelled": {
-    "message": "취소",
+    "message": "취소됨",
     "englishSource": "Cancelled"
   },
   "showFullError": {
-    "message": "전체 오류 표시",
+    "message": "전체 오류 보기",
     "englishSource": "Show full error"
   },
   "hideFullError": {
@@ -655,15 +652,15 @@
     "englishSource": "Name"
   },
   "invalidAddress": {
-    "message": "유효하지 않은 주소",
+    "message": "주소가 잘못되었습니다.",
     "englishSource": "Invalid address"
   },
   "alert": {
-    "message": "경고",
+    "message": "알림",
     "englishSource": "Alert"
   },
   "defaultAccountName": {
-    "message": "계정 $accountNumber$ ",
+    "message": "계정 $accountNumber$",
     "englishSource": "Account $accountNumber$",
     "placeholders": {
       "accountnumber": {
@@ -672,11 +669,11 @@
     }
   },
   "doNotSharePrivateKey1": {
-    "message": "누구와도 공유하지 마십시오!",
+    "message": "누구에게도 절대 알려주지 마세요!",
     "englishSource": "DO NOT share with anyone!"
   },
   "doNotSharePrivateKey2": {
-    "message": "현재 계정을 훔치는 데 사용할 수 있습니다.",
+    "message": "이것은 귀하의 당좌예금 계좌 정보를 도용하는 데 사용될 수 있습니다.",
     "englishSource": "It can be used to steal your current account."
   },
   "transactionAction": {
@@ -688,19 +685,19 @@
     "englishSource": "Account"
   },
   "noPreview": {
-    "message": "미리보기를 사용할 수 없습니다.",
+    "message": "미리보기가 제공되지 않습니다.",
     "englishSource": "No preview is available"
   },
   "mnemonicWordsAmountConstraint": {
-    "message": "영어로 된 12 또는 15, 18, 21, 24 단어",
+    "message": "영어로 12, 15, 18, 21 또는 24단어",
     "englishSource": "12, 15, 18, 21 or 24 words in English"
   },
   "mnemonicSpacingConstraint": {
-    "message": "각 단어를 한 칸 띄어쓰기로 구분함",
+    "message": "각 단어는 공백 하나씩으로 구분됩니다",
     "englishSource": "Each word separated with a single space"
   },
   "seedInputNumberOfWords": {
-    "message": "내 Seed phrase은(는) $num$ 단어",
+    "message": "제 ‘Seed phrase’는 $num$ 단어입니다.",
     "englishSource": "My Seed phrase is $num$ words",
     "placeholders": {
       "num": {
@@ -709,15 +706,15 @@
     }
   },
   "justValidPreGeneratedMnemonic": {
-    "message": "유효한 사전 생성 니모닉만",
+    "message": "유효한 사전 생성된 니모닉",
     "englishSource": "Just valid pre-generated mnemonic"
   },
   "seedPasteFailedTooManyWords": {
-    "message": "24개 이상의 단어가 포함되어 있어 붙여넣기에 실패했습니다.",
+    "message": "24단어 이상이 포함되어 있어 붙여넣기에 실패했습니다.",
     "englishSource": "Paste failed because it contained over 24 words."
   },
   "seedPhraseTip": {
-    "message": "전체 비밀 Seed 문구를 어떤 필드에나 붙여넣을 수 있습니다.",
+    "message": "비밀번호Seed phrase 전체를 어떤 입력란에든 붙여넣을 수 있습니다.",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
   "oops": {
@@ -725,7 +722,7 @@
     "englishSource": "Oops!"
   },
   "smthWentWrongWhile": {
-    "message": "그 동안 문제가 발생했습니다. $action$ ",
+    "message": "$action$ 중 문제가 발생했습니다.",
     "englishSource": "Something went wrong while $action$",
     "placeholders": {
       "action": {
@@ -734,27 +731,27 @@
     }
   },
   "mayHappenBecauseYouAreOffline": {
-    "message": "현재 오프라인 상태여서 이런 문제가 발생했을 수 있습니다",
+    "message": "현재 오프라인 상태이기 때문에 이런 현상이 발생할 수 있습니다.",
     "englishSource": "This may happen because you are currently offline"
   },
   "tryAgain": {
-    "message": "다시 시도하기",
+    "message": "다시 시도해 보세요",
     "englishSource": "Try again"
   },
   "resetExtension": {
-    "message": "익스텐션 재설정",
+    "message": "확장 기능 재설정",
     "englishSource": "Reset Extension"
   },
   "resetExtensionConfirmation": {
-    "message": "정말로 Miden 지갑을 재설정하시겠습니까?\n결과적으로 모든 데이터가 삭제됩니다.",
+    "message": "Bread를 초기화하시겠습니까?\n이 경우 모든 데이터가 삭제됩니다.",
     "englishSource": "Are you sure you want to reset the Bread?\nAs a result, all your data will be deleted."
   },
   "retry": {
-    "message": "재시도",
+    "message": "다시 시도",
     "englishSource": "Retry"
   },
   "maximalAmount": {
-    "message": "최대: $amount$ ",
+    "message": "Maximal: $amount$",
     "englishSource": "Maximal: $amount$",
     "placeholders": {
       "amount": {
@@ -767,15 +764,15 @@
     "englishSource": "Before you continue"
   },
   "privateKeyRevealWarningBody": {
-    "message": "귀하의 개인 키는 이 계정을 보유한 사람에게 이 계정에 대한 모든 권한을 부여합니다. Miden 계정은 키를 순환할 수 없으므로 유출된 키로 인해 계정이 영구적으로 손상됩니다.",
+    "message": "개인 키를 소지한 사람은 이 계정을 완전히 통제할 수 있습니다. Miden 계정은 키를 순환할 수 없기 때문에, 키가 유출되면 계정은 영구적으로 해킹당하게 됩니다.",
     "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
   },
   "privateKeyRevealAcknowledge": {
-    "message": "나는 이 키가 순환되거나 취소될 수 없다는 것을 이해합니다.",
+    "message": "이 키는 변경하거나 취소할 수 없다는 점을 알고 있습니다.",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
   "encryptedFileImportedAccountsOmitted": {
-    "message": "가져온 계정( $importedCount$ )은 이 파일에 포함되지 않습니다. 백업하려면 설정 → 개인 키 공개에서 각 개인 키를 개별적으로 내보내세요.",
+    "message": "가져온 계정($importedCount$)은 이 파일에 포함되지 않습니다. 해당 계정을 백업하려면 ‘설정 → 개인 키 표시’에서 각 개인 키를 개별적으로 내보내십시오.",
     "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
     "placeholders": {
       "importedcount": {
@@ -784,47 +781,47 @@
     }
   },
   "editAccountName": {
-    "message": "계정 이름 수정",
+    "message": "계정 이름 편집",
     "englishSource": "Edit Account Name"
   },
   "delegate": {
-    "message": "위임",
+    "message": "대표",
     "englishSource": "Delegate"
   },
   "receive": {
-    "message": "받기",
+    "message": "수신",
     "englishSource": "Receive"
   },
   "send": {
-    "message": "전송",
+    "message": "보내기",
     "englishSource": "Send"
   },
   "searchByNameOrSymbol": {
-    "message": "이름이나 기호로 검색",
+    "message": "이름 또는 종목 코드로 검색",
     "englishSource": "Search by name or symbol"
   },
   "transactionInitiated": {
-    "message": "트랜잭션 시작",
+    "message": "거래 시작됨",
     "englishSource": "Transaction initiated"
   },
   "transactionBackground": {
-    "message": "트랜잭션은 백그라운드에서 진행됩니다.",
+    "message": "거래는 백그라운드에서 진행됩니다.",
     "englishSource": "Transaction will proceed in the background."
   },
   "transactionDelegated": {
-    "message": "증거 생성을 위해 거래가 전송되었습니다.",
+    "message": "증명서 생성을 위해 거래가 전송되었습니다.",
     "englishSource": "Transaction has been sent for proof generation."
   },
   "openedNewTab": {
-    "message": "지갑은 거래 속도를 높이기 위해 새 탭을 열었습니다. 해당 탭은 자동으로 닫힙니다.",
+    "message": "지갑이 거래 속도를 높이기 위해 새 탭을 열었습니다. 해당 탭은 자동으로 닫힙니다.",
     "englishSource": "The wallet opened a new tab to speed up the transaction. That tab will auto-close."
   },
   "fastTransactionDescription": {
-    "message": "거래는 자동으로 방송되고 완료됩니다.",
+    "message": "해당 거래는 자동으로 전송되어 확정됩니다.",
     "englishSource": "The transaction will automatically be broadcasted and finalized."
   },
   "speedUpTransaction": {
-    "message": "거래 속도를 높이십시오.",
+    "message": "거래 속도 향상.",
     "englishSource": "Speed Up Transaction."
   },
   "fastTransaction": {
@@ -832,11 +829,11 @@
     "englishSource": "Transaction Speed"
   },
   "generatingTransaction": {
-    "message": "트랜잭션 생성",
+    "message": "거래 생성",
     "englishSource": "Generating Transaction"
   },
   "generatingTransactionDescription": {
-    "message": "네트워크 트래픽에 따라 다소 시간이 걸릴 수 있습니다. 이 작업을 닫으시면 완료되면 알려드리겠습니다.",
+    "message": "네트워크 트래픽 상황에 따라 잠시 시간이 걸릴 수 있습니다. 이 창을 닫아도 됩니다. 작업이 완료되면 알려드리겠습니다.",
     "englishSource": "This may take a moment depending on network traffic. You can close this — we'll notify you when it's done."
   },
   "transactionProcessingHeader": {
@@ -844,7 +841,7 @@
     "englishSource": "Processing"
   },
   "transactionTitleSend": {
-    "message": "지불금 보내기",
+    "message": "결제 송금",
     "englishSource": "Sending Payment"
   },
   "transactionTitleSwap": {
@@ -852,23 +849,23 @@
     "englishSource": "Generating Swap"
   },
   "transactionStepGuardianApproved": {
-    "message": "보호자 승인됨",
+    "message": "Guardian 승인됨",
     "englishSource": "Guardian approved"
   },
   "transactionStepProofGenerated": {
-    "message": "생성된 증거",
+    "message": "생성된 증명",
     "englishSource": "Proof generated"
   },
   "transactionStepSubmitting": {
-    "message": "제출 중",
+    "message": "제출",
     "englishSource": "Submitting"
   },
   "transactionStepSyncingGuardian": {
-    "message": "Guardian과 동기화 중",
+    "message": "Guardian와의 동기화",
     "englishSource": "Syncing with Guardian"
   },
   "transactionStepDurationSec": {
-    "message": "$seconds$초",
+    "message": "$seconds$ 초",
     "englishSource": "$seconds$ sec",
     "placeholders": {
       "seconds": {
@@ -877,43 +874,43 @@
     }
   },
   "transactionStageSyncing": {
-    "message": "계정 동기화 중",
+    "message": "계정 동기화",
     "englishSource": "Syncing account"
   },
   "transactionStageSyncingDescription": {
-    "message": "최신 계정 상태를 가져오는 중입니다.",
+    "message": "최신 계정 상태를 불러오고 있습니다.",
     "englishSource": "Fetching your latest account state."
   },
   "transactionStageSending": {
-    "message": "거래 보내기",
+    "message": "거래 전송 중",
     "englishSource": "Sending transaction"
   },
   "transactionStageSendingDescription": {
-    "message": "거래를 구축하고 증명합니다.",
+    "message": "거래 내역을 작성하고 검증하기.",
     "englishSource": "Building and proving your transaction."
   },
   "transactionStageClaiming": {
-    "message": "note 소유권 주장",
+    "message": "note 청구하기",
     "englishSource": "Claiming note"
   },
   "transactionStageExecuting": {
-    "message": "거래 실행 중",
+    "message": "트랜잭션 실행",
     "englishSource": "Executing transaction"
   },
   "transactionStageExecutingDescription": {
-    "message": "증명을 위해 거래를 준비합니다.",
+    "message": "검증을 위한 거래 준비 중입니다.",
     "englishSource": "Preparing the transaction for proving."
   },
   "transactionStageProving": {
-    "message": "증거 생성 중",
+    "message": "증명 생성",
     "englishSource": "Generating proof"
   },
   "transactionStageProvingDescription": {
-    "message": "거래에 대한 증거를 생성합니다.",
+    "message": "거래에 대한 증명을 생성 중입니다.",
     "englishSource": "Creating the proof for your transaction."
   },
   "transactionStageSwitching": {
-    "message": "보호자 전환",
+    "message": "guardian 전환",
     "englishSource": "Switching guardian"
   },
   "transactionStageSwapping": {
@@ -925,31 +922,31 @@
     "englishSource": "Creating proposal"
   },
   "transactionStageCreatingProposalDescription": {
-    "message": "보호자를 위한 거래 제안서를 작성하세요.",
+    "message": "guardian를 위한 거래 제안서 작성.",
     "englishSource": "Building the transaction proposal for your guardian."
   },
   "transactionStageSigningProposal": {
-    "message": "보호자와 서명",
+    "message": "guardian를 통한 서명",
     "englishSource": "Signing with guardian"
   },
   "transactionStageSigningProposalDescription": {
-    "message": "보호자가 제안에 서명하고 있습니다.",
+    "message": "귀하의 guardian가 제안서에 서명하고 있습니다.",
     "englishSource": "Your guardian is signing the proposal."
   },
   "transactionStageSubmitting": {
-    "message": "거래 제출 중",
+    "message": "거래 제출",
     "englishSource": "Submitting transaction"
   },
   "transactionStageSubmittingDescription": {
-    "message": "서명된 거래를 네트워크로 보냅니다.",
+    "message": "서명된 트랜잭션을 네트워크로 전송 중입니다.",
     "englishSource": "Sending your signed transaction to the network."
   },
   "transactionStageGuardianSyncing": {
-    "message": "Guardian과 동기화 중",
+    "message": "Guardian와의 동기화",
     "englishSource": "Syncing with Guardian"
   },
   "transactionStageGuardianSyncingDescription": {
-    "message": "업데이트된 계정 상태를 보호자와 동기화하는 중입니다.",
+    "message": "업데이트된 계정 상태를 guardian와 동기화합니다.",
     "englishSource": "Syncing your updated account state with your guardian."
   },
   "transactionStageComplete": {
@@ -957,31 +954,31 @@
     "englishSource": "Transaction complete"
   },
   "transactionStageCompleteDescription": {
-    "message": "거래 세부정보를 마무리하는 중입니다.",
+    "message": "거래 세부 사항을 확정 중입니다.",
     "englishSource": "Finalizing transaction details."
   },
   "transactionStageConfirming": {
-    "message": "체인에서 확인 중",
+    "message": "온체인 확인",
     "englishSource": "Confirming on chain"
   },
   "transactionStageConfirmingDescription": {
-    "message": "네트워크 확인을 기다리는 중입니다.",
+    "message": "네트워크 확인을 기다리고 있습니다.",
     "englishSource": "Waiting for network confirmation."
   },
   "transactionStageRegisteringGuardian": {
-    "message": "보호자 등록 중",
+    "message": "guardian에 등록하기",
     "englishSource": "Registering with guardian"
   },
   "transactionStageRegisteringGuardianDescription": {
-    "message": "새로운 보호자에게 계정 상태를 등록합니다.",
+    "message": "새로운 guardian에 계정 상태를 등록합니다.",
     "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
-    "message": "note 배달 중",
+    "message": "note 제공",
     "englishSource": "Delivering note"
   },
   "transactionStageDeliveringDescription": {
-    "message": "note을(를) 수신자에게 안전하게 보내는 중입니다.",
+    "message": "note를 수신자에게 안전하게 전송합니다.",
     "englishSource": "Securely sending the note to the recipient."
   },
   "status": {
@@ -989,11 +986,11 @@
     "englishSource": "Status"
   },
   "privateKey": {
-    "message": "비공개 키",
+    "message": "개인 키",
     "englishSource": "Private Key"
   },
   "mnemonic": {
-    "message": "니모닉",
+    "message": "기억법",
     "englishSource": "Mnemonic"
   },
   "password": {
@@ -1005,7 +1002,7 @@
     "englishSource": "Success"
   },
   "smthWentWrong": {
-    "message": "문제가 발생했습니다",
+    "message": "문제가 발생했습니다.",
     "englishSource": "Something went wrong"
   },
   "processing": {
@@ -1017,7 +1014,7 @@
     "englishSource": "Import Wallet"
   },
   "revealPrivateKey": {
-    "message": "비공개 키 공개",
+    "message": "개인 키 공개",
     "englishSource": "Reveal Private Key"
   },
   "advancedSettings": {
@@ -1029,11 +1026,11 @@
     "englishSource": "Resync"
   },
   "about": {
-    "message": "에 대한",
+    "message": "소개",
     "englishSource": "About"
   },
   "preferences": {
-    "message": "환경설정",
+    "message": "기본 설정",
     "englishSource": "Preferences"
   },
   "security": {
@@ -1049,7 +1046,7 @@
     "englishSource": "Info"
   },
   "unlockPasswordErrorDelay": {
-    "message": "잘못된 비밀번호를 세 번 입력했습니다. 지갑이 차단되고 있습니다.",
+    "message": "비밀번호를 3번 잘못 입력하셨습니다. 지갑이 다음 기간 동안 잠기게 됩니다.",
     "englishSource": "You have entered the wrong password three times. Your wallet is being blocked for"
   },
   "unlock": {
@@ -1061,35 +1058,39 @@
     "englishSource": "Website"
   },
   "privacyPolicy": {
-    "message": "개인정보 보호정책",
+    "message": "개인정보 처리방침",
     "englishSource": "Privacy Policy"
   },
   "termsOfService": {
-    "message": "서비스 약관",
+    "message": "이용약관",
     "englishSource": "Terms of Service"
   },
+  "sendFeedback": {
+    "message": "의견 보내기",
+    "englishSource": "Send feedback"
+  },
   "termsOfUse": {
-    "message": "사용약관",
+    "message": "이용 약관",
     "englishSource": "Terms of Use"
   },
   "recoveryPhrase": {
-    "message": "회복 문구",
+    "message": "복구 문구",
     "englishSource": "Recovery Phrase"
   },
   "viewThisInPrivatePlace": {
-    "message": "비공개 장소에서 시청하세요.",
+    "message": "사람이 없는 곳에서 이 내용을 확인하세요",
     "englishSource": "View this in a private place"
   },
   "anyoneWithRecoveryPhrase": {
-    "message": "귀하의 복구 문구를 아는 사람은 누구나 귀하의 지갑과 자금에 접근할 수 있습니다.",
+    "message": "복구 문구를 알고 있는 사람이라면 누구나 귀하의 지갑과 자금을 이용할 수 있습니다.",
     "englishSource": "Anyone who knows your recovery phrase can access your wallet and funds."
   },
   "pleaseWriteDownRecoveryPhrase": {
-    "message": "비밀 복구 문구를 적어서 안전한 곳에 보관해주세요.",
+    "message": "비밀 복구 문구를 적어 두시고 안전한 곳에 보관해 주세요.",
     "englishSource": "Please write down your secret recovery phrase and keep it in a safe place."
   },
   "view": {
-    "message": "보다",
+    "message": "보기",
     "englishSource": "View"
   },
   "hideRecoveryPhrase": {
@@ -1097,7 +1098,7 @@
     "englishSource": "Hide Recovery Phrase"
   },
   "dAppsInteraction": {
-    "message": "DApp 상호 작용",
+    "message": "DApps 상호작용",
     "englishSource": "DApps Interaction"
   },
   "none": {
@@ -1113,11 +1114,11 @@
     "englishSource": "Delete"
   },
   "notEnoughFunds": {
-    "message": "자금 부족",
+    "message": "자금이 부족합니다",
     "englishSource": "Not enough funds"
   },
   "notEnoughCurrencyFunds": {
-    "message": "충분하지 않다 $currency$ 자금",
+    "message": "$currency$ 기금이 부족하다",
     "englishSource": "Not enough $currency$ funds",
     "placeholders": {
       "currency": {
@@ -1126,19 +1127,19 @@
     }
   },
   "failed": {
-    "message": "실패",
+    "message": "실패함",
     "englishSource": "Failed"
   },
   "yourBalanceIsZero": {
-    "message": "잔액이 0입니다.",
+    "message": "잔액은 0입니다.",
     "englishSource": "Your Balance is zero."
   },
   "thisMayHappenBecause": {
-    "message": "증상 발생 원인:",
+    "message": "다음과 같은 이유로 발생할 수 있습니다:",
     "englishSource": "This may happen because:"
   },
   "minimalFeeGreaterThanBalanceVerbose": {
-    "message": "이 거래에 대한 최소 수수료가 잔액보다 큽니다. 빈 관리자 계정으로 자금을 보내기 때문에 많은 수수료가 필요할 수 있습니다. 일회성 0.06425가 필요합니다. $gasTokenSymbol$ 화상 수수료;",
+    "message": "이 거래의 최소 수수료가 귀하의 잔액보다 큽니다. 잔액이 없는 매니저 계좌로 자금을 송금하는 경우, 높은 수수료가 부과될 수 있습니다. 이에 따라 일회성으로 0.06425$gasTokenSymbol$의 소각 수수료가 부과됩니다.",
     "englishSource": "Minimal fee for this transaction is greater than your balance. A large fee may be required because of you sending funds to an empty Manager account. That requires a one-time 0.06425 $gasTokenSymbol$ burn fee;",
     "placeholders": {
       "gastokensymbol": {
@@ -1147,11 +1148,11 @@
     }
   },
   "networkOrOtherIssue": {
-    "message": "네트워크 혹은 기타 기술적인 문제입니다.",
+    "message": "네트워크 또는 기타 기술적 문제.",
     "englishSource": "Network or other technical issue."
   },
   "confirmAction": {
-    "message": "확인하다 $action$ ",
+    "message": "$action$ 확인",
     "englishSource": "Confirm $action$",
     "placeholders": {
       "action": {
@@ -1164,15 +1165,15 @@
     "englishSource": "Confirm"
   },
   "confirmRisk": {
-    "message": "나는 위험을 이해하고 계속 진행하기를 원합니다.",
+    "message": "해당 위험을 이해하고 있으며, 계속 진행하고자 합니다.",
     "englishSource": "I understand the risk and wish to proceed."
   },
   "confirmError": {
-    "message": "확인하지 않고는 계속할 수 없습니다.",
+    "message": "확인하지 않으면 계속할 수 없습니다.",
     "englishSource": "Unable to continue without confirming."
   },
   "termsOfUsage": {
-    "message": "사용약관",
+    "message": "이용 약관",
     "englishSource": "Terms of Usage"
   },
   "file": {
@@ -1184,23 +1185,23 @@
     "englishSource": "File Password"
   },
   "create": {
-    "message": "생성",
+    "message": "만들기",
     "englishSource": "Create"
   },
   "import": {
-    "message": "수입",
+    "message": "가져오기",
     "englishSource": "Import"
   },
   "seedPhraseDescription": {
-    "message": "비밀 복구 문구를 적어서 안전한 곳에 보관해주세요. 이 문구는 계정을 복구할 수 있는 유일한 방법입니다.",
+    "message": "비밀 복구 문구를 적어 두시고 안전한 곳에 보관해 주세요. 이 문구는 계정을 복구할 수 있는 유일한 방법입니다.",
     "englishSource": "Please write down your secret recovery phrase and keep it in a safe place. This phrase is the only way to recover your account."
   },
   "doNotShareWithAnyone": {
-    "message": "누구와도 공유하지 마십시오.",
+    "message": "누구에게도 이 내용을 알려주지 마세요.",
     "englishSource": "Do not share it with anyone."
   },
   "anyoneCanTakeAssets": {
-    "message": "이 문구를 아는 사람은 누구나 귀하의 자산을 영원히 가져갈 수 있습니다.",
+    "message": "이 문구를 가진 사람이라면 누구든지 여러분의 자산을 영원히 빼앗을 수 있습니다.",
     "englishSource": "Anyone with this phrase can take your assets forever."
   },
   "continue": {
@@ -1208,7 +1209,7 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "현재 거래가 없습니다.",
+    "message": "현재 거래 내역이 없습니다.",
     "englishSource": "You don't currently have any transactions."
   },
   "remove": {
@@ -1216,11 +1217,11 @@
     "englishSource": "Remove"
   },
   "ifYouWantToRevealPrivateKeyFromOtherAccount": {
-    "message": "다른 계정의 비공개 키를 공개하고자 한다면 우측 상단의 드롭다운에서 해당되는 것을 선택해야 합니다.",
+    "message": "다른 계정의 뷰 키를 확인하려면 오른쪽 상단의 드롭다운 메뉴에서 해당 계정을 선택해야 합니다.",
     "englishSource": "If you want to reveal a view key from another account - you should select it in the top-right dropdown."
   },
   "privateKeyFieldDescription": {
-    "message": "현재 계정 키입니다. 보안을 유지하세요.",
+    "message": "계좌 번호. 비밀로 간직하십시오.",
     "englishSource": "Current account key. Keep it in secret."
   },
   "seedPhrase": {
@@ -1228,11 +1229,11 @@
     "englishSource": "Seed Phrase"
   },
   "keepSeedPhraseSecret": {
-    "message": "비밀로 유지하세요.",
+    "message": "이건 비밀로 해 둬.",
     "englishSource": "Keep it in secret."
   },
   "revealSecretPasswordInputDescription": {
-    "message": "비밀번호를 입력하면 공개됩니다 $secretName$ .",
+    "message": "$secretName$를 확인하려면 비밀번호를 입력하세요.",
     "englishSource": "Enter password to reveal the $secretName$.",
     "placeholders": {
       "secretname": {
@@ -1241,7 +1242,7 @@
     }
   },
   "revealSecretPasscodeInputDescription": {
-    "message": "비밀번호를 입력하면 공개됩니다 $secretName$ .",
+    "message": "$secretName$를 표시하려면 비밀번호를 입력하세요.",
     "englishSource": "Enter your passcode to reveal the $secretName$.",
     "placeholders": {
       "secretname": {
@@ -1250,7 +1251,7 @@
     }
   },
   "revealSecretUnlockDescription": {
-    "message": "비밀번호로 잠금을 해제하여 정보를 확인하세요. $secretName$ .",
+    "message": "암호를 입력하여 잠금을 해제하면 ‘$secretName$’가 나타납니다.",
     "englishSource": "Unlock with your passcode to reveal the $secretName$.",
     "placeholders": {
       "secretname": {
@@ -1259,7 +1260,7 @@
     }
   },
   "transaction": {
-    "message": "송금",
+    "message": "거래",
     "englishSource": "Transaction"
   },
   "recipient": {
@@ -1271,23 +1272,23 @@
     "englishSource": "Amount"
   },
   "mainAssetBalanceIsZero": {
-    "message": "귀하의 Miden 크레딧(주 자산) 잔액이 0입니다. 수수료에는 Miden 크레딧이 필요합니다.",
+    "message": "귀하의 미덴 크레딧(주요 자산) 잔액이 0입니다. 수수료를 지불하려면 미덴 크레딧이 필요합니다.",
     "englishSource": "Your Miden credits (main asset) balance is zero. Miden credits are required for the fee."
   },
   "unableToSendTransactionAction": {
-    "message": "입력한 수신자에게 송금액을 전송할 수 없습니다.",
+    "message": "지정된 수신자에게 거래를 보낼 수 없습니다.",
     "englishSource": "Unable to send transaction to provided Recipient."
   },
   "unableToEstimateTransactionAction": {
-    "message": "입력한 수신자에게 송금액을 추산해줄 수 없습니다.",
+    "message": "지정된 수취인에게 송금할 거래 금액을 산정할 수 없습니다.",
     "englishSource": "Unable to estimate transaction to provided Recipient."
   },
   "raw": {
-    "message": "원자료",
+    "message": "원본",
     "englishSource": "Raw"
   },
   "fetchingConfirmationDetails": {
-    "message": "확인 세부정보 불러오는 중",
+    "message": "확인 정보 가져오기",
     "englishSource": "fetching confirmation details"
   },
   "notIdentified": {
@@ -1338,8 +1339,12 @@
     "message": "위임 증명 생성",
     "englishSource": "Delegate Proof Generation"
   },
+  "delegateProofSettingsDescription": {
+    "message": "서비스가 켜져 있을 때는 원격 서버에서 거래 증명이 생성됩니다. 이 경우 속도가 더 빠르고, 기기에 대용량 파일을 다운로드할 필요가 없으며, 사용자의 키가 기기 밖으로 유출되지 않습니다. 서비스가 꺼져 있거나 이용 불가능한 경우에는 지갑이 로컬에서 증명을 수행합니다. 이 경우 프라이버시는 더 보장되지만 속도가 느리고, 대용량의 파일을 한 번만 다운로드해야 합니다.",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+  },
   "transfer": {
-    "message": "송금",
+    "message": "이체",
     "englishSource": "Transfer"
   },
   "clean": {
@@ -1347,15 +1352,15 @@
     "englishSource": "Clean"
   },
   "ok": {
-    "message": "확인",
+    "message": "알겠습니다",
     "englishSource": "OK"
   },
   "yes": {
-    "message": "예",
+    "message": "네",
     "englishSource": "Yes"
   },
   "no": {
-    "message": "아니오",
+    "message": "아니요",
     "englishSource": "No"
   },
   "actionConfirmation": {
@@ -1367,27 +1372,27 @@
     "englishSource": "Submit"
   },
   "max": {
-    "message": "최대",
+    "message": "맥스",
     "englishSource": "Max"
   },
   "from": {
-    "message": "에서",
+    "message": "출처:",
     "englishSource": "From"
   },
   "to": {
-    "message": "에게",
+    "message": "~에게",
     "englishSource": "To"
   },
   "received": {
-    "message": "받았다",
+    "message": "수신됨",
     "englishSource": "Received"
   },
   "other": {
-    "message": "다른",
+    "message": "기타",
     "englishSource": "Other"
   },
   "thousandFormat": {
-    "message": "$thousand$k",
+    "message": "$thousand$ k",
     "englishSource": "$thousand$k",
     "placeholders": {
       "thousand": {
@@ -1396,7 +1401,7 @@
     }
   },
   "millionFormat": {
-    "message": "$million$M",
+    "message": "$million$ M",
     "englishSource": "$million$M",
     "placeholders": {
       "million": {
@@ -1405,7 +1410,7 @@
     }
   },
   "billionFormat": {
-    "message": "$billion$B",
+    "message": "$billion$ B",
     "englishSource": "$billion$B",
     "placeholders": {
       "billion": {
@@ -1418,8 +1423,7 @@
     "englishSource": "Download"
   },
   "more": {
-    "message": "더",
-    "description": "Show more",
+    "message": "더 보기",
     "englishSource": "more"
   },
   "addressBook": {
@@ -1435,7 +1439,7 @@
     "englishSource": "Select Amount"
   },
   "selectAToken": {
-    "message": "토큰을 선택하세요",
+    "message": "토큰 선택",
     "englishSource": "Select a token"
   },
   "searchForTokens": {
@@ -1443,11 +1447,11 @@
     "englishSource": "Search for tokens"
   },
   "available": {
-    "message": "사용 가능",
+    "message": "구입 가능",
     "englishSource": "Available"
   },
   "approxFiatValue": {
-    "message": "≈  $value$ USD",
+    "message": "≈ $value$ USD",
     "englishSource": "≈ $value$ USD",
     "placeholders": {
       "value": {
@@ -1456,11 +1460,11 @@
     }
   },
   "reviewDetails": {
-    "message": "검토 세부정보",
+    "message": "리뷰 상세 정보",
     "englishSource": "Review Details"
   },
   "swap": {
-    "message": "교환",
+    "message": "스왑",
     "englishSource": "Swap"
   },
   "viaInProtocolDex": {
@@ -1468,23 +1472,23 @@
     "englishSource": "Via In Protocol Dex"
   },
   "reviewSwap": {
-    "message": "교환 검토",
+    "message": "리뷰 교환",
     "englishSource": "Review Swap"
   },
   "youPay": {
-    "message": "당신은 지불",
+    "message": "고객님 부담",
     "englishSource": "You Pay"
   },
   "youReceive": {
-    "message": "당신은 받습니다",
+    "message": "수령하신 항목",
     "englishSource": "You Receive"
   },
   "youSend": {
-    "message": "당신은 보낸다",
+    "message": "보내기",
     "englishSource": "You Send"
   },
   "youAreSending": {
-    "message": "당신은 보내고 있습니다",
+    "message": "보내시는 중입니다",
     "englishSource": "You are sending"
   },
   "swapDirection": {
@@ -1492,11 +1496,11 @@
     "englishSource": "Swap direction"
   },
   "rate": {
-    "message": "비율",
+    "message": "요율",
     "englishSource": "Rate"
   },
   "swapSolverFeeNote": {
-    "message": "귀하의 수령액에는 이미 $percent$ 해결사 수수료.",
+    "message": "수령 금액에는 이미 $percent$의 해결 수수료가 포함되어 있습니다.",
     "englishSource": "Your receive amount already includes a $percent$ solver fee.",
     "placeholders": {
       "percent": {
@@ -1505,11 +1509,11 @@
     }
   },
   "usuallyFillsIn": {
-    "message": "보통 채워준다",
+    "message": "보통 채워집니다",
     "englishSource": "Usually fills in"
   },
   "swapEtaSeconds": {
-    "message": "~ $seconds$ 에스",
+    "message": "~$seconds$ s",
     "englishSource": "~$seconds$s",
     "placeholders": {
       "seconds": {
@@ -1518,7 +1522,7 @@
     }
   },
   "swapEtaMinutes": {
-    "message": "~ $minutes$ 분",
+    "message": "~ $minutes$분",
     "englishSource": "~$minutes$ min",
     "placeholders": {
       "minutes": {
@@ -1527,11 +1531,11 @@
     }
   },
   "swapEtaFallback": {
-    "message": "~30초",
+    "message": "~30대",
     "englishSource": "~30s"
   },
   "expires": {
-    "message": "만료",
+    "message": "만료일",
     "englishSource": "Expires"
   },
   "swapAutoConsume": {
@@ -1539,7 +1543,7 @@
     "englishSource": "Auto consume"
   },
   "swapSameToken": {
-    "message": "교환할 두 개의 다른 토큰을 선택하세요.",
+    "message": "교환할 서로 다른 토큰 두 개를 골라주세요.",
     "englishSource": "Pick two different tokens to swap."
   },
   "swapInvalidAmounts": {
@@ -1547,11 +1551,11 @@
     "englishSource": "Enter a valid amount to swap."
   },
   "swapPriceUnavailable": {
-    "message": "가격을 확인할 수 없습니다. 잠시 후 다시 시도하세요.",
+    "message": "가격을 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.",
     "englishSource": "Price unavailable. Try again shortly."
   },
   "swapOrderReservedNote": {
-    "message": "당신의 $amount$ 이 주문이 채워질 때까지 예약된 상태로 유지됩니다.",
+    "message": "이 주문이 처리될 때까지 귀하의 ‘$amount$’ 상품은 이 주문용으로 예약된 상태로 유지됩니다.",
     "englishSource": "Your $amount$ stays reserved for this order until it's filled.",
     "placeholders": {
       "amount": {
@@ -1560,20 +1564,20 @@
     }
   },
   "swapSuccessSourcingLiquidity": {
-    "message": "우리는 귀하의 스왑을 위해 유동성을 공급하고 있습니다. 보통 30초 정도 채워집니다.",
+    "message": "현재 귀하의 스왑 거래를 위한 유동성을 확보 중입니다. 보통 약 30초 이내에 체결됩니다.",
     "englishSource": "We're sourcing liquidity for your swap. It usually fills in about 30 seconds."
   },
   "swapSuccessTrackProgress": {
-    "message": "활동에서 진행 상황을 추적할 수 있습니다.",
+    "message": "'활동'에서 진행 상황을 확인할 수 있습니다.",
     "englishSource": "You can track its progress in Activities."
   },
   "expirationDate": {
-    "message": "만료일",
+    "message": "유효기간",
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "그 때까지 청구되지 않은 경우, $amount$ 자동으로 지갑으로 돌아갑니다. 자금은 손실되지 않습니다.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "그때까지 청구되지 않은 경우, $amount$를 통해 자금을 지갑으로 다시 청구할 수 있습니다. 자금이 손실되는 일은 없습니다.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1581,11 +1585,11 @@
     }
   },
   "recallTimeInPast": {
-    "message": "이 시간은 이미 지났습니다. 미래의 시간을 선택하세요.",
+    "message": "이 시간은 이미 지났습니다. — 나중에 할 시간을 선택하세요",
     "englishSource": "This time has already passed — pick a future time"
   },
   "expiresInSeconds": {
-    "message": "~ 안에 $seconds$ 초",
+    "message": "$seconds$초 만에",
     "englishSource": "In $seconds$ seconds",
     "placeholders": {
       "seconds": {
@@ -1594,7 +1598,7 @@
     }
   },
   "expiresInMinutes": {
-    "message": "~ 안에 $minutes$ 분",
+    "message": "$minutes$분 동안",
     "englishSource": "In $minutes$ minutes",
     "placeholders": {
       "minutes": {
@@ -1603,7 +1607,7 @@
     }
   },
   "edit": {
-    "message": "편집하다",
+    "message": "편집",
     "englishSource": "Edit"
   },
   "miden": {
@@ -1618,12 +1622,20 @@
     "message": "연락처 추가",
     "englishSource": "Add Contact"
   },
+  "addToContactsPrompt": {
+    "message": "연락처에 추가하시겠습니까?",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "최근",
+    "englishSource": "Recent"
+  },
   "newContactPlaceholder": {
-    "message": "예를 들어 앨리스 밥",
+    "message": "예: 앨리스, 밥",
     "englishSource": "e.g. Alice Bob"
   },
   "contactWithTheSameAddressAlreadyExists": {
-    "message": "동일한 주소의 연락처가 이미 있습니다.",
+    "message": "동일한 주소의 연락처가 이미 존재합니다.",
     "englishSource": "Contact with the same address already exists"
   },
   "currentContacts": {
@@ -1631,27 +1643,27 @@
     "englishSource": "Current Contacts"
   },
   "searchContacts": {
-    "message": "찾다",
+    "message": "검색",
     "englishSource": "Search"
   },
   "deleteContactConfirm": {
-    "message": "이 연락처를 삭제하시겠습니까?",
+    "message": "이 연락처를 정말 삭제하시겠습니까?",
     "englishSource": "Are you sure you want to delete this contact?"
   },
   "ownAccount": {
-    "message": "소유하다",
+    "message": "소유",
     "englishSource": "Own"
   },
   "noContactsFound": {
-    "message": "연락처를 찾을 수 없습니다",
+    "message": "연락처가 없습니다.",
     "englishSource": "No contacts found"
   },
   "verifySeedPhrase": {
-    "message": "Seed Phrase 확인",
+    "message": "Seed Phrase 확인하기",
     "englishSource": "Verify Seed Phrase"
   },
   "faucetPromptTitle": {
-    "message": "지갑에 자금을 조달하세요",
+    "message": "지갑에 충전하기",
     "englishSource": "Fund your wallet"
   },
   "faucetPromptBody": {
@@ -1659,15 +1671,39 @@
     "englishSource": "Add tokens to your wallet to get started."
   },
   "faucetPromptAction": {
-    "message": "지금 자금을 조달하세요",
+    "message": "지금 기부하기",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "지갑에 자금 입금하기",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "faucet에서 토큰을 요청 중입니다…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "지갑에 자금이 입금됨",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "토큰이 발송 중이며 곧 표시될 예정입니다.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "자금 조달에 실패했습니다",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "지갑에 자금을 충전할 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
-    "message": "보류 중인 Notes이 있습니다.",
+    "message": "귀하의 미결제 노트는 다음과 같습니다Notes",
     "englishSource": "You have Pending Notes"
   },
   "pendingNotesPromptBody": {
-    "message": "보류 중인 notes 가치가 있습니다 $amount$ .",
+    "message": "귀하의 미결제 지급 명세서(notes)는 $amount$ 상당입니다.",
     "englishSource": "You have pending notes worth $amount$.",
     "placeholders": {
       "amount": {
@@ -1684,35 +1720,47 @@
     "englishSource": "Verify your recovery phrase"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "나중에 이 지갑을 복원할 수 있도록 복구 문구를 기록하고 첫 번째 단어와 마지막 단어를 알고 있는지 확인하세요.",
+    "message": "나중에 이 지갑을 복구할 수 있도록 복구 문구를 적어두고, 그 문구의 첫 번째 단어와 마지막 단어를 정확히 알고 있는지 확인하세요.",
     "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
   },
   "hotKeyHardwareErrorPromptTitle": {
-    "message": "보안 서명을 사용할 수 없음",
+    "message": "보안 서명 사용 불가",
     "englishSource": "Secure signing unavailable"
   },
   "hotKeyHardwareErrorPromptBody": {
-    "message": "이 기기는 보안 하드웨어를 사용하여 거래에 서명할 수 없습니다. 오류를 복사하여 Miden 팀에 보내세요.",
-    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+    "message": "이 장치의 보안 하드웨어에서 트랜잭션 서명 설정 중에 오류가 발생했습니다. 오류 내용을 복사하여 Miden 팀에 보내 주십시오.",
+    "englishSource": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team."
   },
   "hotKeyHardwareErrorPromptAction": {
     "message": "복사 오류",
     "englishSource": "Copy error"
   },
+  "hotKeyRotationPromptTitle": {
+    "message": "장치 키를 갱신해야 합니다.",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "이 기기는 더 이상 귀하의 기기 단축키를 사용할 수 없습니다. 서명 기능을 복원하려면 기기를 회전해 주세요. 귀하의 자금은 영향을 받지 않습니다.",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "키 회전",
+    "englishSource": "Rotate key"
+  },
   "bridgePromptTitle": {
-    "message": "브릿지 진행 중",
+    "message": "브리지 진행 중",
     "englishSource": "Bridge in progress"
   },
   "bridgePromptBody": {
-    "message": "우리는 백그라운드에서 다리를 계속 추적할 것입니다.",
+    "message": "저희는 백그라운드에서 귀하의 브릿지 진행 상황을 계속 추적할 것입니다.",
     "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
-    "message": "복구 문구를 기록한 다음 첫 번째 단어와 마지막 단어를 선택하여 지식을 확인합니다. 다른 사람이 화면을 볼 수 없도록 하세요.",
+    "message": "복구 문구를 적어 둔 다음, 그 문구의 첫 번째 단어와 마지막 단어를 선택하여 기억하고 있는지 확인하십시오. 화면을 다른 사람이 볼 수 없도록 주의하십시오.",
     "englishSource": "You will write down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
   },
   "verifySeedPhrasePasswordBody": {
-    "message": "지갑을 잠금 해제하여 복구 문구를 공개하고 인증을 시작하세요.",
+    "message": "지갑을 열어 복구 문구를 확인하고 인증을 시작하세요.",
     "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
   },
   "verifySeedPhraseReviewBody": {
@@ -1720,7 +1768,7 @@
     "englishSource": "Write down these words in order."
   },
   "word": {
-    "message": "단어 $number$ ",
+    "message": "Word $number$",
     "englishSource": "Word $number$",
     "placeholders": {
       "number": {
@@ -1729,11 +1777,11 @@
     }
   },
   "finish": {
-    "message": "마치다",
+    "message": "완료",
     "englishSource": "Finish"
   },
   "onboarding": {
-    "message": "온보딩",
+    "message": "신입 사원 오리엔테이션",
     "englishSource": "Onboarding"
   },
   "next": {
@@ -1741,7 +1789,7 @@
     "englishSource": "Next"
   },
   "done": {
-    "message": "완료!",
+    "message": "완료",
     "englishSource": "Done"
   },
   "start": {
@@ -1753,11 +1801,11 @@
     "englishSource": "Transaction ID:"
   },
   "recipientAddress": {
-    "message": "받는 사람 주소:",
+    "message": "수신인 주소",
     "englishSource": "Recipient address"
   },
   "completed": {
-    "message": "완전한",
+    "message": "완료됨",
     "englishSource": "Completed"
   },
   "confirmation": {
@@ -1773,15 +1821,15 @@
     "englishSource": "ID"
   },
   "convert": {
-    "message": "전환하다",
+    "message": "변환",
     "englishSource": "Convert"
   },
   "public": {
-    "message": "공공의",
+    "message": "공개",
     "englishSource": "Public"
   },
   "private": {
-    "message": "개인",
+    "message": "비공개",
     "englishSource": "Private"
   },
   "external": {
@@ -1789,47 +1837,51 @@
     "englishSource": "External"
   },
   "claim": {
-    "message": "주장하다",
+    "message": "청구",
     "englishSource": "Claim"
+  },
+  "clear": {
+    "message": "지우기",
+    "englishSource": "Clear"
   },
   "midenWallet": {
     "message": "빵!",
     "englishSource": "Bread!"
   },
   "anywhere": {
-    "message": "어딘가에.",
+    "message": "어디든.",
     "englishSource": "Anywhere."
   },
   "welcome": {
-    "message": "환영",
+    "message": "환영합니다",
     "englishSource": "Welcome"
   },
   "toLowercase": {
-    "message": "에게",
+    "message": "~에",
     "englishSource": "to"
   },
   "breadWalletDescription": {
-    "message": "Bread Wallet은 디지털 화폐를 개인적으로 관리할 수 있는 간단하고 안전한 방법입니다.",
+    "message": "Bread Wallet은 디지털 자금을 사생활을 보호하면서 간편하고 안전하게 관리할 수 있는 방법입니다.",
     "englishSource": "Bread Wallet is a simple and secure way to manage your digital money privately."
   },
   "recoverYourAccount": {
-    "message": "계정을 복구하세요",
+    "message": "계정 복구하기",
     "englishSource": "Recover your account"
   },
   "chooseHowToProtect": {
-    "message": "지갑을 보호할 방법을 선택하세요",
+    "message": "지갑을 어떻게 보호할지 선택하세요",
     "englishSource": "Choose how you want to protect your wallet"
   },
   "useFaceIdOrBiometric": {
-    "message": "FaceID 또는 생체 인식 사용",
+    "message": "Face ID 또는 생체 인증 사용",
     "englishSource": "Use FaceID or Biometric"
   },
   "setUpYourPasscode": {
-    "message": "비밀번호를 설정하세요",
+    "message": "비밀번호 설정하기",
     "englishSource": "Set up your passcode"
   },
   "confirmYourPasscode": {
-    "message": "비밀번호를 확인하세요",
+    "message": "비밀번호를 확인해 주세요",
     "englishSource": "Confirm your passcode"
   },
   "enterYourPasscode": {
@@ -1837,11 +1889,11 @@
     "englishSource": "Enter your passcode"
   },
   "enterYour6DigitCode": {
-    "message": "6자리 코드를 입력하세요.",
+    "message": "6자리 코드를 입력하세요",
     "englishSource": "Enter your 6-digit code"
   },
   "incorrectPasscode": {
-    "message": "잘못된 비밀번호입니다. 다시 시도해 보세요.",
+    "message": "비밀번호가 잘못되었습니다. 다시 입력해 주세요.",
     "englishSource": "Incorrect passcode. Try again."
   },
   "forgotPasscode": {
@@ -1853,19 +1905,19 @@
     "englishSource": "Enter your password"
   },
   "incorrectPassword": {
-    "message": "잘못된 비밀번호입니다. 다시 시도해 보세요.",
+    "message": "비밀번호가 잘못되었습니다. 다시 입력해 주세요.",
     "englishSource": "Incorrect password. Try again."
   },
   "createA6DigitCode": {
-    "message": "6자리 코드를 생성하세요",
+    "message": "6자리 코드 생성하기",
     "englishSource": "Create a 6 digit code"
   },
   "reEnterTheSame6Digits": {
-    "message": "동일한 6자리를 다시 입력하세요.",
+    "message": "동일한 6자리 숫자를 다시 입력하세요",
     "englishSource": "Re-enter the same 6 digits"
   },
   "faceIdSetUp": {
-    "message": "페이스ID 설정",
+    "message": "Face ID 설정",
     "englishSource": "Face ID set up"
   },
   "biometricSetUp": {
@@ -1877,31 +1929,31 @@
     "englishSource": "Use passcode instead"
   },
   "biometricConfirmed": {
-    "message": "확인되었습니다!",
+    "message": "확정되었습니다!",
     "englishSource": "Confirmed!"
   },
   "onlyOneMoreStep": {
-    "message": "한 걸음만 더!",
+    "message": "이제 한 걸음만 더!",
     "englishSource": "Only one more step!"
   },
   "biometricSetupReason": {
-    "message": "지갑에 대한 생체 인식 잠금 해제 설정",
+    "message": "지갑에 생체 인식 잠금 해제 기능을 설정하세요",
     "englishSource": "Set up biometric unlock for your wallet"
   },
   "biometricUnavailable": {
-    "message": "이 기기에서는 생체 인식 잠금 해제를 사용할 수 없습니다.",
+    "message": "이 기기에서는 생체 인식 잠금 해제가 지원되지 않습니다.",
     "englishSource": "Biometric unlock isn't available on this device."
   },
   "chooseYourGuardian": {
-    "message": "당신의 보호자를 선택하세요",
+    "message": "Guardian를 선택하세요",
     "englishSource": "Choose your Guardian"
   },
   "chooseGuardianDescription": {
-    "message": "아래 옵션을 선택하세요",
+    "message": "아래에서 옵션을 선택하세요",
     "englishSource": "Select an option below"
   },
   "learnMoreAboutGuardian": {
-    "message": "가디언에 대해 더 알아보기",
+    "message": "Guardian에 대해 자세히 알아보기",
     "englishSource": "Learn more about the Guardian"
   },
   "noGuardianOptionTitle": {
@@ -1913,7 +1965,7 @@
     "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
-    "message": "운영하는 사람:",
+    "message": "운영사:",
     "englishSource": "Operated by:"
   },
   "guardianLocation": {
@@ -1921,11 +1973,11 @@
     "englishSource": "Location:"
   },
   "whatIsAGuardian": {
-    "message": "가디언이란 무엇인가요?",
+    "message": "Guardian란 무엇인가요?",
     "englishSource": "What is a Guardian?"
   },
   "guardianInfoDescription": {
-    "message": "Guardian은 지갑에서 <b>모든 거래를 공동 서명</b>하여 자기 관리권을 포기하지 않고 안전망을 추가하는 독립적인 서비스입니다.",
+    "message": "Guardian는 <b>사용자의 지갑에서 발생하는 모든 거래</b>에 공동 서명하여, 자가 관리 권한을 포기하지 않으면서도 안전망을 제공하는 독립적인 서비스입니다.",
     "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
   },
   "guardianInfoWhatItDoesTitle": {
@@ -1933,47 +1985,43 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "보안 정책에 따라 거래를 승인하거나 거부합니다. 장치를 분실한 경우 복구하는 데 도움이 됩니다.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "모든 거래에 공동 서명을 합니다 — 사용자의 기기나 Guardian 어느 쪽도 단독으로 자금을 이동할 수 없습니다. 기기를 분실했을 때 계정을 복구하는 데 도움을 줍니다.",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
-    "message": "할 수 없는 일",
+    "message": "할 수 없는 것",
     "englishSource": "What it cannot do"
   },
   "guardianInfoWhatItCannotDoDescription": {
-    "message": "자금을 스스로 이동하십시오. 비공개 상태에 액세스하세요. 공유하지 않는 한 잔액을 확인하세요.",
+    "message": "자금을 직접 이체하세요. 개인 정보에 접근하세요. 다른 사람과 공유하지 않는 한 잔액을 확인할 수 있습니다.",
     "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
   },
   "guardianInfoSwitchingIsEasyTitle": {
-    "message": "전환이 쉽습니다",
+    "message": "전환하는 건 간단합니다",
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "복구 문구를 사용하여 언제든지 다른 Guardian으로 교체하거나 완전히 제거할 수 있습니다.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "복구 문구를 사용하면 언제든지 다른 Guardian로 전환할 수 있습니다. 변경되는 것은 공동 서명자뿐이며, 계정과 자금은 그대로 유지됩니다.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
-    "message": "알았어요",
+    "message": "알겠습니다",
     "englishSource": "Got it"
   },
   "backUpYourWallet": {
-    "message": "지갑 백업하기",
-    "note": "Onboarding",
+    "message": "지갑을 백업하세요",
     "englishSource": "Back up your wallet"
   },
   "show": {
-    "message": "보이기",
-    "note": "Onboarding",
+    "message": "표시",
     "englishSource": "Show"
   },
   "hide": {
     "message": "숨기기",
-    "note": "Onboarding",
     "englishSource": "Hide"
   },
   "copied": {
     "message": "복사됨",
-    "note": "Onboarding",
     "englishSource": "Copied"
   },
   "copyToClipboard": {
@@ -1982,22 +2030,18 @@
   },
   "createsProofsOnYourComputer": {
     "message": "컴퓨터에서 증명을 생성합니다",
-    "note": "Onboarding",
     "englishSource": "Creates proofs on your computer"
   },
   "yourKeysStayPrivate": {
-    "message": "키는 비공개 상태로 유지됩니다",
-    "note": "Onboarding",
+    "message": "사용자의 키는 비공개로 유지됩니다",
     "englishSource": "Your keys stay private"
   },
   "selectTheDefaultTransactionType": {
     "message": "기본 거래 유형 선택",
-    "note": "Onboarding",
     "englishSource": "Select the Default Transaction Type"
   },
   "popular": {
-    "message": "인기",
-    "note": "Onboarding",
+    "message": "인기 있는",
     "englishSource": "Popular"
   },
   "verifyMessagePrefix": {
@@ -2005,27 +2049,27 @@
     "englishSource": "Confirm you've saved your recovery phrase."
   },
   "verifyMessageSuffix": {
-    "message": "구문에서 <b>첫 번째</b> 및 <b>마지막</b> 단어를 선택하세요.",
+    "message": "문장에서 <b>첫 번째</b>와 <b>마지막</b> 단어를 선택하세요.",
     "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
   "verifyStepSelectFirst": {
-    "message": "복구 문구의 <b>첫 번째</b> 단어를 탭하세요.",
+    "message": "복구 문구의 <b>첫 번째</b> 단어를 탭하세요",
     "englishSource": "Tap the <b>first</b> word of your recovery phrase"
   },
   "verifyStepSelectLast": {
-    "message": "이제 복구 문구의 <b>마지막</b> 단어를 탭하세요.",
+    "message": "이제 복구 문구의 <b>마지막</b> 단어를 탭하세요",
     "englishSource": "Now tap the <b>last</b> word of your recovery phrase"
   },
   "verifyStepCorrect": {
-    "message": "이것이 첫 번째이자 마지막 단어입니다. 계속을 탭하세요.",
+    "message": "이게 전부입니다. ‘계속’을 탭하세요.",
     "englishSource": "That's the first and last word — tap Continue"
   },
   "verifyStepWrong": {
-    "message": "그게 첫 번째이자 마지막 단어가 아닙니다. 다시 탭하세요.",
+    "message": "그게 전부가 아닙니다 — 다시 한 번 탭해 보세요",
     "englishSource": "That's not the first and last word — tap them again"
   },
   "enterYourWalletSeedPhrase": {
-    "message": "지갑의 12단어 Seed Phrase를 입력하세요.",
+    "message": "지갑의 12단어Seed phrase를 입력하세요.",
     "englishSource": "Enter your wallet's 12-word Seed phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
@@ -2037,7 +2081,7 @@
     "englishSource": "Your <highlight>Wallet</highlight> is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
-    "message": "지갑을 완벽하게 보호하려면 7일 이내에 복구 문구를 적어두세요.",
+    "message": "지갑을 완벽하게 보호하려면 7일 이내에 복구 문구를 기록해 두세요.",
     "englishSource": "Write down your recovery phrase within 7 days to fully secure your wallet."
   },
   "recoveryPhraseDailyReminder": {
@@ -2045,170 +2089,147 @@
     "englishSource": "We'll remind you daily on the home screen."
   },
   "openWallet": {
-    "message": "오픈 지갑",
+    "message": "지갑 열기",
     "englishSource": "Open wallet"
   },
   "getStarted": {
     "message": "시작하기",
-    "note": "Onboarding",
     "englishSource": "Get started"
   },
   "creatingYourWallet": {
-    "message": "지갑을 만드는 중…",
+    "message": "지갑 생성 중…",
     "englishSource": "Creating your wallet…"
   },
   "enterPassword": {
-    "message": "비밀번호 입력",
-    "note": "Onboarding",
+    "message": "비밀번호를 입력하세요",
     "englishSource": "Enter password"
   },
   "verifyPassword": {
     "message": "비밀번호 확인",
-    "note": "Onboarding",
     "englishSource": "Verify password"
   },
   "enterPasswordAgain": {
     "message": "비밀번호를 다시 입력하세요",
-    "note": "Onboarding",
     "englishSource": "Enter password again"
   },
   "itsAMatch": {
-    "message": "일치합니다!",
-    "note": "Onboarding",
+    "message": "일치했어요!",
     "englishSource": "It's a match!"
   },
   "passwordsDoNotMatch": {
-    "message": "비밀번호가 일치하지 않습니다.",
+    "message": "비밀번호가 일치하지 않습니다",
     "englishSource": "Passwords do not match"
   },
   "passcodesDoNotMatch": {
-    "message": "비밀번호가 일치하지 않습니다. 다시 시도해 보세요.",
+    "message": "비밀번호가 일치하지 않습니다. 다시 시도해 주세요.",
     "englishSource": "Passcodes don't match. Try again."
   },
   "createPassword": {
     "message": "비밀번호 생성",
-    "note": "Onboarding",
     "englishSource": "Create password"
   },
   "createPasswordDescription": {
-    "message": "지갑을 잠금 해제하려면 비밀번호를 설정하세요",
+    "message": "지갑 잠금을 해제할 비밀번호를 설정하세요",
     "englishSource": "Set a password to unlock your wallet"
   },
   "veryStrong": {
-    "message": "매우 강력!",
-    "note": "Onboarding",
+    "message": "정말 강력하네요!",
     "englishSource": "Very strong!"
   },
   "medium": {
     "message": "중간",
-    "note": "Onboarding",
     "englishSource": "Medium"
   },
   "low": {
     "message": "낮음",
-    "note": "Onboarding",
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8자, 1개의 숫자",
-    "note": "Onboarding",
+    "message": "문자 8개, 숫자 1개",
     "englishSource": "8 characters, 1 number"
   },
   "minimumCharsWithAtLeast": {
-    "message": "최소 8자 이상, 1개의 숫자 이상",
-    "note": "Onboarding",
+    "message": "최소 8자 이상이며, 그중 숫자가 1개 이상 포함되어야 합니다.",
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
   "backUpWalletInstructions": {
-    "message": "이 12개 단어를 저장하고 안전한 곳에 보관하세요.",
+    "message": "이 12개의 단어를 잘 간직하여 안전한 곳에 보관하세요.",
     "englishSource": "Save these 12 words and store in a secure place."
   },
   "doNotShareWithAnywone": {
-    "message": "누구와도 공유하지 마십시오.",
+    "message": "누구에게도 알려주지 마세요.",
     "englishSource": "Do not share with anyone."
   },
   "seedPhraseRecoveryCaption": {
-    "message": "seed phrase은 복구 키입니다. 일상적인 거래가 아닌 장치 키를 교체하는 데 사용됩니다.",
+    "message": "seed phrase는 복구 키입니다. 이 키는 기기 키를 교체하는 데 사용되며, 일상적인 거래에는 사용되지 않습니다.",
     "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
   },
   "select": {
     "message": "선택",
-    "note": "Onboarding",
     "englishSource": "Select"
   },
   "selected": {
     "message": "선택됨",
-    "note": "Onboarding",
     "englishSource": "Selected"
   },
   "additionalDownloads": {
     "message": "추가 다운로드",
-    "note": "Onboarding",
     "englishSource": "Additional Downloads"
   },
   "600megabytes": {
-    "message": "600+ 메가바이트",
-    "note": "Onboarding",
+    "message": "600메가바이트 이상",
     "englishSource": "600+ megabytes"
   },
   "transactionSpeed": {
     "message": "거래 속도",
-    "note": "Onboarding",
     "englishSource": "Transaction Speed"
   },
   "transactionSpeedMins": {
-    "message": "1-10분",
-    "note": "Onboarding",
+    "message": "1~10분",
     "englishSource": "1-10 minutes"
   },
   "maximumPrivacy": {
-    "message": "최대 개인정보 보호",
-    "note": "Onboarding",
+    "message": "최상의 개인정보 보호",
     "englishSource": "Maximum Privacy"
   },
   "vpnLevelPrivacy": {
     "message": "VPN 수준의 개인정보 보호",
-    "note": "Onboarding",
     "englishSource": "VPN level privacy"
   },
   "transactionSpeed2Sec": {
     "message": "2초",
-    "note": "Onboarding",
     "englishSource": "2 seconds"
   },
   "additionalDownloads0mb": {
-    "message": "0MB",
+    "message": "0 MB",
     "englishSource": "0 MB"
   },
   "delegateProofsToSecureServers": {
-    "message": "증명을 안전한 서버에 위임",
-    "note": "Onboarding",
+    "message": "증명을 보안 서버로 위임합니다",
     "englishSource": "Delegate proofs to secure servers"
   },
   "delegateTransactions": {
-    "message": "거래 위임",
-    "note": "Onboarding",
+    "message": "위임\n트랜잭션",
     "englishSource": "Delegate\nTransactions"
   },
   "generateTransactionsLocally": {
-    "message": "로컬에서 거래 생성",
-    "note": "Onboarding",
+    "message": "거래 생성\n로컬에서",
     "englishSource": "Generate Transactions\nLocally"
   },
   "resetRequired": {
-    "message": "지갑 재설정 필요",
+    "message": "지갑 재설정이 필요합니다",
     "englishSource": "Wallet Reset Required"
   },
   "resetRequiredDescription": {
-    "message": "Miden Testnet은 귀하의 경험을 향상시키기 위해 bech32 계정 ID로 업그레이드되었습니다. 지갑을 계속 사용하려면 백업 파일이나 Seed Phrase를 복원하거나 새로 생성하세요.",
+    "message": "Miden 테스트넷은 사용자 경험을 개선하기 위해 계정 ID를 bech32로 업그레이드했습니다. 지갑을 계속 사용하려면 백업 파일이나 seed phrase에서 지갑을 복원하거나, 새 지갑을 생성해 주세요.",
     "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or seed phrase, or create a new one."
   },
   "resetRequiredSecondDescription": {
-    "message": "불편을 끼쳐드려 죄송합니다.",
+    "message": "불편을 드려 죄송합니다.",
     "englishSource": "We’re sorry for the inconvenience."
   },
   "reset": {
-    "message": "지갑 재설정",
+    "message": "지갑 초기화",
     "englishSource": "Reset Wallet"
   },
   "forgotPassword": {
@@ -2216,23 +2237,23 @@
     "englishSource": "Forgot Password?"
   },
   "forgotPasswordDescription": {
-    "message": "비밀번호를 잊어버린 경우 로그아웃한 후 계정을 다시 가져와야 합니다. 그 후에는 새 비밀번호를 만들 수 있습니다.",
+    "message": "비밀번호를 잊어버린 경우, 로그아웃한 후 계정을 다시 불러와야 합니다. 그런 다음 새 비밀번호를 설정할 수 있습니다.",
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "12단어 Seed 문구를 모르거나 암호화된 백업 파일이 없으면 로그아웃하지 마세요.",
+    "message": "12단어 비밀구문(Seed phrase)을 알고 있거나 암호화된 백업 파일이 없는 경우, 로그아웃하지 마십시오.",
     "englishSource": "Do not sign out unless you know your 12-word Seed phrase or have an encrypted backup file."
   },
   "biometricUnlockRequired": {
-    "message": "생체 인식 잠금 해제 필요",
+    "message": "생체 인증을 통한 잠금 해제가 필요합니다",
     "englishSource": "Biometric Unlock Required"
   },
   "biometricUnlockRequiredDescription": {
-    "message": "이 지갑은 생체인증만을 사용합니다. 잠금을 해제하려면 Face ID, Touch ID 또는 기기 암호를 사용하세요. 다른 기기에서 지갑에 접근하려면 12단어 Seed phrase를 사용하세요.",
+    "message": "이 지갑은 생체 인증만 지원합니다. 잠금을 해제하려면 Face ID, Touch ID 또는 기기 비밀번호를 사용하세요. 다른 기기에서 지갑에 액세스하려면 12단어Seed phrase를 사용하세요.",
     "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word Seed phrase."
   },
   "resetWallet": {
-    "message": "지갑 재설정",
+    "message": "지갑 초기화",
     "englishSource": "Reset Wallet"
   },
   "signOut": {
@@ -2240,7 +2261,7 @@
     "englishSource": "Sign Out"
   },
   "twitter": {
-    "message": "엑스(트위터)",
+    "message": "X (트위터)",
     "englishSource": "X (Twitter)"
   },
   "encryptedWalletFile": {
@@ -2248,15 +2269,15 @@
     "englishSource": "Encrypted Wallet File"
   },
   "guardianBadge": {
-    "message": "보호자",
+    "message": "Guardian",
     "englishSource": "Guardian"
   },
   "guardianSettings": {
-    "message": "보호자 설정",
+    "message": "Guardian 설정",
     "englishSource": "Guardian Settings"
   },
   "currentLabel": {
-    "message": "현재의",
+    "message": "현재",
     "englishSource": "Current"
   },
   "newGuardianEndpoint": {
@@ -2264,107 +2285,147 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "그 사람은 이미 현재 보호자입니다.",
+    "message": "이것이 바로 현재 guardian의 정의입니다.",
     "englishSource": "That's already your current guardian."
   },
   "rotateGuardian": {
-    "message": "가디언 회전",
+    "message": "Guardian 순서 변경",
     "englishSource": "Rotate Guardian"
   },
   "keys": {
-    "message": "열쇠",
+    "message": "키",
     "englishSource": "Keys"
   },
   "customGuardian": {
-    "message": "맞춤 가디언",
+    "message": "사용자 정의 Guardian",
     "englishSource": "Custom Guardian"
   },
   "guardianProvider": {
-    "message": "공급자",
+    "message": "제공자",
     "englishSource": "Provider"
   },
+  "guardianEndpointLabel": {
+    "message": "엔드포인트",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "지역",
+    "englishSource": "Region"
+  },
+  "guardianLastSync": {
+    "message": "마지막 동기화",
+    "englishSource": "Last sync"
+  },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianRotationComplete": {
+    "message": "Guardian 업데이트됨!",
+    "englishSource": "Guardian Updated!"
+  },
+  "online": {
+    "message": "온라인",
+    "englishSource": "Online"
+  },
   "reviewRotation": {
-    "message": "순환 검토",
+    "message": "검토 순환",
     "englishSource": "Review rotation"
   },
   "newLabel": {
-    "message": "새로운",
+    "message": "새로움",
     "englishSource": "New"
   },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "이 Guardian 전환을 승인하려면 인증을 진행하십시오.",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "인증 서비스를 이용할 수 없습니다. Guardian으로 전환하기 전에 다시 시도해 주세요.",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
+  },
   "walletKeyHot": {
-    "message": "지갑 열쇠(핫)",
+    "message": "지갑 키 (핫)",
     "englishSource": "Wallet key (hot)"
   },
   "recoveryPhraseCold": {
-    "message": "회복 문구(콜드)",
+    "message": "복구 문구 (콜드)",
     "englishSource": "Recovery phrase (cold)"
   },
   "oldGuardianCantBlockTitle": {
-    "message": "이전 보호자는 이를 차단할 수 없습니다.",
+    "message": "기존의 Guardian으로는 이를 차단할 수 없습니다",
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "회전은 기기에 내장된 키 2개로 승인됩니다. 이전 Guardian에게만 알림이 전송됩니다.",
+    "message": "로테이션은 기기에 저장된 두 개의 키로 승인됩니다. 기존 Guardian 주소에는 단지 알림만 전송됩니다.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
-    "message": "장치 키 회전",
+    "message": "기기 키 회전",
     "englishSource": "Rotate device key"
   },
   "replaceHotKeyDescription": {
-    "message": "새 장치(핫) 키를 생성하고 현재 온체인 키를 교체합니다. 장치가 손상된 것으로 의심되는 경우 유용합니다.",
+    "message": "새로운 기기(핫) 키를 생성하고, 온체인에서 기존 키를 대체합니다. 기기가 해킹당했을 가능성이 있다고 의심될 때 유용합니다.",
     "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
   },
   "replaceHotKeyConfirmation": {
-    "message": "이는 복구(콜드) 키로 서명됩니다. 귀하의 seed phrase은 필요하지 않으며 귀하의 자금과 계좌는 동일하게 유지됩니다. 계속하다?",
+    "message": "이 작업은 귀하의 복구(콜드) 키로 서명됩니다. seed phrase은 필요하지 않으며, 귀하의 자산과 계정은 그대로 유지됩니다. 계속하시겠습니까?",
     "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
   },
   "confirmReplaceHotKey": {
-    "message": "순환 확인",
+    "message": "회전 확인",
     "englishSource": "Confirm rotation"
   },
   "hotKeyRotationOverlayTitle": {
-    "message": "장치 키 순환",
+    "message": "기기 키 회전",
     "englishSource": "Rotating your device key"
   },
   "hotKeyRotationOverlayBody": {
-    "message": "장치(핫) 키가 순환되고 있습니다. 이는 복구된 계정을 설정하여 동기화하고 거래할 수 있도록 하는 데 필요합니다.",
+    "message": "기기의 (핫) 키가 회전되고 있습니다. 이는 복구된 계정을 설정하여 동기화 및 거래를 수행할 수 있도록 하기 위해 필요한 과정입니다.",
     "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
   "hotKeyRotationFailedTitle": {
-    "message": "기기 키 순환 실패",
+    "message": "장치 키 교체에 실패했습니다.",
     "englishSource": "Device key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "기기 키를 순환하는 중에 문제가 발생했습니다.",
+    "message": "기기 키를 회전하는 과정에서 문제가 발생했습니다.",
     "englishSource": "Something went wrong while rotating your device key."
   },
   "hotKeyRotationRetry": {
-    "message": "다시 해 보다",
+    "message": "다시 시도",
     "englishSource": "Retry"
   },
   "guardianChangedTitle": {
-    "message": "보호자가 변경되었습니다.",
+    "message": "Guardian 수정됨",
     "englishSource": "Guardian changed"
   },
   "guardianChangedBody": {
-    "message": "보호자가 바뀌어 새 교환원을 확인할 수 없습니다. 다시 연결하려면 해당 URL을 입력하세요.",
+    "message": "guardian가 변경되었으며, 새로운 운영자를 확인할 수 없었습니다. URL을 입력하여 다시 연결하십시오.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
   "guardianUrlMismatch": {
-    "message": "해당 운영자는 귀하 계정의 온체인 보호자와 일치하지 않습니다.",
+    "message": "해당 운영자는 귀하의 계정 온체인 주소(guardian)와 일치하지 않습니다.",
     "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "revealHotKey": {
-    "message": "장치 키 공개",
+    "message": "기기 키 표시",
     "englishSource": "Reveal device key"
   },
   "revealHotKeyDescription": {
-    "message": "귀하의 장치(핫) 키는 설정 → 장치 키 회전에서 회전 가능하므로 이를 공개하는 것은 seed phrase보다 위험이 낮습니다. 하지만 키를 보유하고 있는 사람은 귀하가 회전할 때까지 거래에 서명할 수 있습니다.",
+    "message": "기기(핫) 키는 ‘설정 → 기기 키 회전’에서 회전시킬 수 있으므로, 이 키가 노출되더라도 ‘seed phrase’보다 위험 부담이 적습니다. 하지만 키를 소지한 사람은 키를 회전시킬 때까지 거래를 서명할 수 있습니다.",
     "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
   },
   "hotPrivateKey": {
-    "message": "장치 개인 키",
+    "message": "기기 개인 키",
     "englishSource": "Device Private Key"
   },
   "hotPublicKeyLabel": {
@@ -2380,15 +2441,15 @@
     "englishSource": "Recovery (Cold) Public Key"
   },
   "guardianKeysRevealDescription": {
-    "message": "귀하의 Guardian 계정은 정기 서명을 위한 장치(핫) 키, 계정 관리 작업을 위한 seed phrase에서 파생된 복구(콜드) 키, 외부 보호자 공동 서명자의 세 가지 키로 보호됩니다. 다음은 콜드 개인 키와 두 공개 키입니다. 장치 개인 키를 공개하려면 설정 → 장치 키 공개를 사용하세요.",
+    "message": "귀하의 Guardian 계정은 세 가지 키로 보호됩니다: 일상적인 서명에 사용되는 기기(핫) 키, 계정 관리 작업을 위해 귀하의 seed phrase에서 파생된 복구(콜드) 키, 그리고 외부 guardian 공동 서명자입니다. 아래에는 귀하의 콜드 개인 키와 두 개의 공개 키가 표시되어 있습니다. 기기 개인 키를 확인하려면 설정 → 기기 키 표시를 사용하십시오.",
     "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
-    "message": "장치 키를 공개하기 전에",
+    "message": "기기 키를 공개하기 전에",
     "englishSource": "Before you reveal your device key"
   },
   "hotKeyRevealWarningBody": {
-    "message": "이 키를 가진 사람은 누구나 교체할 때까지 거래에 서명할 수 있습니다. 키가 유출된 경우 설정 → 기기 키 회전을 통해 키를 회전하세요.",
+    "message": "이 키를 가진 사람은 누구나 키를 교체할 때까지 거래에 서명할 수 있습니다. 키가 유출된 경우, ‘설정’ → ‘기기 키 교체’를 통해 키를 교체하십시오.",
     "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
   },
   "invalidUrl": {
@@ -2396,15 +2457,15 @@
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
   "encryptedWalletFileDescription": {
-    "message": "암호화된 지갑 파일에 접근하려면 비밀번호를 입력하세요.",
+    "message": "암호화된 지갑 파일에 액세스하려면 비밀번호를 입력하세요.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
   },
   "encryptedWalletFileDescriptionHardware": {
-    "message": "암호화된 지갑 파일에 액세스하려면 비밀번호로 잠금을 해제하세요.",
+    "message": "암호를 입력하여 암호화된 지갑 파일에 접근하세요.",
     "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
-    "message": "나는 암호화된 지갑 파일을 Bread을 포함한 누구와도 공유하지 않을 것입니다.",
+    "message": "저는 Bread를 포함해 누구에게도 제 암호화된 지갑 파일을 공유하지 않을 것입니다.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
   "enterPasswordToEncrypt": {
@@ -2412,23 +2473,27 @@
     "englishSource": "Enter a password to encrypt your wallet file."
   },
   "contacts": {
-    "message": "콘택트 렌즈",
+    "message": "연락처",
     "englishSource": "Contacts"
   },
   "noOtherAccounts": {
-    "message": "다른 계정 없음",
+    "message": "다른 계정은 없습니다",
     "englishSource": "No other accounts"
   },
   "noOtherAccountsDescription": {
-    "message": "아직 다른 계정을 만들지 않았습니다.",
+    "message": "아직 다른 계정을 만들지 않으셨습니다.",
     "englishSource": "You have not created any other accounts yet"
   },
   "invalidMidenAccountId": {
-    "message": "잘못된 Miden 계정 ID",
+    "message": "Miden 계정 ID가 유효하지 않습니다.",
     "englishSource": "Invalid Miden account ID"
   },
+  "midenAddressWrongNetwork": {
+    "message": "이 주소는 다른 Miden 네트워크에 속합니다.",
+    "englishSource": "This address belongs to a different Miden network"
+  },
   "cannotSendToSelf": {
-    "message": "자신의 주소로 보낼 수 없습니다.",
+    "message": "자신의 주소로 발송할 수 없습니다.",
     "englishSource": "You can't send to your own address"
   },
   "amountMustBeLessThanBalance": {
@@ -2436,19 +2501,19 @@
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "MIDEN 노트 자동 소비",
+    "message": "Auto Consume MIDEN notes",
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Miden Faucet에서 자동으로 notes 소비",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "수신된 MIDENnotes을 잔액에 자동으로 청구합니다 — ‘Claim’을 탭하는 것과 동일합니다. 이 과정에서 자금이 지출되거나 수수료가 추가되지 않습니다.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "암호화된 지갑 파일",
     "englishSource": "Encrypted Wallet File"
   },
   "encryptedWalletFileExportedTitle2": {
-    "message": "내보냈습니다!",
+    "message": "내보내졌습니다!",
     "englishSource": "Exported!"
   },
   "encryptedWalletFileExportedDesc1": {
@@ -2456,11 +2521,11 @@
     "englishSource": "Your encrypted wallet file has been downloaded."
   },
   "encryptedWalletFileExportedDesc2": {
-    "message": "해당 정보와 비밀번호를 안전하게 보관하세요.",
+    "message": "이 정보와 비밀번호를 안전하게 보관해 주세요.",
     "englishSource": "Keep it and your password safe."
   },
   "encryptedWalletFileExportedDesc3": {
-    "message": "분실하면 지갑에 접근할 수 없게 될 위험이 있습니다.",
+    "message": "이것들을 분실하면 지갑에 접근할 수 없게 될 위험이 있습니다",
     "englishSource": "If you lose them you risk losing access to your wallet"
   },
   "saveEncryptedWalletFile": {
@@ -2468,52 +2533,47 @@
     "englishSource": "Save Encrypted Wallet File"
   },
   "permissionLabel": {
-    "message": "해독 권한: $decryptPermission$ ",
-    "placeholders": {
-      "decryptPermission": {
-        "content": "$1"
-      }
-    },
+    "message": "개인 정보 접근 권한",
     "englishSource": "Private Data Permission"
   },
   "confirmPrivateDataPermissionDescription": {
-    "message": "이를 통해 귀하의 계정 데이터에 영구적으로 액세스할 수 있으며 취소할 수 없습니다.",
+    "message": "이렇게 하면 귀하의 계정 데이터에 대한 영구적인 접근 권한이 부여되며, 이는 취소할 수 없습니다.",
     "englishSource": "This will give permanent access to your account data and cannot be revoked."
   },
   "privateAccountAccessRequest": {
-    "message": "이 사이트는 귀하의 개인 계정에 대한 액세스를 요청하고 있습니다.",
+    "message": "이 사이트에서 귀하의 비공개 계정에 대한 접근 권한을 요청하고 있습니다.",
     "englishSource": "This site is requesting access to your private account."
   },
   "publicAccountAccessRequest": {
-    "message": "이 사이트는 귀하의 공개 계정에 대한 액세스를 요청하고 있습니다.",
+    "message": "이 사이트에서 귀하의 공개 계정에 대한 접근 권한을 요청하고 있습니다.",
     "englishSource": "This site is requesting access to your public account."
   },
   "balanceAccess": {
-    "message": "지갑 잔액과 내역을 확인하세요",
+    "message": "지갑 잔액과 내역을 확인하도록 허용하세요",
     "englishSource": "Let it see your wallet balance and history"
   },
   "sendTransactionRequests": {
-    "message": "거래 요청을 보내도록 하세요.",
+    "message": "거래 요청을 보내도록 하세요",
     "englishSource": "Let it send you requests for transactions"
   },
   "fundsStayInWallet": {
-    "message": "거래를 실행할 때까지 자금은 지갑에서 떠나지 않습니다.",
+    "message": "거래를 실행하기 전까지는 자금이 지갑에서 빠져나가지 않습니다.",
     "englishSource": "Funds will not leave your wallet until you execute a transaction"
   },
   "privateDataAccessAuto": {
-    "message": "개인 데이터 접근: 자동",
+    "message": "개인 정보 접근: 자동",
     "englishSource": "Private Data Access: Automatic"
   },
   "privateDataAccessUponRequest": {
-    "message": "개인 데이터 접근: 요청 시",
+    "message": "개인 정보 열람: 요청 시",
     "englishSource": "Private Data Access: Upon Request"
   },
   "accessWillBeGranted": {
-    "message": "다음 데이터에 대한 액세스 권한이 부여됩니다",
+    "message": "다음 데이터에 대한 접근 권한이 부여될 예정입니다.",
     "englishSource": "Access to the following data will be granted"
   },
   "confirmationRequired": {
-    "message": "계정 데이터를 요청할 때마다 확인이 필요합니다.",
+    "message": "계정 데이터를 요청할 때마다 확인 절차가 필요합니다.",
     "englishSource": "Confirmation is required every time account data is requested"
   },
   "transactionCompleted": {
@@ -2525,31 +2585,31 @@
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
-    "message": "이 창을 닫지 마세요. 거래가 생성된 후 홈 페이지로 다시 이동됩니다.",
-    "englishSource": "Do not close this window. You will be navigated back to the home page after the transaction is generated"
+    "message": "트랜잭션이 생성될 때까지 이 창을 닫지 마십시오.",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "doNotCloseWindowAutoClose": {
-    "message": "이 창을 닫지 마세요. 거래가 생성된 후 창은 자동으로 닫힙니다.",
-    "englishSource": "Do not close this window. Window will auto-close after the transaction is generated"
+    "message": "트랜잭션이 생성될 때까지 이 창을 닫지 마십시오.",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "transactionSuccessDescription": {
     "message": "귀하의 거래가 성공적으로 처리되었으며 네트워크에서 확인되었습니다.",
     "englishSource": "Your transaction was successfully processed and confirmed on the network."
   },
   "transactionErrorDescription": {
-    "message": "거래를 처리하는 중에 오류가 발생했습니다. 다시 시도해 주세요.",
+    "message": "거래 처리 중 오류가 발생했습니다. 다시 시도해 주십시오.",
     "englishSource": "There was an error processing your transaction. Please try again."
   },
   "transactionRoute": {
-    "message": "노선",
+    "message": "경로",
     "englishSource": "Route"
   },
   "paymentSent": {
-    "message": "결제가 전송되었습니다!",
+    "message": "결제가 완료되었습니다!",
     "englishSource": "Payment Sent!"
   },
   "bridgeRouteViaEpoch": {
-    "message": "에포크를 통해",
+    "message": "Epoch를 통해",
     "englishSource": "Via Epoch"
   },
   "bridgeRouteViaAgglayer": {
@@ -2557,11 +2617,11 @@
     "englishSource": "Via Agglayer"
   },
   "bridgeSpeedFast": {
-    "message": "빠른",
+    "message": "빠름",
     "englishSource": "Fast"
   },
   "bridgeSpeedSlow": {
-    "message": "느린",
+    "message": "느림",
     "englishSource": "Slow"
   },
   "swapOrderCreated": {
@@ -2569,15 +2629,19 @@
     "englishSource": "Swap Order Created!"
   },
   "youreEarning": {
-    "message": "당신은 수익을 올리고 있습니다!",
+    "message": "수입이 늘고 있어요!",
     "englishSource": "You're Earning!"
   },
   "viewInActivities": {
-    "message": "활동에서 보기",
+    "message": "'활동'에서 보기",
     "englishSource": "View in Activities"
   },
+  "viewActivity": {
+    "message": "활동 보기",
+    "englishSource": "View activity"
+  },
   "viewDetails": {
-    "message": "세부정보 보기",
+    "message": "상세 정보 보기",
     "englishSource": "View Details"
   },
   "chooseRecoveryMethod": {
@@ -2585,15 +2649,15 @@
     "englishSource": "Set Up Account Recovery"
   },
   "chooseRecoveryMethodDescription": {
-    "message": "액세스 권한을 상실한 경우 계정을 복구할 방법을 선택하세요.",
+    "message": "계정에 접속할 수 없게 될 경우, 계정을 복구할 방법을 선택하세요.",
     "englishSource": "Choose how you want to recover your account if you lose access."
   },
   "guardianRecovery": {
-    "message": "보호자",
+    "message": "Guardian",
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "추천합니다. 귀하의 계정에 대한 보호자 기반 복구이지만 보호자 운영자가 귀하의 상태를 볼 수 있습니다.",
+    "message": "권장 사항: Guardian을 기반으로 계정을 복구하되, guardian 운영자는 귀하의 상태를 확인할 수 있습니다.",
     "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
@@ -2601,19 +2665,19 @@
     "englishSource": "Fully Private"
   },
   "fullyPrivateRecoveryDescription": {
-    "message": "로컬에서만 가능하며 귀하 외에는 누구도 귀하의 상태를 볼 수 없지만 복구할 수는 없습니다. 장치를 분실하면 자금이 영구적으로 손실됩니다.",
+    "message": "지역 내에만 적용되며, 본인 외에는 누구도 귀하의 상태를 확인할 수 없습니다. 단, 복구 기능은 제공되지 않으므로 기기를 분실할 경우 자금은 영구적으로 손실됩니다.",
     "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
   },
   "importRecoveryMethodTitle": {
-    "message": "이 지갑을 어떻게 복구하시겠습니까?",
+    "message": "이 지갑을 되찾고 싶으신가요?",
     "englishSource": "How would you like to recover this wallet?"
   },
   "importViaGuardian": {
-    "message": "Guardian을 통해 가져오기",
+    "message": "Guardian를 통해 가져오기",
     "englishSource": "Import via Guardian"
   },
   "importViaGuardianDescription": {
-    "message": "보호자를 통해 이 계정을 복구하고 공동 서명하세요.",
+    "message": "이 계정을 복구하고 공동 서명하려면 guardian를 사용하십시오.",
     "englishSource": "Use a guardian to recover and co-sign for this account."
   },
   "importPublicAccount": {
@@ -2625,19 +2689,19 @@
     "englishSource": "Import the public account derived from your seed phrase."
   },
   "guardianEndpoint": {
-    "message": "보호자 URL",
+    "message": "Guardian URL",
     "englishSource": "Guardian URL"
   },
   "useDifferentGuardian": {
-    "message": "다른 보호자를 사용하세요",
+    "message": "다른 guardian를 사용하세요",
     "englishSource": "Use a different guardian"
   },
   "detectingGuardian": {
-    "message": "보호자를 찾고 있습니다…",
+    "message": "guardian를 찾고 계신가요…",
     "englishSource": "Looking for your guardian…"
   },
   "guardianDetectedTitle": {
-    "message": "보호자를 찾았습니다: $name$ ",
+    "message": "guardian를 찾으셨나요? $name$",
     "englishSource": "Found your guardian: $name$",
     "placeholders": {
       "name": {
@@ -2646,19 +2710,19 @@
     }
   },
   "guardianDetectedMultiple": {
-    "message": "한 명 이상의 보호자가 이 계정을 알고 있습니다. 우리는 가장 최근 상태를 담고 있는 것을 선택했습니다.",
+    "message": "이 계정을 인식하는 ‘guardian’가 여러 개 있습니다. 그중에서 귀하의 가장 최근 상태를 보유한 것을 선택했습니다.",
     "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
   },
   "useCustomGuardianInstead": {
-    "message": "대신 다른 것을 사용하시겠습니까?",
+    "message": "대신 다른 것을 사용해 볼까요?",
     "englishSource": "Use a different one instead?"
   },
   "guardianNotDetected": {
-    "message": "보호자를 자동으로 감지할 수 없습니다. 사용한 것을 선택하거나 URL을 입력하세요.",
+    "message": "사용하신 guardian를 자동으로 감지할 수 없습니다. 사용하신 도메인을 선택하거나 URL을 직접 입력해 주세요.",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
   },
   "guardianProbePartialFailure": {
-    "message": "$count$명의 보호자에게 연락할 수 없으므로 감지가 불완전할 수 있습니다.",
+    "message": "$count$ guardian(s)에 접속할 수 없어, 탐지가 불완전할 수 있습니다.",
     "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
     "placeholders": {
       "count": {
@@ -2671,23 +2735,23 @@
     "englishSource": "Try detecting again"
   },
   "guardianAccountNotFound": {
-    "message": "이 보호자에서 귀하의 계정을 찾을 수 없습니다. 대신 URL을 확인하거나 공개 계정으로 가져오세요.",
+    "message": "guardian에서 귀하의 계정을 찾을 수 없습니다. URL을 확인하거나 대신 공개 계정으로 가져오시기 바랍니다.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
   },
   "useCustomGuardianUrl": {
-    "message": "맞춤 Guardian URL을 사용하세요.",
+    "message": "Guardian 맞춤 URL을 사용하세요",
     "englishSource": "Use a custom Guardian URL"
   },
   "default": {
-    "message": "기본",
+    "message": "기본값",
     "englishSource": "Default"
   },
   "home": {
-    "message": "집",
+    "message": "홈",
     "englishSource": "Home"
   },
   "noteId": {
-    "message": "Note 아이디",
+    "message": "Note ID",
     "englishSource": "Note ID"
   },
   "viewOnMidenscan": {
@@ -2699,79 +2763,79 @@
     "englishSource": "In Progress"
   },
   "you": {
-    "message": "너",
+    "message": "당신",
     "englishSource": "You"
   },
   "invalidPayload": {
-    "message": "(잘못된 페이로드)",
+    "message": "(유효하지 않은 페이로드)",
     "englishSource": "(invalid payload)"
   },
   "sharePrivateNoteDataForAccount": {
-    "message": "계정의 모든 비공개 Note 데이터 공유",
+    "message": "해당 계정의 모든 비공개 note 데이터를 공유합니다.",
     "englishSource": "Share all private note data for account"
   },
   "downloadPrivateNoteData": {
-    "message": "개인 Note 데이터 다운로드",
+    "message": "Note의 비공개 데이터 다운로드",
     "englishSource": "Download Private Note Data"
   },
   "failedToParseSigningPayload": {
-    "message": "서명 페이로드를 구문 분석하지 못했습니다.",
+    "message": "서명 페이로드 구문 분석에 실패했습니다.",
     "englishSource": "Failed to parse signing payload"
   },
   "assetChanges": {
-    "message": "자산 변경",
+    "message": "자산 변동",
     "englishSource": "Asset changes"
   },
   "unknown": {
-    "message": "알려지지 않은",
+    "message": "알 수 없음",
     "englishSource": "Unknown"
   },
   "inputNotesConsumed": {
-    "message": "소비된 입력 노트",
+    "message": "notes가 소비되었습니다.",
     "englishSource": "Input notes consumed"
   },
   "outputNotesCreated": {
-    "message": "생성된 출력 노트",
+    "message": "notes 파일이 생성되었습니다.",
     "englishSource": "Output notes created"
   },
   "storageChanged": {
-    "message": "저장용량이 변경됨",
+    "message": "저장소가 변경되었습니다",
     "englishSource": "Storage changed"
   },
   "downloadFullSummary": {
-    "message": "전체 요약 다운로드(바이트)",
+    "message": "전체 요약 다운로드 (바이트)",
     "englishSource": "Download full summary (bytes)"
   },
   "signArbitraryPayload": {
-    "message": "임의 페이로드에 서명하시겠습니까?",
+    "message": "임의의 페이로드에 서명할까요?",
     "englishSource": "Sign the Arbitrary payload?"
   },
   "signBlindCommitment": {
-    "message": "블라인드 약속에 서명하시겠습니까?",
+    "message": "‘블라인드’ 서약에 서명하시겠습니까?",
     "englishSource": "Sign the Blind commitment?"
   },
   "connectToWebsite": {
-    "message": "웹사이트에 연결",
+    "message": "웹사이트에 접속하기",
     "englishSource": "Connect to website"
   },
   "deny": {
-    "message": "부인하다",
+    "message": "거부",
     "englishSource": "Deny"
   },
   "requestsATransaction": {
-    "message": "거래를 요청합니다",
+    "message": "트랜잭션을 요청합니다",
     "englishSource": "Requests a transaction"
   },
   "requestsToConsumeNote": {
-    "message": "Note 사용 요청",
+    "message": "note를 호출하려는 요청",
     "englishSource": "Requests to consume a note"
   },
   "requestPrivateNotes": {
-    "message": "비공개 Note 요청",
+    "message": "비공개 요청 Notes",
     "englishSource": "Request Private Notes"
   },
   "requestsPrivateNotes": {
-    "message": "비공개 메모 요청",
+    "message": "notes의 비공개 요청",
     "englishSource": "Requests private notes"
   },
   "confirmSignature": {
@@ -2779,7 +2843,7 @@
     "englishSource": "Confirm Signature"
   },
   "requestsYourSignature": {
-    "message": "서명을 요청합니다",
+    "message": "서명을 부탁드립니다",
     "englishSource": "Requests your signature"
   },
   "requestAssets": {
@@ -2787,39 +2851,39 @@
     "englishSource": "Request Assets"
   },
   "requestsAssets": {
-    "message": "자산 요청",
+    "message": "자산을 요청합니다",
     "englishSource": "Requests assets"
   },
   "requestImportPrivateNote": {
-    "message": "개인 Note 가져오기 요청",
+    "message": "Note의 비공개 정보 가져오기 요청",
     "englishSource": "Request Import Private Note"
   },
   "importPrivateNote": {
-    "message": "비공개 Note 가져오기",
+    "message": "note를 비공개로 가져오기",
     "englishSource": "Import private note"
   },
   "requestConsumableNotes": {
-    "message": "소모품 Note 요청",
+    "message": "소모품 요청 Notes",
     "englishSource": "Request Consumable Notes"
   },
   "requestsConsumableNotes": {
-    "message": "소모품 메모 요청",
+    "message": "소모품 요청 notes",
     "englishSource": "Request consumable notes"
   },
   "review": {
-    "message": "검토",
+    "message": "리뷰",
     "englishSource": "Review"
   },
   "close": {
-    "message": "닫다",
+    "message": "닫기",
     "englishSource": "Close"
   },
   "recallBlocks": {
-    "message": "리콜 블록",
+    "message": "블록 회수",
     "englishSource": "Recall blocks"
   },
   "delegateTransaction": {
-    "message": "거래 위임",
+    "message": "트랜잭션 위임",
     "englishSource": "Delegate transaction"
   },
   "arrives": {
@@ -2835,7 +2899,7 @@
     "englishSource": "Fast"
   },
   "slow": {
-    "message": "느린",
+    "message": "느림",
     "englishSource": "Slow"
   },
   "seconds": {
@@ -2843,7 +2907,7 @@
     "englishSource": "Seconds"
   },
   "minutes": {
-    "message": "분",
+    "message": "회의록",
     "englishSource": "Minutes"
   },
   "invalidEthereumAddress": {
@@ -2851,15 +2915,15 @@
     "englishSource": "Invalid Ethereum address"
   },
   "sendPayment": {
-    "message": "지불금 보내기",
+    "message": "결제 보내기",
     "englishSource": "Send Payment"
   },
   "claimAll": {
-    "message": "모두 청구",
+    "message": "모두 청구하기",
     "englishSource": "Claim All"
   },
   "claimAllProgress": {
-    "message": "모두 청구하시겠습니까? ( $unclaimed$ / $total$ )",
+    "message": "모두 청구하기? ($unclaimed$ / $total$)",
     "englishSource": "Claim All? ($unclaimed$/$total$)",
     "placeholders": {
       "unclaimed": {
@@ -2871,7 +2935,7 @@
     }
   },
   "totalPending": {
-    "message": "총 보류 중",
+    "message": "미결 처리 건수 총계",
     "englishSource": "Total Pending"
   },
   "pendingNotesCount": {
@@ -2883,7 +2947,7 @@
     "englishSource": "assets"
   },
   "incomingCount": {
-    "message": "$count$ 수신 중",
+    "message": "$count$ 수신",
     "englishSource": "$count$ Incoming",
     "placeholders": {
       "count": {
@@ -2892,11 +2956,11 @@
     }
   },
   "pendingNotesInfo": {
-    "message": "Miden은 notes이라는 고유한 시스템을 사용합니다. 이곳은 입금된 돈을 수동으로 청구하는 곳입니다. 악의적인 행위자로부터 지갑을 안전하게 보호할 수 있는 방법입니다.",
+    "message": "Miden은 ‘수령 확인(notes)’이라는 독자적인 시스템을 사용합니다. 이는 입금된 자금을 수동으로 청구하는 과정입니다. 이는 악의적인 행위자로부터 지갑을 안전하게 보호할 수 있는 방법입니다.",
     "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
   },
   "notesPendingAcrossAssets": {
-    "message": "$notes$ notes $assets$ 자산에 대해 보류 중",
+    "message": "$notes$ notes $assets$의 모든 자산에 걸쳐 보류 중",
     "englishSource": "$notes$ notes pending across $assets$ assets",
     "placeholders": {
       "notes": {
@@ -2908,7 +2972,7 @@
     }
   },
   "incomingTransfersCount": {
-    "message": "$count$ 수신 이체",
+    "message": "$count$ 입금 내역",
     "englishSource": "$count$ incoming transfers",
     "placeholders": {
       "count": {
@@ -2916,16 +2980,82 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ 미해결",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "청구 실패 — '다시 시도'를 탭하여 다시 시도하세요",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "이 note 상품은 더 이상 판매되지 않습니다.",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
-    "message": "notes 보류 중",
+    "message": "대기 중인 notes",
     "englishSource": "Pending notes"
+  },
+  "whatArePendingNotes": {
+    "message": "보류 중인 지급 통지서(notes)란 무엇인가요?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "notes를 참고하세요.",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "이 보류 중인 자금을 잔액에 추가하면 사용을 시작할 수 있습니다.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "누군가 자금을 보내면, 해당 자금은 비공개 상태로 도착합니다.",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— 오직 본인만이 열 수 있는 봉인된 패키지입니다.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "사용",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "note를 통해 자금이 사용 가능한 잔액으로 이체됩니다. 이체되기 전까지는 자금이 귀하의 소유이지만 아직 사용할 수는 없습니다.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "다음과 같이 작성해 주세요:",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "기다려 주세요. 서두를 필요는 없으며, 자금이 위험에 노출될 일도 없으니 언제든지 이용하시면 됩니다.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
   },
   "getTokens": {
     "message": "토큰 받기",
     "englishSource": "Get tokens"
   },
   "midenFaucet": {
-    "message": "미덴 Faucet",
+    "message": "Miden Faucet",
     "englishSource": "Miden Faucet"
   },
   "accountPublicKey": {
@@ -2937,15 +3067,15 @@
     "englishSource": "Edit Miden Faucet ID"
   },
   "faucetId": {
-    "message": "Faucet 아이디",
+    "message": "Faucet ID",
     "englishSource": "Faucet ID"
   },
   "setNewFaucetId": {
-    "message": "새로운 Faucet ID 설정",
+    "message": "Faucet의 새 ID 설정",
     "englishSource": "Set new Faucet ID"
   },
   "setNewFaucetIdDescription": {
-    "message": "미덴 Faucet의 ID를 입력하세요",
+    "message": "미덴의 ID를 입력하세요 faucet",
     "englishSource": "Enter the ID of a miden faucet"
   },
   "addAccount": {
@@ -2953,51 +3083,51 @@
     "englishSource": "Add Account"
   },
   "addAccountComingSoon": {
-    "message": "계정 추가(출시 예정)",
+    "message": "계정 추가 (출시 예정)",
     "englishSource": "Add Account (Coming Soon)"
   },
   "faucetIdUpdated": {
-    "message": "Faucet ID가 업데이트되었습니다.",
+    "message": "Faucet ID 업데이트됨",
     "englishSource": "Faucet ID Updated"
   },
   "connectivityNetworkTitle": {
-    "message": "오프라인 상태인 것 같습니다",
+    "message": "현재 오프라인 상태인 것 같습니다.",
     "englishSource": "You appear to be offline"
   },
   "connectivityNetworkBody": {
-    "message": "인터넷 연결을 확인하고 다시 시도하세요.",
+    "message": "인터넷 연결 상태를 확인한 후 다시 시도해 주세요.",
     "englishSource": "Check your internet connection and try again."
   },
   "connectivityNodeTitle": {
-    "message": "Miden 노드에 도달할 수 없습니다.",
+    "message": "Miden 노드에 연결할 수 없습니다.",
     "englishSource": "Cannot reach the Miden node"
   },
   "connectivityNodeBody": {
-    "message": "노드가 다운되었거나 과부하 상태일 수 있습니다. 잔액이 최신이 아닐 수 있습니다.",
+    "message": "노드가 다운되었거나 과부하 상태일 수 있습니다. 잔액 정보가 최신 상태가 아닐 수 있습니다.",
     "englishSource": "The node may be down or under heavy load. Your balance may be out of date."
   },
   "connectivityProverTitle": {
-    "message": "서비스 이용 불가 증명",
+    "message": "서비스 이용 불가 확인",
     "englishSource": "Proving service unavailable"
   },
   "connectivityProverBody": {
-    "message": "서비스가 다시 제공될 때까지 거래는 로컬 증명을 사용합니다.",
+    "message": "서비스가 복구될 때까지 거래는 로컬 검증 방식을 사용할 것입니다.",
     "englishSource": "Transactions will use local proving until the service is back."
   },
   "connectivityResolvingTitle": {
-    "message": "다시 연결하는 중",
+    "message": "다시 연결하기",
     "englishSource": "Reconnecting"
   },
   "connectivityResolvingBody": {
-    "message": "연결을 복원하는 중입니다.",
+    "message": "연결을 복원하려고 합니다.",
     "englishSource": "Trying to restore your connection."
   },
   "connectivityRetry": {
-    "message": "다시 시도하세요",
+    "message": "다시 시도해 보세요",
     "englishSource": "Try again"
   },
   "connectivityRetrySync": {
-    "message": "동기화 재시도",
+    "message": "동기화 다시 시도",
     "englishSource": "Retry sync"
   },
   "tomorrow": {
@@ -3005,11 +3135,11 @@
     "englishSource": "Tomorrow"
   },
   "inAWeek": {
-    "message": "일주일 안에",
+    "message": "일주일 뒤",
     "englishSource": "In a week"
   },
   "in2Weeks": {
-    "message": "2주 안에",
+    "message": "2주 후",
     "englishSource": "In 2 weeks"
   },
   "never": {
@@ -3033,11 +3163,11 @@
     "englishSource": "Time"
   },
   "avatar": {
-    "message": "화신",
+    "message": "아바타",
     "englishSource": "avatar"
   },
   "byProceeding": {
-    "message": "계속 진행하면 다음에 동의하는 것으로 간주됩니다.",
+    "message": "계속 진행함으로써 귀하는 다음 사항에 동의하는 것으로 간주됩니다.",
     "englishSource": "By proceeding, you agree to the"
   },
   "andWord": {
@@ -3057,23 +3187,23 @@
     "englishSource": "DApp Browser"
   },
   "go": {
-    "message": "가다",
+    "message": "가기",
     "englishSource": "Go"
   },
   "loading": {
-    "message": "로드 중...",
+    "message": "로딩 중...",
     "englishSource": "Loading..."
   },
   "searchDapps": {
-    "message": "dApp 검색 또는 URL 붙여넣기",
+    "message": "dApp을 검색하거나 URL을 붙여넣으세요",
     "englishSource": "Search dApps or paste URL"
   },
   "recents": {
-    "message": "최근",
+    "message": "최근 게시물",
     "englishSource": "Recents"
   },
   "categoryDefi": {
-    "message": "디파이",
+    "message": "DeFi",
     "englishSource": "DeFi"
   },
   "categoryNft": {
@@ -3085,7 +3215,7 @@
     "englishSource": "Tools"
   },
   "categorySocial": {
-    "message": "사회의",
+    "message": "소셜",
     "englishSource": "Social"
   },
   "minimize": {
@@ -3097,11 +3227,11 @@
     "englishSource": "Switch dApps"
   },
   "reload": {
-    "message": "새로고침",
+    "message": "다시 불러오기",
     "englishSource": "Reload"
   },
   "dappActionsSheet": {
-    "message": "디앱 작업",
+    "message": "dApp 작업",
     "englishSource": "dApp actions"
   },
   "dappActionCopyLink": {
@@ -3109,19 +3239,19 @@
     "englishSource": "Copy link"
   },
   "dappActionAddToMyDapps": {
-    "message": "내 Dapp에 추가",
+    "message": "내 Dapps에 추가하기",
     "englishSource": "Add to My Dapps"
   },
   "dappActionRemoveFromMyDapps": {
-    "message": "내 Dapp에서 제거",
+    "message": "'내 Dapps'에서 제거하기",
     "englishSource": "Remove from My Dapps"
   },
   "dappActionReopen": {
-    "message": "다시 열다",
+    "message": "다시 열기",
     "englishSource": "Reopen"
   },
   "restoreDappCard": {
-    "message": "복원하다 $name$ ",
+    "message": "$name$ 복원",
     "englishSource": "Restore $name$",
     "placeholders": {
       "name": {
@@ -3130,7 +3260,7 @@
     }
   },
   "closeDappCard": {
-    "message": "닫다 $name$ ",
+    "message": "$name$ 닫기",
     "englishSource": "Close $name$",
     "placeholders": {
       "name": {
@@ -3139,7 +3269,7 @@
     }
   },
   "showAllDapps": {
-    "message": "+ $count$ 더 많은 주차된 dApp",
+    "message": "+ $count$ 등 추가로 출시된 dApp들",
     "englishSource": "+$count$ more parked dApps",
     "placeholders": {
       "count": {
@@ -3148,11 +3278,11 @@
     }
   },
   "dappLoadFailed": {
-    "message": "이 dApp을 로드할 수 없습니다",
+    "message": "이 dApp을 불러올 수 없습니다",
     "englishSource": "Can't load this dApp"
   },
   "dappLoadFailedHint": {
-    "message": "연결을 확인하고 다시 시도하세요.",
+    "message": "인터넷 연결 상태를 확인한 후 다시 시도해 주세요.",
     "englishSource": "Check your connection and try again."
   },
   "dappBrowserCapsule": {
@@ -3160,7 +3290,7 @@
     "englishSource": "dApp browser header"
   },
   "dragToMinimize": {
-    "message": "최소화하려면 아래로 드래그하세요.",
+    "message": "아래로 드래그하여 최소화하세요",
     "englishSource": "Drag down to minimize"
   },
   "dappSwitcher": {
@@ -3172,19 +3302,19 @@
     "englishSource": "Close dApp switcher"
   },
   "openDappCountOne": {
-    "message": "1개의 오픈 dApp",
+    "message": "1개의 dApp 열기",
     "englishSource": "1 open dApp"
   },
   "openDappCountPlural": {
-    "message": "{count}개 오픈 dApp",
+    "message": "{count}개의 공개 dApp",
     "englishSource": "{count} open dApps"
   },
   "approve": {
-    "message": "승인하다",
+    "message": "승인",
     "englishSource": "Approve"
   },
   "dappConnectionRequest": {
-    "message": "이 앱이 지갑에 연결하려고 합니다.",
+    "message": "이 앱이 사용자의 지갑에 연결하려고 합니다",
     "englishSource": "This app wants to connect to your wallet"
   },
   "dappTransactionRequest": {
@@ -3192,15 +3322,15 @@
     "englishSource": "This app is requesting a transaction"
   },
   "noAccountSelected": {
-    "message": "선택한 계정이 없습니다.",
+    "message": "선택된 계정이 없습니다.",
     "englishSource": "No account selected"
   },
   "biometricFailed": {
-    "message": "생체 인증 실패",
+    "message": "생체 인증에 실패했습니다",
     "englishSource": "Biometric authentication failed"
   },
   "biometricAttemptsRemaining": {
-    "message": "$count$ 시도 남음",
+    "message": "$count$ 남은 시도 횟수",
     "englishSource": "$count$ attempt(s) remaining",
     "placeholders": {
       "count": {
@@ -3213,7 +3343,7 @@
     "englishSource": "Continue with Password"
   },
   "tryBiometricAgain": {
-    "message": "생체인식을 다시 시도해보세요",
+    "message": "생체 인증을 다시 시도해 보세요",
     "englishSource": "Try Biometric Again"
   },
   "fingerprint": {
@@ -3221,23 +3351,39 @@
     "englishSource": "Fingerprint"
   },
   "cameraPermissionDenied": {
-    "message": "카메라 권한이 거부되었습니다",
+    "message": "카메라 권한이 거부되었습니다.",
     "englishSource": "Camera permission denied"
   },
   "noQrCodeFound": {
-    "message": "QR 코드를 찾을 수 없습니다",
+    "message": "QR 코드를 찾을 수 없습니다.",
     "englishSource": "No QR code found"
   },
   "invalidMidenAddress": {
-    "message": "잘못된 미덴 주소",
+    "message": "Miden 주소가 잘못되었습니다.",
     "englishSource": "Invalid Miden address"
   },
   "scanCancelled": {
     "message": "스캔이 취소되었습니다.",
     "englishSource": "Scan cancelled"
   },
+  "scanQrTitle": {
+    "message": "QR 코드를 스캔하세요",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "카메라를 QR 코드에 대세요",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "카메라가 발견되지 않았습니다.",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "카메라 사용 권한 요청 중…",
+    "englishSource": "Requesting camera access…"
+  },
   "scan": {
-    "message": "주사",
+    "message": "스캔",
     "englishSource": "Scan"
   },
   "theme": {
@@ -3245,7 +3391,7 @@
     "englishSource": "Theme"
   },
   "themeSystem": {
-    "message": "체계",
+    "message": "시스템",
     "englishSource": "System"
   },
   "themeLight": {
@@ -3253,7 +3399,7 @@
     "englishSource": "Light"
   },
   "themeDark": {
-    "message": "어두운",
+    "message": "어둠",
     "englishSource": "Dark"
   },
   "hapticFeedback": {
@@ -3261,24 +3407,32 @@
     "englishSource": "Haptic Feedback"
   },
   "noNotesToClaim": {
-    "message": "현재 청구할 notes이 없습니다.",
+    "message": "현재 청구할 수 있는 notes는 없습니다.",
     "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
-    "message": "note을(를) 받았습니다.",
+    "message": "note를 수신하셨습니다.",
     "englishSource": "You have received a note"
   },
+  "transactionFailedNotificationTitle": {
+    "message": "거래가 실패했습니다.",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "거래를 완료할 수 없습니다. 지갑을 열어 확인해 주세요.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
   "noteReceivedTapToClaim": {
-    "message": "여기를 탭하여 신청하세요.",
+    "message": "여기를 탭하여 수령하세요",
     "englishSource": "Tap here to claim it"
   },
   "noteReceivedClickToClaim": {
-    "message": "Click to view and claim it",
+    "message": "클릭하여 확인하고 수령하세요",
     "englishSource": "Click to view and claim it"
   },
   "noteReceivedMultiple": {
-    "message": "You have $count$ new notes to claim",
-    "englishSource": "You have $count$ new notes to claim",
+    "message": "$count$ notes 청구하기",
+    "englishSource": "$count$ notes to claim",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3286,15 +3440,15 @@
     }
   },
   "passwordsCanBeInsecure": {
-    "message": "비밀번호는 안전하지 않을 수 있습니다. 대신 생체 인증을 사용하세요.",
+    "message": "비밀번호는 보안상 취약할 수 있습니다. 대신 생체 인증을 사용하세요.",
     "englishSource": "Passwords can be insecure. Use biometric authentication instead."
   },
   "unlockWallet": {
-    "message": "지갑 잠금해제",
+    "message": "지갑 잠금 해제",
     "englishSource": "Unlock Wallet"
   },
   "unlockWalletDescription": {
-    "message": "seed phrase을 사용하면 언제든지 공개 계정을 복원할 수 있습니다. 지갑을 빠르게 잠금 해제하는 방법을 아래에서 선택하세요.",
+    "message": "seed phrase를 사용하면 언제든지 공개 계정을 복구할 수 있습니다. 아래에서 지갑 잠금을 빠르게 해제하는 방법을 선택하세요.",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
   "faucetRequest": {
@@ -3306,7 +3460,7 @@
     "englishSource": "Activity"
   },
   "explore": {
-    "message": "탐구하다",
+    "message": "탐색하기",
     "englishSource": "Explore"
   },
   "permissions": {
@@ -3318,23 +3472,23 @@
     "englishSource": "Upon Request"
   },
   "permissionAutomatic": {
-    "message": "오토매틱",
+    "message": "자동",
     "englishSource": "Automatic"
   },
   "dAppsToggleDescription": {
-    "message": "DApp 연결을 활성화 또는 비활성화하고 가시성의 균형을 토글합니다.",
+    "message": "토글을 사용하여 DApp 연결 및 잔액 표시 기능을 켜거나 끄세요.",
     "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
   },
   "seeConnected": {
-    "message": "연결된 모습 보기",
+    "message": "관련 내용 보기",
     "englishSource": "See connected"
   },
   "transferDetails": {
-    "message": "송금 세부정보",
+    "message": "이적 상세 정보",
     "englishSource": "Transfer Details"
   },
   "advancedDetails": {
-    "message": "고급 세부정보",
+    "message": "상세 정보",
     "englishSource": "Advanced details"
   },
   "options": {
@@ -3346,7 +3500,7 @@
     "englishSource": "On"
   },
   "off": {
-    "message": "끄다",
+    "message": "끄기",
     "englishSource": "Off"
   },
   "enterUsername": {
@@ -3358,7 +3512,7 @@
     "englishSource": "Enter Address"
   },
   "failedToClaimNote": {
-    "message": "note 소유권을 주장하지 못했습니다.",
+    "message": "note 청구 실패",
     "englishSource": "Failed to claim note"
   },
   "testnet": {
@@ -3386,7 +3540,7 @@
     "englishSource": "Fungible"
   },
   "network": {
-    "message": "회로망",
+    "message": "네트워크",
     "englishSource": "Network"
   },
   "recentActivity": {
@@ -3406,7 +3560,7 @@
     "englishSource": "Notes"
   },
   "orderTracking": {
-    "message": "주문 추적",
+    "message": "주문 조회",
     "englishSource": "Order Tracking"
   },
   "orderStatus": {
@@ -3414,15 +3568,15 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "열려 있는",
+    "message": "열기",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "채우는",
+    "message": "채워짐",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "매립됨",
+    "message": "회수된",
     "englishSource": "Reclaimed"
   },
   "fillRounds": {
@@ -3430,11 +3584,11 @@
     "englishSource": "Fill rounds"
   },
   "amountFilled": {
-    "message": "채우는",
+    "message": "채워짐",
     "englishSource": "Filled"
   },
   "trackingUnavailable": {
-    "message": "사용할 수 없음",
+    "message": "이용 불가",
     "englishSource": "Not available"
   },
   "created": {
@@ -3450,31 +3604,31 @@
     "englishSource": "Date"
   },
   "details": {
-    "message": "세부",
+    "message": "상세 정보",
     "englishSource": "Details"
   },
   "pinExtensionTitle": {
-    "message": "핀 미덴 지갑",
+    "message": "핀 브레드",
     "englishSource": "Pin Bread"
   },
   "pinExtensionDescription": {
-    "message": "도구 모음에서 빠르게 액세스하려면 퍼즐 아이콘을 클릭하고 Bread을 고정하세요.",
+    "message": "퍼즐 아이콘을 클릭하고 ‘Bread’를 고정하면 툴바에서 빠르게 이용할 수 있습니다.",
     "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
   "all": {
-    "message": "모두",
+    "message": "전체",
     "englishSource": "All"
   },
   "sent": {
-    "message": "전송된",
+    "message": "보냄",
     "englishSource": "Sent"
   },
   "pending": {
-    "message": "보류 중",
+    "message": "처리 중",
     "englishSource": "Pending"
   },
   "reclaimed": {
-    "message": "매립됨",
+    "message": "회수된",
     "englishSource": "Reclaimed"
   },
   "faucetRequestTitle": {
@@ -3482,7 +3636,7 @@
     "englishSource": "Faucet Request"
   },
   "share": {
-    "message": "공유하다",
+    "message": "공유하기",
     "englishSource": "Share"
   },
   "copy": {
@@ -3494,51 +3648,51 @@
     "englishSource": "Cross-chain"
   },
   "evmWalletConnected": {
-    "message": "EVM 지갑이 연결되었습니다",
+    "message": "EVM 지갑 연결됨",
     "englishSource": "EVM wallet connected"
   },
   "connectedWallet": {
-    "message": "연결된 지갑",
+    "message": "연동 지갑",
     "englishSource": "Connected wallet"
   },
   "switchWallet": {
-    "message": "지갑 전환",
+    "message": "지갑 변경",
     "englishSource": "Switch wallet"
   },
   "current": {
-    "message": "현재의",
+    "message": "현재",
     "englishSource": "Current"
   },
   "connectAnotherWallet": {
-    "message": "다른 지갑을 연결하세요",
+    "message": "다른 지갑 연결하기",
     "englishSource": "Connect another wallet"
   },
   "midenBridge": {
-    "message": "미덴 다리",
+    "message": "Miden Bridge",
     "englishSource": "Miden Bridge"
   },
   "connectEvmWallet": {
-    "message": "EVM 지갑 연결",
+    "message": "EVM 지갑 연결하기",
     "englishSource": "Connect an EVM wallet"
   },
   "connectEvmWalletDescription": {
-    "message": "지갑을 연결하여 Miden과 자산을 연결하세요.",
+    "message": "지갑을 연결하여 Miden과 자산을 주고받으세요.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
   "onlyBridgeableTokenSupported": {
-    "message": "느린(Agglayer) 경로는 브리징 가능한 토큰만 지원합니다. 다른 토큰을 보내려면 Fast를 사용하세요.",
+    "message": "'슬로우(Agglayer)' 경로는 브리지 가능한 토큰만 지원합니다. 다른 토큰을 전송하려면 '패스트'를 사용하세요.",
     "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
   },
   "connectDestinationWalletToClaim": {
-    "message": "청구할 대상 지갑을 연결하세요.",
+    "message": "청구를 하려면 수신 지갑을 연결하십시오.",
     "englishSource": "Connect the destination wallet to claim."
   },
   "bridgeDetails": {
-    "message": "교량 세부정보",
+    "message": "브리지 세부 정보",
     "englishSource": "Bridge details"
   },
   "route": {
-    "message": "노선",
+    "message": "경로",
     "englishSource": "Route"
   },
   "selectNetwork": {
@@ -3546,7 +3700,7 @@
     "englishSource": "Select network"
   },
   "receiveOnArrivesAs": {
-    "message": "수신 날짜 $network$ · 도착 $symbol$ ",
+    "message": "$network$에서 수신 · $symbol$으로 도착",
     "englishSource": "Receive on $network$ · arrives as $symbol$",
     "placeholders": {
       "network": {
@@ -3562,15 +3716,15 @@
     "englishSource": "No fee"
   },
   "fastArrival": {
-    "message": "~30초",
+    "message": "약 30초",
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "~6시간",
+    "message": "약 6시간",
     "englishSource": "~6 hours"
   },
   "youAreDepositing": {
-    "message": "당신은 입금하고 있습니다",
+    "message": "입금 중입니다",
     "englishSource": "You are depositing"
   },
   "confirmDeposit": {
@@ -3578,23 +3732,23 @@
     "englishSource": "Confirm Deposit"
   },
   "bridgeDepositProcessing": {
-    "message": "브릿지 입금 확인",
+    "message": "브리지 입금 확인",
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "지갑에서 요청을 승인하고 Seplia가 이를 확인하는 동안 이 화면을 열어두세요.",
+    "message": "지갑에서 요청을 승인하고, Sepolia에서 확인이 완료될 때까지 이 화면을 열어 두세요.",
     "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
   },
   "bridgeDepositFailed": {
-    "message": "브릿지 입금 실패",
+    "message": "브리지 입금 실패",
     "englishSource": "Bridge deposit failed"
   },
   "bridgeDepositSubmitted": {
-    "message": "브릿지 개시!",
+    "message": "브릿지 시작되었습니다!",
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "세폴리아 거래가 확정되었습니다. 브릿지 배송이 완료되면 귀하의 자금이 Miden에 표시됩니다.",
+    "message": "Sepolia 거래가 확정되었습니다. 브리지 전송이 완료되면 귀하의 자금이 Miden에 표시될 것입니다.",
     "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
@@ -3602,19 +3756,19 @@
     "englishSource": "View on Etherscan"
   },
   "delivering": {
-    "message": "전달",
+    "message": "배송",
     "englishSource": "Delivering"
   },
   "slowNeedsNativeEth": {
-    "message": "느린(Agglayer) 경로는 테스트넷의 기본 ETH만 지원합니다. 사용하려면 ETH를 선택하세요.",
+    "message": "슬로우(Agglayer) 경로는 테스트넷에서 네이티브 ETH만 지원합니다. 이 경로를 사용하려면 ETH를 선택하세요.",
     "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
-    "message": "빠른 경로에서 ETH를 브리징하면 먼저 WETH로 래핑한 다음 WETH를 브리징합니다. 이 경로는 아직 사용할 수 없습니다.",
+    "message": "Fast 경로를 통해 ETH를 브리징할 경우, 먼저 ETH를 WETH로 래핑한 후 WETH를 브리징합니다. 이 경로는 아직 이용 불가능합니다.",
     "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
   },
   "destinationNetwork": {
-    "message": "대상 네트워크",
+    "message": "목적지 네트워크",
     "englishSource": "Destination network"
   },
   "claimStatus": {
@@ -3626,7 +3780,7 @@
     "englishSource": "Claim Asset"
   },
   "claimAssetSubmitted": {
-    "message": "청구가 제출되었습니다. 자금은 연결된 EVM 지갑에 있습니다.",
+    "message": "청구 제출 완료 — 자금은 연결된 EVM 지갑에 있습니다.",
     "englishSource": "Claim submitted — funds are on the connected EVM wallet."
   },
   "claimable": {
@@ -3634,7 +3788,7 @@
     "englishSource": "Ready to claim"
   },
   "claiming": {
-    "message": "소유권을 주장하는 중…",
+    "message": "청구 중…",
     "englishSource": "Claiming…"
   },
   "claimed": {
@@ -3642,27 +3796,27 @@
     "englishSource": "Claimed"
   },
   "claimPending": {
-    "message": "연결 — 청구가 아직 준비되지 않음",
+    "message": "브리지 — 청구가 아직 준비되지 않음",
     "englishSource": "Bridging — claim not ready yet"
   },
   "claimFailedStatus": {
-    "message": "소유권 주장 실패",
+    "message": "청구 실패",
     "englishSource": "Claim failed"
   },
   "noManualClaimRequired": {
-    "message": "자금은 자동으로 도착하므로 청구가 필요하지 않습니다.",
+    "message": "자금은 자동으로 입금되며, 별도의 청구가 필요하지 않습니다.",
     "englishSource": "Funds arrive automatically — no claim needed."
   },
   "fastRouteLabel": {
-    "message": "빠른(에포크)",
+    "message": "Fast (에포크)",
     "englishSource": "Fast (Epoch)"
   },
   "slowRouteLabel": {
-    "message": "느림 (Agglayer)",
+    "message": "슬로우 (애글레이어)",
     "englishSource": "Slow (Agglayer)"
   },
   "bridgeRowTitle": {
-    "message": "다리 $from$  →  $to$ ",
+    "message": "브리지 $from$ → $to$",
     "englishSource": "Bridge $from$ → $to$",
     "placeholders": {
       "from": {
@@ -3674,7 +3828,7 @@
     }
   },
   "bridgeRowVia": {
-    "message": "을 통해 $provider$  →  $network$ ",
+    "message": "출처: $provider$ → $network$",
     "englishSource": "Via $provider$ → $network$",
     "placeholders": {
       "provider": {
@@ -3690,7 +3844,7 @@
     "englishSource": "In progress"
   },
   "bridgeFailed": {
-    "message": "실패한",
+    "message": "실패함",
     "englishSource": "Failed"
   },
   "reclaimFunds": {
@@ -3698,15 +3852,15 @@
     "englishSource": "Reclaim funds"
   },
   "reclaiming": {
-    "message": "회수 중…",
+    "message": "되찾기…",
     "englishSource": "Reclaiming…"
   },
   "reclaimableAfterBlock": {
-    "message": "차단 후 회수 가능한 자금",
+    "message": "블록 생성 후 환수 가능한 자금",
     "englishSource": "Funds reclaimable after block"
   },
   "receivingTx": {
-    "message": "송신 수신",
+    "message": "수신 Tx",
     "englishSource": "Receiving Tx"
   },
   "preparing": {
@@ -3714,35 +3868,35 @@
     "englishSource": "Preparing connection…"
   },
   "disconnect": {
-    "message": "연결 끊기",
+    "message": "연결 해제",
     "englishSource": "Disconnect"
   },
   "declaredBySiteVerifying": {
-    "message": "현장에서 선언 — 시뮬레이션으로 검증…",
+    "message": "현장 보고 — 시뮬레이션을 통해 검증 중…",
     "englishSource": "Declared by site — verifying by simulation…"
   },
   "unverified": {
-    "message": "확인되지 않은",
+    "message": "확인되지 않음",
     "englishSource": "unverified"
   },
   "couldNotVerifyBySimulation": {
-    "message": "시뮬레이션으로는 확인할 수 없습니다. 아래 금액은 사이트에서 공표한 금액입니다.",
+    "message": "시뮬레이션을 통해 확인할 수 없었습니다. 아래 수치는 해당 사이트에서 공개한 내용입니다.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
   },
   "couldNotDecodeTransaction": {
-    "message": "이 dApp은 맞춤 거래를 요청하고 있습니다. 지갑은 세부 정보를 해독할 수 없습니다. 지갑이 수행하는 작업을 정확히 알고 있는 경우에만 계속하세요.",
+    "message": "이 dApp은 사용자 지정 트랜잭션을 요청하고 있습니다. 지갑에서 해당 트랜잭션의 세부 정보를 해독할 수 없습니다. 이 트랜잭션이 정확히 무엇을 하는지 알고 있는 경우에만 계속 진행하십시오.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
   "rawValue": {
-    "message": "원시 가치",
+    "message": "원값",
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "불투명한 서명 요청",
+    "message": "비공개 서명 요청",
     "englishSource": "Opaque signature request"
   },
   "opaqueSignatureWarning": {
-    "message": "이 사이트에서는 원시 값에 서명하도록 요청했습니다. 지갑은 자신이 승인한 내용을 보여줄 수 없습니다. 이 사이트를 완전히 신뢰하는 경우에만 계속하세요.",
+    "message": "이 사이트에서 원시 값에 서명할 것을 요청했습니다. 지갑에서는 승인 내역을 확인할 수 없습니다. 이 사이트를 전적으로 신뢰하는 경우에만 계속 진행하십시오.",
     "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
   },
   "note": {
@@ -3750,87 +3904,99 @@
     "englishSource": "Note"
   },
   "earnMarketLabel": {
-    "message": "Market",
+    "message": "시장",
     "englishSource": "Market"
   },
   "positionOwnerLabel": {
-    "message": "Position owner",
+    "message": "포지션 소유자",
     "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
-    "message": "Deposit details",
+    "message": "입금 내역",
     "englishSource": "Deposit details"
   },
   "earnWithdrawDetailsTitle": {
-    "message": "Withdrawal details",
+    "message": "인출 세부 정보",
     "englishSource": "Withdrawal details"
   },
   "depositIntentLabel": {
-    "message": "Deposit intent",
+    "message": "예치 의향",
     "englishSource": "Deposit intent"
   },
   "redeemIntentLabel": {
-    "message": "Redeem intent",
+    "message": "사용 의도",
     "englishSource": "Redeem intent"
   },
   "earnWithdrawRowTitle": {
-    "message": "Withdraw from Earn",
+    "message": "Earn에서 출금",
     "englishSource": "Withdraw from Earn"
   },
   "earnWithdrawRowVia": {
-    "message": "Via Epoch → Miden",
+    "message": "Epoch 경유 → Miden",
     "englishSource": "Via Epoch → Miden"
   },
   "earnWithdrawStatusRedeeming": {
-    "message": "Redeeming",
+    "message": "상환",
     "englishSource": "Redeeming"
   },
   "earnWithdrawStatusDelivering": {
-    "message": "Delivering",
+    "message": "배송",
     "englishSource": "Delivering"
   },
   "withdrawalStarted": {
-    "message": "Withdrawal Started!",
+    "message": "인출이 시작되었습니다!",
     "englishSource": "Withdrawal Started!"
   },
   "withdrawalStartedDescription": {
-    "message": "Your funds are being bridged back to Miden. Track delivery in Activity.",
+    "message": "귀하의 자금이 Miden으로 다시 브리징되고 있습니다. ‘Activity’에서 이체 진행 상황을 확인하세요.",
     "englishSource": "Your funds are being bridged back to Miden. Track delivery in Activity."
   },
   "withdrawalProcessing": {
-    "message": "Processing Withdrawal",
+    "message": "인출 처리",
     "englishSource": "Processing Withdrawal"
   },
   "withdrawalProcessingDescription": {
-    "message": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds.",
+    "message": "가스 비용이 들지 않는 인출 의향서를 서명하여 Epoch에 제출합니다. 이 과정은 보통 몇 초 정도 소요됩니다.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
   },
   "withdrawalFailed": {
-    "message": "Withdrawal Failed",
+    "message": "인출 실패",
     "englishSource": "Withdrawal Failed"
   },
   "transactionComplete": {
-    "message": "Transaction Complete!",
+    "message": "거래 완료!",
     "englishSource": "Transaction Complete!"
   },
   "totalPaid": {
-    "message": "Total Paid",
+    "message": "지급 총액",
     "englishSource": "Total Paid"
   },
+  "totalConsumed": {
+    "message": "총 소비량",
+    "englishSource": "Total Consumed"
+  },
+  "notesConsumed": {
+    "message": "Notes 소모됨",
+    "englishSource": "Notes Consumed"
+  },
+  "consumed": {
+    "message": "소모됨",
+    "englishSource": "Consumed"
+  },
   "sourceTx": {
-    "message": "Source TX",
-    "englishSource": "Source TX"
+    "message": "거래 ID",
+    "englishSource": "Transaction ID"
   },
   "developerSettingsTitle": {
     "message": "개발자 설정",
     "englishSource": "Developer Settings"
   },
   "developerSettingsWarningTitle": {
-    "message": "고급 사용자용",
+    "message": "고급 사용자를 위한",
     "englishSource": "For advanced users"
   },
   "developerSettingsWarning": {
-    "message": "대부분의 사람들은 이것을 절대로 변경해서는 안됩니다. 잘못된 값은 지갑을 깨뜨릴 것입니다.",
+    "message": "대부분의 사람들은 이 설정들을 절대 변경해서는 안 됩니다. 잘못된 값을 설정하면 지갑이 텅 비게 될 것입니다.",
     "englishSource": "Most people should never change these. Wrong values will break your wallet."
   },
   "devEndpointPreset": {
@@ -3838,7 +4004,7 @@
     "englishSource": "Network preset"
   },
   "devEndpointCustom": {
-    "message": "관습",
+    "message": "사용자 지정",
     "englishSource": "Custom"
   },
   "devEndpointNetworkId": {
@@ -3870,7 +4036,7 @@
     "englishSource": "Explorer URL"
   },
   "devEndpointGuardian": {
-    "message": "맞춤 보호자 URL",
+    "message": "guardian 맞춤 URL",
     "englishSource": "Custom guardian URL"
   },
   "devAllowNoGuardian": {
@@ -3882,7 +4048,7 @@
     "englishSource": "Checking…"
   },
   "devEndpointReachable": {
-    "message": "호스트에 접근 가능",
+    "message": "호스트에 연결 가능",
     "englishSource": "Host reachable"
   },
   "devEndpointNoResponse": {
@@ -3898,7 +4064,7 @@
     "englishSource": "Reset to defaults"
   },
   "devEndpointResetAndReonboard": {
-    "message": "기본값으로 재설정 및 다시 온보딩",
+    "message": "기본값으로 재설정 및 재등록",
     "englishSource": "Reset to defaults & re-onboard"
   },
   "devEndpointsRow": {
@@ -3906,7 +4072,7 @@
     "englishSource": "Network endpoints"
   },
   "devEndpointResetConfirm": {
-    "message": "이렇게 하면 귀하의 키와 거래 내역을 포함하여 이 지갑이 영구적으로 삭제됩니다. 복원하려면 복구 문구가 필요합니다.",
+    "message": "이렇게 하면 키와 거래 내역을 포함한 이 지갑의 모든 데이터가 영구적으로 삭제됩니다. 지갑을 복원하려면 복구 문구가 필요합니다.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   }
 }

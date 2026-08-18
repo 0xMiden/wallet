@@ -9,6 +9,16 @@ jest.mock('lib/miden/repo', () => ({
   }
 }));
 
+const mockVerifySendLanded = jest.fn();
+jest.mock('./cancel', () => ({
+  verifySendLanded: (...args: unknown[]) => mockVerifySendLanded(...args)
+}));
+
+const mockUpdateTransactionStatus = jest.fn().mockResolvedValue(undefined);
+jest.mock('./helper', () => ({
+  updateTransactionStatus: (...args: unknown[]) => mockUpdateTransactionStatus(...args)
+}));
+
 /** In-memory row + Dexie-shaped where().first()/where().modify() plumbing. */
 function wireRow(row: ITransaction | undefined) {
   mockTransactionsWhere.mockImplementation(() => ({
@@ -41,6 +51,50 @@ function failedRow(overrides: Partial<ITransaction> = {}): ITransaction {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Default: node can't confirm the tx landed, so requeue proceeds as before.
+  mockVerifySendLanded.mockResolvedValue('unknown');
+});
+
+// GAP 2 (resilience): Retry must never resubmit a send/swap whose original submit
+// actually landed — that's a double-send / real fund loss.
+describe('requeueFailedTransaction — double-send idempotency guard', () => {
+  it('does NOT resubmit a send the node reports as landed; completes it instead', async () => {
+    const row = failedRow({ type: 'send', transactionId: 'abc123' });
+    wireRow(row);
+    mockVerifySendLanded.mockResolvedValue('landed');
+
+    await requeueFailedTransaction('tx-1');
+
+    // Completed, NOT reset to Queued — no second send is broadcast.
+    expect(mockUpdateTransactionStatus).toHaveBeenCalledWith('tx-1', ITransactionStatus.Completed, expect.anything());
+    expect(row.status).toBe(ITransactionStatus.Failed); // untouched by a requeue modify
+  });
+
+  it('resubmits (requeues) when the node cannot confirm the send landed', async () => {
+    const row = failedRow({ type: 'send', transactionId: 'abc123' });
+    wireRow(row);
+    mockVerifySendLanded.mockResolvedValue('unknown');
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(mockUpdateTransactionStatus).not.toHaveBeenCalled();
+    expect(row.status).toBe(ITransactionStatus.Queued); // requeued for a fresh attempt
+  });
+
+  it('checks landed-state for swap/bridged-send/execute too', async () => {
+    for (const type of ['swap', 'bridged-send', 'execute'] as const) {
+      mockVerifySendLanded.mockClear();
+      wireRow(failedRow({ type, transactionId: 'abc' }));
+      await requeueFailedTransaction('tx-1');
+      expect(mockVerifySendLanded).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('does NOT node-verify a consume (it has its own input-note landed check)', async () => {
+    wireRow(failedRow({ type: 'consume' }));
+    await requeueFailedTransaction('tx-1');
+    expect(mockVerifySendLanded).not.toHaveBeenCalled();
+  });
 });
 
 describe('isRequeueableTransaction', () => {
@@ -89,6 +143,19 @@ describe('requeueFailedTransaction', () => {
     expect(row.rawError).toBeUndefined();
     expect(row.displayMessage).toBeUndefined();
     expect(row.displayIcon).toBe('SEND');
+  });
+
+  it('clears the failed attempt’s stage stamps so the retry times its own steps', async () => {
+    // `setTransactionStage` is first-entry-wins (#524): carrying the failed
+    // attempt's boundaries over would make the retried attempt's steps render
+    // the FAILED attempt's durations, with only `complete` re-stamped.
+    const row = failedRow();
+    row.stageTimestamps = { executing: 1_000, proving: 2_000, submitting: 5_000 };
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.stageTimestamps).toBeUndefined();
   });
 
   it('restores the pre-failure display icon per type', async () => {

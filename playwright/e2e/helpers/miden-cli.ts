@@ -50,13 +50,51 @@ export function resolveCliPath(): string {
     return process.env.MIDEN_CLIENT_BIN;
   }
 
-  // 2. Already in PATH
+  // 2. Already in PATH — but only if it is the PINNED version.
+  //
+  // This used to return on any `--version` that exited 0, which meant a
+  // developer's own `miden-client` silently won regardless of version. A 0.16
+  // CLI against a 0.15 node fails with
+  //
+  //     cli::client_error ├─▶ accept header validation failed
+  //
+  // which names neither the version nor the mismatch, and sends you looking at
+  // the wallet. Presence is not the same as correctness — the same trap as an
+  // AVD that is listed but has no config.ini.
   try {
-    execSync('miden-client --version', { stdio: 'pipe' });
-    return 'miden-client';
-  } catch {
-    // not found
+    const reported = execSync('miden-client --version', { stdio: 'pipe' }).toString().trim();
+    const pinned = readPinnedCliVersion();
+    if (!pinned || reported.includes(pinned)) {
+      return 'miden-client';
+    }
+    // Under a GIT pin the version field records what the rev builds, and a rev
+    // bump can legitimately land before the field catches up. So WARN rather
+    // than fail: a hard failure here reds every E2E job over metadata lag, which
+    // is worse than the mismatch it reports. This is not hypothetical — the
+    // first version of this check did exactly that, because the field read
+    // 0.14.8 while the pinned rev builds 0.15.0 (corrected in #675).
+    if (hasGitPin()) {
+      console.warn(
+        `[miden-cli] PATH miden-client is "${reported}" but package.json records ${pinned} for the pinned rev. ` +
+          `If chain calls fail with "accept header validation failed", this mismatch is why — point ` +
+          `MIDEN_CLIENT_BIN at a binary built from the pinned rev.`
+      );
+      return 'miden-client';
+    }
+    throw new Error(
+      `miden-client on PATH is "${reported}" but this repo pins ${pinned} ` +
+        `(package.json → midenClientCliVersion).\n` +
+        `A mismatched CLI fails against the node with an unrelated-looking "accept header validation failed".\n` +
+        `Either install the pin (cargo install miden-client-cli --version ${pinned} --locked) or point the ` +
+        `harness at a matching binary with MIDEN_CLIENT_BIN=/path/to/miden-client.`
+    );
+  } catch (err) {
+    // A version MISMATCH is a hard stop; only "not installed" falls through to
+    // the auto-install below.
+    if (err instanceof Error && err.message.includes('but this repo pins')) throw err;
   }
+
+  // (see readPinnedCliVersion below for where the pin comes from)
 
   // 3. Auto-install at the pin from package.json. Two pin shapes:
   //    - `midenClientCliGit: { url, rev }` — takes precedence; used while the
@@ -83,15 +121,13 @@ export function resolveCliPath(): string {
   }
 
   if (gitPin) {
-    console.log(
-      `Installing miden-client-cli from ${gitPin.url}@${gitPin.rev.slice(0, 8)} (first run only)...`
-    );
+    console.log(`Installing miden-client-cli from ${gitPin.url}@${gitPin.rev.slice(0, 8)} (first run only)...`);
     try {
       // `--locked` consumes the repo's Cargo.lock at that rev — same
       // MAST-root-drift protection as the crates.io path below.
       execSync(`cargo install miden-client-cli --git ${gitPin.url} --rev ${gitPin.rev} --locked`, {
         stdio: 'inherit',
-        timeout: 600_000, // 10 min for compile
+        timeout: 600_000 // 10 min for compile
       });
     } catch (err: any) {
       throw new Error(
@@ -117,7 +153,7 @@ export function resolveCliPath(): string {
     // by token symbol.
     execSync(`cargo install miden-client-cli --version ${version} --locked`, {
       stdio: 'inherit',
-      timeout: 600_000, // 10 min for compile
+      timeout: 600_000 // 10 min for compile
     });
   } catch (err: any) {
     throw new Error(
@@ -141,12 +177,7 @@ export class MidenCli {
   private env: EnvironmentConfig;
   private cliRunner: CLIRunner;
 
-  constructor(opts: {
-    binaryPath: string;
-    workDir: string;
-    env: EnvironmentConfig;
-    cliRunner: CLIRunner;
-  }) {
+  constructor(opts: { binaryPath: string; workDir: string; env: EnvironmentConfig; cliRunner: CLIRunner }) {
     this.binaryPath = opts.binaryPath;
     this.workDir = opts.workDir;
     this.env = opts.env;
@@ -156,7 +187,7 @@ export class MidenCli {
   private async run(args: string, opts?: { timeoutMs?: number }): Promise<CLIInvocation> {
     return this.cliRunner.run(`${this.binaryPath} ${args}`, {
       cwd: this.workDir,
-      timeoutMs: opts?.timeoutMs,
+      timeoutMs: opts?.timeoutMs
     });
   }
 
@@ -191,7 +222,11 @@ export class MidenCli {
    * Deploy a new fungible faucet account.
    * Returns the faucet account ID.
    */
-  async createFaucet(symbol = 'TST', decimals = 8, maxSupply: number | bigint = DEFAULT_FAUCET_MAX_SUPPLY): Promise<string> {
+  async createFaucet(
+    symbol = 'TST',
+    decimals = 8,
+    maxSupply: number | bigint = DEFAULT_FAUCET_MAX_SUPPLY
+  ): Promise<string> {
     // Write the init storage data TOML
     const tomlPath = path.join(this.workDir, 'faucet-init.toml');
     fs.writeFileSync(tomlPath, faucetInitToml(symbol, decimals, maxSupply));
@@ -215,7 +250,9 @@ export class MidenCli {
       if (!transient || attempt === maxAttempts) break;
       const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
       // eslint-disable-next-line no-console
-      console.log(`[miden-cli] createFaucet attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`);
+      console.log(
+        `[miden-cli] createFaucet attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`
+      );
       await new Promise(r => setTimeout(r, backoffMs));
     }
 
@@ -230,9 +267,7 @@ export class MidenCli {
       // Fallback: try to parse from "account -s <ID>" pattern
       const match = createResult.stdout.match(/account\s+-s\s+(\S+)/);
       if (!match || !match[1]) {
-        throw new Error(
-          `Could not parse faucet account ID from output:\n${createResult.stdout}`
-        );
+        throw new Error(`Could not parse faucet account ID from output:\n${createResult.stdout}`);
       }
       id = match[1];
     } else {
@@ -261,11 +296,7 @@ export class MidenCli {
       throw new Error('mint: faucetId required');
     }
 
-    let mintArgs =
-      `mint --target ${targetAccountId} ` +
-      `--asset ${amount}::${faucetId} ` +
-      `--note-type ${noteType} ` +
-      `--force`;
+    let mintArgs = `mint --target ${targetAccountId} --asset ${amount}::${faucetId} --note-type ${noteType} --force`;
 
     if (this.env.delegateProving) {
       mintArgs += ' --delegate-proving';
@@ -288,7 +319,9 @@ export class MidenCli {
       if (!transient || attempt === maxAttempts) break;
       const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
       // eslint-disable-next-line no-console
-      console.log(`[miden-cli] mint attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`);
+      console.log(
+        `[miden-cli] mint attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`
+      );
       await new Promise(r => setTimeout(r, backoffMs));
     }
     throw new Error(`Mint failed after retries: ${lastErr}`);
@@ -308,7 +341,9 @@ export class MidenCli {
       if (!transient || attempt === maxAttempts) break;
       const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
       // eslint-disable-next-line no-console
-      console.log(`[miden-cli] sync attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`);
+      console.log(
+        `[miden-cli] sync attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`
+      );
       await new Promise(r => setTimeout(r, backoffMs));
     }
     throw new Error(`Sync failed: ${lastErr}`);
@@ -337,5 +372,31 @@ export class MidenCli {
     } catch {
       // ignore cleanup errors
     }
+  }
+}
+
+/**
+ * The CLI version this repo pins, or undefined if package.json does not declare
+ * one (in which case a PATH binary is accepted as-is, the previous behaviour).
+ */
+function readPinnedCliVersion(): string | undefined {
+  try {
+    const pkgPath = path.resolve('package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { midenClientCliVersion?: string };
+    return typeof pkg.midenClientCliVersion === 'string' ? pkg.midenClientCliVersion : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Is the CLI pinned by git rev? If so, `midenClientCliVersion` does not describe the installed binary. */
+function hasGitPin(): boolean {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as {
+      midenClientCliGit?: { url?: string; rev?: string };
+    };
+    return typeof pkg.midenClientCliGit?.rev === 'string';
+  } catch {
+    return false;
   }
 }

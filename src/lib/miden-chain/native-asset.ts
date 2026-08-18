@@ -5,6 +5,7 @@ import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
 import { ensureSdkWasmReady, getRpcEndpoint } from './constants';
+import { withRpcTimeout } from './rpc-timeout';
 
 // Cache identity = (effective RPC URL, effective network name):
 //   - the RPC URL determines the faucet ACCOUNT (the node's genesis / fee
@@ -98,7 +99,7 @@ async function discover(): Promise<string> {
   // us persist this node's faucet id under a different node's key.
   const cacheKey = idCacheKey();
   const rpc = new RpcClient(getRpcEndpoint());
-  const header = await rpc.getBlockHeaderByNumber(undefined);
+  const header = await withRpcTimeout(() => rpc.getBlockHeaderByNumber(undefined), 'native-asset-discover');
   const accountId = header.feeFaucetId();
   const bech32 = getBech32AddressFromAccountId(accountId);
   // Only publish to the in-memory cache / listeners if the effective endpoint

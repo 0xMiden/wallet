@@ -15,6 +15,7 @@ import PageRouter from 'app/PageRouter';
 import { DappBrowserProvider } from 'app/providers/DappBrowserProvider';
 import { HotKeyRotationGate } from 'app/templates/HotKeyRotationGate';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
+import { ScreenKeyPublisher } from 'app/templates/ScreenKeyPublisher';
 import { ExtensionMessageListener } from 'components/ConnectivityIssueBanner';
 import { MidenProvider } from 'lib/miden/front';
 import { isDesktop as checkIsDesktop, isExtension, isMobile as checkIsMobile } from 'lib/platform';
@@ -94,6 +95,7 @@ const AppProvider: FC<AppProps> = ({ children, env }) => {
     <AppEnvProvider {...env}>
       <Woozie.Provider>
         <ExtensionMessageListener />
+        <ScreenKeyPublisher />
         {isExtension() && <PinExtensionPrompt />}
         {checkIsMobile() && <MobileBackBridge />}
         {checkIsDesktop() && (
