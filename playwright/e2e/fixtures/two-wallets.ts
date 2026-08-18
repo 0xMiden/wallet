@@ -745,7 +745,14 @@ export const test = base.extend<TwoWalletFixtures>({
     const extensionPath = getExtensionPath();
     const instance = await launchWalletInstance('A', extensionPath, timeline);
     steps.registerSnapshotCaps('A', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
-    const storyA = new StoryCapture(instance.walletPage, path.join(steps.outputDir, 'screens'), 'A');
+    const storyA = new StoryCapture(instance.walletPage, path.join(steps.outputDir, 'screens'), 'A', () =>
+      instance.walletPage.page
+        .waitForFunction(() => (document.body?.innerText.trim().length ?? 0) > 0, undefined, {
+          timeout: 1500,
+          polling: 100
+        })
+        .then(() => undefined)
+    );
     steps.registerStoryCapture('A', storyA);
     instance.walletPage.beatCapture = key => storyA.capture(key);
 
@@ -790,7 +797,14 @@ export const test = base.extend<TwoWalletFixtures>({
     const extensionPath = getExtensionPath();
     const instance = await launchWalletInstance('B', extensionPath, timeline);
     steps.registerSnapshotCaps('B', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
-    const storyB = new StoryCapture(instance.walletPage, path.join(steps.outputDir, 'screens'), 'B');
+    const storyB = new StoryCapture(instance.walletPage, path.join(steps.outputDir, 'screens'), 'B', () =>
+      instance.walletPage.page
+        .waitForFunction(() => (document.body?.innerText.trim().length ?? 0) > 0, undefined, {
+          timeout: 1500,
+          polling: 100
+        })
+        .then(() => undefined)
+    );
     steps.registerStoryCapture('B', storyB);
     instance.walletPage.beatCapture = key => storyB.capture(key);
 

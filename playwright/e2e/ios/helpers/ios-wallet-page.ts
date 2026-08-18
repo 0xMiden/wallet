@@ -576,7 +576,9 @@ export class IosWalletPage implements WalletPage {
     // the past 2+ weeks). Bumped to 120s — the outer claimAllNotes
     // timeout (default 180s) still has ~50s left for balance polling
     // after this resolves.
-    // Story beat: the Pending-notes screen with claimable notes.
+    // Story beat: the Pending-notes screen with claimable notes. Wait for the
+    // claim UI to render first so the frame shows notes, not a loading screen.
+    await this.pollForSelector('[data-testid="claim-all-button"]', 120_000).catch(() => {});
     await this.beatCapture?.('claim-pending');
     await this.pollForCondition(
       `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +

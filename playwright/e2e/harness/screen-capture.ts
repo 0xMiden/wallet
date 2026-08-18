@@ -19,33 +19,3 @@ export async function captureBestEffort(
     // best-effort: page/context may be mid-navigation or torn down
   }
 }
-
-export function startScreenPoll(opts: {
-  intervalMs: number;
-  read: () => Promise<{ key: string; seq: number } | null>;
-  grab: (path: string) => Promise<void>;
-  dir: string;
-  label: string;
-}): { stop: () => void } {
-  let lastSeq = -1;
-  let stopped = false;
-  const tick = async (): Promise<void> => {
-    if (stopped) return;
-    try {
-      const s = await opts.read();
-      if (s && s.seq !== lastSeq) {
-        lastSeq = s.seq;
-        await captureBestEffort(opts.grab, opts.dir, s.seq, s.key, opts.label);
-      }
-    } catch {
-      // ignore a single bad read
-    }
-  };
-  const timer = setInterval(() => void tick(), opts.intervalMs);
-  return {
-    stop: () => {
-      stopped = true;
-      clearInterval(timer);
-    }
-  };
-}
