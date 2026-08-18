@@ -161,6 +161,41 @@ describe('faucet-api', () => {
         jest.useRealTimers();
       }
     });
+
+    it('forwards a caller abort to the active fetch', async () => {
+      const caller = new AbortController();
+      fetchMock.mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+          })
+      );
+
+      const request = faucetFetch('https://faucet-api.example/pow', { signal: caller.signal });
+      caller.abort();
+
+      await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('aborts during Retry-After without issuing the retry', async () => {
+      jest.useFakeTimers();
+      try {
+        const caller = new AbortController();
+        fetchMock
+          .mockResolvedValueOnce(errorResponse(429, 'rate limited', { 'retry-after': '30' }))
+          .mockResolvedValueOnce(jsonResponse({ ok: true }));
+
+        const request = faucetFetch('https://faucet-api.example/pow', { signal: caller.signal });
+        await jest.advanceTimersByTimeAsync(0);
+        caller.abort();
+
+        await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 
   describe('requestTokens', () => {
