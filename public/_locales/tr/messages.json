@@ -2332,6 +2332,38 @@
     "message": "Yeni",
     "englishSource": "New"
   },
+  "currentGuardianLabel": {
+    "message": "Güncel Guardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "Yeni Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "Guardian’ınızı başarıyla döndürdünüz!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "Şu anda neler değişiyor",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "Yeni Guardian adresiniz bundan sonra her işlemi onaylayacaktır — eski Guardian adresinizin artık herhangi bir rolü yoktur.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "Cüzdan adresiniz, fonlarınız ve geçmişiniz değişmemiştir. Rotasyon sırasında hiçbir şey taşınmamıştır.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "Yeni işlemlerin tamamlanabilmesi için yeni Guardian adresinizin erişilebilir olması gerekir.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "Guardian'ınızı istediğiniz zaman yeniden döndürebilir veya kaldırabilirsiniz — kurtarma ifadenizi güvenli bir yerde saklayın, bu işlem için gereklidir.",
+    "englishSource": "You can rotate or remove your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
+  },
   "guardianSwitchAuthenticationDescription": {
     "message": "Bu Guardian geçişini onaylamak için kimliğinizi doğrulayın.",
     "englishSource": "Authenticate to approve this Guardian switch."

@@ -2332,6 +2332,38 @@
     "message": "새로움",
     "englishSource": "New"
   },
+  "currentGuardianLabel": {
+    "message": "현재 Guardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "새로운 Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "Guardian의 로테이션을 성공적으로 완료하셨습니다!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "현재 변경 사항",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "이제부터 모든 거래에는 새로운 Guardian가 공동 서명하게 되며, 기존 Guardian는 더 이상 어떠한 역할도 수행하지 않습니다.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "사용자의 지갑 주소, 자금 및 내역은 변함이 없습니다. 로테이션 과정에서 이동된 항목은 없습니다.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "새로운 거래가 완료되려면 귀하의 새로운 Guardian 주소가 접근 가능해야 합니다.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "원하는 시점에 언제든지 Guardian을 다시 교체하거나 제거할 수 있습니다. 이를 위해서는 복구 문구가 필요하므로 안전하게 보관하십시오.",
+    "englishSource": "You can rotate or remove your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
+  },
   "guardianSwitchAuthenticationDescription": {
     "message": "이 Guardian 전환을 승인하려면 인증을 진행하십시오.",
     "englishSource": "Authenticate to approve this Guardian switch."

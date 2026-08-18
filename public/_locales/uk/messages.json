@@ -2332,6 +2332,38 @@
     "message": "Нове",
     "englishSource": "New"
   },
+  "currentGuardianLabel": {
+    "message": "Поточний список «Guardian»",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "Нова версія Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "Ви успішно здійснили ротацію своїх токенів «Guardian»!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "Що змінилося зараз",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "Відтепер ваша нова адреса Guardian підписує кожну транзакцію — ваша стара адреса Guardian більше не відіграє жодної ролі.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "Адреса вашого гаманця, кошти та історія залишаються незмінними. Під час ротації нічого не переміщувалося.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "Для завершення нових транзакцій необхідно, щоб ваш новий Guardian був доступним.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "Ви можете будь-коли знову змінити або видалити свою фразу відновлення (Guardian) — зберігайте її в безпеці, вона необхідна для цього.",
+    "englishSource": "You can rotate or remove your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
+  },
   "guardianSwitchAuthenticationDescription": {
     "message": "Пройдіть аутентифікацію, щоб затвердити це перемикання Guardian.",
     "englishSource": "Authenticate to approve this Guardian switch."

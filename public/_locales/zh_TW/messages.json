@@ -2332,6 +2332,38 @@
     "message": "新",
     "englishSource": "New"
   },
+  "currentGuardianLabel": {
+    "message": "最新Guardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "新版 Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "您已成功輪換您的 Guardian！",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "現有變更內容",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "從即日起，您的全新 Guardian 將共同簽署每筆交易——您舊有的 Guardian 將不再扮演任何角色。",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "您的錢包地址、資金及交易紀錄均維持不變。輪替過程中並未移動任何資產。",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "新交易必須確保您的新 Guardian 可被存取，才能完成。",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "您隨時可以再次輪替或移除您的「Guardian」——請妥善保管您的恢復短語，這是進行此操作的必要條件。",
+    "englishSource": "You can rotate or remove your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
+  },
   "guardianSwitchAuthenticationDescription": {
     "message": "請進行驗證以批准此 Guardian 切換。",
     "englishSource": "Authenticate to approve this Guardian switch."

@@ -2332,6 +2332,38 @@
     "message": "Nouveau",
     "englishSource": "New"
   },
+  "currentGuardianLabel": {
+    "message": "Guardian actuelle",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "Nouvelle adresse Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "Vous avez réussi à faire tourner vos «Guardian» !",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "Quels sont les changements actuels ?",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "Votre nouvelle adresse Guardian cosigne désormais chaque transaction — votre ancienne adresse Guardian n’a plus aucun rôle à jouer.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "L’adresse de votre portefeuille, vos fonds et votre historique restent inchangés. Rien n’a été déplacé lors de la rotation.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "Les nouvelles transactions nécessitent que votre nouvelle adresse Guardian soit accessible avant de pouvoir être finalisées.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "Vous pouvez à tout moment réorganiser ou supprimer vos « Guardian » — conservez votre phrase de récupération en lieu sûr, elle est indispensable pour effectuer ces opérations.",
+    "englishSource": "You can rotate or remove your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
+  },
   "guardianSwitchAuthenticationDescription": {
     "message": "Authentifiez-vous pour approuver ce changement d’Guardian.",
     "englishSource": "Authenticate to approve this Guardian switch."

@@ -2332,6 +2332,38 @@
     "message": "New",
     "englishSource": "New"
   },
+  "currentGuardianLabel": {
+    "message": "Current Guardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "New Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "You've successfully rotated your Guardian!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "What changes now",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "New transactions need your new Guardian to be reachable before they can complete.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "You can rotate or remove your Guardian again at any time — keep your recovery phrase safe, it's required to do so.",
+    "englishSource": "You can rotate or remove your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
+  },
   "guardianSwitchAuthenticationDescription": {
     "message": "Authenticate to approve this Guardian switch.",
     "englishSource": "Authenticate to approve this Guardian switch."

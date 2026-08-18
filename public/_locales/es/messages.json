@@ -2332,6 +2332,38 @@
     "message": "Nuevo",
     "englishSource": "New"
   },
+  "currentGuardianLabel": {
+    "message": "Guardian actual",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "Nueva página «Guardian»",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "¡Has rotado con éxito tu Guardian!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "¿Qué cambia ahora?",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "Tu nueva dirección Guardian firmará conjuntamente todas las transacciones a partir de ahora; tu antigua dirección Guardian ya no tiene ninguna función.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "Tu dirección de monedero, tus fondos y tu historial no han cambiado. No se ha movido nada durante la rotación.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "Para que las nuevas transacciones se puedan completar, es necesario que tu nueva dirección Guardian sea accesible.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "Puedes volver a rotar o eliminar tu «Guardian» en cualquier momento; guarda tu frase de recuperación en un lugar seguro, ya que es necesaria para hacerlo.",
+    "englishSource": "You can rotate or remove your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
+  },
   "guardianSwitchAuthenticationDescription": {
     "message": "Autentifícate para aprobar este cambio de Guardian.",
     "englishSource": "Authenticate to approve this Guardian switch."
