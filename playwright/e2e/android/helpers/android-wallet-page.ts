@@ -42,6 +42,13 @@ export class AndroidWalletPage implements WalletPage {
   private emulator: EmulatorControl;
   private pollStats: PollStats = { pollCount: 0, pollIterations: 0, pollMs: 0, pollSleepMs: 0 };
 
+  /**
+   * Story-filmstrip beat hook, wired by the two-emulators fixture. Flow methods
+   * call it at key moments (send review/generating/receipt) so multi-screen
+   * actions tell their sub-story. No-op until wired; best-effort.
+   */
+  beatCapture?: (key: string) => Promise<void>;
+
   constructor(opts: AndroidWalletPageOpts) {
     this.cdp = opts.cdp;
     this.emulator = opts.emulator;
@@ -238,6 +245,10 @@ export class AndroidWalletPage implements WalletPage {
     await this.navigateTo('/pending-notes');
     await sleep(3_000);
 
+    // Story beat: the Pending-notes screen with claimable notes. Wait for the
+    // claim UI to render first so the frame shows notes, not a loading screen.
+    await this.pollForSelector('[data-testid="claim-all-button"]', 60_000).catch(() => {});
+    await this.beatCapture?.('claim-pending');
     await this.pollForCondition(
       `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +
         `if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false; ` +
@@ -385,12 +396,16 @@ export class AndroidWalletPage implements WalletPage {
     await this.cdp.eval(`window.__TEST_SET_SHARE_PRIVATELY__(${params.isPrivate ? 'true' : 'false'}); return null;`);
 
     await this.pollForSelector('[data-testid="send-review-submit"]', 45_000);
+    // Story beat: the review screen is up and settled here.
+    await this.beatCapture?.('send-review');
     await this.click('[data-testid="send-review-submit"]');
 
     await this.pollForCondition(`return !document.querySelector('[data-testid="send-review-submit"]');`, 120_000).catch(
       () => {}
     );
     await sleep(2_000);
+    // Story beat: the "Generating Transaction" screen after submit.
+    await this.beatCapture?.('send-generating');
 
     await this.pollForCondition(
       `var bd = document.body; return bd && /transaction.*initiated|transaction.*success|successfully/i.test(bd.textContent || '');`,
@@ -401,6 +416,8 @@ export class AndroidWalletPage implements WalletPage {
         throw new Error(`Send transaction appears to have failed. Page text: ${body.slice(0, 500)}`);
       }
     });
+    // Story beat: the transaction-success / receipt surface.
+    await this.beatCapture?.('send-receipt');
   }
 
   // ── Balance Waiting ───────────────────────────────────────────────────────
