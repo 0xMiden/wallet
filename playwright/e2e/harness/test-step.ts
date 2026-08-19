@@ -2,7 +2,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { captureAndSaveSnapshot } from './state-snapshot';
-import type { StoryCapture } from './story-capture';
 import type { TimelineRecorder } from './timeline-recorder';
 import type { Checkpoint, FailureCategory, SnapshotCaps, StepOptions } from './types';
 
@@ -51,7 +50,6 @@ interface SnapshotCapsMap {
  */
 export class TestStepRunner {
   private checkpoints: Checkpoint[] = [];
-  private storyCaptures: { A?: StoryCapture; B?: StoryCapture } = {};
   /** Public for fixture failure-path reuse (e.g., direct snapshot in teardown). */
   readonly walletCaps: SnapshotCapsMap;
 
@@ -73,16 +71,6 @@ export class TestStepRunner {
   }
 
   /**
-   * Register a wallet's story filmstrip. Once registered, every step captures a
-   * frame (captioned by the step name) after it succeeds — unless the step
-   * already emitted its own beats via the flow (send/swap/claim), in which case
-   * those beats ARE that step's story and the redundant end-shot is skipped.
-   */
-  registerStoryCapture(label: 'A' | 'B', capture: StoryCapture): void {
-    this.storyCaptures[label] = capture;
-  }
-
-  /**
    * Execute a named test step with optional screenshot/state capture on completion.
    * Screenshots and state are captured AFTER the step function succeeds.
    * On failure, the error is recorded and re-thrown.
@@ -100,23 +88,8 @@ export class TestStepRunner {
       assertions: []
     };
 
-    // Snapshot each wallet's story length so we can tell, after the step, which
-    // wallets emitted their own beats during it (and thus don't need an end-shot).
-    const storyBefore = {
-      A: this.storyCaptures.A?.count() ?? 0,
-      B: this.storyCaptures.B?.count() ?? 0
-    };
-
     try {
       await fn();
-
-      // Story frame: one shot per step, captioned by the step name — skipped for
-      // a wallet whose flow already emitted beats during this step, so send/swap/
-      // claim steps tell their review→generating→receipt sub-story instead.
-      for (const label of ['A', 'B'] as const) {
-        const sc = this.storyCaptures[label];
-        if (sc && sc.count() === storyBefore[label]) await sc.capture(name);
-      }
 
       // Capture screenshots after successful step
       if (options.screenshotWallets) {
@@ -190,11 +163,6 @@ export class TestStepRunner {
             // target may be closed
           }
         }
-      }
-
-      // Story frame marking where the test broke (best-effort; never masks the error).
-      for (const label of ['A', 'B'] as const) {
-        await this.storyCaptures[label]?.capture(`${name}-FAILED`);
       }
 
       throw error;

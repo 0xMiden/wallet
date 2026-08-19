@@ -155,14 +155,9 @@ export async function createSwapOrder(maker: Wallet, opts: CreateOrderOptions): 
   await page.getByTestId(`swap-token-${opts.requestSymbol}`).click();
   await page.getByTestId('send-amount-input').nth(1).fill(opts.receiveAmount);
 
-  // Story beat: the swap review screen (offer → request, amounts filled).
-  await maker.beatCapture?.('swap-review');
   await page.getByTestId('swap-review-submit').click();
   await page.getByTestId('swap-submit').click();
   await page.waitForURL(/generating-transaction/, { timeout: 60_000 });
-
-  // Story beat: the "Generating Transaction" screen.
-  await maker.beatCapture?.('swap-generating');
 
   let orderId = '';
   await expect
