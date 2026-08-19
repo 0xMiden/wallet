@@ -61,6 +61,7 @@
     "format": "prettier --write src",
     "lint:i18n": "eslint src --ext .ts,.tsx --config .eslintrc.i18n.json --no-eslintrc --max-warnings 0",
     "lint:e2e": "node scripts/lint-e2e-harness.mjs",
+    "perf:ios-frames": "node scripts/ios-frame-perf.cjs",
     "test:e2e": "playwright test",
     "test:e2e:blockchain:build": "rimraf dist/chrome_unpacked && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_E2E_DISABLE_SIDEPANEL=true MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome yarn build:bg && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_E2E_DISABLE_SIDEPANEL=true MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome yarn build:cs && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_E2E_DISABLE_SIDEPANEL=true MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome MANIFEST_VERSION=3 yarn build:ext",
     "test:e2e:blockchain": "yarn test:e2e:blockchain:build && playwright test --config playwright.e2e.config.ts",
