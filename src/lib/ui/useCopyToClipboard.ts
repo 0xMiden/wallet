@@ -32,8 +32,10 @@ export default function useCopyToClipboard<T extends HTMLInputElement | HTMLText
     if (textarea) {
       textarea.focus();
       textarea.select();
-      navigator.clipboard.writeText(textarea.value);
-      setCopied(true);
+      void Promise.resolve(navigator.clipboard.writeText(textarea.value)).then(
+        () => setCopied(true),
+        () => setCopied(false)
+      );
     }
   }, [copied, setCopied]);
 
