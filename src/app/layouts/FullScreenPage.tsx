@@ -11,7 +11,7 @@ import { PropsWithChildren } from 'lib/props-with-children';
 const FullScreenPage: FC<PropsWithChildren> = ({ children }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useHideNavbarWhileOpen();
+  useHideNavbarWhileOpen(isMobile());
 
   useEffect(() => {
     if (!containerRef.current) return;
