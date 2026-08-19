@@ -126,6 +126,31 @@ class DesktopIntercomClientWrapper implements IIntercomClient {
   }
 }
 
+/**
+ * Reconnect backoff for the INTERCOM port.
+ *
+ * The old behaviour was a flat 1s retry with no ceiling and no give-up, which
+ * is why a wallet page whose receiving end had gone away logged
+ * "Could not establish connection" once per second for as long as the page
+ * stayed open. Backing off keeps a genuinely-transient MV3 service-worker
+ * restart cheap to recover from (first retry is still fast) while making a
+ * permanently-dead receiving end quiet.
+ */
+const RECONNECT_BASE_DELAY_MS = 1_000;
+const RECONNECT_MAX_DELAY_MS = 30_000;
+/** A port that survives this long is treated as healthy, resetting the backoff. */
+const RECONNECT_HEALTHY_MS = 10_000;
+
+/**
+ * True when the error means this JS context can never reach the extension
+ * again — the context was orphaned by a reload/update/uninstall. Retrying is
+ * pointless forever, not just for now, so the loop stops instead of spinning.
+ */
+function isContextInvalidated(error: unknown): boolean {
+  const message = typeof error === 'string' ? error : ((error as { message?: string } | undefined)?.message ?? '');
+  return /extension context invalidated|context invalidated|extension is disabled/i.test(message);
+}
+
 export class IntercomClient implements IIntercomClient {
   private port: any; // Runtime.Port - typed as any to avoid import
   private reqId: number;
@@ -143,6 +168,10 @@ export class IntercomClient implements IIntercomClient {
    * dispatching listener to every port it creates.
    */
   private readonly subscribers = new Set<(data: any) => void>();
+  /** Consecutive failed reconnects; drives the backoff. */
+  private reconnectAttempts = 0;
+  /** Set once the context is orphaned — stops the reconnect loop for good. */
+  private stopped = false;
 
   constructor() {
     this.reqId = 0;
@@ -244,11 +273,47 @@ export class IntercomClient implements IIntercomClient {
     // otherwise the first service-worker restart silently ends all broadcasts
     // (lock/StateUpdated, SyncCompleted, NoteClaimStarted) for this page.
     this.attachSubscriptionListener(port);
+
+    // A port that stays up is a working port: clear the backoff so the NEXT
+    // service-worker recycle reconnects promptly instead of inheriting the
+    // delay from an unrelated earlier outage.
+    const healthyTimer = setTimeout(() => {
+      this.reconnectAttempts = 0;
+    }, RECONNECT_HEALTHY_MS);
+
     port.onDisconnect.addListener(() => {
+      clearTimeout(healthyTimer);
+
+      // READ the error. When `connect()` finds no receiving end, Chrome sets
+      // `runtime.lastError` and fires this listener; a listener that does not
+      // read it is exactly what makes Chrome log
+      // "Unchecked runtime.lastError: Could not establish connection."
+      // Reading it here is what marks it handled — the console spam this
+      // silences was one line per retry, in every tab, via the content script.
+      const error = port.error ?? browser.runtime?.lastError;
+
+      if (this.stopped) return;
+
+      if (isContextInvalidated(error)) {
+        // Orphaned by an extension reload/update: this context can never
+        // reconnect, so retrying would spin until the tab closes.
+        this.stopped = true;
+        return;
+      }
+
+      const delay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** this.reconnectAttempts, RECONNECT_MAX_DELAY_MS);
+      this.reconnectAttempts++;
+
       setTimeout(async () => {
-        const browser = await getBrowser();
-        this.port = this.buildPort(browser);
-      }, 1000);
+        if (this.stopped) return;
+        try {
+          const nextBrowser = await getBrowser();
+          this.port = this.buildPort(nextBrowser);
+        } catch (e) {
+          // `connect()` throws synchronously once the context is gone.
+          if (isContextInvalidated(e)) this.stopped = true;
+        }
+      }, delay);
     });
 
     return port;

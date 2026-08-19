@@ -70,6 +70,10 @@
 - **Guardian is expected to fail on this line until guardian packages ship for 0.16.** The guardian's version line is independent of Miden's: the newest published `@openzeppelin/miden-multisig-client` (`0.16.2`) still declares `@miden-sdk/miden-sdk: ^0.15.8`, so every released guardian build targets the Miden 0.15 protocol. The wallet's dependency resolutions force it onto the wallet's own SDK, so installs succeed and the mismatch surfaces at runtime as divergent MASM procedure roots. Tracked in #522.
 ## 1.15.22 (TBD)
 
+### Fixes
+
+- [FIX][extension] **The browser console is no longer flooded with wallet errors and warnings.** Two unrelated causes: the wallet reconnected to its background service worker once a second forever whenever that connection was unavailable — logging a "could not establish connection" error each time, in every open tab — and the extension pages each declared a preload for every code chunk they might need, which the browser warned about for each chunk it did not end up using. Reconnection now backs off and gives up when the page can never reach the extension again (after an update or reload), and the unused preload hints are gone.
+
 ### Changes
 
 - [CHANGE][ci] **The mobile E2E screenshots no longer have the OS "Allow notifications" dialog covering them.** The wallet requests notification permission when its home screen mounts, and the native prompt then sat over the centre of nearly every mobile screenshot. Android now pre-grants `POST_NOTIFICATIONS` before launch, and iOS taps "Allow" on the SpringBoard alert via `idb` (the CDP harness can't reach a native alert). No app behaviour changes — the real permission code path still runs; the alert is just answered. Best-effort, so a missing `idb` degrades gracefully instead of failing the run.
