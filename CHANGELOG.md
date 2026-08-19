@@ -2,6 +2,10 @@
 
 ## 1.15.22 (TBD)
 
+### Features
+
+- [FEATURE][all] **Swap activity now has a dedicated live receipt.** The detail screen mirrors the swap flow with an offered-to-requested amount hero, an accessible Framer Motion amount-progress bar, and fill rows showing the real received amount, consumed time, and note ID without a decorative status icon. Transfer details include the swap transaction ID, source account, and every settlement-consume transaction ID. A manually consumed, active order links to Pending Notes; auto-consumed and terminal orders omit that shortcut, and a filled order no longer shows Cancel. The receipt intentionally avoids predicting a total fill count, which the order lineage cannot know in advance.
+
 ### Fixes
 
 - [FIX][extension] **The browser console is no longer flooded with wallet errors and warnings.** Two unrelated causes: the wallet reconnected to its background service worker once a second forever whenever that connection was unavailable — logging a "could not establish connection" error each time, in every open tab — and the extension pages each declared a preload for every code chunk they might need, which the browser warned about for each chunk it did not end up using. Reconnection now backs off and gives up when the page can never reach the extension again (after an update or reload), and the unused preload hints are gone.

@@ -55,6 +55,7 @@ import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
 import { IHistoryEntry } from './IHistoryEntry';
+import { SwapDetail } from './SwapDetail';
 import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
 import {
   BRIDGE_STATUS_LABEL_KEY,
@@ -83,6 +84,7 @@ interface SwapExtraInputs {
   requestedFaucetId?: string;
   requestedAmount?: bigint;
   orderId?: bigint;
+  autoConsume?: boolean;
 }
 
 /** Requested-token display info for the swap order tracking card. */
@@ -201,15 +203,6 @@ function formatFiatDisplayAmount(
   return t('historyDetailsFiatApprox', { amount: `$${toAdaptiveFixed(fiatAmount)}` });
 }
 
-/** Right-aligned stack of trimmed, copyable note ids. */
-const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId }) => (
-  <div data-testid={testId} className="flex min-w-0 flex-col items-end gap-1">
-    {noteIds.map(noteId => (
-      <HashChip key={noteId} hash={noteId} trimHash fill="#9E9E9E" copyIcon={false} />
-    ))}
-  </div>
-);
-
 const AccountDisplay: FC<{
   address: string | undefined;
   account: WalletAccount;
@@ -260,6 +253,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // by `completeSwapTransaction`; the live lineage is fetched via `trackOrderId`.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
+  const [swapAutoConsume, setSwapAutoConsume] = useState(true);
   const [swapTracking, setSwapTracking] = useState<SwapOrderTracking | null>(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
   // Notes claimed by this order's settlement consumes. Those consume rows are
@@ -348,20 +342,20 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
       if (tx.type === 'swap') {
         const extra: SwapExtraInputs = tx.extraInputs ?? {};
-        if (extra.orderId != null) {
-          // The DEX faucets are usually absent from assetsMetadata (where
-          // getTokenMetadata would fall back to MIDEN), so resolve via the
-          // swap-token registry first.
-          const swapToken = getSwapTokenByFaucetId(extra.requestedFaucetId);
-          const requestedMeta =
-            !swapToken && extra.requestedFaucetId ? await getTokenMetadata(extra.requestedFaucetId) : undefined;
-          setRequestedToken({
-            amount: extra.requestedAmount ?? 0n,
-            decimals: swapToken?.decimals ?? requestedMeta?.decimals,
-            symbol: swapToken?.symbol ?? requestedMeta?.symbol
-          });
-          setOrderId(extra.orderId);
-        }
+        // The DEX faucets are usually absent from assetsMetadata (where
+        // getTokenMetadata would fall back to MIDEN), so resolve via the
+        // swap-token registry first. Resolve it before an order id exists as
+        // well, so queued/failed swaps still have a complete receipt hero.
+        const swapToken = getSwapTokenByFaucetId(extra.requestedFaucetId);
+        const requestedMeta =
+          !swapToken && extra.requestedFaucetId ? await getTokenMetadata(extra.requestedFaucetId) : undefined;
+        setRequestedToken({
+          amount: extra.requestedAmount ?? 0n,
+          decimals: swapToken?.decimals ?? requestedMeta?.decimals,
+          symbol: swapToken?.symbol ?? requestedMeta?.symbol
+        });
+        setSwapAutoConsume(extra.autoConsume ?? true);
+        setOrderId(extra.orderId ?? null);
       }
 
       if (tx.type === 'swap') {
@@ -616,17 +610,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     };
   }, [orderId, settlementFound, transaction]);
 
-  const orderStatusLabel = (state: SwapOrderState): string => {
-    switch (state) {
-      case 'filled':
-        return t('orderStatusFilled');
-      case 'reclaimed':
-        return t('orderStatusReclaimed');
-      default:
-        return t('orderStatusActive');
-    }
-  };
-
   // Reconcile the (potentially lagging) on-chain order lineage with settlement
   // this wallet has already observed: once the settlement/reclaim consume notes
   // are seen locally, the order is terminal regardless of what the lineage poll
@@ -642,8 +625,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       : 'reclaimed'
     : null;
   const displayOrderState: SwapOrderState | null = settledOrderState ?? swapTracking?.state ?? null;
-  const orderStillResolving = displayOrderState === 'active';
-
   // How much of the requested amount has been filled so far, derived from the
   // original requested amount and the lineage's still-outstanding remainder.
   const filledRequested =
@@ -692,11 +673,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           : entry?.address;
   const settledNoteIds = settlementNotes?.settled ?? [];
   const reclaimedNoteIds = settlementNotes?.reclaimed ?? [];
-  const hasNoteData =
-    entry?.noteId ||
-    (entry?.outputNoteIds && entry.outputNoteIds.length > 0) ||
-    settledNoteIds.length > 0 ||
-    reclaimedNoteIds.length > 0;
+  const settledTransactions = settlementNotes?.settledTransactions ?? [];
+  const reclaimedTransactions = settlementNotes?.reclaimedTransactions ?? [];
+  const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
   const approximateUsdAmount =
     entry?.amount !== undefined && entry.token
@@ -733,7 +712,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   return (
     <PageLayout hideToolbar>
       <div className="flex flex-1 flex-col min-h-0 px-4">
-        <ScreenHeader title={t('transaction')} backLabel={t('back')} onBack={goBack} />
+        <ScreenHeader
+          title={t('transaction')}
+          backLabel={t('back')}
+          onBack={goBack}
+          closeLabel={t('close')}
+          onClose={entry?.txType === 'swap' ? () => navigate('/') : undefined}
+        />
 
         {loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4">
@@ -745,6 +730,27 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           </div>
         ) : entry === null ? (
           <ActivitySpinner />
+        ) : entry.txType === 'swap' && requestedToken ? (
+          <SwapDetail
+            entry={entry}
+            requestedAmount={requestedToken.amount}
+            requestedDecimals={requestedToken.decimals}
+            requestedSymbol={requestedToken.symbol}
+            filledAmount={filledRequested}
+            orderState={displayOrderState}
+            trackingLoading={trackingLoading}
+            settledNoteIds={settledNoteIds}
+            reclaimedNoteIds={reclaimedNoteIds}
+            settledTransactions={settledTransactions}
+            reclaimedTransactions={reclaimedTransactions}
+            approximateUsdAmount={approximateUsdAmount}
+            fromAccount={<AccountDisplay address={entry.address} account={account} allAccounts={allAccounts} />}
+            showActions={!isPending && !canRetry}
+            showPendingNotesAction={!swapAutoConsume && displayOrderState === 'active'}
+            showCancelAction={displayOrderState !== 'filled'}
+            onOpenPendingNotes={() => navigate('/pending-notes')}
+            onCancel={goBack}
+          />
         ) : (
           <div className="flex-1 flex flex-col overflow-y-auto">
             {/* Top Section — bridges and Guardian switches use purpose-built transition heroes. */}
@@ -1096,85 +1102,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </div>
             )}
 
-            {/* Swap order tracking */}
-            {entry.txType === 'swap' && orderId != null && (
-              <div className="mt-6" data-testid="swap-order-card">
-                <SectionDivider color={sectionDividerColor} />
-                <div className="mt-5">
-                  <DetailCard title={t('orderTracking')}>
-                    <DetailRow label={t('orderStatus')} isLast={!swapTracking}>
-                      {displayOrderState ? (
-                        <div className="flex items-center gap-2">
-                          <span data-testid="swap-order-status" className="text-sm text-heading-gray font-medium">
-                            {orderStatusLabel(displayOrderState)}
-                          </span>
-                          {orderStillResolving && (
-                            <span
-                              data-testid="swap-order-polling"
-                              className="flex items-center gap-1.5 text-xs font-medium text-text-muted"
-                            >
-                              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary-500" />
-                              {t('loading')}
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span
-                          data-testid={trackingLoading ? 'swap-order-polling' : undefined}
-                          className="text-sm text-text-muted font-medium"
-                        >
-                          {trackingLoading ? t('loading') : t('trackingUnavailable')}
-                        </span>
-                      )}
-                    </DetailRow>
-                    {swapTracking && (
-                      <DetailRow label={t('fillRounds')} isLast={!requestedToken}>
-                        <span data-testid="swap-order-fill-rounds" className="text-sm text-heading-gray font-medium">
-                          {swapTracking.currentDepth}
-                        </span>
-                      </DetailRow>
-                    )}
-                    {swapTracking && requestedToken && (
-                      <DetailRow label={t('amountFilled')} isLast>
-                        <span data-testid="swap-order-amount-filled" className="text-sm text-heading-gray font-medium">
-                          {t('historyDetailsAmountFilledValue', {
-                            filled: formatAmount(filledRequested ?? 0n, requestedToken.decimals),
-                            total: formatAmount(requestedToken.amount, requestedToken.decimals),
-                            symbol: requestedToken.symbol ? ` ${requestedToken.symbol}` : ''
-                          })}
-                        </span>
-                      </DetailRow>
-                    )}
-                  </DetailCard>
-                </div>
-              </div>
-            )}
-
             {/* Notes */}
             {hasNoteData && (
               <div className="mt-6 mb-4">
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
                   <DetailCard title={t('notesSection')}>
-                    <DetailRow
-                      label={t('created')}
-                      isLast={settledNoteIds.length === 0 && reclaimedNoteIds.length === 0}
-                    >
+                    <DetailRow label={t('created')} isLast>
                       <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
                     </DetailRow>
-
-                    {/* Swap settlement: the notes the suppressed consume rows claimed. */}
-                    {settledNoteIds.length > 0 && (
-                      <DetailRow label={t('claimed')} isLast={reclaimedNoteIds.length === 0}>
-                        <NoteIdList noteIds={settledNoteIds} testId="swap-settled-notes" />
-                      </DetailRow>
-                    )}
-
-                    {reclaimedNoteIds.length > 0 && (
-                      <DetailRow label={t('reclaimed')} isLast>
-                        <NoteIdList noteIds={reclaimedNoteIds} testId="swap-reclaimed-notes" />
-                      </DetailRow>
-                    )}
                   </DetailCard>
                 </div>
               </div>

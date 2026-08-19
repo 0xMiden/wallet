@@ -395,6 +395,10 @@ describe('getSwapSettlementNotes', () => {
         type: 'consume',
         status: ITransactionStatus.Completed,
         noteIds: ['n-1', 'n-2'],
+        transactionId: 'chain-c-1',
+        amount: 685n,
+        faucetId: 'eth-faucet',
+        completedAt: 1_700_000_000,
         extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
       },
       {
@@ -418,6 +422,15 @@ describe('getSwapSettlementNotes', () => {
 
     expect(notes.settled).toEqual(['n-1', 'n-2']);
     expect(notes.reclaimed).toEqual(['n-3']);
+    expect(notes.settledTransactions[0]).toEqual({
+      id: 'c-1',
+      transactionId: 'chain-c-1',
+      noteIds: ['n-1', 'n-2'],
+      amount: 685n,
+      faucetId: 'eth-faucet',
+      completedAt: 1_700_000_000
+    });
+    expect(notes.reclaimedTransactions[0]?.id).toBe('c-3');
   });
 
   it('treats an untagged kind as a settle and reads the singular noteId', async () => {
@@ -469,7 +482,12 @@ describe('getSwapSettlementNotes', () => {
 
   it('returns empty buckets when the order has no settlement consumes at all', async () => {
     const notes = await getSwapSettlementNotes('swap-unknown');
-    expect(notes).toEqual({ settled: [], reclaimed: [] });
+    expect(notes).toEqual({
+      settled: [],
+      reclaimed: [],
+      settledTransactions: [],
+      reclaimedTransactions: []
+    });
   });
 });
 

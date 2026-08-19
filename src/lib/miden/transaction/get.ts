@@ -85,24 +85,43 @@ export const getTransactionById = async (id: string) => {
   return tx;
 };
 
+/** One completed consume transaction belonging to a swap-order settlement. */
+export interface SwapSettlementTransaction {
+  /** Local wallet transaction id, always available. */
+  id: string;
+  /** Submitted Miden transaction id, available after completion. */
+  transactionId?: string;
+  noteIds: string[];
+  amount?: bigint;
+  faucetId?: string;
+  completedAt?: number;
+}
+
 /** Notes a swap order settled, grouped by how the settlement consume claimed them. */
 export interface SwapSettlementNotes {
   /** Payback notes claimed on a fill — the requested funds arriving. */
   settled: string[];
   /** Remainder notes reclaimed after expiry — the unfilled tip coming back. */
   reclaimed: string[];
+  /** Completed payback-consume transactions, used by the swap receipt. */
+  settledTransactions: SwapSettlementTransaction[];
+  /** Completed reclaim-consume transactions, used by the swap receipt. */
+  reclaimedTransactions: SwapSettlementTransaction[];
 }
 
 /**
- * Note ids claimed by the settlement consumes belonging to a swap order.
+ * Note ids and completed-consume metadata belonging to a swap order.
  *
  * Those consume rows are suppressed in the history list (`suppressLinkedConsumes`
  * in `History.tsx`) so the order reads as a single swap row — which would
  * otherwise make their notes invisible. The detail page surfaces them here
- * instead. Rows are linked by `extraInputs.swapOrderTxId`, tagged at queue time
- * by `reconcileSwapOrderNotes`; `swapSettleKind` splits payback claims from
- * expiry reclaims. Only completed consumes count — a queued or failed one has
- * claimed nothing yet.
+ * instead. The receipt also needs each consume's amount, completion time and
+ * submitted transaction id, so those fields stay grouped by consume alongside
+ * the deduplicated note-id buckets. Rows are linked by
+ * `extraInputs.swapOrderTxId`, tagged at queue time by
+ * `reconcileSwapOrderNotes`; `swapSettleKind` splits payback claims from expiry
+ * reclaims. Only completed consumes count — a queued or failed one has claimed
+ * nothing yet.
  */
 export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSettlementNotes> => {
   const consumes = await Repo.transactions
@@ -116,13 +135,34 @@ export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSett
 
   const settled = new Set<string>();
   const reclaimed = new Set<string>();
+  const settledTransactions: SwapSettlementTransaction[] = [];
+  const reclaimedTransactions: SwapSettlementTransaction[] = [];
   for (const tx of consumes) {
     const noteIds = tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []);
-    const bucket = tx.extraInputs?.swapSettleKind === 'reclaim' ? reclaimed : settled;
+    const transaction = {
+      id: tx.id,
+      transactionId: tx.transactionId,
+      noteIds,
+      amount: tx.amount,
+      faucetId: tx.faucetId,
+      completedAt: tx.completedAt
+    };
+    const isReclaim = tx.extraInputs?.swapSettleKind === 'reclaim';
+    const bucket = isReclaim ? reclaimed : settled;
     for (const noteId of noteIds) bucket.add(noteId);
+    if (isReclaim) {
+      reclaimedTransactions.push(transaction);
+    } else {
+      settledTransactions.push(transaction);
+    }
   }
 
-  return { settled: [...settled], reclaimed: [...reclaimed] };
+  return {
+    settled: [...settled],
+    reclaimed: [...reclaimed],
+    settledTransactions,
+    reclaimedTransactions
+  };
 };
 
 /**

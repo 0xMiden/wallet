@@ -529,15 +529,18 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusFilled');
-      expect(screen.getByTestId('swap-order-fill-rounds').textContent).toBe('2');
-      // filledRequested = 1000 - 400 = 600; symbol appended (interpolated into the key).
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe(
-        'historyDetailsAmountFilledValue_600_1000_ ETH'
-      );
+      // There is deliberately no fill-count meter: the lineage only tells us
+      // how much remains, not how many fills the order will ultimately need.
+      expect(screen.queryByTestId('swap-order-fill-rounds')).not.toBeInTheDocument();
+      // filledRequested = 1000 - 400 = 600, so the amount bar is 60%.
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_600_1000_ ETH');
+      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
 
       // Registry hit → requested-faucet metadata NOT fetched (only the tx faucet was).
       expect(mockGetTokenMetadata).toHaveBeenCalledTimes(1);
       expect(mockGetTokenMetadata).toHaveBeenCalledWith('faucet-1');
+      expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
+      expect(screen.queryByText('cancel')).not.toBeInTheDocument();
     });
 
     it('falls back to token metadata, defaults the requested amount, clamps overfill to 0 and omits an unknown symbol', async () => {
@@ -555,7 +558,8 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusReclaimed');
       // requestedAmount defaulted to 0n; remainingRequested(5) > amount(0) → filled clamped to 0; no symbol.
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('historyDetailsAmountFilledValue_0_0_');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_0_0_');
+      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
       // Two metadata calls: tx faucet + requested faucet.
       expect(mockGetTokenMetadata).toHaveBeenCalledWith('req-faucet');
     });
@@ -578,12 +582,19 @@ describe('HistoryDetails', () => {
           remainingRequested: 0n
         });
       mockGetTransactionById.mockResolvedValue(
-        swapTx({ orderId: 9n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+        swapTx({
+          orderId: 9n,
+          requestedFaucetId: 'req-faucet',
+          requestedAmount: 1000n,
+          autoConsume: false
+        })
       );
       await renderAndLoad();
 
       // First poll → active.
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusActive');
+      fireEvent.click(screen.getByText('swapOpenPendingNotes'));
+      expect(mockNavigate).toHaveBeenCalledWith('/pending-notes');
 
       // Active schedules another poll at the base interval (2s).
       await act(async () => {
@@ -592,6 +603,7 @@ describe('HistoryDetails', () => {
       await flush();
 
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusFilled');
+      expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
       expect(mockTrackOrderId).toHaveBeenCalledTimes(2);
     });
 
@@ -601,9 +613,8 @@ describe('HistoryDetails', () => {
       mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 5n, requestedFaucetId: 'req-faucet' }));
       await renderAndLoad();
 
-      const statusRow = rowByLabel('orderStatus')!;
-      expect(statusRow.textContent).toBe('loading');
-      expect(screen.queryByTestId('swap-order-status')).not.toBeInTheDocument();
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('loading');
+      expect(screen.getByText('swapMatchingDex')).toBeInTheDocument();
     });
 
     it('shows a steady tracking indicator while the order is active', async () => {
@@ -635,13 +646,15 @@ describe('HistoryDetails', () => {
       // The order is active, so the tracking indicator shows steadily — not only
       // while a poll is momentarily in flight (that per-poll flicker was #486).
       expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusActive');
-      expect(screen.getByTestId('swap-order-polling')).toHaveTextContent('loading');
+      expect(screen.getByText('swapMatchingDex')).toBeInTheDocument();
+      // autoConsume defaults on, so this swap never needs the Pending Notes shortcut.
+      expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
 
       // It stays put across the next background poll rather than blinking off/on.
       await act(async () => {
         jest.advanceTimersByTime(2000);
       });
-      expect(screen.getByTestId('swap-order-polling')).toHaveTextContent('loading');
+      expect(screen.getByText('swapMatchingDex')).toBeInTheDocument();
 
       await act(async () => {
         resolveRefresh({
@@ -654,7 +667,7 @@ describe('HistoryDetails', () => {
         await Promise.resolve();
       });
 
-      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+      expect(screen.queryByText('swapMatchingDex')).not.toBeInTheDocument();
       expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
     });
 
@@ -679,7 +692,7 @@ describe('HistoryDetails', () => {
       // Local settlement is the source of truth: show Filled and drop the spinner
       // instead of sitting on "Active" with a flickering loader.
       expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
-      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+      expect(screen.queryByText('swapMatchingDex')).not.toBeInTheDocument();
     });
 
     it('reconciles to Reclaimed when the local settlement is a reclaim (#486)', async () => {
@@ -699,7 +712,7 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusReclaimed');
-      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+      expect(screen.queryByText('swapMatchingDex')).not.toBeInTheDocument();
     });
 
     it('treats a mixed settle+reclaim order as Filled — a settle consume outranks a reclaim (#486)', async () => {
@@ -722,7 +735,7 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
-      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+      expect(screen.queryByText('swapMatchingDex')).not.toBeInTheDocument();
     });
 
     it('backs off on unresolved polls and gives up after the cap', async () => {
@@ -732,7 +745,7 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       // First poll already ran during load.
-      expect(rowByLabel('orderStatus')!.textContent).toBe('trackingUnavailable');
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('trackingUnavailable');
 
       // Drive the exponential-backoff retries until the cap (MAX_UNRESOLVED_POLLS = 20).
       for (let i = 0; i < 25; i++) {
@@ -746,7 +759,7 @@ describe('HistoryDetails', () => {
 
       // Exactly 20 attempts, then it stops scheduling.
       expect(mockTrackOrderId).toHaveBeenCalledTimes(20);
-      expect(rowByLabel('orderStatus')!.textContent).toBe('trackingUnavailable');
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('trackingUnavailable');
     });
 
     it('logs and backs off when a poll throws', async () => {
@@ -783,18 +796,20 @@ describe('HistoryDetails', () => {
       expect(clearSpy).toHaveBeenCalled();
     });
 
-    it('does not render the order card for a swap tx that carries no order id', async () => {
-      // extraInputs present but without orderId → orderId stays null.
+    it('renders the swap receipt without polling when the transaction carries no order id', async () => {
+      // The transaction can still be inspected while its order id is absent.
       mockGetTransactionById.mockResolvedValue(swapTx({ requestedFaucetId: 'req-faucet' }));
       await renderAndLoad();
-      expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
+      expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
+      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
       expect(mockTrackOrderId).not.toHaveBeenCalled();
     });
 
-    it('handles a swap tx with entirely absent extraInputs', async () => {
+    it('renders a zero-state receipt for a swap with entirely absent extraInputs', async () => {
       mockGetTransactionById.mockResolvedValue({ ...swapTx({}), extraInputs: undefined });
       await renderAndLoad();
-      expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
+      expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
+      expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_0_0_');
     });
   });
 
@@ -816,11 +831,53 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(mockGetSwapSettlementNotes).toHaveBeenCalledWith('tx-1');
-      expect(screen.getByTestId('swap-settled-notes').textContent).toBe('note-anote-b');
-      expect(screen.getByTestId('swap-reclaimed-notes').textContent).toBe('note-c');
+      expect(
+        Array.from(screen.getByTestId('swap-settled-notes').querySelectorAll('[data-testid="hash-chip"]')).map(
+          note => note.textContent
+        )
+      ).toEqual(['note-a', 'note-b']);
+      expect(
+        Array.from(screen.getByTestId('swap-reclaimed-notes').querySelectorAll('[data-testid="hash-chip"]')).map(
+          note => note.textContent
+        )
+      ).toEqual(['note-c']);
       // The card renders even though the swap itself created no output notes.
-      expect(rowByLabel('claimed')).toBeDefined();
-      expect(rowByLabel('reclaimed')).toBeDefined();
+      expect(screen.queryByText('claimed')).not.toBeInTheDocument();
+      expect(screen.getByText('swapFillNote_1')).toBeInTheDocument();
+      expect(screen.getByText('swapFillNote_2')).toBeInTheDocument();
+      expect(screen.getByText('reclaimed')).toBeInTheDocument();
+    });
+
+    it('shows the fill amount, consumed time, swap tx id and consume tx id from settlement metadata', async () => {
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockGetSwapSettlementNotes.mockResolvedValue({
+        settled: ['note-a'],
+        reclaimed: [],
+        settledTransactions: [
+          {
+            id: 'consume-local-1',
+            transactionId: 'consume-chain-1',
+            noteIds: ['note-a'],
+            amount: 685n,
+            faucetId: 'req-faucet',
+            completedAt: 1_700_000_120
+          }
+        ],
+        reclaimedTransactions: []
+      });
+      mockGetTransactionById.mockResolvedValue({
+        ...swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }),
+        transactionId: 'swap-chain-1'
+      });
+
+      await renderAndLoad();
+
+      expect(screen.getByText('swapReceivedAmount_685_ ETH')).toBeInTheDocument();
+      expect(screen.getByText(/^swapConsumedAt_/)).toBeInTheDocument();
+      expect(rowByLabel('txIdLabel')).toHaveTextContent('swap-chain-1');
+      expect(rowByLabel('consumeTxId')).toHaveTextContent('consume-chain-1');
+      expect(rowByLabel('from')).toHaveTextContent('you (Mine)');
+      expect(screen.queryByText('cancel')).not.toBeInTheDocument();
     });
 
     it('omits the reclaimed row when the order only settled', async () => {
@@ -829,10 +886,8 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-settled-notes').textContent).toBe('note-a');
+      expect(screen.getByTestId('swap-settled-notes')).toHaveTextContent('note-a');
       expect(screen.queryByTestId('swap-reclaimed-notes')).not.toBeInTheDocument();
-      // Last row in the card is the claimed one.
-      expect(rowByLabel('claimed')?.getAttribute('data-islast')).toBe('true');
     });
 
     it('renders no settlement rows when nothing has settled yet', async () => {
@@ -856,7 +911,7 @@ describe('HistoryDetails', () => {
       });
       await flush();
 
-      expect(screen.getByTestId('swap-settled-notes').textContent).toBe('note-late');
+      expect(screen.getByTestId('swap-settled-notes')).toHaveTextContent('note-late');
     });
 
     it('does not poll for settlement notes on a swap with no order id', async () => {
