@@ -39,6 +39,23 @@ function retryAfterMs(response: Response): number | null {
   return null;
 }
 
+function waitForRetry(ms: number, signal?: AbortSignal | null): Promise<void> {
+  if (!signal) return new Promise(resolve => setTimeout(resolve, ms));
+  if (signal.aborted) return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 /**
  * `fetch` bounded by a timeout, honoring a single `429 Retry-After` back-off.
  *
@@ -55,11 +72,18 @@ export async function faucetFetch(
 ): Promise<Response> {
   const attempt = async (): Promise<Response> => {
     const controller = new AbortController();
+    const forwardAbort = () => controller.abort(init?.signal?.reason);
+    if (init?.signal?.aborted) {
+      forwardAbort();
+    } else {
+      init?.signal?.addEventListener('abort', forwardAbort, { once: true });
+    }
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       return await fetch(url, { ...init, signal: controller.signal });
     } finally {
       clearTimeout(timer);
+      init?.signal?.removeEventListener('abort', forwardAbort);
     }
   };
 
@@ -68,7 +92,7 @@ export async function faucetFetch(
 
   const waitMs = retryAfterMs(first);
   if (waitMs === null) return first; // 429 with no honorable delay — let the caller fail it
-  await new Promise(resolve => setTimeout(resolve, waitMs));
+  await waitForRetry(waitMs, init?.signal);
   return attempt();
 }
 
