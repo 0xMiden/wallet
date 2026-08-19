@@ -2,8 +2,8 @@ import React from 'react';
 
 import { act, render } from '@testing-library/react';
 
-import { useMidenContext } from 'lib/miden/front';
-import { useWalletStore } from 'lib/store';
+import type { WalletAccount } from 'lib/shared/types';
+import { WalletType } from 'screens/onboarding/types';
 
 import { GuardianRecoveryProvider } from './GuardianRecoveryProvider';
 
@@ -15,12 +15,26 @@ jest.mock('lib/store', () => ({
   useWalletStore: jest.fn()
 }));
 
-const mockUseMidenContext = jest.mocked(useMidenContext);
-const mockUseWalletStore = jest.mocked(useWalletStore);
+const mockUseMidenContext: jest.Mock = jest.requireMock('lib/miden/front').useMidenContext;
+const mockUseWalletStore: jest.Mock = jest.requireMock('lib/store').useWalletStore;
 const startGuardianRecovery = jest.fn<Promise<boolean>, [string]>();
 
-function setAccounts(accounts: unknown[]): void {
-  mockUseWalletStore.mockImplementation(selector => selector({ accounts }));
+function account(publicKey: string, overrides: Partial<WalletAccount> = {}): WalletAccount {
+  return {
+    publicKey,
+    name: publicKey,
+    isPublic: false,
+    type: WalletType.Guardian,
+    hdIndex: 0,
+    authScheme: 'ecdsa',
+    ...overrides
+  };
+}
+
+function setAccounts(accounts: WalletAccount[]): void {
+  mockUseWalletStore.mockImplementation((selector: (state: { accounts: WalletAccount[] }) => unknown) =>
+    selector({ accounts })
+  );
 }
 
 describe('GuardianRecoveryProvider', () => {
@@ -37,8 +51,8 @@ describe('GuardianRecoveryProvider', () => {
 
   it('does nothing when no account is eligible', () => {
     setAccounts([
-      { publicKey: 'not-recovered' },
-      { publicKey: 'rotation-required', guardianNoteRecoveryPending: true, requiresHotKeyRotation: true }
+      account('not-recovered'),
+      account('rotation-required', { guardianNoteRecoveryPending: true, requiresHotKeyRotation: true })
     ]);
 
     const { container } = render(<GuardianRecoveryProvider />);
@@ -49,8 +63,8 @@ describe('GuardianRecoveryProvider', () => {
 
   it('starts eligible recoveries immediately and retries them while pending', () => {
     setAccounts([
-      { publicKey: 'account-a', guardianNoteRecoveryPending: true, requiresHotKeyRotation: false },
-      { publicKey: 'account-b', guardianNoteRecoveryPending: true }
+      account('account-a', { guardianNoteRecoveryPending: true, requiresHotKeyRotation: false }),
+      account('account-b', { guardianNoteRecoveryPending: true })
     ]);
 
     render(<GuardianRecoveryProvider />);
@@ -64,7 +78,7 @@ describe('GuardianRecoveryProvider', () => {
   it('logs a rejected start request without breaking the retry worker', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     startGuardianRecovery.mockRejectedValue(new Error('not ready'));
-    setAccounts([{ publicKey: 'account-a', guardianNoteRecoveryPending: true }]);
+    setAccounts([account('account-a', { guardianNoteRecoveryPending: true })]);
 
     render(<GuardianRecoveryProvider />);
     await act(async () => Promise.resolve());
