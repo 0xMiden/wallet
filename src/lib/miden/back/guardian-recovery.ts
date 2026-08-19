@@ -9,7 +9,7 @@ import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { WalletSigner } from 'lib/miden/guardian/signer';
 import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { getUncompletedTransactions } from 'lib/miden/transaction/get';
+import { getAllUncompletedTransactions } from 'lib/miden/transaction/get';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 
@@ -210,18 +210,26 @@ export async function recoverPendingNotes(
   }
 }
 
-/** Accounts whose pending-note recovery is currently running in this process. */
-const inFlightRecoveries = new Set<string>();
+/**
+ * Accounts whose pending-note recovery has started in this process. Entries
+ * are never removed once a run begins (only a refused start is rolled back),
+ * so an account gets at most one recovery attempt per backend lifetime: a
+ * failed pass keeps `guardianNoteRecoveryPending` set for the next backend
+ * start to retry, without GuardianRecoveryProvider's 5s poll re-running the
+ * full drain/backfill in a loop against a persistently failing source.
+ */
+const startedRecoveries = new Set<string>();
 
 /**
  * Start the detached pending-note recovery for a seed-recovered account, but
  * only once it cannot collide with a live transaction: the mandatory hot-key
- * rotation must have landed and no transaction may be queued or generating.
- * The recovery holds the (offscreen) WASM client for long stretches; a
- * concurrent transaction's short-deadline reads queue behind it and get
- * deadline-killed — the "hot-key rotation always fails on the first try" bug.
- * The trigger lives in the frontend (GuardianRecoveryProvider), which retries
- * until this returns true.
+ * rotation must have landed and no transaction may be queued or generating —
+ * on ANY account, since every account shares the single WASM/offscreen
+ * client. The recovery holds that client for long stretches; a concurrent
+ * transaction's short-deadline reads queue behind it and get deadline-killed
+ * — the "hot-key rotation always fails on the first try" bug. The trigger
+ * lives in the frontend (GuardianRecoveryProvider), which retries until this
+ * returns true.
  *
  * Returns true when the recovery was started (it then runs detached), false
  * when the account is ineligible or busy right now.
@@ -229,25 +237,39 @@ const inFlightRecoveries = new Set<string>();
 export async function maybeStartGuardianRecovery(account: WalletAccount, vault: Vault): Promise<boolean> {
   if (!account.guardianNoteRecoveryPending) return false;
   if (account.requiresHotKeyRotation) return false;
-  if (inFlightRecoveries.has(account.publicKey)) return false;
-  const uncompleted = await getUncompletedTransactions(account.publicKey);
-  if (uncompleted.length > 0) return false;
+  if (startedRecoveries.has(account.publicKey)) return false;
 
-  inFlightRecoveries.add(account.publicKey);
-  runDetachedRecovery(account, vault).finally(() => inFlightRecoveries.delete(account.publicKey));
+  // Reserve the slot BEFORE awaiting: concurrent requests for the same
+  // account (popup + full page both mount the provider) would otherwise both
+  // pass the check above while the first one's Dexie query is in flight.
+  startedRecoveries.add(account.publicKey);
+  const uncompleted = await getAllUncompletedTransactions();
+  if (uncompleted.length > 0) {
+    startedRecoveries.delete(account.publicKey);
+    return false;
+  }
+
+  runDetachedRecovery(account, vault);
   return true;
 }
 
 /**
  * The detached recovery itself. Never throws. The pending flag is only
- * cleared after a full pass, so a process termination mid-run leaves it set
- * and the next unlock retries — every source is idempotent (imports and
- * syncs, no destructive step).
+ * cleared after a pass in which every source succeeded, so a failed or
+ * interrupted run leaves it set and a later backend start retries — every
+ * source is idempotent (imports and syncs, no destructive step).
  */
 async function runDetachedRecovery(account: WalletAccount, vault: Vault): Promise<void> {
   console.log(`[GuardianRecovery] Starting detached pending-note recovery for ${account.publicKey}`);
   try {
-    await recoverPendingNotes(account, vault);
+    const result = await recoverPendingNotes(account, vault);
+    if (result.sourceFailures > 0) {
+      console.warn(
+        `[GuardianRecovery] Keeping recovery pending for ${account.publicKey}: ` +
+          `${result.sourceFailures} source(s) failed; will retry on the next session`
+      );
+      return;
+    }
     const updated = await vault.setGuardianNoteRecoveryPending(account.publicKey, false);
     accountsUpdated(updated);
   } catch (error) {

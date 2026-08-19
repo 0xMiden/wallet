@@ -165,6 +165,14 @@ export class DesktopIntercomAdapter {
           key
         };
 
+      case WalletMessageType.StartGuardianRecoveryRequest: {
+        const started = await Actions.startGuardianRecovery(req.accountPublicKey);
+        return {
+          type: WalletMessageType.StartGuardianRecoveryResponse,
+          started
+        };
+      }
+
       case MidenMessageType.DAppGetAllSessionsRequest:
         const allSessions = await Actions.getAllDAppSessions();
         return {
