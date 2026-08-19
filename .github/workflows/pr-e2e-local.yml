@@ -108,8 +108,19 @@ jobs:
       - name: Build extension (localnet)
         run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build
       - name: Install xvfb
-        run: sudo apt-get update && sudo apt-get install -y xvfb
+        # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
+        # inside `apt-get update`, been killed by the job cap, and produced no test
+        # results. Prefer the canonical mirror, bound + retry fetches, cap the step.
+        timeout-minutes: 6
+        run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get install -y xvfb
       - name: Install Playwright browser
+        # `--with-deps` shells out to apt, and the browser download itself has
+        # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
+        timeout-minutes: 12
         run: npx playwright install --with-deps chromium
       - name: Run core specs
         # --retries=1 (spec §7 budget; base config is retries:0, shared with the live
